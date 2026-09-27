@@ -54,7 +54,8 @@ describe("Landing", () => {
     // `locked` key on its manifest, so the card is a real <Link> again.
     expect(screen.getByTestId("link-/chapter-4")).toHaveAttribute("href", "/chapter-4");
     expect(screen.queryByTestId("locked-/chapter-4")).not.toBeInTheDocument();
-    expect(screen.getByText(/Chen's Cosmetics/)).toBeInTheDocument();
+    // ch4-mig-8 — the cutover's real US copy, not the retired China title.
+    expect(screen.getByText(/Al's Athletics — Max Coverage/)).toBeInTheDocument();
     // Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still renders, but
     // it is LOCKED: the card is no longer wrapped in a <Link>, so there is
     // no href to follow at all. Asserted as the absence of the link plus the

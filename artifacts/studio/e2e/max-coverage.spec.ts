@@ -1,12 +1,15 @@
 /**
- * Browser E2E — Chapter 4 Chen's Cosmetics (Service-Coverage facility location), Task C4.16.
+ * Browser E2E — Chapter 4 Al's Athletics Max Coverage (US service-level
+ * facility location), Task C4.16 (originally written for the retired
+ * China-dataset model; rewritten onto `max-coverage-us` per the
+ * ch4-migration cutover — MIG-8).
  *
- * Exercises the full Chen model through the Workspace UI against local dev
- * servers:
- *   1. register a fresh account → create a Chen scenario (Chapter 4)
- *   2. COVERAGE solve → assert coverage ≈ 66.06 % and the three opened
- *      warehouses (wh-40 Guangzhou / wh-69 Jinan / wh-102 Nanjing)
- *   3. assert `km` present / `mi` absent on Chen distance surfaces
+ * Exercises the full max-coverage model through the Workspace UI against
+ * local dev servers:
+ *   1. register a fresh account → create a max-coverage scenario (Chapter 4)
+ *   2. COVERAGE solve → assert coverage ≈ 68.4192 % and the three opened
+ *      warehouses (DAL Dallas / LA Los Angeles / PIT Pittsburgh)
+ *   3. assert `km` present / `mi` absent on the model's distance surfaces
  *   4. switch to MIN_DISTANCE mode → solve → objective renders in demand-km
  *   5. edit a customer demand → re-solve → objective delta (server-verified)
  *   6. add a distance override (open-warehouse → customer @ 1 km) → re-solve →
@@ -19,13 +22,20 @@
  *      (b) a `customers` CSV is exported, one demand edited, re-imported →
  *          exactly one change applies
  *
- * The Chen coverage/min-distance goldens are the sacred solver ground truth
- * (tests/test_chens.py): coverage `coveragePct ≈ 66.0639`, open
- * {wh-40, wh-69, wh-102}; min-distance objective ≈ 1.238e11 demand-km.
+ * The max-coverage-us goldens are the sacred solver ground truth
+ * (solver/tests/test_max_coverage.py): coverage `coveragePct == 68.4192`,
+ * `coveredDemand == 53385024`, open `{DAL, LA, PIT}`; min-distance objective
+ * ≈ 48714263031.75 demand-km (coverage floor seeded from the coverage
+ * mode's covered demand, 53385024). Both objective modes open the SAME
+ * three warehouses. MIG-6: this dataset's stored distances ARE the
+ * effective distances — the solver applies no circuity factor, so a
+ * distanceOverride's raw value survives unmodified into the reported edge
+ * distance (unlike the retired China model, which applied a ~1.17 circuity
+ * factor to estimated distances).
  *
  * Objectives / assignments for the delta+override steps are read straight off
  * the persisted result envelope via `page.request` (full precision), because
- * the Chen min-distance objective renders in the UI as a 2-sig-fig
+ * the min-distance objective renders in the UI as a 2-sig-fig
  * `toExponential(2)` string — too coarse to detect a one-customer delta.
  *
  * Target: E2E_BASE_URL env var. Requires a local dev proxy (vite's
@@ -37,7 +47,7 @@ import { test, expect, type Page } from "@playwright/test";
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 120_000;
 
-interface ChenResult {
+interface MaxCoverageResult {
   status: string;
   objective: number;
   edges: Array<{ fromId: string; toId: string; distance: number; flow: number }>;
@@ -46,7 +56,7 @@ interface ChenResult {
 }
 
 async function registerAndGoHome(page: Page): Promise<void> {
-  const email = `e2e-chens-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+  const email = `e2e-maxcov-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
   const resp = await page.request.post("/api/auth/register", {
     data: { email, password: "correcthorse1" },
   });
@@ -56,18 +66,18 @@ async function registerAndGoHome(page: Page): Promise<void> {
 }
 
 /** Default coverage-mode inputs = the coverage golden config
- * (p=3, high=600, max=5000, avgServiceDistCap=1000). */
+ * (p=3, high=700, max=5500, avgServiceDistCap=1000). */
 function coverageInputs() {
   return {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
+    highServiceDistKm: 700,
+    maxDistKm: 5500,
     avgServiceDistCapKm: 1000,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
-    distanceBands: [600, 5000],
+    distanceBands: [700, 5500],
     warehouseOverrides: [],
     customerOverrides: [],
     addedWarehouses: [],
@@ -76,9 +86,9 @@ function coverageInputs() {
   };
 }
 
-async function createChenScenario(page: Page): Promise<string> {
+async function createMaxCoverageScenario(page: Page): Promise<string> {
   const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E Chen ${Date.now()}`, modelId: "chens-cosmetics-cn", inputs: coverageInputs() },
+    data: { name: `E2E MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: coverageInputs() },
   });
   expect(resp.status()).toBe(201);
   const id = String((await resp.json()).id);
@@ -87,7 +97,7 @@ async function createChenScenario(page: Page): Promise<string> {
   return id;
 }
 
-async function getScenario(page: Page, id: string): Promise<{ solvedAt: string | null; result: ChenResult | null }> {
+async function getScenario(page: Page, id: string): Promise<{ solvedAt: string | null; result: MaxCoverageResult | null }> {
   const resp = await page.request.get(`/api/scenarios/${id}`);
   expect(resp.status()).toBe(200);
   const body = await resp.json();
@@ -99,7 +109,7 @@ async function getScenario(page: Page, id: string): Promise<{ solvedAt: string |
  * captured before the click — a precise "the NEW result has landed" signal
  * that doesn't depend on the coarse UI objective string. Returns the fresh
  * result envelope. */
-async function solveViaUi(page: Page, id: string): Promise<ChenResult> {
+async function solveViaUi(page: Page, id: string): Promise<MaxCoverageResult> {
   const before = (await getScenario(page, id)).solvedAt;
   await page.getByTestId("button-run-optimizer").click();
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -108,7 +118,7 @@ async function solveViaUi(page: Page, id: string): Promise<ChenResult> {
   // cheap UI signal the job finished before we hit the server.
   await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
 
-  let fresh: ChenResult | null = null;
+  let fresh: MaxCoverageResult | null = null;
   await expect
     .poll(async () => {
       const s = await getScenario(page, id);
@@ -131,41 +141,56 @@ async function saveViaHeader(page: Page): Promise<void> {
   await expect(save).toBeDisabled({ timeout: HEADER_TIMEOUT });
 }
 
-test.describe("Chapter 4 — Chen's Cosmetics service-coverage", () => {
+/** Locates the row whose FIRST cell (the entity-id column) is exactly
+ * `id` — never a bare text search, because this dataset's 2-letter
+ * warehouse ids (e.g. "LA") collide with other warehouses' State-column
+ * abbreviations (MSY's state is also "LA"), which would make a plain
+ * `getByText(id, {exact:true})` match two rows and fail Playwright's
+ * strict-mode single-element requirement. */
+function rowByFirstCellId(page: Page, id: string) {
+  return page.locator("table tbody tr").filter({
+    has: page.locator("td:first-child", { hasText: new RegExp(`^${id}$`) }),
+  });
+}
+
+test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
   test("coverage + min-distance solves, demand delta, distance override, map add, import round-trips", async ({ page }) => {
     test.setTimeout(360_000);
     await registerAndGoHome(page);
-    const id = await createChenScenario(page);
+    const id = await createMaxCoverageScenario(page);
 
     try {
-      // ── 0. Header shows Chen, not another model's title ──────────────────
+      // ── 0. Header shows Chapter 4 / US service coverage copy, not another
+      // model's title (gold-refinery) or the retired China copy ──────────
       const summary = page.getByTestId("workspace-chapter-summary");
       await expect(summary).toContainText("Chapter 4");
-      await expect(summary).not.toContainText(/AL's Athletics/i);
+      await expect(summary).toContainText(/United States/i);
+      await expect(summary).not.toContainText(/china/i);
       await expect(summary).not.toContainText(/gold refinery/i);
 
       // ── 1. Coverage solve → golden coverage % + three opened warehouses ──
       const cov = await solveViaUi(page, id);
       expect(cov.details.objective).toBe("coverage");
-      expect(cov.details.coveragePct).toBeCloseTo(66.0639, 2);
-      expect(new Set(cov.details.openWarehouseIds)).toEqual(new Set(["wh-40", "wh-69", "wh-102"]));
+      expect(cov.details.coveragePct).toBeCloseTo(68.4192, 2);
+      expect(new Set(cov.details.openWarehouseIds)).toEqual(new Set(["DAL", "LA", "PIT"]));
 
       // Cost-summary UI shows the coverage % objective (formatChenObjective).
       await page.getByTestId("sidebar-output-cost-summary").click();
-      await expect(page.getByTestId("cost-summary-value-objective")).toContainText("66.06 %", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("cost-summary-value-objective")).toContainText("68.42 %", { timeout: HEADER_TIMEOUT });
 
       // Open Warehouses grid: exactly the three golden facilities.
       await page.getByTestId("sidebar-output-open-warehouses").click();
-      await expect(page.getByTestId("open-warehouse-row-wh-40")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("open-warehouse-row-wh-69")).toBeVisible();
-      await expect(page.getByTestId("open-warehouse-row-wh-102")).toBeVisible();
+      await expect(page.getByTestId("open-warehouse-row-DAL")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("open-warehouse-row-LA")).toBeVisible();
+      await expect(page.getByTestId("open-warehouse-row-PIT")).toBeVisible();
       expect(await page.locator('[data-testid^="open-warehouse-row-"]').count()).toBe(3);
 
-      // The three opened facilities ARE Guangzhou / Jinan / Nanjing — proven
-      // on the Warehouses input grid, which pairs each id with its city cell.
+      // The three opened facilities ARE Dallas / Los Angeles / Pittsburgh —
+      // proven on the Warehouses input grid, which pairs each id with its
+      // city cell.
       await page.getByTestId("sidebar-input-warehouses").click();
-      for (const [whId, city] of [["wh-40", "Guangzhou"], ["wh-69", "Jinan"], ["wh-102", "Nanjing"]] as const) {
-        const row = page.getByRole("row").filter({ has: page.getByText(whId, { exact: true }) });
+      for (const [whId, city] of [["DAL", "Dallas"], ["LA", "Los Angeles"], ["PIT", "Pittsburgh"]] as const) {
+        const row = rowByFirstCellId(page, whId);
         await expect(row).toContainText(city, { timeout: HEADER_TIMEOUT });
       }
 
@@ -188,9 +213,9 @@ test.describe("Chapter 4 — Chen's Cosmetics service-coverage", () => {
 
       const minDist = await solveViaUi(page, id);
       expect(minDist.details.objective).toBe("min_distance");
-      // Sacred min-distance golden (tests/test_chens.py::test_min_distance_golden).
-      expect(minDist.objective).toBeCloseTo(123834216789.27, -3);
-      expect(new Set(minDist.details.openWarehouseIds)).toEqual(new Set(["wh-40", "wh-69", "wh-102"]));
+      // Sacred min-distance golden (solver/tests/test_max_coverage.py::test_min_distance_golden).
+      expect(minDist.objective).toBeCloseTo(48714263031.75, -3);
+      expect(new Set(minDist.details.openWarehouseIds)).toEqual(new Set(["DAL", "LA", "PIT"]));
 
       await page.getByTestId("sidebar-output-cost-summary").click();
       await expect(page.getByTestId("cost-summary-value-objective")).toContainText("demand-km", { timeout: HEADER_TIMEOUT });
@@ -230,17 +255,20 @@ test.describe("Chapter 4 — Chen's Cosmetics service-coverage", () => {
       const reassigned = afterOverride.edges.find(e => e.toId === targetCustomer);
       expect(reassigned).toBeDefined();
       expect(reassigned!.fromId).toBe(otherOpenWh);
-      // The 1 km override drove the reassignment: the resulting edge distance
-      // is far below any real China inter-city pair (tens–hundreds of km) —
-      // the solver applies a ~1.17 circuity factor, so this is ~1.17, not 1.
-      expect(reassigned!.distance).toBeLessThan(5);
+      // MIG-6: max-coverage-us applies NO circuity factor — the override's
+      // raw value survives unmodified into the reported edge distance (unlike
+      // the retired China model, which applied a ~1.17 circuity factor to
+      // estimated distances). The 1 km override drove the reassignment, and
+      // the resulting edge distance is exactly the override value.
+      expect(reassigned!.distance).toBeCloseTo(1, 3);
 
       // ── 6. Input-Map add a warehouse → estimated km distances surface ───
       await page.getByTestId("sidebar-input-input-map").click();
       await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      // Chen has ~330 dense markers over China — hide both layers first so the
-      // placement click reliably lands on the map, not on an existing marker
-      // (placement/pinMode is independent of the display toggles).
+      // 26 warehouses + 200 customers over the continental US — hide both
+      // layers first so the placement click reliably lands on the map, not
+      // on an existing marker (placement/pinMode is independent of the
+      // display toggles).
       await page.getByTestId("toggle-layer-warehouses").click();
       await page.getByTestId("toggle-layer-customers").click();
       await page.getByTestId("button-input-map-place-wh").click();

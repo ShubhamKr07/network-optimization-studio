@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // chen-bands-units, Part D — components rendered inside this tree now read the
@@ -2311,8 +2313,8 @@ describe("defaultInputsForModel — max-coverage-us", () => {
 // C4.12 — Chen inputs UI wired end-to-end through Workspace: the objective
 // mode toggle (which seeds the newly-required field AND clears the previous
 // mode's field so only the active field persists), the derived-band resync on
-// a threshold edit, and pMax=25 flowing to BOTH the Optimization Parameters
-// tab and the Solve dialog. Integration tests (not the component-level ones)
+// a threshold edit, and pMax=26 (ch4-mig-8) flowing to BOTH the Optimization
+// Parameters tab and the Solve dialog. Integration tests (not the component-level ones)
 // because the atomic seed/clear/resync logic lives in Workspace, and the
 // save-payload assertion is what proves "only the active field is persisted".
 describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
@@ -2455,6 +2457,21 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
   });
+});
+
+// ch4-mig-8 — the p cap is declared in four places (manifest, Zod schema,
+// and TWO independent pMax renders in Workspace.tsx: Optimization
+// Parameters and SolveDialog); this asserts both UI sites read the same
+// value the manifest/schema now cap at, because changing three of four
+// leaves a surface where p=26 is rejected with no server involvement and
+// no error naming the real cause.
+it("caps p at 26 in BOTH pMax declarations for max-coverage-us (MIG-8)", () => {
+  const src = readFileSync(
+    path.resolve(__dirname, "../pages/Workspace.tsx"), "utf8",
+  );
+  const caps = [...src.matchAll(/modelId === "max-coverage-us" \? (\d+)/g)].map(m => m[1]);
+  // Optimization Parameters tab AND SolveDialog render pMax independently.
+  expect(caps).toEqual(["26", "26"]);
 });
 
 // C4.13 — Chen (max-coverage-us) full Input-Map parity: it's single-echelon

@@ -7,7 +7,7 @@
  * task T2: post-solve, editing distance bands WITHOUT re-solving must
  * re-bucket the ServiceStats coverage bars LIVE (matching the Output Map's
  * already-live band lens) for every distance-band model except
- * `chens-cosmetics-cn`, which keeps reading the frozen
+ * `max-coverage-us`, which keeps reading the frozen
  * `result.metrics.bandCoverage` snapshot.
  *
  * Three checks:
@@ -22,9 +22,13 @@
  *      refinery→customer edges in-band, the mine→refinery edge alone
  *      overflow) — if the inbound leg leaked into the coverage calc, the
  *      bars would show nonzero overflow; they must show exactly 0%.
- *   3. NEGATIVE — `chens-cosmetics-cn`: a band-affecting edit
- *      (`highServiceDistKm`, which re-derives `distanceBands` locally)
- *      must NOT move the ServiceStats bars at all (frozen, unwired).
+ *   3. NEGATIVE — `max-coverage-us` (Chapter 4, rewritten off the retired
+ *      China-dataset model per the ch4-migration cutover, MIG-8): a
+ *      band-affecting edit (`highServiceDistKm`, which re-derives
+ *      `distanceBands` locally) must NOT move the ServiceStats bars at all
+ *      (frozen, unwired — Workspace.tsx never wires `presentationBands` for
+ *      this model; its "coverage" is a distinct min-distance concept, not a
+ *      distance-band recompute).
  *
  * Every check also asserts ZERO `/solve` or `/solve-jobs` network calls
  * fire anywhere in the edit+navigate sequence — this is a pure client-side
@@ -326,19 +330,19 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
   });
 });
 
-// ── Check 3 (NEGATIVE): chens-cosmetics-cn stays frozen ─────────────────────
+// ── Check 3 (NEGATIVE): max-coverage-us stays frozen ────────────────────────
 
-function chenCoverageInputs() {
+function maxCoverageInputs() {
   return {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
+    highServiceDistKm: 700,
+    maxDistKm: 5500,
     avgServiceDistCapKm: 1000,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
-    distanceBands: [600, 5000],
+    distanceBands: [700, 5500],
     warehouseOverrides: [],
     customerOverrides: [],
     addedWarehouses: [],
@@ -347,19 +351,19 @@ function chenCoverageInputs() {
   };
 }
 
-async function createChenScenario(page: Page): Promise<number> {
+async function createMaxCoverageScenario(page: Page): Promise<number> {
   const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E SSC-T1 Chen ${Date.now()}`, modelId: "chens-cosmetics-cn", inputs: chenCoverageInputs() },
+    data: { name: `E2E SSC-T1 MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: maxCoverageInputs() },
   });
   expect(resp.status()).toBe(201);
   return Number((await resp.json()).id);
 }
 
-test.describe("Non-JADE ServiceStats live coverage — chens-cosmetics-cn NEGATIVE (frozen)", () => {
+test.describe("Non-JADE ServiceStats live coverage — max-coverage-us NEGATIVE (frozen)", () => {
   test("a band-affecting edit does NOT change the Service Stats bars", async ({ page }) => {
     test.setTimeout(180_000);
-    await registerAndGoHome(page, "ssc-chen");
-    const id = await createChenScenario(page);
+    await registerAndGoHome(page, "ssc-maxcov");
+    const id = await createMaxCoverageScenario(page);
 
     try {
       await solveViaApi(page, id);
@@ -369,18 +373,20 @@ test.describe("Non-JADE ServiceStats live coverage — chens-cosmetics-cn NEGATI
       const solveCalls = makeSolveCallTracker(page);
 
       await page.getByTestId("sidebar-output-service-stats").click();
-      const bandRow600 = page.getByTestId("service-stats-band-600");
-      const bandRow5000 = page.getByTestId("service-stats-band-5000");
-      await expect(bandRow600).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(bandRow5000).toBeVisible();
-      const before600 = await bandRow600.innerText();
-      const before5000 = await bandRow5000.innerText();
+      const bandRow700 = page.getByTestId("service-stats-band-700");
+      const bandRow5500 = page.getByTestId("service-stats-band-5500");
+      await expect(bandRow700).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(bandRow5500).toBeVisible();
+      const before700 = await bandRow700.innerText();
+      const before5500 = await bandRow5500.innerText();
 
       // Edit the field that DOES re-derive `distanceBands` locally
       // (`highServiceDistKm` -> `[high, max]`, Workspace.tsx's
-      // `updateChenServiceDistance`) — Chen has no free band editor by
-      // design (`showBandEditor=false`), this is its closest analog to a
-      // "band edit".
+      // `updateChenServiceDistance`) — max-coverage-us's ServiceStats stays
+      // frozen regardless (Workspace.tsx never wires `presentationBands` for
+      // it; ServiceStatsTab gates its own live-recompute on the caller
+      // wiring it, never on modelId), so this is a valid "band edit" probe
+      // even though the model also has its own free band chip editor now.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await expect(page.getByTestId("chen-objective-section")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("input-high-service-dist").fill("50");
@@ -389,22 +395,22 @@ test.describe("Non-JADE ServiceStats live coverage — chens-cosmetics-cn NEGATI
       const callsBeforeCheck = solveCalls.count();
 
       // Service Stats bars are UNCHANGED — still keyed by the original
-      // solved bands (600/5000), not the just-edited 50, and their
+      // solved bands (700/5500), not the just-edited 50, and their
       // percentages are byte-identical to before the edit.
       await page.getByTestId("sidebar-output-service-stats").click();
-      await expect(page.getByTestId("service-stats-band-600")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("service-stats-band-5000")).toBeVisible();
+      await expect(page.getByTestId("service-stats-band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("service-stats-band-5500")).toBeVisible();
       // The derived-band value (50) never appears as a coverage row.
       await expect(page.getByTestId("service-stats-band-50")).toHaveCount(0);
       // Byte-identical to their pre-edit text (innerText, not toHaveText's
       // own whitespace-normalized comparison, to avoid a false mismatch
       // purely from how the two APIs join the row's two text nodes).
       await expect
-        .poll(() => page.getByTestId("service-stats-band-600").innerText())
-        .toBe(before600);
+        .poll(() => page.getByTestId("service-stats-band-700").innerText())
+        .toBe(before700);
       await expect
-        .poll(() => page.getByTestId("service-stats-band-5000").innerText())
-        .toBe(before5000);
+        .poll(() => page.getByTestId("service-stats-band-5500").innerText())
+        .toBe(before5500);
 
       expect(solveCalls.count()).toBe(callsBeforeCheck);
     } finally {
