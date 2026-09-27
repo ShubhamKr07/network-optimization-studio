@@ -57,8 +57,15 @@ for f in "$JSON" "$MD" "$MANAGED_REL"; do
 done
 
 # 2. Fresh capture-branch worktree off the freshly-fetched origin/main (clean base).
+# --no-track is load-bearing: `-B` off a REMOTE-TRACKING start point makes git set
+# the new branch's upstream to that start point by default, so every weekly run was
+# silently pointing `permissions-capture` at origin/main. That made `git branch -vv`
+# report the artifact branch as "ahead 1, behind 306" against a line it is not a
+# descendant of, and left `git pull` on it primed to drag all of main in. Nothing
+# here needs an upstream -- the base comes from "$REMOTE/main" directly and the push
+# below uses an explicit refspec.
 git fetch "$REMOTE" main
-git worktree add --force -B "$BRANCH" "$WT" "$REMOTE/main"
+git worktree add --force --no-track -B "$BRANCH" "$WT" "$REMOTE/main"
 
 # 3. Copy exactly the three artifacts into the worktree.
 mkdir -p "$WT/$REVIEW_REL"
