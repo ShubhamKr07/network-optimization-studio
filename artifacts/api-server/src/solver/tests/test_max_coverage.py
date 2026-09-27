@@ -219,3 +219,62 @@ def test_max_coverage_load_failure_is_contained():
         solve._load_json = original_load_json
         solve._LOAD_ERRORS.clear()
         solve._LOAD_ERRORS.update(saved_errors)
+
+
+# ---------------------------------------------------------------------------
+# MIG-11: the floor-zero equivalence check -- the one assertion in this
+# migration that is not our own solver marking its own homework.
+# ---------------------------------------------------------------------------
+MI2KM = 1.609344
+
+
+def test_floor_zero_equals_pmedian():
+    """MIG-11 -- min-distance with coverageFloorDemand=0 IS the p-median
+    problem: same objective, same p, coverage constraint slack. The two
+    reach it through different code and different dataset handling, so a
+    mangled distance conversion breaks the equality.
+
+    The assertion is unit-aware: Chapter 4 is km-canonical and Chapter 3 is
+    mile-canonical, so the objectives differ by exactly 1.609344. Measured
+    2026-09-27: relative difference 9.8e-15, so 1e-9 is ample.
+    """
+    mc = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 0})
+    pm = run({"modelType": "p_median", "pValue": 3, "distanceBands": [200, 400, 800, 1600],
+              "capacityMode": "none", "uniformCapacity": None, "warehouseStatuses": [],
+              "gap": 0.0, "timeLimitSec": 120, "singleSource": False,
+              "capacityInactive": False, "capacityFactor": 1.0})
+
+    assert mc["status"] == "optimal"
+    assert pm["status"] == "optimal"
+    # Verified 2026-09-27: solve_pmedian puts openWarehouseIds under
+    # ["details"], NOT at the top level -- an earlier draft of this plan read
+    # it top-level and would have raised KeyError before asserting anything.
+    assert set(mc["details"]["openWarehouseIds"]) == {"BAL", "DAL", "LA"}
+    assert set(mc["details"]["openWarehouseIds"]) == set(pm["details"]["openWarehouseIds"])
+    assert mc["objective"] / MI2KM == pytest.approx(pm["objective"], rel=1e-9)
+
+
+def test_step2_is_always_feasible():
+    """Step 1's own solution satisfies Step 2's constraints by construction:
+    same p, same maxDistKm, no average-distance cap, and a floor equal to the
+    coverage Step 1 actually achieved. An infeasible Step 2 is a defect.
+
+    Deviation from the task brief (hard rule #8): the brief's snippet reads
+    `step1 = run(BASE)`, but this file's `BASE` dict (unlike the brief's
+    apparent assumption) carries no default `objective` key -- every other
+    test in this file always spreads one in explicitly, and calling
+    solve.py with no `objective` at all raises an uncaught KeyError inside
+    solve_max_coverage (`mode = inp["objective"]`), which the process
+    boundary degrades to a bare `{failureReason, failureStage}` message with
+    no `details` key. That is a real "run(BASE) alone is underspecified"
+    gap in the brief, not a solver defect, so the smallest correct fix is to
+    spell out Step 1 as the "coverage" objective explicitly -- identical to
+    `test_coverage_golden`'s payload -- which is also the only reading that
+    reproduces the brief's own expected numbers (635.13 -> 624.33 km).
+    """
+    step1 = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000})
+    floor = step1["details"]["coveredDemand"]
+    step2 = run({**BASE, "objective": "min_distance", "coverageFloorDemand": floor})
+    assert step2["status"] == "optimal"
+    assert step2["details"]["coveredDemand"] >= floor
+    assert step2["metrics"]["weightedAvgDistance"] <= step1["metrics"]["weightedAvgDistance"]
