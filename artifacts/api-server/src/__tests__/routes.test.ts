@@ -3912,14 +3912,14 @@ describe("locked models (ch4-lock)", () => {
   describe("the locked set comes from the manifests, not a hardcoded route list", () => {
     // Reads the REAL manifests (override cleared), so this genuinely pins
     // what ships — not what a test happened to set.
-    it("reports exactly the one locked chapter, from the manifests", () => {
+    it("reports exactly the locked chapters, from the manifests", () => {
       setLockedModelsForTests(null);
-      expect(lockedModelIds().sort()).toEqual(["two-echelon-jade-us"]);
+      expect(lockedModelIds().sort()).toEqual(["chens-cosmetics-cn", "two-echelon-jade-us"]);
     });
 
-    it("no longer locks Chapter 4 — chens-cosmetics-cn is open again", () => {
+    it("locks Chapter 4 as of Stage A — chens-cosmetics-cn during dataset migration", () => {
       setLockedModelsForTests(null);
-      expect(isModelLocked("chens-cosmetics-cn")).toBe(false);
+      expect(isModelLocked("chens-cosmetics-cn")).toBe(true);
     });
 
     it("does not lock an open or unknown model", () => {

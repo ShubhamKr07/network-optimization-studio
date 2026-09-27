@@ -12,6 +12,7 @@
     "supportsFacilityStatus": true,
     "supportsAddedCustomerExclusion": true,
     "supportsReferenceDistances": true,
+    "locked": true,
     "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"]
   },
   "inputsSchema": {
