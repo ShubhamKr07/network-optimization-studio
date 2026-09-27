@@ -1,7 +1,7 @@
 # Chapter 4 — US Dataset Migration (`chens-cosmetics-cn` → `max-coverage-us`)
 
 **Date:** 2026-09-27
-**Status:** second-review findings folded (see §12); awaiting re-review before planning
+**Status:** third-review findings folded (see §13); awaiting re-review before planning
 **Lands before:** [`2026-09-27-ch4-two-step-workflow-design.md`](2026-09-27-ch4-two-step-workflow-design.md) — see §9
 
 ---
@@ -150,14 +150,27 @@ Nothing about them survives the swap: their `inputs` reference China entity ids 
 
 **Stage A — lock and deploy (deployment 1).** Set `capabilities.locked` on the old manifest; deploy `nos-api`. This is not new machinery: `middlewares/lockedModel.ts` already 403s every scenario-scoped route for a locked model, including create, and `lockedModelGuards.test.ts` asserts every `:scenarioId` handler carries the check *before* any write. `ch4-lock` proved it in production. **Proof required before proceeding:** a create attempt and a scenario-scoped write against the old model both return 403. **Rollback:** revert the manifest flag and redeploy; nothing has been destroyed.
 
-**Stage B — drain, with a bounded wait.** "Cancel them" is not executable and has been removed from this spec: `cancelJob()` (`jobRunner.ts:918`) has **no route caller** — it is process-local, and there is no scenario cancellation endpoint. The runbook therefore does one of two things, never an ad-hoc `UPDATE` of job status:
+**Stage B — wait for terminal status. The wait is mandatory; there is no shortcut.**
 
-- **wait** until every Chapter 4 `solve_jobs` row reaches a terminal status (`succeeded` or `failed`), polling with an explicit timeout; or
-- **use the existing drain** — SIGTERM each worker and let `drainForShutdown` run (`index.ts:83-104`, bounded by `DRAIN_GRACE_MS` then `FORCE_DRAIN_GRACE_MS`), which is the only supported way to stop in-flight work.
+Two things are *not* available, and both were wrongly offered in earlier drafts:
 
-**Verification:** zero rows in `queued` or `running` for the model. **Failure path:** if the timeout expires with rows still non-terminal, stop and report — do not proceed to stage C, and do not force a status write. Stage A's lock means nothing new can arrive while this is resolved.
+- **`cancelJob()` is unreachable.** It has no route caller (`jobRunner.ts:918`) — process-local only, with no scenario cancellation endpoint.
+- **SIGTERM is not a queue drain.** `drainForShutdown` (`jobRunner.ts:800-808`) calls `stopDispatcherScheduler()`, sets draining, waits for **active** jobs, then force-cancels the still-active ones. It never touches `queued` rows — they stay queued for whichever process next claims them. So a worker drain cannot produce this stage's exit condition, and an earlier draft that offered it as an alternative was wrong.
 
-**Stage C — count, confirm, delete (one transaction).** Report affected `scenarios` and `solve_jobs` counts, broken down by `inputs->>'objective'`. Obtain explicit human confirmation **against that count**. Then, in a single transaction: delete `solve_jobs` first, then `scenarios` (the FK-safe ordering `routes/scenarios.ts` already uses), then purge `result_cache WHERE model_id = 'chens-cosmetics-cn'`.
+**What the runbook actually does:** keep workers **running** so pre-existing queued Chapter 4 jobs get claimed and finish, and poll until every affected job is terminal (`succeeded` or `failed`), with an explicit timeout. Stage A's lock is a route guard, so it stops new *requests* while leaving already-queued jobs free to execute — which is exactly what this stage needs. If a drain is used to stop active work, workers must then be restarted to consume the remaining queue before the zero-row check. **No ad-hoc `UPDATE` of job status, ever.**
+
+**Scoping — join through the parent scenario (T2).** Affected jobs are identified as:
+
+```sql
+solve_jobs j JOIN scenarios s ON s.id = j.scenario_id
+WHERE s.model_id = 'chens-cosmetics-cn'
+```
+
+**not** by `j.model_id`, which is A1 Class-1 nullable (`lib/db/src/schema/solve_jobs.ts:55`) and therefore `NULL` on every pre-A1 row. Filtering on it alone silently omits exactly the oldest jobs — the ones most likely to be sitting in an odd state. This join is what the zero-row proof and both counts use.
+
+**Verification:** zero rows with status `queued` or `running` under that join. **Failure path:** if the timeout expires with rows still non-terminal, stop and report; do not proceed to Stage C and do not force a status write. Stage A's lock means nothing new arrives while it is investigated.
+
+**Stage C — count, confirm, delete (one transaction).** Report affected `scenarios` and `solve_jobs` counts, broken down by `inputs->>'objective'`, using the **same parent-scenario join as Stage B** — never `solve_jobs.model_id`, for the nullability reason given there. Obtain explicit human confirmation **against that count**. Then, in a single transaction: delete `solve_jobs` first, then `scenarios` (the FK-safe ordering `routes/scenarios.ts` already uses), then purge `result_cache WHERE model_id = 'chens-cosmetics-cn'`.
 
 `result_cache` rows are **not** FK children of `scenarios` (`lib/db/src/schema/result_cache.ts` — primary key `inputs_hash`, plus a plain `model_id` column), so deleting scenarios strands them holding China result payloads. Their `inputs_hash` covers `modelId + datasetVersion + SOLVER_CODE_HASH + inputs`, so once the id is deregistered they are permanently unreachable. One transaction, so a partial failure leaves no orphans. **Rollback:** this is the point of no return; the transaction either commits whole or aborts whole, and there is no undo after commit.
 
@@ -201,7 +214,7 @@ Removed in the same commit — git retains the history, so nothing is lost:
 
 - the model table row — "Service-level siting in **China** … 25 WH · 197 customers · 4,925 distances (km)" — becomes Al's Athletics, 26 warehouses, 200 customers, 5,200 distances;
 - the cited goldens `66.0639%` and `131645389` become the regenerated Chapter 4 values (§5);
-- the units passage explaining that "Chen's model is genuinely metric, which forced distance units to become a first-class, model-derived property" needs rewriting — Chapter 4 stays km-canonical (MIG-7), but over US data, and the justification is now the shim (MIG-6), not the geography;
+- the units passage explaining that "Chen's model is genuinely metric, which forced distance units to become a first-class, model-derived property" needs rewriting — Chapter 4 stays km-canonical (MIG-7), but over US data, so the justification is a deliberate contract choice rather than the geography. There is no shim to describe: MIG-6 stores Chapter 3's matrix as-is and the solver multiplier is gone, so stored, solved, displayed and exported distances are one value;
 - the GeoNames / CC BY 4.0 attribution for Chinese postal codes is **removed**, since §7 deletes the dataset it credits. Leaving an attribution for data the project no longer ships is a licensing-hygiene defect, not a cosmetic one.
 
 **e2e.** `chens-cosmetics.spec.ts`, `chen-bands-units-qa.spec.ts` and `nonjade-servicestats-live-coverage.spec.ts` reference the old id directly and all need rewriting. Note that all three also hard-code the old defaults (`highServiceDistKm: 600`), so MIG-9 breaks them independently of the rename. Per CLAUDE.md's recurring `spec_gap` rule this happens before merge — the unit gate does not run Playwright.
@@ -245,7 +258,11 @@ Defined in place; this index is a pointer, not a restatement.
 
 ---
 
-## 11. Review resolution — 2026-09-27
+## 11. First review resolution — 2026-09-27
+
+> **HISTORICAL.** This section records the first round and is **superseded in part**: its B3 row and the
+> "resulting semantics" paragraph below describe the `÷ 1.17` shim, which §12's R3 removed. Current
+> distance behaviour is §3 (MIG-6/MIG-20) only. Nothing below describes shipped behaviour.
 
 An independent review returned four blockers and two required corrections. **All six were verified
 against the source and all six held; none were disputed.** Each is folded into the normative sections
@@ -288,3 +305,21 @@ Two blockers and one approval condition. **All three verified against source; al
 **R3 reversed an earlier recommendation of mine, and the reason is worth keeping.** The first draft chose `÷ 1.17` over removing the multiplication on the grounds that both produce byte-identical distances and differ only in whether decision D8 survives. That was true of the *solver* and false of the *system*: `referenceDistances.ts` and export read the stored value, so the shim created a number meaning one thing to the solver and another at every read boundary — across two chapters sharing one dataset. Both options still solve identically; only one keeps a single meaning. Preserving a convention was the wrong thing to optimise for.
 
 A third option — store Chapter 3's numbers and keep the multiplication — was rejected on measurement: Chapter 3's matrix already sits at median **1.1788×** true great-circle, so multiplying again reaches ~1.38× and would silently move MIG-9's approved goldens.
+
+---
+
+## 13. Third review resolution — 2026-09-27
+
+One blocker and two required corrections. **All three verified against source; all three held.**
+
+| Finding | Verified how | Landed in |
+|---|---|---|
+| **T1** — SIGTERM is not a queue drain | `drainForShutdown` (`jobRunner.ts:800-808`) stops the dispatcher, waits for **active** jobs, then force-cancels the active ones. `queued` rows are never touched | §6 Stage B rewritten — the terminal-state wait is mandatory, workers stay running to consume the queue, no drain shortcut |
+| **T2** — scope jobs through the parent scenario | `solve_jobs.model_id` is A1 Class-1 nullable (`solve_jobs.ts:55`), so it is `NULL` on every pre-A1 row | §6 Stages B and C both scope via `solve_jobs JOIN scenarios ON s.id = j.scenario_id WHERE s.model_id = ...` |
+| **T3** — stale "shim" wording | MIG-19 still justified the units passage by the shim R3 had already removed | §8 MIG-19 corrected; §11 headed **HISTORICAL** with its superseded parts named |
+
+**T1 is a real operational error, not a wording problem.** Stage B required zero `queued` or `running` rows *and* offered a worker drain as a way to get there. Those are incompatible: a drain deliberately stops claiming new work, so queued rows survive it and wait for the next process. Following the runbook as written would have produced a passing zero-`running` check with queued Chapter 4 jobs still pending — which then execute against rows Stage C has deleted. The fix is the opposite of a shortcut: keep workers running so the queue finishes, and poll to terminal.
+
+**T2 would have silently spared the oldest rows.** Filtering on `solve_jobs.model_id` looks correct and reads naturally, but that column only exists from A1 onward. Every pre-A1 Chapter 4 job has `NULL` there, so the zero-row proof would have passed while the least-understood jobs in the table were still live.
+
+Both T1 and T2 share a shape worth noting: each would have produced a **green check on an incomplete population**, which is worse than an obviously failing one.
