@@ -49,14 +49,19 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Chapter 4 (Chen's) was locked between 2026-09-22 and 2026-09-26; it is
-    // a normal linked card again.
-    expect(screen.getByTestId("link-/chapter-4")).toHaveAttribute("href", "/chapter-4");
-    // ch4-lock — Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still
-    // renders, but it is now LOCKED: the card is no longer wrapped in a
+    // ch4-lock (Stage A) — Chapter 4 (Chen's) is locked as of 2026-09-27 for
+    // the dataset migration (MIG-16). The card is no longer wrapped in a
     // <Link>, so there is no href to follow at all. Asserted as the absence
     // of the link plus the presence of the inert wrapper, so this can't pass
     // by the card having merely disappeared.
+    expect(screen.queryByTestId("link-/chapter-4")).not.toBeInTheDocument();
+    expect(screen.getByTestId("locked-/chapter-4")).toBeInTheDocument();
+    expect(screen.getByText(/Chen's Cosmetics/)).toBeInTheDocument();
+    // Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still renders, but
+    // it is LOCKED: the card is no longer wrapped in a <Link>, so there is
+    // no href to follow at all. Asserted as the absence of the link plus the
+    // presence of the inert wrapper, so this can't pass by the card having
+    // merely disappeared.
     expect(screen.queryByTestId("link-/chapter-9/jade")).not.toBeInTheDocument();
     expect(screen.getByTestId("locked-/chapter-9/jade")).toBeInTheDocument();
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
@@ -408,6 +413,7 @@ describe("Landing — live summary (T4)", () => {
 // so the unlock is pinned positively rather than only by this table shrinking.
 describe("Landing — locked chapters", () => {
   const LOCKED: Array<[string, string, RegExp]> = [
+    ["chens-cosmetics-cn", "/chapter-4", /Chen's Cosmetics/],
     ["two-echelon-jade-us", "/chapter-9/jade", /JADE Network/],
   ];
 
@@ -428,10 +434,6 @@ describe("Landing — locked chapters", () => {
 
   it.each([
     ["p-median-us", "/chapter-3"],
-    // Chapter 4 — unlocked 2026-09-26. Asserted as a full link with an href,
-    // no inert wrapper, no badge and no data-locked, so a partial unlock
-    // (manifest flipped but chapters.ts missed, or vice versa) fails here.
-    ["chens-cosmetics-cn", "/chapter-4"],
   ])("leaves %s unlocked — it keeps its link and shows no lock badge", (modelId, path) => {
     renderLanding();
     expect(screen.getByTestId(`link-${path}`)).toHaveAttribute("href", path);
