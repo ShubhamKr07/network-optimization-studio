@@ -919,8 +919,8 @@ def build_merged_max_coverage_dataset(
     module-level globals.
 
     Direct-id keyed end to end (like p-median-brazil / transport-coal /
-    two-echelon-gold-au, DD-2) -- `wh-<n>` / `cs-<n>` string ids, distances
-    keyed by `(whId, csId)` string tuples -- so no id<->index bridge (that is
+    two-echelon-gold-au, DD-2) -- real entity string ids (e.g. `ALN` / `C1`),
+    distances keyed by `(whId, csId)` string tuples -- so no id<->index bridge (that is
     p-median-us-only). Mirrors the STRUCTURE of `build_merged_pmedian_dataset`
     (base ∪ added entities, base + distance overrides), but keyed by string id
     and, because this solver reads them directly, additionally returns the

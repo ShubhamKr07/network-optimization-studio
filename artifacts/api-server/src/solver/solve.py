@@ -163,7 +163,7 @@ def _jade_distances():
 # 26 candidate warehouses -> 200 customers; distances are RAW km and ARE the
 # effective distances (MIG-6: no circuity factor applied in solve_max_coverage
 # -- this dataset's matrix is pre-baked and used as-is). Direct-id keyed
-# (wh-<n>/cs-<n>), distances keyed by "wh-15,cs-1" (like two-echelon), NOT
+# (e.g. "ALN"/"C1"), distances keyed by "ALN,C1" (like two-echelon), NOT
 # ordinals.
 # solvers/max-coverage-us/dataset/
 # ---------------------------------------------------------------------------

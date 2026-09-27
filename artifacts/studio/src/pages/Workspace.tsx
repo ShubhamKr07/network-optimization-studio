@@ -152,7 +152,7 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         // service-distance defaults immediately above/below
         // (highServiceDistKm=700, avgServiceDistCapKm=1000) are NOT changed
         // and must NEVER be made equal — doing so tightens the default
-        // solve to a different open set and breaks e2e/chens-cosmetics.spec.ts.
+        // solve to a different open set and breaks e2e/max-coverage.spec.ts.
         // See the guard test in Workspace.test.tsx.
         distanceBands: [700, 1400, 2800, 5500],
         warehouseOverrides: [],

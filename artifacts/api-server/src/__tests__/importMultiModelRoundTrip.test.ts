@@ -172,6 +172,18 @@ const jadeRow = {
 // package via its own manifest-scoped code path, never accidentally the
 // p-median-us fallback (even though the two now happen to share content,
 // the route must still dispatch on modelId, not fall through).
+//
+// review-4.4a: because the two models' facility lists are now byte-for-byte
+// identical (same 26 warehouse ids/cities, same 200 customer ids), row
+// count/id-membership/capacity-null assertions below are equally true of the
+// p-median-us code path — they do NOT discriminate which dataset actually
+// resolved. The real discriminator that survives the shared facility list is
+// each model's own manifest-declared canonical distance unit (max-coverage-us
+// is "km", p-median-us is "mi" — solvers/*/manifest.json); see the
+// reference-distances test at the end of this describe block and the unit
+// assertions in the "v1 distances export -> re-import round-trips unchanged"
+// describe block below for the assertions that actually pin dataset
+// identity.
 const maxCoverageInputs = {
   objective: "coverage",
   p: 3,
@@ -377,9 +389,14 @@ describe("max-coverage-us — export resolves its own dataset via its own code p
     const ids = res.body.rows.map((r: { id: string }) => r.id);
     // MIG-4: max-coverage-us reuses Chapter 3's exact facility list, so ALN
     // is a genuine max-coverage-us id too (not proof of cross-contamination
-    // by itself) — the count (26, not p-median-us's own count under a
-    // different manifest) plus the no-capacity-concept assertion below are
-    // what's actually distinguishing here.
+    // by itself). Neither the row count (p-median-us's own warehouse count
+    // is ALSO 26 — same facility list) nor the capacity===null assertion
+    // below (p-median-us's own export emits capacity:null for every row too,
+    // given empty warehouseOverrides — templates.ts's `o?.capacity ?? null`)
+    // discriminates which model's code path actually resolved. This test
+    // exists to prove the response SHAPE (200, 26 rows, no capacity concept);
+    // the "reference-distances proves..." test below is what actually pins
+    // dataset identity.
     expect(ids).toContain("ALN");
     // max-coverage-us warehouses have no capacity concept.
     expect(res.body.rows.every((r: { capacity: number | null }) => r.capacity === null)).toBe(true);
@@ -400,6 +417,38 @@ describe("max-coverage-us — export resolves its own dataset via its own code p
     mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/20/export?entity=mines&format=json").set("Cookie", cookie);
     expect(res.status).toBe(422);
+  });
+
+  // review-4.4a — the assertions above (row count, id membership, capacity
+  // null) are all equally true of the p-median-us dataset now that the two
+  // models share an identical 26-warehouse/200-customer facility list, so
+  // none of them alone proves max-coverage-us's OWN dataset package
+  // resolved rather than p-median-us's. This test uses the one thing that
+  // does NOT survive the shared facility list: each model's own
+  // manifest-declared canonical distance unit and its real base-matrix
+  // value for the SAME (ALN, C1) pair (solvers/max-coverage-us/manifest.json
+  // declares "km", solvers/p-median-us/manifest.json declares "mi" — the
+  // two datasets are copies of the same facility list but NOT the same
+  // distance matrix). GET /models/:id/reference-distances is unauthenticated
+  // and model-scoped (routes/referenceDistances.ts), so no scenario mocking
+  // is needed here.
+  it("reference-distances proves ALN->C1 is a genuinely different matrix from p-median-us despite the shared id", async () => {
+    const mc = await request(app).get("/api/models/max-coverage-us/reference-distances");
+    expect(mc.status).toBe(200);
+    expect(mc.body.distanceUnit).toBe("km");
+    const mcPair = (mc.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
+      .find((p) => p.fromId === "ALN" && p.toId === "C1");
+    expect(mcPair?.distance).toBe(601.894656);
+
+    const pm = await request(app).get("/api/models/p-median-us/reference-distances");
+    expect(pm.status).toBe(200);
+    expect(pm.body.distanceUnit).toBe("mi");
+    const pmPair = (pm.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
+      .find((p) => p.fromId === "ALN" && p.toId === "C1");
+    expect(pmPair?.distance).toBe(374);
+
+    // Same shared id pair, genuinely different underlying matrices.
+    expect(mcPair?.distance).not.toBe(pmPair?.distance);
   });
 });
 
@@ -570,7 +619,16 @@ describe("max-coverage-us — v1 distances export -> re-import round-trips uncha
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
     const exportRes = await request(app).get("/api/scenarios/20/export?entity=distances&format=csv").set("Cookie", cookie);
     expect(exportRes.status).toBe(200);
-    expect(exportRes.text).toContain("ALN,C1,100");
+    // review-4.4a — the header + row-level unit column is the actual proof
+    // this export dispatched on max-coverage-us's own "km" manifest, not a
+    // p-median-us ("mi") fallback: a route falling through to the
+    // p-median-us code path would still emit "ALN,C1,100" (the override
+    // value round-trips identically regardless of unit label, since
+    // requestedUnit defaults to whichever canonicalUnit gets resolved), but
+    // the `unit` column would read "mi", not "km".
+    expect(exportRes.text.split("\n")[0]).toBe("template_version,unit,from_id,to_id,distance");
+    expect(exportRes.text).toContain("km,ALN,C1,100");
+    expect(exportRes.text).not.toContain("mi,ALN,C1,100");
 
     // Re-import the exact exported CSV against the same override — no change.
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));

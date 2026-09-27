@@ -128,7 +128,7 @@ function buildJadeReferenceDistances(): ReferenceDistancesData {
 }
 
 // Chapter 4 (max-coverage-us) — this model's distances.json is a flat
-// DistanceMap keyed DIRECTLY by entity id ("wh-15,cs-1"), like
+// DistanceMap keyed DIRECTLY by entity id ("ALN,C1"), like
 // two-echelon/JADE, NOT by ordinal like p-median-us — so it needs its own
 // builder rather than reusing the ordinal buildReferenceDistancePairs. Every
 // key resolves as exactly one warehouse->customer pair (role membership is
