@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 **Model:** `max-coverage-us` (Chapter 4, Al's Athletics — Max Coverage; km-canonical per MIG-7)
-**Status:** second-review findings folded (see §13). Rebased onto the migration's terminology; **approval is gated on the migration spec being approved first**, since these names are that spec's to finalise.
+**Status:** conditionally approved on workflow correctness; C1/C2 folded (§14). **Final approval remains gated on the prerequisite migration being approved first** (W1).
 **Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md). This document is written in that spec's **final** terminology — public id `max-coverage-us`, private wire `modelType` `max_coverage_us`, `maxCoverageInputsSchema`, `solve_max_coverage` — per its MIG-18, which forbids treating old identifiers as "read as" their replacements. §8 is superseded by its MIG-13.
 **Wireframes:** [`assets/ch4-wireframes/Ch4 Workflow Wireframes.dc.html`](assets/ch4-wireframes/Ch4%20Workflow%20Wireframes.dc.html) — frames 3a–3f, committed alongside this spec with its `support.js` renderer so it opens standalone. The deck is the normative source for workflow behaviour; §7 records where this design deliberately departs from its *layout*.
 
@@ -95,7 +95,17 @@ Computed from the freshly-locked row, never from a client value and never read-m
 
 Import/apply is the one that matters. It is a Step 1 data write that bypasses the UI entirely, so without an epoch bump a student could import a new customer set and keep looking at results computed from the old one — the precise failure CH4-7 exists to prevent, arriving through the one door the freeze does not cover.
 
-**One routine, used by all of them.** A single server-side `applyMaxCoverageInputWrite(tx, scenarioId, nextInputs, changedKeys)` owns the epoch decision and the `inputs` write together, inside the caller's locked transaction. Every path above calls it rather than composing its own `.set({ inputs, … })`. That is what stops the next writer added to this file from quietly becoming a sixth exception — the same reasoning `lockedModelGuards.test.ts` applies to route guards, and the reason this design does not simply add a bump to each site by hand.
+**One routine, used by all of them — and it derives the diff itself.** A single server-side
+
+```
+applyMaxCoverageInputWrite(tx, scenarioId, nextInputs)
+```
+
+owns the locked read, the diff, the epoch decision and the `inputs` write together. Every path above calls it rather than composing its own `.set({ inputs, … })`.
+
+**It takes no `changedKeys` argument.** An earlier draft passed one in, which would have made the epoch boundary only as trustworthy as each caller's own diffing — and the whole point of CH4-26 is that callers cannot be trusted to get this right, since one of them (import/apply) already doesn't. The routine instead selects the persisted row `FOR UPDATE`, normalizes the candidate the same way the write path does, and computes `changedKeys` from those two itself. A caller that miscomputes or omits a key therefore cannot move the epoch incorrectly, because it never supplies the input to that decision.
+
+That is what stops the next writer added to this file from quietly becoming a sixth exception — the same reasoning `lockedModelGuards.test.ts` applies to route guards, and the reason this design does not simply add a bump to each site by hand.
 
 **CH4-24 — two validators, one boundary.** A stored Chapter 4 payload must never be a min-distance payload. Today `maxCoverageInputsSchema` accepts `objective: z.enum(["coverage", "min_distance"])`, so a client could PATCH `objective: "min_distance"` with any `coverageFloorDemand` it liked and bypass this entire workflow — the exact defect §1 exists to close.
 
@@ -198,7 +208,9 @@ Existing Chapter 4 scenarios are single-objective with one result and no step st
 
 **CH4-20**: `solve_jobs.input_snapshot` is A1 Class-1 nullable, so a scenario whose jobs predate A1 can recover neither step nor epoch from the job. Those fall back to `scenarios.result` plus the stored `inputs.objective`, which is exactly the adoption rule above, and self-heal onto the job-based path at the next solve. A missing `stepEpoch` — in stored inputs or in a snapshot — reads as 1, so legacy rows match the default epoch rather than being orphaned.
 
-**Clone** copies `inputs` verbatim and no jobs (`routes/scenarios.ts:1914`), so a cloned pair lands at `0 of 2` with the student's parameters preserved. Correct with no special-casing.
+**Clone** copies no jobs (`routes/scenarios.ts:1921`), so a clone always lands at `0 of 2`. It copies the student's parameters — Step 1's fields, `step2`, `distanceBands` — but **not** the workflow metadata: `stepEpoch` is reinitialized to 1 by CH4-26, like any other create.
+
+That distinction matters even though the clone has no jobs to invalidate. Carrying the source's epoch forward would make a freshly cloned scenario's epoch depend on how many times its *source* had been edited, which is both meaningless to the student and a value some later comparison could read. Epoch is per-scenario workflow state, not user data, so it does not travel with a copy.
 
 **Delete** is unchanged; child `solve_jobs` rows are already removed first.
 
@@ -302,3 +314,20 @@ Two blockers. **Both verified against source; both held.** Each exposed a bounda
 It also caught a promise the framework cannot keep as stated. CH4-24 said a client-supplied `coverageFloorDemand` is *rejected*; with a non-`.strict()` schema, omitting the key means Zod **strips** it and reports success. A guard that reads the raw body before parsing is the only way to make the promise literal — and the test has to read the persisted row back, because stripping and rejecting are indistinguishable from the response.
 
 **W5 found a live hole, not a theoretical one.** `import/apply` writes `scenarios.inputs` and bumps `solveInputRevision` unconditionally, but has no idea about `stepEpoch` and never passes through the confirm-and-clear UI. A student importing a new customer set would keep seeing results computed from the old one. Clone compounded it by copying the source's epoch verbatim. Both are fixed by routing all five writers through one routine rather than adding a bump at each site, so the next writer added cannot quietly become a sixth exception.
+
+---
+
+## 14. Third review resolution — 2026-09-27
+
+**Conditional approval: no remaining workflow-correctness blocker.** Two required consistency items, both against text I wrote, both correct.
+
+| Finding | Landed in |
+|---|---|
+| **C1** — the mutation routine must derive `changedKeys` itself, not trust a caller | §4.3 CH4-26 — signature is now `applyMaxCoverageInputWrite(tx, scenarioId, nextInputs)`; it locks, normalizes and diffs internally |
+| **C2** — §8's clone paragraph contradicted CH4-26 | §8 rewritten — a clone preserves student parameters and reinitializes `stepEpoch` to 1 |
+
+**C1 caught the routine undercutting its own purpose.** I introduced `applyMaxCoverageInputWrite` precisely because callers cannot be trusted to bump the epoch — import/apply demonstrably doesn't — and then gave it a `changedKeys` parameter, which makes the epoch boundary exactly as trustworthy as each caller's diffing. A guard that accepts the guarded value as an argument is not a guard. It now locks the row, normalizes the candidate and computes the diff itself, so a caller cannot supply a wrong answer because it never supplies one.
+
+**C2 was a real internal contradiction**, not a phrasing nit: §8 said clone was "correct with no special-casing" while §4.3 required it to force `stepEpoch = 1`. Those cannot both be true. §8 now states what actually happens and why epoch is workflow state rather than user data — it does not travel with a copy.
+
+Approval of this document still follows the migration's, per W1.
