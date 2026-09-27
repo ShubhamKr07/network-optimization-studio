@@ -1,3 +1,5 @@
 deployed_at,service,sha,smoke_pass,failed_checks,incident,notes
 2026-09-11T19:41:19.613Z,nos-api,unknown,no,postgres_tls,,
 2026-09-11T19:41:19.613Z,nos-studio,unknown,yes,,,
+2026-09-21T19:40:46.926Z,nos-api,unknown,yes,,,
+2026-09-21T19:40:46.926Z,nos-studio,unknown,yes,,,
