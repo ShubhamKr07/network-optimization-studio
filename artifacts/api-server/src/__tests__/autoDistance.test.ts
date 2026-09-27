@@ -858,10 +858,13 @@ describe("fillEstimatedJadeDistances (two-echelon-jade-us)", () => {
 });
 
 // ── C4.7 (Chapter 4, max-coverage-us) — this model's estimator is a SEPARATE
-// function mirroring the p-median core algorithm, but emitting RAW km
-// (haversineKm, R=6371, MIG-6: NO circuity anywhere), rounded to 2 dp with a
-// 0.01 km floor, and reparsing through maxCoverageInputsSchema so the
-// objective/threshold fields survive. ─────────────
+// function mirroring the p-median core algorithm, emitting a km haversine
+// (haversineKm, R=6371) road-adjusted by MAX_COVERAGE_CIRCUITY (MIG-20: the
+// base matrix is already road-adjusted, and solve_max_coverage applies no
+// further circuity per MIG-6, so an added entity's estimate must be
+// road-adjusted HERE to land on the same footing as the base matrix),
+// rounded to 2 dp with a 0.01 km floor, and reparsing through
+// maxCoverageInputsSchema so the objective/threshold fields survive. ─────
 const MAX_COVERAGE_TEST_DATASET = {
   warehouses: [
     { id: "wh-15", lat: 39.9042, lng: 116.4074 },
@@ -897,8 +900,13 @@ function maxCoverageKey(o: { fromId: string; toId: string }): string {
   return o.fromId + "|" + o.toId;
 }
 
+// MIG-20 — mirrors autoDistance.ts's MAX_COVERAGE_CIRCUITY (itself an alias
+// of TRANSPORT_CIRCUITY = 1.17; see that constant's own comment for the
+// derivation/tolerance discussion).
+const MAX_COVERAGE_CIRCUITY = 1.17;
+
 describe("fillEstimatedMaxCoverageDistances (max-coverage-us)", () => {
-  it("an added warehouse with no overrides gets estimated rows to every active base+added customer, at RAW km (R=6371, no circuity)", () => {
+  it("an added warehouse with no overrides gets estimated rows to every active base+added customer, road-adjusted by MAX_COVERAGE_CIRCUITY (MIG-20)", () => {
     const inputs = {
       ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
@@ -908,11 +916,14 @@ describe("fillEstimatedMaxCoverageDistances (max-coverage-us)", () => {
     const fromNew = result.distanceOverrides.filter((o) => o.fromId === "wh-new1");
     expect(fromNew.map((o) => o.toId).sort()).toEqual(["cs-1", "cs-2", "cs-new1"]);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
-    // RAW km — must match haversineKm exactly (rounded to 2 dp), NOT the
-    // haversineMiles value and NOT a circuity-multiplied value.
+    // MIG-20 — must match haversineKm * MAX_COVERAGE_CIRCUITY (rounded to 2
+    // dp), NOT the haversineMiles value and NOT the plain unadjusted
+    // great-circle km value.
     const toCs1 = fromNew.find((o) => o.toId === "cs-1")!;
     const rawKm = haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 23.1291, lng: 113.2644 });
-    expect(toCs1.distance).toBeCloseTo(Math.round(rawKm * 100) / 100, 2);
+    expect(toCs1.distance).toBeCloseTo(Math.round(rawKm * MAX_COVERAGE_CIRCUITY * 100) / 100, 2);
+    // Sanity: NOT the plain unadjusted great-circle value.
+    expect(toCs1.distance).not.toBeCloseTo(Math.round(rawKm * 100) / 100, 2);
     // Sanity: NOT the miles value (would be ~0.62x the km value).
     expect(toCs1.distance).not.toBeCloseTo(Math.round(haversineMiles({ lat: 30.5928, lng: 114.3055 }, { lat: 23.1291, lng: 113.2644 }) * 100) / 100, 2);
   });
@@ -1029,10 +1040,41 @@ describe("fillEstimatedMaxCoverageDistances (max-coverage-us)", () => {
     const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const row = result.distanceOverrides.find((o) => o.fromId === "wh-new1" && o.toId === "wh-15");
     expect(row).toBeDefined();
-    const expected = Math.max(0.01, Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 10, lng: 10 }) * 100) / 100);
+    const expected = Math.max(0.01, Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 10, lng: 10 }) * MAX_COVERAGE_CIRCUITY * 100) / 100);
     expect(row!.distance).toBeCloseTo(expected, 2);
     // Must NOT equal the distance to base warehouse wh-15's own coordinate.
-    const wrong = Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 39.9042, lng: 116.4074 }) * 100) / 100;
+    const wrong = Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 39.9042, lng: 116.4074 }) * MAX_COVERAGE_CIRCUITY * 100) / 100;
     expect(row!.distance).not.toBeCloseTo(wrong, 2);
+  });
+
+  // MIG-20 — drives fillEstimatedMaxCoverageDistances through its REAL
+  // default dataset (no third `dataset` arg, so it resolves against the real
+  // max-coverage-us warehouses/customers), asserting against a real base
+  // entity id (C1 = Akron, OH) rather than the local MAX_COVERAGE_TEST_DATASET
+  // fixture's synthetic ids — this is the regression test for the bug this
+  // task fixes: prior to MIG-20 the estimator emitted plain unadjusted
+  // great-circle km, landing an added warehouse's distances ~15% short of a
+  // comparable base-matrix pair and making it look artificially attractive to
+  // the solver.
+  it("road-adjusts added-entity distances so they match the base matrix (MIG-20)", () => {
+    const added = {
+      id: "ADD-1", displayCode: "ADD-1", city: "Chicago", state: "IL",
+      lat: 41.88, lng: -87.63, status: "active" as const,
+    };
+    const inputs = {
+      ...MAX_COVERAGE_BASE_INPUTS,
+      addedWarehouses: [added],
+    };
+    // No third arg — resolves against the real max-coverage-us dataset, so
+    // "C1" (Akron, OH) is a real base customer, not a test-fixture id.
+    const out = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs);
+
+    const row = out.distanceOverrides.find((o) => o.fromId === "ADD-1" && o.toId === "C1");
+    expect(row).toBeDefined();
+    expect(row!.estimated).toBe(true);
+
+    const greatCircle = haversineKm({ lat: 41.88, lng: -87.63 }, { lat: 41.08, lng: -81.52 });
+    expect(row!.distance).toBeCloseTo(Number((greatCircle * MAX_COVERAGE_CIRCUITY).toFixed(2)), 2);
+    expect(row!.distance).toBeGreaterThan(greatCircle);
   });
 });
