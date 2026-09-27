@@ -94,29 +94,48 @@ export async function deleteChapter4Data(
     );
   }
 
-  if (fresh.scenarioIds.length === 0) {
-    return { scenarioCount: 0, jobCount: 0, resultCacheCount: 0 };
-  }
-
+  // NOTE: result_cache is NOT scoped by scenarioIds -- it is keyed by
+  // model_id alone (see the header comment). It must be purged even when
+  // fresh.scenarioIds is EMPTY (e.g. a student already deleted their own
+  // chens-cosmetics-cn scenarios via the ordinary scenario-delete route,
+  // which never touches result_cache -- see routes/scenarios.ts). So the
+  // two scenario-scoped deletes are guarded on scenarioIds.length, but the
+  // result_cache delete and the surrounding transaction are NOT -- an
+  // earlier version of this function returned before the transaction in
+  // the empty-scenarios case, which stranded orphaned result_cache rows
+  // forever. Guarding the scenario-scoped deletes here is a defensive
+  // choice, not a requirement of this drizzle version: verified empirically
+  // (2026-09-28, drizzle-orm@0.45.2) that `inArray(column, [])` compiles to
+  // a literal `WHERE false`, not invalid SQL -- so this guard exists for
+  // readability/clarity, not to avoid a query error.
   return database.transaction(async (tx) => {
-    const deletedJobs = await tx
-      .delete(solveJobsTable)
-      .where(inArray(solveJobsTable.scenarioId, fresh.scenarioIds))
-      .returning({ id: solveJobsTable.id });
+    let deletedJobsCount = 0;
+    let deletedScenariosCount = 0;
 
-    const deletedScenarios = await tx
-      .delete(scenariosTable)
-      .where(and(eq(scenariosTable.modelId, CHENS_MODEL_ID), inArray(scenariosTable.id, fresh.scenarioIds)))
-      .returning({ id: scenariosTable.id });
+    if (fresh.scenarioIds.length > 0) {
+      const deletedJobs = await tx
+        .delete(solveJobsTable)
+        .where(inArray(solveJobsTable.scenarioId, fresh.scenarioIds))
+        .returning({ id: solveJobsTable.id });
+      deletedJobsCount = deletedJobs.length;
 
+      const deletedScenarios = await tx
+        .delete(scenariosTable)
+        .where(and(eq(scenariosTable.modelId, CHENS_MODEL_ID), inArray(scenariosTable.id, fresh.scenarioIds)))
+        .returning({ id: scenariosTable.id });
+      deletedScenariosCount = deletedScenarios.length;
+    }
+
+    // Always runs, regardless of scenarioIds -- scoped by model_id alone,
+    // independent of which (if any) scenarios still exist.
     const deletedResultCache = await tx
       .delete(resultCacheTable)
       .where(eq(resultCacheTable.modelId, CHENS_MODEL_ID))
       .returning({ inputsHash: resultCacheTable.inputsHash });
 
     return {
-      scenarioCount: deletedScenarios.length,
-      jobCount: deletedJobs.length,
+      scenarioCount: deletedScenariosCount,
+      jobCount: deletedJobsCount,
       resultCacheCount: deletedResultCache.length,
     };
   });

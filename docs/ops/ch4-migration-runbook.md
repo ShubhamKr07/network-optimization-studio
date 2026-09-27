@@ -144,7 +144,18 @@ operation performed by an operator following the steps below.
      key is `inputs_hash`, plus a plain `model_id` column) — without this
      step, cached China-payload rows would strand there indefinitely,
      unreachable by any scenario query but still occupying a cache slot
-     keyed on inputs that can never recur.
+     keyed on inputs that can never recur. This purge runs unconditionally
+     — even when zero live `chens-cosmetics-cn` scenarios remain (e.g. a
+     student already deleted their own scenarios via the ordinary
+     scenario-delete route, which never touches `result_cache`) — because
+     it is scoped by `model_id` alone, not by `scenarioIds`.
+   - **Disclosure:** step 2's confirmation gate matches `scenarioCount`
+     only; `jobCount` is not independently re-confirmed or re-verified at
+     delete time. This is a deliberate scope choice, not a hole — the
+     `solve_jobs` delete is driven entirely by `scenarioIds` (via the
+     parent-scenario join), not by a separately-confirmed job count, so
+     there is no path by which a stale `jobCount` could cause an
+     under- or over-deletion independent of `scenarioCount`.
 4. **Verify.** Re-run `countAffected(db)` — it must now report
    `scenarioCount: 0, jobCount: 0`.
 
