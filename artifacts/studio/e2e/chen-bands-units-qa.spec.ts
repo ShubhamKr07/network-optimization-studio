@@ -264,9 +264,13 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       await solveViaUi(page, id);
 
       // Baseline: default bands [700, 5500] km. With p=3 open facilities
-      // {DAL, LA, PIT} and no-capacity nearest-open assignment, the real
-      // farthest assignment distance in this dataset is ~1926 km — well
-      // under 5500 — so nothing is overflow yet.
+      // {DAL, LA, PIT}, the real solved max edge distance for this exact
+      // payload is 1926.38 km — well under 5500 — so nothing is overflow
+      // yet. (This is measured against actual solver output, not derived
+      // from nearest-open reasoning: coverage mode maximizes covered
+      // demand under an average-distance budget, not per-customer
+      // distance, so CBC is free to assign a customer to any open
+      // warehouse, not necessarily its nearest.)
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("checkbox-color-lanes-band")).toBeChecked({ timeout: HEADER_TIMEOUT });
       const overflowPathsBefore = page.locator('path.leaflet-interactive[stroke="var(--band-overflow)"]');
@@ -277,10 +281,15 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("band-5500")).toBeVisible();
 
-      // Add a boundary well below the farthest edge (~1926 km) so several
-      // routes fall beyond it once we remove the 5500 boundary. 1000 km
-      // splits this dataset's 200 customers roughly 44/156 over/under, a
-      // comfortably nonzero overflow bucket.
+      // Add a boundary well below the farthest edge (1926.38 km) so several
+      // routes fall beyond it once we remove the 5500 boundary. Verified
+      // against real solver output for this exact payload (p=3, open
+      // {DAL, LA, PIT}): 1000 km splits the 200 solved edges 45 over /
+      // 155 under — a comfortably nonzero overflow bucket. (Coverage mode
+      // maximizes covered demand under an average-distance budget, not
+      // per-customer distance, so nearest-open reasoning does not
+      // describe this assignment — the split above is measured, not
+      // derived from "nearest open warehouse".)
       await page.getByTestId("button-bands-plus").click();
       await page.getByTestId("input-new-band").fill("1000");
       await page.getByTestId("button-add-band-confirm").click();
