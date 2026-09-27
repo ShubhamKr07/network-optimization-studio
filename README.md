@@ -26,7 +26,7 @@ Everything a student changes is scoped to *their* scenario. The base textbook da
 | Model | Book | Decision | Dataset | Solver |
 |---|---|---|---|---|
 | **Al's Athletics** `p-median-us` | Ch. 3 | Which *p* of 26 US warehouses to open | 26 WH · 200 customers · 5,200 distances | `solve_pmedian` |
-| **Chen's Cosmetics** `chens-cosmetics-cn` | Ch. 4 | Service-level siting in China — maximize covered demand *or* minimize demand-distance | 25 WH · 197 customers · 4,925 distances (km) | `solve_chens` |
+| **Al's Athletics — Max Coverage** `max-coverage-us` | Ch. 4 | Service-level siting in the US — maximize covered demand *or* minimize demand-distance | 26 WH · 200 customers · 5,200 distances (km) | `solve_max_coverage` |
 | **Coal Transport LP** `transport-coal` | Ch. 5 | Mine → power-station flow assignment | 4 mines · 15 stations · 60 lanes | `solve_transport` |
 | **Brazil Capacity** `p-median-brazil` | Ch. 5 | Capacitated p-median over 25 Brazilian states | 25 sites · 625 distances | `solve_capacitated_pmedian` |
 | **JADE Investment** `two-echelon-jade-us` | Ch. 9 | Multi-product plant→warehouse→customer network with plant/product capability | 4 plants · 4 products · 25 WH · 100 customers | `solve_jade` |
@@ -160,7 +160,7 @@ The Chapter 10 source notebook writes its bill-of-materials constraint **per (mi
 
 ### Goldens transcribed verbatim, then defended
 
-Ground-truth values are transcribed from the source notebooks' stored cell output, not recomputed and hoped over: JADE scenario 1 objective `254060828.6157`, Chen's coverage `66.0639%` / covered demand `131645389`. Where a model has ties (multiple optima with equal objective), the test asserts the *objective and the invariant*, never an arbitrary tie-broken city list.
+Ground-truth values are transcribed from the source notebooks' stored cell output, not recomputed and hoped over: JADE scenario 1 objective `254060828.6157`, Ch. 4 coverage `68.4192%` / covered demand `53385024`. Where a model has ties (multiple optima with equal objective), the test asserts the *objective and the invariant*, never an arbitrary tie-broken city list.
 
 `e2e_accuracy.py` is a property-based A/B harness rather than a value table: for every configurable axis — `p`, capacity, single-source, capacity factor, capability toggle — it runs a pair of solves and asserts the mathematical relationship holds (monotonicity in `p`, LP relaxation bounds, capacity feasibility, flow conservation). It is a protected file: if a change breaks it, the change is wrong.
 
@@ -176,9 +176,9 @@ Students can add entities the textbook never had, and override individual pairwi
 
 ### Units, geography, and data provenance
 
-The Chapter 10 notebook labels geographically-mile values as kilometres; relabelling (and *not* converting) preserved the golden objective exactly while fixing the display. Chen's model is genuinely metric, which forced distance units to become a first-class, model-derived property across the whole frontend rather than a hardcoded `mi`.
+The Chapter 10 notebook labels geographically-mile values as kilometres; relabelling (and *not* converting) preserved the golden objective exactly while fixing the display. Chapter 4 is km-canonical by contract, not by geography — its data is US-based like every other chapter, but the dataset stores distances already converted to km and the solver applies no conversion factor of its own, so stored, solved, displayed, and exported values are all the same number. That contract is what forced distance units to become a first-class, model-derived property across the whole frontend rather than a hardcoded `mi`.
 
-Postal codes were backfilled by a one-off reverse-geocoding pass with real failure classification (timeout and rate-limit are not "no result"), per-row atomic persistence, and an abort floor below 85% coverage. Nominatim has no mainland-China postcodes, so Chen's dataset uses GeoNames city-level codes at a 25 km nearest match with a most-trailing-zeros tie-break, plus 27 cited manual overrides (Hong Kong and Macau SAR codes among them). Every dataset package carries a `version.json` with a sha256 so drift is detectable.
+Every dataset package carries a `version.json` with a sha256 so drift is detectable.
 
 ### Security posture
 
@@ -261,4 +261,4 @@ Render, via the Blueprint in `render.yaml`: `nos-api` (Docker web service), `nos
 
 Datasets, models, and expected answers are derived from Watson, Lewis, Cacioppi & Jayaraman, *Supply Chain Network Design* (chapters 3, 4, 5, 9, 10) and the accompanying case notebooks. Built as a teaching tool for that material.
 
-Solver: [PuLP](https://github.com/coin-or/pulp) + [CBC](https://github.com/coin-or/Cbc). Maps: [Leaflet](https://leafletjs.com/) over OpenStreetMap tiles. Postal codes for Chen's dataset: [GeoNames](https://www.geonames.org/) (CC BY 4.0).
+Solver: [PuLP](https://github.com/coin-or/pulp) + [CBC](https://github.com/coin-or/Cbc). Maps: [Leaflet](https://leafletjs.com/) over OpenStreetMap tiles.
