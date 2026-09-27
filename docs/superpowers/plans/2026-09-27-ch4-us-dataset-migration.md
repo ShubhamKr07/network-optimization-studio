@@ -18,6 +18,16 @@
 - **Do not touch `attached_assets/`** (hard rule #7). The three ChensCosmetics notebooks stay.
 - **Public model id:** `max-coverage-us`. **Private wire `modelType`:** `max_coverage_us`. These are different strings and neither is derivable from the other (MIG-21).
 - **`p` maximum is 26** for this model, declared in exactly four places (MIG-8).
+- **Never assert on `Function.prototype.toString()`.** The vitest/esbuild transform
+  **strips comments**, so a `.toString()` substring check can only be satisfied by
+  putting the matched words into *runtime* code — which means adding dead strings to
+  shipped files to feed a test. For source-shape assertions, `readFileSync` the file
+  and match its text, as `lockedModelGuards.test.ts:33,82` already does. (Learned in
+  Task 2: the original plan text mandated `.toString()` and produced exactly that dead
+  code, plus a widened `rootDir`.)
+- **Do not import across packages to satisfy a test.** An api-server test importing
+  `scripts/src/` forces api-server's tsconfig `rootDir` open to the repo root. Read the
+  file instead.
 - **Every commit message** ends with: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`
 - **Branch:** all work lands on a descriptive branch, never directly on `main` (branch discipline).
 - **Verification gate**, run before any task is considered done:
@@ -166,34 +176,50 @@ Destructive, touches student data, and **is not executed by this plan.** Task 7 
 
 - [ ] **Step 1: Write the failing test**
 
-Create `artifacts/api-server/src/__tests__/chensDeletion.test.ts`:
+Create `artifacts/api-server/src/__tests__/chensDeletion.test.ts`. **Do not import the script** — assert on its source text:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { countAffected, deleteChapter4Data } from "../../../../scripts/src/migrate-delete-chens-scenarios.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+// Assert on the script's SOURCE TEXT, not on Function.prototype.toString().
+// Two reasons, both learned the hard way:
+//   1. The vitest/esbuild transform STRIPS COMMENTS, so a toString() substring
+//      check can only be satisfied by putting the words into runtime code --
+//      i.e. by adding dead strings to a shipped script purely to feed a test.
+//   2. Importing scripts/src/ from an api-server test is a cross-package import
+//      that forces api-server's tsconfig rootDir open to the repo root.
+// Reading the file sidesteps both, and matches the pattern this repo already
+// uses for source-shape assertions -- see lockedModelGuards.test.ts:33,82.
+const SCRIPT = path.resolve(
+  import.meta.dirname,
+  "../../../../scripts/src/migrate-delete-chens-scenarios.ts",
+);
+const src = readFileSync(SCRIPT, "utf8");
 
 describe("Chapter 4 deletion scoping", () => {
   it("scopes jobs through the parent scenario, not solve_jobs.model_id (T2)", () => {
-    const sql = countAffected.toString();
-    expect(sql).toContain("join");
-    expect(sql).toContain("scenarios");
-    // solve_jobs.model_id is A1 Class-1 nullable -- NULL on every pre-A1 row.
-    expect(sql).not.toMatch(/solve_jobs\.model_id\s*=/);
+    // solve_jobs.model_id is A1 Class-1 nullable -- NULL on every pre-A1 row,
+    // so filtering on it silently spares exactly the oldest jobs.
+    expect(src).toMatch(/innerJoin\s*\(\s*scenariosTable/);
+    expect(src).toContain("scenariosTable.modelId");
+    expect(src).not.toMatch(/eq\s*\(\s*solveJobsTable\.modelId/);
   });
 
-  it("deletes solve_jobs before scenarios, and result_cache, in one transaction", () => {
-    const src = deleteChapter4Data.toString();
-    const jobsAt = src.indexOf("solveJobsTable");
-    const scenariosAt = src.indexOf("scenariosTable");
+  it("deletes solve_jobs before scenarios, and purges result_cache, in one transaction", () => {
+    const jobsAt = src.indexOf("delete(solveJobsTable)");
+    const scenariosAt = src.indexOf("delete(scenariosTable)");
+    const cacheAt = src.indexOf("delete(resultCacheTable)");
     expect(jobsAt).toBeGreaterThan(-1);
-    expect(jobsAt).toBeLessThan(scenariosAt);
-    expect(src).toContain("resultCacheTable");
-    expect(src).toContain("transaction");
+    expect(scenariosAt).toBeGreaterThan(-1);
+    expect(cacheAt).toBeGreaterThan(-1);
+    expect(jobsAt).toBeLessThan(scenariosAt);   // FK-safe ordering
+    expect(src).toMatch(/db\.transaction|tx\s*=>/);
   });
 
   it("never issues an ad-hoc job status update", () => {
-    const src = deleteChapter4Data.toString() + countAffected.toString();
-    expect(src).not.toMatch(/status:\s*["'](succeeded|failed|cancelled)["']/);
+    expect(src).not.toMatch(/set\s*\(\s*\{[^}]*status\s*:/);
   });
 });
 ```
@@ -204,7 +230,7 @@ describe("Chapter 4 deletion scoping", () => {
 pnpm --filter api-server test -- chensDeletion
 ```
 
-Expected: FAIL — `Cannot find module '.../migrate-delete-chens-scenarios.js'`
+Expected: FAIL — `ENOENT: no such file or directory` on `migrate-delete-chens-scenarios.ts`, because the script does not exist yet.
 
 - [ ] **Step 3: Write the script**
 
