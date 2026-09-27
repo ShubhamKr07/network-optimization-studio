@@ -1238,3 +1238,38 @@ benchmark corpus explicitly; the plan's grep filtered to `.ts`/`.tsx`/`.py` and
 the corpus is JSON. `test_corpus.py` is in the standard pytest gate, so this
 would have surfaced as a gate failure during execution rather than silently —
 but only after the cutover had landed.
+
+---
+
+## Second review — validation of the remediations — 2026-09-27
+
+The second independent review was scoped to commit **`f8fe84c`** and
+reconfirmed all six findings there. It did not assess the revision, and stated
+correctly that **the presence of a resolution note is not validation**. The
+remediation landed in **`b5d9dc1`**. This section is the validation that review
+asked for, not a restatement of the note.
+
+**Per-finding validation, checked against the current document:**
+
+| # | Remediation | Evidence |
+|---|---|---|
+| 1 | Lock precedes any removal | `### Task 1: Lock the old model` is the first task; it adds `"locked": true`; the only `git rm -r solvers/chens-cosmetics-cn` sits in **Task 9**, and the new "Execution order and deployment phases" section forbids deploying Tasks 3–9 until Stage C completes |
+| 2 | Corpus covered, including JSON | Task 5 names `benchmark/corpus/manifest.json` in its Files block and greps it in Step 1; it regenerates rather than renames |
+| 3 | Existing suites extended | `registry/__tests__/registration.test.ts` cited 5×; Task 4 gains `Step 5b: Update the dataset-schema suites` with the 25→26 / 197→200 / 4925→5200 and `p.maximum` changes spelled out |
+| 4 | Envelope path corrected | `pm["details"]["openWarehouseIds"]` appears in the test; the only remaining top-level form is this review's own prose quoting the defect |
+| 5 | Real interface | `estimateMaxCoverageKm(` no longer appears anywhere; Task 7 drives `fillEstimatedMaxCoverageDistances` with a fixture and asserts against exported `haversineKm` |
+| 6 | Hash compared, not pattern-matched | `expect(v.sha256).toBe(hash.digest("hex"))`, recomputed over the three files in the same sorted order `computeSha256` uses |
+
+**Interface-existence check, run 2026-09-27.** Every file path and exported
+symbol the plan cites was verified present: 10 paths and 9 symbols, **19 of 19
+found** — including the two that finding 3 and finding 5 caught as wrong
+(`registry/__tests__/registration.test.ts`, `fillEstimatedChensDistances`). This
+is the check whose absence produced those two findings; it is now part of the
+record rather than an assumption.
+
+**On end-to-end gate results.** A plan changes no code, so there is no
+execution gate to report yet — the only meaningful pre-execution gate is a
+**baseline** run proving the repo is green at the plan's starting point, so any
+failure during execution is attributable to a task rather than inherited. That
+baseline has not been run and is not claimed. It is the natural first action of
+execution, before Task 1.
