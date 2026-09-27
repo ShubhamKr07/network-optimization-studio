@@ -1,16 +1,16 @@
 # Chapter 4 — Two-Step Workflow (Max Coverage → Min Distance)
 
 **Date:** 2026-09-27
-**Model:** `chens-cosmetics-cn` (Chapter 4, Chen's Cosmetics — the only km-canonical model)
-**Status:** design approved section-by-section; not yet planned or implemented
-**Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md), which replaces Chapter 4's dataset with Al's US data and renames the model to `max-coverage-us`. Every `chens-cosmetics-cn` reference below is read as `max-coverage-us` once that lands, and §8 is superseded by it.
+**Model:** `max-coverage-us` (Chapter 4, Al's Athletics — Max Coverage; km-canonical per MIG-7)
+**Status:** review findings folded (see §12). Rebased onto the migration's terminology; **approval is gated on the migration spec being approved first** (W1), since these names are that spec's to finalise.
+**Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md). This document is written in that spec's **final** terminology — public id `max-coverage-us`, private wire `modelType` `max_coverage_us`, `maxCoverageInputsSchema`, `solve_max_coverage` — per its MIG-18, which forbids treating old identifiers as "read as" their replacements. §8 is superseded by its MIG-13.
 **Wireframes:** [`assets/ch4-wireframes/Ch4 Workflow Wireframes.dc.html`](assets/ch4-wireframes/Ch4%20Workflow%20Wireframes.dc.html) — frames 3a–3f, committed alongside this spec with its `support.js` renderer so it opens standalone. The deck is the normative source for workflow behaviour; §7 records where this design deliberately departs from its *layout*.
 
 ---
 
 ## 1. Problem
 
-Chapter 4 has two coupled objectives — maximize covered demand, then minimize weighted average distance without giving that coverage back. Today `chens-cosmetics-cn` exposes both through one free toggle in the Optimization Parameters tab (`OptimizationParametersTab.tsx:233`, gated at `:306` and `:333`). A student can run a min-distance solve with an arbitrary `coverageFloorDemand`, or none of the chapter's actual reasoning.
+Chapter 4 has two coupled objectives — maximize covered demand, then minimize weighted average distance without giving that coverage back. Today `max-coverage-us` exposes both through one free toggle in the Optimization Parameters tab (`OptimizationParametersTab.tsx:233`, gated at `:306` and `:333`). A student can run a min-distance solve with an arbitrary `coverageFloorDemand`, or none of the chapter's actual reasoning.
 
 Nothing links the two runs. The floor that makes a min-distance solve meaningful — the coverage a max-coverage solve actually achieved — has to be transcribed by hand, and nothing checks it.
 
@@ -20,7 +20,7 @@ This design replaces the free toggle with an ordered two-step workflow in which 
 
 **In.** The two-step state machine; Step 2 parameter storage; step-aware solve targeting; per-step result reads; the Chapter 4 UI changes needed to drive it; the side-by-side comparison at `2 of 2`; migration of existing Chapter 4 scenarios.
 
-**Out.** Any change to the other five models. Any change to the workspace navigation chrome (**CH4-1**: the deck's fixed `Inputs`/`Outputs` tab strip is *not* adopted — see §7). Any change to `solve.py`'s Chen model, which already implements both objectives and needs no new branch (CLAUDE.md hard rule #6). Any change to `scenarios.result`, `scenarios.stale`, or the A7 publication CAS.
+**Out.** Any change to the other five models. Any change to the workspace navigation chrome (**CH4-1**: the deck's fixed `Inputs`/`Outputs` tab strip is *not* adopted — see §7). Any change to `solve.py`, which already implements both objectives and needs no new branch for this design (CLAUDE.md hard rule #6). The prerequisite migration makes one subtractive solver edit of its own (MIG-1/MIG-6); this design adds none. Any change to `scenarios.result`, `scenarios.stale`, or the A7 publication CAS.
 
 ## 3. State machine
 
@@ -60,13 +60,13 @@ No new columns on any table. **CH4-5**: Step 2's entity data is *not* stored. §
 
 ### 4.2 Validation
 
-`chensInputsSchema` (`artifacts/api-server/src/validation/inputs/chens.ts:95`) must declare both new keys.
+`maxCoverageInputsSchema` (`artifacts/api-server/src/validation/inputs/maxCoverage.ts:95`) must declare both new keys.
 
 It is a plain `z.object`, so Zod strips unknown keys. `autoDistance.ts:541` and the PATCH path both re-parse stored inputs through it, so an undeclared `step2`/`stepEpoch` would be silently dropped on the next save rather than rejected — silent data loss, not a validation error.
 
 `step2` carries only `gap` and `timeLimitSec`. **CH4-6**: `p`, `highServiceDistKm` and `maxDistKm` are inherited from Step 1 and are not editable on Step 2. `highServiceDistKm` must be inherited or the floor constrains demand within a different radius than the one that produced it; `maxDistKm` follows for the same reason; `p` is inherited so that frame 3d's comparison puts two objectives over one network rather than two different networks. `avgServiceDistCapKm` does not exist in min-distance mode.
 
-The stored `objective` stays `"coverage"` — Step 1 is always the coverage step — so a stored blob remains a valid coverage payload under the existing discriminated `superRefine`, and legacy coverage scenarios need no transformation.
+The stored `objective` stays `"coverage"` — Step 1 is always the coverage step — so a stored blob remains a valid coverage payload under the existing discriminated `superRefine`. **CH4-24 (§4.3) makes that a rule the server enforces**, not merely a convention this design follows.
 
 ### 4.3 The epoch
 
@@ -74,7 +74,25 @@ The stored `objective` stays `"coverage"` — Step 1 is always the coverage step
 
 A **Step 1 field** is any key in `inputs` other than `step2`, `stepEpoch` and `distanceBands`.
 
-`stepEpoch` is bumped on any save whose changed keys include a Step 1 field. It is **not** bumped when the only changed key is `step2`, nor when the only changed key is `distanceBands` (already exempt, as a reporting lens, in `routes/distanceBands.ts`). The existing per-key diff in `routes/scenarios.ts:122-141` (`diffInputKeys`) gains this one further classification.
+**CH4-23 — the epoch is server-authoritative. A client can never set it.** `stepEpoch` lives in the client-writable `inputs` blob, so if the PATCH path merely validated it, a client could submit an *old* epoch and resurrect a historical job whose `input_snapshot` carries that value — presenting a superseded result as current. That is an integrity hole, not a cosmetic one, and it was present in the first draft of this design.
+
+The rule: the PATCH handler **discards any client-supplied `stepEpoch`** and computes the stored value itself, from the persisted row, inside the same locked transaction that writes `inputs`:
+
+- changed keys include a Step 1 field → `stepEpoch = persisted + 1`;
+- changed keys are only `step2`, only `distanceBands`, or both → `stepEpoch = persisted`, unchanged.
+
+Computed from the freshly-locked row, never from a client value and never read-modify-write in application code, so two concurrent edits cannot both derive the same next epoch. The existing per-key diff in `routes/scenarios.ts:122-141` (`diffInputKeys`) gains this one further classification.
+
+**CH4-24 — two validators, one boundary.** A stored Chapter 4 payload must never be a min-distance payload. Today `maxCoverageInputsSchema` accepts `objective: z.enum(["coverage", "min_distance"])`, so a client could PATCH `objective: "min_distance"` with any `coverageFloorDemand` it liked and bypass this entire workflow — the exact defect §1 exists to close.
+
+So the one schema splits into two, with opposite rules:
+
+| Validator | Used for | `objective` |
+|---|---|---|
+| **Persisted Step 1 validator** | every `POST`/`PATCH` of `scenarios.inputs` | `"coverage"` only; `min_distance` is **rejected**, as is any client-supplied `coverageFloorDemand` |
+| **Synthesized Step 2 snapshot validator** | the object built at enqueue (§5, CH4-10) and persisted as `input_snapshot` | `"min_distance"` required, with the server-injected floor |
+
+Only the server can produce a payload the second validator accepts. That is what makes the floor un-typeable rather than merely un-shown.
 
 A job counts for its step when its `input_snapshot`'s `stepEpoch` equals the scenario's current `stepEpoch`. Bumping the epoch therefore drops both steps at once, with nothing deleted — that bump *is* the confirm-and-clear.
 
@@ -93,15 +111,23 @@ A job counts for its step when its `input_snapshot`'s `stepEpoch` equals the sce
 - the snapshot's `objective` is what identifies which step a job belongs to;
 - the floor the student was shown and the floor the solver was given come from one source and cannot disagree.
 
-`coverageFloorDemand` is declared as an integer (`chens.ts:108`) and Step 1's `coveredDemand` is emitted as `int(covered)` (`solve.py:1462`), so the injection needs no rounding and cannot fail shape validation.
+`coverageFloorDemand` is declared as an integer (`maxCoverage.ts`, the renamed `chens.ts:108`) and Step 1's `coveredDemand` is emitted as `int(covered)` (`solve.py:1462`), so the injection needs no rounding and cannot fail shape validation.
 
-**CH4-11**: Solve is disabled while any job for the scenario is in flight, so the derived target cannot shift under a double-click.
+**CH4-11 — one active job per scenario, enforced at the database, not in the UI.** The first draft disabled the Solve button and stopped there. That is not an enforcement boundary: `enqueueScenarioSolve` locks the scenario row with `.for("update")` and then validates, prechecks and inserts (`jobRunner.ts:366-390`) **without ever checking for an existing job**, and `solve_jobs` carries no unique index over active rows. The lock serialises the two transactions; it does not make the second one refuse. Two tabs, or two direct `POST`s, both enqueue.
+
+That matters more here than in a single-objective model, because the target step is *derived from state* (CH4-9). Two Step 1 enqueues at `0 of 2` race to publish, and whichever lands second decides what `1 of 2` means.
+
+The guard goes **inside the same locked transaction**: if any `solve_jobs` row for this scenario has status `queued` or `running`, refuse. Backed by a partial unique index on `(scenario_id) WHERE status IN ('queued','running')`, so the database itself rejects a second active row even if a future caller forgets the check — the same belt-and-braces posture `lockedModelGuards.test.ts` already applies to route guards.
+
+The refusal is a documented response, not a generic 500: **`409 Conflict`** with the in-flight `jobId`, so the client can attach to the running job rather than retry blindly. `POST /scenarios/:id/solve`'s OpenAPI entry gains that response.
+
+The index is additive and nullable-free, so hard rule #3's NOT NULL protocol does not apply — but it can only be created once no scenario already holds two active rows, which the plan checks before applying.
 
 ## 6. Read path and API contract
 
 **CH4-12**: Chapter 4's UI reads neither `scenarios.result` nor `scenarios.stale`; it reads `steps` only. With CH4-20 superseded (§8), the server has no legacy fallback to build and derives `steps` purely from `solve_jobs`. Both columns continue to be written exactly as today — the publication CAS is untouched and the other five models are unaffected — but for a two-step scenario `result` holds whichever step solved last, which is a question nobody asks.
 
-**`GET /scenarios/:id` gains a `steps` object**, present only for `chens-cosmetics-cn`. Per step: `solved`, `stale`, `jobId`, and a compact `summary`. `Workspace.tsx` already polls the scenario while a solve runs, so the step toggle, the `N of 2 solved` counter and the output gating refresh with no new polling.
+**`GET /scenarios/:id` gains a `steps` object**, present only for `max-coverage-us`. Per step: `solved`, `stale`, `jobId`, and a compact `summary`. `Workspace.tsx` already polls the scenario while a solve runs, so the step toggle, the `N of 2 solved` counter and the output gating refresh with no new polling.
 
 **CH4-13**: the summary is projected in SQL. Frame 3d's comparison needs objective, percent coverage, covered demand, weighted average distance, run time and quality. `solve_jobs.resultSummary` (`jobRunner.ts:1358-1365`) carries only four of those — no covered demand, no coverage percent, no solution status. Rather than change the write path, which would leave every existing row short anyway, the read route extracts the missing fields from the stored envelope with jsonb path expressions, so Postgres returns the small object and never ships two full envelopes to Node. Same posture as `routes/solveHistory.ts`, which already pushes its dedupe into SQL.
 
@@ -158,7 +184,15 @@ Existing Chapter 4 scenarios are single-objective with one result and no step st
 
 **API (vitest/supertest).** Step derivation inside the locked transaction, for each of the three states. Epoch-bump classification: a Step 1 field bumps, a `step2`-only save does not, a `distanceBands`-only save does not. The synthesized Step 2 input, including floor injection from Step 1's job result. The `steps` projection, including a step with no job. Ownership returning 404 for the new endpoint.
 
-**Validation (vitest).** `stepEpoch`/`step2` round-trip through `chensInputsSchema` without being stripped; a legacy payload lacking both parses with `stepEpoch` defaulting to 1; `step2` rejects `p`/`highServiceDistKm`/`maxDistKm`.
+**Security and concurrency regressions, required (W2/W3).** These cover holes the first draft left open, so they are not optional coverage:
+
+- **Forged epoch** — a PATCH carrying a `stepEpoch` lower than the persisted one leaves the stored epoch untouched and does not revive the superseded job (CH4-23).
+- **Direct min-distance PATCH** — a PATCH with `objective: "min_distance"`, with or without a `coverageFloorDemand`, is rejected by the persisted Step 1 validator (CH4-24).
+- **Concurrent edit** — two overlapping Step 1 PATCHes yield two distinct consecutive epochs, never the same value twice.
+- **Concurrent double-POST** — two simultaneous solve requests produce exactly one `queued`/`running` job; the loser gets `409` with the in-flight `jobId` (CH4-11).
+- **Re-solve after the guard** — a stale Step 2 at `2 of 2` still re-solves normally once no job is active, proving the guard does not wedge the ordinary path.
+
+**Validation (vitest).** `stepEpoch`/`step2` round-trip through `maxCoverageInputsSchema` without being stripped; a legacy payload lacking both parses with `stepEpoch` defaulting to 1; `step2` rejects `p`/`highServiceDistKm`/`maxDistKm`.
 
 **Solver (pytest).** **CH4-21** asserted against the existing Chapter 4 goldens: seed a min-distance solve with the coverage solve's achieved covered demand and assert it solves rather than reporting infeasible.
 
@@ -168,7 +202,7 @@ Existing Chapter 4 scenarios are single-objective with one result and no step st
 
 **Goldens come from the migration, not from here.** The Chapter 4 defaults and goldens this design tests against are the ones the US dataset migration establishes (MIG-9, MIG-10) — `highServiceDistKm` 700, `maxDistKm` 5500, `avgServiceDistCapKm` 1000. This design changes no default and regenerates no golden; it must leave `highServiceDistKm` and `avgServiceDistCapKm` unequal, per the standing warning in `defaultInputsForModel` (`Workspace.tsx:134-140`).
 
-**CH4-22 — sibling e2e specs are rewritten in the same bundle.** `artifacts/studio/e2e/chens-cosmetics.spec.ts` step 4 switches to min-distance mode through the UI objective toggle that **CH4-17** removes, so it is a known breakage. `chen-bands-units-qa.spec.ts` and `tab-coverage.spec.ts` are audited for the same dependency, and any spec asserting on `chen-objective-toggle` or on the Outputs-disabled-until-solved behaviour is rewritten to the new UI. Per CLAUDE.md's recurring `spec_gap` rule this happens before merge, not after — the unit gate does not run Playwright and will not catch it.
+**CH4-22 — sibling e2e specs are rewritten in the same bundle.** `artifacts/studio/e2e/max-coverage.spec.ts` step 4 switches to min-distance mode through the UI objective toggle that **CH4-17** removes, so it is a known breakage. `chen-bands-units-qa.spec.ts` and `tab-coverage.spec.ts` are audited for the same dependency, and any spec asserting on `chen-objective-toggle` or on the Outputs-disabled-until-solved behaviour is rewritten to the new UI. Per CLAUDE.md's recurring `spec_gap` rule this happens before merge, not after — the unit gate does not run Playwright and will not catch it.
 
 ## 11. Decision index
 
@@ -186,7 +220,7 @@ Defined in place; this index is a pointer, not a restatement.
 | CH4-8 | `solveInputRevision` left untouched | §4.3 |
 | CH4-9 | Target step derived inside the enqueue lock | §5 |
 | CH4-10 | Step 2's solve input synthesized, not stored | §5 |
-| CH4-11 | Solve disabled while a job is in flight | §5 |
+| CH4-11 | One active job per scenario, enforced in the DB; `409` on conflict | §5 |
 | CH4-12 | Chapter 4 ignores `scenarios.result`/`stale` | §6 |
 | CH4-13 | Per-step summary projected in SQL | §6 |
 | CH4-14 | Full envelopes fetched lazily per step | §6 |
@@ -197,4 +231,24 @@ Defined in place; this index is a pointer, not a restatement.
 | CH4-19 | ~~Legacy coverage adopts; min_distance read-only~~ — superseded by MIG-13 | §8 |
 | CH4-20 | ~~Null `input_snapshot` falls back to `scenarios.result`~~ — superseded by MIG-13 | §8 |
 | CH4-21 | Step 2 cannot be infeasible | §9 |
-| CH4-22 | `chens-cosmetics.spec.ts` rewritten in the same bundle | §10 |
+| CH4-22 | `max-coverage.spec.ts` rewritten in the same bundle | §10 |
+| CH4-23 | `stepEpoch` is server-authoritative; client values discarded | §4.3 |
+| CH4-24 | Two validators: persisted rejects `min_distance`, synthesized requires it | §4.3 |
+
+---
+
+## 12. Review resolution — 2026-09-27
+
+Three blockers. **All three verified against source; all three held.** Two of them were real holes in this design, not presentation problems.
+
+| Finding | Verified how | Landed in |
+|---|---|---|
+| **W1** — the document must be textually rebased, not "read as" | The prerequisite's MIG-18 forbids the construct this header used | Rebased throughout to `max-coverage-us` / `max_coverage_us` / `maxCoverageInputsSchema` / `solve_max_coverage`; status now gates approval on the migration's |
+| **W2** — `stepEpoch` was client-writable, and a stored min-distance payload was accepted | `stepEpoch` sits in the client-writable `inputs` blob; `chens.ts:97` accepts `objective: z.enum(["coverage","min_distance"])` today | §4.3 CH4-23 (server-authoritative epoch) and CH4-24 (two validators); §10 regressions |
+| **W3** — one-in-flight was UI-only | `enqueueScenarioSolve` (`jobRunner.ts:366-390`) locks the row then inserts with no active-job check; `solve_jobs` has no unique index over active rows | §5 CH4-11 rewritten — in-transaction guard, partial unique index, documented `409` |
+
+**W2 is the one worth dwelling on.** The first draft put a security-relevant validity marker inside a blob the client writes, and separately relied on "the stored objective stays coverage" as a convention rather than a constraint. Either alone is exploitable: forge an old `stepEpoch` and a superseded job presents as current; or PATCH `objective: "min_distance"` with a floor of your choosing and skip the workflow entirely — the precise thing §1 says this design exists to prevent. Both are now enforced server-side with named regressions.
+
+**W3 is the same class of mistake at a different layer.** CH4-11 originally disabled a button and called it a rule. It matters more here than in a single-objective model because the target step is *derived from state*: two Step 1 enqueues at `0 of 2` race, and the loser decides what `1 of 2` means.
+
+**On W1's sequencing.** The rebase is done now rather than deferred, because leaving the "read as" construct in place is exactly what MIG-18 prohibits. The names used are the ones already decided for the migration; if re-review changes any of them, both specs change together. Approval of this document still follows the migration's, as W1 requires.
