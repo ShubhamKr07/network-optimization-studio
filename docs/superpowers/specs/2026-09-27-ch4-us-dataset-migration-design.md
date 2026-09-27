@@ -120,6 +120,24 @@ Verified 2026-09-27 with both solvers at `p=3`: open ids `{BAL, DAL, LA}` on bot
 
 This validates the data pipeline; it does **not** validate the coverage constraint or the average-distance cap, which are Chapter 4's own and which nothing in Chapter 3 exercises.
 
+**What each half of the assertion actually defends (found in execution, 2026-09-28).**
+The two halves are not equally strong and the difference matters:
+
+- The **objective-ratio** check is what catches a mis-scaled distance matrix. A wrong
+  circuity factor, a wrong km/mi constant, or a doubled unit changes
+  `maxCoverageObjective` by exactly that factor, so the ratio leaves the tolerance.
+  Measured: truncating `1.609344` to five significant figures already produces a
+  relative difference of ~2.5e-6, three orders above the `1e-9` tolerance.
+- The **open-set** check is **scale-invariant** and does *not* defend against that
+  failure mode. Multiplying every distance by a constant does not change the argmin of
+  a linear-cost minimization, so a uniform mis-scaling leaves both models opening the
+  same warehouses. Its real value is against *non-uniform* corruption — a transposed
+  coordinate, a single bad entry, a wrong subset of candidates read — anything that
+  changes relative distances rather than all of them.
+
+Do not read a passing open-set comparison as evidence the units are right. Only the
+ratio assertion carries that.
+
 **Verification already performed** (2026-09-27, real CBC via `solve_chens` with the US data injected in memory; no repo files modified). That run stored `stored_mi × 1.609344 ÷ 1.17` and let the solver multiply; MIG-6 now stores `stored_mi × 1.609344` with no multiplication. **The effective distances are identical either way**, so these figures carry over unchanged — the R3 decision moved where the number is written, not what is solved:
 
 | | Step 1 — coverage | Step 2 — min distance |
