@@ -3,7 +3,7 @@
 E2E User Journey Test Suite
 ============================
 Tests the full API lifecycle a user would follow through the Studio — auth,
-dataset inspection, scenario CRUD, async solving, cloning — for three of the
+dataset inspection, scenario CRUD, async solving, cloning — for four of the
 lab problem types.
 
 STANDALONE SCRIPT, not pytest-discovered (no `test_*.py` name) —
@@ -11,7 +11,7 @@ STANDALONE SCRIPT, not pytest-discovered (no `test_*.py` name) —
 
     python3 e2e_journey.py                              # default local dev server
     python3 e2e_journey.py http://localhost:3001         # explicit base URL
-    python3 e2e_journey.py <BASE_URL> [section]          # section: auth|dataset|pmedian|transport|brazil
+    python3 e2e_journey.py <BASE_URL> [section]          # section: auth|dataset|pmedian|transport|delivery|brazil
 
 A13a repair (2026-09-24): this script was fully non-runnable before this
 fix — it authenticated via `POST /login {userId}`, the legacy endpoint
@@ -615,6 +615,95 @@ def journey_brazil() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# JOURNEY 5 · Delivery Company Teaching Example (Chapter 5, modified)
+# ─────────────────────────────────────────────────────────────────────────────
+def journey_delivery() -> None:
+    """`delivery-teaching-us` — 33 candidate DCs, 313 customers, a
+    dollar-rate cost-adjustment toggle. Run 1 (toggle off) is the case
+    study's Scenario 1 (pytest golden: objective 88,240,913,478.10, open
+    {W1, W2, W60}, weightedAvgDistance 422.5511); Run 2 flips
+    costAdjustEnabled on (Scenario 2 golden: open {W6, W43, W45},
+    weightedAvgDistance 508.6534). This script asserts loose bounds, not
+    the exact goldens — pytest (test_delivery.py) already owns those to
+    4-5 significant figures; this journey only proves the HTTP/solve
+    round-trip is wired end to end."""
+    _section("JOURNEY 5 · Delivery Company Teaching Example")
+    created: list[int] = []
+
+    _step("Fetch /api/dataset?modelId=delivery-teaching-us")
+    status, body = GET("/dataset?modelId=delivery-teaching-us")
+    b = _d(body)
+    _check("GET /dataset?modelId=delivery-teaching-us → 200", status == 200, f"HTTP {status}")
+    whs = b.get("warehouses") or []
+    cus = b.get("customers") or []
+    _check("33 candidate DCs",             len(whs) == 33, f"got {len(whs)}")
+    _check("313 customers",                len(cus) == 313, f"got {len(cus)}")
+    warehouse_ids = {w.get("id") for w in whs}
+
+    base_inputs = {
+        "p": 3,
+        "distanceBands": [400, 800, 1200, 1600],
+        "gap": 0,
+        "timeLimitSec": 300,
+        "costAdjustEnabled": False,
+        "distanceThreshold": 800,
+        "costPerMile": 1,
+        "costPerMileOver": 10,
+        "laneCostOverrides": [],
+    }
+
+    # ── Run 1: toggle OFF (Scenario 1) ────────────────────────────────────────
+    _step("Create scenario: costAdjustEnabled=False (Scenario 1)")
+    status, scen = POST("/scenarios", {
+        "name": "Journey · Delivery Scenario 1",
+        "modelId": "delivery-teaching-us",
+        "inputs": base_inputs,
+    })
+    b = _d(scen)
+    _check("Create scenario → 201",        status == 201, f"HTTP {status} {b}")
+    _check("modelId = delivery-teaching-us", b.get("modelId") == "delivery-teaching-us")
+    base_id = b["id"]
+    created.append(base_id)
+
+    outcome1 = _solve_and_wait(base_id)
+    r1 = outcome1.get("result") or {}
+    _check("Run 1: job terminal status succeeded", outcome1.get("status") == "succeeded",
+           outcome1.get("status", "?"))
+    _check("Run 1: envelope status optimal", r1.get("status") == "optimal", r1.get("status", "?"))
+    customers1 = {e.get("toId") for e in (r1.get("edges") or [])}
+    _check("Run 1: 313 customers served", len(customers1) == 313, f"got {len(customers1)}")
+    open1 = _open_facility_ids(r1)
+    _check("Run 1: open ids ⊆ the 33 warehouse ids", open1 <= warehouse_ids, str(open1 - warehouse_ids))
+    wad1 = (r1.get("metrics") or {}).get("weightedAvgDistance") or 0
+    # Golden is 422.5511; [400, 450] survives a CBC tie but is tight enough
+    # to catch a cost-per-unit number rendered under a distance label
+    # (test_avg_distance_not_derived_from_objective's bug class).
+    _check("Run 1: weightedAvgDistance in [400, 450]", 400 <= wad1 <= 450, f"got {wad1}")
+
+    # ── Run 2: toggle ON (Scenario 2) ─────────────────────────────────────────
+    _step("PATCH costAdjustEnabled=True → re-solve (Scenario 2)")
+    status, patched = PATCH(f"/scenarios/{base_id}", {"inputs": {**base_inputs, "costAdjustEnabled": True}})
+    _check("PATCH → 200",                  status == 200, f"HTTP {status}")
+    _check("PATCH marks scenario stale",   _d(patched).get("stale") is True)
+
+    outcome2 = _solve_and_wait(base_id)
+    r2 = outcome2.get("result") or {}
+    _check("Run 2: envelope status optimal", r2.get("status") == "optimal", r2.get("status", "?"))
+    open2 = _open_facility_ids(r2)
+    _check("Run 2: open set changes with the toggle on", open2 != open1, f"{open2} == {open1}")
+    wad2 = (r2.get("metrics") or {}).get("weightedAvgDistance") or 0
+    # Golden is 508.6534.
+    _check("Run 2: weightedAvgDistance in [490, 530]", 490 <= wad2 <= 530, f"got {wad2}")
+
+    # ── Cleanup ───────────────────────────────────────────────────────────────
+    _step("Cleanup Delivery scenarios")
+    _cleanup(created)
+    for sid in created:
+        st, _ = GET(f"/scenarios/{sid}")
+        _check(f"Scenario {sid} deleted → 404", st == 404, f"HTTP {st}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 JOURNEYS: dict[str, Any] = {
@@ -622,6 +711,7 @@ JOURNEYS: dict[str, Any] = {
     "dataset":   journey_dataset,
     "pmedian":   journey_pmedian,
     "transport": journey_transport,
+    "delivery":  journey_delivery,
     "brazil":    journey_brazil,
 }
 

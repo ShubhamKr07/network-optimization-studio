@@ -43,6 +43,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | ch4-fixes | L231 |
 | Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes | L459 |
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
+| Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
 
 ---
 
@@ -451,6 +452,14 @@ not reproducible offline, and `solvers/chens-cosmetics-cn/dataset/*.json` remain
 the machine (searched `~/Downloads`, `~/Desktop`, `~/Documents`, home tree), and neither model has an
 `extract-*` script. How their datasets were produced is unrecorded.
 
+**Amended (Chapter 5 delivery-teaching-us, 2026-09-29, `ch5-del-1`):** the above is narrower than it
+reads — it was true only for `transport-coal`/`p-median-brazil`, the two models that existed under
+"Chapter 5" at the time this note was written. It does not describe Chapter 5 as a whole any more.
+A THIRD Chapter 5 model, `delivery-teaching-us` ("Chapter 5, modified" — a distinct teaching example,
+not a rename of either retired model), was added in Task 1 of the `ch5-delivery` branch with a real
+source workbook (a `~/Downloads` xlsx, 33 plants/313 customers/10,329 lanes) and its own extractor
+script — see that entry below.
+
 **Gate:** none run — no source, test, or config file is touched. The only executable path near this
 change is the Chen extractor, which was run once to verify reproducibility and whose output was
 reverted.
@@ -755,3 +764,112 @@ on a stuck actionability wait, turning a 10-second problem into a multi-minute o
 always bound e2e interactions that follow a dialog/disabled-state transition; a form field's
 draft-until-blur/Enter commit pattern (`useDistanceDraft`) means `.fill()` alone can silently never
 reach a guarded write path at all.
+
+---
+
+## Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`)
+
+Branch `ch5-delivery`, 13 tasks executed sequentially against a 13-task plan
+(`docs/superpowers/sdd/` — see the plan's own two review rounds, R1/Rev2/Rev2.1, for the design
+history). A **seventh** model — not a rename of `transport-coal`/`p-median-brazil` (the two other,
+still-hidden Chapter 5 models) but a genuinely distinct teaching example built from the COG
+(Center-of-Gravity) case study's own dataset: 33 candidate distribution centers, 313 customers,
+10,329 warehouse×customer lanes. `p_i \le P` facility-location on a **cost table**, not a distance
+table — the interesting pedagogical point this chapter teaches — with an opt-in toggle
+(`costAdjustEnabled`) that reprices every lane from its distance (a flat rate under a threshold, a
+steeper rate beyond it) so students can watch the optimal network change when long lanes get more
+expensive, without ever touching the underlying distances.
+
+**Tasks 1–7 (solver + data + API registration):** `scripts/extract-cog-dataset.py` transcribes the
+source xlsx (`~/Downloads/COG_CaseStudy_v2/COG-Model-Data-3DC-3WH.xlsx`) into
+`solvers/delivery-teaching-us/dataset/{warehouses,customers,distances,costs}.json` — keyed by column
+letter (not position) so a blank `<c>` cell can't silently shift every later column, ZIPs preserved
+as zero-padded strings. `solve_delivery` (`solve.py`) mirrors `solve_pmedian`'s shape
+(`{customerId, warehouseId, distanceMi, band}` assignments, single-source, `FacilityCount <= p`) but
+separates **cost** (what the objective sums) from **distance** (what bands/WAD/edges report) — the
+`_effective_delivery_costs` function is the one place a lane's billed cost is computed, and toggling
+`costAdjustEnabled` changes ONLY that function's output, never `edges[].distance`. Two measured
+goldens, verified against an independent oracle PuLP/CBC script that shares no code with `solve.py`
+(`docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py`): Scenario 1 (toggle off — costs
+seeded equal to distances, i.e. the case study's flat $1/mile) opens `{W1, W2, W60}`, objective
+`88,240,913,478.10`, weighted avg distance `422.5511` mi; Scenario 2 (toggle on,
+`distanceThreshold=800`/`costPerMile=1`/`costPerMileOver=10`) opens `{W6, W43, W45}`, objective
+`150,194,534,098.60`, WAD `508.6534` mi. Registered across all ten of the pre-existing "ten
+registration points" (manifest, `KNOWN_SCHEMAS`, `VALID_MODEL_IDS`, `PACKAGE_SPECS`, `buildPayload`,
+openapi enums, `solve.py` dispatcher, precheck dispatcher, router mount, `GET /dataset` branch) plus
+nine more this integration discovered were never on that list at all (`objectiveDimension`,
+`MODEL_IDS`, `inputEntriesForModel`'s permissive default, `buildEffectiveFacilityCityLookup`, `pMax`
+at both Workspace mounts, `registration.test.ts`'s per-model source gates, and
+`crossModelStepContract.test.ts`'s `NON_STEP_MODELS`) — see `model-integration-precheck.md` Gate 1,
+folded in Task 13.
+
+**Tasks 8–12 (Studio):** the sidebar tab rail for this model is exactly three entries — **Input
+Map** (read-only: no add/move/delete/status/demand/Save affordance, Task 9's dedicated `readOnly`
+InputMapTab variant), **Delivery Costs** (Task 11's paginated base×override cost grid, the model's
+ONLY editable dataset surface — no Warehouses/Customers/Distances tabs at all), and **Optimization
+Parameters** (P capped at 33 at both the slider and `SolveDialog`, plus Task 10's **Adjust Cost
+Table** control exposing the three rate fields only once the toggle is on). Outputs: Open Warehouses
+shows **Demand Served** (not Utilization — this model has no capacity concept, `capacityModes: []`),
+Solution Summary/Service Stats gained an opt-in `{ decimals: 2 }` precision path
+(`computeCumulativeBandCoverage`) so `81.45%`/`97.19%` render exactly rather than rounding to the
+nearest whole percent the way every pre-existing model does.
+
+**Task 13 — e2e journey + documentation closeout:**
+- `artifacts/studio/e2e/delivery-teaching.spec.ts` (new): Landing card presence (+ the two retired
+  Chapter 5 models' continued absence) → tab-rail shape → read-only Input Map → a real CBC solve
+  reproducing Scenario 1 → Adjust Cost Table toggle + re-solve reproducing Scenario 2 → toggle back
+  off + a lane-cost override reproducing the invariance proof `test_delivery.py` already owns at the
+  pytest layer (override the W60→C3 lane — Scenario 1's first positive-distance assignment — to cost
+  `0`; open set unchanged, objective drops by EXACTLY that lane's base cost × demand) → CSV/JSON
+  exports. Four real solves (not one) — a deliberate, disclosed deviation from "carry at most one
+  real-CBC journey": this model solves in ~2–4s (measured), nothing like `max-coverage-us`'s ~170s,
+  so the discipline that matters for that model doesn't transfer here, and the four solves are each
+  load-bearing to the literal journey the plan describes.
+- `e2e_journey.py` gained `journey_delivery()` (create → real solve → Scenario 1 bounds `[400, 450]`
+  mi → toggle on → re-solve → Scenario 2 bounds `[490, 530]` mi) and a `"delivery"` entry in the
+  `JOURNEYS` dispatch dict — without the dict entry the function exists but
+  `python3 e2e_journey.py <url> delivery` still exits 1 with `Unknown section`.
+- `bundle4-auth-landing.spec.ts` / `bundle6-ui-tweaks.spec.ts` — the lab-count assertions (already
+  corrected from the plan's recorded `"2 labs"` to `"3 labs"` by the Chapter 4 e2e repair merged
+  ahead of this branch) moved to **`"4 labs"`**, and `auth-labs-strip` to
+  `"Chapter 3Chapter 4Chapter 5Chapter 9"`. One assertion **inverted**, not merely changed:
+  `bundle6-ui-tweaks.spec.ts` asserted `getByText(/Chapter 5 ·/)` had count **0** (dating from when
+  both Chapter 5 models were hidden) — now a presence check, backed by an actual solved
+  `delivery-teaching-us` scenario in that test so the assertion has something real to find. Stale
+  prose claiming Chapter 5 is hidden was corrected in both files.
+- Documentation: `README.md` "six models" → seven (×2) plus the `solvers/` directory-tree line;
+  `CLAUDE.md`'s "Six models live under `solvers/`" line → seven, and its `e2e_journey.py` "fully
+  non-runnable" claim (accurate history through Bundle 2.2, stale since A13a's 2026-09-24 repair)
+  corrected — independently confirmed runnable three times this task; `model-integration-precheck.md`
+  Gate 1 grew from 10 to 19 numbered registration points (11–19 are the ones this integration found);
+  the `docs/CHANGELOG-implementation.md` "Chapter 5 — nothing to commit" line (2026-09-26, above) was
+  amended in place rather than rewritten — it was only ever true for the two retired models, not for
+  this one; `attached_assets/NOTEBOOKS.md`'s Task-1-recorded sha256 hashes were independently
+  re-verified against the committed files (`shasum -a 256`) and match exactly.
+
+**Dependency audit re-run (Task 0 Steps 3/4, per Task 13 Step 5):** the `"delivery-teaching-us"`
+literal-string probe sweep (48 hits, excluding tests/generated/e2e) maps cleanly onto the plan's R7
+registration inventory with no unaccounted hit; a parallel `"max-coverage-us"` sweep differs from it
+only where R7 predicts N/A (`referenceDistances.ts`/`autoDistance.ts` — this model supports
+reference COSTS, not reference distances, and has no add/move Input-Map entities to estimate
+distances for; `services/import.ts` — no importable entities; `services/Steps.ts` and the
+`ch4-two-step`/`chen-bands-units-qa` specs — the two-step workflow is `max-coverage-us`-exclusive,
+and `delivery-teaching-us` is correctly a `NON_STEP_MODELS` entry instead) plus each model's own
+model-specific test/build-script files, which differ by name as expected.
+
+**Full gate, run 2026-09-29:** `git diff --check` clean · `pnpm run typecheck` clean · api-server
+**1594/1594** (3 files — `cors`, `jobRunnerDispatcher`, `resultEnvelope` — flaked under concurrent
+dev-server/e2e load in the full run and passed 27/27 in isolation immediately after, matching
+CLAUDE.md's own documented load-induced-flake list) · studio **2145/2145** (118 files) · `@workspace/units`
+**30/30** · `@workspace/dataset-schema` **50/50** · solver pytest **301/301** · `e2e_accuracy.py`
+**99/99**, run directly, unmodified · `e2e_journey.py http://localhost:3011 delivery` **42/42** · `pnpm e2e:gate`
+**43 passed / 13 failed / 4 skipped**, run twice: once under concurrent dev-server/pytest load
+(**41 passed / 14 failed / 1 flaky / 4 skipped**, with 2 of those — `chen-bands-units-qa`'s already-
+flaky case and `workspace-fixups-2.spec.ts` — reproducing clean in isolation), then again against
+freshly-started, uncontended dev servers, which landed exactly on **43/13/4** with the failed set
+matching the 11-test-rot + 2-env-gap list byte for byte. Delta against the merged-tree baseline
+(`42 passed / 13 failed / 4 skipped`): **+1 passed** (this task's new spec), **0 change** to the 13
+known failures, **0 change** to skipped.
+
+**One commit, per the dispatching agent's explicit instruction for this task:**
+`[ch5-del-13] add the delivery e2e journey and complete the documentation closeout`.

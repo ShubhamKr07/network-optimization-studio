@@ -142,7 +142,7 @@ lib/db/                Drizzle schema (Postgres)
 lib/dataset-schema/    manifest + dataset validation, version hashing
 artifacts/api-server/  Express 5 API, model registry, job runner, Python solver
 artifacts/studio/      React + Vite + Tailwind + Radix + Leaflet + TanStack Query
-solvers/               six self-describing model packages
+solvers/               seven self-describing model packages
 docs/                  design system, ops runbooks, specs, plans, metrics
 ```
 
@@ -152,7 +152,7 @@ docs/                  design system, ops runbooks, specs, plans, metrics
 
 ## Research & engineering notes
 
-The interesting part of this project wasn't the CRUD. It was making a teaching tool that is *provably* faithful to the source material, and keeping it that way across six models.
+The interesting part of this project wasn't the CRUD. It was making a teaching tool that is *provably* faithful to the source material, and keeping it that way across seven models.
 
 ### We found a real bug in the published textbook notebook
 
@@ -168,7 +168,7 @@ That protection has teeth. A long-standing "102/102 passed" headline turned out 
 
 ### Business rules enter as data, never as branches
 
-A standing rule: forced-open sites, inactive facilities, demand overrides, and capacities become **variable bounds and coefficient changes** in the PuLP model — never new `if/else` paths in `solve.py`. This is what keeps six models in 1,300 lines instead of 6,000, and it's why a per-warehouse capacity override was a one-line bound change rather than a new solver.
+A standing rule: forced-open sites, inactive facilities, demand overrides, and capacities become **variable bounds and coefficient changes** in the PuLP model — never new `if/else` paths in `solve.py`. This is what keeps seven models in a few thousand lines instead of tens of thousands, and it's why a per-warehouse capacity override was a one-line bound change rather than a new solver.
 
 ### Scenario-local network edits
 
