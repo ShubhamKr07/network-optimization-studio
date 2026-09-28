@@ -3220,6 +3220,14 @@ Add a `journey_delivery()` to `e2e_journey.py` following its existing style (no 
 
 `bundle4-auth-landing.spec.ts:120,153-154,183-184,212-213` and `bundle6-ui-tweaks.spec.ts:270-271` assert `"2 labs"` when the true figure has been 3 since Chapter 4 was unlocked (`docs/CHANGELOG-implementation.md:412`). Set them to the correct post-change value of **4**. Their `auth-labs-strip` assertions disagree with each other today (`bundle4:50,55` `"Chapter 3Chapter 9"`; `bundle6:313-314` `"Chapter 3Chapter 10"`) and neither matches the live non-hidden set — set both to `"Chapter 3Chapter 4Chapter 5Chapter 9"`, the string Task 8 Step 3's insertion position yields (and `Login.test.tsx` pins at unit level). Do not increment their current wrong values. (`labs.spec.ts:95-103` also enumerates three stale lab names but is excluded from `e2e:gate` and stays untouched.)
 
+**Three additions from the Chapter 4 workstream's e2e investigation — the line numbers below are from THIS branch pre-merge and will shift:**
+
+1. **An assertion that INVERTS, not merely changes.** `bundle6-ui-tweaks.spec.ts:278` asserts `await expect(page.getByText(/Chapter 5 ·/)).toHaveCount(0)` — an explicit "Chapter 5 is not visible on Landing" check dating from when both Chapter 5 models were hidden. The moment this chapter ships, that assertion must become a **presence** check, not a count-0 one. Changing the lab counts while leaving this alone produces a red spec in a file this bundle otherwise looks unrelated to.
+2. **Prose that becomes false.** `bundle4:129` ("Chapter 5 remain hidden entirely"), `bundle4:151` ("Chapter 10 + Chapter 5 stay hidden"), `bundle4:52,115` and `bundle6:22` all state Chapter 5 is hidden. Correct them — a comment asserting the opposite of the code beside it is how the next reader gets misled, and this plan has already been bitten by exactly that.
+3. **Re-grep; do not trust any enumerated list, including this one.** The counts appear in both single-line and multi-line `toHaveText` forms, and a strict grep misses the multi-line ones (the Chapter 4 workstream's own list was incomplete for this reason and they said so). Run `rg -n 'labs ·|labs`·|Chapter 5|auth-labs-strip' artifacts/studio/e2e/` and work from the result, not from the file:line references above.
+
+**On the baseline value:** at the time this plan was written these specs read `"2 labs"`. The Chapter 4 workstream's e2e repair corrects them to `"3 labs"` before this task runs. Either way the instruction is unchanged — **set to 4, never increment** — but expect to find 3, not 2, and treat finding 2 as a sign the repair did not land.
+
 - [ ] **Step 4: Run the full gate**
 
 ```bash
