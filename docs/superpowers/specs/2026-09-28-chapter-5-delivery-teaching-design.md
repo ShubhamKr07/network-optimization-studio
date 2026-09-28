@@ -771,13 +771,19 @@ The `OptimizationParametersTab.tsx` overlap is the one that matters, and it is
 | --- | --- | --- |
 | `OptimizationParametersField` union | 10–30 | **both** — Ch4 adds `"step2Gap" \| "step2TimeLimitSec"`, this design adds four |
 | `OptimizationParametersTabProps` | 32–133 | **both** — Ch4 removes `onObjectiveModeChange` and `coverageFloorDemand` (`:107`) and adds five; this design adds four |
-| `{objective != null && (...)}` | 235–359 | Ch4 only — deleted, enclosing both the toggle at 236–260 and the coverage-floor block at 343–359 |
-| gap / time limit, ungated | 363–382 | neither |
+| `{objective != null && (` gate, and its `chen-objective-section` div | 235–236, 358–359 | neither — retained |
+| the objective toggle div | 237–262 | Ch4 only — deleted |
+| `{objective === "coverage" && (...)}` | 316–341 | neither — retained |
+| `{objective === "min_distance" && (...)}` coverage floor | 343–357 | Ch4 only — deleted |
+| gap / time limit, ungated | 361–382 | neither |
 | `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` gates | 388 / 411 / 423 / 438 | this design only |
 
-Their last deletion ends at 359; the presence-gated family this design extends
-begins at 388. Twenty-nine lines apart, far outside git's three-line default
-context, so **the JSX hunks merge without a conflict marker**.
+Ch4 deletes two interior spans, not the enclosing block: the gate at 235 and
+its closing `)}` at 359 survive, because the `objective` prop itself stays.
+Their last deleted line is therefore **357**, and the first line this design
+adds beside is **388** — thirty lines strictly between (358–387), far outside
+git's three-line default context, so **the JSX hunks merge without a conflict
+marker**.
 
 The actual conflict is the union on one line and the props interface across
 one hundred, where both changes add members. Rebasing therefore means
@@ -785,10 +791,15 @@ reconciling a type and an interface, not relocating JSX — a different and
 easier job than "move your component block", but one that a reviewer skimming
 for JSX conflicts will miss entirely.
 
-*(An earlier revision of this section located the collision at `:378-419`.
-That range came from a recon pass reading `b7bb21a`, before the Chapter 4
-migration merged; at `32cacf8`, line 378 is inside the ungated time-limit
-input. The numbers above were re-measured against the merged tree.)*
+*(This section's line numbers have been corrected twice, and both corrections
+are left visible rather than swapped in silently — a spec whose refs were
+quietly rewritten is indistinguishable from one that was right the first time.
+Rev 1 put the collision at `:378-419`; that range came from a recon pass
+reading `b7bb21a`, before the Chapter 4 migration merged, and at `32cacf8`
+line 378 sits inside the ungated time-limit input. Rev 2 then treated the
+whole `235–359` block as deleted and computed a 29-line gap; in fact only the
+two interior spans go, the last deleted line is 357, and the gap is 30. Every
+number in the table above was read off `32cacf8` directly.)*
 
 **The step wrapper.** The Chapter 4 plan's Task 7 wraps its whole block in
 `{(step ?? 1) === 1 && ...}` so Step 1 and Step 2 render exclusively. Anything
