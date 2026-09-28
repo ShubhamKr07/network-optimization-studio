@@ -80,6 +80,7 @@ import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
 import { applyScenarioInputWrite, initialInputsForInsert, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
+import { loadScenarioSteps } from "../services/maxCoverageSteps.js";
 
 const router = Router();
 
@@ -239,7 +240,42 @@ router.get("/scenarios/:scenarioId", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(row.modelId)) { respondLocked(res); return; }
-  res.json(toApiScenario(row));
+
+  // CH4-12 — `steps` is present ONLY for max-coverage-us; the loader returns
+  // null for every other model and the key is omitted. Deliberately merged
+  // here rather than inside toApiScenario: that projector is synchronous and
+  // shared with GET /scenarios, where a per-row query there would be an N+1.
+  const steps = await loadScenarioSteps(
+    row.id, req.userId!, row.modelId, (row.inputs ?? {}) as Record<string, unknown>,
+  );
+  res.json(steps ? { ...toApiScenario(row), steps } : toApiScenario(row));
+});
+
+// CH4-14 — full envelopes stay lazy. The output tabs read one step at a time,
+// so a 200-customer assignments grid is fetched only when looked at.
+// Ownership-scoped and 404-never-403 like every scenario route (hard rule #5).
+router.get("/scenarios/:scenarioId/steps/:step/result", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const step = Number(req.params.step);
+  if (step !== 1 && step !== 2) { res.status(404).json({ error: "Not found" }); return; }
+
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
+  if (scenario.modelId !== "max-coverage-us") { res.status(404).json({ error: "Not found" }); return; }
+
+  const steps = await loadScenarioSteps(
+    scenario.id, req.userId!, scenario.modelId, (scenario.inputs ?? {}) as Record<string, unknown>,
+  );
+  const state = step === 1 ? steps!.step1 : steps!.step2;
+  if (!state.solved || state.jobId == null) { res.status(404).json({ error: "Not found" }); return; }
+
+  const [job] = await db.select({ result: solveJobsTable.result }).from(solveJobsTable)
+    .where(and(eq(solveJobsTable.id, state.jobId), eq(solveJobsTable.userId, req.userId!)));
+  if (!job?.result) { res.status(404).json({ error: "Not found" }); return; }
+
+  res.json({ result: presentResultForRead(job.result as Record<string, unknown>) });
 });
 
 router.patch("/scenarios/:scenarioId", async (req, res) => {
