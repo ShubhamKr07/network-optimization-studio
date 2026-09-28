@@ -45,6 +45,20 @@ jobs:
       - name: Install solver dependencies
         run: pip install pulp pytest
 
+      # The Postgres service above starts EMPTY. This repo has no migration
+      # files — schema lives only in lib/db/src/schema and is applied with
+      # drizzle-kit push — so without this step every DB-touching suite fails
+      # on `relation "users" does not exist`. That is what CI had been doing
+      # since at least 4cf3bc1 (2026-09-26): 47+ red test files on every run,
+      # for a repo whose local gates were green.
+      #
+      # `--force` skips drizzle-kit's data-loss confirmation prompt. Verified
+      # non-interactive against a fresh empty database with stdin closed
+      # (exit 0, 5 tables + UQ_solve_jobs_active_per_scenario created), so it
+      # cannot hang a runner waiting on a TTY that isn't there.
+      - name: Create database schema
+        run: pnpm --filter @workspace/db run push-force
+
       - name: Typecheck (whole workspace)
         run: pnpm run typecheck
 
