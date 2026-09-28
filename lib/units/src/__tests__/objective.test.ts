@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { objectiveDimension, objectiveConverts, convertObjective } from "../objective.js";
 
-describe("objectiveDimension — the six-model contract", () => {
+describe("objectiveDimension — the seven-model contract", () => {
   const cases: Array<[string, string | null, string, boolean]> = [
     ["p-median-us",          null,           "demand-distance",   true],
     ["p-median-brazil",      null,           "demand-distance",   true],
@@ -10,6 +10,8 @@ describe("objectiveDimension — the six-model contract", () => {
     ["two-echelon-jade-us",  null,           "monetary",          false],
     ["max-coverage-us",   "coverage",     "percent",           false],
     ["max-coverage-us",   "min_distance", "demand-distance",   true],
+    ["delivery-teaching-us", "base",          "demand-distance",   true],
+    ["delivery-teaching-us", "cost_adjusted", "monetary",          false],
   ];
   it.each(cases)("%s / %s -> %s (converts: %s)", (modelId, mode, dim, converts) => {
     expect(objectiveDimension(modelId, mode)).toBe(dim);

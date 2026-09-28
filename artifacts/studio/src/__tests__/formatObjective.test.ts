@@ -67,7 +67,7 @@ function stubUnitApi(effective: CanonicalUnit): UnitApi {
   };
 }
 
-describe("formatObjective — six-model contract", () => {
+describe("formatObjective — seven-model contract", () => {
   const cases: Array<{
     modelId: string;
     mode: string | null;
@@ -103,6 +103,14 @@ describe("formatObjective — six-model contract", () => {
     {
       modelId: "max-coverage-us", mode: "min_distance", canonicalUnit: "km", objective: 1000,
       expectedDim: "demand-distance", suffix: (u) => `demand-${u}`,
+    },
+    {
+      modelId: "delivery-teaching-us", mode: "base", canonicalUnit: "mi", objective: 1000,
+      expectedDim: "demand-distance", suffix: (u) => `demand-${u}`,
+    },
+    {
+      modelId: "delivery-teaching-us", mode: "cost_adjusted", canonicalUnit: "mi", objective: 123456.78,
+      expectedDim: "monetary", suffix: () => "$",
     },
   ];
 

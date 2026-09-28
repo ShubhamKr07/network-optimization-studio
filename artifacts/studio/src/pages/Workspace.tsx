@@ -185,6 +185,18 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         addedCustomers: [],
         distanceOverrides: [],
       };
+    case "delivery-teaching-us":
+      return {
+        p: 3,
+        distanceBands: [400, 800, 1200, 1600],
+        gap: 0,
+        timeLimitSec: 120,
+        costAdjustEnabled: false,
+        distanceThreshold: 800,
+        costPerMile: 1,
+        costPerMileOver: 10,
+        laneCostOverrides: [],
+      };
     case "p-median-us":
     default:
       return { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
@@ -1181,8 +1193,20 @@ function warehouseStatusesFromInputs(
 // p-median-brazil shares this array with p-median-us (the switch's default
 // case) so it gets the exact same sidebar entries — T5 (Bundle 2) wired
 // every one of them to real content.
-function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
+export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
+    // Chapter 5 (delivery-teaching-us) - the cost table is the ONLY editable
+    // dataset surface (spec decision 11). This case is load-bearing, not
+    // tidiness: the switch's tail is `case "p-median-brazil": case
+    // "p-median-us": default:`, so a model that is merely absent INHERITS
+    // the Customers, Warehouses and Distances editors. Omission grants the
+    // editable surface.
+    case "delivery-teaching-us":
+      return [
+        { id: "input-map", label: "Input Map" },
+        { id: "deliveryCosts", label: "Delivery Costs" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
     case "transport-coal":
       return [
         { id: "input-map", label: "Input Map" },
