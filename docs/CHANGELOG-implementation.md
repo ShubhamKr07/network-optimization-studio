@@ -765,6 +765,48 @@ always bound e2e interactions that follow a dialog/disabled-state transition; a 
 draft-until-blur/Enter commit pattern (`useDistanceDraft`) means `.fill()` alone can silently never
 reach a guarded write path at all.
 
+### Process deviation — Chapter 4 two-step bundle skipped two closing gates (2026-09-29)
+
+Recorded, deliberately not retroactively closed (human decision, 2026-09-29):
+the bundle merged as `0a300f8` and deployed to both Render services **without**
+the two steps that normally close a branch in this repo.
+
+**Skipped:**
+- The **final whole-branch code review**. `subagent-driven-development`
+  prescribes one after all tasks and before merge; `.superpowers/sdd/progress.md`
+  records one for Phase 5, Phase 6, the Render migration and the ch4-migration
+  bundle. This bundle has none.
+- **`/harness-retro`**, which CLAUDE.md states is required before a branch is
+  finished (metrics row in `docs/superpowers/metrics/tasks.csv`, per-cause
+  failure logging, second-occurrence gate rule).
+
+**What was done instead**, and why the result was judged acceptable: per-task
+controller verification on all nine tasks (gates re-run independently, not
+accepted on the implementer's report), four falsification tests that planted
+violations to prove guards actually bite, and a production smoke that
+reproduced both frozen goldens exactly (Step 1 `53385024` / `68.4192%` /
+`635.13 km`; Step 2 at the server-derived floor `624.33 km`) plus a live `422`
+on the CH4-25 floor guard.
+
+**What was NOT done**: any independent read of the complete nine-task diff as a
+whole. Per-task verification cannot catch cross-task incoherence or accumulated
+drift — different instrument, different failure class.
+
+**Root cause** (full analysis in the session memory
+`feedback-process-steps-as-tracked-tasks`): the task ledger was seeded from the
+*plan's* task list only. The whole-branch review and `/harness-retro` are
+*process* steps owned by the skill and by CLAUDE.md, not plan tasks, so they had
+no representation in any ledger and nothing surfaced them. Compounding: the
+skill's text arrived truncated in context and was never re-read; a mid-run e2e
+escalation displaced the sequence; and per-task rigour produced a false sense
+that review had occurred.
+
+**Standing correction:** seed the task ledger with the skill's and the repo's
+process steps alongside the plan's own tasks, before the first dispatch. Read
+`progress.md`'s prior entries before declaring a bundle complete — every
+predecessor bundle's shape was four lines from the cursor that appended this
+one.
+
 ---
 
 ## Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`)

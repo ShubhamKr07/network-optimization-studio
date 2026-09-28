@@ -1,3 +1,3 @@
-- [Network Studio solver](solver-pulp.md) — now uses PuLP/CBC ILP (solve.py) via spawnSync; solve time ~0.3s; P=3 → 382.9mi matches notebook exactly.
+- [Network Studio solver](solver-pulp.md) — PuLP/CBC ILP (solve.py) spawned async by jobRunner.ts's worker pool; solve time ~0.3s; P=3 → 382.9mi matches notebook exactly.
 - [Network Studio dataset](studio-dataset.md) — 26 notebook warehouses (ALN…LBB) + 200 real US cities, 5200-entry pre-computed distance table embedded in solve.py.
 - [Utilization convention](solver-utilization.md) — API returns 0-100 integer percentages; do NOT multiply by 100 in frontend display.
