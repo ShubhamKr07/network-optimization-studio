@@ -489,3 +489,101 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
   });
 });
+
+// ch4-2s-7 — CH4-6: Step 2's own dedicated panel. `step`/`stepEditable`/
+// `step2Gap`/`step2TimeLimitSec`/`coverageFloorFromStep1` are all new; every
+// test above this point omits them and is unaffected (`(step ?? 1) === 1`
+// keeps the Step 1 view — including the P slider and the top gap/time-limit
+// block — exactly as it rendered before this task).
+describe("OptimizationParametersTab — Step 2 panel (ch4-2s-7, CH4-6)", () => {
+  const step1Props = {
+    ...chenCoverageProps,
+    step: 1 as const,
+  };
+
+  it("renders Step 1's view (P slider, chen-objective-section, top gap/time-limit) when step=1", () => {
+    render(<OptimizationParametersTab {...step1Props} onChange={vi.fn()} />);
+    expect(screen.getByTestId("slider-p-value")).toBeInTheDocument();
+    expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
+    expect(screen.getByTestId("input-gap")).toBeInTheDocument();
+    expect(screen.getByTestId("input-time-limit")).toBeInTheDocument();
+    expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
+  });
+
+  it("renders ONLY the Step 2 panel when step=2 — Step 1's editable fields are hidden", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        coverageFloorFromStep1={53385024}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("step2-parameters")).toBeInTheDocument();
+    expect(screen.queryByTestId("slider-p-value")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("input-gap")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("input-time-limit")).not.toBeInTheDocument();
+  });
+
+  it("shows the inherited P/highServiceDistKm/maxDistKm as read-only display", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
+    const inherited = screen.getByTestId("step2-inherited");
+    expect(inherited).toHaveTextContent("3");
+    expect(inherited).toHaveTextContent("600");
+    expect(inherited).toHaveTextContent("5000");
+  });
+
+  it("shows a placeholder for the coverage floor until Step 1 has solved (coverageFloorFromStep1 null/undefined)", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
+    expect(screen.getByTestId("step2-floor-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("step2-floor-value")).not.toBeInTheDocument();
+  });
+
+  it("shows the locked floor value once Step 1 has solved", () => {
+    render(
+      <OptimizationParametersTab {...chenCoverageProps} step={2} coverageFloorFromStep1={53385024} onChange={vi.fn()} />,
+    );
+    expect(screen.getByTestId("step2-floor-value")).toHaveTextContent("53,385,024");
+    expect(screen.queryByTestId("step2-floor-placeholder")).not.toBeInTheDocument();
+  });
+
+  // R6 — `stepEditable` false at `0 of 2`: Step 2 is viewable but its own
+  // fields must not be editable yet.
+  it("disables Step 2's own gap/time-limit fields when stepEditable is false", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        stepEditable={false}
+        step2Gap={0}
+        step2TimeLimitSec={60}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("input-step2-gap")).toBeDisabled();
+    expect(screen.getByTestId("input-step2-time-limit")).toBeDisabled();
+  });
+
+  it("enables Step 2's own gap/time-limit fields when stepEditable is true, and writes step2Gap/step2TimeLimitSec", () => {
+    const onChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        stepEditable
+        step2Gap={0}
+        step2TimeLimitSec={60}
+        onChange={onChange}
+      />,
+    );
+    const gapInput = screen.getByTestId("input-step2-gap");
+    const timeInput = screen.getByTestId("input-step2-time-limit");
+    expect(gapInput).toBeEnabled();
+    expect(timeInput).toBeEnabled();
+    fireEvent.change(gapInput, { target: { value: "0.02" } });
+    expect(onChange).toHaveBeenCalledWith("step2Gap", 0.02);
+    fireEvent.change(timeInput, { target: { value: "90" } });
+    expect(onChange).toHaveBeenCalledWith("step2TimeLimitSec", 90);
+  });
+});

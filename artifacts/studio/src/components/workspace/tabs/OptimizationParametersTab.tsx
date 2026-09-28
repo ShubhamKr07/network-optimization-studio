@@ -1,3 +1,4 @@
+import { Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -27,7 +28,12 @@ export type OptimizationParametersField =
   // NOT here — they need an atomic distanceBands resync (D13/D19) and so go
   // through a dedicated `onServiceDistanceChange` callback instead.
   | "avgServiceDistCapKm"
-  | "coverageFloorDemand";
+  | "coverageFloorDemand"
+  // ch4-2s-7 — CH4-6: Step 2's own gap/timeLimitSec, routed by Workspace.tsx
+  // onto `localInputs.step2.{gap,timeLimitSec}` — never the top-level
+  // `gap`/`timeLimitSec` fields above, which are Step 1's.
+  | "step2Gap"
+  | "step2TimeLimitSec";
 
 interface OptimizationParametersTabProps {
   /** Active model id. jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9)
@@ -121,6 +127,26 @@ interface OptimizationParametersTabProps {
    * renders. Kept as an opt-out seam for a future caller, not currently
    * exercised by any model. */
   showBandEditor?: boolean;
+  // ── ch4-2s-7 — the two-step workflow's Step 2 panel ─────────────────────
+  /** Which step's view to render. Omitted/`1` renders today's Step 1 block
+   *  unchanged (every non-Chapter-4 caller, and Chapter 4 while Step 1 is
+   *  selected); `2` renders the Step 2 panel instead. The two are mutually
+   *  exclusive — never both. */
+  step?: 1 | 2;
+  /** R6 — false at `0 of 2`: Step 2 is VIEWABLE there (CH4-15) but its
+   *  fields are not yet editable, since their meaning depends on a Step 1
+   *  result existing to seed the floor. Ignored when `step !== 2`. */
+  stepEditable?: boolean;
+  /** Step 2's own `gap`, read from `localInputs.step2.gap` — never the
+   *  top-level `gap` prop above, which is Step 1's. */
+  step2Gap?: number;
+  /** Step 2's own `timeLimitSec`, read from `localInputs.step2.timeLimitSec`
+   *  — never the top-level `timeLimitSec` prop above, which is Step 1's. */
+  step2TimeLimitSec?: number;
+  /** CH4-5/CH4-9 — Step 1's achieved `coveredDemand`, the floor Step 2 will
+   *  solve against. `null` until Step 1 has solved (renders a placeholder);
+   *  never client-authored — this is display-only, produced by the server. */
+  coverageFloorFromStep1?: number | null;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
@@ -162,6 +188,11 @@ export function OptimizationParametersTab({
   avgServiceDistCapKm,
   onServiceDistanceChange,
   showBandEditor = true,
+  step,
+  stepEditable,
+  step2Gap,
+  step2TimeLimitSec,
+  coverageFloorFromStep1,
   onChange,
 }: OptimizationParametersTabProps) {
   // chen-bands-units, Part A — the conditionally-linked high boundary: on a
@@ -186,7 +217,13 @@ export function OptimizationParametersTab({
 
   return (
     <div className="max-w-md space-y-6" data-testid="optimization-parameters-tab">
-      {p != null && (
+      {/* ch4-2s-7 — CH4-6: P is a Step 1 field (inherited, read-only, shown
+          in Step 2's own `step2-inherited` block below), so this editable
+          slider is hidden while Step 2 is selected. `(step ?? 1) === 1` is
+          always true for every caller that omits `step` (every non-Chapter-4
+          model, and Chapter 4 while Step 1 is selected), so this is a no-op
+          everywhere else. */}
+      {p != null && (step ?? 1) === 1 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
@@ -227,8 +264,12 @@ export function OptimizationParametersTab({
           this model (chen-bands-units, T13, superseding D13/D19's
           derived-only bands) — `showBandEditor` defaults true and
           Workspace.tsx deliberately omits the prop for max-coverage-us; see
-          the `{showBandEditor && ...}` render below. */}
-      {objective != null && (
+          the `{showBandEditor && ...}` render below.
+          ch4-2s-7 — wrapped in `(step ?? 1) === 1` so Step 1's block and
+          Step 2's panel below are mutually exclusive: every non-Chapter-4
+          caller (and Chapter 4 while Step 1 is selected) omits `step`/passes
+          `1` and is unaffected. */}
+      {(step ?? 1) === 1 && objective != null && (
         <div className="space-y-4" data-testid="chen-objective-section">
           <div className="grid grid-cols-2 gap-3">
             {canonicalUnit !== undefined ? (
@@ -312,31 +353,88 @@ export function OptimizationParametersTab({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="input-gap" className="text-xs text-muted-foreground">Optimization gap (%)</Label>
-          <Input
-            id="input-gap"
-            type="number"
-            step="0.01"
-            value={gap}
-            onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
-            className="h-8 text-sm mt-1 font-mono"
-            data-testid="input-gap"
-          />
+      {step === 2 && (
+        <div className="space-y-4" data-testid="step2-parameters">
+          {/* CH4-6 — inherited from Step 1 and NOT editable here. Inheriting
+              highServiceDistKm is load-bearing: the floor must constrain demand
+              within the same radius that produced it. */}
+          <dl className="grid grid-cols-3 gap-3 text-xs" data-testid="step2-inherited">
+            <div><dt className="text-muted-foreground">P (inherited)</dt><dd className="font-mono">{p}</dd></div>
+            <div><dt className="text-muted-foreground">High-service distance</dt><dd className="font-mono">{highServiceDistKm}</dd></div>
+            <div><dt className="text-muted-foreground">Max distance</dt><dd className="font-mono">{maxDistKm}</dd></div>
+          </dl>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Coverage floor (demand)</Label>
+            {coverageFloorFromStep1 == null ? (
+              <div data-testid="step2-floor-placeholder"
+                className="h-8 mt-1 flex items-center px-2 text-sm font-mono text-muted-foreground border border-dashed border-border rounded">
+                — produced by solve
+              </div>
+            ) : (
+              <div data-testid="step2-floor-value"
+                className="h-8 mt-1 flex items-center gap-2 px-2 text-sm font-mono border border-border rounded bg-muted">
+                {coverageFloorFromStep1.toLocaleString()}
+                <Lock className="w-3 h-3 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {/* R6 — `stepEditable` is FALSE at `0 of 2`. Step 2 is viewable
+              there (CH4-15) but must not be editable: its settings only mean
+              something once a Step 1 result exists to seed the floor. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="input-step2-gap" className="text-xs text-muted-foreground">Gap</Label>
+              <Input id="input-step2-gap" type="number" data-testid="input-step2-gap"
+                disabled={!stepEditable}
+                value={step2Gap ?? ""} className="h-8 text-sm mt-1 font-mono"
+                onChange={e => onChange("step2Gap", parseFloat(e.target.value) || 0)} />
+            </div>
+            <div>
+              <Label htmlFor="input-step2-time-limit" className="text-xs text-muted-foreground">Time limit (s)</Label>
+              <Input id="input-step2-time-limit" type="number" data-testid="input-step2-time-limit"
+                disabled={!stepEditable}
+                value={step2TimeLimitSec ?? ""} className="h-8 text-sm mt-1 font-mono"
+                onChange={e => onChange("step2TimeLimitSec", parseInt(e.target.value, 10) || 1)} />
+            </div>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="input-time-limit" className="text-xs text-muted-foreground">Max time (seconds)</Label>
-          <Input
-            id="input-time-limit"
-            type="number"
-            value={timeLimitSec}
-            onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-            className="h-8 text-sm mt-1 font-mono"
-            data-testid="input-time-limit"
-          />
+      )}
+
+      {/* ch4-2s-7 — CH4-6: `gap`/`timeLimitSec` here are Step 1's own (Step
+          2 has its own dedicated pair, above, bound to `localInputs.step2`),
+          so this block is hidden while Step 2 is selected — otherwise two
+          "Gap"/"Time limit" editors would appear on screen at once, one of
+          them silently editing the wrong step. `(step ?? 1) === 1` is a
+          no-op for every caller that omits `step`. */}
+      {(step ?? 1) === 1 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="input-gap" className="text-xs text-muted-foreground">Optimization gap (%)</Label>
+            <Input
+              id="input-gap"
+              type="number"
+              step="0.01"
+              value={gap}
+              onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
+              className="h-8 text-sm mt-1 font-mono"
+              data-testid="input-gap"
+            />
+          </div>
+          <div>
+            <Label htmlFor="input-time-limit" className="text-xs text-muted-foreground">Max time (seconds)</Label>
+            <Input
+              id="input-time-limit"
+              type="number"
+              value={timeLimitSec}
+              onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
+              className="h-8 text-sm mt-1 font-mono"
+              data-testid="input-time-limit"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* A5.1 — transport-coal's mine capacity factor (Studio.tsx:1273-1285). */}
       {capacityFactor != null && (
