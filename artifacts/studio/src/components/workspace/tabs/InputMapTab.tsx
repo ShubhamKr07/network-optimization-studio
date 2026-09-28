@@ -663,12 +663,20 @@ function PMedianInputMap({
   // commits a move silently) — the "one explicit state machine" the brief
   // requires, with native drag as a second entry point into it rather than
   // a second, competing code path.
+  //
+  // ch5-del-9-fix — also gated on `!readOnly` directly, not just left to
+  // follow from `isAdded` being unreachable while read-only (every OTHER
+  // mutation affordance in this component is gated on `readOnly`
+  // explicitly; this is a shared component used by other models where
+  // dragging an added entity IS a live path, so `readOnly`, not `isAdded`
+  // alone, is what must gate it here).
   const draggableIds = useMemo(() => {
     const ids = new Set<string>();
+    if (readOnly) return ids;
     warehouses.forEach(w => { if (w.isAdded) ids.add(w.id); });
     customers.forEach(c => { if (c.isAdded) ids.add(c.id); });
     return ids;
-  }, [warehouses, customers]);
+  }, [warehouses, customers, readOnly]);
 
   // Live-preview bubble resize while EditCustomerDialog is open — rendering
   // concern only, rolled back on Cancel (nothing is written to `inputs`
