@@ -353,106 +353,28 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
   });
 });
 
-// ── Check 3 (NEGATIVE): max-coverage-us stays frozen ────────────────────────
-
-function maxCoverageInputs() {
-  return {
-    objective: "coverage",
-    p: 3,
-    highServiceDistKm: 700,
-    maxDistKm: 5500,
-    avgServiceDistCapKm: 1000,
-    gap: 0,
-    timeLimitSec: 120,
-    capacityMode: "none",
-    distanceBands: [700, 5500],
-    warehouseOverrides: [],
-    customerOverrides: [],
-    addedWarehouses: [],
-    addedCustomers: [],
-    distanceOverrides: [],
-  };
-}
-
-async function createMaxCoverageScenario(page: Page): Promise<number> {
-  const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E SSC-T1 MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: maxCoverageInputs() },
-  });
-  expect(resp.status()).toBe(201);
-  return Number((await resp.json()).id);
-}
-
-test.describe("Non-JADE ServiceStats live coverage — max-coverage-us NEGATIVE (frozen)", () => {
-  test("a band-affecting edit does NOT change the Service Stats bars", async ({ page }) => {
-    test.setTimeout(180_000);
-    await registerAndGoHome(page, "ssc-maxcov");
-    const id = await createMaxCoverageScenario(page);
-
-    try {
-      await solveViaApi(page, id);
-
-      await page.goto(`/chapter-4?scenario=${id}`);
-      await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const solveCalls = makeSolveCallTracker(page);
-
-      await page.getByTestId("sidebar-output-service-stats").click();
-      const bandRow700 = page.getByTestId("service-stats-band-700");
-      const bandRow5500 = page.getByTestId("service-stats-band-5500");
-      await expect(bandRow700).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(bandRow5500).toBeVisible();
-      const before700 = await bandRow700.innerText();
-      const before5500 = await bandRow5500.innerText();
-
-      // Edit the field that DOES re-derive `distanceBands` locally
-      // (`highServiceDistKm` -> `[high, max]`, Workspace.tsx's
-      // `updateChenServiceDistance`) — max-coverage-us's ServiceStats stays
-      // frozen regardless (Workspace.tsx never wires `presentationBands` for
-      // it; ServiceStatsTab gates its own live-recompute on the caller
-      // wiring it, never on modelId), so this is a valid "band edit" probe
-      // even though the model also has its own free band chip editor now.
-      await page.getByTestId("sidebar-input-optimization-parameters").click();
-      await expect(page.getByTestId("chen-objective-section")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      // `ChenDistanceInput` is a draft-until-commit field (useDistanceDraft) —
-      // it commits only on blur/Enter, never on every keystroke. A bare
-      // `.fill()` types the draft but never reaches `onCommit`, so
-      // `localInputs`/`text-unsaved-changes` never update and this whole
-      // probe silently tests nothing. Blur to commit before asserting.
-      const highServiceDistInput = page.getByTestId("input-high-service-dist");
-      await highServiceDistInput.fill("50");
-      await highServiceDistInput.blur();
-      // ch4-2s — this scenario already has a solved Step 1 result (solveViaApi
-      // above), so committing a Step-1-field edit now correctly raises the
-      // two-step workflow's freeze-confirm dialog (ch4-two-step.spec.ts's own
-      // "6. Edit a Step 1 parameter" case) — it must be accepted before any
-      // further interaction, or every subsequent click hangs on the modal
-      // overlay for the rest of the test's budget.
-      await expect(page.getByTestId("freeze-confirm-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("freeze-confirm-accept").click({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-unsaved-changes")).toBeVisible({ timeout: HEADER_TIMEOUT });
-
-      const callsBeforeCheck = solveCalls.count();
-
-      // Service Stats bars are UNCHANGED — still keyed by the original
-      // solved bands (700/5500), not the just-edited 50, and their
-      // percentages are byte-identical to before the edit.
-      await page.getByTestId("sidebar-output-service-stats").click();
-      await expect(page.getByTestId("service-stats-band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("service-stats-band-5500")).toBeVisible();
-      // The derived-band value (50) never appears as a coverage row.
-      await expect(page.getByTestId("service-stats-band-50")).toHaveCount(0);
-      // Byte-identical to their pre-edit text (innerText, not toHaveText's
-      // own whitespace-normalized comparison, to avoid a false mismatch
-      // purely from how the two APIs join the row's two text nodes).
-      await expect
-        .poll(() => page.getByTestId("service-stats-band-700").innerText())
-        .toBe(before700);
-      await expect
-        .poll(() => page.getByTestId("service-stats-band-5500").innerText())
-        .toBe(before5500);
-
-      expect(solveCalls.count()).toBe(callsBeforeCheck);
-    } finally {
-      await page.request.delete(`/api/scenarios/${id}`);
-    }
-  });
-});
+// ── Check 3 (NEGATIVE, max-coverage-us): RETIRED, not redirected ───────────
+//
+// This block used to commit a `highServiceDistKm` edit (a Step 1 field)
+// against an already-solved Chapter 4 scenario and assert the ServiceStats
+// bars stay frozen. Under the two-step workflow, editing a Step 1 field
+// post-solve now correctly raises the freeze-confirm dialog, and accepting
+// it CLEARS the result (that's the two-step contract's whole point — a
+// Step 1 change invalidates the Step 2 solve). Once the result is cleared,
+// "the bars didn't move" is no longer provable: there's no stable
+// `result.metrics.bandCoverage` snapshot left to diff against. The probe's
+// premise — proving frozen bars via a live `highServiceDistKm` edit — is
+// structurally unprovable for this model under the current workflow, not
+// merely flaky.
+//
+// Deliberately NOT redirected to the band-chip editor (max-coverage-us also
+// has one now): band-chip edits aren't Step 1 fields, so they don't raise
+// freeze-confirm and the assertion would go green — but it would prove only
+// "the band-chip editor doesn't move ServiceStats," a materially weaker claim
+// than the original "no distance-band-affecting edit moves ServiceStats,"
+// while keeping the original's name and NEGATIVE framing. A test that's
+// easier to pass because it now checks less, while still presenting itself
+// as the same guarantee, is worse than no test.
+//
+// See docs/CHANGELOG-implementation.md (e2e-inherited-repair,
+// [e2e-decided] bundle) for the decision record.
