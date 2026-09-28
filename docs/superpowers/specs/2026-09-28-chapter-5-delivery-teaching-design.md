@@ -409,6 +409,13 @@ overflow row, which is precisely why a synthetic over-1,600 case is required in
 §8.2 rather than relying on the goldens to exercise it. Coverage below 100% at
 1,600 in a student what-if is not an error; the remainder belongs in Overflow.
 
+The solver itself emits that row: `metrics.bandCoverage` carries the cumulative
+threshold rows **plus** `{"band": -1, "percent": <remainder>}` — `-1` being the
+`OVERFLOW_BAND` sentinel `lib/units` and the gold/jade envelopes already use —
+whenever any assigned lane lies beyond the largest band, and omits it otherwise.
+The client recompute and the exported envelope therefore agree row-for-row.
+(Plan Rev 2 resolution; the earlier text left the emitting side implicit.)
+
 Three things here are load-bearing.
 
 **`weighted_avg_distance` is its own accumulator.** It is *not*
@@ -535,7 +542,7 @@ answer rather than hanging. §8.1 measures the real solve at 4.0 s.
           "properties": {
             "fromId": { "type": "string", "minLength": 1 },
             "toId": { "type": "string", "minLength": 1 },
-            "cost": { "type": "number", "exclusiveMinimum": 0 }
+            "cost": { "type": "number", "minimum": 0 }
           },
           "required": ["fromId", "toId", "cost"]
         }
@@ -851,7 +858,8 @@ A new `DeliveryCostsTab.tsx`, modelled directly on `DistancesTab.tsx`:
   reach a given lane, and the plan should treat "filter to a city, edit its cost"
   as the primary interaction rather than paging to row 4,000.
 - Add-a-row uses typed ids, as `DistancesTab.tsx:660-698` does. Validation is
-  non-empty ids, positive cost, and pair-not-already-overridden.
+  non-empty ids, non-negative finite cost (zero is legal: the dataset ships 33
+  zero-cost self-lanes, §12.3.4), and pair-not-already-overridden.
 
 **The fixed input surface has to be declared, not left to omission.** This is the
 one place decision 11 could silently fail. `inputEntriesForModel`
