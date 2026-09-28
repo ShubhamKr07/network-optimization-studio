@@ -853,7 +853,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       entity === "assignments" ? buildAssignmentRows(result, canonicalUnit, requestedUnit, savedBands)
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
       : entity === "costSummary" ? buildCostSummaryRows(result, canonicalUnit, requestedUnit, scenario.modelId)
-      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands)
+      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands, scenario.modelId)
       : buildFlowRows(result, canonicalUnit, requestedUnit, savedBands);
 
     if (format === "csv") {

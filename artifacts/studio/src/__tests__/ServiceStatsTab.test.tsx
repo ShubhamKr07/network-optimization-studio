@@ -41,6 +41,8 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: true } },
     // C4.14 — Chen's Cosmetics reports distances in km.
     { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
+    // Task 12 (Chapter 5, delivery-teaching-us) — R7 row 28's guard.
+    { id: "delivery-teaching-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -714,6 +716,41 @@ describe("ServiceStatsTab", () => {
       expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
       expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
     });
+  });
+});
+
+// Task 12 (Chapter 5, delivery-teaching-us), R7 row 28's guard — spec §5.7
+// pins 2 dp for this model only; the other five models' bars stay integers.
+describe("ServiceStatsTab — delivery-teaching-us band precision (Task 12)", () => {
+  // flows 1 and 2 across a 400 boundary: 1/(1+2) = 33.33%, not 33%.
+  const nonIntegerEdges = [
+    { fromId: "W1", toId: "C1", flow: 1, distance: 100 },
+    { fromId: "W2", toId: "C2", flow: 2, distance: 900 },
+  ];
+
+  it("shows 33.33% (2 dp) for delivery-teaching-us", () => {
+    render(
+      <ServiceStatsTab
+        result={{ ...result, edges: nonIntegerEdges }}
+        scenarioId={1}
+        modelId="delivery-teaching-us"
+        presentationBands={[400, 1600]}
+      />,
+    );
+    expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("33.33%");
+  });
+
+  it("a sibling model with the SAME edges/bands still shows 33% (integer, unchanged)", () => {
+    render(
+      <ServiceStatsTab
+        result={{ ...result, edges: nonIntegerEdges }}
+        scenarioId={1}
+        modelId="p-median-us"
+        presentationBands={[400, 1600]}
+      />,
+    );
+    expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("33%");
+    expect(screen.getByTestId("service-stats-band-400")).not.toHaveTextContent("33.33%");
   });
 });
 

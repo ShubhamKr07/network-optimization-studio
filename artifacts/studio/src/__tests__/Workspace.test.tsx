@@ -468,6 +468,35 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
     expect(await screen.findByTestId("open-warehouse-row-daggar-hills")).toBeInTheDocument();
   });
 
+  // Task 12 (Chapter 5, delivery-teaching-us) — this model has no capacity
+  // concept (manifest capabilities.capacityModes: []). OpenWarehousesTab.tsx
+  // keys "Demand Served" vs "Total Flow"/"Utilization" on `capacityModes`
+  // being an EMPTY ARRAY, not merely absent (built from the OpenWarehousesTab
+  // component-level guard at OpenWarehousesTab.test.tsx:169-171 — no
+  // Workspace-level test covered this for any model before). Workspace.tsx's
+  // own jade-only gate (`facilityDisplayedInputs`'s capacityModes
+  // pass-through) is widened to include delivery-teaching-us alongside
+  // two-echelon-jade-us; gold-au stays excluded by name, unaffected.
+  it("shows a 'Demand Served' column (not Total Flow/Utilization) for a solved delivery-teaching-us scenario", async () => {
+    const deliveryScenario = {
+      ...solvedScenario,
+      modelId: "delivery-teaching-us",
+      result: {
+        ...solvedScenario.result,
+        edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 42.1 }],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [deliveryScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(await screen.findByTestId("open-warehouse-row-W1")).toBeInTheDocument();
+    expect(screen.getByText("Demand Served")).toBeInTheDocument();
+    expect(screen.queryByText("Total Flow")).not.toBeInTheDocument();
+    expect(screen.queryByText("Utilization")).not.toBeInTheDocument();
+    expect(screen.getByTestId("open-warehouse-row-W1")).not.toHaveTextContent("%");
+  });
+
   it("renders the Flows tab for a solved transport-coal scenario", async () => {
     const transportSolved = {
       ...solvedScenario,

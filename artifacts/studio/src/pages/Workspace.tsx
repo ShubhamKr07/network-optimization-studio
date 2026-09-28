@@ -4006,9 +4006,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // capacityModes array generically would silently flip
             // two-echelon-gold-au's rendering too, since its manifest ALSO
             // declares capacityModes:[] but has never shown "Demand Served").
+            // Task 12 (Chapter 5) — delivery-teaching-us widens this same
+            // gate (it also has no capacity concept, manifest
+            // capacityModes:[]); gold-au stays excluded by name, unaffected.
             displayedInputs={facilityDisplayedInputs(
               activeOutputInputs,
-              modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
+              modelId === "two-echelon-jade-us" || modelId === "delivery-teaching-us"
+                ? activeModelManifest?.capabilities?.capacityModes
+                : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
             // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,

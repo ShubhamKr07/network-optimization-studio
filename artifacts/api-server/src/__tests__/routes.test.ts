@@ -296,6 +296,32 @@ const maxCoverageRow = {
   updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
 
+// Task 12 — delivery-teaching-us (Chapter 5). Shape matches
+// deliveryContract.test.ts's own baseInputs().
+const deliveryInputs = {
+  p: 3,
+  distanceBands: [400, 800, 1200, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  costAdjustEnabled: false,
+  distanceThreshold: 800,
+  costPerMile: 1,
+  costPerMileOver: 10,
+  laneCostOverrides: [],
+};
+
+const deliveryRow = {
+  id: 14,
+  name: "Delivery Base Case",
+  modelId: "delivery-teaching-us",
+  userId: OWNER,
+  inputs: deliveryInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-07T00:00:00Z"),
+  updatedAt: new Date("2026-01-07T00:00:00Z"),
+};
+
 // A8 (SCND Correctness, §2.7.1), fixed under A-fix (F1b/F3) — output-entity
 // export 409s only a GENUINELY pre-B legacy-unverified result (neither
 // solutionStatus nor terminationReason ever set — see resultEnvelope.ts's
@@ -2005,6 +2031,66 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage" });
     expect(cost.body.rows[0]).not.toHaveProperty("distanceUnit");
     expect(cost.body.rows[0]).not.toHaveProperty("templateVersion");
+  });
+
+  // Task 12 (Chapter 5, delivery-teaching-us) — output-grid exports. No live
+  // CBC; a golden, hand-built envelope (400/800 boundaries collapsed to a
+  // single [800] lens for this row so 81.45%/18.55% are exact, not
+  // rounding-dependent). This is the automated version of manual Step 7
+  // (real-browser export confirmation).
+  describe("delivery-teaching-us output-grid exports (Task 12)", () => {
+    const deliverySolvedResult = verifiedResult({
+      status: "optimal", objective: 987654.4321, runTimeSec: 1.1, quality: "x",
+      edges: [
+        { fromId: "W1", toId: "C1", flow: 16290, distance: 100 },
+        { fromId: "W2", toId: "C2", flow: 3710, distance: 900 },
+      ],
+      metrics: { weightedAvgDistance: 422.5511 },
+      details: { objective: "base" },
+      solverUsed: "CBC", infeasibilityReason: null,
+    });
+    const deliverySolvedRow = {
+      ...deliveryRow,
+      inputs: { ...deliveryInputs, distanceBands: [800] },
+      result: deliverySolvedResult,
+      solvedAt: new Date("2026-01-07T00:00:00Z"),
+      stale: false,
+    };
+
+    it("exports openWarehouses CSV with a populated city column for W1 (Los Angeles)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([deliverySolvedRow]));
+      const res = await request(app).get("/api/scenarios/14/export?entity=openWarehouses&format=csv").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Los Angeles");
+    });
+
+    it("exports costSummary JSON with objectiveMode 'base' and the 4dp envelope weightedAvgDistance (422.5511)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([deliverySolvedRow]));
+      const res = await request(app).get("/api/scenarios/14/export?entity=costSummary&format=json").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.rows[0]).toMatchObject({ objectiveMode: "base", weightedAvgDistance: 422.5511 });
+    });
+
+    it("exports serviceStats JSON at 2dp (81.45%) with an Overflow (band: -1) row", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([deliverySolvedRow]));
+      const res = await request(app).get("/api/scenarios/14/export?entity=serviceStats&format=json").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.rows).toEqual([
+        { band: 800, percent: 81.45 },
+        { band: -1, percent: 18.55 },
+      ]);
+    });
+
+    it("422s a flows export — not supported for this model (flows absent from its outputGrids)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([deliverySolvedRow]));
+      const res = await request(app).get("/api/scenarios/14/export?entity=flows&format=json").set("Cookie", cookie);
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/not supported for this model/i);
+    });
   });
 
   // C4.9 / D25 — objectiveMode is serialized as explicit null (not omitted) for

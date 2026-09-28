@@ -38,6 +38,31 @@ describe("computeCumulativeBandCoverage", () => {
   });
 });
 
+// Task 12 (Chapter 5, delivery-teaching-us) — opt-in precision. Five models
+// have tests pinned to integer percentages (above); changing the default is
+// out of scope. This is purely additive.
+describe("computeCumulativeBandCoverage — opt-in precision", () => {
+  const edges = [
+    { distance: 100, flow: 1 },
+    { distance: 900, flow: 2 },
+  ];
+
+  it("still returns integers by default", () => {
+    const rows = computeCumulativeBandCoverage(edges, [400, 1600]);
+    expect(rows[0]!.percent).toBe(33);
+  });
+
+  it("returns two decimals when asked", () => {
+    const rows = computeCumulativeBandCoverage(edges, [400, 1600], { decimals: 2 });
+    expect(rows[0]!.percent).toBeCloseTo(33.33, 2);
+  });
+
+  it("keeps the Overflow row under both precisions", () => {
+    const rows = computeCumulativeBandCoverage(edges, [400], { decimals: 2 });
+    expect(rows.some(r => r.band === OVERFLOW_BAND)).toBe(true);
+  });
+});
+
 describe("serviceEdgesFor", () => {
   it("two-echelon data keeps only the outbound/customer-serving leg", () => {
     const edges = [

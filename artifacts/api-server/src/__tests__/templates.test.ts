@@ -1050,6 +1050,16 @@ describe("buildEffectiveFacilityCityLookup", () => {
     const lookup = buildEffectiveFacilityCityLookup("max-coverage-us", {});
     expect(lookup.size).toBeGreaterThan(0);
   });
+
+  // Task 12 (Chapter 5, delivery-teaching-us) — missing this branch ships
+  // blank city values in the Open Warehouses export and nothing errors: the
+  // fallback chain's default is an empty Map.
+  it("resolves delivery-teaching-us warehouse cities", () => {
+    const lookup = buildEffectiveFacilityCityLookup("delivery-teaching-us", {});
+    expect(lookup.get("W1")).toBe("Los Angeles");
+    expect(lookup.get("W60")).toBeTruthy();
+    expect(lookup.size).toBe(33);
+  });
 });
 
 describe("openWarehouseRowsToCsv", () => {
@@ -1266,6 +1276,28 @@ describe("buildServiceStatsRows", () => {
 
   it("returns an empty array when no bands are supplied (backward-compatible default)", () => {
     expect(buildServiceStatsRows(makeResult({ metrics: {} }), "mi")).toEqual([]);
+  });
+
+  // Task 12 (Chapter 5, delivery-teaching-us) — spec §5.7 pins 2 dp for this
+  // model only; the 5th `modelId` param is opt-in (defaults to null), routed
+  // through @workspace/units' opt-in `decimals` option, so every existing
+  // call site above (no 5th arg) keeps its integer percentages.
+  it("rounds to 2 decimals for delivery-teaching-us, stays integer for every other model", () => {
+    const oneThird = makeResult({
+      edges: [
+        { fromId: "W1", toId: "C1", flow: 1, distance: 100 },
+        { fromId: "W2", toId: "C2", flow: 2, distance: 900 },
+      ],
+      metrics: {},
+    });
+    const delivery = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600], "delivery-teaching-us");
+    expect(delivery[0]!.percent).toBeCloseTo(33.33, 2);
+
+    const pmedian = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600], "p-median-us");
+    expect(pmedian[0]!.percent).toBe(33);
+
+    const noModelId = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600]);
+    expect(noModelId[0]!.percent).toBe(33);
   });
 });
 

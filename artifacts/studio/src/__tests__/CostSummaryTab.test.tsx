@@ -35,6 +35,15 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // C4.14 — Chen's Cosmetics: km, real facility status.
     { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    // Task 12 (Chapter 5, delivery-teaching-us) — supportsFacilityStatus:
+    // false is a deliberate, LOCKED capability (decision 11: students have
+    // no way to force a DC open/closed; verified against
+    // solvers/delivery-teaching-us/manifest.json and
+    // docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md
+    // §6.1/§7.6, which states this in so many words: "The 'Open facilities'
+    // row is absent by §6.1's supportsFacilityStatus: false"). This value is
+    // real capability data, not a test-only stand-in.
+    { id: "delivery-teaching-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: false } },
   ],
 }));
 
@@ -184,6 +193,34 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
+  });
+});
+
+// Task 12 (Chapter 5, delivery-teaching-us) — spec §7.6/decision 10: no
+// source change needed here (CostSummaryTab.tsx's rows are gated on metric
+// PRESENCE, never modelId), so this is a pinning test, not a behavior change.
+describe("CostSummaryTab — delivery-teaching-us (Task 12, spec §7.6/decision 10)", () => {
+  // weightedAvgDistance carries the 4dp envelope value (Task 3); the screen
+  // shows it at 1dp via the shared, hardcoded formatDistance (unchanged for
+  // every model) — 422.5511 -> "422.6 mi".
+  const deliveryResult = {
+    status: "optimal" as const, objective: 1234.5, runTimeSec: 0.3, quality: "Proven optimal",
+    solutionStatus: "optimal" as const, terminationReason: "optimality_proven" as const, achievedGap: null,
+    edges: [], metrics: { weightedAvgDistance: 422.5511 }, details: { objective: "cost_adjusted" }, solverUsed: "CBC", infeasibilityReason: null,
+  };
+
+  it("renders a $ objective for details.objective: 'cost_adjusted', weighted avg. distance at 422.6 mi (1dp), and no Open facilities row", () => {
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={deliveryResult} scenarioId={1} modelId="delivery-teaching-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("$1,234.50");
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("422.6 mi");
+    expect(screen.queryByText("Open facilities")).not.toBeInTheDocument();
+  });
+
+  it("renders a demand-mi objective for details.objective: 'base'", () => {
+    const baseResult = { ...deliveryResult, objective: 987654, details: { objective: "base" } };
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={baseResult} scenarioId={1} modelId="delivery-teaching-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-mi");
+    expect(screen.queryByText("Open facilities")).not.toBeInTheDocument();
   });
 });
 
@@ -485,6 +522,44 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
       expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba - QLD");
+    });
+  });
+
+  // Task 12 (Chapter 5, delivery-teaching-us) — the CostSummaryTab.tsx
+  // "Open facilities" row (:492) is gated ENTIRELY on
+  // `capabilities.supportsFacilityStatus`, which is `false` for this model —
+  // a deliberate, locked capability (decision 11: students have no way to
+  // force a DC open/closed; pinned by
+  // lib/dataset-schema/src/manifest.test.ts's own
+  // "delivery-teaching-us manifest" describe block, and stated explicitly in
+  // the design spec, §7.6: "The 'Open facilities' row is absent by §6.1's
+  // supportsFacilityStatus: false"). The chosen DCs remain visible in the
+  // dedicated Open Warehouses tab instead (spec's own stated tradeoff) —
+  // this test pins the row's ABSENCE, not a chip list, deliberately
+  // diverging from an earlier draft of this task's brief that predates a
+  // full trace of `supportsFacilityStatus`'s locked value for this model.
+  describe("delivery-teaching-us", () => {
+    const d1 = scenario({
+      id: 60, name: "Delivery A", modelId: "delivery-teaching-us",
+      result: {
+        ...result,
+        metrics: { weightedAvgDistance: 422.5511 },
+        edges: [
+          { fromId: "W1", toId: "C1", flow: 1, distance: 10 },
+          { fromId: "W2", toId: "C2", flow: 1, distance: 20 },
+        ],
+      },
+    });
+    const d2 = scenario({
+      id: 61, name: "Delivery B", modelId: "delivery-teaching-us",
+      result: { ...result, metrics: { weightedAvgDistance: 500 }, edges: [{ fromId: "W60", toId: "C3", flow: 1, distance: 30 }] },
+    });
+
+    it("the Open facilities row is absent in compare mode (supportsFacilityStatus: false, locked)", () => {
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={d1.result} scenarioId={60} modelId="delivery-teaching-us" scenarios={[d1, d2]} /></ExportProvider></UnitProvider>);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")!);
+      expect(screen.queryByText("Open facilities")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("cost-summary-compare-open-facilities-cities-60")).not.toBeInTheDocument();
     });
   });
 

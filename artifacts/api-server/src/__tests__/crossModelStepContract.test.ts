@@ -88,6 +88,17 @@ const MAX_COVERAGE_INPUTS = {
   distanceBands: [700, 1400, 2800, 5500], warehouseOverrides: [], customerOverrides: [],
   addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
 };
+// Registration point 34 (Chapter 5, delivery-teaching-us) — this file
+// arrived with the Chapter 4 two-step merge, before this 7th model existed.
+// It has no step workflow and no one-active-job index (that guard is scoped
+// to max-coverage-us alone — see NON_STEP_MODELS' own comment), so it
+// belongs in the negative half of both assertions below, same as the other
+// five. Shape matches deliveryContract.test.ts's own baseInputs().
+const DELIVERY_INPUTS = {
+  p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 120,
+  costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1,
+  costPerMileOver: 10, laneCostOverrides: [],
+};
 
 // The five models with NO step concept — the negative half of assertion 1
 // and the whole of assertion 2. two-echelon-jade-us is locked
@@ -100,6 +111,7 @@ const NON_STEP_MODELS: Array<{ modelId: string; inputs: Record<string, unknown> 
   { modelId: "transport-coal", inputs: TRANSPORT_COAL_INPUTS },
   { modelId: "two-echelon-gold-au", inputs: TWO_ECHELON_GOLD_INPUTS },
   { modelId: "two-echelon-jade-us", inputs: JADE_INPUTS },
+  { modelId: "delivery-teaching-us", inputs: DELIVERY_INPUTS },
 ];
 
 beforeEach(() => {
