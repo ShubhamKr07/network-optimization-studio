@@ -242,16 +242,21 @@ Expected: PASS, all cases.
 Append to `artifacts/api-server/src/__tests__/schemaColumns.test.ts`:
 
 ```ts
-describe("CH4-11 — one active solve job per scenario", () => {
-  it("declares a partial unique index over queued/running rows", () => {
-    // Drizzle exposes table-level builders through the symbol-keyed config.
-    // Read the emitted DDL name rather than the builder shape so this test
-    // survives a drizzle-orm minor upgrade.
+describe("CH4-11 — one active solve job per Chapter 4 scenario", () => {
+  it("declares a partial unique index scoped to max-coverage-us AND active status", () => {
     const config = getTableConfig(solveJobsTable);
     const unique = config.indexes.find((i) => i.config.name === "UQ_solve_jobs_active_per_scenario");
     expect(unique).toBeDefined();
     expect(unique!.config.unique).toBe(true);
-    expect(unique!.config.where).toBeDefined();
+
+    // R1 — assert the PREDICATE, not merely that a `where` exists. A test that
+    // only checks `where !== undefined` passes just as happily on an unscoped
+    // index, which is the exact defect this assertion exists to catch: an
+    // unscoped predicate would impose one-active-job on all six models.
+    const predicate = JSON.stringify(unique!.config.where);
+    expect(predicate).toContain("max-coverage-us");
+    expect(predicate).toContain("queued");
+    expect(predicate).toContain("running");
   });
 });
 ```
@@ -291,9 +296,16 @@ Then add to the table-extras array (after the `IDX_solve_jobs_owner_heartbeat_ru
   // enqueues at `0 of 2` race, and whichever publishes second decides what
   // `1 of 2` means. Belt-and-braces with the in-transaction guard, the same
   // posture lockedModelGuards.test.ts applies to route guards.
+  // R1 — SCOPED TO CHAPTER 4. The predicate carries `model_id` as well as
+  // status. An unscoped index would silently impose one-active-job on all six
+  // models, contradicting this plan's own "no change to the other five" scope
+  // line, and would break scenarioSolveAtomicity.test.ts, which deliberately
+  // enqueues a second p-median-us job while the first is still queued (9 call
+  // sites). A repo-wide policy is a separate decision with its own migration
+  // and compatibility review — not something to smuggle in here.
   uniqueIndex("UQ_solve_jobs_active_per_scenario")
     .on(table.scenarioId)
-    .where(sql`${table.status} IN ('queued', 'running')`),
+    .where(sql`${table.modelId} = 'max-coverage-us' AND ${table.status} IN ('queued', 'running')`),
 ```
 
 - [ ] **Step 8: Verify no scenario already holds two active rows, then push the schema**
@@ -302,8 +314,12 @@ The index is additive and nullable-free, so hard rule #3's NOT NULL protocol doe
 
 ```bash
 psql "postgresql://shubhamkr@localhost:5432/nos_dev" -c \
-  "SELECT scenario_id, count(*) FROM solve_jobs WHERE status IN ('queued','running') GROUP BY scenario_id HAVING count(*) > 1;"
+  "SELECT scenario_id, count(*) FROM solve_jobs \
+   WHERE model_id = 'max-coverage-us' AND status IN ('queued','running') \
+   GROUP BY scenario_id HAVING count(*) > 1;"
 ```
+
+R1 — the preflight is model-scoped for the same reason the index is. An unscoped count would block the push on a perfectly legal pair of active p-median jobs.
 
 Expected: `(0 rows)`. If any row comes back, STOP and report — do not delete jobs to make the index apply.
 
@@ -595,6 +611,15 @@ export async function applyScenarioInputWrite(
   // the sole changed key. CH4-8 — solve_input_revision is left alone by the
   // step workflow; a Step 2 parameter write is a real inputs change and bumps
   // it exactly as any other non-bands change already did.
+  //
+  // A2 — this absorbs import/apply's old invariant. That call site used to
+  // carry the comment "import/apply is always a geometric input write ... so
+  // it always increments solve_input_revision, DB-side, unconditionally"
+  // (routes/scenarios.ts:1884-1887). Routing it through here makes the bump
+  // CONDITIONAL in form — but not in effect, because distanceBands is never
+  // an imported entity, so the bands-only branch is unreachable from that
+  // caller. Delete the now-inaccurate comment at the call site rather than
+  // leaving a claim the code no longer literally makes.
   const changed = new Set([
     ...Object.keys(persistedInputs),
     ...Object.keys(inputsToStore),
@@ -646,12 +671,14 @@ import { applyScenarioInputWrite, initialInputsForInsert } from "../services/sce
   }).returning();
 ```
 
-**(b) PATCH** — the handler is not transactional today. Replace the whole `if (body.inputs !== undefined) { … }` block (lines 306-345) and the trailing `db.update` (lines 351-354) with a single transaction. The name-only path keeps its existing non-transactional shape:
+**(b) PATCH** — the handler is not transactional today. Replace the whole `if (body.inputs !== undefined) { … }` block (lines 306-345) and the trailing `db.update` (lines 351-354) with a single transaction. The name-only path keeps its existing non-transactional shape.
+
+**R8 — a combined `{ name, inputs }` PATCH must be atomic.** An earlier draft committed `inputs` inside the transaction and then updated `name` in a separate statement afterwards, so a failure on the second left the client holding a half-applied PATCH. Both writes live in one transaction below, and the transaction returns the final row — no post-commit re-SELECT, which could also observe a concurrent write:
 
 ```ts
-  // CH4-26 — an inputs PATCH now runs inside ONE transaction so the locked
-  // read, the diff, the epoch decision and the write are atomic. Before this
-  // change the handler did a bare SELECT and an unrelated UPDATE, which
+  // CH4-26 — an inputs PATCH runs inside ONE transaction so the locked read,
+  // the diff, the epoch decision, the write and any rename are atomic. Before
+  // this change the handler did a bare SELECT and an unrelated UPDATE, which
   // cannot carry a FOR UPDATE lock across the two.
   if (body.inputs !== undefined) {
     const outcome = await db.transaction(async (tx) => {
@@ -661,21 +688,28 @@ import { applyScenarioInputWrite, initialInputsForInsert } from "../services/sce
       // ch4-lock — checked BEFORE any write (the guard-placement rule
       // lockedModelGuards.test.ts enforces).
       if (isModelLocked(existing.modelId)) return { kind: "locked" } as const;
-      return applyScenarioInputWrite(tx, {
+
+      const written = await applyScenarioInputWrite(tx, {
         scenarioId: id,
         userId: req.userId!,
         nextInputs: body.inputs as Record<string, unknown>,
       });
+      if (written.kind !== "ok") return written;
+
+      // R8 — same transaction, and the renamed row is what we return.
+      if (body.name !== undefined) {
+        const [renamed] = await tx.update(scenariosTable)
+          .set({ name: body.name, updatedAt: new Date() })
+          .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+          .returning();
+        return { kind: "ok", row: renamed } as const;
+      }
+      return written;
     });
 
     if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
     if (outcome.kind === "locked") { respondLocked(res); return; }
     if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error }); return; }
-
-    if (body.name !== undefined) {
-      await db.update(scenariosTable).set({ name: body.name, updatedAt: new Date() })
-        .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-    }
 
     posthog?.capture({
       distinctId: req.userId!,
@@ -687,12 +721,12 @@ import { applyScenarioInputWrite, initialInputsForInsert } from "../services/sce
       },
     });
 
-    const [fresh] = await db.select().from(scenariosTable)
-      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-    res.json(toApiScenario(fresh));
+    res.json(toApiScenario(outcome.row));
     return;
   }
 ```
+
+Add a regression: a combined `{ name, inputs }` PATCH applies both, and a rejected one (e.g. tripping the CH4-25 floor guard) applies **neither** — assert the persisted name is unchanged, not just the response status.
 
 **(c) import/apply** — at line 1888, replace the bare `db.update` with the routine. Delete the surrounding `normalizeAddedEntityDistances` call at line 1885 (the routine now performs it) and the unconditional `solveInputRevision` bump (the routine decides):
 
@@ -939,9 +973,21 @@ Create `artifacts/api-server/src/__tests__/maxCoverageWriteGuard.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, readdirSync, statSync } from "fs";
+import { resolve, relative, sep, join } from "path";
 import { assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
+
+// R9 — plain recursive walk; no new dependency, and deliberately defined in
+// this file rather than imported, so the guard cannot be weakened by editing
+// a shared helper somewhere else.
+function* walkTsFiles(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry === "dist") continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) yield* walkTsFiles(full);
+    else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) yield full;
+  }
+}
 
 describe("CH4-24/CH4-25 — the write-route narrowing guard", () => {
   it("rejects objective min_distance for max-coverage-us", () => {
@@ -972,13 +1018,45 @@ describe("CH4-24/CH4-25 — the write-route narrowing guard", () => {
 });
 
 describe("CH4-26 — no route writes scenarios.inputs outside the authority", () => {
+  // R9 — the guard scans the WHOLE api-server source tree, not just
+  // routes/scenarios.ts. A future writer added in another route or service
+  // would sail past a single-file check, which is precisely the sixth
+  // exception CH4-26 exists to prevent. The allow-list is frozen here: any
+  // new `inputs:` write anywhere must either route through the authority or
+  // be added to this list deliberately, with a reviewer seeing it.
+  //
   // readFileSync, NOT Function.prototype.toString(): the vitest/esbuild
   // transform strips comments, so a stringified-function assertion silently
   // tests nothing. Same technique lockedModelGuards.test.ts:33,82 uses.
-  it("routes/scenarios.ts contains no direct inputs write", () => {
-    const src = readFileSync(resolve(__dirname, "../routes/scenarios.ts"), "utf8");
-    const directWrites = src.match(/\.set\(\s*\{[^}]*\binputs\s*:/g) ?? [];
-    expect(directWrites).toEqual([]);
+  const ALLOWED_INPUTS_WRITERS = new Set([
+    // the authority itself
+    "services/scenarioInputWrite.ts",
+    // the documented atomic field-scoped exception (preserves the epoch by
+    // construction — see CH4-26's table)
+    "routes/distanceBands.ts",
+  ]);
+
+  it("no file outside the allow-list writes scenarios.inputs", () => {
+    const root = resolve(__dirname, "..");
+    const offenders: string[] = [];
+    for (const file of walkTsFiles(root)) {
+      const rel = relative(root, file).split(sep).join("/");
+      if (rel.includes("__tests__/")) continue;
+      if (ALLOWED_INPUTS_WRITERS.has(rel)) continue;
+      const src = readFileSync(file, "utf8");
+      if (/\.set\(\s*\{[^}]*\binputs\s*:/s.test(src)) offenders.push(rel);
+      if (/\.values\(\s*\{[^}]*\binputs\s*:/s.test(src) && !/initialInputsForInsert\(/.test(src)) {
+        offenders.push(`${rel} (insert without initialInputsForInsert)`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the allow-list is not vacuous — both allowed writers still exist and still write inputs", () => {
+    for (const rel of ALLOWED_INPUTS_WRITERS) {
+      const src = readFileSync(resolve(__dirname, "..", rel), "utf8");
+      expect(src).toMatch(/\binputs\b/);
+    }
   });
 
   it("the guard itself is not vacuous — it still finds the insert-side writes it permits", () => {
@@ -1325,14 +1403,21 @@ Inside `enqueueScenarioSolve`'s transaction, insert the guard immediately after 
     // CH4-11 — inside the SAME locked transaction. The scenario row lock
     // serialises two concurrent enqueues but does not make the second refuse;
     // this check plus UQ_solve_jobs_active_per_scenario is what does.
-    const [active] = await tx.select({ id: solveJobsTable.id }).from(solveJobsTable)
-      .where(and(
-        eq(solveJobsTable.scenarioId, scenarioId),
-        inArray(solveJobsTable.status, ["queued", "running"]),
-      ))
-      .limit(1);
-    if (active) {
-      return { kind: "conflict", jobId: active.id } as const;
+    //
+    // R1 — GATED ON THE MODEL. Running this for every model would change
+    // enqueue behaviour for the other five, which this plan's scope line
+    // forbids, and would break scenarioSolveAtomicity.test.ts (it enqueues a
+    // second p-median-us job on the same scenario while the first is queued).
+    if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {
+      const [active] = await tx.select({ id: solveJobsTable.id }).from(solveJobsTable)
+        .where(and(
+          eq(solveJobsTable.scenarioId, scenarioId),
+          inArray(solveJobsTable.status, ["queued", "running"]),
+        ))
+        .limit(1);
+      if (active) {
+        return { kind: "conflict", jobId: active.id } as const;
+      }
     }
 ```
 
@@ -1432,28 +1517,80 @@ Append to `artifacts/api-server/src/solver/__tests__/maxCoverageStepWorkflow.tes
 
 ```ts
 describe("CH4-9/CH4-11 — step derivation and the one-active-job guard", () => {
-  it("two simultaneous solves produce exactly one active job; the loser gets 409 with the in-flight jobId", async () => {
+  // R7 — DETERMINISTIC, not timing-dependent. An earlier draft fired two
+  // POSTs and asserted exactly [202, 409]; that races the dispatcher, because
+  // the first job can finish before the second request takes the lock, making
+  // [202, 202] a legitimate outcome and the test flaky. Seed the active job
+  // instead, so the guard is the only variable.
+  it("409s with the in-flight jobId when a Chapter 4 job is already active", async () => {
     const cookie = await registerAndGetCookie();
     const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
 
-    const [a, b] = await Promise.all([
-      request(app).post(`/api/scenarios/${scenario.id}/solve`).set("Cookie", cookie),
-      request(app).post(`/api/scenarios/${scenario.id}/solve`).set("Cookie", cookie),
-    ]);
+    const [seeded] = await db.insert(solveJobsTable).values({
+      scenarioId: scenario.id,
+      userId: owner!.userId,
+      status: "queued",
+      inputsHash: "seeded-active",
+      modelId: "max-coverage-us",
+      inputSnapshot: { modelId: "max-coverage-us", inputs: { ...step1Inputs, stepEpoch: 1 } },
+    }).returning();
 
-    const statuses = [a.status, b.status].sort();
-    expect(statuses).toEqual([202, 409]);
+    const res = await request(app).post(`/api/scenarios/${scenario.id}/solve`).set("Cookie", cookie).expect(409);
+    expect(res.body.jobId).toBe(seeded.id);
 
-    const winner = a.status === 202 ? a : b;
-    const loser = a.status === 409 ? a : b;
-    expect(loser.body.jobId).toBe(winner.body.jobId);
+    await db.delete(solveJobsTable).where(eq(solveJobsTable.id, seeded.id));
+  });
 
-    const active = await db.select().from(solveJobsTable)
-      .where(and(
-        eq(solveJobsTable.scenarioId, scenario.id),
-        inArray(solveJobsTable.status, ["queued", "running"]),
-      ));
-    expect(active.length).toBeLessThanOrEqual(1);
+  // The database is the backstop: even if a future caller forgets the
+  // in-transaction check, the partial unique index must refuse the row.
+  it("the database itself rejects a second active Chapter 4 job", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    const values = (hash: string) => ({
+      scenarioId: scenario.id,
+      userId: owner!.userId,
+      status: "queued" as const,
+      inputsHash: hash,
+      modelId: "max-coverage-us",
+      inputSnapshot: { modelId: "max-coverage-us", inputs: { ...step1Inputs, stepEpoch: 1 } },
+    });
+
+    const [first] = await db.insert(solveJobsTable).values(values("dup-a")).returning();
+    await expect(db.insert(solveJobsTable).values(values("dup-b"))).rejects.toThrow();
+    await db.delete(solveJobsTable).where(eq(solveJobsTable.id, first.id));
+  });
+
+  // R1 — the other five models keep their existing semantics. This is the
+  // regression that fails loudly if the index or the guard is ever unscoped.
+  it("leaves non-Chapter-4 enqueue semantics untouched (two active p-median jobs are legal)", async () => {
+    const cookie = await registerAndGetCookie();
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "p-median two active", modelId: "p-median-us",
+      inputs: {
+        p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null,
+        warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 30,
+        addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+      },
+    }).expect(201);
+    scenarioIds.push(created.body.id);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, created.body.id));
+
+    const values = (hash: string) => ({
+      scenarioId: created.body.id as number,
+      userId: owner!.userId,
+      status: "queued" as const,
+      inputsHash: hash,
+      modelId: "p-median-us",
+    });
+
+    const [a] = await db.insert(solveJobsTable).values(values("pm-a")).returning();
+    const [b] = await db.insert(solveJobsTable).values(values("pm-b")).returning();
+    expect(a.id).not.toBe(b.id);
+
+    await db.delete(solveJobsTable).where(inArray(solveJobsTable.id, [a.id, b.id]));
   });
 
   it("a scenario with no succeeded Step 1 job targets Step 1", async () => {
@@ -1556,6 +1693,16 @@ export interface ScenarioSteps {
 
 const EMPTY_STEP: ScenarioStepState = { solved: false, stale: false, jobId: null, summary: null };
 
+// A3 — the two snapshot shapes are NOT symmetric, and that asymmetry is what
+// produced the R2 defect. A Step 1 snapshot is `validation.data`, so it
+// RETAINS both `step2` and `stepEpoch`. A Step 2 snapshot comes from
+// synthesizeStep2Inputs, which destructures `step2` away and writes the
+// effective gap/timeLimitSec at the TOP LEVEL. Anything reading a snapshot
+// must therefore know which step it is reading: `-> 'step2'` is populated for
+// Step 1 and always null for Step 2. (Retaining `step2` on the Step 1
+// snapshot is harmless — pmedian.ts picks wire fields explicitly, so it never
+// reaches solve.py.)
+
 // CH4-13 — the summary is projected in SQL. `solve_jobs.resultSummary`
 // (jobRunner.ts's markSucceeded) carries only status/objective/objectiveMode/
 // weightedAvgDistance/distanceUnit/runTimeSec — no covered demand, no coverage
@@ -1584,7 +1731,14 @@ export async function loadScenarioSteps(
     SELECT DISTINCT ON (j.input_snapshot -> 'inputs' ->> 'objective')
       j.id                                                                  AS job_id,
       j.input_snapshot -> 'inputs' ->> 'objective'                          AS objective,
-      j.input_snapshot -> 'inputs' -> 'step2'                               AS snapshot_step2,
+      -- R2 — read the snapshot's TOP-LEVEL effective settings, not a nested
+      -- `step2` bag. synthesizeStep2Inputs destructures `step2` away and
+      -- writes the effective gap/timeLimitSec at the top level, so a real
+      -- Step 2 snapshot has NO `step2` key at all. Reading one would make
+      -- every freshly-solved Step 2 compare against null and report stale
+      -- immediately.
+      (j.input_snapshot -> 'inputs' ->> 'gap')::double precision            AS snapshot_gap,
+      (j.input_snapshot -> 'inputs' ->> 'timeLimitSec')::int                AS snapshot_time_limit,
       j.result ->> 'status'                                                 AS status,
       j.result ->> 'solutionStatus'                                         AS solution_status,
       j.result ->> 'quality'                                                AS quality,
@@ -1601,7 +1755,16 @@ export async function loadScenarioSteps(
   `);
 
   const steps: ScenarioSteps = { step1: { ...EMPTY_STEP }, step2: { ...EMPTY_STEP } };
-  const currentStep2 = (inputs.step2 ?? null) as { gap?: number; timeLimitSec?: number } | null;
+
+  // R2 — the CURRENT effective Step 2 settings, derived exactly as
+  // synthesizeStep2Inputs derives them: `step2` overrides when present, else
+  // Step 1's own values are inherited. Comparing effective-to-effective is
+  // what makes "I never touched Step 2's settings" read as fresh.
+  const step2Bag = (inputs.step2 ?? null) as { gap?: number; timeLimitSec?: number } | null;
+  const effectiveStep2 = {
+    gap: step2Bag?.gap ?? (inputs.gap as number | undefined) ?? null,
+    timeLimitSec: step2Bag?.timeLimitSec ?? (inputs.timeLimitSec as number | undefined) ?? null,
+  };
 
   for (const raw of result.rows as Record<string, unknown>[]) {
     const objective = raw.objective as "coverage" | "min_distance";
@@ -1622,15 +1785,17 @@ export async function loadScenarioSteps(
       // (a Step 1 edit) bumps the epoch, which drops it entirely.
       steps.step1 = { solved: true, stale: false, jobId: Number(raw.job_id), summary };
     } else {
-      // Step 2 staleness is a direct comparison of the parameters, field by
-      // field so key order cannot manufacture a difference. solve_jobs.
+      // Step 2 staleness compares the EFFECTIVE settings the solve actually
+      // ran with against the effective settings now configured — field by
+      // field, so key order cannot manufacture a difference. solve_jobs.
       // inputsHash is NOT used: it mixes in SOLVER_CODE_HASH, so every
       // solve.py deploy would flip every scenario to stale. It is a cache key,
       // not a staleness signal.
-      const snapshotStep2 = (raw.snapshot_step2 ?? null) as { gap?: number; timeLimitSec?: number } | null;
+      const snapshotGap = raw.snapshot_gap == null ? null : Number(raw.snapshot_gap);
+      const snapshotTimeLimit = raw.snapshot_time_limit == null ? null : Number(raw.snapshot_time_limit);
       const stale =
-        (currentStep2?.gap ?? null) !== (snapshotStep2?.gap ?? null) ||
-        (currentStep2?.timeLimitSec ?? null) !== (snapshotStep2?.timeLimitSec ?? null);
+        effectiveStep2.gap !== snapshotGap ||
+        effectiveStep2.timeLimitSec !== snapshotTimeLimit;
       steps.step2 = { solved: true, stale, jobId: Number(raw.job_id), summary };
     }
   }
@@ -1875,31 +2040,67 @@ describe("CH4-12/CH4-13/CH4-14 — the steps read path", () => {
     expect(after.body.steps.step1.summary).toBeNull();
   });
 
-  it("flags Step 2 stale when its parameters changed since the job that solved it", async () => {
-    const cookie = await registerAndGetCookie();
-    const scenario = await createScenario(cookie);
-    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
-
-    await db.insert(solveJobsTable).values({
-      scenarioId: scenario.id,
-      userId: owner!.userId,
+  // R2 — the snapshot is built through synthesizeStep2Inputs, the SAME
+  // function the enqueue path uses. An earlier draft hand-authored a snapshot
+  // carrying a nested `step2` bag, which production never stores; that test
+  // passed while the projection it was meant to prove was broken.
+  async function seedStep2Job(scenarioId: number, userId: string, currentInputs: Record<string, unknown>) {
+    const [job] = await db.insert(solveJobsTable).values({
+      scenarioId,
+      userId,
       status: "succeeded",
-      inputsHash: "seeded-step2",
+      inputsHash: `seeded-step2-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       modelId: "max-coverage-us",
       inputSnapshot: {
         modelId: "max-coverage-us",
-        inputs: { ...step1Inputs, objective: "min_distance", coverageFloorDemand: 53385024, stepEpoch: 1, step2: { gap: 0, timeLimitSec: 120 } },
+        inputs: synthesizeStep2Inputs(currentInputs, 53385024),
       },
       result: {
         status: "optimal", solutionStatus: "optimal", quality: "Proven Optimal", runTimeSec: 2.1,
         metrics: { weightedAvgDistance: 624.33 },
         details: { objective: "min_distance", coveragePct: 68.4192, coveredDemand: 53385024 },
       },
-    });
+    }).returning();
+    return job;
+  }
 
-    const fresh = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
-    expect(fresh.body.steps.step2.solved).toBe(true);
-    expect(fresh.body.steps.step2.stale).toBe(false);
+  it("reports a freshly-synthesized Step 2 job as fresh when no step2 bag exists (inherited defaults)", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await seedStep2Job(scenario.id, owner!.userId, row!.inputs as Record<string, unknown>);
+
+    const res = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
+    expect(res.body.steps.step2.solved).toBe(true);
+    // This is the assertion that fails against the old nested-step2 projection.
+    expect(res.body.steps.step2.stale).toBe(false);
+  });
+
+  it("reports a Step 2 job solved with EXPLICIT step2 settings as fresh", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ inputs: { ...step1Inputs, step2: { gap: 0.05, timeLimitSec: 60 } } }).expect(200);
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await seedStep2Job(scenario.id, owner!.userId, row!.inputs as Record<string, unknown>);
+
+    const res = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
+    expect(res.body.steps.step2.stale).toBe(false);
+  });
+
+  it("flags Step 2 stale only after its effective settings change, without moving the epoch", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await seedStep2Job(scenario.id, owner!.userId, row!.inputs as Record<string, unknown>);
+    expect((await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)).body.steps.step2.stale).toBe(false);
 
     // A step2-only save does NOT bump the epoch, so the job stays selected —
     // it just becomes stale.
@@ -1910,6 +2111,7 @@ describe("CH4-12/CH4-13/CH4-14 — the steps read path", () => {
     expect(stale.body.steps.step2.solved).toBe(true);
     expect(stale.body.steps.step2.stale).toBe(true);
     expect(stale.body.steps.step1.stale).toBe(false);
+    expect(await readEpoch(scenario.id)).toBe(1);
   });
 });
 ```
@@ -2019,7 +2221,13 @@ Delete the declaration outright rather than leaving it commented; the comment ab
 
 Same structure here: `{objective != null && (` at 219 opens the gate, `solve-dialog-chen-objective-section` at 220, closing `</div>` at 292 and `)}` at 293. The gate stays; the two blocks inside it go.
 
-Remove the `solve-dialog-chen-objective-toggle` group (**lines 222-245**) and the entire `{objective === "min_distance" && ( … )}` block containing `solve-dialog-input-coverage-floor` (**lines 276-291**). Keep the `{objective === "coverage" && …}` average-service-cap block at 247. Remove `coverageFloorDemand` from `SolveDialogProps` (line 116) and from the destructuring (line 169), and remove the `onObjectiveModeChange` prop.
+Remove the `solve-dialog-chen-objective-toggle` group (**lines 222-245**) and the entire `{objective === "min_distance" && ( … )}` block containing `solve-dialog-input-coverage-floor` (**lines 276-291**). Remove `coverageFloorDemand` from `SolveDialogProps` (line 116) and from the destructuring (line 169), and remove the `onObjectiveModeChange` prop.
+
+**R5 — for Chapter 4 the dialog becomes confirmation-only.** Deleting the toggle is not sufficient. The dialog still renders the P slider (`:195`), the average-service-cap block (`:247`), the band editor, and the ordinary top-level `gap` / `timeLimitSec` inputs. When the server targets **Step 2**, those are all wrong: `p` and the service-distance fields are inherited and frozen (CH4-6), the average-service cap does not exist in min-distance mode, and editing top-level `gap`/`timeLimitSec` writes **Step 1's** limits while the student believes they are tuning the run about to happen.
+
+Maintaining a second step-aware parameter editor here would duplicate Task 7's work and double the surface where the two can disagree — the exact failure CH4-17 exists to prevent. So for `max-coverage-us` the dialog renders **no editable parameters**: the step label, the seeded floor when targeting Step 2, a read-only summary of the effective settings, and Solve/Cancel. All parameter editing stays in Optimization Parameters.
+
+Gate the editable sections on a new `readOnlyParams?: boolean` prop, passed `true` only for `max-coverage-us`; the other five models render exactly as today. Add tests proving the Chapter 4 dialog exposes no `input-*` parameter control in either step, and that `p-median-us`'s dialog is unchanged.
 
 - [ ] **Step 5: Remove the floor authoring from `Workspace.tsx`**
 
@@ -2255,6 +2463,11 @@ import {
 
 interface FreezeConfirmDialogProps {
   open: boolean;
+  /** R3 — true while the confirm PATCH is in flight. Both buttons disable. */
+  busy: boolean;
+  /** R3 — set when the PATCH failed. The dialog STAYS OPEN and shows this;
+   *  closing on failure would claim results were cleared when they were not. */
+  error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -2266,9 +2479,9 @@ interface FreezeConfirmDialogProps {
 // the epoch, drops BOTH results to `0 of 2`, and lets the edit proceed.
 // Accepted cost: a student can begin typing before learning there is a
 // consequence.
-export function FreezeConfirmDialog({ open, onConfirm, onCancel }: FreezeConfirmDialogProps) {
+export function FreezeConfirmDialog({ open, busy, error, onConfirm, onCancel }: FreezeConfirmDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onCancel(); }}>
       <DialogContent data-testid="freeze-confirm-dialog">
         <DialogHeader>
           <DialogTitle>Editing Step 1 clears both results</DialogTitle>
@@ -2279,12 +2492,15 @@ export function FreezeConfirmDialog({ open, onConfirm, onCancel }: FreezeConfirm
             history.
           </DialogDescription>
         </DialogHeader>
+        {error && (
+          <p className="text-sm text-destructive" data-testid="freeze-confirm-error">{error}</p>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel} data-testid="freeze-confirm-cancel">
+          <Button variant="outline" disabled={busy} onClick={onCancel} data-testid="freeze-confirm-cancel">
             Cancel
           </Button>
-          <Button onClick={onConfirm} data-testid="freeze-confirm-accept">
-            Edit and clear results
+          <Button disabled={busy} onClick={onConfirm} data-testid="freeze-confirm-accept">
+            {busy ? "Clearing…" : "Edit and clear results"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2306,14 +2522,62 @@ import { useMaxCoverageSteps } from "@/hooks/useMaxCoverageSteps";
 ```ts
   const stepState = useMaxCoverageSteps(currentScenario);
   const [selectedStep, setSelectedStep] = useState<1 | 2>(1);
-  const [pendingStep1Edit, setPendingStep1Edit] = useState<null | (() => void)>(null);
+  // Holds the fully-computed next `inputs` blob, NOT a callback. An earlier
+  // draft stored a closure and then needed an invented `applyEditToDraft` to
+  // turn it back into a payload at confirm time — the same invent-a-helper
+  // trap this plan's Global Constraints call out. Computing the blob at
+  // intercept time means confirm has nothing left to derive.
+  const [pendingStep1Inputs, setPendingStep1Inputs] = useState<Record<string, unknown> | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   // CH4-16 — every Step 1 write funnels through here. `distanceBands` is
   // exempt: it is a reporting lens, not a model constraint, and stays editable
   // while Step 1 is frozen (§4.3).
-  function guardStep1Edit(apply: () => void, field?: string) {
-    if (!stepState.step1Frozen || field === "distanceBands") { apply(); return; }
-    setPendingStep1Edit(() => apply);
+  //
+  // `nextInputs` is the complete blob the edit would produce, so each call
+  // site computes its own change exactly as it does today and passes the
+  // result rather than a mutation function.
+  function guardStep1Edit(nextInputs: Record<string, unknown>, field?: string) {
+    if (!stepState.step1Frozen || field === "distanceBands") {
+      setLocalInputs(nextInputs);
+      return;
+    }
+    setPendingStep1Inputs(nextInputs);
+  }
+
+  // R3 — confirm-and-clear is a PERSISTED operation, not a draft edit.
+  //
+  // An earlier draft only invoked the local callback, so the epoch never
+  // moved, `steps` never refetched, and the counter kept reading `1 of 2`
+  // until the student happened to press Save. The dialog said results were
+  // cleared while the server still held them — and Task 9's e2e asserted
+  // `0 of 2` immediately after Confirm, which that implementation could never
+  // satisfy. Two coherent designs existed; this is the one chosen, because it
+  // is what the dialog copy and frame 6 both describe.
+  //
+  // Apply the draft edit, PATCH it, AWAIT the response, refetch the scenario,
+  // and only then close. The server bumps the epoch inside its own locked
+  // transaction (CH4-23) — the client never sends one. On failure the old
+  // state stands and the dialog reports the error rather than closing on a
+  // lie.
+  async function confirmStep1Edit() {
+    if (!pendingStep1Inputs || !currentScenario) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      await updateScenario.mutateAsync({
+        scenarioId: currentScenario.id,
+        data: { inputs: pendingStep1Inputs },
+      });
+      await queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
+      setLocalInputs(pendingStep1Inputs);
+      setPendingStep1Inputs(null);
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : "Could not clear the results. Nothing was changed.");
+    } finally {
+      setClearing(false);
+    }
   }
 ```
 
@@ -2346,13 +2610,17 @@ Render the dialog **unconditionally in the main return**, not inside a branch �
 
 ```tsx
       <FreezeConfirmDialog
-        open={pendingStep1Edit !== null}
-        onCancel={() => setPendingStep1Edit(null)}
-        onConfirm={() => { pendingStep1Edit?.(); setPendingStep1Edit(null); }}
+        open={pendingStep1Inputs !== null}
+        busy={clearing}
+        error={clearError}
+        onCancel={() => { setPendingStep1Inputs(null); setClearError(null); }}
+        onConfirm={confirmStep1Edit}
       />
 ```
 
-Route `handleOptimizationParamsChange` and the three entity-edit handlers (`updateInputsField` and the warehouse/customer/distance mutators at lines 1861/1898/1931) through `guardStep1Edit`.
+`FreezeConfirmDialog` gains `busy` and `error` props: disable both buttons while `busy`, and render `error` in the dialog rather than closing on failure. Without them the dialog cannot express the awaited PATCH R3 requires.
+
+Route `handleOptimizationParamsChange` and the three entity-edit handlers (`updateInputsField` and the warehouse/customer/distance mutators at lines 1861/1898/1931) through `guardStep1Edit`, each passing the complete next `inputs` blob it already computes today.
 
 - [ ] **Step 7: Render Step 2's parameter panel**
 
@@ -2386,16 +2654,23 @@ In `OptimizationParametersTab.tsx`, add props `step?: 1 | 2`, `stepEditable?: bo
             )}
           </div>
 
+          {/* R6 — `stepEditable` is FALSE at `0 of 2`. Step 2 is viewable
+              there (CH4-15) but must not be editable: its settings only mean
+              something once a Step 1 result exists to seed the floor. An
+              earlier draft declared this prop and never read it, so the
+              fields were editable in a state the design calls read-only. */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="input-step2-gap" className="text-xs text-muted-foreground">Gap</Label>
               <Input id="input-step2-gap" type="number" data-testid="input-step2-gap"
+                disabled={!stepEditable}
                 value={step2Gap ?? ""} className="h-8 text-sm mt-1 font-mono"
                 onChange={e => onChange("step2Gap", parseFloat(e.target.value) || 0)} />
             </div>
             <div>
               <Label htmlFor="input-step2-time-limit" className="text-xs text-muted-foreground">Time limit (s)</Label>
               <Input id="input-step2-time-limit" type="number" data-testid="input-step2-time-limit"
+                disabled={!stepEditable}
                 value={step2TimeLimitSec ?? ""} className="h-8 text-sm mt-1 font-mono"
                 onChange={e => onChange("step2TimeLimitSec", parseInt(e.target.value, 10) || 1)} />
             </div>
@@ -2590,13 +2865,42 @@ and the className condition:
                 }
 ```
 
-In `Workspace.tsx`, pass `keepOutputsClickable={stepState.isMaxCoverage}` and, for Chapter 4, gate `hasSolvedRun` on the *selected* step rather than the scenario-wide flag:
+In `Workspace.tsx`, pass `keepOutputsClickable={stepState.isMaxCoverage}`.
+
+**R4 — define ONE canonical output adapter and route every consumer through it.** `Workspace.tsx` has 44 references to `displayedResult` / `displayedInputs` (declared at `:1688` and `:1703`), plus `hasFreshSolvedRun` at `:1439`, and a dedicated regression file `Workspace.DisplayedInputs.test.tsx` (309 lines). Firing `useGetScenarioStepResult` without rewiring those leaves the Output Map, every grid, export and timing rendering the *scenario's* latest result while the toggle claims to show a step — a Step 2 tab showing Step 1's numbers.
+
+Declare these three beside the existing derivations and use them at **every** output call site:
 
 ```ts
+  // R4 — the single source of output truth. For Chapter 4 it follows the step
+  // toggle; for the other five models it is exactly today's behaviour, so no
+  // existing consumer changes meaning.
+  const stepResultQuery = useGetScenarioStepResult(
+    currentScenario?.id ?? 0,
+    selectedStep,
+    { query: { enabled: stepState.isMaxCoverage && selectedStepSolved } },
+  );
+
   const selectedStepSolved = stepState.isMaxCoverage
     ? (selectedStep === 1 ? stepState.steps!.step1.solved : stepState.steps!.step2.solved)
     : hasFreshSolvedRun;
+
+  const activeOutputResult = stepState.isMaxCoverage
+    ? (stepResultQuery.data?.result ?? null)
+    : displayedResult;
+
+  const activeOutputInputs = stepState.isMaxCoverage
+    ? (currentScenario?.inputs as Record<string, unknown> | undefined ?? null)
+    : displayedInputs;
+
+  const activeOutputReady = stepState.isMaxCoverage
+    ? (selectedStepSolved && stepResultQuery.isSuccess && activeOutputResult != null)
+    : hasFreshSolvedRun;
 ```
+
+Then replace `displayedResult` → `activeOutputResult`, `displayedInputs` → `activeOutputInputs`, and `hasFreshSolvedRun` → `activeOutputReady` at every output-rendering site: Output Map, all five grids, `CostSummaryTab`, exports, timing, and any result-dependent overlay. Render `stepResultQuery.isLoading` as a spinner and `stepResultQuery.isError` as a retry message — an unhandled error state would silently fall through to the "not solved yet" empty state and misreport a solved step as unsolved.
+
+**Result-history stepper vs. the step toggle.** Two independent result selectors on one screen would need two-dimensional semantics nobody has specified. Hide the existing history controls (`button-result-back` / `button-result-forward` / `text-result-history-position` / `button-save-as-scenario`, `Workspace.tsx:3884-3899`) for Chapter 4 and make the step toggle its only result selector. Extend `Workspace.DisplayedInputs.test.tsx` with a Chapter 4 case proving the adapter follows the toggle, and assert the history controls are absent for `max-coverage-us` and still present for `p-median-us`.
 
 In `renderTabContent`'s output branches, render an empty state for Chapter 4's unsolved step instead of `StaleOutputBanner`:
 
@@ -2626,7 +2930,9 @@ In the `cost-summary` branch of `renderTabContent`:
             )}
 ```
 
-Output tabs read the selected step's full envelope through `useGetScenarioStepResult(scenarioId, selectedStep, { query: { enabled: stepState.isMaxCoverage && selectedStepSolved } })`, so the toggle refetches and an unsolved step fires no request.
+The comparison reads `stepState.steps`, which the scenario already carries — no extra fetch. Every other output surface reads the R4 adapter above.
+
+**Also rewire `CostSummaryTab.tsx` (found during review, not named in it).** Its `scenarioObjectiveMode()` at `:126` reads `s?.result?.details` — i.e. `scenario.result`, the column CH4-12 says Chapter 4's UI must never read. It uses that value to *block comparing two Chapter 4 scenarios solved under different objective modes*. Under the two-step workflow every scenario at `2 of 2` has `result` holding whichever step solved last (Step 2), so the guard silently compares Step 2 against Step 2 and its mode-mismatch check becomes vacuous. For `max-coverage-us`, source the objective mode from `steps.step1.summary` / `steps.step2.summary` instead, keyed by the step being compared, and keep the existing `result`-based path for the other five models. `ObjectiveBar.tsx:40` reads `result?.details` the same way and takes the same treatment via the adapter.
 
 - [ ] **Step 7: Run the frontend gate, typecheck, and commit**
 
@@ -2773,11 +3079,139 @@ pnpm e2e:gate
 
 Expected: PASS. A failure here in a spec this plan never edited is the recurring `spec_gap` class — fix the sibling spec now, before merge.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Record the changelog entry (hard rule #9)**
+
+`docs/CHANGELOG-implementation.md` is append-only, most recent last, and the entry lands in the **same commit** as the work it describes. Append one entry covering the whole bundle: the nine task ids and their commit SHAs, the gate numbers actually observed, the review findings R1–R11 and how each was resolved, and the deviations recorded in the plan-resolution table.
+
+Lift only distilled, still-true rules into `CLAUDE.md`'s `## Gotchas` — never the narrative. Two candidates from this bundle, both new bug classes:
+
+- A test that hand-authors a persisted shape the production writer never produces will pass while the code it covers is broken (R2: the `step2` bag that `synthesizeStep2Inputs` destructures away).
+- A partial unique index or an in-transaction guard added for one model silently changes enqueue semantics for every model unless its predicate names the model (R1).
+
+- [ ] **Step 9: Commit with an explicit, reviewed file list**
+
+R11 — Step 1 may have required fixing sibling specs, and Step 4/7 may have touched more than `max-coverage.spec.ts`. Derive the list; do not hand-guess it, and do not `git add -A`:
 
 ```bash
-git add artifacts/studio/e2e/max-coverage.spec.ts
+git status --short
+git diff --name-only
+```
+
+Stage exactly the reviewed paths, then:
+
+```bash
 git commit -m "[ch4-2s-9] rewrite the Chapter 4 e2e spec for the two-step workflow"
+```
+
+Verify nothing was missed or smuggled in:
+
+```bash
+git show --stat HEAD
+git status --short   # must be empty
+```
+
+---
+
+## Task 10: Production rollout — index, deploy, smoke, harness-retro
+
+**Files:**
+- Create: `docs/ops/ch4-two-step-rollout.md`
+- Modify: `docs/CHANGELOG-implementation.md`
+
+**Why this task exists (R10).** Task 1 pushes the schema to local `nos_dev` only. `render.yaml` carries **no** pre-deploy database step — verified: its only `push`-adjacent line is a comment about suppressing auto-deploy. So shipping the code does **not** create the production index, and the application would run with its in-transaction guard as the sole protection while the database backstop silently does not exist. Someone must apply it deliberately.
+
+**This task requires explicit human approval before any production step.** Deploys and production DDL are outward-facing and irreversible in effect; do not begin without it.
+
+- [ ] **Step 1: Verify the MIG-13 premise against the real production database**
+
+The plan's §8 supersession rests on "production Chapter 4 rows were deleted". Prove it rather than citing the prose:
+
+```sql
+SELECT count(*) FROM scenarios WHERE model_id = 'max-coverage-us';
+SELECT count(*) FROM scenarios WHERE model_id = 'chens-cosmetics-cn';
+```
+
+Expected: the second is `0`. If the first is non-zero those are post-migration scenarios and are fine — but confirm none carry a legacy `objective: "min_distance"` blob, which CH4-19/CH4-20 would have handled and this plan deliberately does not:
+
+```sql
+SELECT id, inputs ->> 'objective' FROM scenarios
+WHERE model_id = 'max-coverage-us' AND inputs ->> 'objective' = 'min_distance';
+```
+
+Expected: `(0 rows)`. Any hit is a **stop-and-ask**: it means a persisted min-distance payload exists that the CH4-25 guard now forbids, and the rollout must not proceed until that row's handling is decided.
+
+- [ ] **Step 2: Model-scoped duplicate-active preflight**
+
+```sql
+SELECT scenario_id, count(*)
+FROM solve_jobs
+WHERE model_id = 'max-coverage-us'
+  AND status IN ('queued', 'running')
+GROUP BY scenario_id
+HAVING count(*) > 1;
+```
+
+Expected: `(0 rows)`. A hit blocks index creation. Do **not** delete jobs to clear it — report and ask.
+
+- [ ] **Step 3: Inspect the Drizzle diff for unrelated drift**
+
+```bash
+DATABASE_URL="<production>" pnpm --filter @workspace/db exec drizzle-kit push --config ./drizzle.config.ts --verbose
+```
+
+Read the planned statements **before** confirming. The only expected change is `CREATE UNIQUE INDEX ... UQ_solve_jobs_active_per_scenario`. Anything else is pre-existing drift between the schema files and production — stop and report it rather than applying it as a side effect of this bundle.
+
+- [ ] **Step 4: Apply the index before the application release**
+
+The index must exist before code that assumes it. Apply, then verify the installed predicate literally:
+
+```sql
+SELECT indexdef FROM pg_indexes WHERE indexname = 'UQ_solve_jobs_active_per_scenario';
+```
+
+Expected: the definition contains both `model_id = 'max-coverage-us'` and `status = ANY (ARRAY['queued'::..., 'running'::...])` (Postgres normalizes `IN` to `= ANY`). If `model_id` is absent the unscoped version was applied — drop it immediately and re-apply, because it is actively constraining the other five models in production.
+
+- [ ] **Step 5: Deploy API, then Studio**
+
+This bundle changes `artifacts/api-server/**`, so both services deploy. API first: the frontend reads `steps`, which only the new API returns.
+
+Check `list_deploys` first; the `nos-studio` webhook has never fired on its own in this repo, so expect to trigger manually. `nos-api` = `srv-d9hglg6pbkes73a1j8b0`, `nos-studio` = `srv-d9hg4gvlk1mc73dtp67g`.
+
+- [ ] **Step 6: Post-deploy smoke — the full step lifecycle**
+
+Against production, with a throwaway account, drive the real UI:
+
+1. Create a Chapter 4 scenario → header reads `0 of 2 solved`, Solve reads `Solve Step 1`.
+2. Solve → `1 of 2`, Step 2 unlocks, floor shows `53,385,024`.
+3. **Reload the page** → still `1 of 2`. This is the one check that proves step state is server-derived rather than local UI state.
+4. Solve Step 2 → `2 of 2`, comparison renders, `624.33 km` against `635.13 km`.
+5. Toggle to Step 1 → outputs show Step 1's numbers, not Step 2's (the R4 adapter).
+6. Edit a Step 1 parameter → confirm dialog → Confirm → `0 of 2` **without** pressing Save (the R3 persisted clear).
+7. Verify at least one non-root route still loads (the documented SPA-rewrite check).
+
+Delete the throwaway scenario and note the account name in the changelog.
+
+- [ ] **Step 7: Record rollback**
+
+Write `docs/ops/ch4-two-step-rollout.md` with the exact steps taken, the observed `indexdef`, the smoke results, and the rollback procedure:
+
+```sql
+DROP INDEX IF EXISTS "UQ_solve_jobs_active_per_scenario";
+```
+
+plus the application rollback (redeploy the prior commit on both services). Note that the index drop is safe to run independently of the code rollback — the in-transaction guard keeps working without it.
+
+- [ ] **Step 8: Run `/harness-retro`**
+
+A branch is not finished until `/harness-retro <task_id>` has run: it records the metrics row in `docs/superpowers/metrics/tasks.csv`, logs each gate failure by cause, and fires the second-occurrence gate rule. Never fabricate a metric — an underivable value is the literal string `unknown`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git status --short
+git diff --name-only
+git add docs/ops/ch4-two-step-rollout.md docs/CHANGELOG-implementation.md docs/superpowers/metrics/tasks.csv
+git commit -m "[ch4-2s-10] record the Chapter 4 two-step production rollout"
 ```
 
 ---
@@ -2791,3 +3225,272 @@ git commit -m "[ch4-2s-9] rewrite the Chapter 4 e2e spec for the two-step workfl
 **3. Type consistency.** `applyScenarioInputWrite` / `initialInputsForInsert` / `assertNoServerOwnedStepFields` / `nextStepEpoch` / `readStepEpoch` / `synthesizeStep2Inputs` / `deriveTargetStep` / `loadScenarioSteps` are each declared once and used under the same name throughout. `ScenarioSteps` / `ScenarioStepState` / `ScenarioStepSummary` are declared in Task 5's server module, mirrored into `openapi.yaml` in the same task, and consumed from `@workspace/api-client-react` in Tasks 6–8. `MaxCoverageStep = 1 | 2` matches the frontend's `selectedStep: 1 | 2`.
 
 **Open risk to watch at review:** Task 2's PATCH restructure is the largest single change to a route this plan makes, and `routes.test.ts` mocks `db.transaction` as a pass-through — so its 276 tests will keep passing whether or not the transaction is real. Task 2 Step 8's real-Postgres concurrency case is the only thing that actually proves it. Do not accept Task 2 on the mocked suite alone.
+
+---
+
+## Deep Review — Approval Gate (2026-09-28)
+
+**Reviewed revision:** commit `6d0e82d` on `ch4-two-step-workflow-plan`. The reviewed working-tree file and commit blob both hashed to `0165a596556f78836a20c623da6487713bd593ed` before these comments were appended.
+
+**Verdict: REQUEST CHANGES — not ready for implementation approval.** The main architecture is sound: server-owned step state, epoch-based invalidation, state-derived solve targeting, and server-synthesized Step 2 inputs are the right direction. The items below are not optional polish. Each closes an observable correctness, compatibility, or rollout gap. The simplest complete solution is to amend this plan rather than redesign the workflow.
+
+### Approval blockers
+
+#### R1 — Scope the one-active-job rule to Chapter 4
+
+Task 1's partial unique index covers every model:
+
+```ts
+uniqueIndex("UQ_solve_jobs_active_per_scenario")
+  .on(table.scenarioId)
+  .where(sql`${table.status} IN ('queued', 'running')`)
+```
+
+Task 4's active-job lookup is likewise executed before the `MAX_COVERAGE_MODEL_ID` conditional. Together these change enqueue behaviour for the other five models, despite this plan promising that they remain unchanged. They also conflict with `scenarioSolveAtomicity.test.ts`, which deliberately enqueues a second non-Chapter-4 job while the first remains active.
+
+**Required correction:**
+
+- Add `model_id = 'max-coverage-us'` to the partial-index predicate.
+- Run the active-job guard only for `max-coverage-us`.
+- Make the schema test assert the exact model and status predicate, not merely that a `where` clause exists.
+- Add a regression proving an existing non-Chapter-4 model retains its current multiple-enqueue semantics.
+
+Do not broaden the rule repo-wide inside this Chapter 4 change. A repo-wide policy would require a separate decision, migration, and compatibility review.
+
+#### R2 — Repair Step 2 staleness detection using the real snapshot shape
+
+`synthesizeStep2Inputs` deliberately removes the nested `step2` bag and persists the effective Step 2 `gap` and `timeLimitSec` at the top level. `loadScenarioSteps`, however, reads `input_snapshot -> 'inputs' -> 'step2'` and compares it with the current nested bag. Consequently, a real Step 2 job with explicit Step 2 settings has no `snapshot_step2`, and will be reported stale immediately.
+
+The proposed read-projection test is a false positive because it manually inserts a `step2` bag that the real synthesis path removes.
+
+**Required correction:**
+
+- Select the snapshot's top-level `gap` and `timeLimitSec`.
+- Compare them with the current *effective* Step 2 settings:
+  - `inputs.step2?.gap ?? inputs.gap`
+  - `inputs.step2?.timeLimitSec ?? inputs.timeLimitSec`
+- Build the test's job snapshot through `synthesizeStep2Inputs`; do not hand-author a shape that production never stores.
+- Prove default inheritance, custom settings, unchanged settings, and changed-settings staleness.
+
+#### R3 — Make “confirm and clear” a persisted operation
+
+Task 7's confirmation handler invokes only a local draft callback. It does not PATCH the scenario, bump `stepEpoch`, refetch `steps`, or clear anything server-side. Task 9 nevertheless expects the counter to move to `0 of 2 solved` immediately after clicking Confirm, without clicking Save. That e2e cannot pass against the described implementation.
+
+**Required product decision:** choose and document one of these behaviours before approval:
+
+1. **Recommended — literal confirm-and-clear:** confirmation constructs the next inputs, awaits the PATCH, refetches the scenario, and only then closes the dialog. On failure, preserve the old state and show an error.
+2. **Manual-save semantics:** confirmation only edits the draft; change the dialog copy to say results clear when saved, and make the e2e click Save before asserting `0 of 2`.
+
+The current plan mixes the first behaviour's language and assertions with the second behaviour's implementation.
+
+#### R4 — Define one canonical selected-step output adapter
+
+Task 8 says the selected step's envelope is fetched, but it does not show how that result replaces the existing `displayedResult`, `displayedInputs`, `hasFreshSolvedRun`, timing, export, and result-history paths. `Workspace.tsx` currently uses those values across the Output Map and every output grid. Merely issuing `useGetScenarioStepResult` does not prevent a selected Step 2 tab from rendering the scenario's latest or historically selected Step 1 result.
+
+**Required correction:** define and use these canonical values at every output call site:
+
+```ts
+activeOutputResult
+activeOutputInputs
+activeOutputReady
+```
+
+- For Chapter 4, `activeOutputResult` comes from the selected-step query.
+- For Chapter 4, `activeOutputReady` requires the selected step to be solved and its result query to have succeeded.
+- For the other models, retain `displayedResult`, `displayedInputs`, and `hasFreshSolvedRun` exactly as today.
+- Specify loading and error states for the selected-step request.
+- Route Output Map, all grids, exports, summary/comparison, timing, and any result-dependent overlays through the adapter.
+
+The plan must also resolve the interaction between the existing result-history stepper and the new step toggle. **Simplest recommendation:** hide the old history controls for Chapter 4 and make the step toggle the only Chapter 4 result selector. If history remains, define the two-dimensional selection semantics and test them.
+
+#### R5 — Make the Run Optimizer dialog step-correct
+
+Task 6 removes the free objective toggle and floor authoring but keeps coverage-only UI plus the ordinary top-level `gap`, `timeLimitSec`, `p`, and distance-band editors. When the server targets Step 2, that dialog can still expose Step 1 controls and edit top-level limits rather than `step2.gap` and `step2.timeLimitSec`.
+
+**Required correction:** make the Chapter 4 Run Optimizer dialog confirmation-only and keep parameter editing in Optimization Parameters. This is simpler and safer than maintaining two independent step-aware parameter editors. If editable fields remain in the dialog, the plan must specify Step 1 versus Step 2 props, frozen controls, correct nested writes, and tests for both states.
+
+#### R6 — Enforce the Step 2 editability state
+
+Task 7 adds `stepEditable`, but the shown Step 2 inputs never use it. At `0 of 2`, Step 2 is intended to be viewable but not editable.
+
+**Required correction:** apply `disabled={!stepEditable}` to both Step 2 inputs and add tests proving:
+
+- At `0 of 2`, Step 2 is selectable and viewable, but its settings are disabled.
+- At `1 of 2`, its settings are enabled.
+- Inherited Step 1 parameters and the coverage floor are always read-only.
+
+### Important corrections required for closeout
+
+#### R7 — Replace timing-dependent concurrency tests
+
+A test that fires two solve POSTs and expects exactly `[202, 409]` can race the dispatcher: the first job may finish before the second request acquires the lock, making `[202, 202]` legitimate.
+
+Use deterministic proofs instead:
+
+- Seed a queued/running Chapter 4 job and assert the next POST returns 409 with its job ID.
+- Directly prove the database rejects a second active Chapter 4 row.
+- Test target-step derivation separately.
+- If a true simultaneous-request proof is mandatory, add a test-only transaction/dispatcher barrier rather than relying on CBC timing.
+
+#### R8 — Preserve atomicity for combined name-and-input PATCHes
+
+The proposed PATCH transaction commits `inputs`, then updates `name` in a separate statement. If the name update fails, the client receives a partially applied PATCH.
+
+Move the optional name update into the same transaction as `applyScenarioInputWrite`, and return the final row from that transaction. Add a regression for a combined `{ name, inputs }` request.
+
+#### R9 — Strengthen the direct-writer dependency guard
+
+The source-shape guard is narrowly tied to `routes/scenarios.ts` and a regex. It can miss a future writer in another route or service.
+
+At minimum, inventory all writes below `artifacts/api-server/src` and freeze that inventory in a test. The only allowed forms should be:
+
+- `applyScenarioInputWrite` for updates,
+- `initialInputsForInsert` for create/clone,
+- the documented atomic `distanceBands` `jsonb_set` exception.
+
+An AST/ESLint rule would be more robust later, but is not required to close this plan if the repo-wide source guard is precise.
+
+#### R10 — Add the production database rollout
+
+Task 1 pushes only to local `nos_dev`. `render.yaml` contains no pre-deploy database push, and the API is Dashboard-managed with auto-deploy disabled. Therefore, deploying the code will not create the production index.
+
+Add an explicit, human-approved rollout task:
+
+1. Verify the target environment has no duplicate active Chapter 4 rows.
+2. Inspect the Drizzle diff for unrelated schema drift.
+3. Apply the model-scoped index before the application release.
+4. Verify the installed predicate through `pg_indexes`.
+5. Deploy API, then Studio.
+6. Smoke-test the two-step flow.
+7. Document rollback: application rollback plus the exact index drop, if needed.
+
+The preflight query must be model-scoped:
+
+```sql
+SELECT scenario_id, count(*)
+FROM solve_jobs
+WHERE model_id = 'max-coverage-us'
+  AND status IN ('queued', 'running')
+GROUP BY scenario_id
+HAVING count(*) > 1;
+```
+
+Verify the installed definition with:
+
+```sql
+SELECT indexdef
+FROM pg_indexes
+WHERE indexname = 'UQ_solve_jobs_active_per_scenario';
+```
+
+#### R11 — Complete the repository-required closeout
+
+The plan does not include the required `docs/CHANGELOG-implementation.md` update or `/harness-retro`. Add both to the final task. Also correct Task 9's staging instructions: it asks the implementer to fix affected sibling e2e specs but stages only `max-coverage.spec.ts`. Stage an explicit reviewed file list derived from `git diff --name-only`; do not accidentally omit sibling fixes or stage unrelated work.
+
+### Dependency-audit method
+
+Run the following searches before implementation and again before final approval. Record unexpected hits and either route them through the new authority or explain why they are safe.
+
+```bash
+# Backend writers and enqueue consumers
+rg -n "enqueueScenarioSolve|solveJobsTable" artifacts/api-server/src
+rg -n "inputs:|jsonb_set" artifacts/api-server/src/routes artifacts/api-server/src/services
+
+# Frontend result-state and both parameter-editor mounts
+rg -n "displayedResult|displayedInputs|hasFreshSolvedRun|resultHistoryState" artifacts/studio/src
+rg -n "SolveDialog|OptimizationParametersTab" artifacts/studio/src artifacts/studio/e2e
+
+# Sibling e2e dependencies and removed selectors/copy
+rg -n "max-coverage-us|Run Optimizer|chen-objective|coverage-floor" artifacts/studio/e2e
+```
+
+Additional dependency checks:
+
+- **Contract:** edit OpenAPI first, regenerate, inspect generated diffs, then typecheck every consumer.
+- **Data:** verify the MIG-13 premise directly in the target production database—no legacy Chapter 4 scenarios remain. Do not accept the prose assertion as the only evidence.
+- **Commit ancestry:** verify the implementation branch contains the required dataset-migration/deletion evidence commits before removing legacy compatibility.
+- **Other models:** run enqueue, PATCH, output, and e2e regressions for at least one representative non-Chapter-4 model, plus the complete gates.
+- **Ownership:** prove both the scenario and step-result reads return 404 for a non-owner.
+- **Generated code:** ensure only OpenAPI-derived outputs change and no generated file was hand-edited.
+
+### Required deterministic acceptance matrix
+
+Before approval, tests must prove all of the following:
+
+- Two concurrent Step 1 edits commit two distinct consecutive epochs.
+- An active Chapter 4 job yields a documented 409 carrying the in-flight job ID.
+- The database rejects a second active Chapter 4 job.
+- Existing non-Chapter-4 enqueue behaviour is unchanged.
+- A real synthesized Step 2 snapshot is fresh immediately after solving.
+- Changing only Step 2 settings marks only Step 2 stale without changing the epoch.
+- Changing any Step 1 field increments the epoch and clears both steps.
+- Changing only `distanceBands` changes neither epoch nor solve validity.
+- Confirm-and-clear reaches persisted state before the UI shows `0 of 2`.
+- At `0 of 2`, Step 2 is viewable but not editable or solvable.
+- Step 1 and Step 2 each populate Output Map, every output grid, export, and comparison from the selected step's result.
+- A refresh preserves `0/2`, `1/2`, or `2/2` from server state rather than local UI state.
+- Non-owner and cross-model step-result requests return 404.
+- Combined name-and-input PATCHes are atomic.
+
+### Final approval gate
+
+After the plan is corrected and implemented, collect evidence from this complete gate:
+
+```bash
+git diff --check
+pnpm run typecheck
+DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test
+pnpm --filter studio test
+(cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
+(cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py)
+pnpm e2e:gate
+```
+
+Approval additionally requires:
+
+- the production data and index preflight evidence,
+- a successful post-deploy `0/2 → 1/2 → 2/2 → clear` smoke test,
+- review of every changed and generated file,
+- `docs/CHANGELOG-implementation.md` updated in the appropriate implementation commit,
+- `/harness-retro` completed,
+- no omitted sibling-test changes and no unrelated staged files.
+
+**Approval condition:** resolve R1–R6 in the plan text, incorporate R7–R11 into the implementation and rollout tasks, and make the acceptance matrix deterministic. Once those changes are present, this design should be ready for implementation approval.
+
+---
+
+## Review response — 2026-09-28
+
+**All eleven findings accepted. Every one verified against source before folding; none was accepted on the report alone.** Four were defects I introduced, not presentation problems, and two of those (R2, R3) would have shipped a feature that looked correct and was not.
+
+| Id | Verified how | Landed in |
+|---|---|---|
+| **R1** | `scenarioSolveAtomicity.test.ts` has **9** `enqueueScenarioSolve(scenario.id…)` call sites and enqueues a second p-median job while the first is still queued. An unscoped index breaks it | Task 1 — predicate carries `model_id`; Task 4 guard gated on the model; schema test asserts the predicate; new non-Chapter-4 regression |
+| **R2** | `synthesizeStep2Inputs` destructures `step2` away and writes effective `gap`/`timeLimitSec` at the top level; `loadScenarioSteps` read `-> 'step2'`, which is **always null** on a real Step 2 snapshot | Task 5 — SQL reads top-level settings, comparison is effective-to-effective, and the tests now build their snapshot through `synthesizeStep2Inputs` |
+| **R3** | The confirm handler invoked a local callback only; the epoch moves solely on PATCH | Task 7 — `confirmStep1Edit` awaits the PATCH, invalidates, then closes; dialog gains `busy`/`error` and stays open on failure |
+| **R4** | 44 references to `displayedResult`/`displayedInputs` in `Workspace.tsx` (`:1688`, `:1703`), plus a 309-line `Workspace.DisplayedInputs.test.tsx` | Task 8 — `activeOutputResult` / `activeOutputInputs` / `activeOutputReady`, loading and error states, history stepper hidden for Chapter 4 |
+| **R5** | The dialog still renders the P slider (`:195`), avg-cap (`:247`), bands, and top-level `gap`/`timeLimitSec` | Task 6 — `readOnlyParams` for `max-coverage-us`; confirmation-only |
+| **R6** | `stepEditable` appeared in the props list and in no JSX | Task 7 — `disabled={!stepEditable}` on both inputs, with the three state tests |
+| **R7** | The first job can finish before the second request takes the lock, so `[202, 202]` is legitimate | Task 4 — seeded-active-job 409, a direct DB-rejection test, and the non-Chapter-4 regression |
+| **R8** | The draft committed `inputs`, then updated `name` in a separate statement | Task 2 — one transaction owns both and returns the final row; regression asserts neither applies on rejection |
+| **R9** | The guard read one file with one regex | Task 3 — whole-tree walk with a frozen allow-list, plus a non-vacuity check |
+| **R10** | `render.yaml` has no pre-deploy hook; its only `push`-adjacent line is an auto-deploy comment | **New Task 10** — premise verification, model-scoped preflight, drift inspection, `pg_indexes` verification, ordered deploy, lifecycle smoke, rollback, `/harness-retro` |
+| **R11** | Neither the changelog nor `/harness-retro` appeared anywhere in the plan | Task 9 Steps 8–9 and Task 10 Step 8 |
+
+**R3 deserves naming.** The plan asserted `0 of 2` in an e2e that the described implementation could never satisfy — the dialog's copy promised a persisted clear while the code performed a draft edit. A passing-looking spec paired with prose that contradicts it is worse than either alone, because the spec reads as evidence. Option 1 was chosen: confirmation is a persisted operation, because that is what both the dialog copy and frame 6 describe.
+
+### Additional findings from this pass, not raised in the review
+
+Two are in the same class as R4 — a consumer left reading the old source of truth.
+
+**A1 — `CostSummaryTab.tsx:126` reads `scenario.result`, which CH4-12 forbids for Chapter 4.** `scenarioObjectiveMode()` calls `objectiveModeOfDetails(s?.result?.details)` and uses it to **block comparing two Chapter 4 scenarios solved under different objective modes** (a coverage % and a demand-km total cannot share a column). Under the two-step workflow every scenario at `2 of 2` has `result` holding whichever step solved last — always Step 2 — so the guard compares min_distance against min_distance and becomes vacuous: it will happily place two incomparable columns side by side. Folded into Task 8: source the mode from `steps.*.summary` for `max-coverage-us`, keep the `result` path for the other five. `ObjectiveBar.tsx:40` reads the same way and takes the same treatment.
+
+**A2 — the epoch write silently changes import/apply's documented invariant.** `routes/scenarios.ts:1884-1887` states import/apply "always increments solve_input_revision, DB-side, unconditionally". `applyScenarioInputWrite` makes that bump conditional on the bands-only check. For import/apply the two are equivalent — bands are never imported, so the condition can't fire — but the code will no longer say what the comment says. Task 2 must move that invariant into the routine's own comment rather than leave a now-false claim at the call site.
+
+**A3 — `synthesizeStep2Inputs` is correct but its Step 1 counterpart is worth stating.** A Step 1 snapshot is `validation.data`, which **does** retain `step2` and `stepEpoch`. That is harmless (`pmedian.ts` picks wire fields explicitly, so neither reaches `solve.py`) and it is what makes the Task 5 Step 1 seeding realistic — but the asymmetry between the two snapshot shapes is exactly what produced R2, and it is now stated in Task 5 rather than left to be rediscovered.
+
+### On the acceptance matrix
+
+Adopted as written. Every row now maps to a named test: the epoch rows to Task 2, the 409/DB-rejection/non-Chapter-4 rows to Task 4, the Step 2 freshness rows to Task 5's three `seedStep2Job` cases, the confirm-and-clear and viewable-not-editable rows to Task 7, the per-step output rows to Task 8, and the refresh-preserves-state row to Task 10's smoke Step 6.3 — which is the only one that cannot be proved by a unit test, since it is precisely the claim that state is server-derived rather than local.
+
+**Status: R1–R11 folded. Ready for re-review.**
