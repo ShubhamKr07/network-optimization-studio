@@ -102,6 +102,57 @@ Verified against the tree at `1761260`. Each was checked by reading the named fi
 
 ---
 
+## Task 0: Dependency audit — run before Task 1, and again before closeout
+
+**Files:** none changed. This task produces a recorded finding list, not a diff.
+
+**Why it is a task and not a paragraph.** The review supplied this audit as prose; prose gets skipped. It runs **twice** — once before implementation, so an unexpected consumer is found while the plan can still absorb it, and once before final approval, so a consumer added *during* implementation cannot slip through.
+
+- [ ] **Step 1: Backend writers and enqueue consumers**
+
+```bash
+rg -n "enqueueScenarioSolve|solveJobsTable" artifacts/api-server/src
+rg -n "inputs:|jsonb_set" artifacts/api-server/src/routes artifacts/api-server/src/services
+```
+
+Expected known set: `routes/scenarios.ts` (create, PATCH, import/apply, clone, solve), `routes/distanceBands.ts` (`jsonb_set`), `solver/jobRunner.ts`, `routes/solveHistory.ts` (read-only). Anything else must either route through `applyScenarioInputWrite` / `initialInputsForInsert` or be recorded here with the reason it is safe.
+
+- [ ] **Step 2: Frontend result-state and both parameter-editor mounts**
+
+```bash
+rg -n "displayedResult|displayedInputs|hasFreshSolvedRun|resultHistoryState" artifacts/studio/src
+rg -n "SolveDialog|OptimizationParametersTab" artifacts/studio/src artifacts/studio/e2e
+```
+
+Baseline measured at `32cacf8`: 44 hits for the first group in `Workspace.tsx` alone, plus `Workspace.DisplayedInputs.test.tsx` (309 lines). Every hit is a call site Task 8's adapter must cover or deliberately leave on the legacy path. **Known consumers outside `Workspace.tsx` that read `scenario.result` directly and need the Chapter 4 treatment: `CostSummaryTab.tsx:126`, `ObjectiveBar.tsx:40`** (finding A1).
+
+- [ ] **Step 3: Sibling e2e dependencies and removed selectors**
+
+```bash
+rg -n "max-coverage-us|Run Optimizer|chen-objective|coverage-floor" artifacts/studio/e2e
+```
+
+Known: `max-coverage.spec.ts` (real breakage), `nonjade-servicestats-live-coverage.spec.ts:391` (wrapper only, survives). A hit in any other spec is the recurring `spec_gap` class — fix it in Task 9, before merge.
+
+- [ ] **Step 4: Contract, data, and ancestry checks**
+
+- **Contract:** edit `openapi.yaml` first, regenerate, inspect the generated diff, then typecheck every consumer. Confirm only OpenAPI-derived files changed and none was hand-edited (hard rule #1).
+- **Data:** verify the MIG-13 premise *in the target database*, not from this plan's prose — the queries are in Task 10 Step 1. A legacy `objective: "min_distance"` row is a stop-and-ask.
+- **Ancestry:** confirm the implementation branch contains the dataset-migration commits before relying on legacy compatibility being gone:
+
+```bash
+git merge-base --is-ancestor 1761260 HEAD && echo "migration present" || echo "STOP - migration not in ancestry"
+```
+
+- **Other models:** run enqueue, PATCH, output and e2e regressions for at least one non-Chapter-4 model. Task 4's non-Chapter-4 enqueue regression is the minimum; `p-median-us` e2e is the fuller check.
+- **Ownership:** prove both the scenario read and the step-result read return 404 for a non-owner (Task 5 covers both).
+
+- [ ] **Step 5: Record the findings**
+
+Write the unexpected hits and their dispositions into the branch's progress ledger before Task 1 begins. An audit whose findings are not written down is an audit that did not happen.
+
+---
+
 ## Task 1: `stepEpoch` / `step2` in the validator, and the one-active-job index
 
 **Files:**
@@ -726,7 +777,43 @@ import { applyScenarioInputWrite, initialInputsForInsert } from "../services/sce
   }
 ```
 
-Add a regression: a combined `{ name, inputs }` PATCH applies both, and a rejected one (e.g. tripping the CH4-25 floor guard) applies **neither** — assert the persisted name is unchanged, not just the response status.
+Acceptance row 14 — the regression, written out rather than merely named. Append to `maxCoverageStepWorkflow.test.ts`:
+
+```ts
+describe("R8 — combined name-and-inputs PATCHes are atomic", () => {
+  it("applies both when the write succeeds", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ name: "renamed together", inputs: { ...step1Inputs, p: 4 } }).expect(200);
+
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    expect(row!.name).toBe("renamed together");
+    expect((row!.inputs as Record<string, unknown>).p).toBe(4);
+    expect(await readEpoch(scenario.id)).toBe(2);
+  });
+
+  // The half that actually proves atomicity: a rejected inputs payload must
+  // leave the NAME untouched too. Asserted against the persisted row — the
+  // response status alone cannot distinguish "rolled back" from "name applied
+  // anyway".
+  it("applies NEITHER when the inputs half is rejected", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [before] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ name: "must not stick", inputs: { ...step1Inputs, p: 4, coverageFloorDemand: 1 } })
+      .expect(422);
+
+    const [after] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    expect(after!.name).toBe(before!.name);
+    expect((after!.inputs as Record<string, unknown>).p).toBe(3);
+    expect(await readEpoch(scenario.id)).toBe(1);
+  });
+});
+```
 
 **(c) import/apply** — at line 1888, replace the bare `db.update` with the routine. Delete the surrounding `normalizeAddedEntityDistances` call at line 1885 (the routine now performs it) and the unconditional `solveInputRevision` bump (the routine decides):
 
@@ -2003,6 +2090,24 @@ describe("CH4-12/CH4-13/CH4-14 — the steps read path", () => {
     await request(app).get(`/api/scenarios/${scenario.id}/steps/3/result`).set("Cookie", cookie).expect(404);
   });
 
+  // Acceptance row 13 — the CROSS-MODEL half. A p-median scenario has no step
+  // concept; its owner must still get 404, not a 500 from dereferencing a null
+  // `steps`. This is the case the route's `modelId !== "max-coverage-us"`
+  // guard exists for, and nothing was proving it.
+  it("404s the step-result endpoint for a non-Chapter-4 scenario, even for its owner", async () => {
+    const cookie = await registerAndGetCookie();
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "cross-model", modelId: "p-median-us",
+      inputs: {
+        p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null,
+        warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 30,
+        addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+      },
+    }).expect(201);
+    scenarioIds.push(created.body.id);
+    await request(app).get(`/api/scenarios/${created.body.id}/steps/1/result`).set("Cookie", cookie).expect(404);
+  });
+
   // A job carrying a SUPERSEDED epoch must not be selected: that is what
   // "clearing a step" means. Seeded directly so the test does not depend on a
   // real CBC run.
@@ -2039,6 +2144,75 @@ describe("CH4-12/CH4-13/CH4-14 — the steps read path", () => {
     expect(after.body.steps.step1.solved).toBe(false);
     expect(after.body.steps.step1.summary).toBeNull();
   });
+
+  // Acceptance row 7 — CH4-2 says a Step 1 edit drops BOTH results, not just
+  // Step 2's. An earlier draft only asserted Step 1, which would pass even if
+  // Step 2 survived the epoch bump and kept presenting a result computed
+  // against a configuration that no longer exists.
+  it("a Step 1 edit clears BOTH steps, not only Step 1", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await seedStep1Job(scenario.id, owner!.userId, 1);
+    await seedStep2Job(scenario.id, owner!.userId, row!.inputs as Record<string, unknown>);
+
+    const before = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
+    expect(before.body.steps.step1.solved).toBe(true);
+    expect(before.body.steps.step2.solved).toBe(true);
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ inputs: { ...step1Inputs, p: 4 } }).expect(200);
+
+    const after = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
+    expect(after.body.steps.step1.solved).toBe(false);
+    expect(after.body.steps.step2.solved).toBe(false);
+    expect(after.body.steps.step2.summary).toBeNull();
+    expect(await readEpoch(scenario.id)).toBe(2);
+  });
+
+  // Acceptance row 8 — bands are a reporting lens. The epoch assertion alone
+  // (Task 2) does not prove SOLVE VALIDITY survives: a bands edit must leave
+  // both steps still solved, not merely leave the counter intact.
+  it("a distanceBands-only change alters neither the epoch nor either step's validity", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await seedStep1Job(scenario.id, owner!.userId, 1);
+    await seedStep2Job(scenario.id, owner!.userId, row!.inputs as Record<string, unknown>);
+
+    await request(app).patch(`/api/scenarios/${scenario.id}/distance-bands`).set("Cookie", cookie)
+      .send({ distanceBands: [700, 1400, 5500] }).expect(200);
+
+    const after = await request(app).get(`/api/scenarios/${scenario.id}`).set("Cookie", cookie).expect(200);
+    expect(after.body.steps.step1.solved).toBe(true);
+    expect(after.body.steps.step2.solved).toBe(true);
+    expect(after.body.steps.step2.stale).toBe(false);
+    expect(await readEpoch(scenario.id)).toBe(1);
+  });
+
+  // A Step 1 snapshot is `validation.data` — it RETAINS step2 and stepEpoch
+  // (see A3). Seeding it literally is therefore faithful to production, unlike
+  // the Step 2 case below.
+  async function seedStep1Job(scenarioId: number, userId: string, stepEpoch: number) {
+    const [job] = await db.insert(solveJobsTable).values({
+      scenarioId,
+      userId,
+      status: "succeeded",
+      inputsHash: `seeded-step1-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      modelId: "max-coverage-us",
+      inputSnapshot: { modelId: "max-coverage-us", inputs: { ...step1Inputs, stepEpoch } },
+      result: {
+        status: "optimal", solutionStatus: "optimal", quality: "Proven Optimal", runTimeSec: 1.5,
+        metrics: { weightedAvgDistance: 635.13 },
+        details: { objective: "coverage", coveragePct: 68.4192, coveredDemand: 53385024 },
+      },
+    }).returning();
+    return job;
+  }
 
   // R2 — the snapshot is built through synthesizeStep2Inputs, the SAME
   // function the enqueue path uses. An earlier draft hand-authored a snapshot
@@ -2900,6 +3074,44 @@ Declare these three beside the existing derivations and use them at **every** ou
 
 Then replace `displayedResult` → `activeOutputResult`, `displayedInputs` → `activeOutputInputs`, and `hasFreshSolvedRun` → `activeOutputReady` at every output-rendering site: Output Map, all five grids, `CostSummaryTab`, exports, timing, and any result-dependent overlay. Render `stepResultQuery.isLoading` as a spinner and `stepResultQuery.isError` as a retry message — an unhandled error state would silently fall through to the "not solved yet" empty state and misreport a solved step as unsolved.
 
+Acceptance row 11 — extend `Workspace.DisplayedInputs.test.tsx` with the Chapter 4 case, written out rather than merely named:
+
+```tsx
+describe("R4 — Chapter 4 outputs follow the step toggle", () => {
+  it("renders Step 1's result on step 1 and Step 2's on step 2, from the same scenario", async () => {
+    // Two distinct envelopes so a wrong-step render is unambiguous: Step 1's
+    // weighted average is 635.13, Step 2's is 624.33.
+    renderWorkspaceForMaxCoverage({
+      steps: {
+        step1: { solved: true, stale: false, jobId: 11, summary: step1Summary },
+        step2: { solved: true, stale: false, jobId: 12, summary: step2Summary },
+      },
+      stepResults: { 1: step1Envelope, 2: step2Envelope },
+    });
+
+    await screen.findByTestId("sidebar-output-cost-summary");
+    fireEvent.click(screen.getByTestId("sidebar-output-cost-summary"));
+    expect(await screen.findByTestId("cost-summary-value-wavg")).toHaveTextContent("635.13");
+
+    fireEvent.click(screen.getByTestId("step-toggle-2"));
+    expect(await screen.findByTestId("cost-summary-value-wavg")).toHaveTextContent("624.33");
+  });
+
+  it("hides the result-history stepper for Chapter 4 but keeps it for p-median-us", async () => {
+    renderWorkspaceForMaxCoverage({ steps: bothSolvedSteps, stepResults: { 1: step1Envelope, 2: step2Envelope } });
+    await screen.findByTestId("step-toggle");
+    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
+
+    cleanup();
+    renderWorkspaceForPMedian({ withHistory: true });
+    expect(await screen.findByTestId("button-result-back")).toBeInTheDocument();
+  });
+});
+```
+
+`renderWorkspaceForMaxCoverage` / `renderWorkspaceForPMedian` follow this file's existing render-helper convention — extend the helper already there rather than introducing a parallel one.
+
 **Result-history stepper vs. the step toggle.** Two independent result selectors on one screen would need two-dimensional semantics nobody has specified. Hide the existing history controls (`button-result-back` / `button-result-forward` / `text-result-history-position` / `button-save-as-scenario`, `Workspace.tsx:3884-3899`) for Chapter 4 and make the step toggle its only result selector. Extend `Workspace.DisplayedInputs.test.tsx` with a Chapter 4 case proving the adapter follows the toggle, and assert the history controls are absent for `max-coverage-us` and still present for `p-median-us`.
 
 In `renderTabContent`'s output branches, render an empty state for Chapter 4's unsolved step instead of `StaleOutputBanner`:
@@ -3055,13 +3267,16 @@ Expected: PASS — it asserts only on `chen-objective-section`, which survives.
 - [ ] **Step 5: Run the full verification gate**
 
 ```bash
-pnpm run typecheck \
+git diff --check \
+  && pnpm run typecheck \
   && DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test \
   && pnpm --filter studio test \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
 
-Expected: all four green. `DATABASE_URL` inline is mandatory — without it eight api-server suites fail at *collection* (`lib/db/src/index.ts` throws at import) and look like real failures.
+Expected: all green. `git diff --check` leads (whitespace errors and conflict markers fail fast and cost nothing). `DATABASE_URL` inline is mandatory — without it eight api-server suites fail at *collection* (`lib/db/src/index.ts` throws at import) and look like real failures.
+
+Re-run **Task 0's audit** now, before closeout, so a consumer introduced during implementation cannot slip through. Record any new hit and its disposition.
 
 - [ ] **Step 6: Run the sacred solver script, unmodified**
 
@@ -3491,6 +3706,29 @@ Two are in the same class as R4 — a consumer left reading the old source of tr
 
 ### On the acceptance matrix
 
-Adopted as written. Every row now maps to a named test: the epoch rows to Task 2, the 409/DB-rejection/non-Chapter-4 rows to Task 4, the Step 2 freshness rows to Task 5's three `seedStep2Job` cases, the confirm-and-clear and viewable-not-editable rows to Task 7, the per-step output rows to Task 8, and the refresh-preserves-state row to Task 10's smoke Step 6.3 — which is the only one that cannot be proved by a unit test, since it is precisely the claim that state is server-derived rather than local.
+Adopted, and mapped row by row rather than asserted. **The first version of this response claimed "every row now maps to a named test" without checking — auditing the fourteen rows found three with no test at all and two named but never written.** All five are now closed; the table below is the audit, not a restatement.
+
+| # | Acceptance row | Proved by |
+|---|---|---|
+| 1 | Two concurrent Step 1 edits → two distinct consecutive epochs | Task 2 Step 7 — `two concurrent Step 1 PATCHes…` |
+| 2 | Active Chapter 4 job → 409 with in-flight job id | Task 4 Step 8 — `409s with the in-flight jobId…` |
+| 3 | Database rejects a second active Chapter 4 job | Task 4 Step 8 — `the database itself rejects…` |
+| 4 | Non-Chapter-4 enqueue unchanged | Task 4 Step 8 — `leaves non-Chapter-4 enqueue semantics untouched` |
+| 5 | Real synthesized Step 2 snapshot is fresh | Task 5 — `reports a freshly-synthesized Step 2 job as fresh` |
+| 6 | Step 2-only change → only Step 2 stale, epoch unmoved | Task 5 — `flags Step 2 stale only after its effective settings change…` |
+| **7** | **Step 1 edit increments the epoch and clears BOTH steps** | **ADDED** — Task 5, `a Step 1 edit clears BOTH steps, not only Step 1`. The prior superseded-epoch test asserted Step 1 only, so it would have passed with Step 2 surviving |
+| **8** | **Bands-only change alters neither epoch nor solve validity** | **ADDED** — Task 5, `a distanceBands-only change alters neither the epoch nor either step's validity`. Task 2 proved the epoch half only |
+| 9 | Confirm-and-clear reaches persisted state before `0 of 2` | Task 9 e2e Step 3 (post-R3 rewrite) |
+| 10 | At `0 of 2` Step 2 is viewable, not editable, not solvable | Task 7 R6 state tests + the `Solve Step 1` label assertion |
+| **11** | **Both steps populate map, grids, export, comparison** | **WRITTEN OUT** — Task 8 extends `Workspace.DisplayedInputs.test.tsx` with a Chapter 4 adapter case; previously named only |
+| 12 | Refresh preserves `N/2` from server state | Task 10 smoke Step 6.3 — **manual by necessity**: it is precisely the claim that state is server-derived, which no client-side test can prove |
+| **13** | **Non-owner AND cross-model step-result → 404** | **ADDED** — Task 5, `404s the step-result endpoint for a non-Chapter-4 scenario, even for its owner`. Only the non-owner half existed |
+| **14** | **Combined name-and-inputs PATCH is atomic** | **WRITTEN OUT** — Task 2, both halves, asserting the persisted name on rejection; previously named only |
+
+Row 12 is the honest exception: it is a manual post-deploy check, not an automated one, and the plan says so rather than implying coverage it does not have.
+
+### On the dependency audit and the final gate
+
+Both were supplied as prose and are now **Task 0** and a step inside Task 9. Prose in a review gets read once; a task with checkboxes gets run. Task 0 executes before Task 1 and again before closeout, because a consumer added *during* implementation is exactly what a single up-front audit misses. `git diff --check` now leads the gate command.
 
 **Status: R1–R11 folded. Ready for re-review.**
