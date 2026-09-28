@@ -433,8 +433,22 @@ describe("A1 — writer enumeration, real HTTP (PATCH /scenarios/:id vs the dist
     const lines = (exportRes.text as string).trim().split("\n");
     const header = lines[0]!;
     const firstDataLine = lines[1]!.split(",");
-    // demand is the last column per templates.ts's customer CSV shape.
-    firstDataLine[firstDataLine.length - 1] = String(Number(firstDataLine[firstDataLine.length - 1]) + 1000);
+    // CH4-2s-2 — pre-existing off-by-one, surfaced (not caused) by this task:
+    // `demand` is the SECOND-TO-LAST column (templates.ts's
+    // customerRowsToCsv header is `..., demand, status`, status is last).
+    // This line used to edit `length - 1` (status), turning it into
+    // `Number("active") + 1000` = `NaN`, which parseAndValidateImport
+    // rejected with an "Invalid status" logic error — so under `mode:
+    // "partial"` the row was silently skipped (preview.changes stayed
+    // empty) rather than producing the intended demand-edit change. The
+    // OLD import/apply route bumped solve_input_revision unconditionally
+    // regardless of whether anything actually changed, so this test's
+    // final assertion passed anyway, for the wrong reason. CH4-26's
+    // conditional bump (routed through applyScenarioInputWrite, which only
+    // bumps when the persisted row actually differs) doesn't bump on a
+    // silently-skipped no-op import, which is what exposed this. Fixed to
+    // edit the real demand column (`length - 2`).
+    firstDataLine[firstDataLine.length - 2] = String(Number(firstDataLine[firstDataLine.length - 2]) + 1000);
     const csvText = [header, firstDataLine.join(",")].join("\n");
 
     const applied = await request(app).post(`/api/scenarios/${created.body.id}/import/apply`).set("Cookie", cookie)

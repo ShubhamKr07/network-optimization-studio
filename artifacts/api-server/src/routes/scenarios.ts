@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
 import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT, derivePublicFailure } from "../solver/jobRunner.js";
@@ -78,12 +78,8 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedMaxCoverageDistances } from "../services/autoDistance.js";
-import type { PMedianInputs } from "../validation/inputs/pMedian.js";
-import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
-import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
-import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
-import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
+import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
+import { applyScenarioInputWrite, initialInputsForInsert } from "../services/scenarioInputWrite.js";
 
 const router = Router();
 
@@ -112,32 +108,6 @@ export const VALID_MODEL_IDS = new Set([
 // result !== null implies solvedAt !== null.
 function isStale(row: typeof scenariosTable.$inferSelect): boolean {
   return row.result != null && row.inputsUpdatedAt > row.solvedAt!;
-}
-
-// JADE Ch.9 workspace bundle, task A4 — key-level diff between an existing
-// scenario's stored `inputs` and a freshly-validated candidate `inputs`,
-// used by the PATCH handler to decide whether a save is "non-geometric"
-// (spec §2's strict distanceBands-only rule). Per-key comparison (not a
-// whole-object deep-equal) via JSON.stringify, so an unrelated key's own
-// internal ordering can't mask or manufacture a change in a DIFFERENT key.
-// A key present in only one side (e.g. a legacy row saved before a field
-// existed) always counts as changed — JSON.stringify(undefined) !== the
-// stringified present value.
-function diffInputKeys(
-  oldInputs: Record<string, unknown>,
-  newInputs: Record<string, unknown>,
-): string[] {
-  const keys = new Set([
-    ...Object.keys(oldInputs ?? {}),
-    ...Object.keys(newInputs ?? {}),
-  ]);
-  const changed: string[] = [];
-  for (const key of keys) {
-    if (JSON.stringify(oldInputs?.[key]) !== JSON.stringify(newInputs?.[key])) {
-      changed.push(key);
-    }
-  }
-  return changed;
 }
 
 // B3 — lightweight legacy-unverified read guard (not the full
@@ -239,7 +209,10 @@ router.post("/scenarios", async (req, res) => {
     name: body.name,
     userId: req.userId!,
     modelId: body.modelId,
-    inputs: normalizeAddedEntityDistances(body.modelId, validation.data),
+    inputs: initialInputsForInsert(
+      body.modelId,
+      normalizeAddedEntityDistances(body.modelId, validation.data) as Record<string, unknown>,
+    ),
     result: null,
   }).returning();
 
@@ -293,63 +266,85 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     return;
   }
 
-  const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
-  // A1 (SCND Correctness) — solve_input_revision is a DB-SIDE increment
-  // (`solve_input_revision = solve_input_revision + 1`, never a
-  // read-modify-write in app code: two concurrent edits both reading n and
-  // writing n+1 would lose an increment and let a stale job pass A7's
-  // future publication CAS). Only set for a geometric (non-bands-only)
-  // inputs change, below — mirrors the exact same `isBandsOnlyChange` gate
-  // that already decides whether to bump `inputsUpdatedAt`.
-  let revisionIncrement: { solveInputRevision: SQL<unknown> } | Record<string, never> = {};
-  if (body.name !== undefined) updateObj.name = body.name;
+  // CH4-26 — an inputs PATCH runs inside ONE transaction so the locked read,
+  // the diff, the epoch decision, the write and any rename are atomic.
+  // Before this change the handler did a bare SELECT and an unrelated
+  // UPDATE, which cannot carry a FOR UPDATE lock across the two.
   if (body.inputs !== undefined) {
-    const [existing] = await db.select().from(scenariosTable)
-      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
-    // ch4-lock — reuses the fetch this branch already performs rather than
-    // adding a second query. Ownership-scoped, so a row the caller does not
-    // own is never found here and falls through to the 404 above — a locked
-    // row must never answer 403 to a non-owner (hard rule #5).
-    if (isModelLocked(existing.modelId)) { respondLocked(res); return; }
-    const validation = validateInputsForModel(existing.modelId, body.inputs);
-    if (!validation.success) {
-      res.status(422).json({ error: validation.error });
-      return;
-    }
-    const normalizedInputs = normalizeAddedEntityDistances(existing.modelId, validation.data);
-    updateObj.inputs = normalizedInputs;
-    // JADE Ch.9 workspace bundle, task A4 / spec §2 (strict, approver-decided
-    // Option C) — a save is non-geometric (does NOT bump inputsUpdatedAt /
-    // trip the `stale` derivation) ONLY when `distanceBands` is the SOLE
-    // changed `inputs` key, for ALL models (bands are non-geometric
-    // everywhere: sent to the solver only to stamp reporting metadata, never
-    // the objective/open-set/assignments — E1.1 already recomputes coverage
-    // client-side and ignores the solver's stamped bands). A diff that also
-    // touches any other `inputs` key (p, capacityMode, warehouseOverrides,
-    // addedWarehouses, distanceOverrides, gap, ...) stays geometric and
-    // bumps as before. Scenario `name` is a separate column, untouched here.
-    const changedInputKeys = diffInputKeys(
-      existing.inputs as Record<string, unknown>,
-      normalizedInputs as Record<string, unknown>,
-    );
-    const isBandsOnlyChange = changedInputKeys.every((key) => key === "distanceBands");
-    if (!isBandsOnlyChange) {
-      updateObj.inputsUpdatedAt = new Date();
-      revisionIncrement = { solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1` };
-    }
-  }
-  // ch4-lock — a name-only PATCH never enters the inputs branch above, so it
-  // would otherwise slip past unchecked. Only queries when nothing has
-  // resolved the model yet, keeping the common inputs-PATCH path at one read.
-  if (body.inputs === undefined) {
+    // ch4-lock — a plain (non-transactional) SELECT, checked and returned on
+    // BEFORE any write. `modelId` is immutable once a scenario is created
+    // (the `"modelId" in body` 422 above), so resolving it outside the
+    // write transaction below cannot race with a concurrent modelId change —
+    // there is no such change to race. Kept outside that transaction on
+    // purpose: this file's own lockedModelGuards.test.ts reads route SOURCE
+    // TEXT and requires the first isModelLocked call to precede the first
+    // write call textually, and it counts opening a transaction as a write
+    // (everything inside one presumptively is) — nesting this check inside
+    // the callback below would satisfy the RUNTIME guard-before-write
+    // property but fail that textual scan, including against this very
+    // comment: naming the transaction-opening call literally here would
+    // itself read as an earlier "write token" than the real check three
+    // lines down. So this comment deliberately never spells that call out
+    // with its trailing open-paren.
     const [existing] = await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable)
       .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-    if (existing && isModelLocked(existing.modelId)) { respondLocked(res); return; }
+    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+    if (isModelLocked(existing.modelId)) { respondLocked(res); return; }
+
+    const outcome = await db.transaction(async (tx) => {
+      const written = await applyScenarioInputWrite(tx, {
+        scenarioId: id,
+        userId: req.userId!,
+        nextInputs: body.inputs as Record<string, unknown>,
+      });
+      if (written.kind !== "ok") return written;
+
+      // R8 — a combined `{ name, inputs }` PATCH must be atomic: both writes
+      // live in this same transaction, and the transaction returns the
+      // final row (no post-commit re-SELECT, which could also observe a
+      // concurrent write).
+      if (body.name !== undefined) {
+        const [renamed] = await tx.update(scenariosTable)
+          .set({ name: body.name, updatedAt: new Date() })
+          .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+          .returning();
+        return { kind: "ok", row: renamed } as const;
+      }
+      return written;
+    });
+
+    // "locked" is not a possible `outcome.kind` here — the lock check above
+    // already returned before the transaction ever opened.
+    if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
+    if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error }); return; }
+
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario updated",
+      properties: {
+        scenario_id: outcome.row.id,
+        model_id: outcome.row.modelId,
+        updated_fields: body.name !== undefined ? ["name", "inputs"] : ["inputs"],
+      },
+    });
+
+    res.json(toApiScenario(outcome.row));
+    return;
   }
 
+  // Name-only (or empty) PATCH — unchanged non-transactional shape; there is
+  // no inputs write here for applyScenarioInputWrite to guard.
+  const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
+  if (body.name !== undefined) updateObj.name = body.name;
+
+  // ch4-lock — a name-only PATCH never enters the inputs branch above, so it
+  // would otherwise slip past unchecked.
+  const [existing] = await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (existing && isModelLocked(existing.modelId)) { respondLocked(res); return; }
+
   const [row] = await db.update(scenariosTable)
-    .set({ ...updateObj, ...revisionIncrement, updatedAt: new Date() })
+    .set({ ...updateObj, updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
@@ -439,49 +434,13 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // already-validated (validateInputsForModel's `.data`), so the casts are
 // safe exactly where they're used, same pattern as this file's existing
 // `as SolveInput` cast below.
-// T1 (Input Map v2) / follow-up item 3 — auto-estimate normalizer, run on
-// every persist path (POST create, PATCH, import/apply, below) right before
-// the already-validated inputs are written to the DB row. Covers all 4
-// models. p-median-brazil shares p-median-us's schema but a different base
-// dataset/geography (BRAZIL_CIRCUITY, B2-T2) — this landed alongside T3's
-// GET /dataset endpoint, closing the boundary D1.1/D2/D3 originally drew
-// (no warehouse/customer table UI/map wiring existed for that model until
-// now). Every other modelId falls through unchanged.
-function normalizeAddedEntityDistances(modelId: string, data: Record<string, unknown>): Record<string, unknown> {
-  if (modelId === "p-median-us") {
-    return fillEstimatedDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
-  }
-  if (modelId === "p-median-brazil") {
-    return fillEstimatedBrazilDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
-  }
-  if (modelId === "transport-coal") {
-    return fillEstimatedLaneCosts(data as unknown as TransportLpInputs) as unknown as Record<string, unknown>;
-  }
-  if (modelId === "two-echelon-gold-au") {
-    return fillEstimatedTwoEchelonDistances(data as unknown as TwoEchelonInputs) as unknown as Record<string, unknown>;
-  }
-  // jade-T12 — fourth writer of this shared file, based on T7's commit
-  // (T5 -> T6 -> T7 -> T12, serialized in series, never concurrent). Fills
-  // missing added-entity plant<->warehouse/warehouse<->customer distances as
-  // `estimated` on every persist path (POST create, PATCH, import/apply) —
-  // see fillEstimatedJadeDistances' own header comment for the reverse-
-  // derived circuity constant. Only ADDED-entity-involving rows are ever
-  // touched; base<->base pairs are never estimated, so e2e_accuracy.py stays
-  // unaffected.
-  if (modelId === "two-echelon-jade-us") {
-    return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
-  }
-  // C4.7 (Chapter 4) — max-coverage-us fills missing added-entity
-  // warehouse<->customer distances as `estimated` raw km (R=6371, no
-  // circuity) on every persist path (POST create, PATCH, import/apply). Its
-  // reparse through maxCoverageInputsSchema also re-applies the D19
-  // distanceBands=[high,max] transform, so a distances-import staging a stale
-  // third boundary is corrected here.
-  if (modelId === "max-coverage-us") {
-    return fillEstimatedMaxCoverageDistances(data as unknown as MaxCoverageInputs) as unknown as Record<string, unknown>;
-  }
-  return data;
-}
+//
+// CH4-2s-2 — the auto-estimate normalizer this comment block used to
+// introduce (`normalizeAddedEntityDistances`) now lives in
+// services/autoDistance.ts, imported above, so
+// services/scenarioInputWrite.ts (the single write authority for
+// `scenarios.inputs`) can call it too without a circular import. See that
+// module's own header comment for the dispatch table.
 
 // A1 (SCND Correctness) — the per-model precheck dispatch logic that used to
 // live here moved verbatim to services/precheck.ts's
@@ -1874,26 +1833,25 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     nextInputs = revalidated.data;
   }
 
-  // T1 (Input Map v2) / follow-up item 3 — an imported "add" row (across any
-  // of the three covered models' warehouses/mines/refineries/customers/
-  // distances/lane-costs entities) can leave newly-added entities without a
-  // complete distance set the same way a map-added entity can; run the same
-  // normalizer here too so every persist path stays consistent.
-  nextInputs = normalizeAddedEntityDistances(scenario.modelId, nextInputs);
-
-  // A1 (SCND Correctness) — import/apply is always a geometric input write
-  // (never a distanceBands-only change — that's routes/distanceBands.ts's
-  // own dedicated field-scoped endpoint, never this route), so it always
-  // increments solve_input_revision, DB-side, unconditionally.
-  const [updated] = await db.update(scenariosTable)
-    .set({
-      inputs: nextInputs,
-      inputsUpdatedAt: new Date(),
-      updatedAt: new Date(),
-      solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1`,
-    })
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
-    .returning();
+  // CH4-26 — import/apply was the live hole: it wrote `inputs` and bumped
+  // solve_input_revision unconditionally but knew nothing about stepEpoch,
+  // and it never passes through the confirm-and-clear UI. Without the bump a
+  // student could import a new customer set and keep looking at results
+  // computed from the old one — the precise failure CH4-7 exists to prevent,
+  // arriving through the one door the freeze does not cover. The normalizer
+  // that used to run here directly (T1 / follow-up item 3) is now performed
+  // inside applyScenarioInputWrite, so every persist path stays consistent
+  // without a second, redundant call.
+  const writeOutcome = await db.transaction(async (tx) =>
+    applyScenarioInputWrite(tx, {
+      scenarioId: id,
+      userId: req.userId!,
+      nextInputs: nextInputs as Record<string, unknown>,
+    }),
+  );
+  if (writeOutcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
+  if (writeOutcome.kind === "invalid") { res.status(422).json({ error: writeOutcome.error }); return; }
+  const updated = writeOutcome.row;
 
   posthog?.capture({
     distinctId: req.userId!,
@@ -1922,7 +1880,11 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     name: `${scenario.name} (copy)`,
     userId: req.userId!,
     modelId: scenario.modelId,
-    inputs: scenario.inputs,
+    // CH4-26 — a clone copies the student's parameters (Step 1 fields,
+    // step2, distanceBands) but NOT the workflow metadata. It has no jobs to
+    // invalidate, but carrying the source's epoch forward would make a fresh
+    // copy's epoch depend on its source's edit history.
+    inputs: initialInputsForInsert(scenario.modelId, scenario.inputs as Record<string, unknown>),
     result: null,
   }).returning();
 
