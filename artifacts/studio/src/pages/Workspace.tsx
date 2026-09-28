@@ -51,6 +51,7 @@ import { StationsTab, type AddedStation } from "@/components/workspace/tabs/Stat
 import { OptimizationParametersTab, type OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
+import { DeliveryCostsTab } from "@/components/workspace/tabs/DeliveryCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs, type JadeMapInputs } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab, type SolveTiming } from "@/components/workspace/tabs/OutputMapTab";
@@ -2382,7 +2383,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // below, extended in the same task).
       (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
-      (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
+      (activeTab.entity === "laneCosts" && modelId === "transport-coal") ||
+      // Task 11 (Chapter 5) — Delivery Costs grid, delivery-teaching-us only
+      // (its ONLY editable dataset surface, spec decision 11). Without this
+      // row the shared toolbar Save never appears and the dirty state is
+      // never tracked for this tab (flagged by a previous review).
+      (activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us"));
 
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
@@ -3757,6 +3763,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           focusEntityId={focusEntityId}
           displayCodeById={displayCodeMapFromInputs(localInputs)}
           identityById={inputIdentityById}
+        />
+      );
+    }
+
+    // Task 11 (Chapter 5) — Delivery Costs grid tab, delivery-teaching-us
+    // only — this model's ONLY editable dataset surface (spec decision 11).
+    // `laneCostOverrides` is the exact same field name/shape transport-coal's
+    // LaneCostsTab uses (a stage-1-style deliberate naming choice, per
+    // defaultInputsForModel's own delivery-teaching-us case), so the same
+    // `laneCostOverridesFromInputs` reader applies unchanged. Unlike
+    // LaneCostsTab, this tab reads its base matrix from Task 7's
+    // GET /models/:id/reference-costs (via DeliveryCostsTab's own internal
+    // useGetReferenceCosts call, modelId-gated) — a cost here is billable
+    // miles, not a distance, so no canonicalUnit/Upload/Download wiring.
+    if (activeTab.kind === "input" && activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <DeliveryCostsTab
+          laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("laneCostOverrides", next)}
+          modelId={modelId}
         />
       );
     }
