@@ -116,6 +116,7 @@ export * from './serviceStatsExportEnvelopeTemplateVersion';
 export * from './serviceStatsExportEnvelopeUnit';
 export * from './serviceStatsExportRow';
 export * from './solutionStatus';
+export * from './solveConflict';
 export * from './solveHistoryEntry';
 export * from './solveJob';
 export * from './solveJobErrorCode';

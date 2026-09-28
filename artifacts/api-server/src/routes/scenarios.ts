@@ -500,6 +500,13 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     res.status(422).json({ error: "Network-edit precheck failed", errors: outcome.errors });
     return;
   }
+  if (outcome.kind === "conflict") {
+    res.status(409).json({
+      error: "A solve is already running for this scenario",
+      jobId: outcome.jobId,
+    });
+    return;
+  }
 
   posthog?.capture({
     distinctId: req.userId!,

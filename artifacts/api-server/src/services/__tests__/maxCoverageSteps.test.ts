@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isStep1Key, nextStepEpoch, initialInputsForInsert } from "../maxCoverageSteps.js";
+import { isStep1Key, nextStepEpoch, initialInputsForInsert, synthesizeStep2Inputs } from "../maxCoverageSteps.js";
+import { maxCoverageInputsSchema } from "../../validation/inputs/maxCoverage.js";
 
 describe("CH4-7 — Step 1 key classification", () => {
   it("treats step2, stepEpoch and distanceBands as NOT Step 1 fields", () => {
@@ -70,5 +71,58 @@ describe("CH4-26 — insert-side epoch initialization", () => {
     const inputs = { p: 3, capacityMode: "none" };
     expect(initialInputsForInsert("p-median-us", inputs)).toEqual(inputs);
     expect("stepEpoch" in initialInputsForInsert("p-median-us", inputs)).toBe(false);
+  });
+});
+
+describe("CH4-10 — Step 2's solve input is synthesized, never stored", () => {
+  const step1 = {
+    objective: "coverage", p: 3, highServiceDistKm: 700, maxDistKm: 5500,
+    avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 120, capacityMode: "none",
+    distanceBands: [700, 1400, 2800, 5500], stepEpoch: 3,
+    step2: { gap: 0.01, timeLimitSec: 60 },
+    warehouseOverrides: [], customerOverrides: [],
+    addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+  };
+
+  it("flips the objective and injects Step 1's achieved covered demand as the floor", () => {
+    const out = synthesizeStep2Inputs(step1, 53385024);
+    expect(out.objective).toBe("min_distance");
+    expect(out.coverageFloorDemand).toBe(53385024);
+  });
+
+  it("drops avgServiceDistCapKm, which does not exist in min-distance mode", () => {
+    expect("avgServiceDistCapKm" in synthesizeStep2Inputs(step1, 53385024)).toBe(false);
+  });
+
+  it("inherits p, highServiceDistKm and maxDistKm from Step 1", () => {
+    const out = synthesizeStep2Inputs(step1, 53385024);
+    expect(out.p).toBe(3);
+    expect(out.highServiceDistKm).toBe(700);
+    expect(out.maxDistKm).toBe(5500);
+  });
+
+  it("merges step2's gap and timeLimitSec over Step 1's", () => {
+    const out = synthesizeStep2Inputs(step1, 53385024);
+    expect(out.gap).toBe(0.01);
+    expect(out.timeLimitSec).toBe(60);
+  });
+
+  it("falls back to Step 1's gap and timeLimitSec when step2 is absent", () => {
+    const { step2: _omitted, ...withoutStep2 } = step1;
+    const out = synthesizeStep2Inputs(withoutStep2, 53385024);
+    expect(out.gap).toBe(0);
+    expect(out.timeLimitSec).toBe(120);
+  });
+
+  it("carries the epoch through so the snapshot identifies its step's validity", () => {
+    expect(synthesizeStep2Inputs(step1, 53385024).stepEpoch).toBe(3);
+  });
+
+  it("drops step2 itself — it is a UI parameter bag, not a solver input", () => {
+    expect("step2" in synthesizeStep2Inputs(step1, 53385024)).toBe(false);
+  });
+
+  it("produces a payload the executable validator accepts", () => {
+    expect(maxCoverageInputsSchema.safeParse(synthesizeStep2Inputs(step1, 53385024)).success).toBe(true);
   });
 });

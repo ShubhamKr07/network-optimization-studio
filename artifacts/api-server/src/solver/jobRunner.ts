@@ -5,7 +5,7 @@ import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import { and, asc, eq, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace/db";
 import type { InsertSolveJob, SolveJob } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
@@ -29,6 +29,12 @@ import {
   type SolverSuccessEnvelopeV2,
   type TerminalOutcome,
 } from "./solverProcessMessage.js";
+import {
+  MAX_COVERAGE_MODEL_ID,
+  readStepEpoch,
+  synthesizeStep2Inputs,
+  deriveTargetStep,
+} from "../services/maxCoverageSteps.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -361,6 +367,10 @@ export type EnqueueScenarioSolveOutcome =
   | { kind: "not_found" }
   | { kind: "invalid"; error: string }
   | { kind: "precheck_failed"; errors: PrecheckResult["errors"] }
+  // CH4-11 — a second active job for the same scenario is REFUSED, and the
+  // refusal is a documented response carrying the in-flight job id so the
+  // client can attach to it rather than retry blindly.
+  | { kind: "conflict"; jobId: number }
   | { kind: "queued"; jobId: number; modelId: string };
 
 export async function enqueueScenarioSolve(scenarioId: number, userId: string): Promise<EnqueueScenarioSolveOutcome> {
@@ -370,6 +380,26 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
       .for("update");
     if (!scenario) {
       return { kind: "not_found" } as const;
+    }
+
+    // CH4-11 — inside the SAME locked transaction. The scenario row lock
+    // serialises two concurrent enqueues but does not make the second refuse;
+    // this check plus UQ_solve_jobs_active_per_scenario is what does.
+    //
+    // R1 — GATED ON THE MODEL. Running this for every model would change
+    // enqueue behaviour for the other five, which this plan's scope line
+    // forbids, and would break scenarioSolveAtomicity.test.ts (it enqueues a
+    // second p-median-us job on the same scenario while the first is queued).
+    if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {
+      const [active] = await tx.select({ id: solveJobsTable.id }).from(solveJobsTable)
+        .where(and(
+          eq(solveJobsTable.scenarioId, scenarioId),
+          inArray(solveJobsTable.status, ["queued", "running"]),
+        ))
+        .limit(1);
+      if (active) {
+        return { kind: "conflict", jobId: active.id } as const;
+      }
     }
 
     const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
@@ -382,7 +412,42 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
       return { kind: "precheck_failed", errors: precheck.errors } as const;
     }
 
-    const input = { modelId: scenario.modelId, inputs: validation.data } as SolveInput;
+    // CH4-9 — the target step is derived INSIDE this lock, against the freshly
+    // locked row, so a concurrent edit cannot land between the decision and
+    // the enqueue. CH4-10 — Step 2's payload is synthesized here and is what
+    // gets persisted as input_snapshot; it is never written to the scenario.
+    let solveInputs: Record<string, unknown> = validation.data as Record<string, unknown>;
+    if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {
+      const epoch = readStepEpoch(scenario.inputs as Record<string, unknown>);
+      const [step1Job] = await tx.select({ result: solveJobsTable.result }).from(solveJobsTable)
+        .where(and(
+          eq(solveJobsTable.scenarioId, scenarioId),
+          eq(solveJobsTable.status, "succeeded"),
+          sql`${solveJobsTable.inputSnapshot} -> 'inputs' ->> 'objective' = 'coverage'`,
+          sql`COALESCE((${solveJobsTable.inputSnapshot} -> 'inputs' ->> 'stepEpoch')::int, 1) = ${epoch}`,
+        ))
+        .orderBy(desc(solveJobsTable.id))
+        .limit(1);
+
+      if (deriveTargetStep(Boolean(step1Job)) === 2) {
+        const details = (step1Job!.result as { details?: { coveredDemand?: number } } | null)?.details;
+        const coveredDemand = details?.coveredDemand;
+        if (typeof coveredDemand !== "number") {
+          // A succeeded Step 1 job always carries details.coveredDemand
+          // (solve.py emits `int(covered)`), so this is a defect, not a user
+          // outcome — refuse rather than solve against a fabricated floor.
+          return { kind: "invalid", error: "Step 1 result is missing coveredDemand" } as const;
+        }
+        const synthesized = synthesizeStep2Inputs(solveInputs, coveredDemand);
+        const step2Validation = validateInputsForModel(scenario.modelId, synthesized);
+        if (!step2Validation.success) {
+          return { kind: "invalid", error: step2Validation.error } as const;
+        }
+        solveInputs = step2Validation.data as Record<string, unknown>;
+      }
+    }
+
+    const input = { modelId: scenario.modelId, inputs: solveInputs } as SolveInput;
     const values = buildSolveJobValues({
       scenarioId: scenario.id,
       userId,
