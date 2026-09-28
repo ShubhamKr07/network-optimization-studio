@@ -1486,14 +1486,20 @@ def solve_max_coverage(inp):
                       solver_incumbent_objective=cbc.solverIncumbentObjective,
                       solver_best_bound=cbc.solverBestBound)
 
+# Overflow sentinel shared with lib/units/src/bands.ts's OVERFLOW_BAND (-1) --
+# named, not a bare literal, so every overflow check reads as intentional.
+OVERFLOW_BAND = -1
+
+
 def _assign_band_or_overflow(d, bands):
-    """Index of the smallest band >= d, or len(bands) when d exceeds every
-    band. Mirrors lib/units' assignBandOrOverflow. Never clamps into the last
-    band - that is how an over-1,600 lane gets miscounted as covered."""
+    """Index of the smallest band >= d, or OVERFLOW_BAND (-1) when d exceeds
+    every band. Mirrors lib/units' assignBandOrOverflow. Never clamps into
+    the last band - that is how an over-1,600 lane gets miscounted as
+    covered."""
     for i, b in enumerate(bands):
         if d <= b:
             return i
-    return len(bands)
+    return OVERFLOW_BAND
 
 
 def _effective_delivery_costs(cost, dist, inp):
@@ -1621,7 +1627,7 @@ def solve_delivery(inp):
                             "distanceMi": d, "band": band_idx})
         edges.append({"fromId": chosen, "toId": c, "flow": round(demand[c]),
                       "distance": d, "band": band_idx})
-        if band_idx == len(distance_bands):
+        if band_idx == OVERFLOW_BAND:
             overflow_demand += demand[c]
         for b in distance_bands:
             if d <= b:

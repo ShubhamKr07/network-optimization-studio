@@ -199,19 +199,19 @@ def test_overflow_band_is_emitted():
     assert -1 in b
     assert b[-1] == pytest.approx(100.0 - b[200], abs=5e-3)
     assert 0 < b[-1] < 100
-    # edges beyond every band carry the overflow index len(bands), never a clamp
-    assert any(e["band"] == 2 for e in env["edges"])
-    assert all(e["band"] in (0, 1, 2) for e in env["edges"])
+    # edges beyond every band carry the OVERFLOW_BAND sentinel (-1), never a clamp
+    assert any(e["band"] == -1 for e in env["edges"])
+    assert all(e["band"] in (0, 1, -1) for e in env["edges"])
 
 
 def test_assign_band_or_overflow_never_clamps():
     """The three older solvers clamp an over-band lane into the LAST band
     (solve.py:470, 642, 835 - documented at :1004-1006 as a misreporting
-    fallback). This helper must return len(bands) instead."""
+    fallback). This helper must return OVERFLOW_BAND (-1) instead."""
     assert _assign_band_or_overflow(50, [100, 200]) == 0
     assert _assign_band_or_overflow(100, [100, 200]) == 0     # inclusive upper edge
     assert _assign_band_or_overflow(150, [100, 200]) == 1
-    assert _assign_band_or_overflow(201, [100, 200]) == 2     # overflow, not 1
+    assert _assign_band_or_overflow(201, [100, 200]) == -1    # overflow, not 1
 
 
 def test_single_source():
