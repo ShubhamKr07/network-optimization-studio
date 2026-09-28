@@ -57,3 +57,37 @@ export function initialInputsForInsert(
   if (modelId !== MAX_COVERAGE_MODEL_ID) return inputs;
   return { ...inputs, stepEpoch: 1 };
 }
+
+// CH4-10 — Step 2's SolveInput.inputs is built at enqueue and NEVER stored on
+// the scenario. It is the synthesized object that gets validated and persisted
+// as the job's `input_snapshot`, so:
+//   - the snapshot's `objective` is what identifies which step a job belongs to;
+//   - the floor the student was shown and the floor the solver was given come
+//     from one source and cannot disagree.
+// `coverageFloorDemand` is declared as an integer (maxCoverage.ts) and Step 1's
+// `coveredDemand` is emitted as `int(covered)` (solve.py), so the injection
+// needs no rounding and cannot fail shape validation.
+export function synthesizeStep2Inputs(
+  step1Inputs: Record<string, unknown>,
+  coveredDemand: number,
+): Record<string, unknown> {
+  const { avgServiceDistCapKm: _dropped, step2, ...inherited } = step1Inputs;
+  const overrides = (step2 ?? {}) as { gap?: number; timeLimitSec?: number };
+  return {
+    ...inherited,
+    objective: "min_distance",
+    coverageFloorDemand: coveredDemand,
+    gap: overrides.gap ?? (inherited.gap as number),
+    timeLimitSec: overrides.timeLimitSec ?? (inherited.timeLimitSec as number),
+  };
+}
+
+export type MaxCoverageStep = 1 | 2;
+
+// CH4-9 — the step a solve targets, derived from state alone. Step 1 unsolved
+// → target Step 1; Step 1 solved → target Step 2. Because a Step 1 edit clears
+// BOTH results (CH4-2), "Step 1 is solved" is the only question that needs
+// asking.
+export function deriveTargetStep(step1Solved: boolean): MaxCoverageStep {
+  return step1Solved ? 2 : 1;
+}

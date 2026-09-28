@@ -292,6 +292,12 @@ paths:
           description: Not authenticated
         "404":
           description: Not found
+        "409":
+          description: A solve job is already queued or running for this scenario (CH4-11 — at most one active job per scenario). The body carries the in-flight `jobId` so the client can attach to the running job instead of retrying.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveConflict"
         "422":
           description: Validation errors prevent solving, or (p-median-us) the scenario's network edits fail the semantic precheck (B2.1) — body carries the same `errors` shape as `GET /scenarios/{scenarioId}/precheck`
         "429":
@@ -1467,6 +1473,16 @@ components:
         jobId:
           type: integer
       required: [jobId]
+
+    SolveConflict:
+      type: object
+      properties:
+        error:
+          type: string
+        jobId:
+          type: integer
+          description: The id of the queued or running job that blocked this request.
+      required: [error, jobId]
 
     SolveJobStatus:
       type: string

@@ -3,7 +3,7 @@
 //     src/solver/__tests__/maxCoverageStepWorkflow.test.ts
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
 import app from "../../app.js";
 
@@ -248,5 +248,94 @@ describe("CH4-24/CH4-25 — the floor is rejected literally, not stripped", () =
     await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "rejected", modelId: "max-coverage-us", inputs: { ...step1Inputs, coverageFloorDemand: 1 } })
       .expect(422);
+  });
+});
+
+describe("CH4-9/CH4-11 — step derivation and the one-active-job guard", () => {
+  // R7 — DETERMINISTIC, not timing-dependent. An earlier draft fired two
+  // POSTs and asserted exactly [202, 409]; that races the dispatcher, because
+  // the first job can finish before the second request takes the lock, making
+  // [202, 202] a legitimate outcome and the test flaky. Seed the active job
+  // instead, so the guard is the only variable.
+  it("409s with the in-flight jobId when a Chapter 4 job is already active", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    const [seeded] = await db.insert(solveJobsTable).values({
+      scenarioId: scenario.id,
+      userId: owner!.userId,
+      status: "queued",
+      inputsHash: "seeded-active",
+      modelId: "max-coverage-us",
+      inputSnapshot: { modelId: "max-coverage-us", inputs: { ...step1Inputs, stepEpoch: 1 } },
+    }).returning();
+
+    const res = await request(app).post(`/api/scenarios/${scenario.id}/solve`).set("Cookie", cookie).expect(409);
+    expect(res.body.jobId).toBe(seeded.id);
+
+    await db.delete(solveJobsTable).where(eq(solveJobsTable.id, seeded.id));
+  });
+
+  // The database is the backstop: even if a future caller forgets the
+  // in-transaction check, the partial unique index must refuse the row.
+  it("the database itself rejects a second active Chapter 4 job", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    const values = (hash: string) => ({
+      scenarioId: scenario.id,
+      userId: owner!.userId,
+      status: "queued" as const,
+      inputsHash: hash,
+      modelId: "max-coverage-us",
+      inputSnapshot: { modelId: "max-coverage-us", inputs: { ...step1Inputs, stepEpoch: 1 } },
+    });
+
+    const [first] = await db.insert(solveJobsTable).values(values("dup-a")).returning();
+    await expect(db.insert(solveJobsTable).values(values("dup-b"))).rejects.toThrow();
+    await db.delete(solveJobsTable).where(eq(solveJobsTable.id, first.id));
+  });
+
+  // R1 — the other five models keep their existing semantics. This is the
+  // regression that fails loudly if the index or the guard is ever unscoped.
+  it("leaves non-Chapter-4 enqueue semantics untouched (two active p-median jobs are legal)", async () => {
+    const cookie = await registerAndGetCookie();
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "p-median two active", modelId: "p-median-us",
+      inputs: {
+        p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null,
+        warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 30,
+        addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+      },
+    }).expect(201);
+    scenarioIds.push(created.body.id);
+    const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, created.body.id));
+
+    const values = (hash: string) => ({
+      scenarioId: created.body.id as number,
+      userId: owner!.userId,
+      status: "queued" as const,
+      inputsHash: hash,
+      modelId: "p-median-us",
+    });
+
+    const [a] = await db.insert(solveJobsTable).values(values("pm-a")).returning();
+    const [b] = await db.insert(solveJobsTable).values(values("pm-b")).returning();
+    expect(a.id).not.toBe(b.id);
+
+    await db.delete(solveJobsTable).where(inArray(solveJobsTable.id, [a.id, b.id]));
+  });
+
+  it("a scenario with no succeeded Step 1 job targets Step 1", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const res = await request(app).post(`/api/scenarios/${scenario.id}/solve`).set("Cookie", cookie).expect(202);
+    const [job] = await db.select().from(solveJobsTable).where(eq(solveJobsTable.id, res.body.jobId));
+    const snapshot = job!.inputSnapshot as { inputs: Record<string, unknown> };
+    expect(snapshot.inputs.objective).toBe("coverage");
+    expect(snapshot.inputs.coverageFloorDemand).toBeUndefined();
+    expect(snapshot.inputs.stepEpoch).toBe(1);
   });
 });

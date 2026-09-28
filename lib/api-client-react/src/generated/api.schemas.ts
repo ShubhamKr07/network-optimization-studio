@@ -620,6 +620,12 @@ export interface SolveJobQueued {
   jobId: number;
 }
 
+export interface SolveConflict {
+  error: string;
+  /** The id of the queued or running job that blocked this request. */
+  jobId: number;
+}
+
 export type SolveJobStatus = typeof SolveJobStatus[keyof typeof SolveJobStatus];
 
 

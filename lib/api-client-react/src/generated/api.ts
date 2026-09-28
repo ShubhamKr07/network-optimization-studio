@@ -44,6 +44,7 @@ import type {
   Scenario,
   ScenarioInput,
   ScenarioUpdate,
+  SolveConflict,
   SolveHistoryEntry,
   SolveJob,
   SolveJobQueued,
@@ -940,7 +941,7 @@ export const solveScenario = async (scenarioId: number, options?: RequestInit): 
 
 
 
-export const getSolveScenarioMutationOptions = <TError = ErrorType<void | ErrorEnvelope>,
+export const getSolveScenarioMutationOptions = <TError = ErrorType<void | SolveConflict | ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof solveScenario>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof solveScenario>>, TError,{scenarioId: number}, TContext> => {
 
@@ -969,12 +970,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SolveScenarioMutationResult = NonNullable<Awaited<ReturnType<typeof solveScenario>>>
 
-    export type SolveScenarioMutationError = ErrorType<void | ErrorEnvelope>
+    export type SolveScenarioMutationError = ErrorType<void | SolveConflict | ErrorEnvelope>
 
     /**
  * @summary Enqueue an async solve job for a scenario (Phase 3.5, G3.1 — replaces the old blocking solve)
  */
-export const useSolveScenario = <TError = ErrorType<void | ErrorEnvelope>,
+export const useSolveScenario = <TError = ErrorType<void | SolveConflict | ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof solveScenario>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof solveScenario>>,
