@@ -734,6 +734,32 @@ absent by §6.1's `supportsFacilityStatus: false`.
 Service Stats renders the four bands from `bandCoverage`, recomputing live from
 `edges[].distance` when a student edits the bands (`ServiceStatsTab.tsx:288-290`).
 
+### 7.7 Coordination with the in-flight Chapter 4 two-step work
+
+`docs/superpowers/plans/2026-09-28-ch4-two-step-workflow.md` is merged to `main`
+and not yet implemented. It edits three of the files this design also edits, so
+the implementation plan must sequence around it rather than discover the
+collision at merge time. Verified against that plan file:
+
+| File | What the Ch4 plan does | Overlap with this design |
+| --- | --- | --- |
+| `OptimizationParametersTab.tsx` | Removes the Chapter 4 objective toggle | **Direct.** §7.3 adds the Adjust Cost Table control to this file. |
+| `SolveDialog.tsx` | Removes the same toggle from its second mount | None — this design does not touch it, but it is the sibling mount that this repo's recurring bug class is about. |
+| `Workspace.tsx` | Deletes `setChenObjectiveMode` and `MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND` | **Indirect.** §7.2 and §7.4 add a `defaultInputsForModel` case and tab gates to this file. Different regions, same file. |
+| `SidebarTree` | Adds an opt-in `keepOutputsClickable` prop | None. |
+
+The `OptimizationParametersTab.tsx` overlap is the one that matters. Both
+changes are additive-or-subtractive in the same prop-presence-gated region
+(`:378-419`), so they conflict textually rather than semantically. Whichever
+lands second rebases; neither invalidates the other's design.
+
+This is worth stating rather than leaving to chance because this repo's
+most-documented recurring bug class is exactly "a shared component's gate
+extended for one model but not its sibling" — it has been caught across two
+separate features already. A Chapter 4 change that removes a toggle from both
+mounts, landing next to a Chapter 5 change that adds a control to one of them,
+is that pattern's natural habitat.
+
 ---
 
 ## 8. Testing
