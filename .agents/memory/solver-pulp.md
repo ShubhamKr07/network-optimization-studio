@@ -6,7 +6,7 @@ description: How the solver works, the bridge pattern, and key performance facts
 # Solver architecture
 
 `artifacts/api-server/src/solver/solve.py` — Python ILP using PuLP/CBC.
-`artifacts/api-server/src/solver/pmedian.ts` — TypeScript bridge: spawnSync("python3", [SOLVER_PY]) with JSON stdin/stdout.
+`artifacts/api-server/src/solver/jobRunner.ts` — async job runner: an in-process worker pool that `spawn`s `python3 solve.py` detached, with JSON stdin/stdout plus a structured fd3 channel. The old blocking `spawnSync` bridge was removed in G3.1 — do not reintroduce sync child-process calls on the request path. `pmedian.ts` is now only the payload builder (`buildPayload`) and the `SolveInput` type.
 
 ## ILP formulation (from Al's Athletics notebook Chapter 3)
 
@@ -25,8 +25,8 @@ P=2: ~0.7s, P=3: ~0.3s, P=4: ~0.4s in this environment (much faster than Colab's
 
 ## Path resolution
 
-SOLVER_PY = path.resolve(__dirname, "..", "src", "solver", "solve.py")
-where __dirname is the dist/ directory of the bundled server. One level up → api-server root, then src/solver/solve.py.
+SOLVER_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "solve.py")
+in `jobRunner.ts`. `findRepoRoot` walks up to `pnpm-workspace.yaml`, which is correct both unbundled (vitest) and inside the esbuild-bundled `dist/index.mjs`, where `import.meta.url`/`__dirname` resolve to the single output file rather than the original source path. Do not go back to a source-layout-relative `path.resolve`.
 
 ## Validation
 
