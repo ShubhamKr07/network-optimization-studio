@@ -1148,19 +1148,22 @@ def test_overflow_band_is_emitted():
     assert -1 in b
     assert b[-1] == pytest.approx(100.0 - b[200], abs=5e-3)
     assert 0 < b[-1] < 100
-    # edges beyond every band carry the overflow index len(bands), never a clamp
-    assert any(e["band"] == 2 for e in env["edges"])
-    assert all(e["band"] in (0, 1, 2) for e in env["edges"])
+    # edges beyond every band carry the -1 overflow sentinel, never a clamp
+    assert any(e["band"] == -1 for e in env["edges"])
+    assert all(e["band"] in (0, 1, -1) for e in env["edges"])
 
 
 def test_assign_band_or_overflow_never_clamps():
     """The three older solvers clamp an over-band lane into the LAST band
     (solve.py:470, 642, 835 - documented at :1004-1006 as a misreporting
-    fallback). This helper must return len(bands) instead."""
+    fallback). This helper must return OVERFLOW_BAND (-1) instead - the SAME
+    sentinel lib/units' assignBandOrOverflow returns and the same one the
+    bandCoverage overflow row already carries, so one envelope never ships two
+    different overflow conventions."""
     assert _assign_band_or_overflow(50, [100, 200]) == 0
     assert _assign_band_or_overflow(100, [100, 200]) == 0     # inclusive upper edge
     assert _assign_band_or_overflow(150, [100, 200]) == 1
-    assert _assign_band_or_overflow(201, [100, 200]) == 2     # overflow, not 1
+    assert _assign_band_or_overflow(201, [100, 200]) == -1    # overflow, not 1
 
 
 def test_single_source():
@@ -1269,14 +1272,18 @@ DELIV_COSTS     = {tuple(k.split(',')): v for k, v in _DELIV_COST_RAW.items()}
 Append to `solve.py`, before the dispatcher. No module-level overflow-aware band helper exists today: `solve_two_echelon` has a nested `_band` returning `None` on overflow (`:1003`), `solve_jade` a nested `_band_exclusive` returning `-1` (`:1254`), and the three older solvers clamp into the last band inline (`:470, 642, 835`). This one is module-level so the test can import it.
 
 ```python
+OVERFLOW_BAND = -1
+
+
 def _assign_band_or_overflow(d, bands):
-    """Index of the smallest band >= d, or len(bands) when d exceeds every
-    band. Mirrors lib/units' assignBandOrOverflow. Never clamps into the last
-    band - that is how an over-1,600 lane gets miscounted as covered."""
+    """Index of the smallest band >= d, or OVERFLOW_BAND (-1) when d exceeds
+    every band. Mirrors lib/units' assignBandOrOverflow, which returns the same
+    -1 sentinel. Never clamps into the last band - that is how an over-1,600
+    lane gets miscounted as covered."""
     for i, b in enumerate(bands):
         if d <= b:
             return i
-    return len(bands)
+    return OVERFLOW_BAND
 
 
 def _effective_delivery_costs(cost, dist, inp):
