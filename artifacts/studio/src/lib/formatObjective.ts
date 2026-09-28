@@ -5,6 +5,7 @@ import {
   type ObjectiveDimension,
 } from "@workspace/units";
 import type { UnitApi } from "@/contexts/UnitContext";
+import type { ScenarioSteps } from "@workspace/api-client-react";
 
 // C4.14 (D14) — max-coverage-us reports its objective in
 // two different UNITS depending on the solve mode, carried on the envelope's
@@ -31,6 +32,38 @@ export function objectiveModeOfDetails(details: unknown): string | null {
   if (!details || typeof details !== "object") return null;
   const raw = (details as { objective?: unknown }).objective;
   return typeof raw === "string" ? raw : null;
+}
+
+// ch4-2s-8 (Task 8, review finding A1) — CH4-12 says Chapter 4's UI must
+// never read `scenario.result` for objective-mode discrimination.
+// `objectiveModeOfDetails(scenario.result?.details)` alone was the pre-Task-8
+// path; this wrapper prefers the per-step summaries instead (`steps.step2`
+// if solved, else `steps.step1`) when `steps` is present, and falls back to
+// the `result.details` path otherwise — byte-identical to before for every
+// non-Chapter-4 caller (whose `steps` is always undefined).
+//
+// KNOWN GAP (documented, not silently swallowed): `GET /scenarios` — the
+// list route `CostSummaryTab`'s compare-toggle list is built from — does NOT
+// merge `steps` onto each row (Task 5's own deliberate N+1-avoidance
+// decision; only the single-scenario `GET /scenarios/:id` does). So for a
+// scenario sourced from that list, `steps` is always undefined here today,
+// and this function falls back to the `result.details` path for it too. In
+// practice this fallback still correctly discriminates for max-coverage-us:
+// a scenario that has solved only Step 1 always carries
+// `result.details.objective === "coverage"`, and one that has solved Step 2
+// always carries `"min_distance"` — the two-step workflow never produces any
+// other combination on a real scenario row. Making the list route carry
+// `steps` too (closing this gap for real) is a backend/contract change out
+// of this (frontend-only) task's scope — see Task 8's own report.
+export function scenarioObjectiveModeCh4Aware(
+  input: { steps?: ScenarioSteps | null; result?: { details?: unknown } | null } | null | undefined,
+): string | null {
+  if (!input) return null;
+  if (input.steps) {
+    const summary = input.steps.step2.solved ? input.steps.step2.summary : input.steps.step1.summary;
+    if (summary) return summary.objective;
+  }
+  return objectiveModeOfDetails(input.result?.details);
 }
 
 // SCN chen-bands-units, Part D, decision 6 — the six-model objective-units

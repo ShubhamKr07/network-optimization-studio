@@ -107,6 +107,12 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
+  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
+  // non-Chapter-4 test in this file never has `scenario.steps` set, so
+  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
+  // false here regardless of what it returns.
+  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
+  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
 }));
