@@ -2861,9 +2861,36 @@ Expected: FAIL — no such testids; `pMax` 33 not yet honoured by a delivery arm
 
 - [ ] **Step 4: Add the JSX block**
 
-Insert **immediately after the closing `)}` of the `{bomRatio != null && (` block** (the block *opens* at `:438` on `main` and runs ~17 lines; find it by the `slider-bom-ratio` testid, not by line) — with the `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` family, after the ungated gap and time-limit inputs, and **outside** both the Chen `{objective != null && (` block and Chapter 4's `{(step ?? 1) === 1 && (` step wrapper.
+Insert **immediately after the closing `)}` of the `{bomRatio != null && (` block** — find it by the `slider-bom-ratio` testid, never by line number — so the new block joins the `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` family.
 
-That placement is load-bearing. Chapter 4's Task 7 wraps its own block in the step wrapper so Steps 1 and 2 render exclusively; anything gated only on prop presence *inside* that wrapper silently stops rendering on Step 2. This model has no step concept and its control must render whenever its props are present. After inserting, confirm with `rg -n 'cost-adjust-section|step ?? 1|slider-bom-ratio' OptimizationParametersTab.tsx` that the new testid sits below `slider-bom-ratio` and is not enclosed by the step wrapper's range.
+**There is no single "step wrapper", and any instruction phrased as "after the wrapper closes" is not well-formed against this file.** Measured on the merged Chapter 4 tree (`070bf48`) by that workstream:
+
+```
+135  step?: 1 | 2;                                 <- optional, NO default
+226  {p != null && (step ?? 1) === 1 && (          <- P slider
+272  {(step ?? 1) === 1 && objective != null && (  <- objective section
+356  {step === 2 && (                              <- Step 2 panel
+411  {(step ?? 1) === 1 && (                       <- gap / timeLimitSec
+440  {capacityFactor != null && (                  <- the family this block joins
+```
+
+**Three independent `(step ?? 1) === 1` guards (226, 272, 411) plus a `step === 2` panel (356)** — four sibling conditionals interleaved with unguarded blocks, not one enclosing region. A rebase written to "place it past the wrapper" can land the block inside guard 411 while believing it is clear of everything. Locate by the `slider-bom-ratio` anchor and verify enclosure explicitly.
+
+Why this matters: anything gated only on prop presence *inside* one of those guards silently stops rendering on Step 2. This model has no step concept and its control must render whenever its props are present.
+
+**Two facts already established from source by the Chapter 4 workstream — verify, do not re-derive:**
+
+- `step` is declared `step?: 1 | 2` with **no default**, so it is genuinely `undefined` for any caller that omits it. `(undefined ?? 1) === 1` is `true`, so for `delivery-teaching-us` the P slider (226) and the gap/time-limit block (411) both render and `pMax={33}` reaches the slider. `??` is nullish coalescing, so this holds for `undefined` and `null` alike.
+- The `capacityFactor` block (440) sits **outside all four conditionals**, so the placement itself is unaffected by any of them.
+
+After inserting, confirm enclosure rather than assuming it:
+
+```bash
+rg -n 'cost-adjust-section|step \?\? 1|step === 2|slider-bom-ratio' \
+  artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx
+```
+
+The new `cost-adjust-section` testid must sit below `slider-bom-ratio` and must not fall between any `(step ?? 1) === 1` / `step === 2` opener and its matching close. Line numbers above are for orientation only and **will have moved** — re-capture them against the merged tree first.
 
 ```tsx
 {costAdjustEnabled != null && (
