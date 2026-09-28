@@ -88,7 +88,12 @@ import { scenariosTable, solveJobsTable } from "@workspace/db";
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
   ["select","from","where","orderBy","insert","values",
-   "returning","update","set","delete","innerJoin","limit","groupBy","as"].forEach(m => {
+   // CH4-2s-2 — "for" (drizzle's `.for("update")` row lock) added so
+   // services/scenarioInputWrite.ts's locked SELECT, now called directly
+   // from the (real, unmocked) PATCH/import-apply route handlers, resolves
+   // through this same mocked chain instead of throwing "chain.for is not a
+   // function".
+   "returning","update","set","delete","innerJoin","limit","groupBy","as","for"].forEach(m => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
@@ -1050,7 +1055,10 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
 
   it("PATCH /scenarios/:id (whole-input) preserves a supplied band array verbatim", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    // CH4-2s-2 — mockReturnValue (not Once): applyScenarioInputWrite issues
+    // its own locked SELECT inside the transaction, on top of the route's
+    // own lock-check SELECT, so this request now makes two select() calls.
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
     const supplied = { ...maxCoverageInputs, distanceBands: [600, 1200, 2400, 5000] };
     const chain = makeChain([{ ...maxCoverageRow, inputs: supplied }]);
     mockDb.update.mockReturnValue(chain);
@@ -1064,7 +1072,8 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
 
   it("PATCH /scenarios/:id (whole-input) derives [high,max] ONLY when distanceBands is omitted", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    // CH4-2s-2 — see the sibling test above: two select() calls now happen.
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
     const { distanceBands: _omit, ...withoutBands } = maxCoverageInputs;
     void _omit;
     const chain = makeChain([{ ...maxCoverageRow, inputs: maxCoverageInputs }]);
@@ -1159,13 +1168,15 @@ describe("Scenario.stale", () => {
 // is the SOLE changed `inputs` key — for ALL models, since bands are
 // non-geometric everywhere (sent to the solver only to stamp reporting
 // metadata, never the objective/open-set/assignments). Scoped to
-// routes/scenarios.ts's `diffInputKeys()` helper.
+// services/scenarioInputWrite.ts's `applyScenarioInputWrite` (CH4-2s-2
+// moved the per-key diff that used to be routes/scenarios.ts's local
+// `diffInputKeys()` helper into that single write-authority module).
 describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
   it("a distanceBands-only PATCH does not stale a previously-solved p-median-us scenario", async () => {
     const cookie = await loginAs(OWNER);
     const solvedAt = new Date("2026-01-01T00:00:00Z");
     const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
-    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const newInputs = { ...pmedianInputs, distanceBands: [300, 500, 900, 1700] };
     const chain = makeChain([{ ...solvedRow, inputs: newInputs }]);
     mockDb.update.mockReturnValueOnce(chain);
@@ -1182,7 +1193,7 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
     const cookie = await loginAs(OWNER);
     const solvedAt = new Date("2026-01-05T00:00:00Z");
     const solvedRow = { ...jadeRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
-    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const newInputs = { ...jadeInputs, distanceBands: [250, 450, 850, 1650] };
     const chain = makeChain([{ ...solvedRow, inputs: newInputs }]);
     mockDb.update.mockReturnValueOnce(chain);
@@ -1199,7 +1210,7 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
     const cookie = await loginAs(OWNER);
     const solvedAt = new Date("2026-01-01T00:00:00Z");
     const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
-    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const newInputs = { ...pmedianInputs, distanceBands: [300, 500, 900, 1700], p: 5 };
     const bumpedAt = new Date("2026-01-02T00:00:00Z");
     const chain = makeChain([{ ...solvedRow, inputs: newInputs, inputsUpdatedAt: bumpedAt }]);
@@ -1223,7 +1234,7 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
     ["5 bands", [200, 400, 800, 1600, 3200]],
   ])("accepts a %s distanceBands PATCH on JADE (free-band rule)", async (_label, distanceBands) => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const newInputs = { ...jadeInputs, distanceBands };
     const chain = makeChain([{ ...jadeRow, inputs: newInputs }]);
     mockDb.update.mockReturnValueOnce(chain);
@@ -1234,7 +1245,7 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
 
   it("a hand-crafted invalid distanceBands (non-positive) still 422s on JADE", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
       .send({ inputs: { ...jadeInputs, distanceBands: [0, 400, 800, 1600] } });
     expect(res.status).toBe(422);
@@ -1242,7 +1253,7 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
 
   it("a hand-crafted invalid distanceBands (non-ascending) still 422s on JADE", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
       .send({ inputs: { ...jadeInputs, distanceBands: [800, 400, 200, 1600] } });
     expect(res.status).toBe(422);
@@ -2508,6 +2519,9 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     // Step 1: PATCH a distanceBands-only change — must not stale.
     const narrowedBands = [100, 200, 800, 1600];
     const newInputs = { ...jadeSolvedRow.inputs, distanceBands: narrowedBands };
+    // CH4-2s-2 — two queued values: the route's own lock-check SELECT, then
+    // applyScenarioInputWrite's own locked SELECT inside the transaction.
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
     mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
     const patchChain = makeChain([{ ...jadeSolvedRow, inputs: newInputs }]);
     mockDb.update.mockReturnValueOnce(patchChain);

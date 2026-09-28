@@ -69,8 +69,12 @@ beforeEach(() => { setLockedModelsForTests([]); });
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
+  // CH4-2s-2 — "for" (drizzle's `.for("update")` row lock) added: the PATCH
+  // and import/apply routes now call services/scenarioInputWrite.ts's
+  // applyScenarioInputWrite directly (real, unmocked code), which issues a
+  // locked SELECT through this same mocked chain.
   ["select", "from", "where", "orderBy", "insert", "values",
-    "returning", "update", "set", "delete", "innerJoin", "limit"].forEach(m => {
+    "returning", "update", "set", "delete", "innerJoin", "limit", "for"].forEach(m => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
@@ -259,7 +263,7 @@ describe("Multi-model CSV round trip — backward compat: display_code column pr
   it("stations: a clean update-only CSV (blank display_code cell) applies via the real route into stationDemands", async () => {
     const cookie = await loginAs(OWNER);
     const stationCsv = "template_version,id,display_code,city,state,lat,lng,demand\n1,NYC,,New York,NY,,,50000\n";
-    mockDb.select.mockReturnValueOnce(makeChain([transportRow]));
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
     const updatedRow = { ...transportRow, inputs: { ...transportInputs, stationDemands: { NYC: 50000 } } };
     mockDb.update.mockReturnValue(makeChain([updatedRow]));
     const res = await request(app).post("/api/scenarios/8/import/apply").set("Cookie", cookie)
@@ -295,7 +299,7 @@ describe("Multi-model CSV round trip — add-mode mints a role-prefixed uid + di
   it("mines: a blank-id add row's minted 'am-' uid + displayCode reach the real db.update().set() payload's addedMines", async () => {
     const cookie = await loginAs(OWNER);
     const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
-    mockDb.select.mockReturnValueOnce(makeChain([transportRow]));
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
     const chain = makeChain([{ ...transportRow, inputs: { ...transportInputs, addedMines: [{ id: "am-x" }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/8/import/apply").set("Cookie", cookie)
@@ -313,7 +317,7 @@ describe("Multi-model CSV round trip — add-mode mints a role-prefixed uid + di
   it("stations: a blank-id add row's minted 'as-' uid + displayCode reach the real db.update().set() payload's addedStations", async () => {
     const cookie = await loginAs(OWNER);
     const addCsv = "template_version,id,display_code,city,state,lat,lng,demand\n1,,ST-NEW,Bristol,VA,36.6,-82.19,50000\n";
-    mockDb.select.mockReturnValueOnce(makeChain([transportRow]));
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
     const chain = makeChain([{ ...transportRow, inputs: { ...transportInputs, addedStations: [{ id: "as-x" }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/8/import/apply").set("Cookie", cookie)
@@ -330,7 +334,7 @@ describe("Multi-model CSV round trip — add-mode mints a role-prefixed uid + di
   it("refineries: a blank-id add row's minted 'aw-' uid + displayCode reach the real db.update().set() payload's addedRefineries", async () => {
     const cookie = await loginAs(OWNER);
     const addCsv = "template_version,id,display_code,city,state,lat,lng,status\n1,,REF-NEW,Newtown,WA,35.5,-80.2,active\n";
-    mockDb.select.mockReturnValueOnce(makeChain([twoEchelonRow]));
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const chain = makeChain([{ ...twoEchelonRow, inputs: { ...twoEchelonInputs, addedRefineries: [{ id: "aw-x" }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/11/import/apply").set("Cookie", cookie)
@@ -542,7 +546,7 @@ describe("max-coverage-us — distanceBands preserved verbatim on every write pa
 
   it("PATCH /api/scenarios/:id: a supplied 3-boundary distanceBands array is preserved verbatim on store", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
     const chain = makeChain([maxCoverageRow]);
     mockDb.update.mockReturnValue(chain);
     const supplied = { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] };
@@ -563,7 +567,7 @@ describe("max-coverage-us — distanceBands preserved verbatim on every write pa
   it("POST /api/scenarios/:id/import/apply (distances): a previously-supplied 3-boundary distanceBands array is preserved verbatim in stored scenario state", async () => {
     const cookie = await loginAs(OWNER);
     const suppliedRow = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] } };
-    mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
+    mockDb.select.mockReturnValue(makeChain([suppliedRow]));
     const chain = makeChain([suppliedRow]);
     mockDb.update.mockReturnValue(chain);
     const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
@@ -584,7 +588,7 @@ describe("max-coverage-us — distanceBands preserved verbatim on every write pa
     // the customers apply re-validates the merged inputs
     // (validateInputsForModel), and the reparse must not overwrite it.
     const suppliedRow = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] } };
-    mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
+    mockDb.select.mockReturnValue(makeChain([suppliedRow]));
     const chain = makeChain([suppliedRow]);
     mockDb.update.mockReturnValue(chain);
     const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,,,,,458287,excluded\n";
@@ -747,7 +751,7 @@ describe("JADE (two-echelon-jade-us) — legDistances export/import round-trips 
   it("import/apply persists a plant->warehouse legDistances change with the `leg` field attached (never trusted from the client, resolved from id spaces)", async () => {
     const cookie = await loginAs(OWNER);
     const csv = "template_version,from_id,to_id,distance\n1,plant-1,wh-1,123.4\n";
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 123.4 }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
@@ -763,7 +767,7 @@ describe("JADE (two-echelon-jade-us) — legDistances export/import round-trips 
   it("import/apply persists a warehouse->customer legDistances change with the `leg` field attached", async () => {
     const cookie = await loginAs(OWNER);
     const csv = "template_version,from_id,to_id,distance\n1,wh-1,customer-1,42.1\n";
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 42.1 }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
@@ -779,7 +783,7 @@ describe("JADE (two-echelon-jade-us) — plants import/apply persists into added
   it("a blank-id add row's minted 'ap-' uid + displayCode reach the real db.update().set() payload's addedPlants", async () => {
     const cookie = await loginAs(OWNER);
     const addCsv = "template_version,id,display_code,city,state,lat,lng\n1,,PL-NEW,Reno,NV,39.5,-119.8\n";
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, addedPlants: [{ id: "ap-x", displayCode: "PL-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8 }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
@@ -799,7 +803,7 @@ describe("JADE (two-echelon-jade-us) — plantCapabilities import/apply persists
   it("a flipped cell reaches the real db.update().set() payload's plantProductCapability array", async () => {
     const cookie = await loginAs(OWNER);
     const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,false\n";
-    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
     const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, plantProductCapability: [{ plantId: "plant-1", productId: "product-1", enabled: false }] } }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
