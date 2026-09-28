@@ -211,6 +211,74 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("text-add-deliverycost-error")).toBeInTheDocument();
   });
 
+  // I-1 (whole-branch review) — the server precheck 422 never names the
+  // offending id to the student, and this model has no allowlisted precheck
+  // query to catch it later; handleAddRow must reject an unknown id inline,
+  // naming it, using the already-fetched base matrix.
+  it("rejects an add-row with an unknown warehouse id, naming it inline", async () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
+    const onChange = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={onChange} modelId="delivery-teaching-us" />);
+
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-row"));
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-from"), "W999");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-to"), "C1");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-value"), "5");
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-confirm"));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-deliverycost-error")).toHaveTextContent("W999");
+  });
+
+  it("rejects an add-row with an unknown customer id, naming it inline", async () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
+    const onChange = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={onChange} modelId="delivery-teaching-us" />);
+
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-row"));
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-from"), "W1");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-to"), "C999");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-value"), "5");
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-confirm"));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-deliverycost-error")).toHaveTextContent("C999");
+  });
+
+  it("still adds a valid lane once the base matrix has loaded", async () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
+    const onChange = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={onChange} modelId="delivery-teaching-us" />);
+
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-row"));
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-from"), "W1");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-to"), "C1");
+    await userEvent.type(screen.getByTestId("input-new-deliverycost-value"), "5");
+    await userEvent.click(screen.getByTestId("button-add-deliverycost-confirm"));
+
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 5 }]);
+  });
+
+  // I-2 (whole-branch review) — the 546 KB reference-costs response must
+  // show a real loading/error state instead of the false "No cost data yet"
+  // empty message. The existing 11 tests above all mock isLoading:false, so
+  // nothing covered these branches before this fix.
+  it("shows a loading state while the reference-costs query is in flight", () => {
+    mockUseGetReferenceCosts.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+
+    expect(screen.getByTestId("delivery-costs-tab-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("delivery-costs-tab-empty")).not.toBeInTheDocument();
+  });
+
+  it("shows an error state when the reference-costs query fails", () => {
+    mockUseGetReferenceCosts.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+
+    expect(screen.getByTestId("delivery-costs-tab-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("delivery-costs-tab-empty")).not.toBeInTheDocument();
+  });
+
   it("removes an override and falls back to the base value", () => {
     mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
     const onChange = vi.fn();

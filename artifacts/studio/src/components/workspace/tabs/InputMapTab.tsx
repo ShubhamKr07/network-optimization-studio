@@ -957,6 +957,7 @@ function PMedianInputMap({
             containerPoint={selected.containerPoint}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
+            readOnly={readOnly}
           />
         )}
         {/* ch5-del-9 — read-only: never mount the action menu, even though

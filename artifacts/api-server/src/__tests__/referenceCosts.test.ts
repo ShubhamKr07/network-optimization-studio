@@ -27,11 +27,16 @@ describe("GET /models/:id/reference-costs", () => {
     await request(app).get("/api/models/not-a-model/reference-costs").expect(422);
   });
 
+  // M-3 (whole-branch review) — `.not.toBe(404)` was a vacuous mount guard:
+  // with `router.use(referenceCostsRouter)` commented out, an unmatched
+  // `/api/...` path falls through to scenariosRouter's `requireAuth` and
+  // returns 401, not 404 — so the old assertion still passed with the mount
+  // missing. `.expect(200)` actually proves the route is reachable.
+  //
   // The silent failure this test exists for: a route file that is created but
   // never registered in routes/index.ts 404s with no error anywhere.
   it("is reachable through the top-level mount, not merely defined", async () => {
-    const res = await request(app).get("/api/models/delivery-teaching-us/reference-costs");
-    expect(res.status).not.toBe(404);
+    await request(app).get("/api/models/delivery-teaching-us/reference-costs").expect(200);
   });
 });
 

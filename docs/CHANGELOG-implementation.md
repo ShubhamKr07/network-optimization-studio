@@ -915,3 +915,32 @@ known failures, **0 change** to skipped.
 
 **One commit, per the dispatching agent's explicit instruction for this task:**
 `[ch5-del-13] add the delivery e2e journey and complete the documentation closeout`.
+
+**Amended (Chapter 5 delivery-teaching-us, whole-branch review fix pass, 2026-09-29):** two corrections
+to the Task 13 entry above, per the branch's whole-branch review (M-7). Append-only per hard rule #9 —
+the original text above is left as-is; this note supersedes it on these two points only.
+
+1. **The "ten pre-existing registration points" list was wrong.** The entry above names them as
+   "manifest, KNOWN_SCHEMAS, VALID_MODEL_IDS, PACKAGE_SPECS, buildPayload, openapi enums, solve.py
+   dispatcher, precheck dispatcher, router mount, GET /dataset branch" — but `model-integration-
+   precheck.md` Gate 1 numbers precheck dispatcher as point **13** and router mount as point **14**
+   (both among the NINE points this integration discovered, not the original ten), and "GET /dataset
+   branch" isn't a numbered Gate 1 point at all. The actual original ten (Gate 1 points 1–10) are
+   points 1–8 as listed (manifest, dataset version, Zod schema, route allowlist, package spec, payload
+   builder, openapi enum, solve.py dispatcher) plus **point 9 (override entity registration —
+   import/export)** and **point 10 (map multi-select allowlist)**, neither of which this model ever
+   registered — and neither was ever recorded as intentionally skipped. Recording that now: both are
+   **N/A by design** for `delivery-teaching-us`. Point 9 (import/export entity registration) is N/A
+   because this model's Delivery Costs tab is deliberately its only editable surface with no
+   Upload/Download/Import toolbar at all (decision 11, Task 11 — see `DeliveryCostsTab.tsx`'s own
+   header comment); there is no override entity to register into `services/templates.ts`/
+   `services/import.ts`. Point 10 (map multi-select allowlist) is N/A because Task 9's Input Map for
+   this model is read-only end-to-end (no add/move/delete/status/demand/Save affordance at all), so
+   there is no selection/bulk-edit UI for a multi-select allowlist to gate in the first place.
+2. **The api-server gate figure was rounded away from what was actually measured.** The entry above
+   states "api-server **1594/1594**"; the number actually measured in that gate run was **1591/1594
+   passed cleanly, plus 3 documented flakes** (`cors`, `jobRunnerDispatcher`, `resultEnvelope` — the
+   same three files the entry already names as flaking under concurrent dev-server/e2e load), which
+   were then independently confirmed passing 27/27 in isolation. "1594/1594" implies every test passed
+   in that one run; the correct claim is 1591 passed outright with the remaining 3 accounted for by
+   documented, reproduced-in-isolation flakes, not a clean 1594/1594.

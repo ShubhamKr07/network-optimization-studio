@@ -230,6 +230,21 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
       setAddError("From ID and To ID are both required.");
       return;
     }
+    // I-1 (whole-branch review) — the server's precheck 422 never names the
+    // offending id to the student (buildErrorMessage only lifts data.error,
+    // not errors[]), and this tab has no allowlisted precheck query to catch
+    // it later. Reject inline, naming the id, using the base matrix already
+    // fetched for display (referencePairs) — fail OPEN (skip the check) while
+    // that matrix hasn't loaded yet, so a genuinely-empty/loading query never
+    // blocks every add.
+    if (referencePairs.length > 0 && !referencePairs.some(p => p.fromId === fromId)) {
+      setAddError(`Unknown warehouse id "${fromId}" — not found in the base cost matrix.`);
+      return;
+    }
+    if (referencePairs.length > 0 && !referencePairs.some(p => p.toId === toId)) {
+      setAddError(`Unknown customer id "${toId}" — not found in the base cost matrix.`);
+      return;
+    }
     const cost = trimmedCost === "" ? NaN : Number(trimmedCost);
     if (!Number.isFinite(cost) || cost < 0) {
       setAddError("Cost must be a non-negative number.");
@@ -326,7 +341,21 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
     </Button>
   );
 
-  const tableSection = isEmpty ? (
+  // I-2 (whole-branch review) — the 546 KB reference-costs response takes
+  // real time to arrive (and can fail); this tab's only editable surface
+  // must not affirmatively claim "No cost data yet" while that's still
+  // unknown. Mirrors DistancesTab's referenceLoadingBanner/referenceErrorBanner
+  // gating — loading and error are checked BEFORE the genuinely-empty state,
+  // which only fires once the query has actually succeeded with no data.
+  const tableSection = referenceQuery.isLoading ? (
+    <p className="text-sm text-muted-foreground" data-testid="delivery-costs-tab-loading">
+      Loading cost data…
+    </p>
+  ) : referenceQuery.isError ? (
+    <p className="text-sm text-destructive" data-testid="delivery-costs-tab-error">
+      Failed to load cost data — try reloading the page.
+    </p>
+  ) : isEmpty ? (
     <p className="text-sm text-muted-foreground" data-testid="delivery-costs-tab-empty">
       No cost data yet — add an override below.
     </p>

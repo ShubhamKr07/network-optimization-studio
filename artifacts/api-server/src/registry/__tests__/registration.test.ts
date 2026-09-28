@@ -92,7 +92,10 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
   });
 
-  it("GET /api/models returns 6 models, including two-echelon-jade-us", async () => {
+  // M-4 (whole-branch review) — title corrected to match the actual
+  // `toHaveLength(7)` assertion below (delivery-teaching-us, ch5-del-2,
+  // brought the manifest count to 7; the title was never updated).
+  it("GET /api/models returns 7 models, including two-echelon-jade-us", async () => {
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);

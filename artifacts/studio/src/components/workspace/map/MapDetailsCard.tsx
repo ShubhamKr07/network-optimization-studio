@@ -17,6 +17,13 @@ export interface MapDetailsCardProps {
   containerPoint: { x: number; y: number };
   containerSize?: { width: number; height: number };
   onClose: () => void;
+  /** M-8 (whole-branch review) — true on a read-only map (delivery-teaching-us,
+   * Task 9's `readOnly` prop threaded through InputMapTab/PMedianInputMap),
+   * where right-click never opens an action menu. Gated at the render site
+   * only (the call site already knows `readOnly`) — never a `modelId` check
+   * inside this shared component, matching Task 9's established pattern.
+   * Defaults to false: every pre-existing caller is byte-unchanged. */
+  readOnly?: boolean;
 }
 
 function fmt(n: number): string {
@@ -27,7 +34,7 @@ function fmt(n: number): string {
 // absolutely-positioned overlay OVER the Leaflet container (never a Leaflet
 // `<Popup>` — a Popup lives inside Leaflet's own pane stack and doesn't
 // compose with React state/portals the way the rest of Workspace does).
-export function MapDetailsCard({ entity, containerPoint, containerSize, onClose }: MapDetailsCardProps) {
+export function MapDetailsCard({ entity, containerPoint, containerSize, onClose, readOnly = false }: MapDetailsCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
@@ -136,9 +143,11 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose 
           <span className="font-mono">{fmt(e.demand)} units</span>
         </div>
       ) : null}
-      <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">
-        Right-click for Edit · Move · Copy · Delete
-      </div>
+      {!readOnly && (
+        <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">
+          Right-click for Edit · Move · Copy · Delete
+        </div>
+      )}
     </div>
   );
 }

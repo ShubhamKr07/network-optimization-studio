@@ -88,7 +88,7 @@ const MAX_COVERAGE_INPUTS = {
   distanceBands: [700, 1400, 2800, 5500], warehouseOverrides: [], customerOverrides: [],
   addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
 };
-// Registration point 34 (Chapter 5, delivery-teaching-us) — this file
+// Registration point 18 (Chapter 5, delivery-teaching-us) — this file
 // arrived with the Chapter 4 two-step merge, before this 7th model existed.
 // It has no step workflow and no one-active-job index (that guard is scoped
 // to max-coverage-us alone — see NON_STEP_MODELS' own comment), so it
@@ -100,7 +100,7 @@ const DELIVERY_INPUTS = {
   costPerMileOver: 10, laneCostOverrides: [],
 };
 
-// The five models with NO step concept — the negative half of assertion 1
+// The six models with NO step concept — the negative half of assertion 1
 // and the whole of assertion 2. two-echelon-jade-us is locked
 // (capabilities.locked) — unlocked for this file's duration below, same
 // posture as routes.test.ts's own ch4-lock comment, so "locked" doesn't

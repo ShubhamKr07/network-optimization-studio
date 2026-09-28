@@ -137,7 +137,7 @@ screen). Tick every row.
       array fails the suite immediately. The one point on this list that fails loud by design — a
       deliberate drift guard, not an oversight to route around.
 - [ ] **19. `MODEL_IDS`** — a second, separate export from `PACKAGE_SPECS` in the same file,
-      `lib/dataset-schema/src/index.ts:269`
+      `lib/dataset-schema/src/index.ts:284`
       *Miss:* **loud** — `manifest.test.ts`'s loop over `MODEL_IDS` throws if the new model's id is
       missing from this array, even though `PACKAGE_SPECS` (point 5) is a completely separate
       registration a few lines away in the same file — adding one does not add the other.
