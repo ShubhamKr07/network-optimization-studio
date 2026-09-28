@@ -95,7 +95,9 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     // C4.4 — count is a model-registry fact (max-coverage-us is the 6th
     // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — this
     // model's KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
-    expect(res.body).toHaveLength(6);
+    // Chapter 5 (ch5-del-2) — delivery-teaching-us is the 7th manifest,
+    // listable-only (same pattern max-coverage-us went through pre-C4.6).
+    expect(res.body).toHaveLength(7);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
   });

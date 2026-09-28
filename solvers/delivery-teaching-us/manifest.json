@@ -1,0 +1,51 @@
+{
+  "id": "delivery-teaching-us",
+  "name": "Delivery Company Teaching Example",
+  "chapter": "Chapter 5",
+  "datasetDir": "solvers/delivery-teaching-us/dataset",
+  "countryBounds": { "sw": [24, -125], "ne": [50, -66] },
+  "distanceUnit": "mi",
+  "capabilities": {
+    "supportsP": true,
+    "capacityModes": [],
+    "demandEditable": false,
+    "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+    "supportsFacilityStatus": false,
+    "supportsReferenceDistances": false,
+    "supportsReferenceCosts": true,
+    "supportsAddedCustomerExclusion": false
+  },
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "p": { "type": "integer", "minimum": 1, "maximum": 33 },
+      "distanceBands": {
+        "type": "array",
+        "items": { "type": "number", "exclusiveMinimum": 0 },
+        "minItems": 1
+      },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 },
+      "costAdjustEnabled": { "type": "boolean" },
+      "distanceThreshold": { "type": "number", "exclusiveMinimum": 0 },
+      "costPerMile": { "type": "number", "exclusiveMinimum": 0 },
+      "costPerMileOver": { "type": "number", "exclusiveMinimum": 0 },
+      "laneCostOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "fromId": { "type": "string", "minLength": 1 },
+            "toId": { "type": "string", "minLength": 1 },
+            "cost": { "type": "number", "minimum": 0 }
+          },
+          "required": ["fromId", "toId", "cost"]
+        }
+      }
+    },
+    "required": [
+      "p", "distanceBands", "gap", "timeLimitSec",
+      "costAdjustEnabled", "distanceThreshold", "costPerMile", "costPerMileOver"
+    ]
+  }
+}

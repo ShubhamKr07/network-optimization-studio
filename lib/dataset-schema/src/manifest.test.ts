@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ManifestSchema } from "./index";
+import { ManifestSchema, readManifest } from "./index";
 
 describe("ManifestSchema — capabilities.outputGrids", () => {
   const baseManifest = {
@@ -380,5 +380,36 @@ describe("ManifestSchema — max-coverage-us (Chapter 4, C4.2)", () => {
     // Chen has NO warehouse capacity fields.
     expect(props.warehouseOverrides.items.properties.capacity).toBeUndefined();
     expect(props.addedWarehouses.items.properties.capacity).toBeUndefined();
+  });
+});
+
+describe("delivery-teaching-us manifest (Chapter 5, 7th model)", () => {
+  it("declares no capacity, P support, and reference costs", () => {
+    const m = readManifest("delivery-teaching-us");
+    expect(m.capabilities.supportsP).toBe(true);
+    expect(m.capabilities.capacityModes).toEqual([]);
+    expect(m.capabilities.demandEditable).toBe(false);
+    expect(m.capabilities.supportsFacilityStatus).toBe(false);
+    expect(m.capabilities.supportsReferenceCosts).toBe(true);
+    expect(m.capabilities.supportsReferenceDistances).toBe(false);
+    expect(m.distanceUnit).toBe("mi");
+    expect(m.chapter).toBe("Chapter 5");
+  });
+
+  // capacityModes: [] is what drives OpenWarehousesTab's Demand Served column
+  // (OpenWarehousesTab.tsx:158) - but only once Workspace.tsx:3681 passes it
+  // through for this model (Task 12; today that pass-through is jade-only).
+  // An absent array falls through to the capacityMode-string gate and renders
+  // a utilization % this model cannot compute, so "empty" and "absent" are
+  // NOT interchangeable here.
+  it("distinguishes an empty capacityModes array from an absent one", () => {
+    expect(readManifest("delivery-teaching-us").capabilities.capacityModes).toHaveLength(0);
+  });
+
+  it("defaults supportsReferenceCosts to false for every pre-existing model", () => {
+    for (const id of ["p-median-us", "transport-coal", "p-median-brazil",
+                      "two-echelon-gold-au", "two-echelon-jade-us", "max-coverage-us"]) {
+      expect(readManifest(id).capabilities.supportsReferenceCosts).toBe(false);
+    }
   });
 });

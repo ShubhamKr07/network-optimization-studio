@@ -79,6 +79,7 @@ export interface PublicModelInfo {
     // boundary should never trust an upstream default alone.
     supportsReferenceDistances: boolean;
     supportsAddedCustomerExclusion: boolean;
+    supportsReferenceCosts: boolean;
   };
   inputsSchema: Manifest["inputsSchema"];
   // R5 (Workspace UX bundle) — the unit this model's distances/bands are
@@ -102,6 +103,7 @@ function toPublic(manifest: Manifest): PublicModelInfo {
       supportsFacilityStatus: manifest.capabilities?.supportsFacilityStatus ?? false,
       supportsReferenceDistances: manifest.capabilities?.supportsReferenceDistances ?? false,
       supportsAddedCustomerExclusion: manifest.capabilities?.supportsAddedCustomerExclusion ?? false,
+      supportsReferenceCosts: manifest.capabilities?.supportsReferenceCosts ?? false,
     },
     inputsSchema: manifest.inputsSchema,
     distanceUnit: manifest.distanceUnit ?? "mi",
