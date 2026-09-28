@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
 import { buildPayload } from "../solver/pmedian.js";
+import { getManifest } from "../registry/modelRegistry.js";
 
 function baseInputs() {
   return {
@@ -101,5 +102,23 @@ describe("GET /dataset — delivery-teaching-us", () => {
     expect(res.body.customers.every((c: { id: string }) => c.id.startsWith("C"))).toBe(true);
     expect(res.body.customers.reduce((s: number, c: { demand: number }) => s + c.demand, 0))
       .toBe(208829000);
+  });
+});
+
+describe("delivery-teaching-us manifest/schema parity", () => {
+  it("manifest.inputsSchema and deliveryInputsSchema agree on bounds and required keys", () => {
+    // inputsSchema is z.record(z.string(), z.unknown()) on the Manifest type
+    // (dataset-schema/src/index.ts:263), so a local shape is needed to read it.
+    type Bound = { minimum?: number; maximum?: number; exclusiveMinimum?: number };
+    type Prop = Bound & { items?: { properties?: Record<string, Bound> } };
+    const m = getManifest("delivery-teaching-us")!.inputsSchema as {
+      properties: Record<string, Prop>;
+      required: string[];
+    };
+    expect(m.properties.p).toMatchObject({ minimum: 1, maximum: 33 });
+    expect(m.properties.laneCostOverrides!.items!.properties!.cost).toMatchObject({ minimum: 0 });   // zero allowed, matches .nonnegative()
+    expect(m.properties.costPerMile).toMatchObject({ exclusiveMinimum: 0 });                            // matches .positive()
+    expect(new Set(m.required)).toEqual(new Set(["p", "distanceBands", "gap", "timeLimitSec",
+      "costAdjustEnabled", "distanceThreshold", "costPerMile", "costPerMileOver"]));
   });
 });

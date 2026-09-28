@@ -138,6 +138,30 @@ export const GetReferenceDistancesResponse = zod.object({
 
 
 /**
+ * Unauthenticated, model-scoped, ownerless (matches /dataset and /models — no user_id, no 404-vs-403 concern). Returns the complete, unfiltered base×base lane-cost matrix for the model — never includes a scenario's own laneCostOverrides (DD-1, base dataset files are read-only). The API disables Express's automatic ETags globally, so this route sets an explicit ETag derived from the dataset package's version/hash and supports If-None-Match revalidation.
+ * @summary Get a model's immutable base×base reference lane-cost matrix (Chapter 5, delivery-teaching-us)
+ */
+export const GetReferenceCostsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetReferenceCostsHeader = zod.object({
+  "If-None-Match": zod.string().optional()
+})
+
+export const GetReferenceCostsResponse = zod.object({
+  "pairs": zod.array(zod.object({
+  "fromId": zod.string(),
+  "fromCode": zod.string(),
+  "toId": zod.string(),
+  "toCode": zod.string(),
+  "cost": zod.number()
+}).describe('One base-warehouse×base-customer lane cost. fromCode\/toCode echo fromId\/toId (base entities\' id IS already a short display code, e.g. \"W8\"\/\"C269\") — kept as separate fields to match the added-entity displayCode shape used elsewhere.')),
+  "distanceUnit": zod.enum(['mi', 'km'])
+}).describe('Immutable base×base reference lane-cost matrix for a supportsReferenceCosts-capable model (Chapter 5, delivery-teaching-us). Never merged with a scenario\'s own laneCostOverrides (DD-1).')
+
+
+/**
  * @summary The caller's most recent solve job per scenario (latest per scenario, newest first)
  */
 export const getSolveHistoryQueryLimitDefault = 5;

@@ -278,6 +278,33 @@ export interface ReferenceDistances {
   distanceUnit: ReferenceDistancesDistanceUnit;
 }
 
+/**
+ * One base-warehouse×base-customer lane cost. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "W8"/"C269") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
+ */
+export interface ReferenceCostPair {
+  fromId: string;
+  fromCode: string;
+  toId: string;
+  toCode: string;
+  cost: number;
+}
+
+export type ReferenceCostsDistanceUnit = typeof ReferenceCostsDistanceUnit[keyof typeof ReferenceCostsDistanceUnit];
+
+
+export const ReferenceCostsDistanceUnit = {
+  mi: 'mi',
+  km: 'km',
+} as const;
+
+/**
+ * Immutable base×base reference lane-cost matrix for a supportsReferenceCosts-capable model (Chapter 5, delivery-teaching-us). Never merged with a scenario's own laneCostOverrides (DD-1).
+ */
+export interface ReferenceCosts {
+  pairs: ReferenceCostPair[];
+  distanceUnit: ReferenceCostsDistanceUnit;
+}
+
 export interface TransportAssignment {
   mineId: string;
   stationId: string;
