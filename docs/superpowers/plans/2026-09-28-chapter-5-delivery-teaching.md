@@ -3226,7 +3226,11 @@ Add a `journey_delivery()` to `e2e_journey.py` following its existing style (no 
 2. **Prose that becomes false.** `bundle4:129` ("Chapter 5 remain hidden entirely"), `bundle4:151` ("Chapter 10 + Chapter 5 stay hidden"), `bundle4:52,115` and `bundle6:22` all state Chapter 5 is hidden. Correct them — a comment asserting the opposite of the code beside it is how the next reader gets misled, and this plan has already been bitten by exactly that.
 3. **Re-grep; do not trust any enumerated list, including this one.** The counts appear in both single-line and multi-line `toHaveText` forms, and a strict grep misses the multi-line ones (the Chapter 4 workstream's own list was incomplete for this reason and they said so). Run `rg -n 'labs ·|labs`·|Chapter 5|auth-labs-strip' artifacts/studio/e2e/` and work from the result, not from the file:line references above.
 
-**On the baseline value:** at the time this plan was written these specs read `"2 labs"`. The Chapter 4 workstream's e2e repair corrects them to `"3 labs"` before this task runs. Either way the instruction is unchanged — **set to 4, never increment** — but expect to find 3, not 2, and treat finding 2 as a sign the repair did not land.
+**On the baseline value:** at the time this plan was written these specs read `"2 labs"`. The Chapter 4 workstream's e2e repair (now merged at `0a300f8`) corrects them to `"3 labs"`. The instruction is unchanged — **set to 4, never increment** — but expect to find 3, and treat finding 2 as a sign something reverted.
+
+**The e2e baseline this step's gate diffs against is `42 passed / 13 failed / 4 skipped`**, measured at the merged tree. Not the `32/59` recorded at `22be7e8`, and not the `42/18` that was relayed but never measured. The 13 are 11 test-rot plus 2 environment-gap (`VITE_POSTHOG_KEY`, `VITE_SENTRY_DSN`), which pass where those vars are set. The 4 JADE locked-model cases are now **skipped, not failed**, gated on a runtime read of `GET /api/models` — so they resume by themselves if that model ever unlocks, with no spec edit.
+
+**Do not touch the 11 test-rot specs.** They are the user's own separate bundle, not this one's to fix: `tab-coverage` ×3, `input-map-v2` ×2, `design-system` ×2, `workspace-ux-r1-r9`, `two-echelon`, `import`, `bundle2-fastfollow`. Editing any of them collides with that bundle. This step touches only `bundle4-auth-landing.spec.ts` and `bundle6-ui-tweaks.spec.ts`, neither of which is on that list — confirm that is still true before editing anything beyond those two files.
 
 - [ ] **Step 4: Run the full gate**
 
@@ -3401,6 +3405,15 @@ Overkill check: no new tooling. Fold in place, re-verify with the same probe. Th
 | 16 | `buildEffectiveFacilityCityLookup` | `templates.ts:1388-1402` | 12 | **silent** (blank city column) | `templates.test.ts` (B8) |
 | 17 | `pMax` both mounts | `Workspace.tsx:3320`, `:4037` | 10 | **silent** (slider offers 50, API 422s) | `OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx` |
 | 18 | `registration.test.ts` SOLVABLE/stubs/count/source gates | `:25, :98, :118, :222-238` | 4 | loud | itself |
+| **34** | **`crossModelStepContract.test.ts`'s `NON_STEP_MODELS`** | `artifacts/api-server/src/__tests__/crossModelStepContract.test.ts:97-98` | **12** | loud (red suite) | itself |
+
+**Row 34 arrived with the Chapter 4 merge (`0a300f8`) and did not exist when this plan was
+written.** That test asserts two things about every model that is *not* `max-coverage-us`:
+`GET /scenarios/:id` returns no `steps` field, and a back-to-back second solve never 409s.
+`delivery-teaching-us` belongs in `NON_STEP_MODELS` as a sixth entry — it has no step
+workflow and no one-active-job index — and the suite goes **red until it is added**, which is
+the drift guard working as intended. Add it in the task that first makes this model solvable
+end to end, alongside its `PMEDIAN_INPUTS`-style stub inputs.
 | 19 | `routes/dataset.ts` branch | `:14-59` | 5 | loud (400) | `deliveryContract.test.ts` |
 | 20 | `isEditableInputTab` allow-list | `Workspace.tsx:2125-2200` | 11 (Step 4) | **silent** (no Save) | `Workspace.test.tsx` Save-path case (Task 11 Step 1) |
 | 21 | Save-suppression rows | `Workspace.tsx:2211-2226` | 9 (Step 4, deliberate no-op) | n/a — read-only map has nothing to save | `InputMapTab.deliveryReadOnly.test.tsx` (no `button-save`) |
