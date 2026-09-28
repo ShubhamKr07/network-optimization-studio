@@ -3,12 +3,6 @@ name: Network Optimization Studio tech stack decisions
 description: Key architectural decisions and environment constraints for the Network Optimization Studio
 ---
 
-# Solver decision
-
-The solver is a real ILP: Python + PuLP/CBC (`artifacts/api-server/src/solver/solve.py`), run as a child process by the api-server's async job runner (`solver/jobRunner.ts`). The UI label "CBC (PuLP)" is accurate.
-
-**Why this matters:** Python and `pulp` are required to run the solver and its tests (`pip install pulp pytest --break-system-packages`).
-
 # Schema: result stored in scenarios table
 
 Solver results are stored as JSONB in the `scenarios` table (`result` column) rather than a separate `solve_results` table. This keeps the data model simple for an educational app with modest scale.
