@@ -45,7 +45,9 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const HEADER_TIMEOUT = 10_000;
-const SOLVE_TIMEOUT = 120_000;
+// ch4-2s-9 — widened from 120_000: a real CBC solve of this 26-warehouse/
+// 200-customer model was observed taking ~170s on a (contended) local run.
+const SOLVE_TIMEOUT = 240_000;
 
 interface MaxCoverageResult {
   status: string;
@@ -141,6 +143,28 @@ async function saveViaHeader(page: Page): Promise<void> {
   await expect(save).toBeDisabled({ timeout: HEADER_TIMEOUT });
 }
 
+/** ch4-2s-9 — CH4-16: every Step 1 field write funnels through a guard
+ * that, once Step 1 is frozen (solved), intercepts with the freeze-confirm
+ * dialog instead of landing in the draft. This test solves Step 1 in its
+ * very first section, so EVERY later Step-1-field edit (demand, distance
+ * override, added warehouse) hits an already-frozen Step 1. Confirming the
+ * dialog PATCHes the pending edit immediately (the same edit `action`
+ * attempted) AND drops both steps to 0 of 2 in that one request — so on
+ * interception there is nothing left to `saveViaHeader`; the caller should
+ * skip straight to its own re-solve. Returns whether the dialog
+ * intercepted, so the caller knows whether an ordinary Save is still
+ * needed. */
+async function applyStep1Edit(page: Page, action: () => Promise<void>): Promise<boolean> {
+  await action();
+  const dialog = page.getByTestId("freeze-confirm-dialog");
+  const intercepted = await dialog.isVisible({ timeout: 2_000 }).catch(() => false);
+  if (intercepted) {
+    await page.getByTestId("freeze-confirm-accept").click({ timeout: HEADER_TIMEOUT });
+    await expect(dialog).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  }
+  return intercepted;
+}
+
 /** Locates the row whose FIRST cell (the entity-id column) is exactly
  * `id` — never a bare text search, because this dataset's 2-letter
  * warehouse ids (e.g. "LA") collide with other warehouses' State-column
@@ -155,7 +179,11 @@ function rowByFirstCellId(page: Page, id: string) {
 
 test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
   test("coverage + min-distance solves, demand delta, distance override, map add, import round-trips", async ({ page }) => {
-    test.setTimeout(360_000);
+    // ch4-2s-9 — this test now performs 4 real solves (coverage, min-distance,
+    // then a fresh coverage solve after each of the two confirm-and-clear
+    // cycles sections 4/5 now go through); widened from 360_000 to give
+    // headroom at the ~240_000 per-solve SOLVE_TIMEOUT observed locally.
+    test.setTimeout(900_000);
     await registerAndGoHome(page);
     const id = await createMaxCoverageScenario(page);
 
@@ -204,34 +232,72 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await expect(chenParams).toContainText("High-service distance (km)", { timeout: HEADER_TIMEOUT });
       await expect(chenParams).toContainText("Max distance (km)");
 
-      // ── 3. Switch to min-distance → save → solve → demand-km objective ──
-      await page.getByTestId("chen-objective-min_distance").click();
-      await expect(page.getByTestId("chen-objective-min_distance")).toHaveAttribute("aria-pressed", "true");
-      // Toggling seeds the min-distance-only coverage floor field.
-      await expect(page.getByTestId("input-coverage-floor")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await saveViaHeader(page);
+      // ── 3. Step 1 is solved; Step 2 unlocks and runs from the seeded floor ──
+      // The free objective toggle is gone (CH4-17): the step toggle is now the
+      // only way to reach min-distance, and the floor is produced by Step 1's
+      // achieved covered demand rather than typed.
+      await expect(page.getByTestId("chen-objective-toggle")).toHaveCount(0);
+      await expect(page.getByTestId("input-coverage-floor")).toHaveCount(0);
+      await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("1 of 2 solved");
 
+      await page.getByTestId("step-toggle-2").click();
+      await expect(page.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
+
+      // The floor is displayed, locked, and equal to Step 1's covered demand.
+      await page.getByTestId("sidebar-input-optimization-parameters").click();
+      await expect(page.getByTestId("step2-floor-value")).toContainText("53,385,024", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("step2-parameters")).toBeVisible();
+
+      await expect(page.getByTestId("button-run-optimizer")).toHaveText("Solve Step 2");
       const minDist = await solveViaUi(page, id);
       expect(minDist.details.objective).toBe("min_distance");
-      // Sacred min-distance golden (solver/tests/test_max_coverage.py::test_min_distance_golden).
+      // Sacred min-distance golden (test_max_coverage.py::test_min_distance_golden).
       expect(minDist.objective).toBeCloseTo(48714263031.75, -3);
       expect(new Set(minDist.details.openWarehouseIds)).toEqual(new Set(["DAL", "LA", "PIT"]));
 
+      await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("2 of 2 solved");
+
+      // Frame 3d — the comparison unlocks at 2 of 2 and renders from data the
+      // scenario already carries.
       await page.getByTestId("sidebar-output-cost-summary").click();
       await expect(page.getByTestId("cost-summary-value-objective")).toContainText("demand-km", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("step-comparison")).toBeVisible();
+      await expect(page.getByTestId("step-comparison-weightedAvgDistance-1")).toContainText("635.13 km");
+      await expect(page.getByTestId("step-comparison-weightedAvgDistance-2")).toContainText("624.33 km");
 
-      // ── 4. Edit a customer's demand → re-solve → objective moves ────────
+      // ── 4a. A Step 1 edit raises confirm-and-clear and drops BOTH steps ──
+      // CH4-2/CH4-16 — Step 1 has been frozen since section 1's solve, and
+      // stays frozen through section 3 (steps.step1.solved is unaffected by
+      // which step the toggle points at or by Step 2 solving too). Every
+      // Step-1-field edit past this point (customer demand here, the
+      // distance override in section 5, the added warehouse in section 6)
+      // hits that freeze — dropping BOTH steps to 0 of 2 is the deliberate
+      // extension over the deck's frame 6 (Step 2 only) that makes solve
+      // targeting derivable from state alone. `applyStep1Edit` confirms the
+      // dialog if it appears (which PATCHes this exact edit AND clears in
+      // one request) — this first call is also the explicit proof that the
+      // mechanism works, matching the plan's own Task 9 Step 3 case.
       await page.getByTestId("sidebar-input-customers").click();
       const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
       await expect(demandInput).toBeVisible({ timeout: HEADER_TIMEOUT });
       const demandTestId = await demandInput.getAttribute("data-testid");
       const editedCustomerId = demandTestId!.replace("input-customer-demand-", "");
       const currentDemand = Number(await demandInput.inputValue()) || 0;
-      await demandInput.fill(String(currentDemand + 100_000_000)); // large, served → moves the objective
-      await saveViaHeader(page);
+      const demandIntercepted = await applyStep1Edit(page, () =>
+        demandInput.fill(String(currentDemand + 100_000_000)), // large, served → moves the objective
+      );
+      expect(demandIntercepted).toBe(true); // Step 1 IS frozen entering this section — prove it, not just tolerate it.
+      await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("0 of 2 solved");
+      await expect(page.getByTestId("button-run-optimizer")).toHaveText("Solve Step 1");
 
+      // ── 4b. Re-solve Step 1 (now unfrozen) → a fresh coverage result whose
+      // objective differs from the ORIGINAL section-1 baseline (`cov`) —
+      // NOT `minDist`, which is a different objective TYPE entirely
+      // (demand-km, not covered-demand) and would make this comparison
+      // vacuous. ─────────────────────────────────────────────────────────
       const afterDemand = await solveViaUi(page, id);
-      expect(afterDemand.objective).not.toBe(minDist.objective);
+      expect(afterDemand.details.objective).toBe("coverage");
+      expect(afterDemand.objective).not.toBe(cov.objective);
 
       // ── 5. Distance override reassigns a customer ───────────────────────
       // Pick a served customer and a DIFFERENT open warehouse; force that
@@ -248,8 +314,13 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await page.getByTestId("input-new-distance-from").fill(otherOpenWh);
       await page.getByTestId("input-new-distance-to").fill(targetCustomer);
       await page.getByTestId("input-new-distance-value").fill("1");
-      await page.getByTestId("button-add-distance-confirm").click();
-      await saveViaHeader(page);
+      // Step 1 was frozen again the instant section 4b solved — same guard,
+      // same helper; the add-row form's own fields above are local draft
+      // state until this confirm click, which is the actual guarded write.
+      const overrideIntercepted = await applyStep1Edit(page, () =>
+        page.getByTestId("button-add-distance-confirm").click(),
+      );
+      if (!overrideIntercepted) await saveViaHeader(page);
 
       const afterOverride = await solveViaUi(page, id);
       const reassigned = afterOverride.edges.find(e => e.toId === targetCustomer);
@@ -263,6 +334,26 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       expect(reassigned!.distance).toBeCloseTo(1, 3);
 
       // ── 6. Input-Map add a warehouse → estimated km distances surface ───
+      // Step 1 is frozen again (from section 5's solve). Sections 4/5
+      // already prove the confirm-and-clear mechanism thoroughly on a form
+      // field and a distances-tab row; routing the MAP add through it too
+      // would entangle two independent concerns — the estimated-distance
+      // preview is keyed off a "just added, not yet saved" watch
+      // (`pendingEstimateWatches`) that the ordinary Input-Map Save flow
+      // populates, and going through the freeze-confirm PATCH instead
+      // persists the entity directly without ever registering that watch,
+      // so no estimate materializes (confirmed empirically: the Distances
+      // tab shows zero rows for the new code, not just no "estimated"
+      // badge). Unfreeze first via the same mechanism sections 4/5 already
+      // proved, so this section exercises the ORIGINAL, already-working
+      // add-via-map-then-Save path untangled from the new guard.
+      await page.getByTestId("sidebar-input-optimization-parameters").click();
+      await page.getByTestId("input-high-service-dist").fill("725");
+      await page.getByTestId("input-max-dist").click();
+      await expect(page.getByTestId("freeze-confirm-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("freeze-confirm-accept").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("0 of 2 solved", { timeout: HEADER_TIMEOUT });
+
       await page.getByTestId("sidebar-input-input-map").click();
       await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // 26 warehouses + 200 customers over the continental US — hide both
@@ -278,14 +369,21 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
 
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const newWhCode = (await page.getByTestId("create-entity-display-code").innerText()).trim();
-      await page.getByTestId("create-entity-submit").click();
+      // Step 1 is unfrozen (just confirmed-and-cleared above), so this
+      // lands as an ordinary dirty draft — `applyStep1Edit` still wraps it
+      // defensively (harmless no-op when the guard doesn't intercept).
+      const mapAddIntercepted = await applyStep1Edit(page, () => page.getByTestId("create-entity-submit").click());
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // Save lives in the Input Map's own Layers row (saveInLayersRow gate).
-      const mapSave = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
-      await expect(mapSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      await mapSave.click();
-      await expect(mapSave).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      // Save lives in the Input Map's own Layers row (saveInLayersRow gate)
+      // — only relevant when the edit landed as an ordinary dirty draft
+      // rather than already being PATCHed by the freeze-confirm above.
+      if (!mapAddIntercepted) {
+        const mapSave = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
+        await expect(mapSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
+        await mapSave.click();
+        await expect(mapSave).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      }
 
       // The added warehouse's estimated (km) distances now appear in the
       // Distances tab, filtered by its display code.
