@@ -47,6 +47,19 @@ def test_p_median_brazil_matches_its_version():
     assert len(S.BRAZIL_REGIONS) == 25
 
 
+def test_delivery_teaching_us_matches_its_version():
+    """Chapter 5 (modified). Two lane tables; both hashed, both loaded."""
+    version = package_version("delivery-teaching-us")
+    assert package_sha256("delivery-teaching-us",
+                          ["warehouses.json", "customers.json", "distances.json", "costs.json"]) == version["sha256"]
+    assert len(S.DELIV_WAREHOUSES) == 33
+    assert len(S.DELIV_CUSTOMERS) == 313
+    assert len(S.DELIV_DISTANCES) == 10329
+    assert S.DELIV_DISTANCES.keys() == S.DELIV_COSTS.keys()
+    assert S.DELIV_DISTANCES == S.DELIV_COSTS          # seeded identical (decision 3)
+    assert sum(1 for v in S.DELIV_DISTANCES.values() if v == 0) == 33
+
+
 def test_solve_py_and_ts_agree_on_corrected_warehouse_labels():
     """C2.1 label fix must be visible from the Python side too — solve.py and
     the TS dataset route both read the same canonical file, so this should

@@ -13,6 +13,9 @@ archival original.
 | 4 | `ChensCosmeticsV1.ipynb` | `chens-cosmetics-cn` | **verbatim** |
 | 4 | `ChensCosmeticsV1 Step 2.ipynb` | `chens-cosmetics-cn` | **verbatim** |
 | 4 | `ChensCosmeticsV1 Step 3.ipynb` | `chens-cosmetics-cn` | **verbatim** |
+| 5 | `COG-Network-Optimization.ipynb` | `delivery-teaching-us` | verbatim |
+| 5 | `COG-Model-Data-3DC-3WH.xlsx` | `delivery-teaching-us` | verbatim (source workbook, not a notebook) |
+| 5 | `Notebook_LP_Transportation_Problem_Chapter_5_Network_Design_Book.ipynb` | `delivery-teaching-us` | verbatim |
 | 5 | — | `transport-coal`, `p-median-brazil` | **no notebook exists** (see below) |
 | 9 | `JADE_case_Chapter_9_Network_Design_Book.ipynb` | `two-echelon-jade-us` | **MODIFIED** (see below) |
 | 10 | `../Notebook_Mining_Problem_Chapter_10_Network_Design_Book.ipynb` | `two-echelon-gold-au` | verbatim, but lives at the **repo root**, not here |
@@ -101,9 +104,23 @@ The maps are a *view* of data this repo already holds: `get_data()` carries 100 
 warehouses and 4 plants, matching `solvers/two-echelon-jade-us/dataset/` exactly (customers 100,
 warehouses 25, plants 4, products 4, distances 2600).
 
-## Chapter 5 — no notebook
+## Chapter 5 — mixed: no notebook for two models, sources committed for `delivery-teaching-us`
 
 `transport-coal` and `p-median-brazil` have no source notebook. A search of `~/Downloads`,
 `~/Desktop`, `~/Documents` and the home tree found none, and unlike Chapter 4 there is no
 `scripts/src/extract-*` for either model — their `solvers/*/dataset/*.json` were produced some other
-way. If a Chapter 5 notebook surfaces, add it here and update this table.
+way. If a notebook for either surfaces, add it here and update this table.
+
+`delivery-teaching-us` (Chapter 5, modified — Delivery Company Teaching Example) is sourced from
+three files copied verbatim from `~/Downloads` (`COG_CaseStudy_v2/` and `network-optimization-studio/`):
+
+```
+f3de39fb9306d5836a986a0f5349be285e883c904d91d9487b679b8d62f5c097  COG-Network-Optimization.ipynb
+0b8feeba841d55cdbc3c9b852413e0fbc80cb1dc06b7531ef3503a9e42be28c3  COG-Model-Data-3DC-3WH.xlsx
+98ef03da4fee2f54d9f5d30fbe88f212b870b92fa5aab11ba46b3e266c07fd01  Notebook_LP_Transportation_Problem_Chapter_5_Network_Design_Book.ipynb
+```
+
+`scripts/extract-cog-dataset.py` transcribes `COG-Model-Data-3DC-3WH.xlsx` (the workbook, not either
+notebook) into `solvers/delivery-teaching-us/dataset/{warehouses,customers,distances,costs}.json`.
+Both notebooks are provenance/reference only — nothing in the build, test suites, or running app
+reads them.

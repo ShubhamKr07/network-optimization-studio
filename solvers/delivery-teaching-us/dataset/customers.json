@@ -1,0 +1,2819 @@
+{
+  "C1": {
+    "id": "C1",
+    "city": "Los Angeles",
+    "state": "CA",
+    "lat": 33.974044,
+    "lng": -118.248849,
+    "zip": "90001",
+    "demand": 9145000.0
+  },
+  "C2": {
+    "id": "C2",
+    "city": "New York City",
+    "state": "NY",
+    "lat": 40.75012,
+    "lng": -73.997846,
+    "zip": "10001",
+    "demand": 8611000.0
+  },
+  "C3": {
+    "id": "C3",
+    "city": "Chicago",
+    "state": "IL",
+    "lat": 41.88331,
+    "lng": -87.624713,
+    "zip": "60602",
+    "demand": 7773000.0
+  },
+  "C4": {
+    "id": "C4",
+    "city": "Boston",
+    "state": "MA",
+    "lat": 42.36097,
+    "lng": -71.05344,
+    "zip": "02101",
+    "demand": 5827000.0
+  },
+  "C5": {
+    "id": "C5",
+    "city": "Washington",
+    "state": "DC",
+    "lat": 38.910004,
+    "lng": -77.017989,
+    "zip": "20001",
+    "demand": 4603000.0
+  },
+  "C6": {
+    "id": "C6",
+    "city": "Detroit",
+    "state": "MI",
+    "lat": 42.346577,
+    "lng": -83.059731,
+    "zip": "48201",
+    "demand": 4463000.0
+  },
+  "C7": {
+    "id": "C7",
+    "city": "Houston",
+    "state": "TX",
+    "lat": 29.757317,
+    "lng": -95.365005,
+    "zip": "77001",
+    "demand": 3851000.0
+  },
+  "C8": {
+    "id": "C8",
+    "city": "Atlanta",
+    "state": "GA",
+    "lat": 33.753693,
+    "lng": -84.389544,
+    "zip": "30301",
+    "demand": 3627000.0
+  },
+  "C9": {
+    "id": "C9",
+    "city": "Dallas",
+    "state": "TX",
+    "lat": 32.787642,
+    "lng": -96.799525,
+    "zip": "75201",
+    "demand": 3126000.0
+  },
+  "C10": {
+    "id": "C10",
+    "city": "Riverside",
+    "state": "CA",
+    "lat": 33.994941,
+    "lng": -117.372528,
+    "zip": "92501",
+    "demand": 3063000.0
+  },
+  "C11": {
+    "id": "C11",
+    "city": "Phoenix",
+    "state": "AZ",
+    "lat": 33.451015,
+    "lng": -112.068554,
+    "zip": "85001",
+    "demand": 2839000.0
+  },
+  "C12": {
+    "id": "C12",
+    "city": "Minneapolis",
+    "state": "MN",
+    "lat": 44.985775,
+    "lng": -93.270165,
+    "zip": "55401",
+    "demand": 2792000.0
+  },
+  "C13": {
+    "id": "C13",
+    "city": "Orange",
+    "state": "CA",
+    "lat": 33.844425,
+    "lng": -117.951222,
+    "zip": "92850",
+    "demand": 2674000.0
+  },
+  "C14": {
+    "id": "C14",
+    "city": "Nassau-Suffolk",
+    "state": "NY",
+    "lat": 42.526891,
+    "lng": -73.609283,
+    "zip": "12123",
+    "demand": 2666000.0
+  },
+  "C15": {
+    "id": "C15",
+    "city": "St. Louis",
+    "state": "MO",
+    "lat": 38.631358,
+    "lng": -90.192246,
+    "zip": "63101",
+    "demand": 2557000.0
+  },
+  "C16": {
+    "id": "C16",
+    "city": "Baltimore",
+    "state": "MD",
+    "lat": 39.294398,
+    "lng": -76.622747,
+    "zip": "21201",
+    "demand": 2475000.0
+  },
+  "C17": {
+    "id": "C17",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "lat": 40.474802,
+    "lng": -79.95449,
+    "zip": "15201",
+    "demand": 2361000.0
+  },
+  "C18": {
+    "id": "C18",
+    "city": "San Diego",
+    "state": "CA",
+    "lat": 32.724693,
+    "lng": -117.164885,
+    "zip": "92101",
+    "demand": 2270000.0
+  },
+  "C19": {
+    "id": "C19",
+    "city": "Seattle",
+    "state": "WA",
+    "lat": 47.611601,
+    "lng": -122.333038,
+    "zip": "98101",
+    "demand": 2268000.0
+  },
+  "C20": {
+    "id": "C20",
+    "city": "Oakland",
+    "state": "CA",
+    "lat": 37.777255,
+    "lng": -122.217025,
+    "zip": "94601",
+    "demand": 2227000.0
+  },
+  "C21": {
+    "id": "C21",
+    "city": "Tampa",
+    "state": "FL",
+    "lat": 27.95454,
+    "lng": -82.45734,
+    "zip": "33601",
+    "demand": 2227000.0
+  },
+  "C22": {
+    "id": "C22",
+    "city": "Cleveland",
+    "state": "OH",
+    "lat": 41.491407,
+    "lng": -81.671411,
+    "zip": "44101",
+    "demand": 2225000.0
+  },
+  "C23": {
+    "id": "C23",
+    "city": "Miami",
+    "state": "FL",
+    "lat": 25.778271,
+    "lng": -80.198105,
+    "zip": "33101",
+    "demand": 2044000.0
+  },
+  "C24": {
+    "id": "C24",
+    "city": "Newark",
+    "state": "NJ",
+    "lat": 40.735652,
+    "lng": -74.17309,
+    "zip": "07101",
+    "demand": 1943000.0
+  },
+  "C25": {
+    "id": "C25",
+    "city": "Denver",
+    "state": "CO",
+    "lat": 39.75071,
+    "lng": -104.996225,
+    "zip": "80201",
+    "demand": 1901000.0
+  },
+  "C26": {
+    "id": "C26",
+    "city": "Portland",
+    "state": "OR",
+    "lat": 45.498251,
+    "lng": -122.692496,
+    "zip": "97201",
+    "demand": 1787000.0
+  },
+  "C27": {
+    "id": "C27",
+    "city": "Kansas City",
+    "state": "MO",
+    "lat": 39.103883,
+    "lng": -94.600613,
+    "zip": "64101",
+    "demand": 1709000.0
+  },
+  "C28": {
+    "id": "C28",
+    "city": "San Francisco",
+    "state": "CA",
+    "lat": 37.779887,
+    "lng": -122.418066,
+    "zip": "94102",
+    "demand": 1662000.0
+  },
+  "C29": {
+    "id": "C29",
+    "city": "New Haven",
+    "state": "CT",
+    "lat": 41.30758,
+    "lng": -72.92471,
+    "zip": "06501",
+    "demand": 1625000.0
+  },
+  "C30": {
+    "id": "C30",
+    "city": "San Jose",
+    "state": "CA",
+    "lat": 37.386691,
+    "lng": -121.89705,
+    "zip": "95101",
+    "demand": 1609000.0
+  },
+  "C31": {
+    "id": "C31",
+    "city": "Cincinnati",
+    "state": "OH",
+    "lat": 39.10663,
+    "lng": -84.49974,
+    "zip": "45201",
+    "demand": 1607000.0
+  },
+  "C32": {
+    "id": "C32",
+    "city": "Fort Worth",
+    "state": "TX",
+    "lat": 32.75826,
+    "lng": -97.32787,
+    "zip": "76101",
+    "demand": 1556000.0
+  },
+  "C33": {
+    "id": "C33",
+    "city": "Norfolk",
+    "state": "VA",
+    "lat": 36.852105,
+    "lng": -76.292507,
+    "zip": "23501",
+    "demand": 1544000.0
+  },
+  "C34": {
+    "id": "C34",
+    "city": "San Antonio",
+    "state": "TX",
+    "lat": 29.469324,
+    "lng": -98.527988,
+    "zip": "78201",
+    "demand": 1511000.0
+  },
+  "C35": {
+    "id": "C35",
+    "city": "Indianapolis",
+    "state": "IN",
+    "lat": 39.77422,
+    "lng": -86.109309,
+    "zip": "46201",
+    "demand": 1503000.0
+  },
+  "C36": {
+    "id": "C36",
+    "city": "Sacramento",
+    "state": "CA",
+    "lat": 38.585076,
+    "lng": -121.491186,
+    "zip": "94203",
+    "demand": 1503000.0
+  },
+  "C37": {
+    "id": "C37",
+    "city": "Fort Lauderdale",
+    "state": "FL",
+    "lat": 26.121066,
+    "lng": -80.127818,
+    "zip": "33301",
+    "demand": 1470000.0
+  },
+  "C38": {
+    "id": "C38",
+    "city": "Orlando",
+    "state": "FL",
+    "lat": 28.541627,
+    "lng": -81.37397,
+    "zip": "32801",
+    "demand": 1467000.0
+  },
+  "C39": {
+    "id": "C39",
+    "city": "Columbus",
+    "state": "OH",
+    "lat": 40.099395,
+    "lng": -83.016823,
+    "zip": "43085",
+    "demand": 1460000.0
+  },
+  "C40": {
+    "id": "C40",
+    "city": "Milwaukee",
+    "state": "WI",
+    "lat": 43.037602,
+    "lng": -87.916246,
+    "zip": "53201",
+    "demand": 1451000.0
+  },
+  "C41": {
+    "id": "C41",
+    "city": "Charlotte",
+    "state": "NC",
+    "lat": 35.194361,
+    "lng": -80.826397,
+    "zip": "28201",
+    "demand": 1350000.0
+  },
+  "C42": {
+    "id": "C42",
+    "city": "Bergen",
+    "state": "NJ",
+    "lat": 40.857466,
+    "lng": -74.128618,
+    "zip": "07055",
+    "demand": 1335000.0
+  },
+  "C43": {
+    "id": "C43",
+    "city": "New Orleans",
+    "state": "LA",
+    "lat": 29.956664,
+    "lng": -90.077506,
+    "zip": "70112",
+    "demand": 1307000.0
+  },
+  "C44": {
+    "id": "C44",
+    "city": "Las Vegas",
+    "state": "NV",
+    "lat": 36.17269,
+    "lng": -115.121117,
+    "zip": "89101",
+    "demand": 1262000.0
+  },
+  "C45": {
+    "id": "C45",
+    "city": "Salt Lake City",
+    "state": "UT",
+    "lat": 40.755074,
+    "lng": -111.89849,
+    "zip": "84101",
+    "demand": 1247000.0
+  },
+  "C46": {
+    "id": "C46",
+    "city": "Buffalo",
+    "state": "NY",
+    "lat": 42.896219,
+    "lng": -78.884649,
+    "zip": "14201",
+    "demand": 1164000.0
+  },
+  "C47": {
+    "id": "C47",
+    "city": "Greensboro",
+    "state": "NC",
+    "lat": 36.070061,
+    "lng": -79.766346,
+    "zip": "27401",
+    "demand": 1152000.0
+  },
+  "C48": {
+    "id": "C48",
+    "city": "Nashville",
+    "state": "TN",
+    "lat": 36.164003,
+    "lng": -86.7745,
+    "zip": "37201",
+    "demand": 1134000.0
+  },
+  "C49": {
+    "id": "C49",
+    "city": "Hartford",
+    "state": "CT",
+    "lat": 41.789,
+    "lng": -72.666218,
+    "zip": "06101",
+    "demand": 1105000.0
+  },
+  "C50": {
+    "id": "C50",
+    "city": "Middlesex",
+    "state": "NJ",
+    "lat": 40.574084,
+    "lng": -74.5012,
+    "zip": "08846",
+    "demand": 1105000.0
+  },
+  "C51": {
+    "id": "C51",
+    "city": "Rochester",
+    "state": "NY",
+    "lat": 43.1683,
+    "lng": -77.60262,
+    "zip": "14601",
+    "demand": 1086000.0
+  },
+  "C52": {
+    "id": "C52",
+    "city": "Memphis",
+    "state": "TN",
+    "lat": 35.033731,
+    "lng": -89.934319,
+    "zip": "37501",
+    "demand": 1083000.0
+  },
+  "C53": {
+    "id": "C53",
+    "city": "Monmouth",
+    "state": "NJ",
+    "lat": 40.333745,
+    "lng": -73.982438,
+    "zip": "07750",
+    "demand": 1076000.0
+  },
+  "C54": {
+    "id": "C54",
+    "city": "Austin",
+    "state": "TX",
+    "lat": 30.270515,
+    "lng": -97.74218,
+    "zip": "78701",
+    "demand": 1071000.0
+  },
+  "C55": {
+    "id": "C55",
+    "city": "Raleigh",
+    "state": "NC",
+    "lat": 35.773856,
+    "lng": -78.634051,
+    "zip": "27601",
+    "demand": 1050000.0
+  },
+  "C56": {
+    "id": "C56",
+    "city": "Jacksonville",
+    "state": "FL",
+    "lat": 30.340415,
+    "lng": -81.830904,
+    "zip": "32099",
+    "demand": 1034000.0
+  },
+  "C57": {
+    "id": "C57",
+    "city": "Oklahoma City",
+    "state": "OK",
+    "lat": 35.467763,
+    "lng": -97.520977,
+    "zip": "73101",
+    "demand": 1030000.0
+  },
+  "C58": {
+    "id": "C58",
+    "city": "Grand Rapids",
+    "state": "MI",
+    "lat": 42.965899,
+    "lng": -85.654579,
+    "zip": "49501",
+    "demand": 1026000.0
+  },
+  "C59": {
+    "id": "C59",
+    "city": "West Palm Beach",
+    "state": "FL",
+    "lat": 26.345694,
+    "lng": -80.084229,
+    "zip": "33427",
+    "demand": 1018000.0
+  },
+  "C60": {
+    "id": "C60",
+    "city": "Louisville",
+    "state": "KY",
+    "lat": 38.253601,
+    "lng": -85.768124,
+    "zip": "40201",
+    "demand": 993000.0
+  },
+  "C61": {
+    "id": "C61",
+    "city": "Dayton",
+    "state": "OH",
+    "lat": 39.758119,
+    "lng": -84.1879,
+    "zip": "45401",
+    "demand": 944000.0
+  },
+  "C62": {
+    "id": "C62",
+    "city": "Richmond",
+    "state": "VA",
+    "lat": 37.538812,
+    "lng": -77.436395,
+    "zip": "23218",
+    "demand": 943000.0
+  },
+  "C63": {
+    "id": "C63",
+    "city": "Philadelphia",
+    "state": "PA",
+    "lat": 39.961558,
+    "lng": -75.199624,
+    "zip": "19101",
+    "demand": 940000.0
+  },
+  "C64": {
+    "id": "C64",
+    "city": "Greenville",
+    "state": "SC",
+    "lat": 34.847881,
+    "lng": -82.403745,
+    "zip": "29601",
+    "demand": 904000.0
+  },
+  "C65": {
+    "id": "C65",
+    "city": "Providence",
+    "state": "RI",
+    "lat": 41.817904,
+    "lng": -71.409316,
+    "zip": "02901",
+    "demand": 904000.0
+  },
+  "C66": {
+    "id": "C66",
+    "city": "Birmingham",
+    "state": "AL",
+    "lat": 33.518634,
+    "lng": -86.808862,
+    "zip": "35201",
+    "demand": 900000.0
+  },
+  "C67": {
+    "id": "C67",
+    "city": "Albany",
+    "state": "NY",
+    "lat": 42.65287,
+    "lng": -73.74868,
+    "zip": "12201",
+    "demand": 876000.0
+  },
+  "C68": {
+    "id": "C68",
+    "city": "Fresno",
+    "state": "CA",
+    "lat": 36.749611,
+    "lng": -119.786244,
+    "zip": "93701",
+    "demand": 868000.0
+  },
+  "C69": {
+    "id": "C69",
+    "city": "Florence",
+    "state": "SC",
+    "lat": 34.198188,
+    "lng": -79.826641,
+    "zip": "29501",
+    "demand": 851000.0
+  },
+  "C70": {
+    "id": "C70",
+    "city": "Tucson",
+    "state": "AZ",
+    "lat": 32.216256,
+    "lng": -110.970728,
+    "zip": "85701",
+    "demand": 780000.0
+  },
+  "C71": {
+    "id": "C71",
+    "city": "Tulsa",
+    "state": "OK",
+    "lat": 36.149273,
+    "lng": -95.975637,
+    "zip": "74101",
+    "demand": 764000.0
+  },
+  "C72": {
+    "id": "C72",
+    "city": "Syracuse",
+    "state": "NY",
+    "lat": 43.04335,
+    "lng": -76.15084,
+    "zip": "13201",
+    "demand": 740000.0
+  },
+  "C73": {
+    "id": "C73",
+    "city": "Ventura",
+    "state": "CA",
+    "lat": 34.345883,
+    "lng": -119.328846,
+    "zip": "93001",
+    "demand": 725000.0
+  },
+  "C74": {
+    "id": "C74",
+    "city": "El Paso",
+    "state": "TX",
+    "lat": 31.760613,
+    "lng": -106.47948,
+    "zip": "79901",
+    "demand": 701000.0
+  },
+  "C75": {
+    "id": "C75",
+    "city": "Omaha",
+    "state": "NE",
+    "lat": 41.263251,
+    "lng": -95.932956,
+    "zip": "68101",
+    "demand": 687000.0
+  },
+  "C76": {
+    "id": "C76",
+    "city": "Akron",
+    "state": "OH",
+    "lat": 41.043696,
+    "lng": -81.524301,
+    "zip": "44301",
+    "demand": 682000.0
+  },
+  "C77": {
+    "id": "C77",
+    "city": "Albuquerque",
+    "state": "NM",
+    "lat": 35.082729,
+    "lng": -106.646276,
+    "zip": "87101",
+    "demand": 674000.0
+  },
+  "C78": {
+    "id": "C78",
+    "city": "Tacoma",
+    "state": "WA",
+    "lat": 47.253432,
+    "lng": -122.435514,
+    "zip": "98401",
+    "demand": 664000.0
+  },
+  "C79": {
+    "id": "C79",
+    "city": "Knoxville",
+    "state": "TN",
+    "lat": 35.946445,
+    "lng": -84.022857,
+    "zip": "37901",
+    "demand": 654000.0
+  },
+  "C80": {
+    "id": "C80",
+    "city": "Bakersfield",
+    "state": "CA",
+    "lat": 35.384352,
+    "lng": -119.019342,
+    "zip": "93301",
+    "demand": 628000.0
+  },
+  "C81": {
+    "id": "C81",
+    "city": "Gary",
+    "state": "IN",
+    "lat": 41.586162,
+    "lng": -87.319082,
+    "zip": "46401",
+    "demand": 623000.0
+  },
+  "C82": {
+    "id": "C82",
+    "city": "Scranton",
+    "state": "PA",
+    "lat": 41.358057,
+    "lng": -75.70249,
+    "zip": "18501",
+    "demand": 621000.0
+  },
+  "C83": {
+    "id": "C83",
+    "city": "Harrisburg",
+    "state": "PA",
+    "lat": 40.264554,
+    "lng": -76.880588,
+    "zip": "17101",
+    "demand": 615000.0
+  },
+  "C84": {
+    "id": "C84",
+    "city": "Allentown",
+    "state": "PA",
+    "lat": 40.602812,
+    "lng": -75.470433,
+    "zip": "18101",
+    "demand": 613000.0
+  },
+  "C85": {
+    "id": "C85",
+    "city": "Toledo",
+    "state": "OH",
+    "lat": 41.645022,
+    "lng": -83.548348,
+    "zip": "43601",
+    "demand": 611000.0
+  },
+  "C86": {
+    "id": "C86",
+    "city": "Youngstown",
+    "state": "OH",
+    "lat": 41.099765,
+    "lng": -80.64936,
+    "zip": "44501",
+    "demand": 595000.0
+  },
+  "C87": {
+    "id": "C87",
+    "city": "Springfield",
+    "state": "MA",
+    "lat": 42.105997,
+    "lng": -72.597915,
+    "zip": "01101",
+    "demand": 591000.0
+  },
+  "C88": {
+    "id": "C88",
+    "city": "Baton Rouge",
+    "state": "LA",
+    "lat": 30.449314,
+    "lng": -91.187593,
+    "zip": "70801",
+    "demand": 570000.0
+  },
+  "C89": {
+    "id": "C89",
+    "city": "Wilmington",
+    "state": "DE",
+    "lat": 39.728445,
+    "lng": -75.537257,
+    "zip": "19801",
+    "demand": 555000.0
+  },
+  "C90": {
+    "id": "C90",
+    "city": "Little Rock",
+    "state": "AR",
+    "lat": 34.747348,
+    "lng": -92.278932,
+    "zip": "72201",
+    "demand": 552000.0
+  },
+  "C91": {
+    "id": "C91",
+    "city": "Jersey City",
+    "state": "NJ",
+    "lat": 40.751783,
+    "lng": -74.05392,
+    "zip": "07097",
+    "demand": 551000.0
+  },
+  "C92": {
+    "id": "C92",
+    "city": "Stockton",
+    "state": "CA",
+    "lat": 37.930437,
+    "lng": -121.436022,
+    "zip": "95201",
+    "demand": 542000.0
+  },
+  "C93": {
+    "id": "C93",
+    "city": "Ann Arbor",
+    "state": "MI",
+    "lat": 42.264476,
+    "lng": -83.839628,
+    "zip": "48103",
+    "demand": 539000.0
+  },
+  "C94": {
+    "id": "C94",
+    "city": "Sarasota",
+    "state": "FL",
+    "lat": 27.337217,
+    "lng": -82.51411,
+    "zip": "34230",
+    "demand": 538000.0
+  },
+  "C95": {
+    "id": "C95",
+    "city": "Wichita",
+    "state": "KS",
+    "lat": 37.686354,
+    "lng": -97.334936,
+    "zip": "67201",
+    "demand": 530000.0
+  },
+  "C96": {
+    "id": "C96",
+    "city": "Mobile",
+    "state": "AL",
+    "lat": 30.692504,
+    "lng": -88.04323,
+    "zip": "36601",
+    "demand": 527000.0
+  },
+  "C97": {
+    "id": "C97",
+    "city": "McAllen",
+    "state": "TX",
+    "lat": 26.218121,
+    "lng": -98.237994,
+    "zip": "78501",
+    "demand": 510000.0
+  },
+  "C98": {
+    "id": "C98",
+    "city": "Charleston",
+    "state": "SC",
+    "lat": 32.778908,
+    "lng": -79.937993,
+    "zip": "29401",
+    "demand": 509000.0
+  },
+  "C99": {
+    "id": "C99",
+    "city": "Columbia",
+    "state": "SC",
+    "lat": 33.984705,
+    "lng": -81.028435,
+    "zip": "29201",
+    "demand": 503000.0
+  },
+  "C100": {
+    "id": "C100",
+    "city": "Vallejo",
+    "state": "CA",
+    "lat": 38.177394,
+    "lng": -122.239773,
+    "zip": "94589",
+    "demand": 490000.0
+  },
+  "C101": {
+    "id": "C101",
+    "city": "Colorado Springs",
+    "state": "CO",
+    "lat": 38.832954,
+    "lng": -104.815898,
+    "zip": "80901",
+    "demand": 480000.0
+  },
+  "C102": {
+    "id": "C102",
+    "city": "Fort Wayne",
+    "state": "IN",
+    "lat": 41.067756,
+    "lng": -85.162545,
+    "zip": "46801",
+    "demand": 477000.0
+  },
+  "C103": {
+    "id": "C103",
+    "city": "Daytona Beach",
+    "state": "FL",
+    "lat": 29.19395,
+    "lng": -81.0518,
+    "zip": "32114",
+    "demand": 465000.0
+  },
+  "C104": {
+    "id": "C104",
+    "city": "Johnson City",
+    "state": "TN",
+    "lat": 36.345205,
+    "lng": -82.333329,
+    "zip": "37601",
+    "demand": 460000.0
+  },
+  "C105": {
+    "id": "C105",
+    "city": "Melbourne",
+    "state": "FL",
+    "lat": 28.077575,
+    "lng": -80.626682,
+    "zip": "32901",
+    "demand": 460000.0
+  },
+  "C106": {
+    "id": "C106",
+    "city": "Augusta",
+    "state": "GA",
+    "lat": 33.432493,
+    "lng": -81.955568,
+    "zip": "30901",
+    "demand": 457000.0
+  },
+  "C107": {
+    "id": "C107",
+    "city": "Lancaster",
+    "state": "PA",
+    "lat": 40.076126,
+    "lng": -76.313898,
+    "zip": "17601",
+    "demand": 454000.0
+  },
+  "C108": {
+    "id": "C108",
+    "city": "Lakeland",
+    "state": "FL",
+    "lat": 28.041167,
+    "lng": -81.898629,
+    "zip": "33801",
+    "demand": 448000.0
+  },
+  "C109": {
+    "id": "C109",
+    "city": "Chattanooga",
+    "state": "TN",
+    "lat": 35.028175,
+    "lng": -85.152348,
+    "zip": "37401",
+    "demand": 447000.0
+  },
+  "C110": {
+    "id": "C110",
+    "city": "Lansing",
+    "state": "MI",
+    "lat": 42.732081,
+    "lng": -84.554722,
+    "zip": "48901",
+    "demand": 447000.0
+  },
+  "C111": {
+    "id": "C111",
+    "city": "Kalamazoo",
+    "state": "MI",
+    "lat": 42.256749,
+    "lng": -85.505807,
+    "zip": "49001",
+    "demand": 446000.0
+  },
+  "C112": {
+    "id": "C112",
+    "city": "Lexington",
+    "state": "KY",
+    "lat": 38.04583,
+    "lng": -84.49542,
+    "zip": "40501",
+    "demand": 444000.0
+  },
+  "C113": {
+    "id": "C113",
+    "city": "Flint",
+    "state": "MI",
+    "lat": 43.01148,
+    "lng": -83.65889,
+    "zip": "48501",
+    "demand": 435000.0
+  },
+  "C114": {
+    "id": "C114",
+    "city": "Des Moines",
+    "state": "IA",
+    "lat": 41.604425,
+    "lng": -93.631016,
+    "zip": "50301",
+    "demand": 429000.0
+  },
+  "C115": {
+    "id": "C115",
+    "city": "Santa Rosa",
+    "state": "CA",
+    "lat": 38.451325,
+    "lng": -122.790668,
+    "zip": "95401",
+    "demand": 428000.0
+  },
+  "C116": {
+    "id": "C116",
+    "city": "Jackson",
+    "state": "MS",
+    "lat": 32.289153,
+    "lng": -90.184021,
+    "zip": "39201",
+    "demand": 425000.0
+  },
+  "C117": {
+    "id": "C117",
+    "city": "Modesto",
+    "state": "CA",
+    "lat": 37.673582,
+    "lng": -121.009718,
+    "zip": "95350",
+    "demand": 421000.0
+  },
+  "C118": {
+    "id": "C118",
+    "city": "Spokane",
+    "state": "WA",
+    "lat": 47.66517,
+    "lng": -117.435008,
+    "zip": "99201",
+    "demand": 404000.0
+  },
+  "C119": {
+    "id": "C119",
+    "city": "Canton",
+    "state": "OH",
+    "lat": 40.7983,
+    "lng": -81.37413,
+    "zip": "44701",
+    "demand": 402000.0
+  },
+  "C120": {
+    "id": "C120",
+    "city": "Saginaw",
+    "state": "MI",
+    "lat": 43.404047,
+    "lng": -83.900581,
+    "zip": "48601",
+    "demand": 402000.0
+  },
+  "C121": {
+    "id": "C121",
+    "city": "Madison",
+    "state": "WI",
+    "lat": 43.079393,
+    "lng": -89.377268,
+    "zip": "53701",
+    "demand": 397000.0
+  },
+  "C122": {
+    "id": "C122",
+    "city": "Pensacola",
+    "state": "FL",
+    "lat": 30.420012,
+    "lng": -87.223872,
+    "zip": "32501",
+    "demand": 397000.0
+  },
+  "C123": {
+    "id": "C123",
+    "city": "Santa Barbara",
+    "state": "CA",
+    "lat": 34.419687,
+    "lng": -119.706234,
+    "zip": "93101",
+    "demand": 390000.0
+  },
+  "C124": {
+    "id": "C124",
+    "city": "Corpus Christi",
+    "state": "TX",
+    "lat": 27.796678,
+    "lng": -97.399028,
+    "zip": "78401",
+    "demand": 387000.0
+  },
+  "C125": {
+    "id": "C125",
+    "city": "Fort Myers",
+    "state": "FL",
+    "lat": 26.622765,
+    "lng": -81.88308,
+    "zip": "33901",
+    "demand": 387000.0
+  },
+  "C126": {
+    "id": "C126",
+    "city": "Boise City",
+    "state": "ID",
+    "lat": 43.662325,
+    "lng": -116.1666,
+    "zip": "83701",
+    "demand": 383000.0
+  },
+  "C127": {
+    "id": "C127",
+    "city": "Shreveport",
+    "state": "LA",
+    "lat": 32.504822,
+    "lng": -93.743971,
+    "zip": "71101",
+    "demand": 378000.0
+  },
+  "C128": {
+    "id": "C128",
+    "city": "Beaumont",
+    "state": "TX",
+    "lat": 30.071674,
+    "lng": -94.099951,
+    "zip": "77701",
+    "demand": 374000.0
+  },
+  "C129": {
+    "id": "C129",
+    "city": "Lafayette",
+    "state": "LA",
+    "lat": 30.236838,
+    "lng": -91.992277,
+    "zip": "70501",
+    "demand": 372000.0
+  },
+  "C130": {
+    "id": "C130",
+    "city": "York",
+    "state": "PA",
+    "lat": 39.963092,
+    "lng": -76.727192,
+    "zip": "17401",
+    "demand": 370000.0
+  },
+  "C131": {
+    "id": "C131",
+    "city": "Newburgh",
+    "state": "NY",
+    "lat": 41.537583,
+    "lng": -74.047267,
+    "zip": "12550",
+    "demand": 366000.0
+  },
+  "C132": {
+    "id": "C132",
+    "city": "Salinas",
+    "state": "CA",
+    "lat": 36.664191,
+    "lng": -121.658372,
+    "zip": "93901",
+    "demand": 361000.0
+  },
+  "C133": {
+    "id": "C133",
+    "city": "Davenport",
+    "state": "IA",
+    "lat": 41.52104,
+    "lng": -90.575533,
+    "zip": "52801",
+    "demand": 357000.0
+  },
+  "C134": {
+    "id": "C134",
+    "city": "Reading",
+    "state": "PA",
+    "lat": 40.352692,
+    "lng": -75.940544,
+    "zip": "19601",
+    "demand": 354000.0
+  },
+  "C135": {
+    "id": "C135",
+    "city": "Rockford",
+    "state": "IL",
+    "lat": 42.33585,
+    "lng": -89.135365,
+    "zip": "61101",
+    "demand": 354000.0
+  },
+  "C136": {
+    "id": "C136",
+    "city": "Visalia-Tulare",
+    "state": "CA",
+    "lat": 36.29592,
+    "lng": -119.384228,
+    "zip": "93277",
+    "demand": 353000.0
+  },
+  "C137": {
+    "id": "C137",
+    "city": "Peoria",
+    "state": "IL",
+    "lat": 40.685563,
+    "lng": -89.595345,
+    "zip": "61601",
+    "demand": 345000.0
+  },
+  "C138": {
+    "id": "C138",
+    "city": "Biloxi",
+    "state": "MS",
+    "lat": 30.404589,
+    "lng": -88.891413,
+    "zip": "39530",
+    "demand": 343000.0
+  },
+  "C139": {
+    "id": "C139",
+    "city": "Appleton",
+    "state": "WI",
+    "lat": 44.27908,
+    "lng": -88.396846,
+    "zip": "54911",
+    "demand": 342000.0
+  },
+  "C140": {
+    "id": "C140",
+    "city": "Cape May",
+    "state": "NJ",
+    "lat": 38.967743,
+    "lng": -74.924105,
+    "zip": "08204",
+    "demand": 334000.0
+  },
+  "C141": {
+    "id": "C141",
+    "city": "Huntsville",
+    "state": "AL",
+    "lat": 34.726705,
+    "lng": -86.541466,
+    "zip": "35801",
+    "demand": 332000.0
+  },
+  "C142": {
+    "id": "C142",
+    "city": "Trenton",
+    "state": "NJ",
+    "lat": 40.21866,
+    "lng": -74.761774,
+    "zip": "08601",
+    "demand": 329000.0
+  },
+  "C143": {
+    "id": "C143",
+    "city": "Provo",
+    "state": "UT",
+    "lat": 40.226583,
+    "lng": -111.694156,
+    "zip": "84601",
+    "demand": 328000.0
+  },
+  "C144": {
+    "id": "C144",
+    "city": "Hamilton",
+    "state": "OH",
+    "lat": 39.430796,
+    "lng": -84.49839,
+    "zip": "45011",
+    "demand": 326000.0
+  },
+  "C145": {
+    "id": "C145",
+    "city": "Salem",
+    "state": "OR",
+    "lat": 44.897116,
+    "lng": -122.927486,
+    "zip": "97301",
+    "demand": 325000.0
+  },
+  "C146": {
+    "id": "C146",
+    "city": "Brownsville",
+    "state": "TX",
+    "lat": 26.000125,
+    "lng": -97.575864,
+    "zip": "78520",
+    "demand": 320000.0
+  },
+  "C147": {
+    "id": "C147",
+    "city": "Montgomery",
+    "state": "AL",
+    "lat": 32.396334,
+    "lng": -86.32594,
+    "zip": "36101",
+    "demand": 319000.0
+  },
+  "C148": {
+    "id": "C148",
+    "city": "Hickory",
+    "state": "NC",
+    "lat": 35.776706,
+    "lng": -81.324639,
+    "zip": "28601",
+    "demand": 318000.0
+  },
+  "C149": {
+    "id": "C149",
+    "city": "Macon",
+    "state": "GA",
+    "lat": 32.854934,
+    "lng": -83.524852,
+    "zip": "31201",
+    "demand": 316000.0
+  },
+  "C150": {
+    "id": "C150",
+    "city": "Huntington",
+    "state": "WV",
+    "lat": 38.399322,
+    "lng": -82.446756,
+    "zip": "25701",
+    "demand": 315000.0
+  },
+  "C151": {
+    "id": "C151",
+    "city": "Eugene",
+    "state": "OR",
+    "lat": 44.068141,
+    "lng": -123.08043,
+    "zip": "97401",
+    "demand": 311000.0
+  },
+  "C152": {
+    "id": "C152",
+    "city": "Reno",
+    "state": "NV",
+    "lat": 39.526866,
+    "lng": -119.811392,
+    "zip": "89501",
+    "demand": 305000.0
+  },
+  "C153": {
+    "id": "C153",
+    "city": "Springfield",
+    "state": "MO",
+    "lat": 37.215347,
+    "lng": -93.294978,
+    "zip": "65801",
+    "demand": 300000.0
+  },
+  "C154": {
+    "id": "C154",
+    "city": "Killen-Temple",
+    "state": "TX",
+    "lat": 36.528551,
+    "lng": -82.569735,
+    "zip": "37660",
+    "demand": 299000.0
+  },
+  "C155": {
+    "id": "C155",
+    "city": "Utica",
+    "state": "NY",
+    "lat": 43.080983,
+    "lng": -75.227857,
+    "zip": "13501",
+    "demand": 298000.0
+  },
+  "C156": {
+    "id": "C156",
+    "city": "Fort Pierce",
+    "state": "FL",
+    "lat": 27.460922,
+    "lng": -80.542457,
+    "zip": "34945",
+    "demand": 295000.0
+  },
+  "C157": {
+    "id": "C157",
+    "city": "Evansville",
+    "state": "IN",
+    "lat": 37.974109,
+    "lng": -87.573111,
+    "zip": "47701",
+    "demand": 288000.0
+  },
+  "C158": {
+    "id": "C158",
+    "city": "Fayetteville",
+    "state": "NC",
+    "lat": 34.967781,
+    "lng": -78.739276,
+    "zip": "28301",
+    "demand": 284000.0
+  },
+  "C159": {
+    "id": "C159",
+    "city": "Savannah",
+    "state": "GA",
+    "lat": 32.080102,
+    "lng": -81.107033,
+    "zip": "31401",
+    "demand": 284000.0
+  },
+  "C160": {
+    "id": "C160",
+    "city": "Erie",
+    "state": "PA",
+    "lat": 42.122589,
+    "lng": -80.086453,
+    "zip": "16501",
+    "demand": 279000.0
+  },
+  "C161": {
+    "id": "C161",
+    "city": "Columbus",
+    "state": "GA",
+    "lat": 32.466926,
+    "lng": -84.980818,
+    "zip": "31901",
+    "demand": 272000.0
+  },
+  "C162": {
+    "id": "C162",
+    "city": "Fayatteville",
+    "state": "AR",
+    "lat": 35.978859,
+    "lng": -94.080509,
+    "zip": "72701",
+    "demand": 266000.0
+  },
+  "C163": {
+    "id": "C163",
+    "city": "Dutchess",
+    "state": "NY",
+    "lat": 41.061128,
+    "lng": -74.804622,
+    "zip": "07860",
+    "demand": 264000.0
+  },
+  "C164": {
+    "id": "C164",
+    "city": "Boulder",
+    "state": "CO",
+    "lat": 39.96448,
+    "lng": -105.23805,
+    "zip": "80307",
+    "demand": 261000.0
+  },
+  "C165": {
+    "id": "C165",
+    "city": "Tallahassee",
+    "state": "FL",
+    "lat": 30.429061,
+    "lng": -84.258327,
+    "zip": "32301",
+    "demand": 260000.0
+  },
+  "C166": {
+    "id": "C166",
+    "city": "South Bend",
+    "state": "IN",
+    "lat": 41.66979,
+    "lng": -86.252761,
+    "zip": "46601",
+    "demand": 258000.0
+  },
+  "C167": {
+    "id": "C167",
+    "city": "Charleston",
+    "state": "WV",
+    "lat": 38.350652,
+    "lng": -81.630865,
+    "zip": "25301",
+    "demand": 253000.0
+  },
+  "C168": {
+    "id": "C168",
+    "city": "New London",
+    "state": "CT",
+    "lat": 41.351886,
+    "lng": -72.106934,
+    "zip": "06320",
+    "demand": 252000.0
+  },
+  "C169": {
+    "id": "C169",
+    "city": "Binghamton",
+    "state": "NY",
+    "lat": 42.180091,
+    "lng": -75.881821,
+    "zip": "13901",
+    "demand": 251000.0
+  },
+  "C170": {
+    "id": "C170",
+    "city": "Portland",
+    "state": "ME",
+    "lat": 43.661941,
+    "lng": -70.259388,
+    "zip": "04101",
+    "demand": 251000.0
+  },
+  "C171": {
+    "id": "C171",
+    "city": "Odessa",
+    "state": "TX",
+    "lat": 31.849901,
+    "lng": -102.345135,
+    "zip": "79760",
+    "demand": 243000.0
+  },
+  "C172": {
+    "id": "C172",
+    "city": "Galveston-Texas City",
+    "state": "TX",
+    "lat": 29.281196,
+    "lng": -94.834603,
+    "zip": "77551",
+    "demand": 242000.0
+  },
+  "C173": {
+    "id": "C173",
+    "city": "Santa Cruz",
+    "state": "CA",
+    "lat": 37.063085,
+    "lng": -122.16204,
+    "zip": "95060",
+    "demand": 240000.0
+  },
+  "C174": {
+    "id": "C174",
+    "city": "Duluth",
+    "state": "MN",
+    "lat": 47.112175,
+    "lng": -91.856637,
+    "zip": "55801",
+    "demand": 238000.0
+  },
+  "C175": {
+    "id": "C175",
+    "city": "Johnstown",
+    "state": "PA",
+    "lat": 40.331138,
+    "lng": -78.914846,
+    "zip": "15901",
+    "demand": 237000.0
+  },
+  "C176": {
+    "id": "C176",
+    "city": "Ocala",
+    "state": "FL",
+    "lat": 29.200191,
+    "lng": -82.095163,
+    "zip": "34470",
+    "demand": 237000.0
+  },
+  "C177": {
+    "id": "C177",
+    "city": "Bremerton",
+    "state": "WA",
+    "lat": 47.593572,
+    "lng": -122.62099,
+    "zip": "98310",
+    "demand": 234000.0
+  },
+  "C178": {
+    "id": "C178",
+    "city": "Lincoln",
+    "state": "NE",
+    "lat": 40.81692,
+    "lng": -96.710515,
+    "zip": "68501",
+    "demand": 233000.0
+  },
+  "C179": {
+    "id": "C179",
+    "city": "San Luis Obispo",
+    "state": "CA",
+    "lat": 35.220945,
+    "lng": -120.634775,
+    "zip": "93401",
+    "demand": 233000.0
+  },
+  "C180": {
+    "id": "C180",
+    "city": "Lubbock",
+    "state": "TX",
+    "lat": 33.586994,
+    "lng": -101.852316,
+    "zip": "79401",
+    "demand": 230000.0
+  },
+  "C181": {
+    "id": "C181",
+    "city": "Roanoke",
+    "state": "VA",
+    "lat": 37.27055,
+    "lng": -79.94156,
+    "zip": "24001",
+    "demand": 228000.0
+  },
+  "C182": {
+    "id": "C182",
+    "city": "Fort Collins",
+    "state": "CO",
+    "lat": 40.595922,
+    "lng": -105.128763,
+    "zip": "80521",
+    "demand": 226000.0
+  },
+  "C183": {
+    "id": "C183",
+    "city": "Brazoria",
+    "state": "TX",
+    "lat": 28.963324,
+    "lng": -95.578681,
+    "zip": "77422",
+    "demand": 225000.0
+  },
+  "C184": {
+    "id": "C184",
+    "city": "Yakima",
+    "state": "WA",
+    "lat": 46.666031,
+    "lng": -120.35439,
+    "zip": "98901",
+    "demand": 218000.0
+  },
+  "C185": {
+    "id": "C185",
+    "city": "Green Bay",
+    "state": "WI",
+    "lat": 44.481797,
+    "lng": -88.020633,
+    "zip": "54301",
+    "demand": 214000.0
+  },
+  "C186": {
+    "id": "C186",
+    "city": "Wilmington",
+    "state": "NC",
+    "lat": 34.274429,
+    "lng": -77.964032,
+    "zip": "28401",
+    "demand": 213000.0
+  },
+  "C187": {
+    "id": "C187",
+    "city": "Asheville",
+    "state": "NC",
+    "lat": 35.593707,
+    "lng": -82.557938,
+    "zip": "28801",
+    "demand": 211000.0
+  },
+  "C188": {
+    "id": "C188",
+    "city": "Amarillo",
+    "state": "TX",
+    "lat": 35.205856,
+    "lng": -101.839345,
+    "zip": "79101",
+    "demand": 208000.0
+  },
+  "C189": {
+    "id": "C189",
+    "city": "Longview",
+    "state": "TX",
+    "lat": 32.539597,
+    "lng": -94.683047,
+    "zip": "75601",
+    "demand": 208000.0
+  },
+  "C190": {
+    "id": "C190",
+    "city": "Lynchburg",
+    "state": "VA",
+    "lat": 37.346922,
+    "lng": -79.158224,
+    "zip": "24501",
+    "demand": 207000.0
+  },
+  "C191": {
+    "id": "C191",
+    "city": "Barnstable",
+    "state": "MA",
+    "lat": 41.698682,
+    "lng": -70.298633,
+    "zip": "02630",
+    "demand": 205000.0
+  },
+  "C192": {
+    "id": "C192",
+    "city": "Springfield",
+    "state": "IL",
+    "lat": 39.80006,
+    "lng": -89.647829,
+    "zip": "62701",
+    "demand": 203000.0
+  },
+  "C193": {
+    "id": "C193",
+    "city": "Waco",
+    "state": "TX",
+    "lat": 31.551721,
+    "lng": -97.138442,
+    "zip": "76701",
+    "demand": 202000.0
+  },
+  "C194": {
+    "id": "C194",
+    "city": "Olympia",
+    "state": "WA",
+    "lat": 46.995961,
+    "lng": -122.869699,
+    "zip": "98501",
+    "demand": 200000.0
+  },
+  "C195": {
+    "id": "C195",
+    "city": "Gainesville",
+    "state": "FL",
+    "lat": 29.646256,
+    "lng": -82.326169,
+    "zip": "32601",
+    "demand": 198000.0
+  },
+  "C196": {
+    "id": "C196",
+    "city": "Clarksville",
+    "state": "TN",
+    "lat": 36.530401,
+    "lng": -87.336421,
+    "zip": "37040",
+    "demand": 197000.0
+  },
+  "C197": {
+    "id": "C197",
+    "city": "Merced",
+    "state": "CA",
+    "lat": 37.291592,
+    "lng": -120.433909,
+    "zip": "95340",
+    "demand": 196000.0
+  },
+  "C198": {
+    "id": "C198",
+    "city": "Naples",
+    "state": "FL",
+    "lat": 26.137786,
+    "lng": -81.796652,
+    "zip": "34101",
+    "demand": 195000.0
+  },
+  "C199": {
+    "id": "C199",
+    "city": "Chico",
+    "state": "CA",
+    "lat": 39.745786,
+    "lng": -121.841446,
+    "zip": "95926",
+    "demand": 194000.0
+  },
+  "C200": {
+    "id": "C200",
+    "city": "Fort Smith",
+    "state": "AR",
+    "lat": 35.364457,
+    "lng": -94.416335,
+    "zip": "72901",
+    "demand": 192000.0
+  },
+  "C201": {
+    "id": "C201",
+    "city": "Burlington",
+    "state": "VT",
+    "lat": 44.490823,
+    "lng": -73.226212,
+    "zip": "05401",
+    "demand": 191000.0
+  },
+  "C202": {
+    "id": "C202",
+    "city": "Houma",
+    "state": "LA",
+    "lat": 29.588669,
+    "lng": -90.826272,
+    "zip": "70360",
+    "demand": 191000.0
+  },
+  "C203": {
+    "id": "C203",
+    "city": "Racine",
+    "state": "WI",
+    "lat": 42.693106,
+    "lng": -87.812649,
+    "zip": "53401",
+    "demand": 185000.0
+  },
+  "C204": {
+    "id": "C204",
+    "city": "Laredo",
+    "state": "TX",
+    "lat": 27.513231,
+    "lng": -99.501851,
+    "zip": "78040",
+    "demand": 183000.0
+  },
+  "C205": {
+    "id": "C205",
+    "city": "Richland",
+    "state": "WA",
+    "lat": 46.308165,
+    "lng": -119.29899,
+    "zip": "99352",
+    "demand": 182000.0
+  },
+  "C206": {
+    "id": "C206",
+    "city": "Cedar Rapids",
+    "state": "IA",
+    "lat": 41.974145,
+    "lng": -91.657552,
+    "zip": "52401",
+    "demand": 181000.0
+  },
+  "C207": {
+    "id": "C207",
+    "city": "Lake Charles",
+    "state": "LA",
+    "lat": 30.225655,
+    "lng": -93.213221,
+    "zip": "70601",
+    "demand": 178000.0
+  },
+  "C208": {
+    "id": "C208",
+    "city": "Mansfield",
+    "state": "OH",
+    "lat": 40.763536,
+    "lng": -82.513682,
+    "zip": "44901",
+    "demand": 174000.0
+  },
+  "C209": {
+    "id": "C209",
+    "city": "Lafayette",
+    "state": "IN",
+    "lat": 40.417991,
+    "lng": -86.890498,
+    "zip": "47901",
+    "demand": 171000.0
+  },
+  "C210": {
+    "id": "C210",
+    "city": "Elkhart",
+    "state": "IN",
+    "lat": 41.723129,
+    "lng": -85.976395,
+    "zip": "46514",
+    "demand": 170000.0
+  },
+  "C211": {
+    "id": "C211",
+    "city": "Medford",
+    "state": "OR",
+    "lat": 42.27116,
+    "lng": -122.895656,
+    "zip": "97501",
+    "demand": 170000.0
+  },
+  "C212": {
+    "id": "C212",
+    "city": "Myrtle Beach",
+    "state": "SC",
+    "lat": 33.767955,
+    "lng": -78.792402,
+    "zip": "29572",
+    "demand": 169000.0
+  },
+  "C213": {
+    "id": "C213",
+    "city": "Champaign",
+    "state": "IL",
+    "lat": 40.106103,
+    "lng": -88.21344,
+    "zip": "61801",
+    "demand": 168000.0
+  },
+  "C214": {
+    "id": "C214",
+    "city": "Las Cruces",
+    "state": "NM",
+    "lat": 32.277285,
+    "lng": -106.7464,
+    "zip": "88001",
+    "demand": 168000.0
+  },
+  "C215": {
+    "id": "C215",
+    "city": "Fort Walton Beach",
+    "state": "FL",
+    "lat": 30.448772,
+    "lng": -86.625685,
+    "zip": "32547",
+    "demand": 167000.0
+  },
+  "C216": {
+    "id": "C216",
+    "city": "Fargo",
+    "state": "ND",
+    "lat": 46.925649,
+    "lng": -96.84969,
+    "zip": "58102",
+    "demand": 166000.0
+  },
+  "C217": {
+    "id": "C217",
+    "city": "Tyler",
+    "state": "TX",
+    "lat": 32.323588,
+    "lng": -95.295488,
+    "zip": "75701",
+    "demand": 166000.0
+  },
+  "C218": {
+    "id": "C218",
+    "city": "Topeka",
+    "state": "KS",
+    "lat": 39.056205,
+    "lng": -95.674766,
+    "zip": "66601",
+    "demand": 164000.0
+  },
+  "C219": {
+    "id": "C219",
+    "city": "Redding",
+    "state": "CA",
+    "lat": 40.614989,
+    "lng": -122.474173,
+    "zip": "96001",
+    "demand": 163000.0
+  },
+  "C220": {
+    "id": "C220",
+    "city": "St. Cloud",
+    "state": "MN",
+    "lat": 45.480094,
+    "lng": -94.251803,
+    "zip": "56301",
+    "demand": 161000.0
+  },
+  "C221": {
+    "id": "C221",
+    "city": "Benton Harbor",
+    "state": "MI",
+    "lat": 42.112521,
+    "lng": -86.35901,
+    "zip": "49022",
+    "demand": 160000.0
+  },
+  "C222": {
+    "id": "C222",
+    "city": "Sioux Falls",
+    "state": "SD",
+    "lat": 43.601775,
+    "lng": -96.705107,
+    "zip": "57101",
+    "demand": 160000.0
+  },
+  "C223": {
+    "id": "C223",
+    "city": "Tuscaloosa",
+    "state": "AL",
+    "lat": 33.163591,
+    "lng": -87.616698,
+    "zip": "35401",
+    "demand": 160000.0
+  },
+  "C224": {
+    "id": "C224",
+    "city": "Greeley",
+    "state": "CO",
+    "lat": 40.437064,
+    "lng": -104.678452,
+    "zip": "80631",
+    "demand": 155000.0
+  },
+  "C225": {
+    "id": "C225",
+    "city": "Jackson",
+    "state": "MI",
+    "lat": 42.320287,
+    "lng": -84.391136,
+    "zip": "49201",
+    "demand": 155000.0
+  },
+  "C226": {
+    "id": "C226",
+    "city": "Bellingham",
+    "state": "WA",
+    "lat": 48.730564,
+    "lng": -122.501229,
+    "zip": "98225",
+    "demand": 154000.0
+  },
+  "C227": {
+    "id": "C227",
+    "city": "Lima",
+    "state": "OH",
+    "lat": 40.783014,
+    "lng": -84.048023,
+    "zip": "45801",
+    "demand": 154000.0
+  },
+  "C228": {
+    "id": "C228",
+    "city": "Wheeling",
+    "state": "WV",
+    "lat": 40.076271,
+    "lng": -80.650296,
+    "zip": "26003",
+    "demand": 154000.0
+  },
+  "C229": {
+    "id": "C229",
+    "city": "Yolo",
+    "state": "CA",
+    "lat": 38.71846,
+    "lng": -121.84402,
+    "zip": "95697",
+    "demand": 152000.0
+  },
+  "C230": {
+    "id": "C230",
+    "city": "Janesville",
+    "state": "WI",
+    "lat": 42.69097,
+    "lng": -89.113701,
+    "zip": "53545",
+    "demand": 150000.0
+  },
+  "C231": {
+    "id": "C231",
+    "city": "Parkersburg",
+    "state": "WV",
+    "lat": 39.323966,
+    "lng": -81.505295,
+    "zip": "26101",
+    "demand": 150000.0
+  },
+  "C232": {
+    "id": "C232",
+    "city": "Terre Haute",
+    "state": "IN",
+    "lat": 39.355361,
+    "lng": -87.409888,
+    "zip": "47802",
+    "demand": 148000.0
+  },
+  "C233": {
+    "id": "C233",
+    "city": "Joplin",
+    "state": "MO",
+    "lat": 37.108735,
+    "lng": -94.523053,
+    "zip": "64801",
+    "demand": 147000.0
+  },
+  "C234": {
+    "id": "C234",
+    "city": "Monroe",
+    "state": "LA",
+    "lat": 32.532651,
+    "lng": -92.104911,
+    "zip": "71201",
+    "demand": 147000.0
+  },
+  "C235": {
+    "id": "C235",
+    "city": "Charlottesville",
+    "state": "VA",
+    "lat": 38.092466,
+    "lng": -78.560022,
+    "zip": "22901",
+    "demand": 146000.0
+  },
+  "C236": {
+    "id": "C236",
+    "city": "Panama City",
+    "state": "FL",
+    "lat": 30.159495,
+    "lng": -85.646598,
+    "zip": "32401",
+    "demand": 146000.0
+  },
+  "C237": {
+    "id": "C237",
+    "city": "Rocky Mount",
+    "state": "NC",
+    "lat": 35.950561,
+    "lng": -77.696568,
+    "zip": "27801",
+    "demand": 145000.0
+  },
+  "C238": {
+    "id": "C238",
+    "city": "Bangor",
+    "state": "ME",
+    "lat": 44.854356,
+    "lng": -68.829949,
+    "zip": "04401",
+    "demand": 143000.0
+  },
+  "C239": {
+    "id": "C239",
+    "city": "Eau Claire",
+    "state": "WI",
+    "lat": 44.738129,
+    "lng": -91.509987,
+    "zip": "54701",
+    "demand": 143000.0
+  },
+  "C240": {
+    "id": "C240",
+    "city": "Jacksonville",
+    "state": "NC",
+    "lat": 34.677074,
+    "lng": -77.521398,
+    "zip": "28540",
+    "demand": 143000.0
+  },
+  "C241": {
+    "id": "C241",
+    "city": "Kenosha",
+    "state": "WI",
+    "lat": 42.625787,
+    "lng": -87.829966,
+    "zip": "53140",
+    "demand": 142000.0
+  },
+  "C242": {
+    "id": "C242",
+    "city": "Decatur",
+    "state": "AL",
+    "lat": 34.611237,
+    "lng": -87.023311,
+    "zip": "35601",
+    "demand": 141000.0
+  },
+  "C243": {
+    "id": "C243",
+    "city": "Bloomington",
+    "state": "IL",
+    "lat": 40.476247,
+    "lng": -88.991477,
+    "zip": "61701",
+    "demand": 140000.0
+  },
+  "C244": {
+    "id": "C244",
+    "city": "Jamestown",
+    "state": "NY",
+    "lat": 42.073124,
+    "lng": -79.263299,
+    "zip": "14701",
+    "demand": 140000.0
+  },
+  "C245": {
+    "id": "C245",
+    "city": "Santa Fe",
+    "state": "NM",
+    "lat": 35.794621,
+    "lng": -105.9929,
+    "zip": "87501",
+    "demand": 140000.0
+  },
+  "C246": {
+    "id": "C246",
+    "city": "Vineland",
+    "state": "NJ",
+    "lat": 39.4741,
+    "lng": -74.984419,
+    "zip": "08360",
+    "demand": 140000.0
+  },
+  "C247": {
+    "id": "C247",
+    "city": "Yuba City",
+    "state": "CA",
+    "lat": 39.02308,
+    "lng": -121.611658,
+    "zip": "95991",
+    "demand": 139000.0
+  },
+  "C248": {
+    "id": "C248",
+    "city": "Athens",
+    "state": "GA",
+    "lat": 33.995338,
+    "lng": -83.349886,
+    "zip": "30601",
+    "demand": 138000.0
+  },
+  "C249": {
+    "id": "C249",
+    "city": "Florence",
+    "state": "AL",
+    "lat": 34.893261,
+    "lng": -87.637505,
+    "zip": "35630",
+    "demand": 137000.0
+  },
+  "C250": {
+    "id": "C250",
+    "city": "Wichita Falls",
+    "state": "TX",
+    "lat": 33.951243,
+    "lng": -98.459921,
+    "zip": "76301",
+    "demand": 137000.0
+  },
+  "C251": {
+    "id": "C251",
+    "city": "Steubenville",
+    "state": "OH",
+    "lat": 40.358325,
+    "lng": -80.70374,
+    "zip": "43952",
+    "demand": 136000.0
+  },
+  "C252": {
+    "id": "C252",
+    "city": "Dothan",
+    "state": "AL",
+    "lat": 31.203975,
+    "lng": -85.501381,
+    "zip": "36301",
+    "demand": 134000.0
+  },
+  "C253": {
+    "id": "C253",
+    "city": "Pittsfield",
+    "state": "MA",
+    "lat": 42.460152,
+    "lng": -73.285835,
+    "zip": "01201",
+    "demand": 134000.0
+  },
+  "C254": {
+    "id": "C254",
+    "city": "Bryan",
+    "state": "TX",
+    "lat": 30.610196,
+    "lng": -96.385815,
+    "zip": "77801",
+    "demand": 133000.0
+  },
+  "C255": {
+    "id": "C255",
+    "city": "Punta Gorda",
+    "state": "FL",
+    "lat": 26.978029,
+    "lng": -82.198982,
+    "zip": "33927",
+    "demand": 133000.0
+  },
+  "C256": {
+    "id": "C256",
+    "city": "Pueblo",
+    "state": "CO",
+    "lat": 38.29608,
+    "lng": -104.537248,
+    "zip": "81001",
+    "demand": 132000.0
+  },
+  "C257": {
+    "id": "C257",
+    "city": "State College",
+    "state": "PA",
+    "lat": 41.233795,
+    "lng": -80.49999,
+    "zip": "16146",
+    "demand": 132000.0
+  },
+  "C258": {
+    "id": "C258",
+    "city": "Altoona",
+    "state": "PA",
+    "lat": 40.53048,
+    "lng": -78.444871,
+    "zip": "16601",
+    "demand": 130000.0
+  },
+  "C259": {
+    "id": "C259",
+    "city": "Yuma",
+    "state": "AZ",
+    "lat": 32.698786,
+    "lng": -114.673826,
+    "zip": "85364",
+    "demand": 130000.0
+  },
+  "C260": {
+    "id": "C260",
+    "city": "Columbia",
+    "state": "MO",
+    "lat": 38.909016,
+    "lng": -92.246332,
+    "zip": "65201",
+    "demand": 128000.0
+  },
+  "C261": {
+    "id": "C261",
+    "city": "Hagerston",
+    "state": "MD",
+    "lat": 39.635524,
+    "lng": -77.74722,
+    "zip": "21740",
+    "demand": 128000.0
+  },
+  "C262": {
+    "id": "C262",
+    "city": "Alexandria",
+    "state": "LA",
+    "lat": 31.252431,
+    "lng": -92.475381,
+    "zip": "71301",
+    "demand": 126000.0
+  },
+  "C263": {
+    "id": "C263",
+    "city": "Billings",
+    "state": "MT",
+    "lat": 45.634968,
+    "lng": -108.363541,
+    "zip": "59101",
+    "demand": 125000.0
+  },
+  "C264": {
+    "id": "C264",
+    "city": "Texarkana",
+    "state": "TX",
+    "lat": 33.354952,
+    "lng": -94.22022,
+    "zip": "75501",
+    "demand": 123000.0
+  },
+  "C265": {
+    "id": "C265",
+    "city": "Dover",
+    "state": "DE",
+    "lat": 39.147003,
+    "lng": -75.480883,
+    "zip": "19901",
+    "demand": 122000.0
+  },
+  "C266": {
+    "id": "C266",
+    "city": "Glens Falls",
+    "state": "NY",
+    "lat": 43.310665,
+    "lng": -73.64566,
+    "zip": "12801",
+    "demand": 122000.0
+  },
+  "C267": {
+    "id": "C267",
+    "city": "Sharon",
+    "state": "PA",
+    "lat": 41.233795,
+    "lng": -80.49999,
+    "zip": "16146",
+    "demand": 122000.0
+  },
+  "C268": {
+    "id": "C268",
+    "city": "Wausau",
+    "state": "WI",
+    "lat": 44.95879,
+    "lng": -89.709333,
+    "zip": "54401",
+    "demand": 122000.0
+  },
+  "C269": {
+    "id": "C269",
+    "city": "Abilene",
+    "state": "TX",
+    "lat": 32.480999,
+    "lng": -99.682278,
+    "zip": "79601",
+    "demand": 121000.0
+  },
+  "C270": {
+    "id": "C270",
+    "city": "Greenville",
+    "state": "NC",
+    "lat": 35.659441,
+    "lng": -77.397427,
+    "zip": "27833",
+    "demand": 121000.0
+  },
+  "C271": {
+    "id": "C271",
+    "city": "La Crosse",
+    "state": "WI",
+    "lat": 43.800524,
+    "lng": -91.150631,
+    "zip": "54601",
+    "demand": 121000.0
+  },
+  "C272": {
+    "id": "C272",
+    "city": "Waterloo",
+    "state": "IA",
+    "lat": 42.42293,
+    "lng": -92.345341,
+    "zip": "50701",
+    "demand": 121000.0
+  },
+  "C273": {
+    "id": "C273",
+    "city": "Sioux City",
+    "state": "IA",
+    "lat": 42.492876,
+    "lng": -96.394465,
+    "zip": "51101",
+    "demand": 120000.0
+  },
+  "C274": {
+    "id": "C274",
+    "city": "Flagstaff",
+    "state": "AZ",
+    "lat": 35.486198,
+    "lng": -111.738055,
+    "zip": "86001",
+    "demand": 119000.0
+  },
+  "C275": {
+    "id": "C275",
+    "city": "Williamsport",
+    "state": "PA",
+    "lat": 41.237659,
+    "lng": -77.047336,
+    "zip": "17701",
+    "demand": 118000.0
+  },
+  "C276": {
+    "id": "C276",
+    "city": "Albany",
+    "state": "GA",
+    "lat": 31.575993,
+    "lng": -84.154368,
+    "zip": "31701",
+    "demand": 117000.0
+  },
+  "C277": {
+    "id": "C277",
+    "city": "Anniston",
+    "state": "AL",
+    "lat": 33.675166,
+    "lng": -85.932372,
+    "zip": "36201",
+    "demand": 117000.0
+  },
+  "C278": {
+    "id": "C278",
+    "city": "Muncie",
+    "state": "IN",
+    "lat": 40.131448,
+    "lng": -85.376436,
+    "zip": "47302",
+    "demand": 117000.0
+  },
+  "C279": {
+    "id": "C279",
+    "city": "Bloomington",
+    "state": "IN",
+    "lat": 39.093699,
+    "lng": -86.465781,
+    "zip": "47401",
+    "demand": 116000.0
+  },
+  "C280": {
+    "id": "C280",
+    "city": "Decatur",
+    "state": "IL",
+    "lat": 39.813657,
+    "lng": -88.912116,
+    "zip": "62521",
+    "demand": 114000.0
+  },
+  "C281": {
+    "id": "C281",
+    "city": "Rochester",
+    "state": "MN",
+    "lat": 44.065571,
+    "lng": -92.51005,
+    "zip": "55901",
+    "demand": 114000.0
+  },
+  "C282": {
+    "id": "C282",
+    "city": "Lawton",
+    "state": "OK",
+    "lat": 34.547435,
+    "lng": -98.282037,
+    "zip": "73501",
+    "demand": 113000.0
+  },
+  "C283": {
+    "id": "C283",
+    "city": "Goldsboro",
+    "state": "NC",
+    "lat": 35.368042,
+    "lng": -78.076759,
+    "zip": "27530",
+    "demand": 111000.0
+  },
+  "C284": {
+    "id": "C284",
+    "city": "Grand Junction",
+    "state": "CO",
+    "lat": 39.072618,
+    "lng": -108.541389,
+    "zip": "81501",
+    "demand": 110000.0
+  },
+  "C285": {
+    "id": "C285",
+    "city": "Hattiesburg",
+    "state": "MS",
+    "lat": 31.198788,
+    "lng": -89.26914,
+    "zip": "39401",
+    "demand": 109000.0
+  },
+  "C286": {
+    "id": "C286",
+    "city": "Sheboygan",
+    "state": "WI",
+    "lat": 43.706766,
+    "lng": -87.740502,
+    "zip": "53081",
+    "demand": 109000.0
+  },
+  "C287": {
+    "id": "C287",
+    "city": "Danville",
+    "state": "VA",
+    "lat": 36.657614,
+    "lng": -79.496767,
+    "zip": "24540",
+    "demand": 108000.0
+  },
+  "C288": {
+    "id": "C288",
+    "city": "Sumter",
+    "state": "SC",
+    "lat": 33.873928,
+    "lng": -80.352467,
+    "zip": "29150",
+    "demand": 106000.0
+  },
+  "C289": {
+    "id": "C289",
+    "city": "Gadsden",
+    "state": "AL",
+    "lat": 34.074721,
+    "lng": -85.935225,
+    "zip": "35901",
+    "demand": 104000.0
+  },
+  "C290": {
+    "id": "C290",
+    "city": "Iowa City",
+    "state": "IA",
+    "lat": 41.690061,
+    "lng": -91.451825,
+    "zip": "52240",
+    "demand": 102000.0
+  },
+  "C291": {
+    "id": "C291",
+    "city": "San Angelo",
+    "state": "TX",
+    "lat": 31.557168,
+    "lng": -100.55065,
+    "zip": "76901",
+    "demand": 102000.0
+  },
+  "C292": {
+    "id": "C292",
+    "city": "Grand Forks",
+    "state": "ND",
+    "lat": 47.880934,
+    "lng": -97.06054,
+    "zip": "58201",
+    "demand": 101000.0
+  },
+  "C293": {
+    "id": "C293",
+    "city": "Kankakee",
+    "state": "IL",
+    "lat": 41.122895,
+    "lng": -87.904208,
+    "zip": "60901",
+    "demand": 101000.0
+  },
+  "C294": {
+    "id": "C294",
+    "city": "Lewiston",
+    "state": "ME",
+    "lat": 44.090556,
+    "lng": -70.165256,
+    "zip": "04240",
+    "demand": 101000.0
+  },
+  "C295": {
+    "id": "C295",
+    "city": "Sherman-Denison",
+    "state": "TX",
+    "lat": 33.636926,
+    "lng": -96.547955,
+    "zip": "75090",
+    "demand": 101000.0
+  },
+  "C296": {
+    "id": "C296",
+    "city": "Cumberland",
+    "state": "MD",
+    "lat": 39.651636,
+    "lng": -78.756679,
+    "zip": "21501",
+    "demand": 99000.0
+  },
+  "C297": {
+    "id": "C297",
+    "city": "Jackson",
+    "state": "TN",
+    "lat": 33.309966,
+    "lng": -81.815022,
+    "zip": "29831",
+    "demand": 99000.0
+  },
+  "C298": {
+    "id": "C298",
+    "city": "Kokomo",
+    "state": "IN",
+    "lat": 40.524763,
+    "lng": -86.175762,
+    "zip": "46901",
+    "demand": 99000.0
+  },
+  "C299": {
+    "id": "C299",
+    "city": "St. Joseph",
+    "state": "MO",
+    "lat": 39.763246,
+    "lng": -94.843719,
+    "zip": "64501",
+    "demand": 97000.0
+  },
+  "C300": {
+    "id": "C300",
+    "city": "Elmira",
+    "state": "NY",
+    "lat": 42.113902,
+    "lng": -76.759983,
+    "zip": "14901",
+    "demand": 93000.0
+  },
+  "C301": {
+    "id": "C301",
+    "city": "Bismarck",
+    "state": "ND",
+    "lat": 46.849031,
+    "lng": -100.716956,
+    "zip": "58501",
+    "demand": 91000.0
+  },
+  "C302": {
+    "id": "C302",
+    "city": "Lawrence",
+    "state": "KS",
+    "lat": 39.00245,
+    "lng": -95.231487,
+    "zip": "66044",
+    "demand": 91000.0
+  },
+  "C303": {
+    "id": "C303",
+    "city": "Owesboro",
+    "state": "KY",
+    "lat": 37.732182,
+    "lng": -87.236957,
+    "zip": "42301",
+    "demand": 91000.0
+  },
+  "C304": {
+    "id": "C304",
+    "city": "Dubuque",
+    "state": "IA",
+    "lat": 42.546544,
+    "lng": -90.695396,
+    "zip": "52001",
+    "demand": 88000.0
+  },
+  "C305": {
+    "id": "C305",
+    "city": "Rapid City",
+    "state": "SD",
+    "lat": 44.008112,
+    "lng": -103.169134,
+    "zip": "57701",
+    "demand": 87000.0
+  },
+  "C306": {
+    "id": "C306",
+    "city": "Pine Bluff",
+    "state": "AR",
+    "lat": 34.199018,
+    "lng": -91.942115,
+    "zip": "71601",
+    "demand": 82000.0
+  },
+  "C307": {
+    "id": "C307",
+    "city": "Victoria",
+    "state": "TX",
+    "lat": 28.806819,
+    "lng": -96.979321,
+    "zip": "77901",
+    "demand": 82000.0
+  },
+  "C308": {
+    "id": "C308",
+    "city": "Great Falls",
+    "state": "MT",
+    "lat": 47.512449,
+    "lng": -111.271703,
+    "zip": "59401",
+    "demand": 79000.0
+  },
+  "C309": {
+    "id": "C309",
+    "city": "Cheyenne",
+    "state": "WY",
+    "lat": 41.145652,
+    "lng": -104.774866,
+    "zip": "82001",
+    "demand": 78000.0
+  },
+  "C310": {
+    "id": "C310",
+    "city": "Jonesboro",
+    "state": "AR",
+    "lat": 35.871409,
+    "lng": -90.642127,
+    "zip": "72401",
+    "demand": 76000.0
+  },
+  "C311": {
+    "id": "C311",
+    "city": "Pocatello",
+    "state": "ID",
+    "lat": 42.891227,
+    "lng": -112.316718,
+    "zip": "83201",
+    "demand": 73000.0
+  },
+  "C312": {
+    "id": "C312",
+    "city": "Casper",
+    "state": "WY",
+    "lat": 43.141484,
+    "lng": -106.360008,
+    "zip": "82601",
+    "demand": 63000.0
+  },
+  "C313": {
+    "id": "C313",
+    "city": "Enid",
+    "state": "OK",
+    "lat": 36.386624,
+    "lng": -97.815753,
+    "zip": "73701",
+    "demand": 56000.0
+  }
+}
