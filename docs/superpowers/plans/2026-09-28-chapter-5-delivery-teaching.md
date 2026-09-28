@@ -104,11 +104,13 @@ Verified against the tree at `f9107ba`. Each is resolved inside a task rather th
 | `artifacts/api-server/src/__tests__/referenceCosts.test.ts` | 200 / ETag / 304 / 422 / malformed / mounted. |
 | `artifacts/api-server/src/__tests__/deliveryContract.test.ts` | `buildPayload` + `deliveryInputsSchema` + `GET /dataset` + manifest-vs-Zod parity. |
 | `artifacts/api-server/src/__tests__/modelIdSetEquality.test.ts` | Every model-id registry is the same set (Task 4). |
+| `artifacts/api-server/src/__tests__/deliveryPrecheckIntegration.test.ts` | Real-DB 422 through the solve route (Task 6). |
 | `artifacts/api-server/src/solver/tests/test_delivery.py` | Goldens and every solver invariant. |
 | `lib/dataset-schema/src/deliveryDataset.test.ts` | Package shape + `version.json` sha (mirror of `maxCoverageDataset.test.ts`). |
 | `artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx` | Sparse cost-override editor over the base matrix. |
 | `artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx` | RTL coverage. |
-| `artifacts/studio/src/__tests__/deliveryRegistration.test.tsx` | Tab set, read-only map, objective units, formatting. |
+| `artifacts/studio/src/__tests__/deliveryRegistration.test.tsx` | Chapter entry, default inputs, tab set, objective units + rendering. |
+| `artifacts/studio/src/__tests__/InputMapTab.deliveryReadOnly.test.tsx` | Read-only map (own harness, Task 9). |
 | `artifacts/studio/e2e/delivery-teaching.spec.ts` | Full journey. |
 
 **Modified files** (union of every task's Files list — regenerate this table if a task's list changes)
@@ -121,6 +123,7 @@ Verified against the tree at `f9107ba`. Each is resolved inside a task rather th
 | `lib/dataset-schema/src/index.ts` | `PACKAGE_SPECS`, `MODEL_IDS`, `supportsReferenceCosts` in `ManifestSchema`. | 2 |
 | `lib/dataset-schema/src/manifest.test.ts`, `lib/dataset-schema/src/index.test.ts` | Manifest assertions; per-model `validatePackage` + sha block. | 2 |
 | `artifacts/api-server/src/registry/modelRegistry.ts` | `KNOWN_SCHEMAS` + `supportsReferenceCosts` capability. | 2, 4 |
+| `artifacts/api-server/src/__tests__/datasets.test.ts`, `artifacts/api-server/src/__tests__/registry.test.ts` | `EXPECTED_COUNTS` row; six-id arrays → seven; capability row. | 2 |
 | `artifacts/api-server/src/solver/solve.py` | `solve_delivery` + two pure seams + `_assign_band_or_overflow` + dispatcher branch + dataset loaders + `UnresolvableIdError` import. | 3 |
 | `artifacts/api-server/src/solver/pmedian.ts` | `SolveInput` union + `buildPayload` branch. | 4 |
 | `artifacts/api-server/src/routes/scenarios.ts` | `VALID_MODEL_IDS`. | 4 |
@@ -130,21 +133,24 @@ Verified against the tree at `f9107ba`. Each is resolved inside a task rather th
 | `artifacts/api-server/src/services/precheck.ts` | `precheckDeliveryInputs` + dispatcher branch. | 6 |
 | `artifacts/api-server/src/__tests__/precheck.test.ts` | Delivery cases + route-level 422. | 6 |
 | `artifacts/api-server/src/routes/index.ts` | Mount `referenceCostsRouter`. | 7 |
-| `lib/units/src/objective.ts`, `lib/units/src/__tests__/objective.test.ts` | `objectiveDimension` case + contract row. | 8 |
-| `artifacts/studio/src/lib/chapters.ts` | `StudioModelType` + `CHAPTERS` entry. | 8 |
+| `lib/units/src/objective.ts`, `lib/units/src/__tests__/objective.test.ts`, `artifacts/studio/src/__tests__/formatObjective.test.ts` | `objectiveDimension` case + contract rows in both tables. | 8 |
+| `artifacts/studio/src/lib/chapters.ts` | `StudioModelType` + `CHAPTERS` entry (after `p-median-brazil`). | 8 |
 | `artifacts/studio/src/pages/Workspace.tsx` | `defaultInputsForModel`, explicit `inputEntriesForModel` case (exported), read-only map gate, `isEditableInputTab` row, tab render gates, `pMax` arms, `capacityModes` pass-through, OptParams props. | 8, 9, 10, 11, 12 |
-| `artifacts/studio/src/__tests__/Landing.test.tsx` | `3 labs` → `4 labs`. | 8 |
+| `artifacts/studio/src/__tests__/Landing.test.tsx`, `artifacts/studio/src/__tests__/Login.test.tsx` | `3 labs` → `4 labs`; auth strip gains Chapter 5. | 8 |
+| `artifacts/studio/src/__tests__/Workspace.test.tsx` | Delivery Costs Save path (11); Open Warehouses Demand Served (12). | 11, 12 |
+| `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx` | 2 dp bars; Objective/WAD rows, compare-view Open facilities. | 12 |
+| `artifacts/api-server/src/__tests__/routes.test.ts` | Output-export case with a mocked golden result. | 12 |
 | `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` | `readOnly` prop on the `pmedian` arm. | 9 |
 | `artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx` | Adjust Cost Table control. | 10 |
 | `artifacts/studio/src/__tests__/OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx` | Control + `pMax` assertions at both mounts. | 10 |
 | `artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx` | Delivery describe block. | 11 |
-| `lib/units/src/bands.ts`, `lib/units/src/__tests__/bands.test.ts`, `artifacts/studio/src/lib/bands.ts` | Opt-in decimal precision (default unchanged) + shim passthrough. | 12 |
+| `lib/units/src/bands.ts`, `lib/units/src/__tests__/bands.test.ts` | Opt-in decimal precision (default unchanged); the studio shim re-exports unchanged. | 12 |
 | `artifacts/api-server/src/services/templates.ts`, `artifacts/api-server/src/__tests__/templates.test.ts` | `buildEffectiveFacilityCityLookup` branch. | 12 |
 | `artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx` | 2 dp for this model. | 12 |
 | `artifacts/api-server/src/solver/tests/e2e_journey.py` | `journey_delivery` + `JOURNEYS` entry. | 13 |
 | `artifacts/studio/e2e/bundle4-auth-landing.spec.ts`, `bundle6-ui-tweaks.spec.ts` | Lab count 4, chapter strip. | 13 |
 | `README.md`, `CLAUDE.md`, `model-integration-precheck.md`, `docs/CHANGELOG-implementation.md` | Closeout. | 13 |
-| `docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md` | §6.1 `cost` → `minimum: 0`; §7.4 "positive" → "non-negative"; §5.6 solver emits the Overflow row. | this revision |
+| `docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md` | §6.1 `cost` → `minimum: 0`; §7.4 "positive" → "non-negative"; §5.6 solver emits the Overflow row; §12.9 journey command. **Already applied** in `03d4847` and this revision — listed so the spec/plan pairing is visible, not as pending work. | done |
 
 ---
 
@@ -185,26 +191,29 @@ If unmerged, Tasks 1–9 and 11–13 proceed on a branch off current `main`; Tas
 
 - [ ] **Step 3: Enumerate every registry that must learn the new id (probe sweep)**
 
-Every registration point contains the literal id of the newest sibling, so grep for it. Test files and e2e are excluded because they are covered by Step 4.
+Every registration point contains the literal id of the newest sibling, so grep for it. Two commands, because the YAML ids are **unquoted** (`enum: [p-median-us, …]`, `- max-coverage-us`) and a quoted probe finds zero of the four enum sites. Test files, e2e, and the Python `tests/` tree (incl. `benchmark/`) are excluded because Step 4 covers them.
 
 ```bash
-rg -n --glob '!**/generated/**' --glob '!**/*.test.*' --glob '!**/__tests__/**' --glob '!e2e/**' \
+rg -n --glob '!**/generated/**' --glob '!**/*.test.*' --glob '!**/__tests__/**' \
+   --glob '!**/e2e/**' --glob '!**/solver/tests/**' \
    '"max-coverage-us"' artifacts lib solvers scripts | sort
+rg -n 'max-coverage-us' lib/api-spec/openapi.yaml
 ```
 
-Expected hit set at `3065c91` (every one is a registration point this plan touches or records as N/A; the file:line and owning task are in the Review record's R7 table):
+Expected hit set at `3065c91` (measured: the first command returns 87 hits across 25 files before exclusions; after these exclusions every hit is one of the following, and each is a registration point this plan touches or records as N/A — file:line and owning task are in the Review record's R7 table):
 
 - `lib/dataset-schema/src/index.ts` (`PACKAGE_SPECS`, `MODEL_IDS`)
-- `lib/units/src/objective.ts:20` (`objectiveDimension`)
-- `lib/api-spec/openapi.yaml` (×4 enums)
+- `lib/units/src/objective.ts:31` (`objectiveDimension`'s case arm; the signature is `:20`)
+- `lib/api-spec/openapi.yaml:47,172,1424,1625` (second command; ×4 enums)
 - `artifacts/api-server/src/registry/modelRegistry.ts:31` (`KNOWN_SCHEMAS`)
 - `artifacts/api-server/src/routes/scenarios.ts` (`VALID_MODEL_IDS`, `normalizeAddedEntityDistances`, export gate, import gates)
 - `artifacts/api-server/src/routes/dataset.ts:30`
 - `artifacts/api-server/src/solver/pmedian.ts:13,137`
 - `artifacts/api-server/src/services/precheck.ts:183,186,1384`
 - `artifacts/api-server/src/services/templates.ts:1399`
-- `artifacts/api-server/src/services/import.ts:476,509,553-568,633,918` (N/A for this model — no importable input entities — record as such)
+- `artifacts/api-server/src/services/import.ts:476,557,568,633` (N/A for this model — no importable input entities — record as such)
 - `artifacts/api-server/src/data/referenceDistances.ts:169-183` (N/A — `supportsReferenceDistances: false`)
+- `artifacts/api-server/src/data/maxCoverageDataset.ts:31` and `scripts/src/build-max-coverage-dataset.ts:18` (the sibling's own loader and build script — not registration points; this model's equivalents are `deliveryDataset.ts` and `scripts/extract-cog-dataset.py`)
 - `artifacts/api-server/src/solver/solve.py` (dispatcher, loaders)
 - `artifacts/studio/src/lib/chapters.ts:1,52`
 - `artifacts/studio/src/pages/Workspace.tsx` (24 hits: `defaultInputsForModel`, `inputEntriesForModel`, `isEditableInputTab`, `saveInLayersRow`, reference-distances `enabled`, input-map dispatch, OptParams/SolveDialog props incl. `pMax`, output-tab `locationById`/`enableFilters`/`capacityModes` gates)
@@ -215,10 +224,11 @@ Expected hit set at `3065c91` (every one is a registration point this plan touch
 - [ ] **Step 4: Baseline the counts and enumerations that will change**
 
 ```bash
-rg -n 'toHaveLength\(6\)|six models|Six models|[0-9]+ labs|hiddenFromLanding|six-model' artifacts lib README.md CLAUDE.md
+rg -n 'toHaveLength\(6\)|six models|Six models|six known models|[0-9]+ labs|hiddenFromLanding|six-model|"max-coverage-us", "p-median-brazil"' artifacts lib README.md CLAUDE.md
+rg -n -l 'max-coverage-us' artifacts/api-server/src/__tests__ artifacts/studio/src/__tests__ lib/*/src/__tests__ lib/*/src/*.test.ts artifacts/api-server/src/solver/tests
 ```
 
-Known at `3065c91`: `README.md:155,171` "six models"; `CLAUDE.md` "Six models live under `solvers/`"; `registration.test.ts:98` `toHaveLength(6)`; `Landing.test.tsx:388` `"3 labs · 3 scenarios · 1 solved"`; `lib/units/src/__tests__/objective.test.ts:4` "the six-model contract"; per-model describe blocks in `lib/dataset-schema/src/index.test.ts`, `Workspace.TabCoverage.test.tsx`, `test_datasets.py`. Landing goes 3 visible labs → 4.
+Known at `3065c91`: `README.md:155,171` "six models"; `CLAUDE.md:106` "Six models live under `solvers/`"; `registration.test.ts:98` `toHaveLength(6)`; `registry.test.ts:19,44` two exact six-id `toEqual([...])` arrays ("the six known models"); `datasets.test.ts:4-11` a hand-written `EXPECTED_COUNTS` map consumed by a `for (spec of PACKAGE_SPECS)` loop; `Landing.test.tsx:388` `"3 labs · 3 scenarios · 1 solved"`; `Login.test.tsx:107` `expect(strip).not.toHaveTextContent("Chapter 5")`; `lib/units/src/__tests__/objective.test.ts:4` and `artifacts/studio/src/__tests__/formatObjective.test.ts:70` "six-model contract" tables; per-model describe blocks in `lib/dataset-schema/src/index.test.ts`, `Workspace.TabCoverage.test.tsx`, `test_datasets.py`. The second command lists every test file that names the sibling — each is a candidate for a delivery row; the plan assigns every one of them to a task (Tasks 1, 2, 4, 8, 11, 12). Landing goes 3 visible labs → 4.
 
 **Do not treat `bundle4-auth-landing.spec.ts` / `bundle6-ui-tweaks.spec.ts` as a correct baseline.** `docs/CHANGELOG-implementation.md:412` records both asserting `"2 labs"` when the true figure has been 3 since Chapter 4 was unlocked, and their `auth-labs-strip` expectations (`"Chapter 3Chapter 9"` vs `"Chapter 3Chapter 10"`) contradict each other. They are already wrong at main; fix them to the true post-change value rather than incrementing their current one.
 
@@ -249,7 +259,7 @@ An audit whose findings are not written down is an audit that did not happen.
 
 **Files:**
 - Create: `scripts/extract-cog-dataset.py`
-- Create: `solvers/delivery-teaching-us/dataset/{warehouses,customers,distances,costs,version}.json`
+- Create: `solvers/delivery-teaching-us/dataset/{warehouses,customers,distances,costs}.json` (`version.json` is Task 2's — see Step 10)
 - Modify: `attached_assets/NOTEBOOKS.md`
 - Modify: `artifacts/api-server/src/solver/tests/test_datasets.py` (drift guard case)
 - Modify: `docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py` (reproducible oracle)
@@ -391,8 +401,11 @@ def sheet_records(z, sheets, sst, name):
 
 
 def zip5(raw):
-    """Spec 4.3: ZIPs are strings and keep leading zeros. A numeric cell for
-    Boston arrives as '2101' (or '2101.0'); restore the 5-digit form."""
+    """Spec 4.3: ZIPs are strings and keep leading zeros. In THIS workbook every
+    ZIP is already a 5-character shared string ('02101' included; 21 of them
+    lead with 0, none are numeric-typed), so this is a no-op guard - kept so a
+    re-saved workbook whose ZIP column became numeric cannot silently emit
+    '2101'."""
     if raw is None:
         return None
     s = str(raw).strip()
@@ -565,7 +578,7 @@ print("plant ids:", sorted(int(k[1:]) for k in w))
 PY
 ```
 
-Expected exactly: `warehouses 33 customers 313 lanes 10329`, `total demand 208829000`, `keys identical: True`, `values identical: True`, `zero lanes: 33`, `exactly 800: 0`, `max distance: 3268.8663` (the 4 dp value from the sheet; spec §4.1 quotes it at 2 dp), `first customer: C1 Los Angeles`, `W1,C1 self-lane: 0.0`, `zip strings: True`, `plant ids: [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 14, 15, 16, 17, 19, 22, 25, 27, 28, 35, 38, 39, 43, 44, 45, 52, 55, 57, 60, 66, 99, 116, 152]`.
+Expected exactly (measured by simulating the script against the workbook at design time): `warehouses 33 customers 313 lanes 10329`, `total demand 208829000.0` (demand is `float`; the equality assert in the script still holds), `keys identical: True`, `values identical: True`, `zero lanes: 33`, `exactly 800: 0`, `max distance: 3268.8665` (raw `3268.8665000000001`; spec §4.1's `3268.87` is the 2 dp form), `first customer: C1 Los Angeles`, `W1,C1 self-lane: 0.0`, `zip strings: True`, `plant ids: [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 14, 15, 16, 17, 19, 22, 25, 27, 28, 35, 38, 39, 43, 44, 45, 52, 55, 57, 60, 66, 99, 116, 152]`. Coordinates span lat 25.778271–48.730564, lng −123.08043–−68.829949.
 
 The `W1,C1` line matters downstream: 33 customers are co-located with a plant and their self-lane is `0`. Task 3's override-invariance test must skip those lanes (Review record B2).
 
@@ -639,8 +652,9 @@ git commit -m "[ch5-del-1] transcribe the COG dataset and commit its sources"
 - Create: `solvers/delivery-teaching-us/manifest.json`
 - Create: `solvers/delivery-teaching-us/dataset/version.json`
 - Modify: `lib/dataset-schema/src/index.ts` (`ManifestSchema` capabilities ~`:226`, `PACKAGE_SPECS` `:115`, `MODEL_IDS` `:269`)
-- Modify: `artifacts/api-server/src/registry/modelRegistry.ts` (`PublicModelInfo.capabilities` intersection `:69-80`, `toPublic` mapping `:103`)
+- Modify: `artifacts/api-server/src/registry/modelRegistry.ts` (`PublicModelInfo.capabilities` intersection `:74-80`, `toPublic` mapping `:103`)
 - Test: `lib/dataset-schema/src/manifest.test.ts` (append), `lib/dataset-schema/src/index.test.ts` (append), `lib/dataset-schema/src/deliveryDataset.test.ts` (create)
+- Test (go red the moment this task registers the model, so they are edited here): `artifacts/api-server/src/__tests__/datasets.test.ts` (`EXPECTED_COUNTS` `:4-11`), `artifacts/api-server/src/__tests__/registry.test.ts` (`:19`, `:44` exact six-id arrays)
 
 **Interfaces:**
 - Produces: `readManifest("delivery-teaching-us")` / `getManifest("delivery-teaching-us")` resolve; `capabilities.supportsReferenceCosts: boolean` exists on the public model-info type; `readVersion("delivery-teaching-us")` returns `{ version, sha256 }`.
@@ -745,13 +759,20 @@ describe("delivery-teaching-us dataset package", () => {
 });
 ```
 
+Two api-server suites enumerate models by hand and break the moment the manifest and package spec exist — they are part of this task's red→green, not incidental:
+
+- `artifacts/api-server/src/__tests__/datasets.test.ts:4-11` — `EXPECTED_COUNTS` is a hand-written per-model map read inside `for (const spec of PACKAGE_SPECS)`; without a row, `Object.entries(undefined)` throws. Add: `"delivery-teaching-us": { "warehouses.json": 33, "customers.json": 313, "distances.json": 10329, "costs.json": 10329 },`.
+- `artifacts/api-server/src/__tests__/registry.test.ts:19` and `:44` — two `expect(ids).toEqual([six sorted ids])` arrays titled "the six known models". Insert `"delivery-teaching-us"` at its sorted position (first) in both, and retitle to "seven".
+
 - [ ] **Step 2: Run them to verify they fail**
 
 ```bash
 pnpm --filter @workspace/dataset-schema exec vitest run src/manifest.test.ts src/index.test.ts src/deliveryDataset.test.ts
+DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
+  pnpm --filter api-server exec vitest run src/__tests__/datasets.test.ts src/__tests__/registry.test.ts
 ```
 
-Expected: FAIL — manifest file does not exist; `PACKAGE_SPECS.find` returns undefined; `version.json` missing.
+Expected: FAIL — manifest file does not exist; `PACKAGE_SPECS.find` returns undefined; `version.json` missing; the two api-server suites fail on the seventh id (after the edits above) because the manifest/spec are not registered yet.
 
 - [ ] **Step 3: Write the manifest**
 
@@ -848,7 +869,7 @@ In `lib/dataset-schema/src/index.ts`, beside `supportsFacilityStatus` (~`:226`):
 
 - [ ] **Step 6: Expose the capability through the registry**
 
-In `artifacts/api-server/src/registry/modelRegistry.ts`, the public capabilities type is the inline intersection on `PublicModelInfo` (`:69-80`, `capabilities: Manifest["capabilities"] & { … supportsReferenceDistances: boolean; … }`). Add beside `supportsReferenceDistances` (`:80`):
+In `artifacts/api-server/src/registry/modelRegistry.ts`, the public capabilities type is the inline intersection on `PublicModelInfo` (`:74-80`, `capabilities: Manifest["capabilities"] & { … supportsReferenceDistances: boolean; … }`). Add beside `supportsReferenceDistances` (`:80`):
 
 ```ts
     supportsReferenceCosts: boolean;
@@ -888,7 +909,7 @@ DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
   pnpm --filter api-server exec vitest run src/__tests__/registry.test.ts src/__tests__/datasets.test.ts
 ```
 
-Expected: PASS. `registry.test.ts` is the per-model capability-row suite (spec §8.3) — if it enumerates models by hand, add the delivery row there too and commit it here.
+Expected: PASS, including the two hand-enumerated api-server suites edited in Step 1. `registry.test.ts` is also the per-model capability-row suite (spec §8.3); add a `supportsReferenceCosts` row for this model beside its siblings' capability assertions.
 
 - [ ] **Step 9: Commit**
 
@@ -899,6 +920,8 @@ git add solvers/delivery-teaching-us/manifest.json \
         lib/dataset-schema/src/manifest.test.ts \
         lib/dataset-schema/src/index.test.ts \
         lib/dataset-schema/src/deliveryDataset.test.ts \
+        artifacts/api-server/src/__tests__/datasets.test.ts \
+        artifacts/api-server/src/__tests__/registry.test.ts \
         artifacts/api-server/src/registry/modelRegistry.ts
 git commit -m "[ch5-del-2] register the delivery manifest, package spec, and reference-costs capability"
 ```
@@ -1185,6 +1208,21 @@ def test_envelope_carries_status_evidence():
     assert solve_delivery(adjusted())["details"]["objective"] == "cost_adjusted"
 
 
+def test_dataset_load_error_degrades_to_error_envelope():
+    """Spec 5.8, the other half: a package that failed to load must come back
+    as the dataset_load failure envelope, never as a solve attempt against
+    empty tables (which would be 'infeasible' - plausible and wrong)."""
+    import solve as solve_mod
+    solve_mod._LOAD_ERRORS["delivery-teaching-us"] = "synthetic load failure"
+    try:
+        env = solve_delivery(dict(BASE))
+    finally:
+        del solve_mod._LOAD_ERRORS["delivery-teaching-us"]
+    assert env["status"] == "error"
+    assert env["_failureStage"] == "dataset_load"
+    assert env["edges"] == []
+
+
 def _assignment_map(env):
     return {a["customerId"]: a["warehouseId"] for a in env["details"]["assignments"]}
 
@@ -1413,7 +1451,7 @@ In `solve()` (`:1477-1494`; it reads `inp.get('modelType', 'p_median')` and disp
 cd artifacts/api-server/src/solver && python3 -m pytest tests/test_delivery.py -x -v
 ```
 
-Expected: PASS, all 17 cases. The two golden solves take roughly 4s and 1s.
+Expected: PASS, all 18 cases. The two golden solves take roughly 4s and 1s.
 
 - [ ] **Step 7: Prove no existing solver moved, and the Task 1 drift guard goes green**
 
@@ -1450,7 +1488,7 @@ git commit -m "[ch5-del-3] add solve_delivery with the cost/distance separation 
 - Produces: `deliveryInputsSchema`, `DeliveryInputs`; `buildPayload` emits `modelType: "delivery"`.
 - Consumes: Task 3's wire contract, Task 2's manifest.
 
-This is the **atomic OBS-5 commit**: `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `buildPayload` + `SOLVABLE` land together, because `registration.test.ts` exists precisely to catch a model registered in one place and missing from the others. It also adds the set-equality test spec §9 recommends, so the *next* model cannot be registered in four of six places either.
+This is the **atomic registration commit**: `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `buildPayload` + `SOLVABLE` land together, because `registration.test.ts` exists precisely to catch a model registered in one place and missing from the others. It also adds the set-equality test spec §9 recommends, so the *next* model cannot be registered in four of six places either.
 
 - [ ] **Step 1: Write the failing contract test**
 
@@ -1679,9 +1717,14 @@ describe("model-id registries are one set", () => {
 
   it("every openapi modelId enum lists every id (and no extra)", () => {
     const yaml = readFileSync(path.join(repoRoot(), "lib/api-spec/openapi.yaml"), "utf8");
-    for (const id of canonical) expect(yaml.split(`- ${id}`).length - 1).toBeGreaterThanOrEqual(3);
-    // Single-line enum form at the GET /dataset site:
-    expect(yaml).toContain(`enum: [${[...canonical].join(", ")}]`);
+    // Three multi-line sites use "- <id>" list items (:166-172, :1418-1424, :1619-1625).
+    for (const id of canonical) expect(yaml.split(`- ${id}\n`).length - 1).toBe(3);
+    // The GET /dataset site (:47) is a single-line "enum: [a, b, c]" whose ORDER
+    // does not match MODEL_IDS - compare as sets, never as a joined string.
+    const single = yaml.match(/enum: \[([^\]]+)\]/g) ?? [];
+    const site = single.find((s) => s.includes("p-median-us"))!;
+    const ids = site.slice("enum: [".length, -1).split(",").map((s) => s.trim());
+    expect(new Set(ids)).toEqual(canonical);
   });
 
   it("chapters.ts' StudioModelType names exactly the same ids", () => {
@@ -1693,11 +1736,11 @@ describe("model-id registries are one set", () => {
 });
 ```
 
-Adjust the openapi assertion to the file's real enum formatting (one site is single-line `enum: […]` at `:47`, three are multi-line `- id` lists) after reading it — the intent is "every site lists every id", not the exact regex above.
+The `- <id>\n` count of exactly 3 and the set-compare on the single-line site together cover all four enum sites at `:47`, `:166-172`, `:1418-1424`, `:1619-1625`.
 
 - [ ] **Step 6: Update the OpenAPI contract and regenerate**
 
-In `lib/api-spec/openapi.yaml`, add `delivery-teaching-us` to the `modelId` enum at **all four** sites — `GET /dataset` query (`:47`, single-line), `GET /scenarios` query (`:166-172`), `Scenario.modelId` (`:1417-1424`), `ScenarioInput.modelId` (`:1618-1625`). Capabilities is **not** a named schema: add `supportsReferenceCosts: { type: boolean }` to the inline `capabilities` object under `ModelInfo` (`:932-957`) beside `supportsReferenceDistances`, and add it to that object's `required` list (`:958`) — the registry always emits it (Task 2 Step 6), so requiring it costs nothing and lets the generated client type it as `boolean` rather than `boolean | undefined`.
+In `lib/api-spec/openapi.yaml`, add `delivery-teaching-us` to the `modelId` enum at **all four** sites — `GET /dataset` query (`:47`, single-line), `GET /scenarios` query (`:166-172`), `Scenario.modelId` (`:1418-1424`), `ScenarioInput.modelId` (`:1619-1625`). Capabilities is **not** a named schema: add `supportsReferenceCosts: { type: boolean }` to the inline `capabilities` object under `ModelInfo` (`:927-955`) beside `supportsReferenceDistances`, and add it to that object's `required` list (`:955`) — the registry always emits it (Task 2 Step 6), so requiring it costs nothing and lets the generated client type it as `boolean` rather than `boolean | undefined`.
 
 Nothing else in the contract enumerates models: `Scenario.inputs` / `ScenarioInput.inputs` / `ScenarioUpdate.inputs` are opaque `type: object`, and `ModelInfo.id` is a bare string.
 
@@ -1876,6 +1919,7 @@ git commit -m "[ch5-del-5] load the delivery entities and serve them from GET /d
 **Files:**
 - Modify: `artifacts/api-server/src/services/precheck.ts` (new `precheckDeliveryInputs`, dispatcher `:1368`)
 - Test: `artifacts/api-server/src/__tests__/precheck.test.ts` (append)
+- Test: `artifacts/api-server/src/__tests__/deliveryPrecheckIntegration.test.ts` (create — real DB, real `enqueueScenarioSolve`; modelled on `solveExportIntegration.test.ts`)
 
 **Interfaces:**
 - Produces: `precheckDeliveryInputs(inputs: DeliveryInputs): PrecheckResult`.
@@ -1957,30 +2001,37 @@ describe("precheckDeliveryInputs", () => {
 });
 ```
 
-And the route-level case — in `artifacts/api-server/src/__tests__/routes.test.ts` (which already has `loginAs()` and calls `resetLoginRateLimiterForTests()` in `beforeEach`), following its existing per-model solve-precheck cases:
+And the route-level case. **Not** in `routes.test.ts`: that suite `vi.mock`s both `../solver/jobRunner.js` (`enqueueScenarioSolve` → a mock, `:14,35`) and `@workspace/db`, so the real precheck never runs there and a `W999` in the response could only come from the test's own mock. The suite that exercises the genuine `enqueueScenarioSolve` against the real DB is `solveExportIntegration.test.ts` (header comment: "no `vi.mock` of jobRunner/db/child_process anywhere in this file"; `registerAndGetCookie()` at `:40`; per-user cleanup in `afterAll` `:35`). Create `artifacts/api-server/src/__tests__/deliveryPrecheckIntegration.test.ts` with that file's imports, `registerAndGetCookie`, and cleanup copied verbatim, then:
 
 ```ts
-it("POST /scenarios/:id/solve returns 422 (not a failed job) for a delivery override with an unknown id", async () => {
-  const cookie = await loginAs(/* fresh user */);
-  const created = await request(app).post("/api/scenarios").set("Cookie", cookie)
-    .send({ name: "bad override", modelId: "delivery-teaching-us",
-            inputs: { ...deliveryDefaults, laneCostOverrides: [{ fromId: "W999", toId: "C1", cost: 1 }] } })
-    .expect(201);
-  const res = await request(app).post(`/api/scenarios/${created.body.id}/solve`).set("Cookie", cookie);
-  expect(res.status).toBe(422);
-  expect(res.body.error).toBe("Network-edit precheck failed");
-  expect(JSON.stringify(res.body.errors)).toContain("W999");
+describe("delivery-teaching-us precheck through the real solve route", () => {
+  it("returns 422 (not a queued job) for an override with an unknown warehouse id", async () => {
+    const cookie = await registerAndGetCookie();
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "bad override", modelId: "delivery-teaching-us",
+              inputs: { ...deliveryDefaults, laneCostOverrides: [{ fromId: "W999", toId: "C1", cost: 1 }] } })
+      .expect(201);
+    const res = await request(app).post(`/api/scenarios/${created.body.id}/solve`).set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Network-edit precheck failed");
+    expect(JSON.stringify(res.body.errors)).toContain("W999");
+    // Nothing was queued: the precheck runs inside enqueueScenarioSolve before any job row.
+    const jobs = await db.select().from(solveJobsTable).where(eq(solveJobsTable.scenarioId, created.body.id));
+    expect(jobs).toHaveLength(0);
+  });
 });
 ```
+
+`deliveryDefaults` is the Task 8 default-inputs object (repeat it inline here; the api-server cannot import from the studio). Because the precheck fails, no CBC solve runs — this test costs a DB round-trip, not a solver run.
 
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
 DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
-  pnpm --filter api-server exec vitest run src/__tests__/precheck.test.ts src/__tests__/routes.test.ts
+  pnpm --filter api-server exec vitest run src/__tests__/precheck.test.ts src/__tests__/deliveryPrecheckIntegration.test.ts
 ```
 
-Expected: every negative case FAILS by returning `ok: true` — the pre-approval; the route case enqueues a job instead of 422ing.
+Expected: every negative case FAILS by returning `ok: true` — the pre-approval; the integration case gets a queued job (202) instead of 422, and then a failed job from the worker's `UnresolvableIdError`.
 
 - [ ] **Step 3: Write the precheck**
 
@@ -2037,7 +2088,7 @@ Add the dispatcher branch inside `runNetworkEditsPrecheckForModel` (`:1368`), af
 
 ```bash
 DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
-  pnpm --filter api-server exec vitest run src/__tests__/precheck.test.ts src/__tests__/routes.test.ts
+  pnpm --filter api-server exec vitest run src/__tests__/precheck.test.ts src/__tests__/deliveryPrecheckIntegration.test.ts
 ```
 
 Expected: PASS.
@@ -2047,7 +2098,7 @@ Expected: PASS.
 ```bash
 git add artifacts/api-server/src/services/precheck.ts \
         artifacts/api-server/src/__tests__/precheck.test.ts \
-        artifacts/api-server/src/__tests__/routes.test.ts
+        artifacts/api-server/src/__tests__/deliveryPrecheckIntegration.test.ts
 git commit -m "[ch5-del-6] precheck delivery lane-cost overrides instead of pre-approving them"
 ```
 
@@ -2075,6 +2126,7 @@ Create `artifacts/api-server/src/__tests__/referenceCosts.test.ts`:
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import app from "../app.js";
+import { buildDeliveryReferenceCostsFrom } from "../data/referenceCosts.js";
 
 describe("GET /models/:id/reference-costs", () => {
   it("serves all 10,329 lanes for delivery-teaching-us", async () => {
@@ -2132,13 +2184,17 @@ Also append to `deliveryContract.test.ts` the manifest-vs-Zod parity check spec 
 
 ```ts
 it("manifest.inputsSchema and deliveryInputsSchema agree on bounds and required keys", () => {
+  // inputsSchema is z.record(z.string(), z.unknown()) on the Manifest type
+  // (dataset-schema/src/index.ts:263), so a local shape is needed to read it.
+  type Bound = { minimum?: number; maximum?: number; exclusiveMinimum?: number };
+  type Prop = Bound & { items?: { properties?: Record<string, Bound> } };
   const m = getManifest("delivery-teaching-us")!.inputsSchema as {
-    properties: Record<string, { minimum?: number; maximum?: number; exclusiveMinimum?: number }>;
+    properties: Record<string, Prop>;
     required: string[];
   };
   expect(m.properties.p).toMatchObject({ minimum: 1, maximum: 33 });
-  expect(m.properties.laneCostOverrides!.items?.properties?.cost).toMatchObject({ minimum: 0 });   // zero allowed, matches .nonnegative()
-  expect(m.properties.costPerMile).toMatchObject({ exclusiveMinimum: 0 });                          // matches .positive()
+  expect(m.properties.laneCostOverrides!.items!.properties!.cost).toMatchObject({ minimum: 0 });   // zero allowed, matches .nonnegative()
+  expect(m.properties.costPerMile).toMatchObject({ exclusiveMinimum: 0 });                            // matches .positive()
   expect(new Set(m.required)).toEqual(new Set(["p", "distanceBands", "gap", "timeLimitSec",
     "costAdjustEnabled", "distanceThreshold", "costPerMile", "costPerMileOver"]));
 });
@@ -2297,7 +2353,7 @@ router.use(referenceCostsRouter);
 
 - [ ] **Step 6: Add the path to OpenAPI and regenerate**
 
-Add `/models/{id}/reference-costs` beside the existing reference-distances path, with its 200/304/422 responses and the `ReferenceCostPair` schema.
+Add `/models/{id}/reference-costs` beside the existing `/models/{id}/reference-distances` path (`openapi.yaml:78-113`, `operationId: getReferenceDistances`, `tags: [models]`), with its 200/304/422 responses and two schemas mirroring `ReferenceDistances` (`:985-996`) / `ReferenceDistancePair` (`:965-984`). **The names are contract, because orval derives the hook names from them:** `operationId: getReferenceCosts` → `useGetReferenceCosts` + `getGetReferenceCostsQueryKey` (the exact names Task 11 imports); schemas `ReferenceCosts` (`pairs`, `distanceUnit`) and `ReferenceCostPair` (`fromId`, `fromCode`, `toId`, `toCode`, `cost`).
 
 ```bash
 pnpm --filter @workspace/api-spec run codegen
@@ -2332,8 +2388,9 @@ git commit -m "[ch5-del-7] serve and validate the base cost matrix behind a moun
 **Files:**
 - Modify: `artifacts/studio/src/lib/chapters.ts` (`StudioModelType` `:1`, `CHAPTERS`)
 - Modify: `artifacts/studio/src/pages/Workspace.tsx` (`defaultInputsForModel` `:125` — already exported; `inputEntriesForModel` `:1184` — module-private today, export it)
-- Modify: `lib/units/src/objective.ts:20-35`, `lib/units/src/__tests__/objective.test.ts:4-13` (the "six-model contract" table)
-- Modify: `artifacts/studio/src/__tests__/Landing.test.tsx:388`
+- Modify: `lib/units/src/objective.ts` (case arm before `default:` at `:32`; signature is `:20`), `lib/units/src/__tests__/objective.test.ts:4-13` (the "six-model contract" table)
+- Modify: `artifacts/studio/src/__tests__/formatObjective.test.ts:70-106` (its own "six-model contract" table)
+- Modify: `artifacts/studio/src/__tests__/Landing.test.tsx:388`, `artifacts/studio/src/__tests__/Login.test.tsx:98-108` (auth strip asserts `not.toHaveTextContent("Chapter 5")` at `:107`)
 - Create: `artifacts/studio/src/__tests__/deliveryRegistration.test.tsx`
 
 **Interfaces:**
@@ -2348,12 +2405,21 @@ Create `artifacts/studio/src/__tests__/deliveryRegistration.test.tsx`. Fifteen e
 
 ```tsx
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
 import { CHAPTERS, chapterForModelId } from "@/lib/chapters";
 import { objectiveDimension } from "@workspace/units";
 import { formatObjective } from "@/lib/formatObjective";
 import { defaultInputsForModel, inputEntriesForModel } from "@/pages/Workspace";
-import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";   // used by Task 9's block
+// formatObjective's 5th parameter is a UnitApi OBJECT (formatObjective.ts:76,
+// contexts/UnitContext.tsx:34-41), not a unit string. Same stub, same type
+// imports, as artifacts/studio/src/__tests__/formatObjective.test.ts:1-10,59-68.
+import type { UnitApi } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
+function stubUnitApi(effective: CanonicalUnit): UnitApi {
+  return { pref: effective, setPref: () => {}, effectiveUnit: () => effective,
+           toDisplay: (v: number) => v, fromDisplay: (v: number) => v,
+           format: (v: number, canonical: CanonicalUnit) => `${v} ${canonical}` };
+}
+const mi = stubUnitApi("mi");
 
 describe("delivery-teaching-us — chapter registration", () => {
   it("is visible on Landing while the other two Chapter 5 labs stay hidden", () => {
@@ -2399,12 +2465,12 @@ describe("delivery-teaching-us — objective units", () => {
   // no knowledge of the suffix/locale format and cannot drift from it.
   it("renders like jade when adjusted and like p-median when not", () => {
     const x = 150194534098.6;
-    expect(formatObjective("delivery-teaching-us", "cost_adjusted", x, "mi", "mi"))
-      .toBe(formatObjective("two-echelon-jade-us", null, x, "mi", "mi"));
-    expect(formatObjective("delivery-teaching-us", "base", 88240913478.1, "mi", "mi"))
-      .toBe(formatObjective("p-median-us", null, 88240913478.1, "mi", "mi"));
-    expect(formatObjective("delivery-teaching-us", "cost_adjusted", x, "mi", "mi"))
-      .not.toBe(formatObjective("not-a-model", null, x, "mi", "mi"));   // not the opaque path
+    expect(formatObjective("delivery-teaching-us", "cost_adjusted", x, "mi", mi))
+      .toBe(formatObjective("two-echelon-jade-us", null, x, "mi", mi));          // "$…" (formatObjective.ts:53-54,83)
+    expect(formatObjective("delivery-teaching-us", "base", 88240913478.1, "mi", mi))
+      .toBe(formatObjective("p-median-us", null, 88240913478.1, "mi", mi));      // "… demand-mi"
+    expect(formatObjective("delivery-teaching-us", "cost_adjusted", x, "mi", mi))
+      .not.toBe(formatObjective("not-a-model", null, x, "mi", mi));             // not the opaque path
   });
 });
 
@@ -2435,27 +2501,31 @@ describe("delivery-teaching-us — the input surface is fixed", () => {
 
 `inputEntriesForModel` is module-private at `Workspace.tsx:1184` — add `export` (a named export is the smallest change that makes this testable, and the function is already pure).
 
-Also add the contract row to `lib/units/src/__tests__/objective.test.ts`'s `cases` table (`:5-13`, one row per model/mode; the describe is titled "the six-model contract" — retitle to "seven-model"):
+Also add the contract row to `lib/units/src/__tests__/objective.test.ts`'s `cases` table (`:5-13`, tuple `[modelId, mode, dim, converts]`; `objectiveConverts("monetary")` is `false`, `"demand-distance"` `true` — `objective.ts:37-43`; the describe is titled "the six-model contract" — retitle to "seven-model"):
 
 ```ts
     ["delivery-teaching-us", "base",          "demand-distance",   true],
     ["delivery-teaching-us", "cost_adjusted", "monetary",          false],
 ```
 
-And update `artifacts/studio/src/__tests__/Landing.test.tsx:388` from `"3 labs · 3 scenarios · 1 solved"` to `"4 labs · 3 scenarios · 1 solved"` (the new chapter has no summary row in that test's mock, so it contributes 0 scenarios / 0 solved — same as Ch4 and Ch9 there).
+and the equivalent two rows to the studio-side table in `artifacts/studio/src/__tests__/formatObjective.test.ts:70-106` ("formatObjective — six-model contract"; retitle likewise), in that file's own row shape.
+
+Update `artifacts/studio/src/__tests__/Landing.test.tsx:388` from `"3 labs · 3 scenarios · 1 solved"` to `"4 labs · 3 scenarios · 1 solved"` (`visibleLabs` counts non-hidden `CHAPTERS`, `Landing.tsx:78`; scenarios/solved come from `visiblePerChapter` and the new chapter has no row in that mock, so it contributes 0/0 — same as Ch4 and Ch9 there).
+
+Update `artifacts/studio/src/__tests__/Login.test.tsx:98-108` ("shows only non-hidden chapter labels in the footer labs strip"): `:107`'s `expect(strip).not.toHaveTextContent("Chapter 5")` becomes `toHaveTextContent("Chapter 5")` with the comment corrected (Ch5 now has one visible lab; `"Ch 5"` and `"Chapter 10"` stay excluded). The strip is `CHAPTERS` order deduped by `chapter` (`components/auth/AuthShell.tsx:50`), so with the entry placed as Step 3 prescribes it reads exactly `Chapter 3Chapter 4Chapter 5Chapter 9` — Task 13 Step 3 pins that same string in the two e2e specs.
 
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx src/__tests__/Landing.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx src/__tests__/Landing.test.tsx src/__tests__/Login.test.tsx src/__tests__/formatObjective.test.ts
 pnpm --filter @workspace/units test
 ```
 
-Expected: FAIL — `StudioModelType` rejects the id at the type level, the tab assertions return the p-median list, `objectiveDimension` returns `"opaque"`, Landing still counts 3.
+Expected: FAIL — `StudioModelType` rejects the id at the type level, the tab assertions return the p-median list, `objectiveDimension` returns `"opaque"`, Landing still counts 3, the Login strip lacks Chapter 5.
 
 - [ ] **Step 3: Register the chapter**
 
-In `artifacts/studio/src/lib/chapters.ts`, extend the union on line 1 with `| "delivery-teaching-us"` and add to `CHAPTERS`:
+In `artifacts/studio/src/lib/chapters.ts`, extend the union on line 1 with `| "delivery-teaching-us"` and add to `CHAPTERS` **immediately after the `p-median-brazil` entry** (`:73-80`) — array position is contract: `CHAPTERS` order is Ch3 (`:41`), Ch4 (`:51`), Ch5 transport (`:62`), Ch5 brazil (`:73`), Ch10 gold (`:84`, hidden), Ch9 jade (`:95`, locked), and both the Landing card order and the auth-strip string (`AuthShell.tsx:50`, deduped by `chapter`) derive from it. Placed here, the strip reads `Chapter 3Chapter 4Chapter 5Chapter 9`, which Task 8 Step 1's `Login.test.tsx` edit and Task 13 Step 3's e2e specs both pin:
 
 ```ts
   {
@@ -2509,7 +2579,7 @@ No `hiddenFromLanding`, no `locked`. The two existing Chapter 5 entries are not 
 
 - [ ] **Step 5: Add the objective-units case**
 
-In `lib/units/src/objective.ts` (`:20`), before `default:`:
+In `lib/units/src/objective.ts`, inside `objectiveDimension`'s `switch` (signature `:20`), as a new case before `default:` (`:32`):
 
 ```ts
     case "delivery-teaching-us":
@@ -2523,7 +2593,7 @@ In `lib/units/src/objective.ts` (`:20`), before `default:`:
 - [ ] **Step 6: Run to verify they pass**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx src/__tests__/Landing.test.tsx src/lib/chapters.test.ts src/__tests__/lockedChapterDrift.test.ts src/__tests__/App.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx src/__tests__/Landing.test.tsx src/__tests__/Login.test.tsx src/__tests__/formatObjective.test.ts src/lib/chapters.test.ts src/__tests__/lockedChapterDrift.test.ts src/__tests__/App.test.tsx
 pnpm --filter @workspace/units test
 DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
   pnpm --filter api-server exec vitest run src/__tests__/modelIdSetEquality.test.ts
@@ -2539,7 +2609,9 @@ git add artifacts/studio/src/lib/chapters.ts \
         artifacts/studio/src/pages/Workspace.tsx \
         lib/units/src/objective.ts \
         lib/units/src/__tests__/objective.test.ts \
+        artifacts/studio/src/__tests__/formatObjective.test.ts \
         artifacts/studio/src/__tests__/Landing.test.tsx \
+        artifacts/studio/src/__tests__/Login.test.tsx \
         artifacts/studio/src/__tests__/deliveryRegistration.test.tsx
 git commit -m "[ch5-del-8] register the delivery chapter and declare its fixed input surface"
 ```
@@ -2549,9 +2621,9 @@ git commit -m "[ch5-del-8] register the delivery chapter and declare its fixed i
 ## Task 9: Read-only Input Map
 
 **Files:**
-- Modify: `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx`
-- Modify: `artifacts/studio/src/pages/Workspace.tsx` (map render gate ~`:2999`)
-- Test: `artifacts/studio/src/__tests__/deliveryRegistration.test.tsx` (append)
+- Modify: `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` (`pmedian` arm props `:128-164`; render sites `:756` right-click handler, `:921` `<MapActionMenu`, `:942` add menu, `:833-844` arming chips, `:868` Save)
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (map render fallback `:2997-3004`)
+- Create: `artifacts/studio/src/__tests__/InputMapTab.deliveryReadOnly.test.tsx` (its own file: it needs the `vi.mock("@workspace/api-client-react")` + `UnitProvider` harness of `InputMapTabV2.test.tsx:10-27`, which must not be applied to `deliveryRegistration.test.tsx` because that file imports `@/pages/Workspace` for real)
 
 **Interfaces:**
 - Produces: `InputMapTab`'s `pmedian` arm (`InputMapTab.tsx:128-164`) accepts `readOnly?: boolean`; when true it renders markers, legend and details card and **no** mutation affordance.
@@ -2561,44 +2633,51 @@ The smallest safe change is a read-only variant of the existing p-median map, no
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `deliveryRegistration.test.tsx` (its imports of `render`, `screen`, `InputMapTab` were added in Task 8 Step 1):
+Create `artifacts/studio/src/__tests__/InputMapTab.deliveryReadOnly.test.tsx`. Its harness is `InputMapTabV2.test.tsx:10-46` copied verbatim — the `render` wrapper with `UnitProvider`, the `vi.mock("@workspace/api-client-react", () => ({ useListModels: () => ({ data: [] }) }))` (the pmedian arm calls `useListModels()` internally), the `baseWh`/`baseCs` fixture builders (`MapWarehouse` requires `displayCode`, `capacity`, `status`, `isAdded`; `MapCustomer` requires `displayCode`, `excluded`, `isAdded` — `map/types.ts:68-98`), and a `basePMedianInputs` with all six required `PMedianMapInputs` fields (`addedWarehouses`, `addedCustomers`, `warehouseOverrides`, `customerOverrides`, `distanceOverrides`, `capacityMode` — `map/types.ts:54-62`). Then:
 
 ```tsx
-describe("delivery-teaching-us — the map is read-only", () => {
-  function renderDeliveryMap() {
+describe("InputMapTab pmedian — readOnly (delivery-teaching-us)", () => {
+  function renderReadOnly() {
     return render(<InputMapTab mode="pmedian" readOnly
-                               warehouses={[{ id: "W1", city: "Los Angeles", state: "CA", lat: 34.05, lng: -118.24 }]}
-                               customers={[{ id: "C2", city: "Chicago", state: "IL", lat: 41.88, lng: -87.63, demand: 1000 }]}
-                               inputs={{}} countryBounds={{ sw: [24, -125], ne: [50, -66] }}
+                               warehouses={[baseWh({ id: "W1", displayCode: "W1", city: "Los Angeles", state: "CA", lat: 34.05, lng: -118.24 })]}
+                               customers={[baseCs({ id: "C2", displayCode: "C2", city: "Chicago", state: "IL", lat: 41.88, lng: -87.63, demand: 1000 })]}
+                               inputs={basePMedianInputs()} countryBounds={{ sw: [24, -125], ne: [50, -66] }}
                                onInputsChange={() => { throw new Error("read-only map must never call onInputsChange"); }} />);
   }
 
-  // Real testids at 3065c91 - arming chips, right-click add menu, marker
-  // action menu, Layers-row Save. Asserting the tab list alone would pass
-  // against a map a student can still drag a warehouse on, which is why every
-  // affordance is named individually.
+  // Real testids at 3065c91 - arming chips, Layers-row Save. Asserting the
+  // tab list alone would pass against a map a student can still drag a
+  // warehouse on, which is why every affordance is named individually.
   it.each([
     "button-input-map-place-wh", "button-input-map-place-cs",       // InputMapTab.tsx:833,836
     "armed-status-bar", "button-armed-cancel",                       // :840,844
-    "map-add-menu", "map-add-menu-wh", "map-add-menu-cs",            // :368-375 (right-click)
-    "map-action-menu", "map-action-edit", "map-action-move",         // map/MapActionMenu.tsx
-    "map-action-copy", "map-action-delete",
     "button-save",                                                   // :868 (Layers-row Save)
   ])("does not render %s", (testid) => {
-    renderDeliveryMap();
+    renderReadOnly();
     expect(screen.queryByTestId(testid)).toBeNull();
   });
 
-  it("does not open the action menu or the add menu from a marker / map interaction", async () => {
-    renderDeliveryMap();
-    // right-click the map surface and click a marker; neither menu may appear
-    // (copy the interaction helpers from InputMapTabV2.test.tsx).
-    expect(screen.queryByTestId("map-action-menu")).toBeNull();
+  // The two menus are opened by interaction, so a render-only assertion is
+  // vacuous. Use the same contextmenu / marker-click helpers InputMapTabV2
+  // .test.tsx uses for its own "opens the add menu" / "opens the action
+  // menu" cases, then assert the menus did NOT appear.
+  it("right-click does not open the add menu", () => {
+    renderReadOnly();
+    /* fire the map-surface contextmenu exactly as InputMapTabV2.test.tsx does */
     expect(screen.queryByTestId("map-add-menu")).toBeNull();
+    expect(screen.queryByTestId("map-add-menu-wh")).toBeNull();
   });
 
-  it("still renders the map, its legend and the read-only details card", () => {
-    renderDeliveryMap();
+  it("clicking a marker shows the details card but not the action menu", () => {
+    renderReadOnly();
+    /* click the W1 marker exactly as InputMapTabV2.test.tsx does */
+    expect(screen.getByTestId("map-details-lat")).toBeInTheDocument();       // MapDetailsCard.tsx:105-134 (read-only card)
+    expect(screen.queryByTestId("map-action-menu")).toBeNull();
+    for (const a of ["edit", "move", "copy", "delete"]) expect(screen.queryByTestId(`map-action-${a}`)).toBeNull();
+  });
+
+  it("still renders the map root and legend", () => {
+    renderReadOnly();
     expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();    // root testid (:817); there is no "input-map"
   });
 });
@@ -2609,23 +2688,23 @@ The edit dialogs (`edit-warehouse-*`, `edit-customer-*`, `create-entity-*`, `mov
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/InputMapTab.deliveryReadOnly.test.tsx
 ```
 
 Expected: FAIL — `readOnly` is not a prop (TS error) and the arming chips render.
 
 - [ ] **Step 3: Add the `readOnly` prop**
 
-In `InputMapTab.tsx`'s `pmedian` arm (`:128-164`), add `readOnly?: boolean` beside `demandEditable?` with a comment recording why it exists, and gate on `!readOnly`: the arming chips + armed bar (`:833-844`), the right-click add menu (`:368-379`), the marker action menu (`map/MapActionMenu.tsx` mount), and the Layers-row Save (`:868`). Do not gate on `modelId` — this repo's recurring bug class is a shared component gated for one model and not its sibling, and a capability-style boolean prop cannot drift that way. `demandEditable` stays as is (`false` for this model via the manifest).
+In `InputMapTab.tsx`'s `pmedian` arm (`:128-164`), add `readOnly?: boolean` beside `demandEditable?` with a comment recording why it exists, and gate on `!readOnly` **at the pmedian arm's own render sites, not in the shared components** (the add-menu component body at `:338-380` and `map/MapActionMenu.tsx` are shared by all four map modes; gating them there would silently disable transport/two-echelon/jade): the arming chips + armed bar (`:833-844`), the right-click handler (`:756`) so no add menu is ever mounted (`:942`), the `<MapActionMenu` mount (`:921`), and the Layers-row Save (`:868`). Do not gate on `modelId` — this repo's recurring bug class is a shared component gated for one model and not its sibling, and a capability-style boolean prop cannot drift that way. `demandEditable` stays as is (`false` for this model via the manifest).
 
 - [ ] **Step 4: Pass it from Workspace**
 
-At the p-median map render (`Workspace.tsx:2998-3004`), pass `readOnly={modelId === "delivery-teaching-us"}` and, for that model, an `onInputsChange` that is a no-op (the prop is required by the arm's type), so the component cannot write even if a future edit reintroduces an affordance. Leave `isEditableInputTab` (`:2140-2200`) and `saveInLayersRow` (`:2211`) **without** a delivery `input-map` row — the map has nothing to save, so it must not be treated as an editable tab (that would render a dirty-state Save with no effect).
+At the p-median map render (the un-gated fallback of `entity === "input-map"`, `Workspace.tsx:2997-3004`), pass `readOnly={modelId === "delivery-teaching-us"}` and, for that model, an `onInputsChange` that is a no-op (the prop is required by the arm's type), so the component cannot write even if a future edit reintroduces an affordance. Leave `isEditableInputTab` (`:2125-2200`) and `saveInLayersRow` (`:2211`) **without** a delivery `input-map` row — the map has nothing to save, so it must not be treated as an editable tab (that would render a dirty-state Save with no effect). This deliberate no-op is R7 row 21.
 
 - [ ] **Step 5: Run to verify they pass, and that no other model changed**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/deliveryRegistration.test.tsx \
+pnpm --filter studio exec vitest run src/__tests__/InputMapTab.deliveryReadOnly.test.tsx \
   src/__tests__/InputMapTabV2.test.tsx src/__tests__/InputMapTab.maxCoverage.test.tsx \
   src/__tests__/InputMapTabV2.transport.test.tsx
 ```
@@ -2637,7 +2716,7 @@ Expected: PASS, including every pre-existing Input Map suite.
 ```bash
 git add artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx \
         artifacts/studio/src/pages/Workspace.tsx \
-        artifacts/studio/src/__tests__/deliveryRegistration.test.tsx
+        artifacts/studio/src/__tests__/InputMapTab.deliveryReadOnly.test.tsx
 git commit -m "[ch5-del-9] add a read-only Input Map variant and use it for delivery"
 ```
 
@@ -2714,23 +2793,28 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
   });
 
   // The component default is pMax = 50 against a schema cap of 33. P is a
-  // Radix <Slider data-testid="slider-p-value" max={pMax}> plus quick-pick
-  // buttons filtered by n <= pMax - there is no "input-p".
-  it("caps the P slider at 33 and drops quick-picks above it", () => {
+  // Radix <Slider data-testid="slider-p-value" max={pMax}> whose max lives as
+  // aria-valuemax on the child [role="slider"] thumb (the pattern the existing
+  // pMax suite uses at OptimizationParametersTab.test.tsx:190-192), plus
+  // quick-pick buttons [2,3,4,10,25] filtered by n <= pMax. There is no "input-p".
+  it("caps the P slider at 33 and keeps every quick-pick (all five are <= 33)", () => {
     render(<OptimizationParametersTab {...deliveryProps} />);
-    expect(screen.getByTestId("slider-p-value")).toHaveAttribute("aria-valuemax", "33");   // Radix exposes max as aria-valuemax on the thumb; adjust to the real rendered attribute after one run
-    expect(screen.getByTestId("button-p-quick-25")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-p-quick-50")).toBeNull();
+    const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "33");
+    for (const n of [2, 3, 4, 10, 25]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
   });
 });
 ```
 
-And in `SolveDialog.test.tsx`, following its existing `pMax` case for max-coverage-us (the dialog has its own `pMax = 50` default at `SolveDialog.tsx:156` and its own slider `solve-dialog-slider-p` at `:205`):
+This file uses `fireEvent` (`:1-4`), not `userEvent` — write the two click cases above with `fireEvent.click(...)` and drop the `await`.
+
+And in `SolveDialog.test.tsx`, beside its existing max-coverage case (`:123-134`, `describe("SolveDialog — max-coverage-us pMax + no band editor (C4.12)")`, which uses the file's `renderDialog(over)` helper — there is no `baseProps` in that file; the dialog's own `pMax = 50` default is `SolveDialog.tsx:156`, the slider `solve-dialog-slider-p` is `:210`):
 
 ```tsx
-it("caps P at 33 for delivery-teaching-us", () => {
-  render(<SolveDialog {...baseProps} p={3} pMax={33} />);
-  expect(screen.getByTestId("solve-dialog-slider-p")).toHaveAttribute("aria-valuemax", "33");
+it("caps the P slider at 33 when pMax=33 (delivery-teaching-us; 34 is unreachable from the Solve dialog)", () => {
+  renderDialog({ p: 3, pMax: 33 });
+  const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+  expect(thumb).toHaveAttribute("aria-valuemax", "33");
 });
 ```
 
@@ -2829,7 +2913,7 @@ That placement is load-bearing. Chapter 4's Task 7 wraps its own block in the st
 
 `pMax` is **already passed** at both mounts as a modelId ternary — `Workspace.tsx:3320` (`modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : undefined`) and `:4037` (`modelId === "max-coverage-us" ? 26 : undefined`). Add a `: modelId === "delivery-teaching-us" ? 33` arm to **both**; a bound enforced at one mount is not a bound. (`26` is a hardcoded literal for max-coverage; `33` is likewise the schema's `.max(33)` — the two must move together if the dataset ever changes, which is why Task 4's contract test pins 33/34.)
 
-Pass the four values into `OptimizationParametersTab` beside the Chen props at `:3320-3334`, reading them off `localInputs` with the same presence-typed reader pattern the file already uses (`optionalNumberFromInputs(localInputs, "…")`; add a `booleanFromInputs` for `costAdjustEnabled` if none exists), each gated `modelId === "delivery-teaching-us" ? … : undefined` exactly like the Chen props so no sibling receives them.
+Pass the four values into `OptimizationParametersTab` beside the Chen props at `:3320-3334`, reading them off `localInputs` with the same presence-typed reader pattern the file already uses: `optionalNumberFromInputs(localInputs, "…")` (`:266`) for the three numbers, and a new `costAdjustEnabledFromInputs(inputs): boolean | undefined` beside the existing per-field boolean readers `singleSourceFromInputs` (`:302`) / `capacityInactiveFromInputs` (`:307`) — there is no generic boolean reader, and the file's convention is one named reader per field. Each is gated `modelId === "delivery-teaching-us" ? … : undefined` exactly like the Chen props so no sibling receives them.
 
 - [ ] **Step 6: Run to verify they pass**
 
@@ -2857,8 +2941,9 @@ git commit -m "[ch5-del-10] add the Adjust Cost Table control and cap P at 33 in
 **Files:**
 - Create: `artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx`
 - Create: `artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx`
-- Modify: `artifacts/studio/src/pages/Workspace.tsx` (tab content branch; `isEditableInputTab` row `:2140-2200`)
-- Modify: `artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx` (delivery block)
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (tab content branch; `isEditableInputTab` row `:2125-2200`)
+- Modify: `artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx` (delivery block; the file is 750 lines, the max-coverage block is `:656-750`)
+- Modify: `artifacts/studio/src/__tests__/Workspace.test.tsx` (Save-path case for the Delivery Costs tab)
 
 **Interfaces:**
 - Consumes: Task 7's `GET /models/:id/reference-costs` via the generated hook (`useGetReferenceCosts` / `getGetReferenceCostsQueryKey` from `@workspace/api-client-react`, produced by Task 7's codegen); Task 8's `deliveryCosts` entry id.
@@ -2868,7 +2953,9 @@ Modelled directly on `DistancesTab.tsx`: base rows from the reference endpoint m
 
 **With 10,329 base rows the filters are not a nicety.** They are the only practical way to reach a lane; paging to row 4,000 is not an interaction. Treat "filter to a city, edit its cost" as the primary flow.
 
-**The tab must be declared editable, or it cannot save.** `isEditableInputTab` (`Workspace.tsx:2140-2200`) is an allow-list of `(entity, modelId)` pairs — `laneCosts` is listed for `transport-coal` only (`:2200`), `distances` for five models (`:2198`). Without a `deliveryCosts` row for this model the shared toolbar Save never appears and the dirty state is never tracked. Nothing errors.
+**The tab must be declared editable, or it cannot save.** `isEditableInputTab` (`Workspace.tsx:2125-2200`) is `activeTab?.kind === "input" && ( … || … )`, an allow-list of `(entity, modelId)` pairs inside the parentheses — `laneCosts` is listed for `transport-coal` only (`:2200`), `distances` for five models (`:2198`). Without a `deliveryCosts` row for this model the shared toolbar Save never appears and the dirty state is never tracked. Nothing errors.
+
+**Seven other `modelId ===` gates in `Workspace.tsx` need no delivery arm, and this task records why** (R7 rows 22–24): the reference-distances query `enabled` list (`:1426`) — this model has `supportsReferenceDistances: false`, so exclusion is correct; the input-map dispatch branches (`:2929/2954/2974`) — gold/transport/jade only, delivery takes the pmedian fallback by design (Task 9); `enableFilters` (`:3066`, `:3686`) and `locationById` (`:3382`, `:3555`, `:3668`) — jade/Chen-only display extras, the id-only default is the documented back-compat rendering; the jade-only Customer Assignments / Flows branches (`:3699`, `:3747`) — delivery uses the shared `AssignmentsTab` and has no Flows grid. Each is a *falls-to-default-correctly* case, verified against the source at `3065c91`; the TabCoverage block below is the test that the defaults render real content.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2896,15 +2983,17 @@ describe("DeliveryCostsTab", () => {
 
 Fill each body with real assertions against the component's own testids — copy the interaction patterns from `DistancesTab.test.tsx`, which exercises the identical shape.
 
-Append a delivery block to `Workspace.TabCoverage.test.tsx`, mirroring the `max-coverage-us` block at `:656-760` (a solved scenario fixture, a `useListModels` mock carrying this model's manifest capabilities incl. `capacityModes: []`, `supportsReferenceCosts: true`, `outputGrids` of four; then `runTabCoverage`). Inputs side: `[INPUT_MAP, { sidebarId: "deliveryCosts", tabTestId: "delivery-costs-tab" }, OPTIMIZATION_PARAMETERS]`; outputs side: `[OUTPUT_MAP, OPEN_WAREHOUSES, CUSTOMER_ASSIGNMENTS, COST_SUMMARY, SERVICE_STATS]` and **no** `FLOWS`. This is the test that proves every declared tab opens real content (decision 10's "three outputs, placed" and spec §6.1's four output grids) and that no fourth input tab leaks in.
+Append a delivery block to `Workspace.TabCoverage.test.tsx`, mirroring the `max-coverage-us` block at `:656-750` (a solved scenario fixture, a `useListModels` mock carrying this model's manifest capabilities incl. `capacityModes: []`, `supportsReferenceCosts: true`, `outputGrids` of four; then `runTabCoverage` — helpers `runTabCoverage:152`, `INPUT_MAP:136`, `OPTIMIZATION_PARAMETERS:132`, `OUTPUT_MAP:137`, `OPEN_WAREHOUSES:146`, `CUSTOMER_ASSIGNMENTS:147`, `FLOWS:148`, `COST_SUMMARY:149`, `SERVICE_STATS:150`; entry shape `{ sidebarId, tabTestId }`). Inputs side: `[INPUT_MAP, { sidebarId: "deliveryCosts", tabTestId: "delivery-costs-tab" }, OPTIMIZATION_PARAMETERS]`; outputs side: `[OUTPUT_MAP, OPEN_WAREHOUSES, CUSTOMER_ASSIGNMENTS, COST_SUMMARY, SERVICE_STATS]` and **no** `FLOWS`. This is the test that proves every declared tab opens real content (decision 10's "three outputs, placed" and spec §6.1's four output grids) and that no fourth input tab leaks in.
+
+Add the Save-path case to `Workspace.test.tsx` — the guard for the `isEditableInputTab` silent failure (R7 row 20). No existing test covers a `laneCosts`/`distances` dirty→Save flow at Workspace level for a sibling to copy verbatim; build it from the file's existing scenario/model mocks (`Workspace.test.tsx:425`'s solved-scenario setup is the nearest): render a delivery scenario, open the Delivery Costs tab, add one override through the tab's add-row, and assert the shared toolbar Save button renders and, on click, the `PATCH` mock is called with `laneCostOverrides` containing that pair. Without the `isEditableInputTab` row this test fails on the missing Save button.
 
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx src/__tests__/Workspace.test.tsx
 ```
 
-Expected: FAIL — module not found; the coverage block finds no `delivery-costs-tab`.
+Expected: FAIL — module not found; the coverage block finds no `delivery-costs-tab`; no Save button.
 
 - [ ] **Step 3: Write the component**
 
@@ -2912,12 +3001,12 @@ Create `DeliveryCostsTab.tsx` following `DistancesTab.tsx`'s structure: `baseByK
 
 - [ ] **Step 4: Render it from Workspace and declare it editable**
 
-Add a tab-content branch for `entity === "deliveryCosts"`, beside the existing `laneCosts` (`:3465`) and `distances` (`:3356`) branches. Add `(activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us")` to `isEditableInputTab`'s allow-list (`:2140-2200`) with a comment naming this task, so the shared toolbar Save and dirty tracking apply.
+Add a tab-content branch for `entity === "deliveryCosts"`, beside the existing `laneCosts` (`:3465`) and `distances` (`:3356`) branches. Add `(activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us")` **inside** `isEditableInputTab`'s parenthesised `||` chain (`:2125-2200`; the last row closes with `));`) with a comment naming this task, so the shared toolbar Save and dirty tracking apply.
 
 - [ ] **Step 5: Run to verify they pass**
 
 ```bash
-pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx src/__tests__/Workspace.test.tsx
 pnpm --filter studio test
 ```
 
@@ -2929,6 +3018,7 @@ Expected: PASS, and the full Studio suite still green.
 git add artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx \
         artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx \
         artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx \
+        artifacts/studio/src/__tests__/Workspace.test.tsx \
         artifacts/studio/src/pages/Workspace.tsx
 git commit -m "[ch5-del-11] add the Delivery Costs override editor over the base cost matrix"
 ```
@@ -2938,17 +3028,20 @@ git commit -m "[ch5-del-11] add the Delivery Costs override editor over the base
 ## Task 12: Outputs — band precision, Demand Served, Solution Summary, and exports
 
 **Files:**
-- Modify: `lib/units/src/bands.ts:37-52`, `artifacts/studio/src/lib/bands.ts:25-37` (shim re-export)
-- Modify: `artifacts/api-server/src/services/templates.ts` (`buildEffectiveFacilityCityLookup` `:1388-1402`)
+- Modify: `lib/units/src/bands.ts:37-52`
+- Modify: `artifacts/api-server/src/services/templates.ts` (`buildEffectiveFacilityCityLookup` `:1388-1407`)
 - Modify: `artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx` (`:288-290`)
-- Modify: `artifacts/studio/src/pages/Workspace.tsx` (Open Warehouses `capacityModes` pass-through `:3681`)
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (Open Warehouses `capacityModes` pass-through `:3679-3682`)
 - Test: `lib/units/src/__tests__/bands.test.ts`, `artifacts/api-server/src/__tests__/templates.test.ts`, `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, `artifacts/studio/src/__tests__/Workspace.test.tsx` (Open Warehouses column), `artifacts/api-server/src/__tests__/routes.test.ts` (output export)
+- **Not** modified: `artifacts/studio/src/lib/bands.ts` — it re-exports the `@workspace/units` symbol directly (`:24-42`, a plain `export { … }` list, no wrapper), so the widened signature flows through with no edit. R7 row 28 records it as a pass-through, not a registration point.
 
 **Interfaces:**
-- Produces: `computeCumulativeBandCoverage(edges, bands, opts?: { decimals?: number })` — **default unchanged**, re-exported unchanged through the studio shim; `buildEffectiveFacilityCityLookup` resolves delivery warehouse cities; Open Warehouses shows Demand Served for this model.
+- Produces: `computeCumulativeBandCoverage(edges, bands, opts?: { decimals?: number })` — **default unchanged**; `buildEffectiveFacilityCityLookup` resolves delivery warehouse cities; Open Warehouses shows Demand Served for this model.
 - Consumes: Task 3's envelope, Task 5's loaders.
 
-**Where the numbers actually come from.** `ServiceStatsTab.tsx:288-290` recomputes coverage live from `edges[].distance` via `computeCumulativeBandCoverage` whenever Workspace passes `presentationBands` (it does for every band model), and only falls back to the envelope's `metrics.bandCoverage`. So the 2 dp contract for the *bars* is the `decimals` option below; the envelope's 2 dp (Task 3) is what exports and the Solution Summary read. Both must hold. `ServiceStatsTab` imports the helper from the studio shim `@/lib/bands`, which re-exports `@workspace/units` — the new option must flow through that re-export (it is a plain `export { … }` list, so widening the signature upstream is enough; verify the shim's type re-export picks it up).
+**Where the numbers actually come from.** `ServiceStatsTab.tsx:288-290` recomputes coverage live from `edges[].distance` via `computeCumulativeBandCoverage` whenever Workspace passes `presentationBands` (it does for every band model), and only falls back to the envelope's `metrics.bandCoverage`. So the 2 dp contract for the *bars* is the `decimals` option below; the envelope's 2 dp (Task 3) is what exports read. Both must hold.
+
+**Weighted average distance is 4 dp in the envelope and export, 1 dp on screen.** `CostSummaryTab.tsx:20-22`'s local `formatDistance` is hardcoded `toFixed(1)` and shared by every model; widening it would regress six models' pinned renderings. Spec §5.7's 4 dp is an *envelope* contract (Task 3 rounds to 4) and is what the JSON export carries; the Solution Summary shows `422.6 mi`. Task 13's UI assertions use the 1 dp form; the 4 dp value is asserted through the export route.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2993,30 +3086,32 @@ it("resolves delivery-teaching-us warehouse cities", () => {
 });
 ```
 
-In `artifacts/studio/src/__tests__/Workspace.test.tsx` (or the Open Warehouses suite that already covers jade's Demand Served column), a delivery case: render a solved delivery scenario with a `useListModels` mock whose capabilities carry `capacityModes: []`, open Open Warehouses, and assert the column header is `"Demand Served"` and no utilization `%` cell renders. Today `Workspace.tsx:3681` passes `capacityModes` to `facilityDisplayedInputs` **only for `two-echelon-jade-us`** (an explicit guard so gold-au, whose manifest also declares `[]`, keeps its historical rendering); for every other model it is `undefined`, and `OpenWarehousesTab.tsx:158-160` then falls to `showUtilization = capacityMode !== "none"` — this model has no `capacityMode` input, so the utilization column would render with nothing to compute.
+In `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, a delivery case: render with a delivery `result` whose edges produce a non-integer share (e.g. flows 1 and 2 across a 400 boundary) and `presentationBands` set, and assert the rendered percentage is `33.33`, not `33`; render a sibling model with the same edges and assert it still shows `33`. This is R7 row 28's guard.
 
-In `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, a delivery case per spec §7.6 / decision 10: the single-scenario table shows the Objective row rendered through `formatObjective` (monetary for `cost_adjusted`, demand-distance for `base`) and the `"Weighted avg. distance"` row (`CostSummaryTab.tsx:350`) at 4 dp; read the component's row gating for `"Open facilities"` (`:490`, compare mode) and assert whatever it does for a `supportsFacilityStatus: false` model — the point is a pinned expectation, not a guess.
+In `artifacts/studio/src/__tests__/Workspace.test.tsx`, a delivery case for the Demand Served column. No Workspace-level test covers it for any model today (the only coverage is component-level, `OpenWarehousesTab.test.tsx:169-171`), so build it from `Workspace.test.tsx:425`'s "renders Open Warehouses for a solved two-echelon-gold-au scenario" setup: a solved delivery scenario, a `useListModels` mock whose capabilities carry `capacityModes: []`, open Open Warehouses, then the three assertions from `OpenWarehousesTab.test.tsx:169-171` — `"Demand Served"` present, `"Total Flow"` and `"Utilization"` absent, and the `open-warehouse-row-W1` cell contains no `%`. Today `Workspace.tsx:3681` passes `capacityModes` to `facilityDisplayedInputs` **only for `two-echelon-jade-us`** (an explicit guard so gold-au, whose manifest also declares `[]`, keeps its historical rendering); for every other model it is `undefined`, and `OpenWarehousesTab.tsx:158-160` then falls to `showUtilization = capacityMode !== "none"` — this model has no `capacityMode` input, so the utilization column would render with nothing to compute.
 
-In `artifacts/api-server/src/__tests__/routes.test.ts`, the output-export path (`GET /scenarios/:scenarioId/export?entity=…&format=…`, `scenarios.ts:623`; gated by the manifest's `outputGrids` at `:699`, built at `:842-844`, city column via `buildEffectiveFacilityCityLookup`): seed a delivery scenario whose `result` is the Scenario 1 golden envelope (no live CBC), then assert `openWarehouses` CSV has a populated city column for `W1`, `costSummary` JSON carries `objectiveMode: "base"` and `weightedAvgDistance: 422.5511`, `serviceStats` JSON keeps `81.45` (2 dp) and includes an Overflow row when the seeded envelope has one, and `flows` returns **422** (not in this model's `outputGrids`).
+In `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, a delivery case per spec §7.6 / decision 10, copied from `:111-112` (`"CostSummaryTab — single-scenario view (unchanged)" › "renders objective, weighted avg distance, runtime, quality, and solver"`): the single-scenario table shows the Objective row rendered through `formatObjective` — `$…` for `details.objective: "cost_adjusted"`, `… demand-mi` for `"base"` — and the `"Weighted avg. distance"` row (`CostSummaryTab.tsx:350`) as `422.6 mi` (1 dp, see the note above). The single-scenario view has **no** "Open facilities" row for any model (that row is compare-mode only, `:490`); assert its absence in the single view and, in the compare view with two delivery scenarios, assert the row lists `W1`, `W2`, `W60` chips for Scenario 1 — the row is model-agnostic and this pins that it stays so.
+
+In `artifacts/api-server/src/__tests__/routes.test.ts`, the output-export path (`GET /scenarios/:scenarioId/export?entity=…&format=…`, `scenarios.ts:623`, query params `entity` `:625` / `format` `:626`; gated by the manifest's `outputGrids` at `:693-701`, rows assembled at `:840-846`, city column via `buildEffectiveFacilityCityLookup`). This suite mocks the DB: copy the existing `openWarehouses` export case at `:1936` (`mockDb.select.mockReturnValue(makeChain([{ ...row, result, solvedAt: new Date() }]))`), with a delivery row whose `result` is the Scenario 1 golden envelope (no live CBC), then assert `openWarehouses` CSV has a populated city column for `W1` (`Los Angeles`), `costSummary` JSON carries `objectiveMode: "base"` and `weightedAvgDistance: 422.5511` (the 4 dp envelope value — this is where 4 dp is proven), `serviceStats` JSON keeps `81.45` (2 dp) and includes a `band: -1` row when the mocked envelope has one, and `flows` returns **422** with `"flows export is not supported for this model"` (`:699`).
 
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
 pnpm --filter @workspace/units exec vitest run src/__tests__/bands.test.ts
-pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx src/__tests__/CostSummaryTab.test.tsx
+pnpm --filter studio exec vitest run src/__tests__/ServiceStatsTab.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/CostSummaryTab.test.tsx
 DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" \
   pnpm --filter api-server exec vitest run src/__tests__/templates.test.ts src/__tests__/routes.test.ts
 ```
 
-Expected: FAIL — no `decimals` option; `lookup.get("W1")` undefined; utilization column renders; export city column blank.
+Expected: FAIL — no `decimals` option; `33` rendered instead of `33.33`; `lookup.get("W1")` undefined; utilization column renders; export city column blank.
 
 - [ ] **Step 3: Add opt-in precision**
 
-In `lib/units/src/bands.ts:37`, add an optional third parameter `opts?: { decimals?: number }` and route both `Math.round` calls (`:44` and the overflow row `:48-50`) through `roundTo(x, opts?.decimals ?? 0)`, so existing output is byte-identical. Confirm `artifacts/studio/src/lib/bands.ts`'s re-export needs no change (it re-exports the symbol, not a wrapper).
+In `lib/units/src/bands.ts:37`, add an optional third parameter `opts?: { decimals?: number }`, a file-local `const roundTo = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;` (no such helper exists anywhere in `lib/` or the studio), and route both `Math.round` calls (`:44` and the overflow row's `:49`) through `roundTo(x, opts?.decimals ?? 0)`, so existing output is byte-identical.
 
 - [ ] **Step 4: Add the city-lookup branch and the Demand Served pass-through**
 
-In `services/templates.ts:1397-1402`, add a `delivery-teaching-us` arm to the ternary chain returning `DELIVERY_WAREHOUSES` (imported from `../data/deliveryDataset.js`), so the id→city `Map` is populated.
+In `services/templates.ts:1397-1402`, add a `delivery-teaching-us` arm to the ternary chain returning `DELIVERY_WAREHOUSES` (imported from `../data/deliveryDataset.js`) — the chain's fallback is `: []`, which builds an empty `Map`, so the id→city lookup is populated only with this arm.
 
 In `Workspace.tsx:3681`, widen the jade-only gate to `modelId === "two-echelon-jade-us" || modelId === "delivery-teaching-us"` with a comment: the gold-au guard the existing comment describes still holds, because gold-au is still excluded by name.
 
@@ -3046,12 +3141,12 @@ The spec's §9 point-9 `N/A` is **input-side only** (no importable input entitie
 
 ```bash
 git add lib/units/src/bands.ts lib/units/src/__tests__/bands.test.ts \
-        artifacts/studio/src/lib/bands.ts \
         artifacts/api-server/src/services/templates.ts \
         artifacts/api-server/src/__tests__/templates.test.ts \
         artifacts/api-server/src/__tests__/routes.test.ts \
         artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx \
         artifacts/studio/src/pages/Workspace.tsx \
+        artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx \
         artifacts/studio/src/__tests__/Workspace.test.tsx \
         artifacts/studio/src/__tests__/CostSummaryTab.test.tsx
 git commit -m "[ch5-del-12] add opt-in band precision, delivery city lookup, Demand Served, and verified exports"
@@ -3074,22 +3169,22 @@ Create `artifacts/studio/e2e/delivery-teaching.spec.ts`, modelled on `max-covera
 1. Landing shows the Chapter 5 Delivery card; `transport-coal` and `p-median-brazil` remain absent.
 2. Create a scenario → the tab rail shows exactly Input Map, Delivery Costs, Optimization Parameters.
 3. The Input Map renders and exposes no add/move/delete/status/demand/Save affordance.
-4. Solve → Scenario 1's open set `{W1, W2, W60}` and weighted average distance 422.5511.
+4. Solve → Scenario 1's open set `{W1, W2, W60}`; Solution Summary shows weighted average distance `422.6 mi` (the on-screen 1 dp form, Task 12); Service Stats shows `81.45` at 800.
 5. Click **Adjust Cost Table**, confirm the three fields appear at 800 / 1 / 10, re-solve → open set flips to `{W6, W43, W45}` and 800-mile coverage rises to 97.19%.
-6. Override one lane's cost and re-solve. **Pin a lane whose override cannot change the assignment**, or assert the mathematically correct result of a controlled change — a bare "objective moved" assertion is ambiguous because a large override legitimately reroutes demand.
-7. Export Open Warehouses as CSV and assert the city column is populated.
+6. Override one lane's cost and re-solve. Use the lane Task 3's invariance test uses — the first Scenario 1 assignment with a positive distance — override it to `0`, and assert the open set is unchanged and the objective dropped by exactly that lane's base cost × demand (the Scenario 1 seeded result supplies both numbers). A bare "objective moved" assertion is ambiguous because a large override legitimately reroutes demand.
+7. Export Open Warehouses as CSV and assert the city column is populated; export Cost Summary as JSON and assert `weightedAvgDistance` is `422.5511` (the 4 dp envelope value).
 
 **Use seeded solver results for everything except one real-CBC solve.** pytest owns the numeric proof; three live CBC solves in Playwright buys nothing and costs ~6 seconds each.
 
 - [ ] **Step 2: Add the journey case**
 
-Add a `journey_delivery()` to `e2e_journey.py` following its existing style: create → solve → assert status optimal, 313 customers served, open ids ⊆ the 33 warehouse ids, weighted average distance in a sane range; then a second run with the toggle on asserting the open set changes. **Register it in the `JOURNEYS` dict** (`:620-626`) as `"delivery": journey_delivery` — sections dispatch through that dict and an unregistered name exits 1 with `Unknown section`. The CLI form is `python3 e2e_journey.py <base-url> <section>` (`argv[1]` must start with `http`, `argv[2]` is the section).
+Add a `journey_delivery()` to `e2e_journey.py` following its existing style (no arguments, reads the module globals `BASE_URL`/session like `journey_pmedian` at `:292`): create → solve → assert status optimal, 313 customers served, open ids ⊆ the 33 warehouse ids, weighted average distance within `[400, 450]` (Scenario 1 is 422.5511; the bound is loose enough to survive a CBC tie, tight enough to catch a cost-per-unit number under a distance label); then a second run with the toggle on asserting the open set changes and the average lands within `[490, 530]`. **Register it in the `JOURNEYS` dict** (`:620-626`) as `"delivery": journey_delivery` — sections dispatch through that dict and an unregistered name exits 1 with `Unknown section`. The CLI form used throughout this plan is `python3 e2e_journey.py <base-url> <section>` (`:55-57`: a first argument starting with `http` is the base URL, the next is the section; a bare section alone also works with the default URL).
 
 `e2e_accuracy.py` is **not** touched. It is run at the gate and never edited.
 
 - [ ] **Step 3: Fix the already-stale lab-count specs**
 
-`bundle4-auth-landing.spec.ts:120,153-154,183-184,212-213` and `bundle6-ui-tweaks.spec.ts:270-271` assert `"2 labs"` when the true figure has been 3 since Chapter 4 was unlocked (`docs/CHANGELOG-implementation.md:412`). Set them to the correct post-change value of **4**. Their `auth-labs-strip` assertions disagree with each other today (`bundle4:50,55` `"Chapter 3Chapter 9"`; `bundle6:313-314` `"Chapter 3Chapter 10"`) and neither matches the live non-hidden set — set both to the true post-change strip. Do not increment their current wrong values. (`labs.spec.ts:95-103` also enumerates three stale lab names but is excluded from `e2e:gate` and stays untouched.)
+`bundle4-auth-landing.spec.ts:120,153-154,183-184,212-213` and `bundle6-ui-tweaks.spec.ts:270-271` assert `"2 labs"` when the true figure has been 3 since Chapter 4 was unlocked (`docs/CHANGELOG-implementation.md:412`). Set them to the correct post-change value of **4**. Their `auth-labs-strip` assertions disagree with each other today (`bundle4:50,55` `"Chapter 3Chapter 9"`; `bundle6:313-314` `"Chapter 3Chapter 10"`) and neither matches the live non-hidden set — set both to `"Chapter 3Chapter 4Chapter 5Chapter 9"`, the string Task 8 Step 3's insertion position yields (and `Login.test.tsx` pins at unit level). Do not increment their current wrong values. (`labs.spec.ts:95-103` also enumerates three stale lab names but is excluded from `e2e:gate` and stays untouched.)
 
 - [ ] **Step 4: Run the full gate**
 
@@ -3123,7 +3218,10 @@ A consumer added *during* implementation is exactly what a single up-front audit
 - [ ] **Step 7: Commit**
 
 ```bash
-git add artifacts/studio/e2e/ artifacts/api-server/src/solver/tests/e2e_journey.py \
+git add artifacts/studio/e2e/delivery-teaching.spec.ts \
+        artifacts/studio/e2e/bundle4-auth-landing.spec.ts \
+        artifacts/studio/e2e/bundle6-ui-tweaks.spec.ts \
+        artifacts/api-server/src/solver/tests/e2e_journey.py \
         README.md CLAUDE.md model-integration-precheck.md docs/CHANGELOG-implementation.md
 git commit -m "[ch5-del-13] add the delivery e2e journey and complete the documentation closeout"
 ```
@@ -3142,9 +3240,9 @@ A branch is not finished until this has run.
 
 **2. Placeholder scan.** One deliberate exception: Task 11 Step 1 lists eleven test names with `/* ... */` bodies rather than full code, because each body is a mechanical copy of the corresponding case in `DistancesTab.test.tsx`, which exercises an identical component shape — reproducing 200 lines of near-duplicate RTL here would be less accurate than pointing at the file the implementer must match. Two assertions are marked "adjust after one run" because they depend on a rendering detail not worth pinning blind: the Radix slider's rendered `max` attribute (Task 10) and the openapi enum's exact text form (Task 4). Every testid, field name, error code, function signature and line number in this revision was read from the tree at `3065c91`, not guessed.
 
-**3. Type consistency.** `solve_delivery` / `_effective_delivery_costs(cost, dist, inp)` / `_build_delivery_problem(ec, p)` / `_assign_band_or_overflow` / `DELIV_DISTANCES` / `DELIV_COSTS` / `DELIV_CUSTOMERS` are declared once in Task 3 and consumed under the same names in its tests and in Task 1's `test_datasets.py` case. `deliveryInputsSchema` / `DeliveryInputs` are declared in Task 4 and consumed in Tasks 6 and 10. `DELIVERY_WAREHOUSES` / `DELIVERY_CUSTOMERS` / `DELIVERY_LANE_KEYS` are declared in Task 5 and consumed in Tasks 6, 7 and 12. `getReferenceCosts` / `buildDeliveryReferenceCostsFrom` are declared and consumed within Task 7. The tab entity id is `deliveryCosts` and its root testid `delivery-costs-tab` in Tasks 8 and 11 consistently. `PrecheckError` codes used are all members of the closed union.
+**3. Type consistency.** `solve_delivery` / `_effective_delivery_costs(cost, dist, inp)` / `_build_delivery_problem(ec, p)` / `_assign_band_or_overflow` / `DELIV_DISTANCES` / `DELIV_COSTS` / `DELIV_CUSTOMERS` are declared once in Task 3 and consumed under the same names in its tests and in Task 1's `test_datasets.py` case. `deliveryInputsSchema` / `DeliveryInputs` are declared in Task 4 and consumed in Tasks 4 (`modelRegistry.ts`, `pmedian.ts`) and 6. `DELIVERY_WAREHOUSES` / `DELIVERY_CUSTOMERS` / `DELIVERY_LANE_KEYS` are declared in Task 5 and consumed in Tasks 6, 7 and 12. `getReferenceCosts` / `buildDeliveryReferenceCostsFrom` are declared and consumed within Task 7; `operationId: getReferenceCosts` (Task 7) is what produces the `useGetReferenceCosts` / `getGetReferenceCostsQueryKey` names Task 11 imports. The tab entity id is `deliveryCosts` and its root testid `delivery-costs-tab` in Tasks 8 and 11 consistently. `PrecheckError` codes used are all members of the closed union.
 
-**Two defects earlier revisions caught and fixed rather than noted.** (Rev 1) A `deliveryLaneKeySet()` helper in Task 7 consumed by Task 6 — a task depending on a later one; moved to `DELIVERY_LANE_KEYS` in Task 5. (Rev 2) The full Review record below: 9 blocking, 17 should-fix, 12 nits, every one folded into its task body above.
+**Three defects earlier revisions caught and fixed rather than noted.** (Rev 1) A `deliveryLaneKeySet()` helper in Task 7 consumed by Task 6 — a task depending on a later one; moved to `DELIVERY_LANE_KEYS` in Task 5. (Rev 2) The full Review record below: 9 blocking, 17 should-fix, 12 nits, every one folded into its task body above. (Rev 2.1) A second three-lens adversarial pass over Rev 2 itself found and fixed: two api-server suites (`datasets.test.ts`, `registry.test.ts`) that go red in Task 2 and were unlisted; `Login.test.tsx:107` unlisted; Task 0's probe unable to see unquoted YAML ids and leaking e2e/pytest files; `routes.test.ts` mocking the job runner so Task 6's 422 test proved nothing (moved to a real-DB integration file); Task 7's missing import and untyped `items` cast; the unspecified `operationId`; Task 8's `formatObjective` 5th arg (a `UnitApi`, not a string); Task 9's fixture types and shared-component gating; Task 10's `aria-valuemax` on the thumb, `fireEvent`, `renderDialog`; Task 12's `roundTo`, the 1 dp on-screen WAD, the shim non-change, the missing `ServiceStatsTab` 2 dp case; R7 rows 20–29 ownership; the `max distance` golden-adjacent value (`3268.8665`).
 
 **Open risk to watch at review:** Task 10 is the only task built on a tree other than `3065c91` — it waits for `ch4-2s-7-work` to merge and then locates every edit by JSX anchor. If both land in either order the JSX merges clean, but the `OptimizationParametersField` union and the props interface conflict and must be reconciled by hand — not relocated. Task 0 Step 2 records the state; Task 13 Step 5's `"delivery-teaching-us"` probe is the backstop for any Workspace gate this revision still missed.
 
@@ -3152,7 +3250,7 @@ A branch is not finished until this has run.
 
 ## Review record (2026-09-28, Rev 1)
 
-**Status: every row below was folded into the task bodies above on 2026-09-28 (Rev 2).** The dispositions are kept as written for the audit trail; they describe what Rev 2 did, not what remains. R4 (claims that held), R6 (dependency-check methods) and R7 (registration inventory) stay live references — Task 0 Step 3 and Task 13 Step 5 point at R7.
+**Status: every row below was folded into the task bodies above on 2026-09-28 (Rev 2), and Rev 2 was itself re-verified by a second three-lens adversarial pass whose findings are folded as Rev 2.1 (see Self-Review).** The dispositions are kept as written for the audit trail; they describe what Rev 2 did, not what remains. Where a Rev 1 disposition named a task the fold later placed differently (S6/S7 → Tasks 2/1), R7 is authoritative. R4 (claims that held), R6 (dependency-check methods) and R7 (registration inventory) stay live references — Task 0 Step 3 and Task 13 Step 5 point at R7.
 
 **Method.** Every claim the plan makes about the repository was traced against the tree at `3065c91` (main, clean) by six independent read-only passes: solver (`solve.py` + tests), api-server TS, `lib/*` + OpenAPI, Studio + e2e, git/sources/Chapter-4 status, and a spec-vs-plan coverage cross-check. Findings are grouped by severity; each carries a disposition. "Fold" means: rewrite the named task step in place for Rev 2.
 
@@ -3262,16 +3360,19 @@ Overkill check: no new tooling. Fold in place, re-verify with the same probe. Th
 | 17 | `pMax` both mounts | `Workspace.tsx:3320`, `:4037` | 10 | **silent** (slider offers 50, API 422s) | `OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx` |
 | 18 | `registration.test.ts` SOLVABLE/stubs/count/source gates | `:25, :98, :118, :222-238` | 4 | loud | itself |
 | 19 | `routes/dataset.ts` branch | `:14-59` | 5 | loud (400) | `deliveryContract.test.ts` |
-| 20 | `isEditableInputTab` allow-list | `Workspace.tsx:2140-2200` | 11 | **silent** (no Save) | new (S1) |
-| 21 | Save-suppression rows | `Workspace.tsx:2211-2226` | 9 | silent | new (S1) |
-| 22 | Reference-distances query allow-list | `Workspace.tsx:1426` | 11 | n/a for delivery (no distances) | note only |
-| 23 | Input-map mode dispatch + read-only | `Workspace.tsx:2929-3004` | 9 | silent (editable map) | `deliveryRegistration.test.tsx` map block |
-| 24 | OutputMap / open-warehouses / assignments / flows gates | `Workspace.tsx:3555-3614, 3661-3699, 3747-3793` | 12 | silent (empty output tabs) | `TabCoverage` block (S14) |
-| 25 | `services/import.ts` ternaries | `:476, 509, 553-568, 633, 918` | 13 (audit) | n/a (no importable entities) — must be *recorded* as N/A | R7 row |
-| 26 | `scenarios.ts` export gate + builders | `:906-926, 931-1206` | 12 | loud or silent per grid — trace | export test (S11) |
+| 20 | `isEditableInputTab` allow-list | `Workspace.tsx:2125-2200` | 11 (Step 4) | **silent** (no Save) | `Workspace.test.tsx` Save-path case (Task 11 Step 1) |
+| 21 | Save-suppression rows | `Workspace.tsx:2211-2226` | 9 (Step 4, deliberate no-op) | n/a — read-only map has nothing to save | `InputMapTab.deliveryReadOnly.test.tsx` (no `button-save`) |
+| 22 | Reference-distances query allow-list | `Workspace.tsx:1426` | 11 (recorded N/A) | n/a — `supportsReferenceDistances: false` | none needed |
+| 23 | Input-map mode dispatch + read-only | `Workspace.tsx:2929-2974` (other-model branches), `:2997-3004` (pmedian fallback) | 9 | silent (editable map) | `InputMapTab.deliveryReadOnly.test.tsx` |
+| 24 | Output-tab jade/Chen-only extras: `locationById` `:3382/:3555/:3668`, `enableFilters` `:3066/:3686`, jade Assignments/Flows `:3699/:3747` | cited | 11 (recorded N/A — defaults are correct) | n/a — id-only rendering and shared `AssignmentsTab` are the documented defaults | `TabCoverage` block (Task 11) proves the defaults render real content |
+| 25 | `services/import.ts` ternaries | `:476, 557, 568, 633` | 12 Step 7 (recorded N/A) | n/a (no importable entities) | none needed |
+| 26 | `scenarios.ts` output export (`:623`, `outputGrids` gate `:693-701`, rows `:840-846`) | cited | 12 | loud (422 per grid) for a missing `outputGrids` entry; silent blank city column without row 16 | `routes.test.ts` export case (Task 12 Step 1) |
 | 27 | `e2e_journey.py` `JOURNEYS` | `:620-626` | 13 | loud (exit 1) | itself |
-| 28 | Studio band shim `decimals` passthrough | `studio/src/lib/bands.ts:25-37` | 12 | silent (integer %) | `ServiceStatsTab.test.tsx` |
-| 29 | `index.test.ts` / `deliveryDataset.test.ts` / `test_datasets.py` | per-model blocks | 2, 5, 3 | silent (zero coverage) | themselves |
-| 30 | `Landing.test.tsx:388`, `bundle4`/`bundle6` e2e lab counts | cited | 8, 13 | loud (red suite) | themselves |
+| 28 | Studio band shim | `studio/src/lib/bands.ts:24-42` | 12 (not modified) | n/a — direct re-export, no wrapper | `ServiceStatsTab.test.tsx` 2 dp case (Task 12 Step 1) |
+| 29 | Per-model package tests: `index.test.ts` / `deliveryDataset.test.ts` (Task 2), `test_datasets.py` (Task 1), `datasets.test.ts` `EXPECTED_COUNTS` + `registry.test.ts` six-id arrays (Task 2) | cited | 1, 2 | silent (zero coverage) or **loud** (`Object.entries(undefined)`, `toEqual` on six ids) | themselves |
+| 30 | Visible-lab enumerations: `Landing.test.tsx:388`, `Login.test.tsx:107`, `bundle4`/`bundle6` e2e counts + strips | cited | 8, 13 | loud (red suite) | themselves |
+| 31 | Objective contract tables: `lib/units/src/__tests__/objective.test.ts:5-13`, `studio/src/__tests__/formatObjective.test.ts:70-106` | cited | 8 | silent (no row → untested) | themselves |
+| 32 | Route-level precheck 422 | `jobRunner.ts:380` → `scenarios.ts:533-534` | 6 | silent (worker `internal_error` instead of 422) | `deliveryPrecheckIntegration.test.ts` (real DB; `routes.test.ts` mocks the job runner and cannot see it) |
+| 33 | Reference-costs client hook names | `openapi.yaml` `operationId: getReferenceCosts` | 7 Step 6 | loud (Task 11 import fails) | typecheck |
 
-Rows 1–18 correspond to spec §9 (renumbered to match this plan's task order); rows 19–30 are the points this review added.
+Rows 1–18 correspond to spec §9 (renumbered to match this plan's task order); rows 19–33 are the points this review added. Task 13 Step 5 diffs the `"delivery-teaching-us"` probe sweep against this table: every non-N/A row must be a hit, every hit must be a row.

@@ -1607,7 +1607,7 @@ pnpm --filter api-server test
 pnpm --filter studio test
 python3 -m pytest artifacts/api-server/src/solver/tests
 python3 e2e_accuracy.py
-python3 e2e_journey.py delivery
+python3 e2e_journey.py http://localhost:3001 delivery
 pnpm e2e:gate
 ```
 
