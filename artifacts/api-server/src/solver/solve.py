@@ -32,6 +32,7 @@ from merge_inputs import (
     build_merged_jade_dataset,
     build_merged_max_coverage_dataset,
 )
+from merge_inputs import UnresolvableIdError
 from cbc_termination import solve_with_capture
 
 # ---------------------------------------------------------------------------
@@ -174,6 +175,20 @@ _MC_DIST_RAW = _safe_load("max-coverage-us", "distances.json", default={})
 WAREHOUSES_MAX_COVERAGE = dict(_MC_WH_RAW)
 CUSTOMERS_MAX_COVERAGE  = dict(_MC_CU_RAW)
 DISTANCE_MAX_COVERAGE   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _MC_DIST_RAW.items()}
+
+# ---------------------------------------------------------------------------
+# Chapter 5 (modified) - Delivery Company Teaching Example. TWO lane tables:
+# distances.json is read-only and is the sole source of every distance metric;
+# costs.json is seeded identical but is what the student overrides and what the
+# objective runs on. Keeping them separate is the whole point of the chapter.
+# ---------------------------------------------------------------------------
+DELIV_WAREHOUSES = _safe_load("delivery-teaching-us", "warehouses.json", default={})
+DELIV_CUSTOMERS  = _safe_load("delivery-teaching-us", "customers.json",  default={})
+_DELIV_DIST_RAW  = _safe_load("delivery-teaching-us", "distances.json",  default={})
+_DELIV_COST_RAW  = _safe_load("delivery-teaching-us", "costs.json",      default={})
+
+DELIV_DISTANCES = {tuple(k.split(',')): v for k, v in _DELIV_DIST_RAW.items()}
+DELIV_COSTS     = {tuple(k.split(',')): v for k, v in _DELIV_COST_RAW.items()}
 
 # ---------------------------------------------------------------------------
 # B2: truthful CBC termination evidence, shared by every model. Production
@@ -1471,6 +1486,173 @@ def solve_max_coverage(inp):
                       solver_incumbent_objective=cbc.solverIncumbentObjective,
                       solver_best_bound=cbc.solverBestBound)
 
+def _assign_band_or_overflow(d, bands):
+    """Index of the smallest band >= d, or len(bands) when d exceeds every
+    band. Mirrors lib/units' assignBandOrOverflow. Never clamps into the last
+    band - that is how an over-1,600 lane gets miscounted as covered."""
+    for i, b in enumerate(bands):
+        if d <= b:
+            return i
+    return len(bands)
+
+
+def _effective_delivery_costs(cost, dist, inp):
+    """Chapter 5 (modified) - the rate rule, and the ONLY place it exists.
+
+    The threshold compares the DISTANCE; the rate multiplies the COST; `<=`
+    takes the low rate (decisions 6 and 7). A cost value is "billable miles":
+    seeded equal to true distance, so cost x $/mile is dollars, and editing a
+    cost cell means "bill this lane as if it were N miles".
+
+    Pure and separately callable so the boundary rule and the constraint sense
+    can be asserted without inspecting source text.
+    """
+    if not inp.get('costAdjustEnabled'):
+        return dict(cost)
+    threshold = inp['distanceThreshold']
+    low = inp['costPerMile']
+    high = inp['costPerMileOver']
+    return {k: v * (low if dist[k] <= threshold else high) for k, v in cost.items()}
+
+
+def _build_delivery_problem(ec, p):
+    """Build the LP and return it UNSOLVED, so tests can assert on structure."""
+    warehouses = list(DELIV_WAREHOUSES.keys())
+    customers = list(DELIV_CUSTOMERS.keys())
+    demand = {c: DELIV_CUSTOMERS[c]['demand'] for c in customers}
+
+    prob = LpProblem("Delivery", LpMinimize)
+    y = LpVariable.dicts("A", [(w, c) for w in warehouses for c in customers], 0, 1, cat='Binary')
+    o = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
+
+    prob += lpSum(ec[(w, c)] * demand[c] * y[w, c] for w in warehouses for c in customers)
+
+    for c in customers:
+        prob += LpConstraint(lpSum(y[w, c] for w in warehouses),
+                             LpConstraintEQ, f"served_{c}", 1)
+
+    # Decision 8 - AT MOST P, matching the COG notebook's
+    # `lpSum(use_plant) <= max_plants`. solve.py:405 uses EQ for p-median-us;
+    # this divergence is deliberate and test_facility_count_is_at_most_p pins
+    # the sense so a later reader does not "fix" it.
+    prob += LpConstraint(lpSum(o[w] for w in warehouses),
+                         LpConstraintLE, "FacilityCount", p)
+
+    # Per-pair linking, as the COG notebook writes it. The aggregated form
+    # (33 rows instead of 10,329) has a much weaker LP relaxation and CBC
+    # branches far more; the measured 4.0s solve is with this form.
+    for w in warehouses:
+        for c in customers:
+            prob += LpConstraint(y[w, c] - o[w], LpConstraintLE, f"route_{w}_{c}", 0)
+
+    return prob, y, o
+
+
+def solve_delivery(inp):
+    if _LOAD_ERRORS.get("delivery-teaching-us"):
+        return _load_error_envelope("delivery-teaching-us")
+
+    t = time.time()
+    p = inp['pValue']
+    distance_bands = sorted(inp['distanceBands'])
+    gap = float(inp.get('gap', 0.0))
+    time_limit = int(inp.get('timeLimitSec', 120))
+
+    warehouses = list(DELIV_WAREHOUSES.keys())
+    customers = list(DELIV_CUSTOMERS.keys())
+    demand = {c: DELIV_CUSTOMERS[c]['demand'] for c in customers}
+    dist = DELIV_DISTANCES
+
+    # Overrides land on COST and only on COST. `dist` is read-only for this
+    # whole function - that single property is what makes every distance
+    # metric below trustworthy. Fails closed on a bad id (merge_inputs'
+    # UnresolvableIdError -> solve()'s blanket handler -> fd3 internal_error);
+    # the api-server precheck (Task 6) is what turns that into a 422.
+    cost = dict(DELIV_COSTS)
+    for ov in (inp.get('laneCostOverrides') or []):
+        key = (ov['fromId'], ov['toId'])
+        if ov['fromId'] not in DELIV_WAREHOUSES:
+            raise UnresolvableIdError(f"unknown warehouse id {ov['fromId']}")
+        if ov['toId'] not in DELIV_CUSTOMERS:
+            raise UnresolvableIdError(f"unknown customer id {ov['toId']}")
+        if key not in cost:
+            raise UnresolvableIdError(f"no lane {ov['fromId']}->{ov['toId']}")
+        cost[key] = ov['cost']
+
+    ec = _effective_delivery_costs(cost, dist, inp)
+    prob, y, o = _build_delivery_problem(ec, p)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="delivery")
+    st = cbc.lpStatus
+
+    # Truthful status, exactly as solve_max_coverage does it (solve.py:1428-1446).
+    if st == "Infeasible":
+        return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
+                         _EMPTY_METRICS, _EMPTY_DETAILS, "No feasible assignment under the constraints",
+                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                         solver_incumbent_objective=cbc.solverIncumbentObjective,
+                         solver_best_bound=cbc.solverBestBound)
+    if st != "Optimal":
+        env = _envelope("error", "error", 0, round(time.time() - t, 2), [],
+                        _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}",
+                        termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                        solver_incumbent_objective=cbc.solverIncumbentObjective,
+                        solver_best_bound=cbc.solverBestBound)
+        env["_failureReason"] = "solver_error"
+        env["_failureStage"] = "cbc_parse"
+        return env
+
+    obj_val = value(prob.objective) or 0
+    open_ids = [w for w in warehouses if o[w].varValue and o[w].varValue > 0.5]
+
+    total_demand = sum(demand.values())
+    dist_weighted = 0.0
+    band_demand = {b: 0.0 for b in distance_bands}
+    overflow_demand = 0.0
+    edges, assignments = [], []
+
+    for c in customers:
+        chosen = next((w for w in warehouses if y[w, c].varValue and y[w, c].varValue > 0.5), None)
+        if chosen is None:
+            continue
+        d = dist[(chosen, c)]          # DISTANCE table. never ec, never cost.
+        dist_weighted += d * demand[c]
+        band_idx = _assign_band_or_overflow(d, distance_bands)
+        assignments.append({"customerId": c, "warehouseId": chosen,
+                            "distanceMi": d, "band": band_idx})
+        edges.append({"fromId": chosen, "toId": c, "flow": round(demand[c]),
+                      "distance": d, "band": band_idx})
+        if band_idx == len(distance_bands):
+            overflow_demand += demand[c]
+        for b in distance_bands:
+            if d <= b:
+                band_demand[b] += demand[c]
+
+    weighted_avg_distance = dist_weighted / total_demand if total_demand else 0.0
+    # Cumulative rows (spec 5.7), plus an explicit Overflow row - band -1, the
+    # OVERFLOW_BAND sentinel shared with lib/units and the gold/jade envelopes -
+    # whenever any lane lies beyond the largest band (spec 5.6 / 12.3.7). Both
+    # goldens reach 100% by 1,600 and so emit no Overflow row.
+    band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / total_demand, 2)}
+                     for b in distance_bands]
+    if overflow_demand > 0:
+        band_coverage.append({"band": -1, "percent": round(overflow_demand * 100 / total_demand, 2)})
+
+    # Precision is contract, not display (spec 5.7): the goldens run to cents
+    # and four decimals. No utilizationByNode - there is no capacity, so there
+    # is no denominator and any value would be fabricated.
+    return _envelope(
+        cbc.solutionStatus, st, round(obj_val, 2), round(time.time() - t, 2), edges,
+        {"bandCoverage": band_coverage,
+         "weightedAvgDistance": round(weighted_avg_distance, 4)},
+        {"openWarehouseIds": open_ids,
+         "assignments": assignments,
+         "objective": "cost_adjusted" if inp.get('costAdjustEnabled') else "base"},
+        termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+        solver_incumbent_objective=cbc.solverIncumbentObjective,
+        solver_best_bound=cbc.solverBestBound,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -1488,6 +1670,8 @@ def solve(inp):
         return solve_max_coverage(inp)
     if model_type == 'p_median':
         return solve_pmedian(inp)
+    if model_type == 'delivery':
+        return solve_delivery(inp)
     env = _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
                      f"Unknown modelType: {model_type}")
     env["_failureStage"] = "dispatch"
