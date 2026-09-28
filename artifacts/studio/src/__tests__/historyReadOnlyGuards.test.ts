@@ -34,7 +34,8 @@ const WORKSPACE = path.resolve(
  */
 const GUARDED_MUTATORS = [
   "updateInputsField",
-  "setChenObjectiveMode",
+  // CH4-17 — `setChenObjectiveMode` is removed (the free objective toggle
+  // is gone); its own `setLocalInputs` call site no longer exists.
   "updateChenServiceDistance",
   "deleteAddedEntityAndOverrides",
   "deleteAddedTransportEntityAndOverrides",
@@ -74,6 +75,8 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
         "user edit (add it to GUARDED_MUTATORS and guard it) or as a non-edit " +
         "assignment (scenario switch / history step / discard / server response), " +
         "then update this count.",
-    ).toBe(15);
+    // CH4-17 — was 15; `setChenObjectiveMode`'s one `setLocalInputs` call
+    // site is gone along with the function itself.
+    ).toBe(14);
   });
 });

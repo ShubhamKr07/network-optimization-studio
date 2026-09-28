@@ -116,11 +116,14 @@ import { track } from "@/lib/analytics";
 // params (p:3, highServiceDistKm:700, maxDistKm:5500,
 // avgServiceDistCapKm:1000) — the coverage-mode solve's real coveredDemand,
 // verified 2026-09-28 via a direct solve.py invocation: coveragePct
-// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}. Total dataset
-// demand is 78,026,333, so this floor sits safely below it (a floor above
-// total demand would make the coverage→min-distance toggle infeasible).
+// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}.
+// CH4-17 — `MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND` (the former
+// min-distance-mode seed default) is deleted along with `setChenObjectiveMode`:
+// the floor is now produced solely by the server from Step 1's achieved
+// `coveredDemand` (Task 4/CH4-21), so no client-side default for it can
+// exist without becoming dead configuration a later reader could mistake
+// for live behavior.
 const MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM = 1000;
-const MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND = 53385024;
 
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
@@ -1812,32 +1815,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     updateInputsField(field, value);
   }
 
-  // C4.12 — Chen objective mode toggle (D1). Atomic (a single functional
-  // setLocalInputs) so the three coupled edits — set `objective`, SEED the
-  // newly-required mode field, and DELETE the other mode's field — land in one
-  // render. C4.6's maxCoverageInputsSchema is a discriminated union: the wrong-mode
-  // field must be ABSENT (not just ignored), so deleting is load-bearing, not
-  // cosmetic. Deleting (rather than nulling) keeps the persisted blob exactly
-  // the shape the Zod contract expects. Seeds the default only when the target
-  // field is currently absent — which it always is right after a toggle, since
-  // the opposite toggle deleted it.
-  function setChenObjectiveMode(mode: "coverage" | "min_distance") {
-    if (isBrowsingHistoryNow) return;
-    setLocalInputs(prev => {
-      if (!prev) return prev;
-      const next: Record<string, unknown> = { ...prev, objective: mode };
-      if (mode === "coverage") {
-        next.avgServiceDistCapKm =
-          typeof prev.avgServiceDistCapKm === "number" ? prev.avgServiceDistCapKm : MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM;
-        delete next.coverageFloorDemand;
-      } else {
-        next.coverageFloorDemand =
-          typeof prev.coverageFloorDemand === "number" ? prev.coverageFloorDemand : MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND;
-        delete next.avgServiceDistCapKm;
-      }
-      return next;
-    });
-  }
+  // CH4-17 — `setChenObjectiveMode` (the free coverage/min-distance toggle
+  // handler) is removed. The server derives Step 2's `objective` and
+  // `coverageFloorDemand` solely from Step 1's achieved `coveredDemand`
+  // (Task 4); a client-authored toggle would write a payload the write-route
+  // guard (Task 3) now 422s. The step toggle (Task 7) is the only UI that
+  // changes which step is targeted.
 
   // C4.12 — editing Chen's high-service / max distance.
   // chen-bands-units, Part A (amendment table: D13/D19 superseded) — this NO
@@ -3331,8 +3314,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           highServiceDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
           maxDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
           avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-          coverageFloorDemand={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
-          onObjectiveModeChange={setChenObjectiveMode}
           onServiceDistanceChange={updateChenServiceDistance}
           onChange={handleOptimizationParamsChange}
         />
@@ -4035,14 +4016,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
         pMax={modelId === "max-coverage-us" ? 26 : undefined}
-        // Chen's coverage/min-distance mode toggle — same wiring as
-        // OptimizationParametersTab above (`setChenObjectiveMode` is the
-        // single shared transition handler; do not reimplement its
-        // clear-other-field logic here).
+        // CH4-17/R5 — Chapter 4's dialog is confirmation-only: no client can
+        // author `objective`/`coverageFloorDemand` any more (the server
+        // derives both from Step 1's achieved coverage), so this dialog no
+        // longer renders the toggle or the floor input. `readOnlyParams`
+        // additionally hides every OTHER editable control (P slider,
+        // avg-service cap, gap/time-limit, band editor) for this model only
+        // — `p`/the service-distance fields are inherited and frozen once
+        // Step 1 is solved, and editing top-level gap/timeLimitSec here
+        // would silently edit Step 1's limits while a Step-2-targeting
+        // student believes they're tuning the run about to happen.
+        readOnlyParams={modelId === "max-coverage-us"}
         objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
         avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-        coverageFloorDemand={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
-        onObjectiveModeChange={setChenObjectiveMode}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // chen-bands-units, Part A/G — the DEDICATED band lens (decision
