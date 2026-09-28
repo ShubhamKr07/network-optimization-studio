@@ -18,7 +18,14 @@ interface CustomerTableProps {
    * Step 1b gate on the Input Map side — same locked decision, second
    * surface. */
   demandEditable?: boolean;
-  /** Chen's Cosmetics (max-coverage-us) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  /** Originally written for chens-cosmetics-cn's retired China dataset,
+   * where every row's `state` was "". Defensive, not currently true of any
+   * shipped dataset — measured 2026-09-28: every base warehouse/customer
+   * row across all six models carries a non-blank state (max-coverage-us
+   * included, since its US dataset swap). Gates the State column on/off for
+   * a future dataset (or a scenario-added entity) that omits state;
+   * defaults true (every existing caller has real state data and is
+   * unaffected). */
   hasStateColumn?: boolean;
   /** chen-bands-units follow-up (QA defect) — decision 1h says ordinary
    * editors are disabled while browsing result history; that was only true

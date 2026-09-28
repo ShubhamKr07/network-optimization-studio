@@ -263,7 +263,9 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
     try {
       await solveViaUi(page, id);
 
-      // Baseline: default bands [700, 5500] km. With p=3 open facilities
+      // Baseline: this spec's own payload bands [700, 5500] km (not
+      // `defaultInputsForModel`'s default [700, 1400, 2800, 5500] — see
+      // `maxCoverageInputs()` above). With p=3 open facilities
       // {DAL, LA, PIT}, the real solved max edge distance for this exact
       // payload is 1926.38 km — well under 5500 — so nothing is overflow
       // yet. (This is measured against actual solver output, not derived

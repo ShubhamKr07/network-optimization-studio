@@ -84,7 +84,16 @@ interface WarehousesTabProps {
   onDeleteWarehouse?: (id: string) => void;
   /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** Chen's Cosmetics (max-coverage-us) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-warehouses table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
+  /** Originally written for chens-cosmetics-cn's retired China dataset,
+   * where every row's `state` was "". Defensive, not currently true of any
+   * shipped dataset — measured 2026-09-28: every base warehouse/customer
+   * row across all six models carries a non-blank state (max-coverage-us
+   * included, since its US dataset swap). Gate on DATA PRESENCE
+   * (Workspace.tsx computes this from the resolved dataset), not modelId —
+   * drops the State column from the base table and the Added-warehouses
+   * table, and drops the state-required check from the add-row form, for a
+   * future dataset (or a scenario-added entity) that omits state. Defaults
+   * true (every existing caller has real state data and is unaffected). */
   hasStateColumn?: boolean;
   /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu on the
    * base `WarehouseTable`. Defaults `false`: every existing caller (every

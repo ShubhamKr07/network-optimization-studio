@@ -6,6 +6,7 @@ import {
   ExportScenarioQueryParams,
   ExportScenarioResponse,
 } from "@workspace/api-zod";
+import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 
 // C4.5: contract-layer smoke test — the generated Zod schemas (from
 // lib/api-spec/openapi.yaml via orval codegen) reflect the Chapter 4
@@ -112,5 +113,28 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
     const result = ExportScenarioResponse.safeParse({ templateVersion: 1, entity: "warehouses", rows: [] });
     expect(result.success).toBe(true);
     expect(result.success && result.data).not.toHaveProperty("unit");
+  });
+
+  // MIG-8: p's maximum is 26, declared in four places (manifest, this Zod
+  // schema, and the two `pMax={...}` UI call sites in Workspace.tsx) — all
+  // four must change together, each with its own regression. This is the
+  // Zod declaration's regression. Verified by deliberately breaking it:
+  // changing `.max(26)` to `.max(25)` in validation/inputs/maxCoverage.ts
+  // makes the `p: 26` assertion below fail (`success` becomes `false`)
+  // while every other test in this file stays green.
+  it("accepts p=26 and rejects p=27 (MIG-8, the Zod declaration)", () => {
+    const base = {
+      objective: "coverage" as const,
+      p: 3,
+      highServiceDistKm: 700,
+      maxDistKm: 5500,
+      avgServiceDistCapKm: 1000,
+      gap: 0,
+      timeLimitSec: 120,
+      capacityMode: "none" as const,
+      distanceBands: [700, 5500],
+    };
+    expect(maxCoverageInputsSchema.safeParse({ ...base, p: 26 }).success).toBe(true);
+    expect(maxCoverageInputsSchema.safeParse({ ...base, p: 27 }).success).toBe(false);
   });
 });

@@ -160,7 +160,7 @@ The Chapter 10 source notebook writes its bill-of-materials constraint **per (mi
 
 ### Goldens transcribed verbatim, then defended
 
-Ground-truth values are transcribed from the source notebooks' stored cell output, not recomputed and hoped over: JADE scenario 1 objective `254060828.6157`, Ch. 4 coverage `68.4192%` / covered demand `53385024`. Where a model has ties (multiple optima with equal objective), the test asserts the *objective and the invariant*, never an arbitrary tie-broken city list.
+Ground-truth values are transcribed from the source notebooks' stored cell output, not recomputed and hoped over: JADE scenario 1 objective `254060828.6157`. Chapter 4 has no published answer table; its goldens (`68.4192%` / `53385024`) are the solver's own certified-optimal output on the shipped dataset, frozen in `test_max_coverage.py` and defended by an independent floor-0 equivalence check against `solve_pmedian`. Where a model has ties (multiple optima with equal objective), the test asserts the *objective and the invariant*, never an arbitrary tie-broken city list.
 
 `e2e_accuracy.py` is a property-based A/B harness rather than a value table: for every configurable axis — `p`, capacity, single-source, capacity factor, capability toggle — it runs a pair of solves and asserts the mathematical relationship holds (monotonicity in `p`, LP relaxation bounds, capacity feasibility, flow conservation). It is a protected file: if a change breaks it, the change is wrong.
 

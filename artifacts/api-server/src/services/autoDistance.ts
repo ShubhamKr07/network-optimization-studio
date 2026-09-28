@@ -491,9 +491,13 @@ const MAX_COVERAGE_DEFAULT: MaxCoverageRoleDataset = { warehouses: MAX_COVERAGE_
  * no-op. Only FILLS genuinely-missing rows; it does NOT repair a stale
  * estimate after a coordinate change (the frontend move/delete purge,
  * C4.13, is what makes a re-estimate happen). The final
- * `maxCoverageInputsSchema.parse` also re-applies the D19
- * `distanceBands = [high, max]` transform, so a distances-import path that
- * stages a stale third boundary is corrected here too.
+ * `maxCoverageInputsSchema.parse` does NOT re-derive `distanceBands` here —
+ * per spec Part A (supersedes D19), a supplied `distanceBands` array is
+ * preserved VERBATIM; the schema derives `[high, max]` only when the field
+ * is omitted entirely (a legacy pre-contract payload), never as a silent
+ * overwrite of a caller's own array. A distances-import path that stages a
+ * stale third boundary is NOT corrected here — `distanceBands` is a free,
+ * user-editable reporting lens, not a value this estimator owns.
  */
 // MIG-20 -- road-adjustment now happens HERE, at the point distances are
 // produced, because solve_max_coverage no longer multiplies (MIG-6). The base

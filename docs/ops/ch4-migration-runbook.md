@@ -12,7 +12,10 @@ deployment phases"). Stages A and D are separate `nos-api` deploys with the
 build-and-test work for the new model (Tasks 3–9) happening entirely
 *between* them. **Nothing from Tasks 3–9 may be deployed until Stage C has
 completed** — that build removes the old manifest and registry entry that
-Stage A's lock depends on.
+Stage A's lock depends on. As of this writing, Stage A has not been deployed
+(see Stage A below) — it must be deployed from the separate, unpushed
+`ch4-stage-a` branch, not from `main`, because `main`'s own history no
+longer contains the old manifest once `ch4-migration` merges.
 
 This document describes four stages. Each has an explicit rollback point.
 Stage C is the point of no return: everything before it is reversible by
@@ -20,34 +23,65 @@ redeploying a previous build; nothing after it is.
 
 ---
 
-## Stage A — lock the old model (already shipped)
+## Stage A — lock the old model (PREPARED, NOT DEPLOYED)
 
-**Status: done.** This stage was executed as its own commit and its own
-deployment, `8dc8452` (`[ch4-mig-1] lock Chapter 4 ahead of the dataset
-migration`), ahead of the rest of this migration. This section documents
-what that deployment did and how to verify/roll it back — it does not
-re-run anything.
+**Status: prepared, not deployed.** An earlier draft of this document
+claimed this stage was "already shipped" as deployment `8dc8452`. That was
+false, and has been verified false three ways as of 2026-09-28:
+- `8dc8452` is **not** an ancestor of `origin/main`
+  (`git merge-base --is-ancestor 8dc8452 origin/main` fails).
+- `origin/main`'s `solvers/chens-cosmetics-cn/manifest.json` has **no**
+  `locked` key.
+- `8dc8452` exists on no pushed ref (`git branch -r --contains 8dc8452` is
+  empty).
 
-What it did: added `"locked": true` to
+**Chapter 4 is open to students in production right now.** Do not treat any
+of the checks below as already satisfied — none of them have been run
+against production.
+
+The lock DOES exist, ready to deploy, as its own equivalent commit
+`044b2c8` (`[ch4-mig-1] lock Chapter 4 ahead of the dataset migration`,
+content-identical diff to `8dc8452`) on the local, unpushed branch
+`ch4-stage-a`, which is `origin/main` (`ee75ecf`) plus that one commit.
+
+**This is the only place Stage A can still be deployed from.** This
+migration branch (`ch4-migration`) deletes the old manifest
+(`solvers/chens-cosmetics-cn/manifest.json`) and its registry entries as
+part of Tasks 3–9 — **once `ch4-migration` merges to `main`, there is
+nothing left on `main` to set `locked` on, and Stage A can no longer be
+performed from `main` at all.** Stage A must be deployed from `ch4-stage-a`
+specifically, and it must happen before (or independently of) this branch's
+merge — do not let `ch4-stage-a` be discarded as "superseded" before Stage A
+actually ships.
+
+What it does: adds `"locked": true` to
 `solvers/chens-cosmetics-cn/manifest.json` and the matching entry in
 `artifacts/studio/src/lib/chapters.ts`. The `lockedModel` middleware
 (`artifacts/api-server/src/middlewares/lockedModel.ts`) 403s every
 scenario-scoped route for a locked model, including `POST /scenarios`
-(create) — so once this was deployed, no *new* `chens-cosmetics-cn`
-scenario could be created, and no existing one could be written to, while
+(create) — so once this is deployed, no *new* `chens-cosmetics-cn`
+scenario can be created, and no existing one can be written to, while
 Stage B drains queued jobs and Stage C deletes rows underneath it.
 
-**Verify (already proven at deploy time, re-check before proceeding to
-Stage B if any doubt remains):**
-- `POST /api/scenarios` with `modelId: "chens-cosmetics-cn"` → `403`.
-- `PATCH /api/scenarios/:id` on an existing chens-cosmetics-cn scenario →
+**Verify — MANDATORY GATE before Stage B begins, not an already-satisfied
+formality.** Both checks below must be run against **production**, in the
+same operating session that is about to proceed to Stage B, with their real
+HTTP status codes recorded (in this file's copy kept with the operator's
+session notes, or equivalent):
+- `POST /api/scenarios` with `modelId: "chens-cosmetics-cn"` → must return
   `403`.
+- `PATCH /api/scenarios/:id` on an existing chens-cosmetics-cn scenario →
+  must return `403`.
 - `GET /api/models` still lists `chens-cosmetics-cn` (Stage A does not
   remove the model, only locks it — removal is Task 9, deployed in Stage D).
 
-**Rollback:** revert `8dc8452` and redeploy `nos-api`. Nothing is destroyed
-at this stage — the lock is a pure read-side gate, so reverting it simply
-reopens the chapter with all data intact.
+If either of the first two checks does not return `403`, **stop** — Stage A
+has not actually taken effect in production, and Stage B/C must not proceed.
+
+**Rollback:** redeploy `nos-api` from the build immediately before the
+`ch4-stage-a` deploy (i.e. `origin/main` at the commit `ch4-stage-a` branched
+from). Nothing is destroyed at this stage — the lock is a pure read-side
+gate, so reverting it simply reopens the chapter with all data intact.
 
 ---
 
@@ -112,7 +146,13 @@ here is destructive.
 
 ## Stage C — delete the old data (point of no return)
 
-**Precondition:** Stage B's poll returned zero non-terminal jobs.
+**Precondition — do not enter this transaction otherwise:** the Stage A
+403 proofs (both `POST /api/scenarios` and `PATCH /api/scenarios/:id`
+against production, above) were captured in this same operating session,
+and Stage B's poll returned zero non-terminal jobs. This transaction is
+irreversible (see "Rollback: none" below) — the 403 proofs are the only
+evidence that no new or edited `chens-cosmetics-cn` row can appear
+underneath the deletion while it runs.
 
 Uses `scripts/src/migrate-delete-chens-scenarios.ts`'s
 `countAffected(db)` and `deleteChapter4Data(db, confirmation)`, tested by
@@ -189,10 +229,13 @@ A needs the old manifest to still exist for its lock to mean anything).
   `details.coveragePct` of `68.4192` (the design spec's regenerated
   golden for the new dataset; see the plan's Task 4/Task 5 goldens).
 
-**Rollback:** revert the Stage D deploy to the last Stage-A-era build.
-Note this rollback is **partial**: it restores the ability to read/render
-a `chens-cosmetics-cn`-shaped chapter, but Stage C has already deleted the
-underlying scenario/job/result-cache rows — there is no data to roll back
-to for students who had `chens-cosmetics-cn` scenarios before Stage C. A
-Stage D rollback undoes the *code* deploy only, not the Stage C data
-deletion.
+**Rollback:** redeploy the specific `ch4-stage-a` build that Stage A shipped
+(not a `main`-history commit — after this branch's merge, `main` no longer
+contains the old manifest at any point in its own history, so "the last
+Stage-A-era build" means that separate branch's deploy artifact, not a
+`git revert` on `main`). Note this rollback is **partial**: it restores the
+ability to read/render a `chens-cosmetics-cn`-shaped chapter, but Stage C
+has already deleted the underlying scenario/job/result-cache rows — there
+is no data to roll back to for students who had `chens-cosmetics-cn`
+scenarios before Stage C. A Stage D rollback undoes the *code* deploy only,
+not the Stage C data deletion.

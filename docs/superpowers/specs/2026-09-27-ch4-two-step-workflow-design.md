@@ -149,7 +149,7 @@ A job counts for its step when its `input_snapshot`'s `stepEpoch` equals the sce
 - the snapshot's `objective` is what identifies which step a job belongs to;
 - the floor the student was shown and the floor the solver was given come from one source and cannot disagree.
 
-`coverageFloorDemand` is declared as an integer (`maxCoverage.ts`, the renamed `chens.ts:108`) and Step 1's `coveredDemand` is emitted as `int(covered)` (`solve.py:1462`), so the injection needs no rounding and cannot fail shape validation.
+`coverageFloorDemand` is declared as an integer (`maxCoverage.ts:109`) and Step 1's `coveredDemand` is emitted as `int(covered)` (`solve.py:1462`), so the injection needs no rounding and cannot fail shape validation.
 
 **CH4-11 — one active job per scenario, enforced at the database, not in the UI.** The first draft disabled the Solve button and stopped there. That is not an enforcement boundary: `enqueueScenarioSolve` locks the scenario row with `.for("update")` and then validates, prechecks and inserts (`jobRunner.ts:366-390`) **without ever checking for an existing job**, and `solve_jobs` carries no unique index over active rows. The lock serialises the two transactions; it does not make the second one refuse. Two tabs, or two direct `POST`s, both enqueue.
 

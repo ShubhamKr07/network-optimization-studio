@@ -78,9 +78,14 @@ interface SolveDialogProps {
    * copy. `gap` / `timeLimitSec` / `coverageFloorDemand` are never gated
    * or converted by this prop. */
   canonicalUnit?: CanonicalUnit | null;
-  /** C4.12/D13/D19 — hide the free-edit distance-bands chip editor. Chen's
-   * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
-   * defaults true, so every other model's Solve dialog is unchanged. */
+  /** C4.12/D13/D19 (superseded by chen-bands-units, T13): originally hid the
+   * free-edit distance-bands chip editor for Chen, whose bands were then
+   * DERIVED (`[high, max]`). That workflow is gone — max-coverage-us's
+   * `distanceBands` is a free, user-editable reporting lens like every other
+   * model's, and Workspace.tsx now omits this prop for max-coverage-us, so
+   * it defaults true and the band editor renders in its Solve dialog too.
+   * Kept as an opt-out seam for a future caller, not currently exercised by
+   * any model. */
   showBandEditor?: boolean;
   // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
   // All four OPTIONAL, default undefined: with none supplied the dialog

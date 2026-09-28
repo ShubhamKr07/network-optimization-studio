@@ -54,9 +54,12 @@ export function nextDisplayCode(
 ): string {
   const prefix = DISPLAY_CODE_PREFIX[kind];
   const taken = new Set(existingCodes);
-  // Some models have no state data — every row's `state` is "" (formerly
-  // Chen's Cosmetics' China dataset; max-coverage-us has real US states).
-  // Omit the state segment entirely rather than emitting a double dash
+  // Defensive, not currently true of any shipped dataset — measured
+  // 2026-09-28, every base warehouse/customer row across all six models
+  // (including max-coverage-us, formerly chens-cosmetics-cn's China
+  // dataset, since its US dataset swap) carries a non-blank state. Guards
+  // against a future dataset or a scenario-added entity with `state: ""`:
+  // omit the state segment entirely rather than emitting a double dash
   // (`WH--CITY-01`); every other caller (a real 2-letter state) is
   // unaffected.
   const base = state ? `${prefix}-${state}-${cityCode(city)}` : `${prefix}-${cityCode(city)}`;
