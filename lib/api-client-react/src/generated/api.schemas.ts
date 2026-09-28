@@ -203,6 +203,8 @@ export type ModelInfoCapabilities = {
   supportsAddedCustomerExclusion: boolean;
   /** Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId. */
   supportsPlantProductCapability?: boolean;
+  /** Chapter 5 (delivery-teaching-us) only — true when this model exposes its immutable base×base reference lane-cost matrix. The registry always emits this field (defaulting false for pre-existing manifests). Gate the reference-costs UI on this, never on modelId. */
+  supportsReferenceCosts: boolean;
 };
 
 /**
@@ -592,6 +594,7 @@ export const ScenarioModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 /**
@@ -734,6 +737,7 @@ export const ScenarioInputModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type ScenarioInputInputs = { [key: string]: unknown };
@@ -1169,6 +1173,7 @@ export const GetDatasetModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type GetSolveHistoryParams = {
@@ -1195,6 +1200,7 @@ export const ListScenariosModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type ExportScenarioParams = {

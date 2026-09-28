@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, max-coverage-us]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, max-coverage-us, delivery-teaching-us]
             default: p-median-us
       responses:
         "200":
@@ -170,6 +170,7 @@ paths:
               - two-echelon-gold-au
               - two-echelon-jade-us
               - max-coverage-us
+              - delivery-teaching-us
       responses:
         "200":
           description: List of scenarios
@@ -952,7 +953,10 @@ components:
               type: boolean
               default: false
               description: Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId.
-          required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus, supportsReferenceDistances, supportsAddedCustomerExclusion]
+            supportsReferenceCosts:
+              type: boolean
+              description: Chapter 5 (delivery-teaching-us) only — true when this model exposes its immutable base×base reference lane-cost matrix. The registry always emits this field (defaulting false for pre-existing manifests). Gate the reference-costs UI on this, never on modelId.
+          required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus, supportsReferenceDistances, supportsAddedCustomerExclusion, supportsReferenceCosts]
         inputsSchema:
           type: object
           description: JSON Schema describing this model's inputs shape. Opaque to this contract.
@@ -1422,6 +1426,7 @@ components:
             - two-echelon-gold-au
             - two-echelon-jade-us
             - max-coverage-us
+            - delivery-teaching-us
         inputs:
           type: object
           description: Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape).
@@ -1623,6 +1628,7 @@ components:
             - two-echelon-gold-au
             - two-echelon-jade-us
             - max-coverage-us
+            - delivery-teaching-us
         inputs:
           type: object
       required:

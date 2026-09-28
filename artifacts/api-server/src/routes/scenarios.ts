@@ -104,6 +104,9 @@ export const VALID_MODEL_IDS = new Set([
   // MIG-22: the dead "max_coverage", "p_center", "set_cover" placeholders
   // (never had a manifest, schema, or dispatcher branch) are removed.
   "max-coverage-us",
+  // Chapter 5 (ch5-del-4) — delivery-teaching-us — registered here alongside
+  // KNOWN_SCHEMAS + buildPayload (same atomic commit) per OBS-5 Gate 1.4.
+  "delivery-teaching-us",
 ]);
 
 // Derived, never stored — true when inputs changed after the last solve.

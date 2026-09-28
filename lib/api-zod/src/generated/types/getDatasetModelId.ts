@@ -16,4 +16,5 @@ export const GetDatasetModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;

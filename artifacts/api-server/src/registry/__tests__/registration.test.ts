@@ -32,6 +32,10 @@ const SOLVABLE = [
   // commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
   // buildPayload branch simultaneously (OBS-5 needs all three at once).
   "max-coverage-us",
+  // ch5-del-4: Chapter 5 Delivery Company Teaching Example joins here in the
+  // atomic commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
+  // buildPayload branch simultaneously (OBS-5 needs all three at once).
+  "delivery-teaching-us",
 ];
 
 describe("model registration consistency", () => {
@@ -138,6 +142,11 @@ const STUB_INPUTS: Record<string, unknown> = {
     avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
     warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
+  "delivery-teaching-us": {
+    p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 60,
+    costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10,
+    laneCostOverrides: [],
+  },
 };
 
 /** model-id → modelType wire string, read straight from buildPayload (the real mapping). */
@@ -232,6 +241,17 @@ describe("model registration consistency", () => {
     const src = readSrc("artifacts/api-server/src/solver/solve.py");
     expect(src).toContain("if model_type == 'max_coverage_us':");
     expect(src).not.toContain("'chens'");
+  });
+
+  it("buildPayload has a branch for delivery-teaching-us emitting the declared wire value (ch5-del-4)", () => {
+    const src = readSrc("artifacts/api-server/src/solver/pmedian.ts");
+    expect(src).toContain('input.modelId === "delivery-teaching-us"');
+    expect(src).toContain('modelType: "delivery"');
+  });
+
+  it("solve.py dispatches the delivery-teaching-us wire value", () => {
+    const src = readSrc("artifacts/api-server/src/solver/solve.py");
+    expect(src).toContain("if model_type == 'delivery':");
   });
 
   it("no source file still references the retired model id", () => {
