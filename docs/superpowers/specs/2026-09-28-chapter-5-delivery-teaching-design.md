@@ -673,9 +673,25 @@ study's Scenario 1 and becomes Scenario 2 with one click.
 ### 7.3 The "Adjust Cost Table" control
 
 Lives in `OptimizationParametersTab.tsx`, which gates every control on **prop
-presence** (`capacityFactor != null && (...)`, `:378-419`) rather than on
-`modelId`. The three rate fields follow that pattern, so they render for this
-model and for nothing else, with no `modelId` check added to the component.
+presence** rather than on `modelId` — `{capacityFactor != null && (...)}` at
+`:388`, `singleSource` at `:411`, `capacityInactive` at `:423`, `bomRatio` at
+`:438`. The four new fields follow that pattern, so they render for this model
+and for nothing else, with no `modelId` check added to the component.
+
+Concretely, three edits to that file:
+
+1. `OptimizationParametersField` (`:10-30`) gains `"costAdjustEnabled"`,
+   `"distanceThreshold"`, `"costPerMile"`, `"costPerMileOver"`. The existing
+   `onChange` signature already accepts `number | number[] | boolean` (`:132`),
+   so the boolean needs no widening.
+2. `OptimizationParametersTabProps` (`:32-133`) gains the four optional props.
+3. A new presence-gated JSX block placed **with the `capacityFactor` /
+   `singleSource` / `capacityInactive` family at `:388-437`** — after the
+   ungated gap and time-limit inputs, and outside the `{objective != null &&
+   (...)}` block at `:235-359`.
+
+That placement is deliberate and load-bearing, for a reason external to this
+design: see §7.7.
 
 Behaviour: a button labelled **"Adjust Cost Table"** toggles
 `costAdjustEnabled`. When on, three numeric fields appear — Distance Threshold,
@@ -748,17 +764,50 @@ collision at merge time. Verified against that plan file:
 | `Workspace.tsx` | Deletes `setChenObjectiveMode` and `MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND` | **Indirect.** §7.2 and §7.4 add a `defaultInputsForModel` case and tab gates to this file. Different regions, same file. |
 | `SidebarTree` | Adds an opt-in `keepOutputsClickable` prop | None. |
 
-The `OptimizationParametersTab.tsx` overlap is the one that matters. Both
-changes are additive-or-subtractive in the same prop-presence-gated region
-(`:378-419`), so they conflict textually rather than semantically. Whichever
-lands second rebases; neither invalidates the other's design.
+The `OptimizationParametersTab.tsx` overlap is the one that matters, and it is
+**not in the JSX**. Measured at `32cacf8`:
+
+| Region | Lines | Who touches it |
+| --- | --- | --- |
+| `OptimizationParametersField` union | 10–30 | **both** — Ch4 adds `"step2Gap" \| "step2TimeLimitSec"`, this design adds four |
+| `OptimizationParametersTabProps` | 32–133 | **both** — Ch4 removes `onObjectiveModeChange` and `coverageFloorDemand` (`:107`) and adds five; this design adds four |
+| `{objective != null && (...)}` | 235–359 | Ch4 only — deleted, enclosing both the toggle at 236–260 and the coverage-floor block at 343–359 |
+| gap / time limit, ungated | 363–382 | neither |
+| `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` gates | 388 / 411 / 423 / 438 | this design only |
+
+Their last deletion ends at 359; the presence-gated family this design extends
+begins at 388. Twenty-nine lines apart, far outside git's three-line default
+context, so **the JSX hunks merge without a conflict marker**.
+
+The actual conflict is the union on one line and the props interface across
+one hundred, where both changes add members. Rebasing therefore means
+reconciling a type and an interface, not relocating JSX — a different and
+easier job than "move your component block", but one that a reviewer skimming
+for JSX conflicts will miss entirely.
+
+*(An earlier revision of this section located the collision at `:378-419`.
+That range came from a recon pass reading `b7bb21a`, before the Chapter 4
+migration merged; at `32cacf8`, line 378 is inside the ungated time-limit
+input. The numbers above were re-measured against the merged tree.)*
+
+**The step wrapper.** The Chapter 4 plan's Task 7 wraps its whole block in
+`{(step ?? 1) === 1 && ...}` so Step 1 and Step 2 render exclusively. Anything
+gated only on prop presence *inside* that wrapper silently stops rendering on
+Step 2. §7.3 therefore places the Adjust Cost Table block **outside** it, with
+the `capacityFactor` family at `:388-437`. This model has no step concept, its
+control must render whenever its props are present, and the placement is stated
+rather than left to be inferred from a diff.
 
 This is worth stating rather than leaving to chance because this repo's
 most-documented recurring bug class is exactly "a shared component's gate
-extended for one model but not its sibling" — it has been caught across two
-separate features already. A Chapter 4 change that removes a toggle from both
-mounts, landing next to a Chapter 5 change that adds a control to one of them,
-is that pattern's natural habitat.
+extended for one model but not its sibling" — caught across two separate
+features already. A Chapter 4 change that removes a toggle from both mounts and
+adds an exclusive step wrapper, landing beside a Chapter 5 change that adds a
+control to one of those mounts, is that pattern's natural habitat.
+
+**Ordering.** The Chapter 4 work lands first: it is a deletion spanning two
+files, this is an addition in one, and rebasing an addition onto a completed
+deletion is the cheaper direction.
 
 ---
 
