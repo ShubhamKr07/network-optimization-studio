@@ -374,12 +374,19 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // reverts to blank rather than committing "5" or keeping "5." on screen.
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.", { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-new-distance-value")).toHaveValue("");
-      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
+      // ALN-C4 is a real base pair (solvers/max-coverage-us/dataset/distances.json
+      // has "ALN,C4") — the merged base+override table always renders a base row
+      // for it via `input-distance-${fromId}-${toId}`, regardless of whether an
+      // override was ever committed, so `toHaveCount(0)` on the input itself is
+      // never a valid "no override" check. The "Changed" badge only renders when
+      // `isChangedRow` is true (a real committed-or-draft override exists), so
+      // its absence is the correct proof the incomplete draft never committed.
+      await expect(page.getByTestId("badge-distance-changed-ALN-C4")).toHaveCount(0);
 
       await page.getByTestId("input-new-distance-value").fill("5e");
       await page.getByTestId("button-add-distance-confirm").click();
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.");
-      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
+      await expect(page.getByTestId("badge-distance-changed-ALN-C4")).toHaveCount(0);
 
       // ── Now commit a real value (km, since unit=auto for max-coverage-us) ──
       await page.getByTestId("input-new-distance-value").fill("500");
@@ -426,6 +433,18 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // ── Edit while displayed in mi: confirm the stored CANONICAL value ──
       await page.getByTestId("unit-toggle-mi").click();
       const overrideInput = page.getByTestId("input-distance-ALN-C4");
+      // ch4-fixes item 4's "grouped" presentation swaps the idle 2-dp text
+      // (`miText1`, e.g. "310.69") for the full-precision raw value the
+      // instant the field is focused (onFocus -> setFocused(true) ->
+      // re-render). `.fill()` focuses the element as its first step, and if
+      // it selects-and-replaces before that focus-triggered re-render has
+      // committed, the new text lands next to (not over) the stale grouped
+      // value instead of replacing it — e.g. "310.6034" + "310.69" both in
+      // the field, which fails the draft's completeness grammar and silently
+      // discards on blur. Click first and wait for the raw swap to actually
+      // land before filling, so .fill() operates on a stable value.
+      await overrideInput.click();
+      await expect(overrideInput).not.toHaveValue(miText1);
       await overrideInput.fill("310.6034");
       await overrideInput.blur();
       await saveViaHeader(page);

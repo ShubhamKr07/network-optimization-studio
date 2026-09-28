@@ -106,16 +106,39 @@ async function getScenarioResult(page: Page, id: number): Promise<ScenarioResult
  * one at a time via the "+ Add" flow. Caller must already be on the
  * Optimization Parameters tab. */
 async function replaceBandsViaChipEditor(page: Page, currentBands: number[], newBands: number[]): Promise<void> {
+  // Add the new band(s) FIRST, then remove the old ones. The chip editor
+  // enforces a last-boundary guard (at least one band must always remain —
+  // its remove button is `disabled`, not absent, once only one band is
+  // left). Removing old bands first means the LAST old band's remove button
+  // is visible-but-disabled, and a plain `isVisible()` guard doesn't catch
+  // that: `.click()` on a disabled target has no explicit timeout, so it
+  // silently inherits the whole remaining test budget and only surfaces (as
+  // a confusing failure) wherever the test happens to hit its next await —
+  // often an unrelated `finally`-block cleanup call. Adding first guarantees
+  // band count is always >= 2 while removing old ones, so the guard never
+  // engages during removal.
+  //
+  // A `newBands` value that already exists in `currentBands` (coincidence,
+  // not the common case, but real for check 2 below — BOUNDARY=1000 is
+  // chosen for its distance-range meaning and happens to already be one of
+  // the model's default bands) must be handled explicitly: adding it is a
+  // no-op (the chip already exists), and removing it during the "old bands"
+  // cleanup would delete the very value this call is trying to establish.
+  // Skip both sides of the overlap so the final set is exactly `newBands`.
+  const currentSet = new Set(currentBands);
+  const newSet = new Set(newBands);
+  for (const b of newBands) {
+    if (currentSet.has(b)) continue; // already present as an old band — no-op
+    await page.getByTestId("button-bands-plus").click();
+    await page.getByTestId("input-new-band").fill(String(b));
+    await page.getByTestId("button-add-band-confirm").click();
+  }
   for (const b of currentBands) {
+    if (newSet.has(b)) continue; // also a target band — keep it, don't remove
     const chip = page.getByTestId(`button-remove-band-${b}`);
     if (await chip.isVisible().catch(() => false)) {
       await chip.click();
     }
-  }
-  for (const b of newBands) {
-    await page.getByTestId("button-bands-plus").click();
-    await page.getByTestId("input-new-band").fill(String(b));
-    await page.getByTestId("button-add-band-confirm").click();
   }
 }
 
@@ -389,7 +412,22 @@ test.describe("Non-JADE ServiceStats live coverage — max-coverage-us NEGATIVE 
       // even though the model also has its own free band chip editor now.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await expect(page.getByTestId("chen-objective-section")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("input-high-service-dist").fill("50");
+      // `ChenDistanceInput` is a draft-until-commit field (useDistanceDraft) —
+      // it commits only on blur/Enter, never on every keystroke. A bare
+      // `.fill()` types the draft but never reaches `onCommit`, so
+      // `localInputs`/`text-unsaved-changes` never update and this whole
+      // probe silently tests nothing. Blur to commit before asserting.
+      const highServiceDistInput = page.getByTestId("input-high-service-dist");
+      await highServiceDistInput.fill("50");
+      await highServiceDistInput.blur();
+      // ch4-2s — this scenario already has a solved Step 1 result (solveViaApi
+      // above), so committing a Step-1-field edit now correctly raises the
+      // two-step workflow's freeze-confirm dialog (ch4-two-step.spec.ts's own
+      // "6. Edit a Step 1 parameter" case) — it must be accepted before any
+      // further interaction, or every subsequent click hangs on the modal
+      // overlay for the rest of the test's budget.
+      await expect(page.getByTestId("freeze-confirm-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("freeze-confirm-accept").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("text-unsaved-changes")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       const callsBeforeCheck = solveCalls.count();
