@@ -4,44 +4,45 @@ import { dirname, resolve } from "node:path";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 
 // C4.14 (Gate-1 mapped audit) — the map is bounded by the model's manifest
-// `countryBounds`, NOT a per-page constant. Confirm the Chen manifest's China
+// `countryBounds`, NOT a per-page constant. Confirm max-coverage-us's US
 // {sw, ne} box actually CONTAINS every warehouse and customer point in the
-// real dataset — a wrong/US-scale box would silently clamp the map and hide
-// half the network (model-integration-precheck.md Gate 6, "map bounds come
-// from the manifest").
+// real dataset — a wrong/mis-scaled box would silently clamp the map and
+// hide half the network (model-integration-precheck.md Gate 6, "map bounds
+// come from the manifest").
 //
 // jsdom's `import.meta.url` isn't a file:// URL (see ObjectiveBar.test.tsx's
-// own note), so resolve the repo root by walking up from the vitest cwd until
-// the Chen manifest is found — robust to being run from the package dir or root.
+// own note), so resolve the repo root by walking up from the vitest cwd
+// until the manifest is found — robust to being run from the package dir or
+// root.
 function findRepoRoot(): string {
   let dir = process.cwd();
   for (let i = 0; i < 8; i++) {
-    if (existsSync(resolve(dir, "solvers/chens-cosmetics-cn/manifest.json"))) return dir;
+    if (existsSync(resolve(dir, "solvers/max-coverage-us/manifest.json"))) return dir;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  throw new Error("Could not locate repo root (solvers/chens-cosmetics-cn/manifest.json) from " + process.cwd());
+  throw new Error("Could not locate repo root (solvers/max-coverage-us/manifest.json) from " + process.cwd());
 }
 const repoRoot = findRepoRoot();
 function readJson(rel: string): unknown {
   return JSON.parse(readFileSync(resolve(repoRoot, rel), "utf8"));
 }
 
-const manifest = readJson("solvers/chens-cosmetics-cn/manifest.json") as {
+const manifest = readJson("solvers/max-coverage-us/manifest.json") as {
   countryBounds: CountryBounds;
   distanceUnit: string;
 };
-const warehouses = readJson("solvers/chens-cosmetics-cn/dataset/warehouses.json") as Record<
+const warehouses = readJson("solvers/max-coverage-us/dataset/warehouses.json") as Record<
   string,
   { lat: number; lng: number }
 >;
-const customers = readJson("solvers/chens-cosmetics-cn/dataset/customers.json") as Record<
+const customers = readJson("solvers/max-coverage-us/dataset/customers.json") as Record<
   string,
   { lat: number; lng: number }
 >;
 
-describe("Chen map bounds — manifest countryBounds contain all points", () => {
+describe("max-coverage-us map bounds — manifest countryBounds contain all points", () => {
   const { sw, ne } = manifest.countryBounds;
   const [swLat, swLng] = sw;
   const [neLat, neLng] = ne;
@@ -66,15 +67,16 @@ describe("Chen map bounds — manifest countryBounds contain all points", () => 
     }
   });
 
-  it("getMapBoundsProps maps the China bounds through to Leaflet maxBounds (not the US fallback)", () => {
+  it("getMapBoundsProps maps the US bounds through to Leaflet maxBounds (not a stale fallback)", () => {
     const props = getMapBoundsProps(manifest.countryBounds);
     expect(props.maxBounds).toEqual([[swLat, swLng], [neLat, neLng]]);
-    // The continental-US fallback center is ~[39.5, -98.35]; China's must be a
-    // positive (eastern-hemisphere) longitude, proving we didn't fall back.
-    expect(props.center[1]).toBeGreaterThan(0);
+    // max-coverage-us's own bounds must be a negative (western-hemisphere)
+    // longitude, distinguishing it from the old chens-cosmetics-cn China
+    // bounds (positive longitude) this test previously guarded.
+    expect(props.center[1]).toBeLessThan(0);
   });
 
-  it("the manifest declares km (not mi) for Chen", () => {
+  it("the manifest declares km (not mi) for max-coverage-us", () => {
     expect(manifest.distanceUnit).toBe("km");
   });
 });

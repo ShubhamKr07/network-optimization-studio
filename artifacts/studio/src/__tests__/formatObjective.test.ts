@@ -97,11 +97,11 @@ describe("formatObjective — six-model contract", () => {
       expectedDim: "monetary", suffix: () => "$",
     },
     {
-      modelId: "chens-cosmetics-cn", mode: "coverage", canonicalUnit: "km", objective: 66.6667,
+      modelId: "max-coverage-us", mode: "coverage", canonicalUnit: "km", objective: 66.6667,
       expectedDim: "percent", suffix: () => "%",
     },
     {
-      modelId: "chens-cosmetics-cn", mode: "min_distance", canonicalUnit: "km", objective: 1000,
+      modelId: "max-coverage-us", mode: "min_distance", canonicalUnit: "km", objective: 1000,
       expectedDim: "demand-distance", suffix: (u) => `demand-${u}`,
     },
   ];
@@ -130,7 +130,7 @@ describe("formatObjective — six-model contract", () => {
     // $100, unconverted — a naive distance conversion would have scaled it.
     expect(monetary).toBe("$100.00");
 
-    const percent = formatObjective("chens-cosmetics-cn", "coverage", 66.6667, "km", stubUnitApi("mi"));
+    const percent = formatObjective("max-coverage-us", "coverage", 66.6667, "km", stubUnitApi("mi"));
     expect(percent).toBe("66.67 %");
   });
 

@@ -591,10 +591,7 @@ export const ScenarioModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
-  'chens-cosmetics-cn': 'chens-cosmetics-cn',
-  max_coverage: 'max_coverage',
-  p_center: 'p_center',
-  set_cover: 'set_cover',
+  'max-coverage-us': 'max-coverage-us',
 } as const;
 
 /**
@@ -736,10 +733,7 @@ export const ScenarioInputModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
-  'chens-cosmetics-cn': 'chens-cosmetics-cn',
-  max_coverage: 'max_coverage',
-  p_center: 'p_center',
-  set_cover: 'set_cover',
+  'max-coverage-us': 'max-coverage-us',
 } as const;
 
 export type ScenarioInputInputs = { [key: string]: unknown };
@@ -1174,7 +1168,7 @@ export const GetDatasetModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
-  'chens-cosmetics-cn': 'chens-cosmetics-cn',
+  'max-coverage-us': 'max-coverage-us',
 } as const;
 
 export type GetSolveHistoryParams = {
@@ -1200,10 +1194,7 @@ export const ListScenariosModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
-  'chens-cosmetics-cn': 'chens-cosmetics-cn',
-  max_coverage: 'max_coverage',
-  p_center: 'p_center',
-  set_cover: 'set_cover',
+  'max-coverage-us': 'max-coverage-us',
 } as const;
 
 export type ExportScenarioParams = {

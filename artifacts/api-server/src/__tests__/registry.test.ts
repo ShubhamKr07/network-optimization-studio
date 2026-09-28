@@ -16,7 +16,7 @@ testApp.use("/api", modelsRouter);
 describe("modelRegistry", () => {
   it("listModels() returns the six known models", () => {
     const ids = listModels().map(m => m.id).sort();
-    expect(ids).toEqual(["chens-cosmetics-cn", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   it("omits datasetDir (server-internal) from the public listing", () => {
@@ -41,7 +41,7 @@ describe("GET /api/models", () => {
     const res = await request(testApp).get("/api/models");
     expect(res.status).toBe(200);
     const ids = res.body.map((m: { id: string }) => m.id).sort();
-    expect(ids).toEqual(["chens-cosmetics-cn", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   // R5 (Workspace UX bundle) — every model must always report a
@@ -57,8 +57,8 @@ describe("GET /api/models", () => {
     expect(byId["p-median-brazil"]).toBe("mi");
     expect(byId["transport-coal"]).toBe("mi");
     expect(byId["two-echelon-gold-au"]).toBe("mi");
-    // C4.4 — Chapter 4 (chens-cosmetics-cn) is the repo's first km model.
-    expect(byId["chens-cosmetics-cn"]).toBe("km");
+    // C4.4 — Chapter 4 (max-coverage-us) is the repo's first km model.
+    expect(byId["max-coverage-us"]).toBe("km");
   });
 
   // Bundle 2 (B2-T1) — supportsFacilityStatus gates R3 (status paint) and
@@ -84,8 +84,8 @@ describe("GET /api/models", () => {
     expect(byId["p-median-brazil"]).toBe(false);
     expect(byId["two-echelon-gold-au"]).toBe(false);
     expect(byId["transport-coal"]).toBe(false);
-    // C4.4 — Chen registers its own direct-id reference-distance builder.
-    expect(byId["chens-cosmetics-cn"]).toBe(true);
+    // C4.4 — max-coverage-us registers its own direct-id reference-distance builder.
+    expect(byId["max-coverage-us"]).toBe(true);
   });
 
   // Bundle 2.2 (B2.2-T2) — supportsAddedCustomerExclusion gates A3's

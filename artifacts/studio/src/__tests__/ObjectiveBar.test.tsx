@@ -69,14 +69,15 @@ describe("ObjectiveBar — chapter/title by model", () => {
   });
 
   // C4.14 (Gate-1 header audit) — the header title/subtitle come from the
-  // CHAPTERS lookup, so Chen must show its OWN Chapter 4 / Chen's Cosmetics
-  // title AND must NOT fall back to a coal/gold branch (the header-ternary
-  // bug class the mapped audit exists to catch).
-  it("chens-cosmetics-cn shows Chapter 4 / Chen's Cosmetics, NOT AL's Athletics or Coal Transport LP", () => {
-    render(<ObjectiveBar result={null} scenarioId={40} modelId="chens-cosmetics-cn" />);
+  // CHAPTERS lookup, so max-coverage-us must show its OWN Chapter 4 title
+  // (ch4-mig-8: the cutover's "Al's Athletics — Max Coverage" copy, not the
+  // retired "Chen's Cosmetics" China title) AND must NOT fall back to a
+  // coal/gold branch (the header-ternary bug class the mapped audit exists
+  // to catch).
+  it("max-coverage-us shows Chapter 4 / Al's Athletics — Max Coverage, NOT AL's Athletics (Ch3) or Coal Transport LP", () => {
+    render(<ObjectiveBar result={null} scenarioId={40} modelId="max-coverage-us" />);
     expect(screen.getByText("Chapter 4")).toBeInTheDocument();
-    expect(screen.getByText(/Chen's Cosmetics/)).toBeInTheDocument();
-    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Al's Athletics — Max Coverage/)).toBeInTheDocument();
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
   });
@@ -153,7 +154,7 @@ describe("ObjectiveBar — solve stats", () => {
 
   // C4.11 — the avg-distance stat follows the active model's unit.
   it("renders avg distance in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
-    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="max-coverage-us" distanceUnit="km" />);
     expect(screen.getByText(/avg distance 340 km/)).toBeInTheDocument();
     expect(screen.queryByText(/avg distance 340 mi/)).not.toBeInTheDocument();
   });
@@ -185,7 +186,7 @@ describe("ObjectiveBar — solve stats", () => {
       ...optimalResult, objective: 66.6667,
       details: { objective: "coverage", coveragePct: 66.6667 },
     };
-    render(<ObjectiveBar result={coverage} scenarioId={40} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    render(<ObjectiveBar result={coverage} scenarioId={40} modelId="max-coverage-us" distanceUnit="km" />);
     expect(screen.getByText(/objective 66\.67 %/)).toBeInTheDocument();
   });
 
@@ -201,7 +202,7 @@ describe("ObjectiveBar — solve stats", () => {
       ...optimalResult, objective: 131645389,
       details: { objective: "min_distance" },
     };
-    render(<ObjectiveBar result={minDist} scenarioId={41} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    render(<ObjectiveBar result={minDist} scenarioId={41} modelId="max-coverage-us" distanceUnit="km" />);
     expect(screen.getByText(/objective 131,645,389 demand-km/)).toBeInTheDocument();
   });
 

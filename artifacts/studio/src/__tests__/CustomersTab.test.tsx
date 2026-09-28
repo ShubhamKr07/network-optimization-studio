@@ -704,7 +704,7 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
   });
 });
 
-// Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
+// Chen's Cosmetics (max-coverage-us) — a China dataset where every
 // customer row has `state: ""`. `hasStateColumn` is gated on DATA PRESENCE
 // by the caller (Workspace.tsx), not modelId — this component just respects
 // the prop.

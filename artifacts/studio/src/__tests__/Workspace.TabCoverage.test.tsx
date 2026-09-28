@@ -653,12 +653,12 @@ describe("Workspace tab coverage — p-median-brazil", () => {
   });
 });
 
-// ── chens-cosmetics-cn (jade-INT, Workspace fixups bundle item 4) ─────────
-// Chapter 4 (Chen's Cosmetics) — reuses p-median-us's "pmedian" Input Map
+// ── max-coverage-us (jade-INT, Workspace fixups bundle item 4) ─────────
+// Chapter 4 — reuses p-median-us's "pmedian" Input Map
 // mode and WarehousesTab/CustomersTab (C4.13). Absent from the original
 // sweep entirely (added after C4.13) — new coverage, not a modification.
-describe("Workspace tab coverage — chens-cosmetics-cn", () => {
-  const chensInputs = {
+describe("Workspace tab coverage — max-coverage-us", () => {
+  const maxCoverageInputs = {
     objective: "coverage",
     p: 3,
     highServiceDistKm: 600,
@@ -678,8 +678,8 @@ describe("Workspace tab coverage — chens-cosmetics-cn", () => {
   const solvedScenario = {
     id: 40,
     name: "Chen coverage",
-    modelId: "chens-cosmetics-cn",
-    inputs: chensInputs,
+    modelId: "max-coverage-us",
+    inputs: maxCoverageInputs,
     result: {
       status: "optimal" as const,
       objective: 66.6667,
@@ -710,9 +710,9 @@ describe("Workspace tab coverage — chens-cosmetics-cn", () => {
     mockUseListModels.mockReturnValue({
       data: [
         {
-          id: "chens-cosmetics-cn",
+          id: "max-coverage-us",
           distanceUnit: "km",
-          countryBounds: { sw: [18.0, 73.0], ne: [54.0, 135.0] },
+          countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
           capabilities: {
             supportsP: true,
             capacityModes: ["none"],
@@ -728,7 +728,7 @@ describe("Workspace tab coverage — chens-cosmetics-cn", () => {
   });
 
   it("every Inputs entry (incl. Input Map) and every allowed Outputs entry opens its real content, not a placeholder", () => {
-    render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 
     runTabCoverage(
       [

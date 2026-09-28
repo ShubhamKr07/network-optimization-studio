@@ -2,13 +2,13 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
-import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
+import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { buildActivePMedianIds, buildActiveTwoEchelonIds, buildActiveJadeIds } from "./precheck.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema, type JadeInputs } from "../validation/inputs/jadeInputs.js";
-import { chensInputsSchema, type ChensInputs } from "../validation/inputs/chens.js";
+import { maxCoverageInputsSchema, type MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 
 // T1 (Input Map v2) / follow-up item 3 — normalization step run on every
 // persist path (POST create, PATCH, import/apply — see routes/scenarios.ts's
@@ -86,13 +86,18 @@ function clampMi(mi: number): number {
   return Math.max(MIN_DISTANCE_MI, Math.round(mi * 10) / 10);
 }
 
-// C4.7 (Chapter 4, chens-cosmetics-cn) — Chen's dataset is authored in
-// kilometers (raw great-circle km, NO circuity — solve_chens applies the
-// ×1.17 factor itself, D8), unlike every model above which stores miles. So
-// its added-entity estimator needs its own km haversine (earth radius
-// 6371 km) rather than reusing haversineMiles' R_MI=3959. Rounds each
-// estimate to 2 dp and floors at 0.01 km (positive, never 0 for co-located
-// points — same "never 0" invariant as clampMi, just at km precision).
+// C4.7 (Chapter 4, max-coverage-us) — this model's BASE dataset is authored
+// in kilometers (already road-adjusted km, and MIG-6: the solver applies no
+// further circuity — stored == solved == displayed == exported), unlike
+// every model above which stores miles. So its added-entity estimator needs
+// its own km haversine (earth radius 6371 km) rather than reusing
+// haversineMiles' R_MI=3959. Rounds each estimate to 2 dp and floors at 0.01
+// km (positive, never 0 for co-located points — same "never 0" invariant as
+// clampMi, just at km precision). MIG-20 (see the estimator's own comment,
+// below): the estimator itself DOES road-adjust its raw haversine fills via
+// MAX_COVERAGE_CIRCUITY, so an added entity lands on the same footing as the
+// base matrix — "no circuity" describes the base dataset's provenance, not
+// the estimator's output.
 const R_KM = 6371;
 const MIN_DISTANCE_KM = 0.01;
 
@@ -457,41 +462,58 @@ export function fillEstimatedJadeDistances(inputs: JadeInputs, dataset: JadeRole
   return jadeInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
 }
 
-interface ChensRoleDataset {
+interface MaxCoverageRoleDataset {
   warehouses: readonly { id: string; lat: number; lng: number }[];
   customers: readonly { id: string; lat: number; lng: number }[];
 }
 
-const CHENS_DEFAULT: ChensRoleDataset = { warehouses: CHENS_WAREHOUSES, customers: CHENS_CUSTOMERS };
+const MAX_COVERAGE_DEFAULT: MaxCoverageRoleDataset = { warehouses: MAX_COVERAGE_WAREHOUSES, customers: MAX_COVERAGE_CUSTOMERS };
 
 /**
- * C4.7 (Chapter 4, chens-cosmetics-cn) — Chen's added-entity distance
+ * C4.7 (Chapter 4, max-coverage-us) — this model's added-entity distance
  * estimator. Deliberately a SEPARATE function that MIRRORS the core
  * fillEstimatedDistances algorithm (missing added-entity-pair detection +
  * haversine fill for the "vice versa" required set), NOT a wrapper around it
  * (unlike fillEstimatedBrazilDistances, which just injects a circuity
- * constant) — because it must reparse through `chensInputsSchema` so Chen's
- * own objective/threshold fields (`objective`, `highServiceDistKm`,
- * `maxDistKm`, `avgServiceDistCapKm`/`coverageFloorDemand`) survive; routing
- * Chen inputs through the p-median schema would strip every Chen-only field.
+ * constant) — because it must reparse through `maxCoverageInputsSchema` so
+ * this model's own objective/threshold fields (`objective`,
+ * `highServiceDistKm`, `maxDistKm`, `avgServiceDistCapKm`/
+ * `coverageFloorDemand`) survive; routing these inputs through the p-median
+ * schema would strip every max-coverage-us-only field.
  *
- * Differs from the core in exactly three numeric ways, matching Chen's
- * km-authored raw-distance dataset (D8): a km haversine (`haversineKm`,
- * R=6371), NO circuity (circuity = 1, since solve_chens applies ×1.17
- * itself), and 2-dp rounding with a positive 0.01 km floor (never 0 for
- * co-located points). Pure and idempotent — a pair that already has an
- * override (manual or previously estimated) is left untouched, so a second
- * pass is a no-op. Only FILLS genuinely-missing rows; it does NOT repair a
- * stale estimate after a coordinate change (the frontend move/delete purge,
- * C4.13, is what makes a re-estimate happen). The final `chensInputsSchema
- * .parse` also re-applies the D19 `distanceBands = [high, max]` transform, so
- * a distances-import path that stages a stale third boundary is corrected
- * here too.
+ * Differs from the core in exactly three numeric ways, matching this
+ * model's km-authored raw-distance dataset (D8): a km haversine
+ * (`haversineKm`, R=6371), a MIG-20 road-adjustment (`MAX_COVERAGE_CIRCUITY`,
+ * applied before rounding — see the constant's own comment for why), and
+ * 2-dp rounding with a positive 0.01 km floor (never 0 for co-located
+ * points). Pure and idempotent — a pair that already has an override
+ * (manual or previously estimated) is left untouched, so a second pass is a
+ * no-op. Only FILLS genuinely-missing rows; it does NOT repair a stale
+ * estimate after a coordinate change (the frontend move/delete purge,
+ * C4.13, is what makes a re-estimate happen). The final
+ * `maxCoverageInputsSchema.parse` does NOT re-derive `distanceBands` here —
+ * per spec Part A (supersedes D19), a supplied `distanceBands` array is
+ * preserved VERBATIM; the schema derives `[high, max]` only when the field
+ * is omitted entirely (a legacy pre-contract payload), never as a silent
+ * overwrite of a caller's own array. A distances-import path that stages a
+ * stale third boundary is NOT corrected here — `distanceBands` is a free,
+ * user-editable reporting lens, not a value this estimator owns.
  */
-export function fillEstimatedChensDistances(
-  inputs: ChensInputs,
-  dataset: ChensRoleDataset = CHENS_DEFAULT,
-): ChensInputs {
+// MIG-20 -- road-adjustment now happens HERE, at the point distances are
+// produced, because solve_max_coverage no longer multiplies (MIG-6). The base
+// matrix sits at ~1.1788x true great-circle; 1.17 leaves added distances 0.75%
+// below that, which is the same order of inconsistency that already existed
+// and reuses the constant already in this file (TRANSPORT_CIRCUITY) rather
+// than introducing 1.1788 as a second magic number.
+//
+// The rule: distances enter the dataset already road-adjusted. Nothing
+// downstream adjusts them again.
+const MAX_COVERAGE_CIRCUITY = TRANSPORT_CIRCUITY;
+
+export function fillEstimatedMaxCoverageDistances(
+  inputs: MaxCoverageInputs,
+  dataset: MaxCoverageRoleDataset = MAX_COVERAGE_DEFAULT,
+): MaxCoverageInputs {
   const added = inputs.addedWarehouses ?? [];
   const addedC = inputs.addedCustomers ?? [];
 
@@ -507,10 +529,10 @@ export function fillEstimatedChensDistances(
 
   const addedWhIds = new Set(added.map((w) => w.id));
   const addedCustIds = new Set(addedC.map((c) => c.id));
-  // Chen shares p-median's warehouse/customer role structure, so
+  // max-coverage-us shares p-median's warehouse/customer role structure, so
   // buildActivePMedianIds computes the exact same "active" id lists here
   // (base entities not inactive/excluded per overrides, plus every added
-  // entity) — no Chen-specific active-id helper needed.
+  // entity) — no model-specific active-id helper needed.
   const { activeWarehouseIds, activeCustomerIds } = buildActivePMedianIds(inputs, {
     warehouses: dataset.warehouses,
     customers: dataset.customers,
@@ -532,11 +554,11 @@ export function fillEstimatedChensDistances(
       const a = whCoord.get(whId);
       const b = custCoord.get(custId);
       if (!a || !b) continue;
-      const d = clampKm(haversineKm(a, b));
+      const d = clampKm(haversineKm(a, b) * MAX_COVERAGE_CIRCUITY);
       overrides.push({ fromId: whId, toId: custId, distance: d, estimated: true });
       have.add(key);
     }
   }
 
-  return chensInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
+  return maxCoverageInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
 }

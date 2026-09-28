@@ -2,7 +2,7 @@ import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
-import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
+import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
@@ -490,23 +490,24 @@ export function applyGoldCustomerOverrides(overrides: CustomerOverride[], addedC
   return [...baseRows, ...addedRows];
 }
 
-// Chapter 4 (chens-cosmetics-cn) — Chen's own 25-warehouse / 197-customer
-// China dataset (CHENS_WAREHOUSES/CHENS_CUSTOMERS), distinct from every other
-// model's, same WarehouseTemplateRow/CustomerTemplateRow shapes (CSV/JSON
-// serialization is dataset-agnostic). Chen warehouses carry STATUS but NO
-// capacity concept at all (single-echelon coverage/min-distance model,
-// capacityMode "none" only — exactly like JADE warehouses), so `capacity` is
-// always null. Chen customers carry status (active/excluded) + demand, exactly
-// like p-median-us's applyCustomerOverrides. Both gain the added-entity second
-// param (Chen's addedWarehouses/addedCustomers), mirroring applyWarehouse/
+// Chapter 4 (max-coverage-us) — Al's Athletics' own 26-warehouse /
+// 200-customer US dataset (MAX_COVERAGE_WAREHOUSES/MAX_COVERAGE_CUSTOMERS),
+// distinct from every other model's, same WarehouseTemplateRow/
+// CustomerTemplateRow shapes (CSV/JSON serialization is dataset-agnostic).
+// Warehouses carry STATUS but NO capacity concept at all (single-echelon
+// coverage/min-distance model, capacityMode "none" only — exactly like JADE
+// warehouses), so `capacity` is always null. Customers carry status
+// (active/excluded) + demand, exactly like p-median-us's
+// applyCustomerOverrides. Both gain the added-entity second param
+// (addedWarehouses/addedCustomers), mirroring applyWarehouse/
 // CustomerOverrides. Distances reuse applyDistanceOverrides directly (composite
 // -keyed, dataset-agnostic — same reuse two-echelon/JADE legDistances rely on).
-export function applyChensWarehouseOverrides(
+export function applyMaxCoverageWarehouseOverrides(
   overrides: WarehouseOverride[],
   addedWarehouses: AddedWarehouse[] = [],
 ): WarehouseTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  const baseRows: WarehouseTemplateRow[] = CHENS_WAREHOUSES.map(w => {
+  const baseRows: WarehouseTemplateRow[] = MAX_COVERAGE_WAREHOUSES.map(w => {
     const status = byId.get(w.id)?.status ?? "active";
     return {
       templateVersion: TEMPLATE_VERSION,
@@ -536,9 +537,9 @@ export function applyChensWarehouseOverrides(
   return [...baseRows, ...addedRows];
 }
 
-export function applyChensCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
+export function applyMaxCoverageCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  const baseRows: CustomerTemplateRow[] = CHENS_CUSTOMERS.map(c => {
+  const baseRows: CustomerTemplateRow[] = MAX_COVERAGE_CUSTOMERS.map(c => {
     const o = byId.get(c.id);
     const demand = o?.demand ?? c.demand;
     const status = o?.status ?? "active";
@@ -1375,10 +1376,11 @@ export interface OpenWarehouseTemplateRow {
 
 // C4.9 / D29 — build the effective facility id→city lookup (base warehouses/
 // refineries ∪ the scenario's added facilities) buildOpenWarehouseRows needs
-// to label a zero-flow forced-open facility. Chen emits
+// to label a zero-flow forced-open facility. max-coverage-us emits
 // metrics.utilizationByNode EMPTY, so the old city-from-utilizationByNode path
-// blanks every Chen city; a forced-open facility with no assigned customer has
-// no edge either, so its id lives only in metrics.openFacilityIds — the base
+// blanks every max-coverage-us city; a forced-open facility with no assigned
+// customer has no edge either, so its id lives only in
+// metrics.openFacilityIds — the base
 // (or added) dataset is the only place its real city can come from. Lives here
 // (not the route) because this module already imports every model's base
 // dataset. Two-echelon's "open warehouse" node is its refinery, so that model's
@@ -1394,7 +1396,7 @@ export function buildEffectiveFacilityCityLookup(
   const base: Array<{ id: string; city: string }> =
     modelId === "p-median-us" ? WAREHOUSES
     : modelId === "p-median-brazil" ? BRAZIL_DATASET_WAREHOUSES
-    : modelId === "chens-cosmetics-cn" ? CHENS_WAREHOUSES
+    : modelId === "max-coverage-us" ? MAX_COVERAGE_WAREHOUSES
     : modelId === "two-echelon-jade-us" ? JADE_WAREHOUSES
     : modelId === "two-echelon-gold-au" ? GOLD_REFINERIES
     : [];

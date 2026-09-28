@@ -165,11 +165,26 @@ const jadeRow = {
   updatedAt: new Date("2026-01-05T00:00:00Z"),
 };
 
-// C4.4 — chens-cosmetics-cn (Chapter 4, China coverage/min-distance). Shares
-// p-median-us's warehouses/customers/distances entity set but its OWN 25-WH/
-// 197-customer dataset; export/import must resolve CHEN's rows, never a
-// p-median sibling's.
-const chensInputs = {
+// C4.4 — max-coverage-us (Chapter 4, US coverage/min-distance). Shares
+// p-median-us's warehouses/customers/distances entity set AND (MIG-4: this
+// model reuses Chapter 3's own 26-warehouse/200-customer facility list) its
+// exact base ids — export/import must resolve max-coverage-us's OWN dataset
+// package via its own manifest-scoped code path, never accidentally the
+// p-median-us fallback (even though the two now happen to share content,
+// the route must still dispatch on modelId, not fall through).
+//
+// review-4.4a: because the two models' facility lists are now byte-for-byte
+// identical (same 26 warehouse ids/cities, same 200 customer ids), row
+// count/id-membership/capacity-null assertions below are equally true of the
+// p-median-us code path — they do NOT discriminate which dataset actually
+// resolved. The real discriminator that survives the shared facility list is
+// each model's own manifest-declared canonical distance unit (max-coverage-us
+// is "km", p-median-us is "mi" — solvers/*/manifest.json); see the
+// reference-distances test at the end of this describe block and the unit
+// assertions in the "v1 distances export -> re-import round-trips unchanged"
+// describe block below for the assertions that actually pin dataset
+// identity.
+const maxCoverageInputs = {
   objective: "coverage",
   p: 3,
   highServiceDistKm: 600,
@@ -186,12 +201,12 @@ const chensInputs = {
   distanceOverrides: [],
 };
 
-const chensRow = {
+const maxCoverageRow = {
   id: 20,
-  name: "Chen Base Case",
-  modelId: "chens-cosmetics-cn",
+  name: "Max Coverage Base Case",
+  modelId: "max-coverage-us",
   userId: OWNER,
-  inputs: chensInputs,
+  inputs: maxCoverageInputs,
   result: null,
   solvedAt: null,
   createdAt: new Date("2026-01-06T00:00:00Z"),
@@ -364,82 +379,121 @@ describe("Multi-model CSV round trip — displayCode collision blocks the real H
 // (`POST /scenarios/:id/reset-to-baseline`) was removed repo-wide in SCN
 // v0.3 Phase 3.2 (see CLAUDE.md's Phase 3.2 Task 1 entry), before this JADE
 // plan was written; there is nothing to register JADE into.
-describe("Chen (chens-cosmetics-cn) — export resolves CHEN's dataset, not a p-median sibling's", () => {
-  it("warehouses export returns Chen's own rows (wh-<n>, no capacity column), NOT p-median-us rows", async () => {
+describe("max-coverage-us — export resolves its own dataset via its own code path", () => {
+  it("warehouses export returns all 26 rows with no capacity column", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/20/export?entity=warehouses&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.rows).toHaveLength(25);
+    expect(res.body.rows).toHaveLength(26);
     const ids = res.body.rows.map((r: { id: string }) => r.id);
-    expect(ids).toContain("wh-15");
-    // A p-median-us warehouse id (ALN) must NOT appear — proves Chen's own
-    // dataset was resolved, not the p-median fallback.
-    expect(ids).not.toContain("ALN");
-    // Chen warehouses have no capacity concept.
+    // MIG-4: max-coverage-us reuses Chapter 3's exact facility list, so ALN
+    // is a genuine max-coverage-us id too (not proof of cross-contamination
+    // by itself). Neither the row count (p-median-us's own warehouse count
+    // is ALSO 26 — same facility list) nor the capacity===null assertion
+    // below (p-median-us's own export emits capacity:null for every row too,
+    // given empty warehouseOverrides — templates.ts's `o?.capacity ?? null`)
+    // discriminates which model's code path actually resolved. This test
+    // exists to prove the response SHAPE (200, 26 rows, no capacity concept);
+    // the "reference-distances proves..." test below is what actually pins
+    // dataset identity.
+    expect(ids).toContain("ALN");
+    // max-coverage-us warehouses have no capacity concept.
     expect(res.body.rows.every((r: { capacity: number | null }) => r.capacity === null)).toBe(true);
   });
 
-  it("customers export returns Chen's own 197 rows (cs-<n>), NOT p-median-us's 200", async () => {
+  it("customers export returns all 200 rows", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/20/export?entity=customers&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.rows).toHaveLength(197);
+    expect(res.body.rows).toHaveLength(200);
     const ids = res.body.rows.map((r: { id: string }) => r.id);
-    expect(ids).toContain("cs-1");
-    expect(ids).not.toContain("C1");
+    expect(ids).toContain("C1");
   });
 
-  it("a sibling model's entity (mines) is rejected (422) for a Chen scenario", async () => {
+  it("a sibling model's entity (mines) is rejected (422) for a max-coverage-us scenario", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/20/export?entity=mines&format=json").set("Cookie", cookie);
     expect(res.status).toBe(422);
   });
+
+  // review-4.4a — the assertions above (row count, id membership, capacity
+  // null) are all equally true of the p-median-us dataset now that the two
+  // models share an identical 26-warehouse/200-customer facility list, so
+  // none of them alone proves max-coverage-us's OWN dataset package
+  // resolved rather than p-median-us's. This test uses the one thing that
+  // does NOT survive the shared facility list: each model's own
+  // manifest-declared canonical distance unit and its real base-matrix
+  // value for the SAME (ALN, C1) pair (solvers/max-coverage-us/manifest.json
+  // declares "km", solvers/p-median-us/manifest.json declares "mi" — the
+  // two datasets are copies of the same facility list but NOT the same
+  // distance matrix). GET /models/:id/reference-distances is unauthenticated
+  // and model-scoped (routes/referenceDistances.ts), so no scenario mocking
+  // is needed here.
+  it("reference-distances proves ALN->C1 is a genuinely different matrix from p-median-us despite the shared id", async () => {
+    const mc = await request(app).get("/api/models/max-coverage-us/reference-distances");
+    expect(mc.status).toBe(200);
+    expect(mc.body.distanceUnit).toBe("km");
+    const mcPair = (mc.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
+      .find((p) => p.fromId === "ALN" && p.toId === "C1");
+    expect(mcPair?.distance).toBe(601.894656);
+
+    const pm = await request(app).get("/api/models/p-median-us/reference-distances");
+    expect(pm.status).toBe(200);
+    expect(pm.body.distanceUnit).toBe("mi");
+    const pmPair = (pm.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
+      .find((p) => p.fromId === "ALN" && p.toId === "C1");
+    expect(pmPair?.distance).toBe(374);
+
+    // Same shared id pair, genuinely different underlying matrices.
+    expect(mcPair?.distance).not.toBe(pmPair?.distance);
+  });
 });
 
-describe("Chen (chens-cosmetics-cn) — customers import preview resolves Chen's dataset", () => {
-  it("a base Chen customer (cs-1) status change previews exactly one change", async () => {
+describe("max-coverage-us — customers import preview resolves its own dataset", () => {
+  it("a base customer (C1) status change previews exactly one change", async () => {
     const cookie = await loginAs(OWNER);
     // COLUMNS.customers: template_version,id,display_code,city,state,lat,lng,demand,status
-    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,cs-1,,,,,,458287,excluded\n";
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,,,,,458287,excluded\n";
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).post("/api/scenarios/20/import").set("Cookie", cookie)
       .send({ entity: "customers", csvText: csv });
     expect(res.status).toBe(200);
     expect(res.body.errors).toEqual([]);
     expect(res.body.changes).toHaveLength(1);
-    expect(res.body.changes[0]).toMatchObject({ id: "cs-1", after: { status: "excluded" } });
+    expect(res.body.changes[0]).toMatchObject({ id: "C1", after: { status: "excluded" } });
   });
 
-  it("a p-median-us customer id (C1) is rejected as unknown against Chen's dataset (proves it is NOT the p-median baseline)", async () => {
+  it("an id absent from both models' datasets is rejected as unknown", async () => {
     const cookie = await loginAs(OWNER);
-    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,,,,,100,excluded\n";
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C9999,,,,,,100,excluded\n";
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).post("/api/scenarios/20/import").set("Cookie", cookie)
       .send({ entity: "customers", csvText: csv });
     expect(res.status).toBe(200);
     expect(res.body.errors).toHaveLength(1);
     expect(res.body.errors[0]).toMatchObject({ errorClass: "logic" });
-    expect(res.body.errors[0].message).toMatch(/Unknown id "C1"/);
+    expect(res.body.errors[0].message).toMatch(/Unknown id "C9999"/);
   });
 });
 
-// T3 (spec Part A, supersedes D19): the STORED Chen inputs.distanceBands is
-// preserved VERBATIM on every write path (POST/PATCH/import-apply) — the
-// [high,max] overwrite is gone. `[high,max]` is derived only as a back-compat
-// default when a payload omits the field entirely. The customers import/apply
-// path re-validates the merged inputs through validateInputsForModel before
-// storage, so it exercises this WITHOUT depending on C4.7's estimator/normalizer.
-describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on every write path (T3)", () => {
+// T3 (spec Part A, supersedes D19): the STORED max-coverage-us
+// inputs.distanceBands is preserved VERBATIM on every write path (POST/PATCH/
+// import-apply) — the [high,max] overwrite is gone. `[high,max]` is derived
+// only as a back-compat default when a payload omits the field entirely. The
+// customers import/apply path re-validates the merged inputs through
+// validateInputsForModel before storage, so it exercises this WITHOUT
+// depending on C4.7's estimator/normalizer.
+describe("max-coverage-us — distanceBands preserved verbatim on every write path (T3)", () => {
   it("POST /api/scenarios: a supplied 3-boundary distanceBands array is preserved verbatim on store (never 422)", async () => {
     const cookie = await loginAs(OWNER);
-    const chain = makeChain([chensRow]);
+    const chain = makeChain([maxCoverageRow]);
     mockDb.insert.mockReturnValue(chain);
-    const supplied = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const supplied = { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen New", modelId: "chens-cosmetics-cn", inputs: supplied });
+      .send({ name: "Max Coverage New", modelId: "max-coverage-us", inputs: supplied });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
@@ -449,15 +503,15 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
 
   it("POST /api/scenarios: omitting the five sparse arrays persists them as []", async () => {
     const cookie = await loginAs(OWNER);
-    const chain = makeChain([chensRow]);
+    const chain = makeChain([maxCoverageRow]);
     mockDb.insert.mockReturnValue(chain);
-    // A minimal-but-valid Chen coverage input with no override/added/distance arrays.
+    // A minimal-but-valid coverage input with no override/added/distance arrays.
     const minimalInputs = {
       objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
       avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 120,
     };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen Minimal", modelId: "chens-cosmetics-cn", inputs: minimalInputs });
+      .send({ name: "Max Coverage Minimal", modelId: "max-coverage-us", inputs: minimalInputs });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: {
@@ -475,23 +529,23 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
   it("POST /api/scenarios: two distanceOverrides rows for the same (fromId,toId) pair are rejected (422)", async () => {
     const cookie = await loginAs(OWNER);
     const dupInputs = {
-      ...chensInputs,
+      ...maxCoverageInputs,
       distanceOverrides: [
-        { fromId: "wh-15", toId: "cs-1", distance: 3660 },
-        { fromId: "wh-15", toId: "cs-1", distance: 4000 },
+        { fromId: "ALN", toId: "C1", distance: 3660 },
+        { fromId: "ALN", toId: "C1", distance: 4000 },
       ],
     };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen Dup", modelId: "chens-cosmetics-cn", inputs: dupInputs });
+      .send({ name: "Max Coverage Dup", modelId: "max-coverage-us", inputs: dupInputs });
     expect(res.status).toBe(422);
   });
 
   it("PATCH /api/scenarios/:id: a supplied 3-boundary distanceBands array is preserved verbatim on store", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
-    const chain = makeChain([chensRow]);
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    const chain = makeChain([maxCoverageRow]);
     mockDb.update.mockReturnValue(chain);
-    const supplied = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const supplied = { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] };
     const res = await request(app).patch("/api/scenarios/20").set("Cookie", cookie)
       .send({ inputs: supplied });
     expect(res.status).toBe(200);
@@ -508,11 +562,11 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
   // cleanly in isolation (import.test.ts only exercises the parser).
   it("POST /api/scenarios/:id/import/apply (distances): a previously-supplied 3-boundary distanceBands array is preserved verbatim in stored scenario state", async () => {
     const cookie = await loginAs(OWNER);
-    const suppliedRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
+    const suppliedRow = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] } };
     mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
     const chain = makeChain([suppliedRow]);
     mockDb.update.mockReturnValue(chain);
-    const distancesCsv = "template_version,from_id,to_id,distance\n1,wh-15,cs-1,123.4\n";
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
     const res = await request(app).post("/api/scenarios/20/import/apply").set("Cookie", cookie)
       .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
@@ -520,7 +574,7 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
       inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
     };
     expect(setArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
-    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
+    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "ALN" && o.toId === "C1");
     expect(staged?.distance).toBe(123.4);
   });
 
@@ -529,11 +583,11 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
     // The persisted scenario carries a valid 3-boundary distanceBands array;
     // the customers apply re-validates the merged inputs
     // (validateInputsForModel), and the reparse must not overwrite it.
-    const suppliedRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
+    const suppliedRow = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceBands: [600, 5000, 99999] } };
     mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
     const chain = makeChain([suppliedRow]);
     mockDb.update.mockReturnValue(chain);
-    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,cs-1,,,,,,458287,excluded\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,,,,,458287,excluded\n";
     const res = await request(app).post("/api/scenarios/20/import/apply").set("Cookie", cookie)
       .send({ entity: "customers", csvText: csv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
@@ -543,29 +597,38 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
     expect(setArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
     // Sanity: the apply actually merged the customer change it was given.
     expect(setArgs.inputs.customerOverrides).toContainEqual(
-      expect.objectContaining({ id: "cs-1", status: "excluded" }),
+      expect.objectContaining({ id: "C1", status: "excluded" }),
     );
   });
 });
 
-describe("Chen (chens-cosmetics-cn) — v1 distances export -> re-import round-trips unchanged", () => {
+describe("max-coverage-us — v1 distances export -> re-import round-trips unchanged", () => {
   // Chen-bands-units bundle, T8 — import.ts (this task) now parses the v2
   // header (DISTANCE_TEMPLATE_VERSION=2, `template_version,unit,from_id,
   // to_id,distance`) and converts a file's declared unit to the model's
   // real canonical unit via `fromDisplay`. T9 threaded each model's real
   // manifest-declared canonical unit into `applyDistanceOverrides`'s call
   // sites in `routes/scenarios.ts` (was defaulting to "mi" for every
-  // caller, silently mislabeling Chen's "km" export as "mi") — Chen's
+  // caller, silently mislabeling this model's "km" export as "mi") — its
   // exported CSV now correctly says `unit=km`, so re-importing it converts
   // nothing (km -> km is an identity conversion) and this round trip is
   // genuinely zero-change.
-  it("exporting a distanceOverride then re-importing it produces zero changes (Chen id space resolves both roles)", async () => {
+  it("exporting a distanceOverride then re-importing it produces zero changes", async () => {
     const cookie = await loginAs(OWNER);
-    const rowWithOverride = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
+    const rowWithOverride = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 100 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
     const exportRes = await request(app).get("/api/scenarios/20/export?entity=distances&format=csv").set("Cookie", cookie);
     expect(exportRes.status).toBe(200);
-    expect(exportRes.text).toContain("wh-15,cs-1,100");
+    // review-4.4a — the header + row-level unit column is the actual proof
+    // this export dispatched on max-coverage-us's own "km" manifest, not a
+    // p-median-us ("mi") fallback: a route falling through to the
+    // p-median-us code path would still emit "ALN,C1,100" (the override
+    // value round-trips identically regardless of unit label, since
+    // requestedUnit defaults to whichever canonicalUnit gets resolved), but
+    // the `unit` column would read "mi", not "km".
+    expect(exportRes.text.split("\n")[0]).toBe("template_version,unit,from_id,to_id,distance");
+    expect(exportRes.text).toContain("km,ALN,C1,100");
+    expect(exportRes.text).not.toContain("mi,ALN,C1,100");
 
     // Re-import the exact exported CSV against the same override — no change.
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));

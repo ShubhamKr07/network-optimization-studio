@@ -905,24 +905,25 @@ def build_merged_jade_dataset(
     }
 
 
-def build_merged_chens_dataset(
+def build_merged_max_coverage_dataset(
     inputs: dict[str, Any],
     warehouses: dict[str, dict],
     customers: dict[str, dict],
     distance: dict[tuple[str, str], float],
 ) -> dict[str, Any]:
-    """C4.3: Chen's Cosmetics (`chens-cosmetics-cn`, Chapter 4) `load base ->
-    apply distance overrides -> append added entities -> resolve status /
-    exclusion / demand` pipeline, consumed by `solve_chens` in solve.py as a
-    per-call, non-mutating drop-in for its `WAREHOUSES_CHENS`/`CUSTOMERS_CHENS`/
-    `DISTANCE_CHENS` module-level globals.
+    """C4.3: Al's Athletics — Max Coverage (`max-coverage-us`, Chapter 4)
+    `load base -> apply distance overrides -> append added entities -> resolve
+    status / exclusion / demand` pipeline, consumed by `solve_max_coverage` in
+    solve.py as a per-call, non-mutating drop-in for its
+    `WAREHOUSES_MAX_COVERAGE`/`CUSTOMERS_MAX_COVERAGE`/`DISTANCE_MAX_COVERAGE`
+    module-level globals.
 
     Direct-id keyed end to end (like p-median-brazil / transport-coal /
-    two-echelon-gold-au, DD-2) -- `wh-<n>` / `cs-<n>` string ids, distances
-    keyed by `(whId, csId)` string tuples -- so no id<->index bridge (that is
+    two-echelon-gold-au, DD-2) -- real entity string ids (e.g. `ALN` / `C1`),
+    distances keyed by `(whId, csId)` string tuples -- so no id<->index bridge (that is
     p-median-us-only). Mirrors the STRUCTURE of `build_merged_pmedian_dataset`
     (base ∪ added entities, base + distance overrides), but keyed by string id
-    and, because Chen's solver reads them directly, additionally returns the
+    and, because this solver reads them directly, additionally returns the
     resolved forced/inactive/excluded id sets and folds the per-customer
     integer demand override into the merged customers dict.
 
@@ -933,16 +934,16 @@ def build_merged_chens_dataset(
         inputs: the validated `inputs` blob (or any dict exposing the same
             keys) containing `warehouseOverrides`, `customerOverrides`,
             `addedWarehouses`, `addedCustomers`, `distanceOverrides`
-            (chensInputsSchema, C4.6). All optional, missing keys treated as
-            empty lists.
-        warehouses: base dataset, `WAREHOUSES_CHENS`-shaped
+            (maxCoverageInputsSchema, C4.6). All optional, missing keys
+            treated as empty lists.
+        warehouses: base dataset, `WAREHOUSES_MAX_COVERAGE`-shaped
             `{str_id: {"id", "city", "state", "lat", "lng", "zip"?}}`. Never
             mutated.
-        customers: base dataset, `CUSTOMERS_CHENS`-shaped
+        customers: base dataset, `CUSTOMERS_MAX_COVERAGE`-shaped
             `{str_id: {..., "demand": int}}`. Never mutated.
-        distance: base dataset, `DISTANCE_CHENS`-shaped
-            `{(whId, csId): km}` (RAW km, no circuity -- solve_chens applies
-            ×1.17). Never mutated.
+        distance: base dataset, `DISTANCE_MAX_COVERAGE`-shaped
+            `{(whId, csId): km}` (RAW km -- MIG-6: these ARE the effective
+            distances, no circuity factor is applied). Never mutated.
 
     Returns a dict:
         warehouses: `{**warehouses}` plus one entry per `addedWarehouses` item
@@ -1021,13 +1022,13 @@ def build_merged_chens_dataset(
         if from_id not in merged_warehouses:
             raise UnresolvableIdError(
                 f"distanceOverrides references id '{from_id}' that does not resolve as a "
-                "warehouse - not found among warehouse ids in the base chens-cosmetics-cn "
+                "warehouse - not found among warehouse ids in the base max-coverage-us "
                 "dataset or this scenario's added entities"
             )
         if to_id not in merged_customers:
             raise UnresolvableIdError(
                 f"distanceOverrides references id '{to_id}' that does not resolve as a "
-                "customer - not found among customer ids in the base chens-cosmetics-cn "
+                "customer - not found among customer ids in the base max-coverage-us "
                 "dataset or this scenario's added entities"
             )
         merged_distance[(from_id, to_id)] = override["distance"]

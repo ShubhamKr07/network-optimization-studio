@@ -7,7 +7,7 @@ const EXPECTED_COUNTS: Record<string, Record<string, number>> = {
   "p-median-brazil": { "warehouses.json": 25, "states.json": 25, "distances.json": 625 },
   "two-echelon-gold-au": { "mines.json": 1, "refineries.json": 2, "customers.json": 10, "distances.json": 22 },
   "two-echelon-jade-us": { "plants.json": 4, "products.json": 4, "warehouses.json": 25, "customers.json": 100, "distances.json": 2600, "plant_product_capability.json": 16 },
-  "chens-cosmetics-cn": { "warehouses.json": 25, "customers.json": 197, "distances.json": 4925 },
+  "max-coverage-us": { "warehouses.json": 26, "customers.json": 200, "distances.json": 5200 },
 };
 
 describe("solvers/<model-id>/dataset packages", () => {

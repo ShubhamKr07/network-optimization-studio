@@ -129,7 +129,7 @@ describe("CustomerTable", () => {
     expect(screen.getByText("Allentown")).not.toHaveClass("font-mono");
   });
 
-  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // Chen's Cosmetics (max-coverage-us) — a China dataset with no state
   // data. `hasStateColumn` defaults true (unchanged for every other caller).
   it("omitting hasStateColumn (default true) keeps the State column", () => {
     render(<CustomerTable customers={customers.slice(0, 2)} overrides={[]} onChange={vi.fn()} />);

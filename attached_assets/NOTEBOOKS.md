@@ -19,6 +19,12 @@ archival original.
 
 ## Chapter 4 — verbatim
 
+**Status note (ch4-mig-9):** Chapter 4 was renamed `chens-cosmetics-cn` → `max-coverage-us` and
+repointed at Al's Athletics US data; `scripts/src/extract-chens-dataset.ts`, `scripts/src/geocode-chens.ts`,
+and `solvers/chens-cosmetics-cn/` were deleted as part of that migration. The three notebooks below
+remain here as textbook source material and provenance history — they no longer correspond to any
+dataset this repo ships.
+
 Source sha256, for anyone checking a copy against what was committed:
 
 ```

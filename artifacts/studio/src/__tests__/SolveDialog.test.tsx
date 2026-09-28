@@ -115,11 +115,12 @@ describe("SolveDialog — R5 distance-band editor", () => {
   });
 });
 
-// C4.12 — Chen (chens-cosmetics-cn): the Solve dialog caps P at 25 (D27) and
-// hides the band editor (D13/D19 — bands are derived [high, max]). Both are
+// C4.12 — max-coverage-us: the Solve dialog caps P at a model-specific
+// maximum (D27, generically exercised here via the `pMax` prop) and hides
+// the band editor (D13/D19 — bands are derived [high, max]). Both are
 // opt-in props (default 50 / true), so every other model's Solve dialog is
 // unchanged.
-describe("SolveDialog — Chen pMax + no band editor (C4.12)", () => {
+describe("SolveDialog — max-coverage-us pMax + no band editor (C4.12)", () => {
   it("defaults the P slider max to 50 when pMax is omitted (every existing model unaffected)", () => {
     renderDialog({ p: 3 });
     const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');

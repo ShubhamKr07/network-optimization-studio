@@ -27,8 +27,8 @@ import {
   applyLaneCostOverrides,
   applyJadeWarehouseOverrides,
   applyJadeCustomerOverrides,
-  applyChensWarehouseOverrides,
-  applyChensCustomerOverrides,
+  applyMaxCoverageWarehouseOverrides,
+  applyMaxCoverageCustomerOverrides,
   applyPlantOverrides,
   applyPlantCapabilityOverrides,
   buildDistanceStubRows,
@@ -76,14 +76,14 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
+import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedChensDistances } from "../services/autoDistance.js";
+import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedMaxCoverageDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
-import type { ChensInputs } from "../validation/inputs/chens.js";
+import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 
 const router = Router();
 
@@ -99,12 +99,11 @@ export const VALID_MODEL_IDS = new Set([
   // most-missed registration point (a hardcoded Set entirely separate from
   // the manifest registry).
   "two-echelon-jade-us",
-  // C4.6: Chapter 4 Chen's Cosmetics — registered here alongside
+  // C4.6: Chapter 4 Al's Athletics — Max Coverage — registered here alongside
   // KNOWN_SCHEMAS + buildPayload (same atomic commit) per OBS-5 Gate 1.4.
-  "chens-cosmetics-cn",
-  "max_coverage",
-  "p_center",
-  "set_cover",
+  // MIG-22: the dead "max_coverage", "p_center", "set_cover" placeholders
+  // (never had a manifest, schema, or dispatcher branch) are removed.
+  "max-coverage-us",
 ]);
 
 // Derived, never stored — true when inputs changed after the last solve.
@@ -472,14 +471,14 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   if (modelId === "two-echelon-jade-us") {
     return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
   }
-  // C4.7 (Chapter 4) — chens-cosmetics-cn fills missing added-entity
+  // C4.7 (Chapter 4) — max-coverage-us fills missing added-entity
   // warehouse<->customer distances as `estimated` raw km (R=6371, no
   // circuity) on every persist path (POST create, PATCH, import/apply). Its
-  // reparse through chensInputsSchema also re-applies the D19
+  // reparse through maxCoverageInputsSchema also re-applies the D19
   // distanceBands=[high,max] transform, so a distances-import staging a stale
   // third boundary is corrected here.
-  if (modelId === "chens-cosmetics-cn") {
-    return fillEstimatedChensDistances(data as unknown as ChensInputs) as unknown as Record<string, unknown>;
+  if (modelId === "max-coverage-us") {
+    return fillEstimatedMaxCoverageDistances(data as unknown as MaxCoverageInputs) as unknown as Record<string, unknown>;
   }
   return data;
 }
@@ -900,10 +899,10 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
-  // C4.4 — chens-cosmetics-cn shares p-median-us's exact entity set
+  // C4.4 — max-coverage-us shares p-median-us's exact entity set
   // (warehouses/customers/distances) but its OWN base dataset, so it needs its
   // own guard + export branch (below), never the p-median fallback's dataset.
-  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
+  const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -920,11 +919,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances export" });
     return;
   }
-  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
-    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances export" });
+  if (scenario.modelId === "max-coverage-us" && !entityIsMaxCoverage) {
+    res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -1197,31 +1196,32 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
-  // C4.4 — chens-cosmetics-cn: same warehouses/customers/distances entity set
-  // as p-median-us, but its OWN China dataset (CHENS_WAREHOUSES/CHENS_CUSTOMERS
-  // via applyChens* / CHENS_DATASET for stubs) — must NOT fall through to the
-  // p-median fallback below, which would export p-median-us rows. Chen
-  // warehouses have no capacity (status only); distances reuse
-  // applyDistanceOverrides/buildDistanceStubRows exactly like p-median.
-  if (scenario.modelId === "chens-cosmetics-cn") {
+  // C4.4 — max-coverage-us: same warehouses/customers/distances entity set
+  // as p-median-us, but its OWN US dataset (MAX_COVERAGE_WAREHOUSES/
+  // MAX_COVERAGE_CUSTOMERS via applyMaxCoverage* / MAX_COVERAGE_DATASET for
+  // stubs) — must NOT fall through to the p-median fallback below, which
+  // would export p-median-us rows. This model's warehouses have no capacity
+  // (status only); distances reuse applyDistanceOverrides/buildDistanceStubRows
+  // exactly like p-median.
+  if (scenario.modelId === "max-coverage-us") {
     const inputs = scenario.inputs as {
-      warehouseOverrides?: Parameters<typeof applyChensWarehouseOverrides>[0];
-      customerOverrides?: Parameters<typeof applyChensCustomerOverrides>[0];
-      addedWarehouses?: Parameters<typeof applyChensWarehouseOverrides>[1];
-      addedCustomers?: Parameters<typeof applyChensCustomerOverrides>[1];
+      warehouseOverrides?: Parameters<typeof applyMaxCoverageWarehouseOverrides>[0];
+      customerOverrides?: Parameters<typeof applyMaxCoverageCustomerOverrides>[0];
+      addedWarehouses?: Parameters<typeof applyMaxCoverageWarehouseOverrides>[1];
+      addedCustomers?: Parameters<typeof applyMaxCoverageCustomerOverrides>[1];
       distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
     };
 
     if (entity === "distances") {
       // T9 — thread this model's real manifest-declared canonical unit.
-      // chens-cosmetics-cn is "km" — this is the exact bug both T7 and T8
+      // max-coverage-us is "km" — this is the exact bug both T7 and T8
       // surfaced: this branch was calling applyDistanceOverrides with NO
       // unit argument at all, silently defaulting to "mi" and mislabeling
       // (and, pre-T9, never converting) a real km-canonical export.
       const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
       const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
-        const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], CHENS_DATASET, requestedUnit);
+        const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], MAX_COVERAGE_DATASET, requestedUnit);
         if (stubRows === null) {
           res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
           return;
@@ -1254,8 +1254,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     }
 
     const rows = entity === "warehouses"
-      ? applyChensWarehouseOverrides(inputs.warehouseOverrides ?? [], inputs.addedWarehouses ?? [])
-      : applyChensCustomerOverrides(inputs.customerOverrides ?? [], inputs.addedCustomers ?? []);
+      ? applyMaxCoverageWarehouseOverrides(inputs.warehouseOverrides ?? [], inputs.addedWarehouses ?? [])
+      : applyMaxCoverageCustomerOverrides(inputs.customerOverrides ?? [], inputs.addedCustomers ?? []);
     posthog?.capture({
       distinctId: req.userId!,
       event: "scenario data exported",
@@ -1598,7 +1598,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
-  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
+  const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1615,11 +1615,11 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
     return;
   }
-  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
-    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances import" });
+  if (scenario.modelId === "max-coverage-us" && !entityIsMaxCoverage) {
+    res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
@@ -1666,7 +1666,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
-  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
+  const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1683,11 +1683,11 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
     return;
   }
-  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
-    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances import" });
+  if (scenario.modelId === "max-coverage-us" && !entityIsMaxCoverage) {
+    res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }

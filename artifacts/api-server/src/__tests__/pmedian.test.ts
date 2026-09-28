@@ -703,13 +703,13 @@ describe("buildPayload()", () => {
     }
   });
 
-  // C4.6 — chens-cosmetics-cn (Chapter 4). buildPayload emits modelType
-  // "chens" (D16) + the scalar params + the sparse edit arrays straight
-  // through by their exact schema names (merge_inputs.py resolves status/
-  // exclusion/demand itself, direct-id DD-2). distanceBands is already
-  // normalized to [high, max] by the schema's D19 transform before it ever
-  // reaches buildPayload.
-  const chensBaseInputs = {
+  // C4.6 — max-coverage-us (Chapter 4). buildPayload emits modelType
+  // "max_coverage_us" (D16, MIG-21) + the scalar params + the sparse edit
+  // arrays straight through by their exact schema names (merge_inputs.py
+  // resolves status/exclusion/demand itself, direct-id DD-2). distanceBands
+  // is already normalized to [high, max] by the schema's D19 transform
+  // before it ever reaches buildPayload.
+  const maxCoverageBaseInputs = {
     objective: "coverage" as const,
     p: 3,
     highServiceDistKm: 600,
@@ -727,9 +727,9 @@ describe("buildPayload()", () => {
     distanceOverrides: [],
   };
 
-  it("sends modelType=chens with scalar params for chens-cosmetics-cn", () => {
-    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs: chensBaseInputs });
-    expect(payload.modelType).toBe("chens");
+  it("sends modelType=max_coverage_us with scalar params for max-coverage-us", () => {
+    const payload = buildPayload({ modelId: "max-coverage-us", inputs: maxCoverageBaseInputs });
+    expect(payload.modelType).toBe("max_coverage_us");
     expect(payload.objective).toBe("coverage");
     expect(payload.p).toBe(3);
     expect(payload.highServiceDistKm).toBe(600);
@@ -740,20 +740,20 @@ describe("buildPayload()", () => {
   });
 
   it("normalizes distanceBands to [highServiceDistKm, maxDistKm] on the payload", () => {
-    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs: chensBaseInputs });
+    const payload = buildPayload({ modelId: "max-coverage-us", inputs: maxCoverageBaseInputs });
     expect(payload.distanceBands).toEqual([600, 5000]);
   });
 
-  it("forwards the sparse edit arrays by their exact schema names for chens-cosmetics-cn", () => {
+  it("forwards the sparse edit arrays by their exact schema names for max-coverage-us", () => {
     const inputs = {
-      ...chensBaseInputs,
+      ...maxCoverageBaseInputs,
       warehouseOverrides: [{ id: "wh-40", status: "forced_open" as const }],
       customerOverrides: [{ id: "cs-1", status: "active" as const, demand: 999 }],
-      addedWarehouses: [{ id: "wh-new-1", city: "Chengdu", state: "", lat: 30.6, lng: 104.1, status: "active" as const }],
-      addedCustomers: [{ id: "cs-new-1", city: "Xi'an", state: "", lat: 34.3, lng: 108.9, demand: 500, status: "active" as const }],
+      addedWarehouses: [{ id: "wh-new-1", city: "Springfield", state: "IL", lat: 39.8, lng: -89.6, status: "active" as const }],
+      addedCustomers: [{ id: "cs-new-1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, demand: 500, status: "active" as const }],
       distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 3660 }],
     };
-    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs });
+    const payload = buildPayload({ modelId: "max-coverage-us", inputs });
     expect(payload.warehouseOverrides).toEqual(inputs.warehouseOverrides);
     expect(payload.customerOverrides).toEqual(inputs.customerOverrides);
     expect(payload.addedWarehouses).toEqual(inputs.addedWarehouses);

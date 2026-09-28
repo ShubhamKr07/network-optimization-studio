@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import path from "node:path";
 import request from "supertest";
 import {
   getManifest,
@@ -9,7 +10,7 @@ import {
   validateInputs,
   KNOWN_MODEL_IDS,
 } from "../modelRegistry.js";
-import { PACKAGE_SPECS, readVersion } from "@workspace/dataset-schema";
+import { PACKAGE_SPECS, readVersion, MODEL_IDS } from "@workspace/dataset-schema";
 import { VALID_MODEL_IDS } from "../../routes/scenarios.js";
 import { buildPayload, type SolveInput } from "../../solver/pmedian.js";
 
@@ -27,10 +28,10 @@ const SOLVABLE = [
   "p-median-brazil",
   "two-echelon-gold-au",
   "two-echelon-jade-us",
-  // C4.6: Chapter 4 Chen's Cosmetics joins here in the atomic commit that
-  // registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS + buildPayload branch
-  // simultaneously (OBS-5 needs all three at once).
-  "chens-cosmetics-cn",
+  // C4.6: Chapter 4 Al's Athletics — Max Coverage joins here in the atomic
+  // commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
+  // buildPayload branch simultaneously (OBS-5 needs all three at once).
+  "max-coverage-us",
 ];
 
 describe("model registration consistency", () => {
@@ -91,9 +92,9 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);
-    // C4.4 — count is a model-registry fact (chens-cosmetics-cn is the 6th
-    // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — Chen's
-    // KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
+    // C4.4 — count is a model-registry fact (max-coverage-us is the 6th
+    // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — this
+    // model's KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
     expect(res.body).toHaveLength(6);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
@@ -104,8 +105,9 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
 // Points 3/4 (KNOWN_SCHEMAS, VALID_MODEL_IDS) key on model-id; point 8 (solve.py) keys on the
 // `modelType` WIRE string; point 6 (buildPayload) is the bridge model-id → modelType. A naive
 // set-equality is wrong — this test bridges via buildPayload, then checks solve.py handles the
-// resulting wire value. Placeholder ids present only in VALID_MODEL_IDS (max_coverage/p_center/
-// set_cover) are a WARN, not a failure (product decision: coming-soon placeholders).
+// resulting wire value. MIG-22: the dead "max_coverage"/"p_center"/"set_cover" placeholders that
+// used to sit in VALID_MODEL_IDS with no backing schema/payload/solver are removed entirely —
+// the "unbacked" set below is now expected to be empty.
 
 // Minimal stub inputs per model so buildPayload can run (it maps, it doesn't validate). The array
 // fields it .filter()s over must exist.
@@ -129,7 +131,7 @@ const STUB_INPUTS: Record<string, unknown> = {
     warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
     addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
-  "chens-cosmetics-cn": {
+  "max-coverage-us": {
     objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
     avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
     warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
@@ -184,5 +186,54 @@ describe("OBS-5 registration points agree (model-id ↔ modelType ↔ solve.py)"
     }
     // Assertion is only that this set is knowable — never a failure.
     expect(Array.isArray(unbacked)).toBe(true);
+  });
+});
+
+// ── ch4-mig-4: the ten registration points survive the chens-cosmetics-cn ->
+// max-coverage-us rename, and the retired chens/max_coverage/p_center/
+// set_cover ids are actually gone (not just relocated). Reads real source
+// text (never Function.prototype.toString(), which loses comments) so a
+// half-rename fails here first.
+// __tests__ -> registry -> src -> api-server -> artifacts -> repo root (5 levels).
+const REPO = path.resolve(import.meta.dirname, "../../../../..");
+const readSrc = (p: string) => readFileSync(path.join(REPO, p), "utf8");
+
+describe("model registration consistency", () => {
+  it("every implemented model is in VALID_MODEL_IDS", () => {
+    for (const id of KNOWN_MODEL_IDS) expect(VALID_MODEL_IDS.has(id)).toBe(true);
+  });
+
+  it("VALID_MODEL_IDS contains no id without a Zod validator (MIG-22)", () => {
+    for (const id of VALID_MODEL_IDS) expect(KNOWN_MODEL_IDS).toContain(id);
+  });
+
+  it("every implemented model has a dataset package spec", () => {
+    for (const id of KNOWN_MODEL_IDS) expect(MODEL_IDS).toContain(id);
+  });
+
+  it("the OpenAPI modelId enum matches the implemented set", () => {
+    const yaml = readSrc("lib/api-spec/openapi.yaml");
+    for (const id of KNOWN_MODEL_IDS) expect(yaml).toContain(id);
+    for (const dead of ["max_coverage", "p_center", "set_cover"]) {
+      expect(yaml).not.toContain(`- ${dead}\n`);
+    }
+  });
+
+  it("buildPayload has a branch for max-coverage-us emitting the declared wire value (MIG-21)", () => {
+    const src = readSrc("artifacts/api-server/src/solver/pmedian.ts");
+    expect(src).toContain('input.modelId === "max-coverage-us"');
+    expect(src).toContain('modelType: "max_coverage_us"');
+    expect(src).not.toContain('modelType: "chens"');
+  });
+
+  it("solve.py dispatches the declared wire value and no longer knows 'chens'", () => {
+    const src = readSrc("artifacts/api-server/src/solver/solve.py");
+    expect(src).toContain("if model_type == 'max_coverage_us':");
+    expect(src).not.toContain("'chens'");
+  });
+
+  it("no source file still references the retired model id", () => {
+    const src = readSrc("artifacts/api-server/src/registry/modelRegistry.ts");
+    expect(src).not.toContain("chens");
   });
 });

@@ -1,11 +1,12 @@
-// ch4-tab-city-labels — shared city/state display formatter. JADE
-// (two-echelon-jade-us) carries non-empty US states ("City, ST"); Chen
-// (chens-cosmetics-cn) carries `state: ""` for every row (China dataset, no
-// province backfill per this task's scope) — rendering `${city}, ${state}`
-// unconditionally there would show a trailing ", " with nothing after it.
+// ch4-tab-city-labels — shared city/state display formatter. Every shipped
+// dataset carries a non-blank state for every row (measured 2026-09-28,
+// across all six models, including max-coverage-us since its US dataset
+// swap) — this blank-state fallback is defensive, not a live case: a future
+// dataset or a scenario-added entity that omits state would otherwise
+// render `${city}, ${state}` with a trailing ", " and nothing after it.
 // This is the single seam every `locationById`-consuming cell (JadeDistancesTab,
 // DistancesTab, OpenWarehousesTab, AssignmentsTab, CapabilityMatrixTab) should
-// route through, so the city-only fix applies once and stays consistent.
+// route through, so the city-only fallback applies once and stays consistent.
 export function formatCityState(city: string, state: string): string {
   return state ? `${city}, ${state}` : city;
 }

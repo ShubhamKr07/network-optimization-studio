@@ -60,33 +60,33 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  it("chens-cosmetics-cn (coverage) emits an envelope that validates against the shared schema", () => {
+  it("max-coverage-us (coverage) emits an envelope that validates against the shared schema", () => {
     const raw = runSolver({
-      modelType: "chens", objective: "coverage", p: 3, highServiceDistKm: 600,
+      modelType: "max_coverage_us", objective: "coverage", p: 3, highServiceDistKm: 600,
       maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
     }) as { status: string };
     expect(raw.status).toBe("optimal");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  it("chens-cosmetics-cn model-level infeasible (coverage floor) validates against the shared schema", () => {
+  it("max-coverage-us model-level infeasible (coverage floor) validates against the shared schema", () => {
     const raw = runSolver({
-      modelType: "chens", objective: "min_distance", p: 3, highServiceDistKm: 600,
+      modelType: "max_coverage_us", objective: "min_distance", p: 3, highServiceDistKm: 600,
       maxDistKm: 5000, coverageFloorDemand: 500100100, gap: 0, timeLimitSec: 60,
     }) as { status: string };
     expect(raw.status).toBe("infeasible");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  it("chens-cosmetics-cn zero-demand infeasible (all customers excluded) validates against the shared schema", () => {
+  it("max-coverage-us zero-demand infeasible (all customers excluded) validates against the shared schema", () => {
     // tests dir is a sibling of solver/; walk to repo root for the dataset.
     const customersPath = path.resolve(
       __dirname, "..", "..", "..", "..",
-      "solvers", "chens-cosmetics-cn", "dataset", "customers.json",
+      "solvers", "max-coverage-us", "dataset", "customers.json",
     );
     const customerIds = Object.keys(JSON.parse(readFileSync(customersPath, "utf8")));
     const raw = runSolver({
-      modelType: "chens", objective: "coverage", p: 3, highServiceDistKm: 600,
+      modelType: "max_coverage_us", objective: "coverage", p: 3, highServiceDistKm: 600,
       maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
       customerOverrides: customerIds.map((id) => ({ id, status: "excluded" })),
     }) as { status: string };
@@ -100,13 +100,13 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
   // reading solve.py's output can never mistake a dataset/dispatch failure
   // for a real (if error-flavored) envelope — the exact live bug this task
   // fixes. Valid JSON that omits `p` reaches solve(inp) and throws inside
-  // solve_chens; __main__ catches it and writes a FAILURE message, not an
-  // envelope. (Malformed JSON would fail json.loads BEFORE that try, an
+  // solve_max_coverage; __main__ catches it and writes a FAILURE message, not
+  // an envelope. (Malformed JSON would fail json.loads BEFORE that try, an
   // even earlier FAILURE message -- see the dedicated fd3 protocol tests in
   // artifacts/api-server/src/solver/tests/test_fd3_protocol.py.)
-  it("chens-cosmetics-cn unexpected error (valid JSON missing required field) is a FAILURE message, not an envelope", () => {
+  it("max-coverage-us unexpected error (valid JSON missing required field) is a FAILURE message, not an envelope", () => {
     const raw = runSolver({
-      modelType: "chens", objective: "coverage", highServiceDistKm: 600,
+      modelType: "max_coverage_us", objective: "coverage", highServiceDistKm: 600,
       maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
     }) as { status?: string; failureReason?: string; failureStage?: string };
     expect(raw.status).toBeUndefined();

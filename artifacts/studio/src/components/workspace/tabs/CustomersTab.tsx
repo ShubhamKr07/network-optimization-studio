@@ -98,7 +98,7 @@ interface CustomersTabProps {
    * tab's "gate on the actual wired capability" fix). */
   productOverrides?: CustomerProductOverride[];
   onProductOverridesChange?: (next: CustomerProductOverride[]) => void;
-  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-customers table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
+  /** Chen's Cosmetics (max-coverage-us) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-customers table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
   hasStateColumn?: boolean;
   /** B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in gate for the shared
    * A3 `FilterMenu`/`useTableFilters`. Defaults `false` so every existing

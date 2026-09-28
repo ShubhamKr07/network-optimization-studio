@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EFF0EA;font-family:'IBM Plex Sans',system-ui,sans-serif}a{color:#48611E}a:hover{color:#324414}</style>
+</helmet>
+<section style="padding:32px;display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
+
+  <div id="3a" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:860px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3a</span><span style="font-size:13px;font-weight:600;color:#181A15">Full tab anatomy — Inputs › Optimization Parameters, Step 1</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">Top level: Inputs / Outputs. Second row: the five sub-tabs plus the global step toggle (right). Every sub-tab is per-step; the toggle carries status icons. Step 2's Solve stays locked until Step 1 solves.</div>
+    <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;overflow:hidden">
+      <div style="border-bottom:1px solid #E2E4DA;display:flex;align-items:center;padding:0 12px">
+        <span style="padding:9px 14px;font-size:11.5px;font-weight:600;color:#181A15;border-bottom:2px solid #5F7F28">Inputs</span>
+        <span style="padding:9px 14px;font-size:11.5px;color:#5B5F54;border-bottom:2px solid transparent">Outputs</span>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#83887A">0 OF 2 SOLVED</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid #F0F1EA">
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54;border-radius:4px">Input Map</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54;border-radius:4px">Customers</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54;border-radius:4px">Warehouses</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54;border-radius:4px">Distances</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#fff;background:#181A15;border-radius:4px">Optimization Parameters</span>
+        <span style="margin-left:auto;display:inline-flex;border:1px solid #C9CCBD;border-radius:4px;overflow:hidden;font-size:10px">
+          <span style="background:#5F7F28;color:#fff;padding:4px 10px">1. Max Coverage</span>
+          <span style="background:#fff;color:#5B5F54;padding:4px 10px;display:flex;align-items:center;gap:4px">2. Min Distance<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#83887A" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>
+        </span>
+      </div>
+      <div style="padding:14px 12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:560px">
+          <div><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#5B5F54;margin-bottom:4px">High Service Distance (km)</div><div style="border:1px solid #C9CCBD;border-radius:4px;padding:5px 9px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#181A15">600</div></div>
+          <div><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#5B5F54;margin-bottom:4px">Coverage Floor (demand)</div><div style="border:1px dashed #C9CCBD;border-radius:4px;padding:5px 9px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#83887A;background:#F5F6F1">— produced by solve</div></div>
+          <div><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#5B5F54;margin-bottom:4px">Max Distance (km)</div><div style="border:1px solid #C9CCBD;border-radius:4px;padding:5px 9px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#181A15">5,000</div></div>
+          <div><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#5B5F54;margin-bottom:4px">Avg Service Distance Cap (km)</div><div style="border:1px solid #C9CCBD;border-radius:4px;padding:5px 9px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#181A15">1,000</div></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;max-width:560px">
+          <span style="font-size:10.5px;color:#83887A">Objective: maximize % demand within High Service Distance.</span>
+          <span style="background:#5F7F28;color:#fff;border-radius:4px;padding:5px 14px;font-size:11px">Solve Step 1</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="3b" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:640px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3b</span><span style="font-size:13px;font-weight:600;color:#181A15">Data tab on Step 2 — copied at Step 1 solve, locked</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">Step 2's Customers / Warehouses / Distances are snapshots taken when Step 1 solves; read-only. Only its Optimization Parameters stay editable.</div>
+    <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;overflow:hidden">
+      <div style="border-bottom:1px solid #E2E4DA;display:flex;align-items:center;padding:0 12px">
+        <span style="padding:9px 14px;font-size:11.5px;font-weight:600;color:#181A15;border-bottom:2px solid #5F7F28">Inputs</span>
+        <span style="padding:9px 14px;font-size:11.5px;color:#5B5F54;border-bottom:2px solid transparent">Outputs</span>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#83887A">1 OF 2 SOLVED</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid #F0F1EA">
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Input Map</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#fff;background:#181A15;border-radius:4px">Customers</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Warehouses</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Distances</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Optimization Parameters</span>
+        <span style="margin-left:auto;display:inline-flex;border:1px solid #C9CCBD;border-radius:4px;overflow:hidden;font-size:10px">
+          <span style="background:#fff;color:#5B5F54;padding:4px 10px;display:flex;align-items:center;gap:4px">1. Max Coverage<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#5F7F28" stroke-width="3"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <span style="background:#5F7F28;color:#fff;padding:4px 10px">2. Min Distance</span>
+        </span>
+      </div>
+      <div style="padding:12px">
+        <div style="border:1px solid #CDDCA6;background:#F4F7EB;border-radius:5px;padding:6px 10px;font-size:10px;color:#48611E;display:flex;align-items:center;gap:6px;margin-bottom:10px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#48611E" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>Snapshot copied from Step 1 at solve time · read-only for Step 2</div>
+        <div style="border:1px solid #E2E4DA;border-radius:5px;overflow:hidden;font-size:10.5px;color:#33362E">
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;background:#F5F6F1;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#5B5F54"><div style="padding:6px 10px">CUSTOMER</div><div style="padding:6px 10px">LAT</div><div style="padding:6px 10px">LON</div><div style="padding:6px 10px">DEMAND</div></div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;border-top:1px solid #F0F1EA"><div style="padding:5px 10px">Shanghai</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">31.23</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">121.47</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">24,870,895</div></div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;border-top:1px solid #F0F1EA;background:#FAFAF7"><div style="padding:5px 10px">Beijing</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">39.90</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">116.40</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">21,542,000</div></div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;border-top:1px solid #F0F1EA"><div style="padding:5px 10px">Guangzhou</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">23.13</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">113.26</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">18,676,605</div></div>
+          <div style="padding:5px 10px;border-top:1px solid #F0F1EA;color:#83887A;font-size:9.5px">… 197 more rows</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="3c" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:860px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3c</span><span style="font-size:13px;font-weight:600;color:#181A15">Step 1 solved → auto-nav to Outputs › Output Map</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">After a solve the app lands on the Output Map with that step selected. Banner routes onward. The other four output sub-tabs hold the rest (summary, tables, stats).</div>
+    <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;overflow:hidden">
+      <div style="border-bottom:1px solid #E2E4DA;display:flex;align-items:center;padding:0 12px">
+        <span style="padding:9px 14px;font-size:11.5px;color:#5B5F54;border-bottom:2px solid transparent">Inputs</span>
+        <span style="padding:9px 14px;font-size:11.5px;font-weight:600;color:#181A15;border-bottom:2px solid #5F7F28">Outputs</span>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#83887A">1 OF 2 SOLVED</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid #F0F1EA">
+        <span style="padding:4px 10px;font-size:10.5px;color:#fff;background:#181A15;border-radius:4px">Output Map</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Solution Summary</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Open Warehouses</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Customer Assignments</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Service Stats</span>
+        <span style="margin-left:auto;display:inline-flex;border:1px solid #C9CCBD;border-radius:4px;overflow:hidden;font-size:10px">
+          <span style="background:#5F7F28;color:#fff;padding:4px 10px;display:flex;align-items:center;gap:4px">1. Max Coverage<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <span style="background:#fff;color:#5B5F54;padding:4px 10px">2. Min Distance</span>
+        </span>
+      </div>
+      <div style="padding:12px">
+        <div style="border:1px solid #CDDCA6;background:#F4F7EB;border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:10px;font-size:10.5px;color:#33362E;margin-bottom:10px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#5F7F28;flex-shrink:0"></span>
+          <span>Step 1 solved — 66.06% covered. Next: <b>set up Step 2</b> (its data was snapshotted; set parameters and solve) or re-configure Step 1.</span>
+          <span style="margin-left:auto;border:1px solid #5F7F28;color:#48611E;border-radius:4px;padding:3px 10px;font-size:10px;white-space:nowrap">Set up Step 2 →</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1;border:1px solid #E2E4DA;border-radius:5px;padding:8px 10px"><div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.06em;color:#83887A">OBJECTIVE</div><div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#181A15;margin-top:2px">66.0639 %</div></div>
+          <div style="flex:1;border:1px solid #E2E4DA;border-radius:5px;padding:8px 10px"><div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.06em;color:#83887A">COVERED DEMAND</div><div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#181A15;margin-top:2px">131,645,389</div></div>
+          <div style="flex:1;border:1px solid #E2E4DA;border-radius:5px;padding:8px 10px"><div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.06em;color:#83887A">AVG DISTANCE</div><div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#181A15;margin-top:2px">684.2 km</div></div>
+          <div style="flex:1;border:1px solid #E2E4DA;border-radius:5px;padding:8px 10px"><div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.06em;color:#83887A">RUN TIME</div><div style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#181A15;margin-top:2px">0.84 s · Optimal</div></div>
+        </div>
+        <div style="position:relative;height:150px;background:#E9EBE2;border-radius:5px;overflow:hidden">
+          <span style="position:absolute;top:10px;left:12px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#83887A">OUTPUT MAP · STEP 1 ASSIGNMENTS</span>
+          <span style="position:absolute;top:52px;left:120px;width:10px;height:10px;border-radius:50%;background:#5F7F28;border:2px solid #fff"></span>
+          <span style="position:absolute;top:88px;left:320px;width:10px;height:10px;border-radius:50%;background:#5F7F28;border:2px solid #fff"></span>
+          <span style="position:absolute;top:44px;left:560px;width:10px;height:10px;border-radius:50%;background:#5F7F28;border:2px solid #fff"></span>
+          <span style="position:absolute;top:66px;left:180px;width:5px;height:5px;border-radius:50%;background:#83887A"></span>
+          <span style="position:absolute;top:110px;left:260px;width:5px;height:5px;border-radius:50%;background:#83887A"></span>
+          <span style="position:absolute;top:98px;left:450px;width:5px;height:5px;border-radius:50%;background:#83887A"></span>
+          <span style="position:absolute;top:36px;left:420px;width:5px;height:5px;border-radius:50%;background:#83887A"></span>
+          <span style="position:absolute;top:120px;left:600px;width:5px;height:5px;border-radius:50%;background:#83887A"></span>
+          <span style="position:absolute;bottom:10px;right:12px;background:#fff;border:1px solid #C9CCBD;border-radius:4px;padding:3px 10px;font-size:9.5px;color:#33362E">Export ↓</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="3d" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:820px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3d</span><span style="font-size:13px;font-weight:600;color:#181A15">Outputs › Solution Summary — per-step, comparison joins when both solved</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">The tab always shows the selected step's summary; once both steps are solved the side-by-side comparison appears beneath it.</div>
+    <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;overflow:hidden">
+      <div style="border-bottom:1px solid #E2E4DA;display:flex;align-items:center;padding:0 12px">
+        <span style="padding:9px 14px;font-size:11.5px;color:#5B5F54;border-bottom:2px solid transparent">Inputs</span>
+        <span style="padding:9px 14px;font-size:11.5px;font-weight:600;color:#181A15;border-bottom:2px solid #5F7F28">Outputs</span>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#48611E">2 OF 2 SOLVED ✓</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid #F0F1EA">
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Output Map</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#fff;background:#181A15;border-radius:4px">Solution Summary</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Open Warehouses</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Customer Assignments</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Service Stats</span>
+        <span style="margin-left:auto;display:inline-flex;border:1px solid #C9CCBD;border-radius:4px;overflow:hidden;font-size:10px">
+          <span style="background:#fff;color:#5B5F54;padding:4px 10px;display:flex;align-items:center;gap:4px">1. Max Coverage<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#5F7F28" stroke-width="3"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <span style="background:#5F7F28;color:#fff;padding:4px 10px;display:flex;align-items:center;gap:4px">2. Min Distance<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"></path></svg></span>
+        </span>
+      </div>
+      <div style="padding:12px">
+        <div style="border:1px solid #E2E4DA;border-radius:5px;overflow:hidden;font-size:10.5px;color:#33362E;margin-bottom:12px">
+          <div style="background:#F5F6F1;padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#5B5F54">STEP 2 · MIN DISTANCE — SUMMARY</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr)">
+            <div style="padding:6px 10px;border-right:1px solid #F0F1EA"><span style="color:#83887A">Objective</span> <span style="font-family:'IBM Plex Mono',monospace">123,834,216,789 dem·km</span></div>
+            <div style="padding:6px 10px;border-right:1px solid #F0F1EA"><span style="color:#83887A">Coverage held</span> <span style="font-family:'IBM Plex Mono',monospace">66.31 %</span></div>
+            <div style="padding:6px 10px"><span style="color:#83887A">Floor</span> <span style="font-family:'IBM Plex Mono',monospace">131,645,389</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #F0F1EA">
+            <div style="padding:6px 10px;border-right:1px solid #F0F1EA"><span style="color:#83887A">Avg distance</span> <span style="font-family:'IBM Plex Mono',monospace">621.4 km</span></div>
+            <div style="padding:6px 10px;border-right:1px solid #F0F1EA"><span style="color:#83887A">Run time</span> <span style="font-family:'IBM Plex Mono',monospace">1.12 s · Optimal</span></div>
+            <div style="padding:6px 10px"><span style="color:#83887A">Solver</span> <span style="font-family:'IBM Plex Mono',monospace">CBC (PuLP)</span></div>
+          </div>
+        </div>
+        <div style="border:1px solid #E2E4DA;border-radius:5px;overflow:hidden">
+          <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:#181A15;color:#FCFCFA;font-size:10px">
+            <div style="padding:7px 12px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#ADB1A4">COMPARISON · UNLOCKED AT 2 OF 2</div>
+            <div style="padding:7px 10px;font-weight:600;color:#93B747">1. Max Coverage</div>
+            <div style="padding:7px 10px;font-weight:600;color:#93B747">2. Min Distance</div>
+          </div>
+          <div style="font-size:10.5px;color:#33362E">
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F0F1EA"><div style="padding:5px 12px;color:#5B5F54">Objective</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">66.0639 % covered</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">123,834,216,789 dem·km</div></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F0F1EA;background:#F5F6F1"><div style="padding:5px 12px;color:#5B5F54">Percent Coverage</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">66.06 %</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">66.31 %</div></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F0F1EA"><div style="padding:5px 12px;color:#5B5F54">Demand within High Service Dist</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">131,645,389</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">132,141,020</div></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F0F1EA;background:#F5F6F1"><div style="padding:5px 12px;color:#5B5F54">Floor Constraint</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace;color:#83887A">—</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">131,645,389 <span style="font-size:8.5px;color:#48611E">⇐ seeded</span></div></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid #F0F1EA"><div style="padding:5px 12px;color:#5B5F54">Weighted avg. distance</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">684.2 km</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">621.4 km</div></div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr"><div style="padding:5px 12px;color:#5B5F54">Run time · Quality</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">0.84 s · Optimal</div><div style="padding:5px 10px;font-family:'IBM Plex Mono',monospace">1.12 s · Optimal</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="3e" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:560px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3e</span><span style="font-size:13px;font-weight:600;color:#181A15">Unsolved output sub-tab — empty state with Solve</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">Outputs is always open; any sub-tab whose step hasn't solved shows this. The confirm-and-clear dialog fires on Step 1 re-solves and also when Step 1's data tabs are edited after solve.</div>
+    <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:4px;padding:8px 12px;border-bottom:1px solid #F0F1EA">
+        <span style="padding:4px 10px;font-size:10.5px;color:#fff;background:#181A15;border-radius:4px">Output Map</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Solution Summary</span>
+        <span style="padding:4px 10px;font-size:10.5px;color:#5B5F54">Open Warehouses</span>
+        <span style="margin-left:auto;display:inline-flex;border:1px solid #C9CCBD;border-radius:4px;overflow:hidden;font-size:10px">
+          <span style="background:#fff;color:#5B5F54;padding:4px 10px;display:flex;align-items:center;gap:4px">1<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#5F7F28" stroke-width="3"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <span style="background:#5F7F28;color:#fff;padding:4px 10px">2. Min Distance</span>
+        </span>
+      </div>
+      <div style="padding:26px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#181A15">Not solved yet</div>
+        <div style="font-size:10.5px;color:#5B5F54;margin-top:5px;line-height:1.5">Run Step 2 to generate its Output Map, tables, and stats. Floor is seeded and locked from Step 1.</div>
+        <span style="display:inline-block;margin-top:10px;background:#5F7F28;color:#fff;border-radius:4px;padding:5px 14px;font-size:10.5px">Solve Step 2</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="3f" style="background:#FCFCFA;border:1px solid #E2E4DA;border-radius:8px;padding:22px;width:1540px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:#181A15;color:#93B747;border-radius:4px;padding:2px 8px">3f</span><span style="font-size:13px;font-weight:600;color:#181A15">Storyboard — full sub-tab sets, per-step data</span></div>
+    <div style="font-size:11.5px;color:#5B5F54;margin-bottom:16px">Six frames with the five Input and five Output sub-tabs and the global step toggle.</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5F7F28;margin-bottom:8px">FRAME 1 · LOAD DATA + PARAMS (STEP 1)</div><div style="background:#F5F6F1;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:7.5px;color:#83887A;font-family:'IBM Plex Mono',monospace">INPUTS: Map · Customers · Warehouses · Distances · <b style="color:#181A15">Params</b></span><span style="display:flex;gap:4px"><span style="background:#5F7F28;color:#fff;border-radius:3px;padding:2px 8px;font-size:8px">1. Max Coverage</span><span style="border:1px solid #C9CCBD;color:#83887A;border-radius:3px;padding:2px 8px;font-size:8px">2. Min Distance 🔒</span></span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">Student reviews data tabs, sets Step 1 parameters. Step 2 solve locked. "0 of 2 solved".</div></div>
+      <div style="border:1px solid #CDDCA6;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5F7F28;margin-bottom:8px">FRAME 2 · SOLVE 1 → OUTPUT MAP + SNAPSHOT</div><div style="background:#F4F7EB;border:1px solid #CDDCA6;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:4px"><span style="font-size:9px;color:#181A15;font-weight:600">✓ Auto-nav: Outputs › Output Map (Step 1)</span><span style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:#48611E">66.06% · data snapshotted to Step 2 · floor seeded</span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">Solve copies data to Step 2 (locked), seeds the floor, unlocks Step 2's Solve.</div></div>
+      <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5F7F28;margin-bottom:8px">FRAME 3 · EXPLORE STEP 1 OUTPUTS</div><div style="background:#F5F6F1;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:7.5px;color:#83887A;font-family:'IBM Plex Mono',monospace">OUTPUTS: <b style="color:#181A15">Map</b> · Summary · Warehouses · Assignments · Stats</span><span style="font-size:8px;color:#5B5F54">Unsolved Step 2 tabs: "Not solved yet — Solve Step 2"</span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">All five output sub-tabs live for Step 1; Step 2 side shows empty states.</div></div>
+      <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5F7F28;margin-bottom:8px">FRAME 4 · CONFIGURE + SOLVE STEP 2</div><div style="background:#F5F6F1;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:4px"><span style="background:#F4F7EB;border:1px solid #CDDCA6;border-radius:3px;padding:2px 6px;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#48611E;width:fit-content">🔒 Floor 131,645,389 · data read-only</span><span style="font-size:8px;color:#83887A">Only Optimization Parameters editable → Solve</span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">Step 2 params set; solve auto-navigates to its Output Map. "2 of 2 solved".</div></div>
+      <div style="border:1px solid #E2E4DA;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5F7F28;margin-bottom:8px">FRAME 5 · COMPARISON UNLOCKS</div><div style="background:#F5F6F1;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:3px"><span style="display:flex;gap:4px"><span style="flex:1;background:#181A15;color:#93B747;font-family:'IBM Plex Mono',monospace;font-size:7px;padding:2px 4px;border-radius:2px">1. MAX COVERAGE</span><span style="flex:1;background:#181A15;color:#93B747;font-family:'IBM Plex Mono',monospace;font-size:7px;padding:2px 4px;border-radius:2px">2. MIN DISTANCE</span></span><span style="display:flex;gap:4px"><span style="flex:1;background:#fff;border:1px solid #E2E4DA;font-family:'IBM Plex Mono',monospace;font-size:7px;padding:2px 4px">66.06 % · 684.2 km</span><span style="flex:1;background:#fff;border:1px solid #E2E4DA;font-family:'IBM Plex Mono',monospace;font-size:7px;padding:2px 4px">66.31 % · 621.4 km</span></span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">Solution Summary tab now shows the per-step summary plus the side-by-side table.</div></div>
+      <div style="border:1px solid #E8D48B;border-radius:6px;background:#fff;padding:12px"><div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#8A6D1A;margin-bottom:8px">FRAME 6 · EDIT/RE-SOLVE STEP 1 → CLEAR STEP 2</div><div style="background:#FDF6E3;border:1px solid #E8D48B;border-radius:4px;height:76px;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:4px"><span style="font-size:9px;color:#181A15;font-weight:600">⚠ Editing Step 1 data or re-solving clears Step 2</span><span style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:#8A6D1A">Confirm dialog → new snapshot + floor · re-run Step 2</span></div><div style="font-size:10.5px;color:#33362E;margin-top:8px;line-height:1.45">Same confirm-and-clear rule for data edits and re-solves; Step 2 returns to empty states.</div></div>
+    </div>
+  </div>
+
+</section>
+
+</x-dc>
+</body>
+</html>
