@@ -340,6 +340,35 @@ paths:
         "404":
           description: Not found
 
+  /scenarios/{scenarioId}/steps/{step}/result:
+    get:
+      operationId: getScenarioStepResult
+      tags: [scenarios]
+      summary: Full stored result envelope for one workflow step (Chapter 4 only)
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: step
+          in: path
+          required: true
+          schema: { type: integer, enum: [1, 2] }
+      responses:
+        "200":
+          description: The step's complete stored envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/SolveResult" }
+                required: [result]
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found, not owned, not a Chapter 4 scenario, or that step is unsolved
+
   /scenarios/{scenarioId}/precheck:
     get:
       operationId: precheckScenario
@@ -1455,6 +1484,9 @@ components:
             The solve_jobs id that produced this scenario's current `result`.
             Null for pre-migration solves, whose full result was not retained —
             such a history entry is non-exportable.
+        steps:
+          $ref: "#/components/schemas/ScenarioSteps"
+          description: Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.
       required:
         - id
         - name
@@ -1483,6 +1515,43 @@ components:
           type: integer
           description: The id of the queued or running job that blocked this request.
       required: [error, jobId]
+
+    ScenarioStepSummary:
+      type: object
+      properties:
+        objective:
+          type: string
+          enum: [coverage, min_distance]
+        status: { type: string }
+        solutionStatus: { type: ["string", "null"] }
+        quality: { type: ["string", "null"] }
+        coveragePct: { type: ["number", "null"] }
+        coveredDemand: { type: ["number", "null"] }
+        weightedAvgDistance: { type: ["number", "null"] }
+        distanceUnit: { type: string }
+        runTimeSec: { type: ["number", "null"] }
+      required: [objective, status, solutionStatus, quality, coveragePct, coveredDemand, weightedAvgDistance, distanceUnit, runTimeSec]
+
+    ScenarioStepState:
+      type: object
+      properties:
+        solved: { type: boolean }
+        stale:
+          type: boolean
+          description: Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).
+        jobId: { type: ["integer", "null"] }
+        summary:
+          oneOf:
+            - $ref: "#/components/schemas/ScenarioStepSummary"
+            - type: "null"
+      required: [solved, stale, jobId, summary]
+
+    ScenarioSteps:
+      type: object
+      properties:
+        step1: { $ref: "#/components/schemas/ScenarioStepState" }
+        step2: { $ref: "#/components/schemas/ScenarioStepState" }
+      required: [step1, step2]
 
     SolveJobStatus:
       type: string

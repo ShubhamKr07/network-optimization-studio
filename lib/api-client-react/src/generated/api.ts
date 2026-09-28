@@ -26,6 +26,7 @@ import type {
   ExportEnvelope,
   ExportScenarioParams,
   GetDatasetParams,
+  GetScenarioStepResult200,
   GetSolveHistoryParams,
   HealthStatus,
   ImportApplyRequest,
@@ -1056,6 +1057,88 @@ export function useGetSolveJob<TData = Awaited<ReturnType<typeof getSolveJob>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetSolveJobQueryOptions(scenarioId,jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetScenarioStepResultUrl = (scenarioId: number,
+    step: 1 | 2,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/steps/${step}/result`
+}
+
+/**
+ * @summary Full stored result envelope for one workflow step (Chapter 4 only)
+ */
+export const getScenarioStepResult = async (scenarioId: number,
+    step: 1 | 2, options?: RequestInit): Promise<GetScenarioStepResult200> => {
+
+  return customFetch<GetScenarioStepResult200>(getGetScenarioStepResultUrl(scenarioId,step),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetScenarioStepResultQueryKey = (scenarioId: number,
+    step: 1 | 2,) => {
+    return [
+    `/api/scenarios/${scenarioId}/steps/${step}/result`
+    ] as const;
+    }
+
+
+export const getGetScenarioStepResultQueryOptions = <TData = Awaited<ReturnType<typeof getScenarioStepResult>>, TError = ErrorType<void>>(scenarioId: number,
+    step: 1 | 2, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScenarioStepResult>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetScenarioStepResultQueryKey(scenarioId,step);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScenarioStepResult>>> = ({ signal }) => getScenarioStepResult(scenarioId,step, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scenarioId && step), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScenarioStepResult>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetScenarioStepResultQueryResult = NonNullable<Awaited<ReturnType<typeof getScenarioStepResult>>>
+export type GetScenarioStepResultQueryError = ErrorType<void>
+
+
+/**
+ * @summary Full stored result envelope for one workflow step (Chapter 4 only)
+ */
+
+export function useGetScenarioStepResult<TData = Awaited<ReturnType<typeof getScenarioStepResult>>, TError = ErrorType<void>>(
+ scenarioId: number,
+    step: 1 | 2, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScenarioStepResult>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetScenarioStepResultQueryOptions(scenarioId,step,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
