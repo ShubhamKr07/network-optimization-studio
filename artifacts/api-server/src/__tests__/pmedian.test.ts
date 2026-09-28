@@ -719,6 +719,10 @@ describe("buildPayload()", () => {
     gap: 0,
     timeLimitSec: 60,
     capacityMode: "none" as const,
+    // ch4-2s-1 — stepEpoch is required in MaxCoverageInputs' OUTPUT type
+    // (z.default() makes it optional on input, required on output); a
+    // hand-built fixture typed against that output type needs it explicit.
+    stepEpoch: 1,
     distanceBands: [600, 5000],
     warehouseOverrides: [],
     customerOverrides: [],

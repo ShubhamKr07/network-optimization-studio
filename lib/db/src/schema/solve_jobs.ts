@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, text, jsonb, timestamp, index, doublePrecision, check, pgSequence } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, text, jsonb, timestamp, index, uniqueIndex, doublePrecision, check, pgSequence } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { usersTable } from "./auth.js";
 import { scenariosTable } from "./scenarios.js";
@@ -115,6 +115,25 @@ export const solveJobsTable = pgTable("solve_jobs", {
   // Stale-lease recovery (A2): find running rows whose heartbeat has gone
   // quiet.
   index("IDX_solve_jobs_owner_heartbeat_running").on(table.ownerHeartbeatAt).where(sql`${table.status} = 'running'`),
+  // CH4-11 — at most ONE active job per scenario, enforced by the DATABASE.
+  // enqueueScenarioSolve locks the scenario row and then inserts WITHOUT
+  // checking for an existing job; the row lock serialises the two
+  // transactions but does not make the second one refuse. This index does.
+  // It matters more for max-coverage-us than for a single-objective model
+  // because the target step is DERIVED FROM STATE (CH4-9): two Step 1
+  // enqueues at `0 of 2` race, and whichever publishes second decides what
+  // `1 of 2` means. Belt-and-braces with the in-transaction guard, the same
+  // posture lockedModelGuards.test.ts applies to route guards.
+  // R1 — SCOPED TO CHAPTER 4. The predicate carries `model_id` as well as
+  // status. An unscoped index would silently impose one-active-job on all six
+  // models, contradicting this plan's own "no change to the other five" scope
+  // line, and would break scenarioSolveAtomicity.test.ts, which deliberately
+  // enqueues a second p-median-us job while the first is still queued (9 call
+  // sites). A repo-wide policy is a separate decision with its own migration
+  // and compatibility review — not something to smuggle in here.
+  uniqueIndex("UQ_solve_jobs_active_per_scenario")
+    .on(table.scenarioId)
+    .where(sql`${table.modelId} = 'max-coverage-us' AND ${table.status} IN ('queued', 'running')`),
   check(
     // A2 adds 'data_error' — the internal failureReason for a recovery-
     // contract-identity mismatch caught at claim time (A-R33/A-R40/A-R47:

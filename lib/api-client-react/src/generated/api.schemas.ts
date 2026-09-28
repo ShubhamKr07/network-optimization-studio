@@ -629,6 +629,46 @@ export const ScenarioModelId = {
  */
 export type ScenarioInputs = { [key: string]: unknown };
 
+export type ScenarioStepSummaryObjective = typeof ScenarioStepSummaryObjective[keyof typeof ScenarioStepSummaryObjective];
+
+
+export const ScenarioStepSummaryObjective = {
+  coverage: 'coverage',
+  min_distance: 'min_distance',
+} as const;
+
+export interface ScenarioStepSummary {
+  objective: ScenarioStepSummaryObjective;
+  status: string;
+  /** @nullable */
+  solutionStatus: string | null;
+  /** @nullable */
+  quality: string | null;
+  /** @nullable */
+  coveragePct: number | null;
+  /** @nullable */
+  coveredDemand: number | null;
+  /** @nullable */
+  weightedAvgDistance: number | null;
+  distanceUnit: string;
+  /** @nullable */
+  runTimeSec: number | null;
+}
+
+export interface ScenarioStepState {
+  solved: boolean;
+  /** Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3). */
+  stale: boolean;
+  /** @nullable */
+  jobId: number | null;
+  summary: ScenarioStepSummary | null;
+}
+
+export interface ScenarioSteps {
+  step1: ScenarioStepState;
+  step2: ScenarioStepState;
+}
+
 export interface Scenario {
   id: number;
   name: string;
@@ -644,9 +684,17 @@ export interface Scenario {
   stale: boolean;
   /** The solve_jobs id that produced this scenario's current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable. */
   readonly resultRunId: number | null;
+  /** Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored. */
+  steps?: ScenarioSteps;
 }
 
 export interface SolveJobQueued {
+  jobId: number;
+}
+
+export interface SolveConflict {
+  error: string;
+  /** The id of the queued or running job that blocked this request. */
   jobId: number;
 }
 
@@ -1229,6 +1277,10 @@ export const ListScenariosModelId = {
   'max-coverage-us': 'max-coverage-us',
   'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
+
+export type GetScenarioStepResult200 = {
+  result: SolveResult;
+};
 
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;

@@ -1354,6 +1354,10 @@ const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   gap: 0.01,
   timeLimitSec: 60,
   capacityMode: "none",
+  // ch4-2s-1 — stepEpoch is required in MaxCoverageInputs' OUTPUT type
+  // (z.default() makes it optional on input, required on output); a
+  // hand-built fixture typed against that output type needs it explicit.
+  stepEpoch: 1,
   distanceBands: [500, 1000],
   warehouseOverrides: [],
   customerOverrides: [],

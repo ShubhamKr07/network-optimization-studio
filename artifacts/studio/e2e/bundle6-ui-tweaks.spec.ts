@@ -258,17 +258,24 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
       await page.goto("/");
       await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 
-      // T5 item 8 — no Ch5 cards; Chapter 3 and Chapter 10 are visible.
+      // T5 item 8 — no Ch5 cards; Chapter 3 and Chapter 4 are visible links.
+      // Chapter 9 (JADE) is visible but ch4-lock makes it an inert "locked"
+      // wrapper, not a link. Chapter 10 stays hiddenFromLanding entirely
+      // (a different thing from locked) — see bundle4-auth-landing.spec.ts's
+      // matching baseline assertions.
       await expect(page.getByTestId("link-/chapter-3")).toBeVisible();
-      await expect(page.getByTestId("link-/chapter-10/gold-refinery")).toBeVisible();
-      for (const path of ["/chapter-5/transport", "/chapter-5/brazil"]) {
+      await expect(page.getByTestId("link-/chapter-4")).toBeVisible();
+      await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(0);
+      await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(1);
+      for (const path of ["/chapter-10/gold-refinery", "/chapter-5/transport", "/chapter-5/brazil"]) {
         await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);
       }
 
       // T1+T5 item 8 — stats line counts visible-only (the transport-coal
-      // solve is excluded; Chapter 10 is visible but has no scenarios here).
+      // solve is excluded; Chapter 4 and Chapter 9 are visible but have no
+      // scenarios here).
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "2 labs · 1 scenarios · 1 solved",
+        "3 labs · 1 scenarios · 1 solved",
         { timeout: HEADER_TIMEOUT },
       );
 
@@ -310,7 +317,11 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
     await expect(page.getByTestId("auth-credit")).toContainText("Reach out at");
     await expect(page.getByTestId("auth-credit")).not.toContainText("Reach me out at");
 
-    // The labs strip shows the visible chapters — Chapter 3 and Chapter 10.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 10");
+    // The labs strip shows the visible (non-hiddenFromLanding) chapters —
+    // Chapter 3, Chapter 4, and Chapter 9 (JADE, visible though ch4-lock
+    // makes it inert on Landing). Chapter 10 stays hiddenFromLanding, so it
+    // never appears here regardless of lock state — see
+    // bundle4-auth-landing.spec.ts's matching assertion.
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 9");
   });
 });

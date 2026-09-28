@@ -190,6 +190,12 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
+  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
+  // non-Chapter-4 test in this file never has `scenario.steps` set, so
+  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
+  // false here regardless of what it returns.
+  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
+  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
@@ -2355,43 +2361,32 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
   }
 
-  it("shows the coverage field in coverage mode, swaps to the floor field after toggling to min-distance, and persists ONLY the active mode's field", () => {
+  // CH4-17 — no toggle exists any more: `chen-objective-min_distance`/
+  // `chen-objective-coverage` are gone, and there is no client path that
+  // can write `coverageFloorDemand` or `objective: "min_distance"` into
+  // `localInputs`. The seeded scenario stays in coverage mode; the field
+  // that persists is exactly the field already there.
+  it("shows the avg-service-cap field only (no toggle, no floor field) and persists objective: coverage unchanged on save", () => {
     renderChen();
     openParamsTab();
 
-    // Coverage mode: cap field visible, floor field absent.
     expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
     expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chen-objective-min_distance")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chen-objective-coverage")).not.toBeInTheDocument();
 
-    // Toggle to min-distance: the visible field SWAPS.
-    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
-    expect(screen.getByTestId("input-coverage-floor")).toBeInTheDocument();
-    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(53385024);
-    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
-
-    // Save — the persisted inputs carry coverageFloorDemand and NOT
-    // avgServiceDistCapKm (the previous mode's field was cleared, matching
-    // C4.6's discriminated schema — not relying on later stripping).
+    // This field commits on blur (Part D draft contract, canonicalUnit
+    // resolved), same as the service-distance thresholds below — a bare
+    // `fireEvent.change` only updates the draft text, not `localInputs`.
+    const avgCap = screen.getByTestId("input-avg-service-cap");
+    fireEvent.change(avgCap, { target: { value: "1200" } });
+    fireEvent.blur(avgCap);
     fireEvent.click(screen.getByTestId("button-save"));
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 53385024 });
-    expect(args.data.inputs).not.toHaveProperty("avgServiceDistCapKm");
-  });
-
-  it("toggling min-distance → back to coverage re-seeds the cap and clears the floor (only the active field persists)", () => {
-    renderChen();
-    openParamsTab();
-    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
-    fireEvent.click(screen.getByTestId("chen-objective-coverage"));
-
-    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("button-save"));
-    const [args] = mockUpdateScenario.mutate.mock.calls[0];
-    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1000 });
+    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1200 });
     expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
   });
 
@@ -2427,7 +2422,11 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
-  it("caps P at 26 in BOTH the Optimization Parameters tab AND the Solve dialog (27 unreachable via either surface, D27)", () => {
+  // CH4-17/R5 — the Solve dialog no longer has a P slider for
+  // max-coverage-us at all (readOnlyParams=true replaces it with a
+  // read-only summary); the tab's slider is the only place P is still
+  // editable, and it still caps at 26 (D27 unaffected).
+  it("caps P at 26 in the Optimization Parameters tab; the Solve dialog shows P read-only instead of a slider (27 unreachable via either surface, D27)", () => {
     renderChen();
 
     // Tab slider.
@@ -2435,18 +2434,19 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(tabThumb).toHaveAttribute("aria-valuemax", "26");
 
-    // Solve dialog slider.
+    // Solve dialog: no slider, read-only summary instead.
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
-    expect(dialogThumb).toHaveAttribute("aria-valuemax", "26");
+    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
   });
 
   // chen-bands-units — superseded (was "hides the distance-band editor ...
-  // D13/D19"): Chen's bands are no longer derived/hidden — Part A
-  // re-enables the SAME free add/remove chip editor as every other model,
-  // in BOTH the tab and the Solve dialog, edited through the one dedicated
-  // lens (`activeBandLens`).
-  it("shows the SAME free-edit band chip editor for Chen, in BOTH the tab and the Solve dialog", () => {
+  // D13/D19"): Chen's bands are no longer derived/hidden in the tab — Part A
+  // re-enabled the free add/remove chip editor there. CH4-17/R5 supersedes
+  // this again for the Solve dialog specifically: that dialog is now
+  // confirmation-only for max-coverage-us, so its band editor is hidden too
+  // (edited only via the tab now).
+  it("shows the free-edit band chip editor for Chen in the tab; the Solve dialog hides it (confirmation-only, R5)", () => {
     renderChen();
 
     openParamsTab();
@@ -2455,7 +2455,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.getByTestId("button-remove-band-5000")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
   });
 });
 
@@ -2723,5 +2723,66 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     expect(screen.getByTestId("service-stats-band-111")).toHaveTextContent("0%");
     expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("100%");
     expect(screen.queryByTestId("service-stats-band-600")).not.toBeInTheDocument();
+  });
+});
+
+// CH4-17 — no client path can author `coverageFloorDemand` or
+// `objective: "min_distance"` any more; the write-route guard (Task 3) 422s
+// either key present in a PATCH body. This is the save-path regression test
+// for that removal, self-contained (own fixture + helper) rather than
+// reaching into the "Chen inputs UI" describe block's locals above.
+describe("CH4-17 — no client-side floor authoring survives", () => {
+  const coverageInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+  const seededScenario = {
+    id: 1,
+    name: "Chen coverage",
+    modelId: "max-coverage-us",
+    inputs: coverageInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  // Renders the Workspace for max-coverage-us with one seeded scenario,
+  // makes a real (dirty) edit so Save is enabled, clicks the header Save
+  // control, and returns the JSON body the mocked `updateScenario` mutation
+  // received — following the mocking this file's existing save tests
+  // already use, not a new mock layer.
+  function saveMaxCoverageScenarioAndCaptureBody() {
+    mockUseGetScenario.mockReturnValue({ data: seededScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [seededScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    // This field commits on blur (Part D draft contract, canonicalUnit
+    // resolved) — a bare `fireEvent.change` only updates the draft text.
+    const avgCap = screen.getByTestId("input-avg-service-cap");
+    fireEvent.change(avgCap, { target: { value: "1200" } });
+    fireEvent.blur(avgCap);
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    return args.data as { inputs: Record<string, unknown> };
+  }
+
+  it("never sends coverageFloorDemand or objective min_distance in a PATCH", async () => {
+    const patched = await saveMaxCoverageScenarioAndCaptureBody();
+    expect("coverageFloorDemand" in patched.inputs).toBe(false);
+    expect(patched.inputs.objective).toBe("coverage");
   });
 });

@@ -19,6 +19,7 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { skipIfJadeLocked } from "./helpers/modelLock";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 90_000;
@@ -86,6 +87,7 @@ async function readObjective(page: Page): Promise<number> {
 test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
   test("ground truth solve, capability toggle, leg routes, output grids, persistence, map add, CSV round-trip", async ({ page }) => {
     test.setTimeout(240_000);
+    await skipIfJadeLocked(page);
     await registerAndGoHome(page);
     const id = await createJadeScenario(page);
 
