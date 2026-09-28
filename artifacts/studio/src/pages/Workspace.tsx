@@ -368,6 +368,14 @@ function bomRatioFromInputs(inputs: Record<string, unknown> | null): number | un
   return typeof raw === "number" ? raw : undefined;
 }
 
+// ch5-del-10 — delivery-teaching-us's Adjust Cost Table toggle. There is no
+// generic boolean reader in this file; the convention is one named reader
+// per field, same as singleSourceFromInputs/capacityInactiveFromInputs above.
+function costAdjustEnabledFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.costAdjustEnabled;
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
 // B5.1 — Distances tab. `distanceOverrides` (B1.1) has no fixed baseline to
 // enumerate (same reasoning B4.3 already applied to the distances export) —
 // unlike warehouseOverridesFromInputs/customerOverridesFromInputs, there's no
@@ -3568,7 +3576,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // falls back to its own static default (50) unchanged.
           // C4.12/D27 — max-coverage-us caps P at 26 (a static
           // schema-level max, unlike JADE's dynamic active-warehouse count).
-          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : undefined}
+          // ch5-del-10 — delivery-teaching-us caps P at 33 (schema `.max(33)`,
+          // Task 4). A bound enforced at only one of this component's two
+          // mounts (here and the SolveDialog mount below) is not a bound —
+          // both must carry the same literal.
+          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined}
           // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
           // never receives these; the tab's own Chen block is gated on
           // `objective != null`).
@@ -3595,6 +3607,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           step2Gap={stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined}
           step2TimeLimitSec={stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined}
           coverageFloorFromStep1={stepState.isMaxCoverage ? (stepState.steps?.step1.summary?.coveredDemand ?? null) : undefined}
+          // ch5-del-10 — delivery-teaching-us's Adjust Cost Table fields, all
+          // gated on modelId so no sibling model ever receives them (the
+          // tab's own block is gated on `costAdjustEnabled != null`).
+          costAdjustEnabled={modelId === "delivery-teaching-us" ? costAdjustEnabledFromInputs(localInputs) : undefined}
+          distanceThreshold={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "distanceThreshold") : undefined}
+          costPerMile={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined}
+          costPerMileOver={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined}
           onChange={handleOptimizationParamsChange}
         />
       );
@@ -4369,7 +4388,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // true), edited through the SAME `activeBandLens`/
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
-        pMax={modelId === "max-coverage-us" ? 26 : undefined}
+        // ch5-del-10 — delivery-teaching-us caps P at 33 in the Solve dialog
+        // too (34 can't be authored from either surface); must move in
+        // lockstep with the OptimizationParametersTab mount's pMax above.
+        pMax={modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined}
         // CH4-17/R5 — Chapter 4's dialog is confirmation-only: no client can
         // author `objective`/`coverageFloorDemand` any more (the server
         // derives both from Step 1's achieved coverage), so this dialog no

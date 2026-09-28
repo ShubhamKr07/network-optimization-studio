@@ -587,3 +587,73 @@ describe("OptimizationParametersTab — Step 2 panel (ch4-2s-7, CH4-6)", () => {
     expect(onChange).toHaveBeenCalledWith("step2TimeLimitSec", 90);
   });
 });
+
+// ch5-del-10 — delivery-teaching-us's "Adjust Cost Table" control. Gated on
+// prop presence like every other model-specific field in this component
+// (never on modelId), and deliberately placed outside all four `step`
+// guards (226/272/356/411) since this model has no step concept — its
+// control must render regardless of whether a Chapter-4 sibling's `step` is
+// 1, 2, or omitted.
+describe("Adjust Cost Table (delivery-teaching-us)", () => {
+  const deliveryProps = {
+    costAdjustEnabled: false,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
+    gap: 0,
+    timeLimitSec: 120,
+    p: 3,
+    pMax: 33,
+    distanceBands: [400, 800, 1200, 1600],
+    onChange: vi.fn(),
+  };
+
+  it("renders the button and hides the three fields when the toggle is off", () => {
+    render(<OptimizationParametersTab {...deliveryProps} />);
+    expect(screen.getByTestId("button-adjust-cost-table")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-distance-threshold")).toBeNull();
+    expect(screen.queryByTestId("input-cost-per-mile")).toBeNull();
+    expect(screen.queryByTestId("input-cost-per-mile-over")).toBeNull();
+  });
+
+  it("reveals the three fields when the toggle is on", () => {
+    render(<OptimizationParametersTab {...deliveryProps} costAdjustEnabled />);
+    expect(screen.getByTestId("input-distance-threshold")).toHaveValue(800);
+    expect(screen.getByTestId("input-cost-per-mile")).toHaveValue(1);
+    expect(screen.getByTestId("input-cost-per-mile-over")).toHaveValue(10);
+  });
+
+  it("emits costAdjustEnabled through the generic onChange", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...deliveryProps} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("button-adjust-cost-table"));
+    expect(onChange).toHaveBeenCalledWith("costAdjustEnabled", true);
+  });
+
+  // Values persist across the toggle: the schema always carries all three, so
+  // turning the feature off and on again must not reset a student's rates.
+  it("does not clear the rate values when toggled off", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...deliveryProps} costAdjustEnabled onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("button-adjust-cost-table"));
+    expect(onChange).toHaveBeenCalledWith("costAdjustEnabled", false);
+    expect(onChange).not.toHaveBeenCalledWith("costPerMile", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("distanceThreshold", expect.anything());
+  });
+
+  it("renders nothing of the sort for a model that passes none of these props", () => {
+    render(<OptimizationParametersTab gap={0} timeLimitSec={120} distanceBands={[500]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("button-adjust-cost-table")).toBeNull();
+  });
+
+  // The component default is pMax = 50 against a schema cap of 33. P is a
+  // Radix <Slider data-testid="slider-p-value" max={pMax}> whose max lives as
+  // aria-valuemax on the child [role="slider"] thumb, plus quick-pick
+  // buttons [2,3,4,10,25] filtered by n <= pMax. There is no "input-p".
+  it("caps the P slider at 33 and keeps every quick-pick (all five are <= 33)", () => {
+    render(<OptimizationParametersTab {...deliveryProps} />);
+    const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "33");
+    for (const n of [2, 3, 4, 10, 25]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+  });
+});
