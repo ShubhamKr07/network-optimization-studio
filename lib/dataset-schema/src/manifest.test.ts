@@ -280,11 +280,11 @@ describe("ManifestSchema — all real manifests still validate (Bundle 2.2, B2.2
   });
 });
 
-describe("ManifestSchema — chens-cosmetics-cn (Chapter 4, C4.2)", () => {
+describe("ManifestSchema — max-coverage-us (Chapter 4, C4.2)", () => {
   it("parses cleanly and carries the km unit + Chapter 4 + exact outputGrids", async () => {
     const { readManifest } = await import("./index");
-    const manifest = readManifest("chens-cosmetics-cn");
-    expect(manifest.id).toBe("chens-cosmetics-cn");
+    const manifest = readManifest("max-coverage-us");
+    expect(manifest.id).toBe("max-coverage-us");
     expect(manifest.distanceUnit).toBe("km");
     expect(manifest.chapter).toBe("Chapter 4");
     expect(manifest.capabilities.outputGrids).toEqual([
@@ -302,7 +302,7 @@ describe("ManifestSchema — chens-cosmetics-cn (Chapter 4, C4.2)", () => {
 
   it("inputsSchema is complete and shape-exact (mirrors p-median nested constraints, drops warehouse capacity)", async () => {
     const { readManifest } = await import("./index");
-    const inputsSchema = readManifest("chens-cosmetics-cn").inputsSchema as {
+    const inputsSchema = readManifest("max-coverage-us").inputsSchema as {
       type: string;
       properties: Record<string, any>;
       required: string[];
@@ -331,11 +331,11 @@ describe("ManifestSchema — chens-cosmetics-cn (Chapter 4, C4.2)", () => {
 
     const props = inputsSchema.properties;
 
-    // objective enum + p bounds (1..25).
+    // objective enum + p bounds (1..26).
     expect(props.objective.enum).toEqual(["coverage", "min_distance"]);
     expect(props.p.type).toBe("integer");
     expect(props.p.minimum).toBe(1);
-    expect(props.p.maximum).toBe(25);
+    expect(props.p.maximum).toBe(26);
 
     // distanceBands (T3, spec Part A supersedes D19): a free reporting lens —
     // at least one positive boundary, no upper bound on count.

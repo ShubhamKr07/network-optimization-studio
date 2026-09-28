@@ -1,0 +1,210 @@
+{
+  "ALN": {
+    "id": "ALN",
+    "city": "Allentown",
+    "state": "PA",
+    "lat": 40.602812,
+    "lng": -75.470433,
+    "zip": "18101"
+  },
+  "ATL": {
+    "id": "ATL",
+    "city": "Atlanta",
+    "state": "GA",
+    "lat": 33.753693,
+    "lng": -84.389544,
+    "zip": "30303"
+  },
+  "BAL": {
+    "id": "BAL",
+    "city": "Baltimore",
+    "state": "MD",
+    "lat": 39.294398,
+    "lng": -76.622747,
+    "zip": "21201"
+  },
+  "BOS": {
+    "id": "BOS",
+    "city": "Boston",
+    "state": "MA",
+    "lat": 42.36097,
+    "lng": -71.05344,
+    "zip": "02109"
+  },
+  "CHI": {
+    "id": "CHI",
+    "city": "Chicago",
+    "state": "IL",
+    "lat": 41.88331,
+    "lng": -87.624713,
+    "zip": "60602"
+  },
+  "CIN": {
+    "id": "CIN",
+    "city": "Cincinnati",
+    "state": "OH",
+    "lat": 39.10663,
+    "lng": -84.49974,
+    "zip": "45202"
+  },
+  "CMH": {
+    "id": "CMH",
+    "city": "Columbus",
+    "state": "OH",
+    "lat": 39.991395,
+    "lng": -83.001036,
+    "zip": "43202"
+  },
+  "DAL": {
+    "id": "DAL",
+    "city": "Dallas",
+    "state": "TX",
+    "lat": 32.787642,
+    "lng": -96.799525,
+    "zip": "75201"
+  },
+  "DEN": {
+    "id": "DEN",
+    "city": "Denver",
+    "state": "CO",
+    "lat": 39.75071,
+    "lng": -104.996225,
+    "zip": "80202"
+  },
+  "IND": {
+    "id": "IND",
+    "city": "Indianapolis",
+    "state": "IN",
+    "lat": 39.77422,
+    "lng": -86.109309,
+    "zip": "46201"
+  },
+  "JAX": {
+    "id": "JAX",
+    "city": "Jacksonville",
+    "state": "FL",
+    "lat": 30.32769,
+    "lng": -81.64815,
+    "zip": "32202"
+  },
+  "KC": {
+    "id": "KC",
+    "city": "Kansas City",
+    "state": "MO",
+    "lat": 39.103883,
+    "lng": -94.600613,
+    "zip": "64101"
+  },
+  "LV": {
+    "id": "LV",
+    "city": "Las Vegas",
+    "state": "NV",
+    "lat": 36.17269,
+    "lng": -115.121117,
+    "zip": "89101"
+  },
+  "LA": {
+    "id": "LA",
+    "city": "Los Angeles",
+    "state": "CA",
+    "lat": 33.974044,
+    "lng": -118.248849,
+    "zip": "90001"
+  },
+  "MEM": {
+    "id": "MEM",
+    "city": "Memphis",
+    "state": "TN",
+    "lat": 35.033731,
+    "lng": -89.934319,
+    "zip": "38118"
+  },
+  "MSP": {
+    "id": "MSP",
+    "city": "Minneapolis",
+    "state": "MN",
+    "lat": 44.985775,
+    "lng": -93.270165,
+    "zip": "55401"
+  },
+  "NSH": {
+    "id": "NSH",
+    "city": "Nashville",
+    "state": "TN",
+    "lat": 36.164003,
+    "lng": -86.7745,
+    "zip": "37201"
+  },
+  "MSY": {
+    "id": "MSY",
+    "city": "New Orleans",
+    "state": "LA",
+    "lat": 29.956664,
+    "lng": -90.077506,
+    "zip": "70112"
+  },
+  "PHX": {
+    "id": "PHX",
+    "city": "Phoenix",
+    "state": "AZ",
+    "lat": 33.451015,
+    "lng": -112.068554,
+    "zip": "85004"
+  },
+  "PIT": {
+    "id": "PIT",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "lat": 40.474802,
+    "lng": -79.95449,
+    "zip": "15201"
+  },
+  "RDU": {
+    "id": "RDU",
+    "city": "Raleigh",
+    "state": "NC",
+    "lat": 35.773856,
+    "lng": -78.634051,
+    "zip": "27602"
+  },
+  "RNO": {
+    "id": "RNO",
+    "city": "Reno",
+    "state": "NV",
+    "lat": 39.526866,
+    "lng": -119.811392,
+    "zip": "89505"
+  },
+  "SFO": {
+    "id": "SFO",
+    "city": "San Francisco",
+    "state": "CA",
+    "lat": 37.779887,
+    "lng": -122.418066,
+    "zip": "94102"
+  },
+  "SEA": {
+    "id": "SEA",
+    "city": "Seattle",
+    "state": "WA",
+    "lat": 47.611601,
+    "lng": -122.333038,
+    "zip": "98101"
+  },
+  "STL": {
+    "id": "STL",
+    "city": "St. Louis",
+    "state": "MO",
+    "lat": 38.631358,
+    "lng": -90.192246,
+    "zip": "63103"
+  },
+  "LBB": {
+    "id": "LBB",
+    "city": "Lubbock - Current WH",
+    "state": "TX",
+    "lat": 33.584601,
+    "lng": -101.846676,
+    "zip": "79401"
+  }
+}

@@ -1,9 +1,13 @@
 /**
  * Browser E2E — QA gate for the `chen-bands-units` bundle (Task 15).
  *
+ * Written for the (now-retired) China-dataset model; rewritten onto
+ * `max-coverage-us` per the ch4-migration cutover (MIG-8) — same km-canonical,
+ * distance-band-editable shape, new id namespace + goldens.
+ *
  * Exercises, in a real browser against local dev servers, the properties a
  * unit test cannot: unit-toggle round-trips, the "never a wrong-unit
- * render" placeholder discipline, Chen's free band editor (add/remove/
+ * render" placeholder discipline, the free band editor (add/remove/
  * overflow/live-recolor-without-re-solve), unit-aware distance-edit commit
  * correctness (no drift across repeated toggles, incomplete drafts never
  * commit), the result-history read-only/dirty-nav-prompt contract
@@ -12,7 +16,7 @@
  *
  * Each test registers its own disposable account and cleans up its own
  * scenario(s) in a `finally` block, matching this repo's established e2e
- * convention (see chens-cosmetics.spec.ts).
+ * convention (see max-coverage.spec.ts).
  */
 import { test, expect, type Page } from "@playwright/test";
 
@@ -28,7 +32,7 @@ interface ScenarioResult {
 }
 
 async function registerAndGoHome(page: Page): Promise<void> {
-  const email = `e2e-chenqa-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+  const email = `e2e-maxcovqa-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
   const resp = await page.request.post("/api/auth/register", {
     data: { email, password: "correcthorse1" },
   });
@@ -37,17 +41,17 @@ async function registerAndGoHome(page: Page): Promise<void> {
   await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 }
 
-function chenCoverageInputs(overrides: Record<string, unknown> = {}) {
+function maxCoverageInputs(overrides: Record<string, unknown> = {}) {
   return {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
+    highServiceDistKm: 700,
+    maxDistKm: 5500,
     avgServiceDistCapKm: 1000,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
-    distanceBands: [600, 5000],
+    distanceBands: [700, 5500],
     warehouseOverrides: [],
     customerOverrides: [],
     addedWarehouses: [],
@@ -72,7 +76,7 @@ function pMedianInputs() {
 
 async function createScenario(page: Page, modelId: string, chapterPath: string, inputs: unknown): Promise<string> {
   const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E ChenQA ${modelId} ${Date.now()}`, modelId, inputs },
+    data: { name: `E2E MaxCovQA ${modelId} ${Date.now()}`, modelId, inputs },
   });
   expect(resp.status()).toBe(201);
   const id = String((await resp.json()).id);
@@ -88,7 +92,7 @@ async function getScenario(page: Page, id: string): Promise<{ solvedAt: string |
 }
 
 /** Trigger a solve via the Run Optimizer dialog, then poll until `solvedAt`
- * advances past `before` — same precise-completion signal chens-cosmetics.spec.ts
+ * advances past `before` — same precise-completion signal max-coverage.spec.ts
  * uses. */
 async function solveViaUi(page: Page, id: string): Promise<ScenarioResult> {
   const before = (await getScenario(page, id)).solvedAt;
@@ -121,15 +125,16 @@ async function saveViaHeader(page: Page): Promise<void> {
 }
 
 test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () => {
-  test("unit toggle converts every distance surface, persists across reload, auto is a no-op; Chen (km) and p-median-us (mi) both correct", async ({ page }) => {
+  test("unit toggle converts every distance surface, persists across reload, auto is a no-op; max-coverage-us (km) and p-median-us (mi) both correct", async ({ page }) => {
     test.setTimeout(180_000);
     await registerAndGoHome(page);
-    const chenId = await createScenario(page, "chens-cosmetics-cn", "/chapter-4", chenCoverageInputs());
+    const chenId = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
 
     try {
       await solveViaUi(page, chenId);
 
-      // Auto (default): Chen's canonical is km — cost summary shows km, never mi.
+      // Auto (default): max-coverage-us's canonical is km — cost summary
+      // shows km, never mi.
       await page.getByTestId("sidebar-output-cost-summary").click();
       const wavg = page.getByTestId("cost-summary-value-weighted-avg-distance");
       await expect(wavg).toContainText("km", { timeout: HEADER_TIMEOUT });
@@ -149,8 +154,8 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       expect(miValue).toBeLessThan(autoValue);
       expect(miValue).toBeCloseTo(autoValue / 1.609344, 0);
 
-      // Reload — the "mi" preference persists (localStorage), Chen still shows
-      // its OWN canonical-derived mi value, not a stale/guessed one.
+      // Reload — the "mi" preference persists (localStorage), the model still
+      // shows its OWN canonical-derived mi value, not a stale/guessed one.
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("unit-toggle-mi")).toHaveAttribute("aria-pressed", "true", { timeout: HEADER_TIMEOUT });
@@ -158,7 +163,8 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(page.getByTestId("cost-summary-value-weighted-avg-distance")).toContainText("mi", { timeout: HEADER_TIMEOUT });
 
       // "auto" is a genuine no-op: switching back re-renders the model's own
-      // canonical unit (km for Chen), matching the very first reading exactly.
+      // canonical unit (km for max-coverage-us), matching the very first
+      // reading exactly.
       await page.getByTestId("unit-toggle-auto").click();
       await expect(page.getByTestId("unit-toggle-auto")).toHaveAttribute("aria-pressed", "true");
       await expect(page.getByTestId("cost-summary-value-weighted-avg-distance")).toContainText("km", { timeout: HEADER_TIMEOUT });
@@ -199,7 +205,7 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
     // earlier fetch — the important thing is the route delay is installed
     // BEFORE that navigation.
     const createResp = await page.request.post("/api/scenarios", {
-      data: { name: `E2E ChenQA loading ${Date.now()}`, modelId: "chens-cosmetics-cn", inputs: chenCoverageInputs() },
+      data: { name: `E2E MaxCovQA loading ${Date.now()}`, modelId: "max-coverage-us", inputs: maxCoverageInputs() },
     });
     expect(createResp.status()).toBe(201);
     const chenId = String((await createResp.json()).id);
@@ -223,7 +229,7 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(page.getByTestId("bands-unit-pending")).toBeVisible({ timeout: 2_000 });
       await expect(page.getByTestId("button-bands-plus")).toBeDisabled();
       // No band chip (which would show a converted mi number) is present yet.
-      await expect(page.getByTestId("band-600")).toHaveCount(0);
+      await expect(page.getByTestId("band-700")).toHaveCount(0);
 
       // Distances tab: the override input is disabled/empty while unresolved.
       await page.getByTestId("sidebar-input-distances").click();
@@ -239,7 +245,7 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       // load-then-resolve transition, not a permanently-broken editor.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await expect(page.getByTestId("bands-unit-pending")).toHaveCount(0, { timeout: 6_000 });
-      await expect(page.getByTestId("band-600")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByText("Distance bands (km)")).toBeVisible();
     } finally {
       await page.unroute("**/api/models");
@@ -252,13 +258,21 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
   test("add/remove bands, last-boundary guard, non-integer boundary accepted, live recolor with no re-solve, overflow bucket rendered and never unit-converted", async ({ page }) => {
     test.setTimeout(180_000);
     await registerAndGoHome(page);
-    const id = await createScenario(page, "chens-cosmetics-cn", "/chapter-4", chenCoverageInputs());
+    const id = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
 
     try {
       await solveViaUi(page, id);
 
-      // Baseline: default bands [600, 5000] km. The real max edge distance in
-      // this dataset (~4178 km) is under 5000, so nothing is overflow yet.
+      // Baseline: this spec's own payload bands [700, 5500] km (not
+      // `defaultInputsForModel`'s default [700, 1400, 2800, 5500] — see
+      // `maxCoverageInputs()` above). With p=3 open facilities
+      // {DAL, LA, PIT}, the real solved max edge distance for this exact
+      // payload is 1926.38 km — well under 5500 — so nothing is overflow
+      // yet. (This is measured against actual solver output, not derived
+      // from nearest-open reasoning: coverage mode maximizes covered
+      // demand under an average-distance budget, not per-customer
+      // distance, so CBC is free to assign a customer to any open
+      // warehouse, not necessarily its nearest.)
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("checkbox-color-lanes-band")).toBeChecked({ timeout: HEADER_TIMEOUT });
       const overflowPathsBefore = page.locator('path.leaflet-interactive[stroke="var(--band-overflow)"]');
@@ -266,26 +280,33 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
 
       // ── Band editor: add, remove, last-boundary guard ───────────────────
       await page.getByTestId("sidebar-input-optimization-parameters").click();
-      await expect(page.getByTestId("band-600")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("band-5000")).toBeVisible();
+      await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("band-5500")).toBeVisible();
 
-      // Add a boundary well below the farthest edge (~4178 km) so several
-      // routes fall beyond it once we remove the 5000 boundary.
+      // Add a boundary well below the farthest edge (1926.38 km) so several
+      // routes fall beyond it once we remove the 5500 boundary. Verified
+      // against real solver output for this exact payload (p=3, open
+      // {DAL, LA, PIT}): 1000 km splits the 200 solved edges 45 over /
+      // 155 under — a comfortably nonzero overflow bucket. (Coverage mode
+      // maximizes covered demand under an average-distance budget, not
+      // per-customer distance, so nearest-open reasoning does not
+      // describe this assignment — the split above is measured, not
+      // derived from "nearest open warehouse".)
       await page.getByTestId("button-bands-plus").click();
-      await page.getByTestId("input-new-band").fill("2000");
+      await page.getByTestId("input-new-band").fill("1000");
       await page.getByTestId("button-add-band-confirm").click();
-      await expect(page.getByTestId("band-2000")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("band-1000")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      await page.getByTestId("button-remove-band-5000").click();
-      await expect(page.getByTestId("band-5000")).toHaveCount(0);
-      // Bands now [600, 2000] — length 2, both removable.
-      await expect(page.getByTestId("button-remove-band-600")).toBeEnabled();
-      await expect(page.getByTestId("button-remove-band-2000")).toBeEnabled();
+      await page.getByTestId("button-remove-band-5500").click();
+      await expect(page.getByTestId("band-5500")).toHaveCount(0);
+      // Bands now [700, 1000] — length 2, both removable.
+      await expect(page.getByTestId("button-remove-band-700")).toBeEnabled();
+      await expect(page.getByTestId("button-remove-band-1000")).toBeEnabled();
 
       // ── Live recolor WITHOUT saving or re-solving ───────────────────────
       // Still on Optimization Parameters — the lens is dirty but nothing has
       // been saved/solved yet. Switch straight to the Output Map: the
-      // 2000 km boundary must already recolor overflow lanes (>2000 km),
+      // 1000 km boundary must already recolor overflow lanes (>1000 km),
       // proving this is a client-side reporting lens, not tied to a re-solve.
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("checkbox-color-lanes-band")).toBeChecked({ timeout: HEADER_TIMEOUT });
@@ -316,10 +337,10 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       await page.getByTestId("unit-toggle-auto").click();
 
       // ── Removal blocked at the last boundary ────────────────────────────
-      await page.getByTestId("button-remove-band-600").click();
-      await expect(page.getByTestId("band-600")).toHaveCount(0);
-      await page.getByTestId("button-remove-band-2000").click();
-      await expect(page.getByTestId("band-2000")).toHaveCount(0);
+      await page.getByTestId("button-remove-band-700").click();
+      await expect(page.getByTestId("band-700")).toHaveCount(0);
+      await page.getByTestId("button-remove-band-1000").click();
+      await expect(page.getByTestId("band-1000")).toHaveCount(0);
       // Exactly one boundary left (241.8039) — its own remove button is
       // disabled, and clicking it (even forcibly) must not empty the array.
       await expect(page.getByTestId("button-remove-band-241.8039")).toBeDisabled();
@@ -336,7 +357,7 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
   test("unit-aware commit stores the correct canonical value, repeated toggles introduce no drift, an incomplete draft never commits", async ({ page }) => {
     test.setTimeout(120_000);
     await registerAndGoHome(page);
-    const id = await createScenario(page, "chens-cosmetics-cn", "/chapter-4", chenCoverageInputs());
+    const id = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
 
     try {
       await page.getByTestId("sidebar-input-distances").click();
@@ -344,8 +365,8 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
 
       // ── Incomplete draft never commits ──────────────────────────────────
       await page.getByTestId("button-add-distance-row").click();
-      await page.getByTestId("input-new-distance-from").fill("wh-40");
-      await page.getByTestId("input-new-distance-to").fill("cs-4");
+      await page.getByTestId("input-new-distance-from").fill("ALN");
+      await page.getByTestId("input-new-distance-to").fill("C4");
       await page.getByTestId("input-new-distance-value").fill("5.");
       await page.getByTestId("button-add-distance-confirm").click();
       // Row was not added — the incomplete draft never reached `onCommit`, so
@@ -353,36 +374,36 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // reverts to blank rather than committing "5" or keeping "5." on screen.
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.", { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-new-distance-value")).toHaveValue("");
-      await expect(page.getByTestId("input-distance-wh-40-cs-4")).toHaveCount(0);
+      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
 
       await page.getByTestId("input-new-distance-value").fill("5e");
       await page.getByTestId("button-add-distance-confirm").click();
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.");
-      await expect(page.getByTestId("input-distance-wh-40-cs-4")).toHaveCount(0);
+      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
 
-      // ── Now commit a real value (km, since unit=auto for Chen) ──────────
+      // ── Now commit a real value (km, since unit=auto for max-coverage-us) ──
       await page.getByTestId("input-new-distance-value").fill("500");
       await page.getByTestId("button-add-distance-confirm").click();
       // The merged base+override table is paginated (50/page) and this pair
       // may not land on page 1 — filter down to it (same pattern the
       // Distances tab's own filter fields exist for).
-      await page.getByTestId("input-filter-from").fill("wh-40");
-      await page.getByTestId("input-filter-to").fill("cs-4");
-      await expect(page.getByTestId("input-distance-wh-40-cs-4")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("input-distance-wh-40-cs-4")).toHaveValue("500");
+      await page.getByTestId("input-filter-from").fill("ALN");
+      await page.getByTestId("input-filter-to").fill("C4");
+      await expect(page.getByTestId("input-distance-ALN-C4")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveValue("500");
       await saveViaHeader(page);
 
       const inputsResp = await page.request.get(`/api/scenarios/${id}`);
       const scenarioBody = await inputsResp.json();
       const savedOverride = (scenarioBody.inputs.distanceOverrides as Array<{ fromId: string; toId: string; distance: number }>).find(
-        o => o.fromId === "wh-40" && o.toId === "cs-4",
+        o => o.fromId === "ALN" && o.toId === "C4",
       );
       expect(savedOverride).toBeDefined();
       expect(savedOverride!.distance).toBe(500);
 
       // ── Toggle to mi: displays the converted value ──────────────────────
       await page.getByTestId("unit-toggle-mi").click();
-      const miText1 = await page.getByTestId("input-distance-wh-40-cs-4").inputValue();
+      const miText1 = await page.getByTestId("input-distance-ALN-C4").inputValue();
       // ch4-fixes item 4 — the IDLE override cell is now grouped at max 2 dp
       // (formatDistanceDisplay), not `roundForFile`'s 4 dp: 500/1.609344 =
       // 310.6856 renders "310.69". Full precision is still there — it is
@@ -393,25 +414,25 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
 
       // ── Repeated toggles introduce no drift ─────────────────────────────
       await page.getByTestId("unit-toggle-auto").click();
-      const kmText2 = await page.getByTestId("input-distance-wh-40-cs-4").inputValue();
+      const kmText2 = await page.getByTestId("input-distance-ALN-C4").inputValue();
       expect(kmText2).toBe("500");
       await page.getByTestId("unit-toggle-mi").click();
-      const miText2 = await page.getByTestId("input-distance-wh-40-cs-4").inputValue();
+      const miText2 = await page.getByTestId("input-distance-ALN-C4").inputValue();
       expect(miText2).toBe(miText1); // idempotent — not accumulating drift
       await page.getByTestId("unit-toggle-km").click();
-      const kmText3 = await page.getByTestId("input-distance-wh-40-cs-4").inputValue();
+      const kmText3 = await page.getByTestId("input-distance-ALN-C4").inputValue();
       expect(kmText3).toBe("500");
 
       // ── Edit while displayed in mi: confirm the stored CANONICAL value ──
       await page.getByTestId("unit-toggle-mi").click();
-      const overrideInput = page.getByTestId("input-distance-wh-40-cs-4");
+      const overrideInput = page.getByTestId("input-distance-ALN-C4");
       await overrideInput.fill("310.6034");
       await overrideInput.blur();
       await saveViaHeader(page);
 
       const finalBody = await (await page.request.get(`/api/scenarios/${id}`)).json();
       const finalOverride = (finalBody.inputs.distanceOverrides as Array<{ fromId: string; toId: string; distance: number }>).find(
-        o => o.fromId === "wh-40" && o.toId === "cs-4",
+        o => o.fromId === "ALN" && o.toId === "C4",
       );
       expect(finalOverride).toBeDefined();
       // fromDisplay(310.6034, "mi"->"km") = 310.6034 * 1.609344
@@ -426,7 +447,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
   test("ordinary editors no-op while browsing history, band lens stays editable, dirty-nav prompt: cancel/discard/reject-save/succeed", async ({ page }) => {
     test.setTimeout(300_000);
     await registerAndGoHome(page);
-    const id = await createScenario(page, "chens-cosmetics-cn", "/chapter-4", chenCoverageInputs());
+    const id = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
 
     try {
       // Two solves -> two history entries.
@@ -594,9 +615,9 @@ test.describe("chen-bands-units QA — export controls", () => {
     // asserting per-row unit conversion).
     const id = await createScenario(
       page,
-      "chens-cosmetics-cn",
+      "max-coverage-us",
       "/chapter-4",
-      chenCoverageInputs({ distanceOverrides: [{ fromId: "wh-40", toId: "cs-4", distance: 500 }] }),
+      maxCoverageInputs({ distanceOverrides: [{ fromId: "ALN", toId: "C4", distance: 500 }] }),
     );
 
     try {
@@ -664,15 +685,15 @@ test.describe("chen-bands-units QA — export controls", () => {
 });
 
 test.describe("chen-bands-units QA — frozen golden + cross-model solve", () => {
-  test("Chen's default coverage solve reproduces the frozen golden exactly; a p-median-us solve still works", async ({ page }) => {
+  test("max-coverage-us's default coverage solve reproduces the frozen golden exactly; a p-median-us solve still works", async ({ page }) => {
     test.setTimeout(180_000);
     await registerAndGoHome(page);
-    const chenId = await createScenario(page, "chens-cosmetics-cn", "/chapter-4", chenCoverageInputs());
+    const chenId = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
     try {
       const result = await solveViaUi(page, chenId);
       expect(result.details.objective).toBe("coverage");
-      expect(result.details.coveragePct).toBeCloseTo(66.0639, 3);
-      expect(new Set(result.details.openWarehouseIds)).toEqual(new Set(["wh-40", "wh-69", "wh-102"]));
+      expect(result.details.coveragePct).toBeCloseTo(68.4192, 3);
+      expect(new Set(result.details.openWarehouseIds)).toEqual(new Set(["DAL", "LA", "PIT"]));
     } finally {
       await page.request.delete(`/api/scenarios/${chenId}`);
     }

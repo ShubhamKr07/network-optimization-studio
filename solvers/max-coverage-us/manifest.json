@@ -1,10 +1,10 @@
 {
-  "id": "chens-cosmetics-cn",
-  "name": "Chen's Cosmetics",
+  "id": "max-coverage-us",
+  "name": "Al's Athletics — Max Coverage",
   "chapter": "Chapter 4",
-  "datasetDir": "solvers/chens-cosmetics-cn/dataset",
+  "datasetDir": "solvers/max-coverage-us/dataset",
   "distanceUnit": "km",
-  "countryBounds": { "sw": [18.0, 73.9], "ne": [49.4, 133.0] },
+  "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
   "capabilities": {
     "supportsP": true,
     "capacityModes": ["none"],
@@ -18,7 +18,7 @@
     "type": "object",
     "properties": {
       "objective": { "type": "string", "enum": ["coverage", "min_distance"] },
-      "p": { "type": "integer", "minimum": 1, "maximum": 25 },
+      "p": { "type": "integer", "minimum": 1, "maximum": 26 },
       "highServiceDistKm": { "type": "number", "exclusiveMinimum": 0 },
       "maxDistKm": { "type": "number", "exclusiveMinimum": 0 },
       "avgServiceDistCapKm": { "type": "number", "exclusiveMinimum": 0 },

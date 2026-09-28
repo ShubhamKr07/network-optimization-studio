@@ -797,7 +797,7 @@ describe("WarehousesTab — base table + inline add-section always render togeth
   });
 });
 
-// Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
+// Chen's Cosmetics (max-coverage-us) — a China dataset where every
 // warehouse row has `state: ""`. `hasStateColumn` is gated on DATA PRESENCE
 // by the caller (Workspace.tsx), not modelId — this component just respects
 // the prop.

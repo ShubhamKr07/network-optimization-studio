@@ -30,7 +30,7 @@ from merge_inputs import (
     build_merged_transport_dataset,
     build_merged_two_echelon_dataset,
     build_merged_jade_dataset,
-    build_merged_chens_dataset,
+    build_merged_max_coverage_dataset,
 )
 from cbc_termination import solve_with_capture
 
@@ -159,20 +159,21 @@ def _jade_distances():
     return {tuple(k.split(',')): v for k, v in _JADE_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
-# Dataset: Chen's Cosmetics — China coverage model (Chapter 4)
-# Source: ChensCosmeticsV1 Step 3.ipynb (Watson et al. Ch.4)
-# 25 candidate warehouses -> 197 customers; distances are RAW km (circuity
-# ×1.17 applied in solve_chens only, D8). Direct-id keyed (wh-<n>/cs-<n>),
-# distances keyed by "wh-15,cs-1" (like two-echelon), NOT ordinals.
-# solvers/chens-cosmetics-cn/dataset/
+# Dataset: Al's Athletics — Max Coverage, US coverage model (Chapter 4)
+# 26 candidate warehouses -> 200 customers; distances are RAW km and ARE the
+# effective distances (MIG-6: no circuity factor applied in solve_max_coverage
+# -- this dataset's matrix is pre-baked and used as-is). Direct-id keyed
+# (e.g. "ALN"/"C1"), distances keyed by "ALN,C1" (like two-echelon), NOT
+# ordinals.
+# solvers/max-coverage-us/dataset/
 # ---------------------------------------------------------------------------
-_CHENS_WH_RAW   = _safe_load("chens-cosmetics-cn", "warehouses.json", default={})
-_CHENS_CU_RAW   = _safe_load("chens-cosmetics-cn", "customers.json", default={})
-_CHENS_DIST_RAW = _safe_load("chens-cosmetics-cn", "distances.json", default={})
+_MC_WH_RAW   = _safe_load("max-coverage-us", "warehouses.json", default={})
+_MC_CU_RAW   = _safe_load("max-coverage-us", "customers.json", default={})
+_MC_DIST_RAW = _safe_load("max-coverage-us", "distances.json", default={})
 
-WAREHOUSES_CHENS = dict(_CHENS_WH_RAW)
-CUSTOMERS_CHENS  = dict(_CHENS_CU_RAW)
-DISTANCE_CHENS   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _CHENS_DIST_RAW.items()}
+WAREHOUSES_MAX_COVERAGE = dict(_MC_WH_RAW)
+CUSTOMERS_MAX_COVERAGE  = dict(_MC_CU_RAW)
+DISTANCE_MAX_COVERAGE   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _MC_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
 # B2: truthful CBC termination evidence, shared by every model. Production
@@ -1360,25 +1361,26 @@ def solve_jade(inp):
     )
 
 # ---------------------------------------------------------------------------
-# Chen's Cosmetics coverage solver (Chapter 4)
-# China single-echelon warehouse -> customer service-level model with two
+# Al's Athletics — Max Coverage solver (Chapter 4)
+# US single-echelon warehouse -> customer service-level model with two
 # coupled objectives behind one mode toggle (hard rule 6: ONE objective-sense
 # branch, everything else is a coefficient/constraint change, not a code path):
 #   coverage      -> MAXIMISE high-service-covered demand s.t. avg distance cap
 #   min_distance  -> MINIMISE total demand-weighted distance s.t. coverage floor
-# Distances are RAW km in DISTANCE_CHENS; circuity ×1.17 is applied here only
-# (D8). Demand is the integer domain (D30) -- edge flow = integer demand,
-# details.coveredDemand is an exact integer sum.
+# Distances are RAW km in DISTANCE_MAX_COVERAGE and ARE the effective
+# distances (MIG-6: no circuity factor -- this dataset's matrix is pre-baked
+# and used as-is). Demand is the integer domain (D30) -- edge flow = integer
+# demand, details.coveredDemand is an exact integer sum.
 # ---------------------------------------------------------------------------
-def solve_chens(inp):
-    # Dataset load-failure containment (H4): a corrupt/missing Chen dataset is
+def solve_max_coverage(inp):
+    # Dataset load-failure containment (H4): a corrupt/missing dataset is
     # captured in _LOAD_ERRORS at import time, never crashing other models.
-    if "chens-cosmetics-cn" in _LOAD_ERRORS:
-        return _load_error_envelope("chens-cosmetics-cn")
+    if "max-coverage-us" in _LOAD_ERRORS:
+        return _load_error_envelope("max-coverage-us")
     from pulp import (LpProblem, LpMaximize, LpMinimize, LpVariable, lpSum,
                       LpInteger, LpStatus, value, PULP_CBC_CMD)
     t = time.time()
-    m = build_merged_chens_dataset(inp, WAREHOUSES_CHENS, CUSTOMERS_CHENS, DISTANCE_CHENS)
+    m = build_merged_max_coverage_dataset(inp, WAREHOUSES_MAX_COVERAGE, CUSTOMERS_MAX_COVERAGE, DISTANCE_MAX_COVERAGE)
     cand = [wid for wid in m["warehouses"] if wid not in m["inactive"]]
     custs = [cid for cid in m["customers"] if cid not in m["excluded"]]
     dem = {cid: m["customers"][cid]["demand"] for cid in custs}
@@ -1392,17 +1394,19 @@ def solve_chens(inp):
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
                          _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero",
                          termination_reason="infeasible")
-    # ×1.17 circuity applied in-solver only. .get((w,c), 9999) sentinel matches
-    # every other model's missing-pair convention: an added entity with no
-    # distanceOverrides/estimate to some counterpart is simply unreachable
-    # (adj 9999 km fails both hi and mx thresholds), never a KeyError crash --
-    # the "solver never throws" contract. Numerically identical to a direct
-    # index for the base dataset (all 4925 pairs present).
-    adj = {(w, c): m["distance"].get((w, c), 9999) * 1.17 for w in cand for c in custs}
+    # MIG-6: stored distances ARE the effective distances. This dataset's
+    # matrix is pre-baked and is used as-is, so there is no circuity factor to
+    # apply here -- stored == solved == displayed == exported. .get((w,c),
+    # 9999) sentinel matches every other model's missing-pair convention: an
+    # added entity with no distanceOverrides/estimate to some counterpart is
+    # simply unreachable (adj 9999 km fails both hi and mx thresholds), never
+    # a KeyError crash -- the "solver never throws" contract. Numerically
+    # identical to a direct index for the base dataset (all 5200 pairs present).
+    adj = {(w, c): m["distance"].get((w, c), 9999) for w in cand for c in custs}
     hsp = {k: (1 if v <= hi else 0) for k, v in adj.items()}
     mdp = {k: (1 if v <= mx else 0) for k, v in adj.items()}
     mode = inp["objective"]
-    prob = LpProblem("chens", LpMaximize if mode == "coverage" else LpMinimize)
+    prob = LpProblem("max_coverage", LpMaximize if mode == "coverage" else LpMinimize)
     a = LpVariable.dicts("A", [(w, c) for w in cand for c in custs], 0, 1, LpInteger)
     o = LpVariable.dicts("O", cand, 0, 1, LpInteger)
     if mode == "coverage":
@@ -1420,7 +1424,7 @@ def solve_chens(inp):
         for c in custs:
             prob += a[w, c] <= o[w]
             prob += a[w, c] <= mdp[w, c]
-    cbc = _run_cbc(prob, inp["gap"], inp["timeLimitSec"], problem_uid="chens", msg=0)
+    cbc = _run_cbc(prob, inp["gap"], inp["timeLimitSec"], problem_uid="max_coverage", msg=0)
     st = cbc.lpStatus
     if st == "Infeasible":                                            # D17: mathematical infeasibility ONLY
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
@@ -1480,8 +1484,8 @@ def solve(inp):
         return solve_two_echelon(inp)
     if model_type == 'two_echelon_jade':
         return solve_jade(inp)
-    if model_type == 'chens':
-        return solve_chens(inp)
+    if model_type == 'max_coverage_us':
+        return solve_max_coverage(inp)
     if model_type == 'p_median':
         return solve_pmedian(inp)
     env = _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,

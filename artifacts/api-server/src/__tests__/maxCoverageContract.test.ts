@@ -6,14 +6,15 @@ import {
   ExportScenarioQueryParams,
   ExportScenarioResponse,
 } from "@workspace/api-zod";
+import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 
 // C4.5: contract-layer smoke test — the generated Zod schemas (from
-// lib/api-spec/openapi.yaml via orval codegen) reflect the Chen's Cosmetics
-// (chens-cosmetics-cn) model-add contract changes:
-//   - chens-cosmetics-cn is a valid modelId enum member everywhere it appears;
+// lib/api-spec/openapi.yaml via orval codegen) reflect the Chapter 4
+// (max-coverage-us) model-add contract changes:
+//   - max-coverage-us is a valid modelId enum member everywhere it appears;
 //   - PrecheckError.code carries the COMPLETE 8-value taxonomy (the 3 legacy
-//     codes + p_range/capacity that already existed server-side + Chen's 3 new
-//     codes) and round-trips through the generated client;
+//     codes + p_range/capacity that already existed server-side + this
+//     model's 3 new codes) and round-trips through the generated client;
 //   - the ExportEnvelope (response) entity enum is a superset of the export
 //     REQUEST-parameter entity enum — i.e. every entity you can request can be
 //     represented in the response envelope (request<->response entity parity),
@@ -21,14 +22,14 @@ import {
 //     costSummary/serviceStats that were missing from the response side.
 // This is a contract-layer test only — it exercises no route/solver code.
 
-describe("Chen's Cosmetics OpenAPI contract (C4.5)", () => {
-  it("accepts chens-cosmetics-cn in the GET /dataset modelId query enum", () => {
-    expect(GetDatasetQueryParams.safeParse({ modelId: "chens-cosmetics-cn" }).success).toBe(true);
+describe("max-coverage-us OpenAPI contract (C4.5)", () => {
+  it("accepts max-coverage-us in the GET /dataset modelId query enum", () => {
+    expect(GetDatasetQueryParams.safeParse({ modelId: "max-coverage-us" }).success).toBe(true);
   });
 
-  it("accepts CreateScenarioBody for chens-cosmetics-cn (enum growth is additive)", () => {
+  it("accepts CreateScenarioBody for max-coverage-us (enum growth is additive)", () => {
     expect(
-      CreateScenarioBody.safeParse({ name: "Chen", modelId: "chens-cosmetics-cn", inputs: {} }).success,
+      CreateScenarioBody.safeParse({ name: "Max Coverage", modelId: "max-coverage-us", inputs: {} }).success,
     ).toBe(true);
   });
 
@@ -112,5 +113,28 @@ describe("Chen's Cosmetics OpenAPI contract (C4.5)", () => {
     const result = ExportScenarioResponse.safeParse({ templateVersion: 1, entity: "warehouses", rows: [] });
     expect(result.success).toBe(true);
     expect(result.success && result.data).not.toHaveProperty("unit");
+  });
+
+  // MIG-8: p's maximum is 26, declared in four places (manifest, this Zod
+  // schema, and the two `pMax={...}` UI call sites in Workspace.tsx) — all
+  // four must change together, each with its own regression. This is the
+  // Zod declaration's regression. Verified by deliberately breaking it:
+  // changing `.max(26)` to `.max(25)` in validation/inputs/maxCoverage.ts
+  // makes the `p: 26` assertion below fail (`success` becomes `false`)
+  // while every other test in this file stays green.
+  it("accepts p=26 and rejects p=27 (MIG-8, the Zod declaration)", () => {
+    const base = {
+      objective: "coverage" as const,
+      p: 3,
+      highServiceDistKm: 700,
+      maxDistKm: 5500,
+      avgServiceDistCapKm: 1000,
+      gap: 0,
+      timeLimitSec: 120,
+      capacityMode: "none" as const,
+      distanceBands: [700, 5500],
+    };
+    expect(maxCoverageInputsSchema.safeParse({ ...base, p: 26 }).success).toBe(true);
+    expect(maxCoverageInputsSchema.safeParse({ ...base, p: 27 }).success).toBe(false);
   });
 });

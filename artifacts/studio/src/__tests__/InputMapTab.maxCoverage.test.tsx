@@ -15,7 +15,7 @@ const render = (
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import type { AddedWarehouseInput, AddedCustomerInput, MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
 
-// C4.13 — Chen's Cosmetics (chens-cosmetics-cn) is single-echelon
+// C4.13 — Chen's Cosmetics (max-coverage-us) is single-echelon
 // warehouse→customer like p-median, so it renders the SAME "pmedian" mode
 // InputMapTab (Workspace.tsx's fallback branch). These tests prove the
 // move/delete client-side reconciliation (D7 stable-id contract + owned
@@ -31,7 +31,7 @@ import type { AddedWarehouseInput, AddedCustomerInput, MapWarehouse, MapCustomer
 // InputMapTabV2.test.tsx's convention.
 vi.mock("@workspace/api-client-react", () => ({
   useListModels: () => ({
-    data: [{ id: "chens-cosmetics-cn", capabilities: { supportsAddedCustomerExclusion: true } }],
+    data: [{ id: "max-coverage-us", capabilities: { supportsAddedCustomerExclusion: true } }],
   }),
 }));
 
@@ -128,7 +128,7 @@ function renderChen(over: { warehouses?: MapWarehouse[]; customers?: MapCustomer
   const view = render(
     <InputMapTab
       mode="pmedian"
-      modelId="chens-cosmetics-cn"
+      modelId="max-coverage-us"
       warehouses={over.warehouses ?? [baseWh()]}
       customers={over.customers ?? [baseCs()]}
       inputs={over.inputs ?? makeInputs()}
@@ -138,7 +138,7 @@ function renderChen(over: { warehouses?: MapWarehouse[]; customers?: MapCustomer
   return { ...view, onInputsChange };
 }
 
-describe("InputMapTab — Chen (chens-cosmetics-cn) move reconciliation (C4.13)", () => {
+describe("InputMapTab — Chen (max-coverage-us) move reconciliation (C4.13)", () => {
   it("move-wh: moving an added warehouse keeps its id, updates coords, purges its own distanceOverrides, leaves unrelated rows + override arrays untouched", () => {
     const inputs = makeInputs({
       addedWarehouses: [addedWhInput()],
@@ -208,7 +208,7 @@ describe("InputMapTab — Chen (chens-cosmetics-cn) move reconciliation (C4.13)"
   });
 });
 
-describe("InputMapTab — Chen (chens-cosmetics-cn) delete reconciliation (C4.13)", () => {
+describe("InputMapTab — Chen (max-coverage-us) delete reconciliation (C4.13)", () => {
   it("delete-wh: deleting an added warehouse removes the row AND its distanceOverrides, override arrays untouched", () => {
     const inputs = makeInputs({
       addedWarehouses: [addedWhInput()],

@@ -49,7 +49,7 @@ function readAddedRows(inputs: Record<string, unknown> | null | undefined, key: 
 
 // Every scenario-local "added" entity family this codebase has, across all
 // 6 models (p-median-us/brazil, transport-coal, two-echelon-gold-au,
-// two-echelon-jade-us, chens-cosmetics-cn). A model that has no concept of a
+// two-echelon-jade-us, max-coverage-us). A model that has no concept of a
 // given family (e.g. p-median-us has no addedMines) simply never has that
 // key on its `inputs`, so `readAddedRows` returns `[]` for it — safe to
 // probe unconditionally rather than switch on `modelId`.

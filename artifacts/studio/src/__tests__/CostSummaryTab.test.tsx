@@ -34,7 +34,7 @@ const mockUseListModels = vi.fn(() => ({
     // jade-T14 — Chapter 9 JADE has real facility open/closed status (no P).
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // C4.14 — Chen's Cosmetics: km, real facility status.
-    { id: "chens-cosmetics-cn", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
   ],
 }));
 
@@ -687,22 +687,22 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     edges: [], metrics: { weightedAvgDistance: 640.2, bandCoverage: [] },
     details: { objective: "min_distance" }, solverUsed: "CBC", infeasibilityReason: null,
   };
-  const coverageA = scenario({ id: 60, name: "Coverage A", modelId: "chens-cosmetics-cn", result: coverageResult });
-  const coverageB = scenario({ id: 61, name: "Coverage B", modelId: "chens-cosmetics-cn", result: { ...coverageResult, objective: 70.0 } });
-  const minDist = scenario({ id: 62, name: "Min-Dist", modelId: "chens-cosmetics-cn", result: minDistanceResult });
+  const coverageA = scenario({ id: 60, name: "Coverage A", modelId: "max-coverage-us", result: coverageResult });
+  const coverageB = scenario({ id: 61, name: "Coverage B", modelId: "max-coverage-us", result: { ...coverageResult, objective: 70.0 } });
+  const minDist = scenario({ id: 62, name: "Min-Dist", modelId: "max-coverage-us", result: minDistanceResult });
 
   it("single-scenario: a coverage solve shows a % objective", () => {
-    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageResult} scenarioId={60} modelId="chens-cosmetics-cn" /></ExportProvider></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageResult} scenarioId={60} modelId="max-coverage-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("66.67 %");
   });
 
   it("single-scenario: a min-distance solve shows a demand-km objective", () => {
-    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="chens-cosmetics-cn" /></ExportProvider></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="max-coverage-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-km");
   });
 
   it("with a coverage anchor selected, a different-mode (min-distance) scenario is DISABLED with a hint; a same-mode one is enabled", () => {
-    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="max-coverage-us" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
     // Same mode (coverage) — selectable.
     expect(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")).not.toBeDisabled();
     // Different mode (min_distance) — blocked with a mode hint (NOT a solve-first hint; it IS solved).
@@ -712,7 +712,7 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
   });
 
   it("two SAME-mode coverage scenarios compare together (mode-aware % in each column)", () => {
-    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="max-coverage-us" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-table")).toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-objective-60")).toHaveTextContent("66.67 %");
@@ -720,7 +720,7 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
   });
 
   it("with a min-distance anchor, coverage scenarios are the ones blocked (symmetry)", () => {
-    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDist.result} scenarioId={62} modelId="chens-cosmetics-cn" scenarios={[minDist, coverageA, coverageB]} /></ExportProvider></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDist.result} scenarioId={62} modelId="max-coverage-us" scenarios={[minDist, coverageA, coverageB]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-compare-toggle-60").querySelector("input")).toBeDisabled();
     expect(screen.getByTestId("cost-summary-compare-mode-hint-60")).toHaveTextContent("different objective");
   });

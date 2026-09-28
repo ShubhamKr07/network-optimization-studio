@@ -7,13 +7,13 @@ import {
   fillEstimatedLaneCosts,
   fillEstimatedTwoEchelonDistances,
   fillEstimatedJadeDistances,
-  fillEstimatedChensDistances,
+  fillEstimatedMaxCoverageDistances,
 } from "../services/autoDistance.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema, type JadeInputs } from "../validation/inputs/jadeInputs.js";
-import { chensInputsSchema, type ChensInputs } from "../validation/inputs/chens.js";
+import { maxCoverageInputsSchema, type MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 
 // T1 (Input Map v2) — a tiny, self-contained coord dataset (2 base
 // warehouses, 2 base customers) passed explicitly as the second arg, so
@@ -857,26 +857,29 @@ describe("fillEstimatedJadeDistances (two-echelon-jade-us)", () => {
   });
 });
 
-// ── C4.7 (Chapter 4, chens-cosmetics-cn) — Chen's estimator is a SEPARATE
-// function mirroring the p-median core algorithm, but emitting RAW km
-// (haversineKm, R=6371, NO circuity — solve_chens applies ×1.17 itself),
+// ── C4.7 (Chapter 4, max-coverage-us) — this model's estimator is a SEPARATE
+// function mirroring the p-median core algorithm, emitting a km haversine
+// (haversineKm, R=6371) road-adjusted by MAX_COVERAGE_CIRCUITY (MIG-20: the
+// base matrix is already road-adjusted, and solve_max_coverage applies no
+// further circuity per MIG-6, so an added entity's estimate must be
+// road-adjusted HERE to land on the same footing as the base matrix),
 // rounded to 2 dp with a 0.01 km floor, and reparsing through
-// chensInputsSchema so the objective/threshold fields survive. ─────────────
-const CHENS_TEST_DATASET = {
+// maxCoverageInputsSchema so the objective/threshold fields survive. ─────
+const MAX_COVERAGE_TEST_DATASET = {
   warehouses: [
-    { id: "wh-15", lat: 39.9042, lng: 116.4074 }, // Beijing
-    { id: "wh-17", lat: 31.2304, lng: 121.4737 }, // Shanghai
+    { id: "wh-15", lat: 39.9042, lng: 116.4074 },
+    { id: "wh-17", lat: 31.2304, lng: 121.4737 },
   ],
   customers: [
-    { id: "cs-1", lat: 23.1291, lng: 113.2644 }, // Guangzhou
-    { id: "cs-2", lat: 30.5728, lng: 104.0668 }, // Chengdu
+    { id: "cs-1", lat: 23.1291, lng: 113.2644 },
+    { id: "cs-2", lat: 30.5728, lng: 104.0668 },
   ],
 };
 
-// A full, valid Chen `inputs` (coverage mode) — the estimator reparses
-// through chensInputsSchema, so every required objective/threshold field
+// A full, valid max-coverage-us `inputs` (coverage mode) — the estimator
+// reparses through maxCoverageInputsSchema, so every required objective/threshold field
 // must be present or the parse throws.
-const CHENS_BASE_INPUTS = {
+const MAX_COVERAGE_BASE_INPUTS = {
   objective: "coverage" as const,
   p: 2,
   highServiceDistKm: 600,
@@ -888,42 +891,50 @@ const CHENS_BASE_INPUTS = {
   distanceBands: [600, 5000],
   warehouseOverrides: [] as { id: string; status: "active" | "forced_open" | "inactive" }[],
   customerOverrides: [] as { id: string; status: "active" | "excluded"; demand?: number }[],
-  addedWarehouses: [] as ChensInputs["addedWarehouses"],
-  addedCustomers: [] as ChensInputs["addedCustomers"],
-  distanceOverrides: [] as ChensInputs["distanceOverrides"],
+  addedWarehouses: [] as MaxCoverageInputs["addedWarehouses"],
+  addedCustomers: [] as MaxCoverageInputs["addedCustomers"],
+  distanceOverrides: [] as MaxCoverageInputs["distanceOverrides"],
 };
 
-function chensKey(o: { fromId: string; toId: string }): string {
+function maxCoverageKey(o: { fromId: string; toId: string }): string {
   return o.fromId + "|" + o.toId;
 }
 
-describe("fillEstimatedChensDistances (chens-cosmetics-cn)", () => {
-  it("an added warehouse with no overrides gets estimated rows to every active base+added customer, at RAW km (R=6371, no circuity)", () => {
+// MIG-20 — mirrors autoDistance.ts's MAX_COVERAGE_CIRCUITY (itself an alias
+// of TRANSPORT_CIRCUITY = 1.17; see that constant's own comment for the
+// derivation/tolerance discussion).
+const MAX_COVERAGE_CIRCUITY = 1.17;
+
+describe("fillEstimatedMaxCoverageDistances (max-coverage-us)", () => {
+  it("an added warehouse with no overrides gets estimated rows to every active base+added customer, road-adjusted by MAX_COVERAGE_CIRCUITY (MIG-20)", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
       addedCustomers: [{ id: "cs-new1", city: "Xian", state: "Shaanxi", lat: 34.3416, lng: 108.9398, demand: 500, status: "active" as const }],
     };
-    const result = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const fromNew = result.distanceOverrides.filter((o) => o.fromId === "wh-new1");
     expect(fromNew.map((o) => o.toId).sort()).toEqual(["cs-1", "cs-2", "cs-new1"]);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
-    // RAW km — must match haversineKm exactly (rounded to 2 dp), NOT the
-    // haversineMiles value and NOT a circuity-multiplied value.
+    // MIG-20 — must match haversineKm * MAX_COVERAGE_CIRCUITY (rounded to 2
+    // dp), NOT the haversineMiles value and NOT the plain unadjusted
+    // great-circle km value.
     const toCs1 = fromNew.find((o) => o.toId === "cs-1")!;
     const rawKm = haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 23.1291, lng: 113.2644 });
-    expect(toCs1.distance).toBeCloseTo(Math.round(rawKm * 100) / 100, 2);
+    expect(toCs1.distance).toBeCloseTo(Math.round(rawKm * MAX_COVERAGE_CIRCUITY * 100) / 100, 2);
+    // Sanity: NOT the plain unadjusted great-circle value.
+    expect(toCs1.distance).not.toBeCloseTo(Math.round(rawKm * 100) / 100, 2);
     // Sanity: NOT the miles value (would be ~0.62x the km value).
     expect(toCs1.distance).not.toBeCloseTo(Math.round(haversineMiles({ lat: 30.5928, lng: 114.3055 }, { lat: 23.1291, lng: 113.2644 }) * 100) / 100, 2);
   });
 
   it("a base warehouse gets estimated rows to every ADDED customer only, never base<->base", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
       addedCustomers: [{ id: "cs-new1", city: "Xian", state: "Shaanxi", lat: 34.3416, lng: 108.9398, demand: 500, status: "active" as const }],
     };
-    const result = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const fromWh15 = result.distanceOverrides.filter((o) => o.fromId === "wh-15");
     const fromWh17 = result.distanceOverrides.filter((o) => o.fromId === "wh-17");
     expect(fromWh15.map((o) => o.toId)).toEqual(["cs-new1"]);
@@ -933,43 +944,43 @@ describe("fillEstimatedChensDistances (chens-cosmetics-cn)", () => {
 
   it("a manual row (no estimated flag) is left untouched", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
       distanceOverrides: [{ fromId: "wh-new1", toId: "cs-1", distance: 999 }],
     };
-    const result = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const row = result.distanceOverrides.find((o) => o.fromId === "wh-new1" && o.toId === "cs-1");
     expect(row).toEqual({ fromId: "wh-new1", toId: "cs-1", distance: 999 });
   });
 
   it("two coincident points clamp to the 0.01 km floor, never 0, and the result still validates", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       // Same coords as base customer cs-1.
       addedWarehouses: [{ id: "wh-new1", city: "Same", state: "GD", lat: 23.1291, lng: 113.2644, status: "active" as const }],
     };
-    const result = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const row = result.distanceOverrides.find((o) => o.fromId === "wh-new1" && o.toId === "cs-1");
     expect(row!.distance).toBe(0.01);
-    expect(() => chensInputsSchema.parse(result)).not.toThrow();
+    expect(() => maxCoverageInputsSchema.parse(result)).not.toThrow();
   });
 
-  it("running fillEstimatedChensDistances twice is a no-op (idempotent)", () => {
+  it("running fillEstimatedMaxCoverageDistances twice is a no-op (idempotent)", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
       addedCustomers: [{ id: "cs-new1", city: "Xian", state: "Shaanxi", lat: 34.3416, lng: 108.9398, demand: 500, status: "active" as const }],
     };
-    const once = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
-    const twice = fillEstimatedChensDistances(once, CHENS_TEST_DATASET);
+    const once = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
+    const twice = fillEstimatedMaxCoverageDistances(once, MAX_COVERAGE_TEST_DATASET);
     expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
-    const keys = twice.distanceOverrides.map(chensKey);
+    const keys = twice.distanceOverrides.map(maxCoverageKey);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("Chen-only objective/threshold fields survive the chensInputsSchema reparse", () => {
+  it("max-coverage-us-only objective/threshold fields survive the maxCoverageInputsSchema reparse", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       objective: "min_distance" as const,
       avgServiceDistCapKm: undefined,
       coverageFloorDemand: 12345,
@@ -977,13 +988,13 @@ describe("fillEstimatedChensDistances (chens-cosmetics-cn)", () => {
       maxDistKm: 4200,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
     };
-    const result = fillEstimatedChensDistances(inputs as unknown as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as unknown as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     expect(result.objective).toBe("min_distance");
     expect(result.coverageFloorDemand).toBe(12345);
     expect(result.highServiceDistKm).toBe(700);
     expect(result.maxDistKm).toBe(4200);
     // T3 (spec Part A, supersedes D19) — distanceBands is a free reporting
-    // lens, preserved VERBATIM from the supplied input (CHENS_BASE_INPUTS's
+    // lens, preserved VERBATIM from the supplied input (MAX_COVERAGE_BASE_INPUTS's
     // [600, 5000]) even though highServiceDistKm/maxDistKm changed above; it
     // is derived from the thresholds ONLY when the field is omitted entirely.
     expect(result.distanceBands).toEqual([600, 5000]);
@@ -992,47 +1003,78 @@ describe("fillEstimatedChensDistances (chens-cosmetics-cn)", () => {
   });
 
   it("distanceBands is derived from the (possibly changed) thresholds ONLY when omitted entirely", () => {
-    const { distanceBands: _omit, ...withoutBands } = CHENS_BASE_INPUTS;
+    const { distanceBands: _omit, ...withoutBands } = MAX_COVERAGE_BASE_INPUTS;
     void _omit;
     const inputs = { ...withoutBands, highServiceDistKm: 700, maxDistKm: 4200 };
-    const result = fillEstimatedChensDistances(inputs as unknown as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as unknown as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     expect(result.distanceBands).toEqual([700, 4200]);
   });
 
   it("an inactive added warehouse contributes no rows; an excluded base customer is not a fill target", () => {
     const inactive = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "inactive" as const }],
     };
-    const inactiveResult = fillEstimatedChensDistances(inactive as ChensInputs, CHENS_TEST_DATASET);
+    const inactiveResult = fillEstimatedMaxCoverageDistances(inactive as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     expect(inactiveResult.distanceOverrides.some((o) => o.fromId === "wh-new1" || o.toId === "wh-new1")).toBe(false);
 
     const excluded = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       customerOverrides: [{ id: "cs-1", status: "excluded" as const }],
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
     };
-    const excludedResult = fillEstimatedChensDistances(excluded as ChensInputs, CHENS_TEST_DATASET);
+    const excludedResult = fillEstimatedMaxCoverageDistances(excluded as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const fromNew = excludedResult.distanceOverrides.filter((o) => o.fromId === "wh-new1");
     expect(fromNew.map((o) => o.toId)).toEqual(["cs-2"]);
   });
 
   it("a customer id colliding with a warehouse id resolves against its own role's map (no cross-role coord bleed)", () => {
     const inputs = {
-      ...CHENS_BASE_INPUTS,
+      ...MAX_COVERAGE_BASE_INPUTS,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
       // Deliberately colliding id with base warehouse wh-15, at a different
       // location — the customer-role lookup must never fall through to the
       // warehouse-role map for the same id string.
       addedCustomers: [{ id: "wh-15", city: "Elsewhere", state: "ZZ", lat: 10, lng: 10, demand: 100, status: "active" as const }],
     };
-    const result = fillEstimatedChensDistances(inputs as ChensInputs, CHENS_TEST_DATASET);
+    const result = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
     const row = result.distanceOverrides.find((o) => o.fromId === "wh-new1" && o.toId === "wh-15");
     expect(row).toBeDefined();
-    const expected = Math.max(0.01, Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 10, lng: 10 }) * 100) / 100);
+    const expected = Math.max(0.01, Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 10, lng: 10 }) * MAX_COVERAGE_CIRCUITY * 100) / 100);
     expect(row!.distance).toBeCloseTo(expected, 2);
     // Must NOT equal the distance to base warehouse wh-15's own coordinate.
-    const wrong = Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 39.9042, lng: 116.4074 }) * 100) / 100;
+    const wrong = Math.round(haversineKm({ lat: 30.5928, lng: 114.3055 }, { lat: 39.9042, lng: 116.4074 }) * MAX_COVERAGE_CIRCUITY * 100) / 100;
     expect(row!.distance).not.toBeCloseTo(wrong, 2);
+  });
+
+  // MIG-20 — drives fillEstimatedMaxCoverageDistances through its REAL
+  // default dataset (no third `dataset` arg, so it resolves against the real
+  // max-coverage-us warehouses/customers), asserting against a real base
+  // entity id (C1 = Akron, OH) rather than the local MAX_COVERAGE_TEST_DATASET
+  // fixture's synthetic ids — this is the regression test for the bug this
+  // task fixes: prior to MIG-20 the estimator emitted plain unadjusted
+  // great-circle km, landing an added warehouse's distances ~15% short of a
+  // comparable base-matrix pair and making it look artificially attractive to
+  // the solver.
+  it("road-adjusts added-entity distances so they match the base matrix (MIG-20)", () => {
+    const added = {
+      id: "ADD-1", displayCode: "ADD-1", city: "Chicago", state: "IL",
+      lat: 41.88, lng: -87.63, status: "active" as const,
+    };
+    const inputs = {
+      ...MAX_COVERAGE_BASE_INPUTS,
+      addedWarehouses: [added],
+    };
+    // No third arg — resolves against the real max-coverage-us dataset, so
+    // "C1" (Akron, OH) is a real base customer, not a test-fixture id.
+    const out = fillEstimatedMaxCoverageDistances(inputs as MaxCoverageInputs);
+
+    const row = out.distanceOverrides.find((o) => o.fromId === "ADD-1" && o.toId === "C1");
+    expect(row).toBeDefined();
+    expect(row!.estimated).toBe(true);
+
+    const greatCircle = haversineKm({ lat: 41.88, lng: -87.63 }, { lat: 41.08, lng: -81.52 });
+    expect(row!.distance).toBeCloseTo(Number((greatCircle * MAX_COVERAGE_CIRCUITY).toFixed(2)), 2);
+    expect(row!.distance).toBeGreaterThan(greatCircle);
   });
 });

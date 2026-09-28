@@ -49,14 +49,18 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Chapter 4 (Chen's) was locked between 2026-09-22 and 2026-09-26; it is
-    // a normal linked card again.
+    // ch4-lock (Stage A, MIG-16) locked Chapter 4 for the dataset migration;
+    // Stage D (ch4-mig-4 cutover) reopens it as max-coverage-us — no
+    // `locked` key on its manifest, so the card is a real <Link> again.
     expect(screen.getByTestId("link-/chapter-4")).toHaveAttribute("href", "/chapter-4");
-    // ch4-lock — Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still
-    // renders, but it is now LOCKED: the card is no longer wrapped in a
-    // <Link>, so there is no href to follow at all. Asserted as the absence
-    // of the link plus the presence of the inert wrapper, so this can't pass
-    // by the card having merely disappeared.
+    expect(screen.queryByTestId("locked-/chapter-4")).not.toBeInTheDocument();
+    // ch4-mig-8 — the cutover's real US copy, not the retired China title.
+    expect(screen.getByText(/Al's Athletics — Max Coverage/)).toBeInTheDocument();
+    // Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still renders, but
+    // it is LOCKED: the card is no longer wrapped in a <Link>, so there is
+    // no href to follow at all. Asserted as the absence of the link plus the
+    // presence of the inert wrapper, so this can't pass by the card having
+    // merely disappeared.
     expect(screen.queryByTestId("link-/chapter-9/jade")).not.toBeInTheDocument();
     expect(screen.getByTestId("locked-/chapter-9/jade")).toBeInTheDocument();
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
@@ -177,7 +181,7 @@ describe("Landing — mode-aware recent-solve objective label (D14)", () => {
   it("renders a coverage solve's objective as a percentage and its distance in km", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
-        id: 20, scenarioId: 4, scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+        id: 20, scenarioId: 4, scenarioName: "Max Coverage Coverage", modelId: "max-coverage-us",
         status: "succeeded", objective: 66.5, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
         queuedAt: "2026-01-05T00:00:00Z", finishedAt: "2026-01-05T00:00:01Z",
       }],
@@ -192,7 +196,7 @@ describe("Landing — mode-aware recent-solve objective label (D14)", () => {
   it("renders a min-distance solve's objective in demand-km", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
-        id: 21, scenarioId: 5, scenarioName: "Chen Min-Distance", modelId: "chens-cosmetics-cn",
+        id: 21, scenarioId: 5, scenarioName: "Max Coverage Min-Distance", modelId: "max-coverage-us",
         status: "succeeded", objective: 123456789, objectiveMode: "min_distance", weightedAvgDistance: 300.2, distanceUnit: "km", runTimeSec: 0.9,
         queuedAt: "2026-01-06T00:00:00Z", finishedAt: "2026-01-06T00:00:01Z",
       }],
@@ -377,7 +381,7 @@ describe("Landing — live summary (T4)", () => {
     renderLanding();
 
     // stats line — labs counts every visible chapter (Ch3 + Ch4 + Ch9 = 3; C4.11
-    // registered chens-cosmetics-cn as a visible Chapter 4, and — like Ch9 here —
+    // registered max-coverage-us as a visible Chapter 4, and — like Ch9 here —
     // it has no summary row so contributes 0 scenarios/solved; Ch10 now hidden);
     // scenarios/solved come from visiblePerChapter only (p-median-us), not
     // summary.totals, which would incorrectly include the hidden transport-coal row.
@@ -403,9 +407,12 @@ describe("Landing — live summary (T4)", () => {
 // same as hiding, which `hiddenFromLanding` already does for Chapters 5 and
 // 10).
 //
-// Chapter 4 was in this table until 2026-09-26 and is now unlocked; the
-// "leaves unlocked chapters untouched" case below asserts its link is back,
-// so the unlock is pinned positively rather than only by this table shrinking.
+// Chapter 4 was in this table until 2026-09-26, was relocked as Stage A of
+// the dataset migration (MIG-16), and is reopened as max-coverage-us in this
+// cutover (ch4-mig-4, Step 8b) — its new manifest carries no `locked` key.
+// The "leaves unlocked chapters untouched" case below asserts its link is
+// back, so the unlock is pinned positively rather than only by this table
+// shrinking.
 describe("Landing — locked chapters", () => {
   const LOCKED: Array<[string, string, RegExp]> = [
     ["two-echelon-jade-us", "/chapter-9/jade", /JADE Network/],
@@ -428,10 +435,7 @@ describe("Landing — locked chapters", () => {
 
   it.each([
     ["p-median-us", "/chapter-3"],
-    // Chapter 4 — unlocked 2026-09-26. Asserted as a full link with an href,
-    // no inert wrapper, no badge and no data-locked, so a partial unlock
-    // (manifest flipped but chapters.ts missed, or vice versa) fails here.
-    ["chens-cosmetics-cn", "/chapter-4"],
+    ["max-coverage-us", "/chapter-4"],
   ])("leaves %s unlocked — it keeps its link and shows no lock badge", (modelId, path) => {
     renderLanding();
     expect(screen.getByTestId(`link-${path}`)).toHaveAttribute("href", path);

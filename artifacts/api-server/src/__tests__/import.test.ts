@@ -1029,9 +1029,10 @@ describe("parseAndValidateImport — legDistances (composite key, three id space
 });
 
 // T8 (Chen-bands-units bundle, Part E) — v2 unit-labeled distances/laneCosts/
-// legDistances files. p-median-us (ALN/C1) is "mi"-canonical, chens-cosmetics-cn
-// (wh-15/cs-1) is "km"-canonical (the one model whose canonical unit differs
-// from every other import-entity test above), transport-coal (KY/CHI) is
+// legDistances files. p-median-us (ALN/C1) is "mi"-canonical, max-coverage-us
+// (same ALN/C1 facility codes — Chapter 4 reuses Chapter 3's warehouse/customer
+// list) is "km"-canonical (the one model whose canonical unit differs from
+// every other import-entity test above), transport-coal (KY/CHI) is
 // "mi"-canonical. v1 (unitless) files keep importing unchanged (interpreted
 // as already canonical) — none of the tests above this block changed
 // behavior; this block adds only the NEW v2 behavior.
@@ -1061,16 +1062,16 @@ describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDist
   });
 
   it("v2 mi file into a km-canonical model is ACCEPTED and converted", () => {
-    // chens-cosmetics-cn is "km"-canonical (its manifest) — a v2 file
+    // max-coverage-us is "km"-canonical (its manifest) — a v2 file
     // declaring unit=mi is a genuinely different-but-known unit, per Part
     // E's locked import rule: accepted, converted to canonical km via
     // fromDisplay, never rejected.
-    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,wh-15,cs-1,100\n";
-    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "chens-cosmetics-cn");
+    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,ALN,C1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "max-coverage-us");
     expect(result.errors).toEqual([]);
     expect(result.changes).toHaveLength(1);
     // 100 mi -> km: 100 * 1.609344 = 160.9344
-    expect(result.changes[0]).toMatchObject({ id: "wh-15|cs-1", after: { value: 160.9344 } });
+    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 160.9344 } });
   });
 
   it("mixed units inside one file → format-class error", () => {

@@ -14,8 +14,8 @@ export type ObjectiveDimension =
  * Verified against solve.py: p-median demand*distance (270-271, 614-619);
  * transport lane value*flow where lane values are geographic miles (439,
  * transportLp.ts:18-25); gold distance*flow/truckload-kg (792-793); jade
- * $/ton-mile + minimum charges (991-1010) — genuinely monetary; Chen
- * coverage % vs min_distance demand*distance.
+ * $/ton-mile + minimum charges (991-1010) — genuinely monetary;
+ * max-coverage-us coverage % vs min_distance demand*distance.
  */
 export function objectiveDimension(modelId: string, objectiveMode: string | null): ObjectiveDimension {
   switch (modelId) {
@@ -28,7 +28,7 @@ export function objectiveDimension(modelId: string, objectiveMode: string | null
       return "truckload-distance";
     case "two-echelon-jade-us":
       return "monetary";
-    case "chens-cosmetics-cn":
+    case "max-coverage-us":
       return objectiveMode === "coverage" ? "percent" : "demand-distance";
     default:
       return "opaque";

@@ -158,7 +158,7 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
     },
   },
   {
-    modelId: "chens-cosmetics-cn",
+    modelId: "max-coverage-us",
     files: {
       "warehouses.json": z.record(z.string(), WarehouseEntry),
       "customers.json": z.record(z.string(), CustomerEntry),
@@ -272,7 +272,7 @@ export const MODEL_IDS = [
   "p-median-brazil",
   "two-echelon-gold-au",
   "two-echelon-jade-us",
-  "chens-cosmetics-cn",
+  "max-coverage-us",
 ] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */

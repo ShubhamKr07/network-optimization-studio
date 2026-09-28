@@ -34,7 +34,7 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "corpus" / "manifest.json"
 # that model_id, in manifest order -- deterministic, no cherry-picking.
 ALL_MODEL_IDS = (
     "p-median-us", "p-median-brazil", "transport-coal",
-    "two-echelon-gold-au", "two-echelon-jade-us", "chens-cosmetics-cn",
+    "two-echelon-gold-au", "two-echelon-jade-us", "max-coverage-us",
 )
 
 
@@ -68,22 +68,6 @@ def main() -> int:
         print(f"  {status}: ok={obs.ok} objective={obs.objective} "
               f"status={obs.solution_status} cpu_tree_sec={obs.cpu_tree_sec:.4f} "
               f"wall_sec={obs.wall_sec:.4f} error={obs.error}")
-        if model_id == "chens-cosmetics-cn" and obs.error and "coverageFloorDemand" in obs.error:
-            print(
-                "  NOTE: this is a CORPUS data defect, not a translation defect.\n"
-                "  Every chens-cosmetics-cn case in corpus/manifest.json has\n"
-                "  objective=\"min_distance\" but omits coverageFloorDemand, which\n"
-                "  chensInputsSchema's superRefine (chens.ts) requires whenever\n"
-                "  objective is \"min_distance\" -- solve_chens reads it via a bare\n"
-                "  inp['coverageFloorDemand'] (solve.py), so a real payload built\n"
-                "  from ANY current chens case KeyErrors, exactly like a real\n"
-                "  buildPayload+solve.py call would given the same malformed input.\n"
-                "  Verified separately (not via the corpus) that\n"
-                "  translate.to_solver_input's chens branch is itself correct: a\n"
-                "  hand-built, schema-complete chens payload (same shape, with\n"
-                "  coverageFloorDemand supplied) solves to a real finite optimal\n"
-                "  objective through this exact code path."
-            )
         results[model_id] = obs
         if not ok:
             failures.append(model_id)

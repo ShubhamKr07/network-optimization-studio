@@ -2,7 +2,7 @@ import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
-import type { ChensInputs } from "../validation/inputs/chens.js";
+import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
@@ -10,7 +10,7 @@ export type SolveInput =
   | { modelId: "transport-coal"; inputs: TransportLpInputs }
   | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs }
   | { modelId: "two-echelon-jade-us"; inputs: JadeInputs }
-  | { modelId: "chens-cosmetics-cn"; inputs: ChensInputs };
+  | { modelId: "max-coverage-us"; inputs: MaxCoverageInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -134,23 +134,25 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
     };
   }
 
-  if (input.modelId === "chens-cosmetics-cn") {
+  if (input.modelId === "max-coverage-us") {
     const i = input.inputs;
-    // C4.6: Chapter 4 Chen's Cosmetics. Dispatch on modelType "chens" (D16);
-    // the base dataset is NEVER inlined — only the validated scalar params +
-    // sparse edits cross the wire, and merge_inputs.py's
-    // build_merged_chens_dataset (C4.3) reads the edit arrays by their exact
-    // schema names (inp.get("warehouseOverrides"/"customerOverrides"/
-    // "addedWarehouses"/"addedCustomers"/"distanceOverrides", [])). Direct-id
-    // like two-echelon/transport (DD-2), so the override arrays pass straight
+    // C4.6: Chapter 4 Al's Athletics — Max Coverage. Dispatch on modelType
+    // "max_coverage_us" (D16, MIG-21: the wire value is deliberately a
+    // DIFFERENT string from the public model id); the base dataset is NEVER
+    // inlined — only the validated scalar params + sparse edits cross the
+    // wire, and merge_inputs.py's build_merged_max_coverage_dataset (C4.3)
+    // reads the edit arrays by their exact schema names
+    // (inp.get("warehouseOverrides"/"customerOverrides"/"addedWarehouses"/
+    // "addedCustomers"/"distanceOverrides", [])). Direct-id like
+    // two-echelon/transport (DD-2), so the override arrays pass straight
     // through WITHOUT the p-median warehouseStatuses/excludedCustomerIds
     // reshaping below — the Python merge resolves status/exclusion/demand
     // itself. avgServiceDistCapKm/coverageFloorDemand are objective-
-    // discriminated (present iff their mode — enforced by chensInputsSchema),
-    // so an absent one is JSON.stringify-dropped and solve_chens only reads it
-    // in the mode where it exists.
+    // discriminated (present iff their mode — enforced by
+    // maxCoverageInputsSchema), so an absent one is JSON.stringify-dropped
+    // and solve_max_coverage only reads it in the mode where it exists.
     return {
-      modelType: "chens",
+      modelType: "max_coverage_us",
       objective: i.objective,
       p: i.p,
       highServiceDistKm: i.highServiceDistKm,

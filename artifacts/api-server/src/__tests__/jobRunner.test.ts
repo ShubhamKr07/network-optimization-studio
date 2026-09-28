@@ -282,7 +282,7 @@ describe("jobRunner", () => {
     });
   });
 
-  // C4.10/D21 — a Chen solve emits details.objective ("coverage"/"min_distance")
+  // C4.10/D21 — a max-coverage-us solve emits details.objective ("coverage"/"min_distance")
   // and its manifest reports km, so the resultSummary carries objectiveMode +
   // distanceUnit:"km".
   it("carries objectiveMode from details.objective and the model's km distanceUnit (Chen)", async () => {
@@ -295,28 +295,28 @@ describe("jobRunner", () => {
       .mockReturnValueOnce(scenarioUpdateChain);
     // B6 whole-branch review Finding #1 — needs `solutionStatus` to hit the
     // cache (a row missing it is now treated as a miss).
-    const chenEnvelope = {
+    const maxCoverageEnvelope = {
       status: "optimal", objective: 66.0, runTimeSec: 0.7, quality: "optimal",
       solutionStatus: "optimal", terminationReason: "optimality_proven",
       edges: [], metrics: { weightedAvgDistance: 250.5 }, details: { objective: "coverage" }, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
     };
     mockDb.select.mockReturnValueOnce(makeChain([
-      { inputsHash: "h", modelId: "chens-cosmetics-cn", result: chenEnvelope },
+      { inputsHash: "h", modelId: "max-coverage-us", result: maxCoverageEnvelope },
     ]));
 
     // A1 — enqueueSolveJob now re-validates `inputs` (input_snapshot must be
     // SolveInput-valid, never a fabricated shortcut) before it ever reaches
     // the cache-hit branch below, so this needs a genuinely schema-valid
-    // Chen "coverage" input, not just the two fields runJob's own
+    // max-coverage-us "coverage" input, not just the two fields runJob's own
     // resultSummary derivation reads.
-    const chenInput = {
-      modelId: "chens-cosmetics-cn",
+    const maxCoverageInput = {
+      modelId: "max-coverage-us",
       inputs: {
         objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 1000,
         avgServiceDistCapKm: 800, gap: 0, timeLimitSec: 1,
       },
     } as unknown as SolveInput;
-    await enqueueSolveJob(1, "user-1", chenInput);
+    await enqueueSolveJob(1, "user-1", maxCoverageInput);
 
     await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
     const summarySet = setValues(jobUpdateChain).find((s) => s.status === "succeeded")!;

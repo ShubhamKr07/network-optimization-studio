@@ -49,32 +49,34 @@ describe("chapters — two-echelon-jade-us (Chapter 9) registration", () => {
   });
 });
 
-// C4.11 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn) registration guard.
-// Same registration-point invariant as the JADE block above: a real Chapter
+// C4.11 — Al's Athletics Max Coverage (Chapter 4, max-coverage-us)
+// registration guard (ch4-mig-8: rewritten off the retired
+// `chens-cosmetics-cn`/China copy onto the US cutover's real title). Same
+// registration-point invariant as the JADE block above: a real Chapter
 // entry (all required fields) so App.tsx's CHAPTERS.map derives /chapter-4
 // automatically — no manual route, no per-model ternary fallthrough.
-describe("chapters — chens-cosmetics-cn (Chapter 4) registration", () => {
-  it("chapterForModelId resolves the Chen entry with the expected fields", () => {
-    const chapter = chapterForModelId("chens-cosmetics-cn");
+describe("chapters — max-coverage-us (Chapter 4) registration", () => {
+  it("chapterForModelId resolves the max-coverage-us entry with the expected fields", () => {
+    const chapter = chapterForModelId("max-coverage-us");
     expect(chapter).toBeDefined();
     expect(chapter?.path).toBe("/chapter-4");
     expect(chapter?.chapter).toBe("Chapter 4");
     expect(chapter?.workspace).toBe(true);
     expect(chapter?.hiddenFromLanding).toBe(false);
-    expect(chapter?.title).toMatch(/Chen/);
+    expect(chapter?.title).toMatch(/Al's Athletics/);
     // Real one-line lab description, not a placeholder.
     expect(chapter?.description).toBeTruthy();
     expect(chapter?.description.length).toBeGreaterThan(20);
-    expect(chapter?.labHeaderTitle).toMatch(/Chen/);
+    expect(chapter?.labHeaderTitle).toMatch(/Al's Athletics/);
     expect(chapter?.labHeaderSubtitle).toMatch(/Ch 4/);
   });
 
-  it("chapterPathForModelId resolves /chapter-4 for chens-cosmetics-cn", () => {
-    expect(chapterPathForModelId("chens-cosmetics-cn")).toBe("/chapter-4");
+  it("chapterPathForModelId resolves /chapter-4 for max-coverage-us", () => {
+    expect(chapterPathForModelId("max-coverage-us")).toBe("/chapter-4");
   });
 
-  it("CHAPTERS is registered exactly once for chens-cosmetics-cn", () => {
-    const matches = CHAPTERS.filter((c) => c.modelId === "chens-cosmetics-cn");
+  it("CHAPTERS is registered exactly once for max-coverage-us", () => {
+    const matches = CHAPTERS.filter((c) => c.modelId === "max-coverage-us");
     expect(matches).toHaveLength(1);
   });
 });

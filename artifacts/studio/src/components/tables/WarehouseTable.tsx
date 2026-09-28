@@ -19,7 +19,14 @@ interface WarehouseTableProps {
   overrides: WarehouseOverride[];
   capacityMode: "none" | "uniform" | "per_wh";
   onChange: (next: WarehouseOverride[]) => void;
-  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  /** Originally written for chens-cosmetics-cn's retired China dataset,
+   * where every row's `state` was "". Defensive, not currently true of any
+   * shipped dataset — measured 2026-09-28: every base warehouse/customer
+   * row across all six models carries a non-blank state (max-coverage-us
+   * included, since its US dataset swap). Gates the State column on/off for
+   * a future dataset (or a scenario-added entity) that omits state;
+   * defaults true (every existing caller has real state data and is
+   * unaffected). */
   hasStateColumn?: boolean;
   /** chen-bands-units follow-up (QA defect) — see CustomerTable's identical
    * prop for the full rationale. Disables every capacity input outright and

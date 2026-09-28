@@ -47,7 +47,7 @@ interface SolveDialogProps {
   p?: number;
   /** C4.12/D27 — the P slider's semantic maximum. Defaults to 50 (every
    * existing caller that omits it is unchanged — p-median-us/brazil's static
-   * max); Chen (chens-cosmetics-cn) passes 25 so 26 can't be authored from
+   * max); max-coverage-us passes 26 so 27 can't be authored from
    * the Solve dialog either, matching OptimizationParametersTab's own pMax. */
   pMax?: number;
   gap: number;
@@ -78,9 +78,14 @@ interface SolveDialogProps {
    * copy. `gap` / `timeLimitSec` / `coverageFloorDemand` are never gated
    * or converted by this prop. */
   canonicalUnit?: CanonicalUnit | null;
-  /** C4.12/D13/D19 — hide the free-edit distance-bands chip editor. Chen's
-   * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
-   * defaults true, so every other model's Solve dialog is unchanged. */
+  /** C4.12/D13/D19 (superseded by chen-bands-units, T13): originally hid the
+   * free-edit distance-bands chip editor for Chen, whose bands were then
+   * DERIVED (`[high, max]`). That workflow is gone — max-coverage-us's
+   * `distanceBands` is a free, user-editable reporting lens like every other
+   * model's, and Workspace.tsx now omits this prop for max-coverage-us, so
+   * it defaults true and the band editor renders in its Solve dialog too.
+   * Kept as an opt-out seam for a future caller, not currently exercised by
+   * any model. */
   showBandEditor?: boolean;
   // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
   // All four OPTIONAL, default undefined: with none supplied the dialog
@@ -98,7 +103,7 @@ interface SolveDialogProps {
    * throws) — "terminal" here is a job-lifecycle concept, not an
    * optimal/infeasible one. */
   jobStatus?: ElapsedJobStatus;
-  // ── Chen's Cosmetics (chens-cosmetics-cn) objective mode toggle ──────────
+  // ── Chen's Cosmetics (max-coverage-us) objective mode toggle ──────────
   // Mirrors OptimizationParametersTab's own Chen block (same props, same
   // gate: presence of `objective`), but scoped down to just the toggle +
   // the active mode's field — the two always-visible service-distance

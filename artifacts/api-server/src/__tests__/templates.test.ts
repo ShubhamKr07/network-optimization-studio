@@ -1011,7 +1011,8 @@ describe("buildOpenWarehouseRows", () => {
   // D29 — a forced-open facility with no assigned customer carries no edge; its
   // id lives only in metrics.openFacilityIds. It must still export, with a
   // non-blank city sourced from the effective lookup (base OR added facility) —
-  // Chen emits utilizationByNode empty, so the lookup is the only city source.
+  // max-coverage-us emits utilizationByNode empty, so the lookup is the only
+  // city source.
   it("exports a base AND an added zero-flow forced-open facility with its real city (openFacilityIds union)", () => {
     const result = makeResult({
       edges: [{ fromId: "GZ", toId: "C1", flow: 40, distance: 12 }],
@@ -1045,8 +1046,8 @@ describe("buildEffectiveFacilityCityLookup", () => {
     expect(lookup.get("ar-1")).toBe("New Refinery");
   });
 
-  it("maps Chen base warehouse ids to their cities", () => {
-    const lookup = buildEffectiveFacilityCityLookup("chens-cosmetics-cn", {});
+  it("maps max-coverage-us base warehouse ids to their cities", () => {
+    const lookup = buildEffectiveFacilityCityLookup("max-coverage-us", {});
     expect(lookup.size).toBeGreaterThan(0);
   });
 });
@@ -1111,7 +1112,7 @@ describe("buildCostSummaryRows", () => {
   });
 
   it("carries Chen's coverage/min_distance mode from details.objective + km unit", () => {
-    const row = buildCostSummaryRows(makeResult({ details: { objective: "coverage" } }), "km", "km", "chens-cosmetics-cn")[0];
+    const row = buildCostSummaryRows(makeResult({ details: { objective: "coverage" } }), "km", "km", "max-coverage-us")[0];
     expect(row.objectiveMode).toBe("coverage");
     expect(row.distanceUnit).toBe("km");
   });
@@ -1136,13 +1137,13 @@ describe("buildCostSummaryRows", () => {
 
   it("does not convert a Chen coverage-percent objective", () => {
     const result = makeResult({ objective: 66.0639, details: { objective: "coverage" } });
-    const row = buildCostSummaryRows(result, "km", "mi", "chens-cosmetics-cn")[0];
+    const row = buildCostSummaryRows(result, "km", "mi", "max-coverage-us")[0];
     expect(row.objective).toBe(66.0639);
   });
 
   it("converts a Chen min_distance objective (demand-distance)", () => {
     const result = makeResult({ objective: 1000, details: { objective: "min_distance" } });
-    const row = buildCostSummaryRows(result, "km", "mi", "chens-cosmetics-cn")[0];
+    const row = buildCostSummaryRows(result, "km", "mi", "max-coverage-us")[0];
     expect(row.objective).toBeCloseTo(1000 / 1.609344, 4);
   });
 
@@ -1187,8 +1188,8 @@ describe("buildCostSummaryRows — six-model objective mapping (Step 7b)", () =>
     ["transport-coal", null] as const,
     ["two-echelon-gold-au", null] as const,
     ["two-echelon-jade-us", null] as const,
-    ["chens-cosmetics-cn", "coverage"] as const,
-    ["chens-cosmetics-cn", "min_distance"] as const,
+    ["max-coverage-us", "coverage"] as const,
+    ["max-coverage-us", "min_distance"] as const,
   ])("costSummary objective for %s/%s converts per the shared contract under km AND mi", (modelId, objectiveMode) => {
     const rawObjective = 1234.5;
     const dim = objectiveDimension(modelId, objectiveMode);

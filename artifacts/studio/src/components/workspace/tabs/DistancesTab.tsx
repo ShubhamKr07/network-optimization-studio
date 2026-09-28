@@ -70,12 +70,15 @@ interface DistancesTabProps {
   /** B3 — base-dataset customer ids currently EXCLUDED in the scenario's live
    * `localInputs` draft. Same filter semantics as `inactiveWarehouseIds`. */
   excludedCustomerIds?: string[];
-  /** ch4-tab-city-labels — Chen (chens-cosmetics-cn)-only — id -> {city,
-   * state} (base dataset ∪ added entities), built by Workspace.tsx's
+  /** ch4-tab-city-labels — max-coverage-us-only — id -> {city, state}
+   * (base dataset ∪ added entities), built by Workspace.tsx's
    * `chenLocationMapFromInputs` off the same `localInputs` draft this tab's
-   * other props already read. Chen's dataset carries `state: ""` for every
-   * row (China, no province backfill), so `state` here is always "" —
-   * formatCityState() renders city-only, never a trailing ", ". When
+   * other props already read. Originally written when this model was
+   * chens-cosmetics-cn's China dataset, where `state` was "" for every row
+   * (formatCityState() rendered city-only, never a trailing ", "); the
+   * US dataset swap (MIG-4) gives every row a real state, so this now
+   * renders "City, ST" — formatCityState()'s blank-state fallback stays
+   * only as a defensive no-op, not because any shipped row is blank. When
    * present, the From/To cells show the city as the primary label with the
    * id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
    * Absent for every other model (undefined) -> unchanged id-only

@@ -47,7 +47,7 @@ describe("nextDisplayCode", () => {
     expect(nextDisplayCode("pl", "KY", "Ashland", [])).toBe("PL-KY-ASHLAND-01");
   });
 
-  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // Some models (formerly Chen's Cosmetics' China dataset) have no state
   // data; every row's `state` is "". Omits the state segment entirely
   // instead of emitting a double dash.
   it("omits the state segment (no double dash) when state is blank", () => {

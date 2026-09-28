@@ -75,7 +75,7 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
-import { CHENS_CUSTOMERS } from "../data/chensDataset.js";
+import { MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { isModelLocked, lockedModelIds, setLockedModelsForTests } from "../middlewares/lockedModel.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
@@ -257,12 +257,12 @@ const jadeRow = {
   updatedAt: new Date("2026-01-05T00:00:00Z"),
 };
 
-// C4.7 — chens-cosmetics-cn (Chapter 4). Coverage-mode inputs; distanceBands
+// C4.7 — max-coverage-us (Chapter 4). Coverage-mode inputs; distanceBands
 // carries THREE ascending boundaries (600, 3000, 5000) deliberately — T3
 // (spec Part A, supersedes D19) preserves a supplied band array verbatim, so
 // this fixture proves the schema no longer treats a third boundary as a
 // stale value to overwrite back to [high, max].
-const chensInputs = {
+const maxCoverageInputs = {
   objective: "coverage",
   p: 3,
   highServiceDistKm: 600,
@@ -279,12 +279,12 @@ const chensInputs = {
   distanceOverrides: [],
 };
 
-const chensRow = {
+const maxCoverageRow = {
   id: 13,
-  name: "Chen Base Case",
-  modelId: "chens-cosmetics-cn",
+  name: "Max Coverage Base Case",
+  modelId: "max-coverage-us",
   userId: OWNER,
-  inputs: chensInputs,
+  inputs: maxCoverageInputs,
   result: null,
   solvedAt: null,
   createdAt: new Date("2026-01-06T00:00:00Z"),
@@ -321,7 +321,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
   // ch4-lock — every pre-existing test in this file predates the lock and
-  // exercises real Chen/JADE behavior. Unlock for their duration so locking a
+  // exercises real max-coverage-us/JADE behavior. Unlock for their duration so locking a
   // chapter in production does not silently delete that coverage; the lock's
   // own describe re-arms the set it needs.
   setLockedModelsForTests([]);
@@ -916,29 +916,29 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
   });
 });
 
-// C4.7 (Chapter 4, chens-cosmetics-cn) — auto-estimate normalizer, sixth
+// C4.7 (Chapter 4, max-coverage-us) — auto-estimate normalizer, sixth
 // writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
 // missing added-entity warehouse<->customer distances as RAW-km
 // `estimated: true` rows on all three persist paths (POST create, PATCH,
-// import/apply). The chensInputsSchema reparse on each of these paths no
+// import/apply). The maxCoverageInputsSchema reparse on each of these paths no
 // longer overwrites `distanceBands` (T3, spec Part A supersedes D19) — the
 // fixture's supplied 3-boundary array passes through unchanged.
-describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () => {
-  const newWarehouse = { id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" };
+describe("C4.7 — auto-estimate distance normalizer (max-coverage-us)", () => {
+  const newWarehouse = { id: "wh-new1", city: "Bristol", state: "VA", lat: 36.5951, lng: -82.1857, status: "active" };
 
   it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer, at raw km", async () => {
     const cookie = await loginAs(OWNER);
-    const inputsWithAddedWarehouse = { ...chensInputs, addedWarehouses: [newWarehouse] };
-    const chain = makeChain([{ ...chensRow, inputs: inputsWithAddedWarehouse }]);
+    const inputsWithAddedWarehouse = { ...maxCoverageInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...maxCoverageRow, inputs: inputsWithAddedWarehouse }]);
     mockDb.insert.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "New Chen", modelId: "chens-cosmetics-cn", inputs: inputsWithAddedWarehouse });
+      .send({ name: "New Max Coverage", modelId: "max-coverage-us", inputs: inputsWithAddedWarehouse });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceOverrides: Array<{ fromId: string; toId: string; distance: number; estimated?: boolean }>; distanceBands: number[] };
     };
     const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
-    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.length).toBe(MAX_COVERAGE_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
     // All values are raw km (positive), never 0.
     expect(fromNew.every((o) => o.distance > 0)).toBe(true);
@@ -948,9 +948,9 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
 
   it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([chensRow]));
-    const newInputs = { ...chensInputs, addedWarehouses: [newWarehouse] };
-    const chain = makeChain([{ ...chensRow, inputs: newInputs }]);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const newInputs = { ...maxCoverageInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...maxCoverageRow, inputs: newInputs }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: newInputs });
     expect(res.status).toBe(200);
@@ -958,7 +958,7 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
       inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }>; distanceBands: number[] };
     };
     const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
-    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.length).toBe(MAX_COVERAGE_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
     // T3 — bands are free: the supplied 3-boundary array is preserved verbatim.
     expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
@@ -966,13 +966,13 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
 
   it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([chensRow]));
-    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const chain = makeChain([{ ...maxCoverageRow, inputs: maxCoverageInputs }]);
     mockDb.update.mockReturnValue(chain);
     // Blank id is the ADD trigger; the display code goes in display_code and
-    // the persisted id is a server-minted `aw-` uid. Chen has no capacity, so
-    // the capacity column is left blank.
-    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Wuhan,Hubei,30.5928,114.3055,,active\n";
+    // the persisted id is a server-minted `aw-` uid. max-coverage-us has no
+    // capacity, so the capacity column is left blank.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Bristol,VA,36.5951,-82.1857,,active\n";
     const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
       .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
@@ -985,21 +985,21 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     const addedId = setArgs.inputs.addedWarehouses.find((w) => w.displayCode === "WH-NEW1")!.id;
     expect(addedId).toMatch(/^aw-/);
     const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === addedId);
-    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.length).toBe(MAX_COVERAGE_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
   });
 
   // T3 (spec Part A, supersedes D19) — a `distances` import/apply that stages
   // no band change at all leaves a previously-supplied 3-boundary
-  // distanceBands array untouched, because the normalizer's chensInputsSchema
+  // distanceBands array untouched, because the normalizer's maxCoverageInputsSchema
   // reparse no longer overwrites a supplied array on any persist path.
   it("POST /api/scenarios/:id/import/apply (distances): a supplied 3-boundary distanceBands array is preserved verbatim", async () => {
     const cookie = await loginAs(OWNER);
-    // chensRow.inputs.distanceBands is [600, 3000, 5000].
-    mockDb.select.mockReturnValue(makeChain([chensRow]));
-    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    // maxCoverageRow.inputs.distanceBands is [600, 3000, 5000].
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const chain = makeChain([{ ...maxCoverageRow, inputs: maxCoverageInputs }]);
     mockDb.update.mockReturnValue(chain);
-    const distancesCsv = "template_version,from_id,to_id,distance\n1,wh-15,cs-1,123.4\n";
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
     const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
       .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
@@ -1009,7 +1009,7 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
     // The staged override was applied (base<->base pair, so it is a real
     // override the estimator then leaves untouched).
-    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
+    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "ALN" && o.toId === "C1");
     expect(staged?.distance).toBe(123.4);
   });
 });
@@ -1018,14 +1018,14 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
 // [high,max] overwrite is gone on the two JSON write paths. The distances
 // import/apply write-path proof lives in importMultiModelRoundTrip.test.ts
 // (a route-level assertion the applied bands land in scenario storage).
-describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON write paths (T3)", () => {
+describe("max-coverage-us — distanceBands preserved verbatim on JSON write paths (T3)", () => {
   it("POST /scenarios (create) preserves a supplied band array verbatim", async () => {
     const cookie = await loginAs(OWNER);
-    const supplied = { ...chensInputs, distanceBands: [600, 1200, 2400, 5000] };
-    const chain = makeChain([{ ...chensRow, inputs: supplied }]);
+    const supplied = { ...maxCoverageInputs, distanceBands: [600, 1200, 2400, 5000] };
+    const chain = makeChain([{ ...maxCoverageRow, inputs: supplied }]);
     mockDb.insert.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen Free Bands", modelId: "chens-cosmetics-cn", inputs: supplied });
+      .send({ name: "Max Coverage Free Bands", modelId: "max-coverage-us", inputs: supplied });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
@@ -1035,12 +1035,12 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON
 
   it("POST /scenarios (create) derives [high,max] ONLY when distanceBands is omitted", async () => {
     const cookie = await loginAs(OWNER);
-    const { distanceBands: _omit, ...withoutBands } = chensInputs;
+    const { distanceBands: _omit, ...withoutBands } = maxCoverageInputs;
     void _omit;
-    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    const chain = makeChain([{ ...maxCoverageRow, inputs: maxCoverageInputs }]);
     mockDb.insert.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen Legacy", modelId: "chens-cosmetics-cn", inputs: withoutBands });
+      .send({ name: "Max Coverage Legacy", modelId: "max-coverage-us", inputs: withoutBands });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
@@ -1050,9 +1050,9 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON
 
   it("PATCH /scenarios/:id (whole-input) preserves a supplied band array verbatim", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
-    const supplied = { ...chensInputs, distanceBands: [600, 1200, 2400, 5000] };
-    const chain = makeChain([{ ...chensRow, inputs: supplied }]);
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    const supplied = { ...maxCoverageInputs, distanceBands: [600, 1200, 2400, 5000] };
+    const chain = makeChain([{ ...maxCoverageRow, inputs: supplied }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: supplied });
     expect(res.status).toBe(200);
@@ -1064,10 +1064,10 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON
 
   it("PATCH /scenarios/:id (whole-input) derives [high,max] ONLY when distanceBands is omitted", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
-    const { distanceBands: _omit, ...withoutBands } = chensInputs;
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
+    const { distanceBands: _omit, ...withoutBands } = maxCoverageInputs;
     void _omit;
-    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    const chain = makeChain([{ ...maxCoverageRow, inputs: maxCoverageInputs }]);
     mockDb.update.mockReturnValue(chain);
     const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: withoutBands });
     expect(res.status).toBe(200);
@@ -1079,9 +1079,9 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON
 
   it("rejects maxDistKm <= highServiceDistKm at the route boundary", async () => {
     const cookie = await loginAs(OWNER);
-    const invalid = { ...chensInputs, highServiceDistKm: 600, maxDistKm: 600 };
+    const invalid = { ...maxCoverageInputs, highServiceDistKm: 600, maxDistKm: 600 };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen Invalid", modelId: "chens-cosmetics-cn", inputs: invalid });
+      .send({ name: "Max Coverage Invalid", modelId: "max-coverage-us", inputs: invalid });
     expect(res.status).toBe(422);
   });
 });
@@ -1964,11 +1964,11 @@ describe("GET /api/scenarios/:id/export", () => {
     }
   });
 
-  // C4.9 / D20/D24/D25 — Chen exports its own km unit + coverage objectiveMode.
-  it("exports Chen assignments/costSummary with distance_unit=km and objectiveMode from details", async () => {
+  // C4.9 / D20/D24/D25 — max-coverage-us exports its own km unit + coverage objectiveMode.
+  it("exports max-coverage-us assignments/costSummary with distance_unit=km and objectiveMode from details", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
-      ...chensRow,
+      ...maxCoverageRow,
       result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
@@ -2017,16 +2017,16 @@ describe("GET /api/scenarios/:id/export", () => {
   });
 
   // C4.9 / D29 — a forced-open zero-flow facility (present only in
-  // metrics.openFacilityIds, no edge) exports WITH its real Chen city.
-  it("exports a zero-flow forced-open Chen facility with its real city (openFacilityIds union)", async () => {
+  // metrics.openFacilityIds, no edge) exports WITH its real base-dataset city.
+  it("exports a zero-flow forced-open max-coverage-us facility with its real city (openFacilityIds union)", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
-      ...chensRow,
+      ...maxCoverageRow,
       result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
-        edges: [{ fromId: "wh-17", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
-        // wh-15 (Changchun) is forced-open but serves no customer → no edge.
-        metrics: { utilizationByNode: [], openFacilityIds: ["wh-17", "wh-15"] },
+        edges: [{ fromId: "ATL", toId: "C1", flow: 100, distance: 250.5, band: 0 }],
+        // ALN (Allentown) is forced-open but serves no customer → no edge.
+        metrics: { utilizationByNode: [], openFacilityIds: ["ATL", "ALN"] },
         details: {}, solverUsed: "CBC", infeasibilityReason: null,
       }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
@@ -2034,8 +2034,8 @@ describe("GET /api/scenarios/:id/export", () => {
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const res = await request(app).get("/api/scenarios/13/export?entity=openWarehouses&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    const zeroFlow = res.body.rows.find((r: { warehouseId: string }) => r.warehouseId === "wh-15");
-    expect(zeroFlow).toEqual({ templateVersion: 1, warehouseId: "wh-15", city: "Changchun", totalFlow: 0, utilization: null });
+    const zeroFlow = res.body.rows.find((r: { warehouseId: string }) => r.warehouseId === "ALN");
+    expect(zeroFlow).toEqual({ templateVersion: 1, warehouseId: "ALN", city: "Allentown", totalFlow: 0, utilization: null });
   });
 
   it("422s flows export for p-median-us (not in its outputGrids)", async () => {
@@ -2122,17 +2122,17 @@ describe("GET /api/scenarios/:id/export — unit= (T9, spec Part E / decision 5b
     expect(withUnit.body).not.toHaveProperty("unit");
   });
 
-  it("omitted unit defaults to the model's own canonical unit (Chen: km)", async () => {
+  it("omitted unit defaults to the model's own canonical unit (max-coverage-us: km)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.unit).toBe("km");
   });
 
-  it("unit=mi converts a Chen distanceOverride value from its canonical km", async () => {
+  it("unit=mi converts a max-coverage-us distanceOverride value from its canonical km", async () => {
     const cookie = await loginAs(OWNER);
-    const row = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
+    const row = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([row]));
     const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json&unit=mi").set("Cookie", cookie);
     expect(res.status).toBe(200);
@@ -2529,7 +2529,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
   // Non-JADE regression (task A4) — proves the generic edges-derived
   // buildAssignmentRows/buildFlowRows path (p-median-us/transport-coal/
-  // two-echelon-gold-au/p-median-brazil/chens-cosmetics-cn) is byte-identical
+  // two-echelon-gold-au/p-median-brazil/max-coverage-us) is byte-identical
   // to before the JADE branch was added.
   it("a non-JADE model's assignments export is unaffected by the JADE branch (byte-identical regression)", async () => {
     const cookie = await loginAs(OWNER);
@@ -3490,16 +3490,17 @@ describe("GET /api/solve-history", () => {
     resultSummary: { status: "optimal", objective: 66.0, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7 },
     queuedAt: new Date("2026-01-03T00:00:00Z"),
     finishedAt: new Date("2026-01-03T00:00:01Z"),
-    scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+    scenarioName: "Max Coverage Coverage", modelId: "max-coverage-us",
   };
-  // Failed Chen job with no summary: numeric fields null, but distanceUnit is
-  // derived from the model manifest (km) — never null, never a misleading "mi".
-  const historyRowFailedChen = {
+  // Failed max-coverage-us job with no summary: numeric fields null, but
+  // distanceUnit is derived from the model manifest (km) — never null, never
+  // a misleading "mi".
+  const historyRowFailedMaxCoverage = {
     id: 12, scenarioId: 5, status: "failed",
     resultSummary: null,
     queuedAt: new Date("2026-01-04T00:00:00Z"),
     finishedAt: new Date("2026-01-04T00:00:05Z"),
-    scenarioName: "Chen Broke", modelId: "chens-cosmetics-cn",
+    scenarioName: "Max Coverage Broke", modelId: "max-coverage-us",
   };
 
   it("returns 401 without a session", async () => {
@@ -3534,7 +3535,7 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body[0]).toMatchObject({
-      id: 11, scenarioId: 4, scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+      id: 11, scenarioId: 4, scenarioName: "Max Coverage Coverage", modelId: "max-coverage-us",
       status: "succeeded", objective: 66.0, objectiveMode: "coverage",
       weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
     });
@@ -3555,11 +3556,11 @@ describe("GET /api/solve-history", () => {
     });
   });
 
-  it("derives a failed Chen job's distanceUnit from the manifest (km), not the legacy 'mi' fallback", async () => {
+  it("derives a failed max-coverage-us job's distanceUnit from the manifest (km), not the legacy 'mi' fallback", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockClear();
     mockDb.selectDistinctOn.mockClear();
-    configureSolveHistoryMocks([historyRowFailedChen]);
+    configureSolveHistoryMocks([historyRowFailedMaxCoverage]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body[0]).toMatchObject({
@@ -3892,11 +3893,14 @@ describe("transport scenario — field serialization", () => {
 // holds: no client, however crafted, can reach a locked model's data.
 // ---------------------------------------------------------------------------
 describe("locked models (ch4-lock)", () => {
-  // Chapter 4 (chens-cosmetics-cn) was the original subject here and was
-  // unlocked on 2026-09-26. The stand-in deliberately moved to JADE rather
-  // than staying on Chen's via the test override: exercising the lock through
-  // a model that is NOT actually locked in the manifests would keep passing
-  // while reading as a claim about shipped behaviour that is false.
+  // Chapter 4 (chens-cosmetics-cn, later renamed max-coverage-us in this
+  // migration) was the original subject here, was unlocked on 2026-09-26,
+  // then relocked during Stage A of the dataset migration, and is reopened
+  // (no `locked` key) as of this cutover (Step 8b). The stand-in deliberately
+  // moved to JADE rather than staying on this model via the test override:
+  // exercising the lock through a model that is NOT actually locked in the
+  // manifests would keep passing while reading as a claim about shipped
+  // behaviour that is false.
   const LOCKED_MODEL = "two-echelon-jade-us";
   const OPEN_MODEL = "p-median-us";
   // Every path below is built from this row's id rather than a literal, so
@@ -3912,14 +3916,16 @@ describe("locked models (ch4-lock)", () => {
   describe("the locked set comes from the manifests, not a hardcoded route list", () => {
     // Reads the REAL manifests (override cleared), so this genuinely pins
     // what ships — not what a test happened to set.
-    it("reports exactly the one locked chapter, from the manifests", () => {
+    it("reports exactly the locked chapters, from the manifests", () => {
       setLockedModelsForTests(null);
+      // MIG-4/Step 8b: Stage D reopens Chapter 4 — max-coverage-us's manifest
+      // carries no `locked` key, so only JADE remains locked.
       expect(lockedModelIds().sort()).toEqual(["two-echelon-jade-us"]);
     });
 
-    it("no longer locks Chapter 4 — chens-cosmetics-cn is open again", () => {
+    it("Stage D reopens Chapter 4 — max-coverage-us is not locked", () => {
       setLockedModelsForTests(null);
-      expect(isModelLocked("chens-cosmetics-cn")).toBe(false);
+      expect(isModelLocked("max-coverage-us")).toBe(false);
     });
 
     it("does not lock an open or unknown model", () => {
@@ -3959,18 +3965,18 @@ describe("locked models (ch4-lock)", () => {
       expect(res.status).toBe(403);
     });
 
-    // A student with both a Chapter 3 and an old Chapter 9 scenario must still
+    // A student with both a Chapter 3 and a Chapter 4 scenario must still
     // get their Chapter 3 list — 403-ing the whole request would break the
     // homepage for anyone who ever opened a now-locked chapter. Chapter 4 is
-    // in the fixture deliberately: since its 2026-09-26 unlock it must now
-    // survive the filter, so this doubles as proof the drop is per-model and
-    // not a blanket "anything that was ever locked" rule.
+    // in the fixture deliberately: it is reopened as of this cutover, so it
+    // must survive the filter, which doubles as proof the drop is per-model
+    // and not a blanket "anything that was ever locked" rule.
     it("drops locked rows from an unscoped list while keeping open ones", async () => {
       const cookie = await loginAs(OWNER);
-      mockDb.select.mockReturnValueOnce(makeChain([pmedianRow, chensRow, jadeRow]));
+      mockDb.select.mockReturnValueOnce(makeChain([pmedianRow, maxCoverageRow, jadeRow]));
       const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
       expect(res.status).toBe(200);
-      expect(res.body.map((s: { id: number }) => s.id)).toEqual([pmedianRow.id, chensRow.id]);
+      expect(res.body.map((s: { id: number }) => s.id)).toEqual([pmedianRow.id, maxCoverageRow.id]);
     });
   });
 
@@ -4030,7 +4036,7 @@ describe("locked models (ch4-lock)", () => {
       // Ownership-scoped read finds nothing for this caller, so the lock is
       // never consulted and the handler's own 404 stands.
       mockDb.select.mockReturnValueOnce(makeChain([]));
-      const res = await request(app).get(`/api/scenarios/${chensRow.id}`).set("Cookie", cookie);
+      const res = await request(app).get(`/api/scenarios/${maxCoverageRow.id}`).set("Cookie", cookie);
       expect(res.status).toBe(404);
     });
 
@@ -4043,7 +4049,7 @@ describe("locked models (ch4-lock)", () => {
   });
 
   it("still answers 401 before any lock hint for an unauthenticated caller", async () => {
-    const res = await request(app).get(`/api/scenarios/${chensRow.id}`);
+    const res = await request(app).get(`/api/scenarios/${maxCoverageRow.id}`);
     expect(res.status).toBe(401);
   });
 });

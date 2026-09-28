@@ -38,7 +38,7 @@
  *
  * Each test registers its own disposable account and cleans up its own
  * scenario(s) in a `finally` block, matching this repo's established e2e
- * convention (see chens-cosmetics.spec.ts / chen-bands-units-qa.spec.ts).
+ * convention (see max-coverage.spec.ts / chen-bands-units-qa.spec.ts).
  */
 import { test, expect, type Page } from "@playwright/test";
 
@@ -125,7 +125,7 @@ async function getScenario(page: Page, id: string): Promise<{ solvedAt: string |
 
 /** Trigger a real solve via the Run Optimizer dialog (a real CBC subprocess,
  * not mocked), then poll until `solvedAt` advances past `before` - the same
- * precise-completion signal `chens-cosmetics.spec.ts`/
+ * precise-completion signal `max-coverage.spec.ts`/
  * `chen-bands-units-qa.spec.ts` use. Deliberately does NOT assert
  * `result.status === "optimal"` (unlike those files' helpers) - the whole
  * point here is that a gap-limited Brazil solve truthfully reports

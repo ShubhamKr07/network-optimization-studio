@@ -32,19 +32,20 @@ describe("GET /api/dataset", () => {
     expect(sp).toMatchObject({ id: "SP", city: "São Paulo Region", state: "SP", lat: -23.53, lng: -46.63, demand: 29029226 });
   });
 
-  // C4.4 — Chapter 4 (chens-cosmetics-cn), China single-echelon coverage/
-  // min-distance model. 25 candidate warehouses (id-keyed record-map, slug ids
-  // wh-<n>), 197 customers (cs-<n>, id/city/lat/lng/demand). No plant/product
-  // echelon, so warehouses/customers is the full response.
-  it("returns the chens-cosmetics-cn dataset (25 warehouses / 197 customers) when modelId=chens-cosmetics-cn", async () => {
-    const res = await request(app).get("/api/dataset?modelId=chens-cosmetics-cn");
+  // C4.4 — Chapter 4 (max-coverage-us), US single-echelon coverage/
+  // min-distance model. 26 candidate warehouses (id-keyed record-map, slug
+  // ids like "ALN" — MIG-4: reuses Chapter 3's own facility list), 200
+  // customers ("C<n>", id/city/lat/lng/demand). No plant/product echelon, so
+  // warehouses/customers is the full response.
+  it("returns the max-coverage-us dataset (26 warehouses / 200 customers) when modelId=max-coverage-us", async () => {
+    const res = await request(app).get("/api/dataset?modelId=max-coverage-us");
     expect(res.status).toBe(200);
-    expect(res.body.warehouses).toHaveLength(25);
-    expect(res.body.customers).toHaveLength(197);
-    const wh15 = res.body.warehouses.find((w: { id: string }) => w.id === "wh-15");
-    expect(wh15).toMatchObject({ id: "wh-15", city: "Changchun", lat: 43.87, lng: 125.35 });
-    const cs1 = res.body.customers.find((c: { id: string }) => c.id === "cs-1");
-    expect(cs1).toMatchObject({ id: "cs-1", city: "Aksu", demand: 458287 });
+    expect(res.body.warehouses).toHaveLength(26);
+    expect(res.body.customers).toHaveLength(200);
+    const aln = res.body.warehouses.find((w: { id: string }) => w.id === "ALN");
+    expect(aln).toMatchObject({ id: "ALN", city: "Allentown", lat: 40.602812, lng: -75.470433 });
+    const c1 = res.body.customers.find((c: { id: string }) => c.id === "C1");
+    expect(c1).toMatchObject({ id: "C1", city: "Akron", demand: 205375 });
   });
 
   it("returns 400 for an unknown modelId", async () => {
