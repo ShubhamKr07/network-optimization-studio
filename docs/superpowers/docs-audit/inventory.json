@@ -162,6 +162,292 @@
     }
   },
   {
+    "path": ".claude/agents/backend-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Coordination",
+        "line": 22
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 27
+      },
+      {
+        "text": "Where to find context you weren't handed",
+        "line": 32
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/{routes,services,validation,registry}/**",
+        "lib/db/**",
+        "lib/api-spec/**",
+        "scripts/src/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage"
+      ],
+      "routes": [
+        "POST /scenarios/:id/solve"
+      ],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/jobRunner.ts",
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/devops-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan relevance",
+        "line": 18
+      },
+      {
+        "text": "Coordination",
+        "line": 21
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 25
+      },
+      {
+        "text": "Where to find context you weren't handed",
+        "line": 30
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        ".github/workflows/**",
+        "attached_assets/"
+      ],
+      "scripts": [
+        "update",
+        "audit"
+      ],
+      "envVars": [],
+      "symbols": [
+        "Dockerfile",
+        "SendMessage"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/frontend-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Coordination",
+        "line": 22
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 27
+      },
+      {
+        "text": "Where to find context you weren't handed",
+        "line": 32
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/studio/src/**",
+        "lib/",
+        "lib/api-client-react/src/generated/**",
+        "lib/api-zod/src/generated/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "ObjectiveBar",
+        "MapBulkEditToolbar",
+        "ConstraintChips",
+        "SendMessage",
+        "Edge",
+        "Metrics"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/qa-sdet.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 18
+      },
+      {
+        "text": "Coordination",
+        "line": 21
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 26
+      },
+      {
+        "text": "Where to find context you weren't handed",
+        "line": 31
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/solver/tests/**",
+        "artifacts/studio/e2e/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/studio/e2e/labs.spec.ts",
+        ".github/workflows/ci.yml",
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/solver-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Sacred",
+        "line": 22
+      },
+      {
+        "text": "Coordination",
+        "line": 25
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 30
+      },
+      {
+        "text": "Where to find context you weren't handed",
+        "line": 35
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "solvers/<model>/{manifest.json,dataset/*.json,tests/}",
+        "lib/dataset-schema"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage",
+        "Edge",
+        "Metrics"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/solve.py",
+        "artifacts/api-server/src/solver/merge_inputs.py",
+        "artifacts/api-server/src/solver/tests/e2e_accuracy.py",
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md"
+      ]
+    }
+  },
+  {
     "path": ".claude/glm-delegation-disabled.md",
     "origin": "repo",
     "title": "GLM subagent delegation is disabled for this project",
@@ -212,7 +498,9 @@
       }
     ],
     "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "inboundLinks": [
+      "docs/superpowers/HARNESS.md"
+    ],
     "references": {
       "paths": [],
       "scripts": [
@@ -284,18 +572,18 @@
       },
       {
         "text": "Cause taxonomy (finite — use exactly one per failure row)",
-        "line": 15
+        "line": 16
       },
       {
         "text": "Steps",
-        "line": 22
+        "line": 23
       },
       {
         "text": "Notes",
-        "line": 75
+        "line": 92
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-15",
     "inboundLinks": [
       "CLAUDE.md"
     ],
@@ -310,6 +598,79 @@
     }
   },
   {
+    "path": "AGENTS.md",
+    "origin": "repo",
+    "title": "AGENTS.md — Network Optimization Studio agent team",
+    "headings": [
+      {
+        "text": "AGENTS.md — Network Optimization Studio agent team",
+        "line": 1
+      },
+      {
+        "text": "How the team runs",
+        "line": 9
+      },
+      {
+        "text": "Model policy (fixed per role)",
+        "line": 16
+      },
+      {
+        "text": "Coordination protocol (every teammate follows this)",
+        "line": 32
+      },
+      {
+        "text": "File-ownership map",
+        "line": 43
+      },
+      {
+        "text": "When NOT to use the full team",
+        "line": 57
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [
+        "docs/superpowers/plans/",
+        "attached_assets/",
+        "docs/superpowers/specs|plans/",
+        "artifacts/api-server/src/{routes,services,validation,registry}/**",
+        "lib/db/**",
+        "lib/api-spec/**",
+        "scripts/src/**",
+        "artifacts/api-server/src/solver/{solve.py,merge_inputs.py}",
+        "solvers/<model>/**",
+        "artifacts/studio/src/**",
+        "lib/api-client-react",
+        "lib/api-zod",
+        "artifacts/api-server/src/solver/tests/**",
+        "artifacts/studio/e2e/**",
+        ".github/workflows/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "Agent",
+        "SendMessage",
+        "TaskCreate",
+        "TaskList",
+        "TaskUpdate",
+        "Dockerfile"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "lib/api-spec/openapi.yaml",
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "artifacts/api-server/src/solver/{jobRunner,pmedian}.ts",
+        "solvers/<model>/manifest.json"
+      ]
+    }
+  },
+  {
     "path": "CLAUDE.md",
     "origin": "repo",
     "title": "CLAUDE.md — Network Optimization Studio",
@@ -319,64 +680,66 @@
         "line": 1
       },
       {
-        "text": "Architecture (30 seconds)",
+        "text": "Where things live (read the doc, don't guess)",
         "line": 7
       },
       {
+        "text": "Architecture (30 seconds)",
+        "line": 21
+      },
+      {
         "text": "Commands",
-        "line": 22
+        "line": 36
       },
       {
         "text": "Harness self-monitoring (OBS-1…OBS-11)",
-        "line": 46
+        "line": 60
       },
       {
         "text": "Hard rules",
-        "line": 91
+        "line": 69
+      },
+      {
+        "text": "Branch discipline (standing)",
+        "line": 87
       },
       {
         "text": "v2 implementation progress",
-        "line": 102
+        "line": 100
       },
       {
         "text": "Gotchas",
-        "line": 263
+        "line": 113
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-28",
     "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
+      ".claude/agents/devops-engineer.md",
+      ".claude/agents/frontend-engineer.md",
+      ".claude/agents/qa-sdet.md",
+      ".claude/agents/solver-engineer.md",
       ".claude/glm-delegation-disabled.md",
+      "AGENTS.md",
       "NETWORK_MIGRATION_PLAN.md",
+      "attached_assets/NOTEBOOKS.md",
+      "docs/CHANGELOG-implementation.md",
+      "docs/ops/shutdown-budget.md",
       "docs/ops/smoke.md",
-      "docs/superpowers/gates/doc_drift.md"
+      "docs/ops/v2-write-activation.md",
+      "docs/superpowers/HARNESS.md",
+      "docs/superpowers/gates/doc_drift.md",
+      "docs/superpowers/metrics/README.md"
     ],
     "references": {
       "paths": [],
       "scripts": [],
-      "envVars": [
-        "VITE_API_BASE_URL",
-        "AND"
-      ],
+      "envVars": [],
       "symbols": [],
       "routes": [
         "POST /scenarios/:id/solve",
-        "POST /auth/register",
-        "GET /scenarios",
-        "GET /scenarios/:id/export",
-        "POST /scenarios/:id/import",
-        "POST /scenarios/:id/import/apply",
-        "POST /scenarios/:id/reset-to-baseline",
-        "GET /api/models",
-        "GET /scenarios/:id/solve-jobs/:jobId",
-        "GET /solve-history",
-        "POST /scenarios/compare",
-        "DELETE /scenarios/:id",
-        "DELETE /api/scenarios/:id",
-        "POST /solve",
-        "GET /dataset",
-        "GET /models/:id/reference-distances",
-        "GET /landing-summary",
-        "POST /login"
+        "POST /login",
+        "GET /models/:id/reference-distances"
       ],
       "services": [
         "nos-api",
@@ -384,6 +747,11 @@
         "nos-postgres"
       ],
       "files": [
+        "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/HARNESS.md",
+        "docs/superpowers/metrics/README.md",
+        "docs/superpowers/specs/<date>-<feature>-design.md",
+        "docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md",
         "lib/api-spec/openapi.yaml"
       ]
     }
@@ -606,7 +974,8 @@
     "inboundLinks": [
       "CLAUDE.md",
       "NETWORK_MIGRATION_PLAN.md",
-      "chapter-10-two-echelon-gold-refinery-integration.md"
+      "chapter-10-two-echelon-gold-refinery-integration.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -755,7 +1124,7 @@
     ],
     "lastChange": "2026-07-23",
     "inboundLinks": [
-      "CLAUDE.md"
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -875,7 +1244,8 @@
     "lastChange": "2026-07-19",
     "inboundLinks": [
       "CLAUDE.md",
-      "IMPLEMENTATION_PLAN.md"
+      "IMPLEMENTATION_PLAN.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [],
@@ -904,39 +1274,114 @@
         "line": 1
       },
       {
-        "text": "Stack",
-        "line": 5
-      },
-      {
-        "text": "Repo layout",
+        "text": "What it does",
         "line": 13
       },
       {
-        "text": "Run & operate",
-        "line": 33
+        "text": "Model catalogue",
+        "line": 24
       },
       {
-        "text": "Testing",
-        "line": 47
+        "text": "Feature tour",
+        "line": 46
       },
       {
-        "text": "Product",
-        "line": 56
+        "text": "How a solve actually runs",
+        "line": 66
       },
       {
-        "text": "Contributing notes",
-        "line": 63
+        "text": "Architecture",
+        "line": 96
+      },
+      {
+        "text": "Research & engineering notes",
+        "line": 153
+      },
+      {
+        "text": "We found a real bug in the published textbook notebook",
+        "line": 157
+      },
+      {
+        "text": "Goldens transcribed verbatim, then defended",
+        "line": 161
+      },
+      {
+        "text": "Business rules enter as data, never as branches",
+        "line": 169
+      },
+      {
+        "text": "Scenario-local network edits",
+        "line": 173
+      },
+      {
+        "text": "Units, geography, and data provenance",
+        "line": 177
+      },
+      {
+        "text": "Security posture",
+        "line": 183
+      },
+      {
+        "text": "A recurring bug class, closed by construction",
+        "line": 187
+      },
+      {
+        "text": "The development harness measures itself",
+        "line": 191
+      },
+      {
+        "text": "Bugs only production could find",
+        "line": 195
+      },
+      {
+        "text": "Quality gates",
+        "line": 201
+      },
+      {
+        "text": "Getting started",
+        "line": 223
+      },
+      {
+        "text": "API (needs DATABASE_URL)",
+        "line": 231
+      },
+      {
+        "text": "schema push (no migration files — Drizzle push)",
+        "line": 235
+      },
+      {
+        "text": "frontend, proxied to the API so cookies are same-origin",
+        "line": 238
+      },
+      {
+        "text": "1. edit lib/api-spec/openapi.yaml",
+        "line": 248
+      },
+      {
+        "text": "2. regenerate — never hand-edit src/generated/",
+        "line": 249
+      },
+      {
+        "text": "3. commit spec + regenerated output together",
+        "line": 251
       },
       {
         "text": "Deploying",
-        "line": 68
+        "line": 254
+      },
+      {
+        "text": "Credits",
+        "line": 260
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-28",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
+      "CLAUDE.md",
       "NETWORK_MIGRATION_PLAN.md",
       "application-audit-and-remediation-plan.md",
+      "docs/CHANGELOG-implementation.md",
+      "docs/superpowers/HARNESS.md",
       "model-integration-precheck.md"
     ],
     "references": {
@@ -946,10 +1391,15 @@
         "VITE_API_BASE_URL"
       ],
       "symbols": [],
-      "routes": [],
+      "routes": [
+        "GET /api/models",
+        "POST /scenarios/:id/solve",
+        "PATCH /scenarios/:id",
+        "GET /scenarios/:id/solve-jobs/:jobId"
+      ],
       "services": [
-        "nos-api",
         "nos-studio",
+        "nos-api",
         "nos-postgres"
       ],
       "files": []
@@ -1101,6 +1551,93 @@
       "services": [],
       "files": [
         "artifacts/api-server/src/app.ts"
+      ]
+    }
+  },
+  {
+    "path": "artifacts/api-server/src/solver/tests/fixtures/cbc/README.md",
+    "origin": "repo",
+    "title": "CBC termination-evidence fixtures (P0R.1 spike)",
+    "headings": [
+      {
+        "text": "CBC termination-evidence fixtures (P0R.1 spike)",
+        "line": 1
+      },
+      {
+        "text": "Cases (all real CBC output, one real solve per case)",
+        "line": 21
+      },
+      {
+        "text": "Real finding: CBC has (at least) two distinct infeasibility log shapes",
+        "line": 48
+      },
+      {
+        "text": "Real finding (B2): a THIRD infeasibility shape — `.sol` token `\"Integer\"`",
+        "line": 61
+      },
+      {
+        "text": "Real finding (B2): a pure-LP optimum never prints a `Result -` line at all",
+        "line": 75
+      },
+      {
+        "text": "Not attainable / not captured in this spike",
+        "line": 94
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "LpStatusInfeasible",
+        "CBCParseError",
+        "Integer"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "attached_assets/NOTEBOOKS.md",
+    "origin": "repo",
+    "title": "Source notebooks — provenance",
+    "headings": [
+      {
+        "text": "Source notebooks — provenance",
+        "line": 1
+      },
+      {
+        "text": "Chapter 4 — verbatim",
+        "line": 20
+      },
+      {
+        "text": "Chapter 9 — MODIFIED: plotly.js replaced with a CDN reference",
+        "line": 63
+      },
+      {
+        "text": "Chapter 5 — no notebook",
+        "line": 104
+      }
+    ],
+    "lastChange": "2026-09-28",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "solvers/chens-cosmetics-cn/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "scripts/src/extract-chens-dataset.ts",
+        "scripts/src/geocode-chens.ts"
       ]
     }
   },
@@ -1321,6 +1858,335 @@
     }
   },
   {
+    "path": "docs/CHANGELOG-implementation.md",
+    "origin": "repo",
+    "title": "Implementation changelog — Network Optimization Studio",
+    "headings": [
+      {
+        "text": "Implementation changelog — Network Optimization Studio",
+        "line": 1
+      },
+      {
+        "text": "Index",
+        "line": 16
+      },
+      {
+        "text": "SCND correctness/measurement — approval and decision record (2026-09-22 → 2026-09-23)",
+        "line": 259
+      },
+      {
+        "text": "login-fix — email normalization + password length cap (2026-09-24)",
+        "line": 284
+      },
+      {
+        "text": "ch4-unlock — Chapter 4 (Chen's Cosmetics) reopened to students (2026-09-26)",
+        "line": 397
+      },
+      {
+        "text": "attached-assets — source notebooks committed for Chapters 4 and 9 (2026-09-26)",
+        "line": 417
+      },
+      {
+        "text": "Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes (2026-09-28)",
+        "line": 463
+      },
+      {
+        "text": "Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`)",
+        "line": 583
+      },
+      {
+        "text": "Process deviation — Chapter 4 two-step bundle skipped two closing gates (2026-09-29)",
+        "line": 759
+      }
+    ],
+    "lastChange": "2026-09-29",
+    "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
+      ".claude/agents/devops-engineer.md",
+      ".claude/agents/frontend-engineer.md",
+      ".claude/agents/qa-sdet.md",
+      ".claude/agents/solver-engineer.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "docs/ops/measurement-environment.md",
+      "docs/ops/shutdown-budget.md",
+      "docs/ops/v2-write-activation.md"
+    ],
+    "references": {
+      "paths": [
+        "docs/superpowers/specs/**",
+        "docs/superpowers/plans/**",
+        "docs/superpowers/metrics/",
+        "solvers/<model-id>/{manifest.json,dataset/*.json,solver.py,tests/}",
+        "lib/datasets/",
+        "artifacts/api-server/src/solver/requirements.txt",
+        "artifacts/studio/dist/public",
+        "lib/dataset-schema",
+        "solvers/p-median-us/dataset/",
+        "e2e/.auth",
+        "e2e/report",
+        "lib/api-client-react",
+        "docs/superpowers/specs|plans/2026-09-0*",
+        "docs/design-system/",
+        "docs/design-system/components/studio/AssistantPanel.{jsx,d.ts,prompt.md}",
+        "artifacts/studio",
+        "docs/superpowers/specs/2026-09-14-*",
+        "docs/superpowers/plans/2026-09-14-*",
+        "solvers/chens-cosmetics-cn/",
+        "artifacts/api-server",
+        "e2e/",
+        "solvers/"
+      ],
+      "scripts": [
+        "e2e:gate"
+      ],
+      "envVars": [
+        "VITE_API_BASE_URL",
+        "CORS_ALLOWED_ORIGIN",
+        "DATABASE_URL",
+        "E2E_BASE_URL",
+        "DISTANCE",
+        "API_PROXY_TARGET",
+        "MODEL_IDS",
+        "BAND_COLORS",
+        "SOLVER_PY",
+        "CONCURRENCY",
+        "QUEUE_DEPTH_LIMIT",
+        "SOLVE_WORKER_CONCURRENCY",
+        "SOLVE_QUEUE_DEPTH_LIMIT",
+        "PACKAGE_SPECS",
+        "VALID_MODEL_IDS",
+        "SOLVABLE",
+        "ERR_PNPM_OUTDATED_LOCKFILE",
+        "DELETE",
+        "CHAPTERS",
+        "MODEL_TARGETS",
+        "CONSTRAINTS",
+        "SOLVERS_ROOT",
+        "BASE_OK",
+        "NNNN00",
+        "KNOWN_SCHEMAS",
+        "COMPLETE_NUMBER",
+        "RECOVERY_CONTRACT_IDENTITY",
+        "AND"
+      ],
+      "symbols": [
+        "Pool",
+        "Origin",
+        "CORS_ALLOWED_ORIGIN",
+        "Secure",
+        "Dockerfile",
+        "VITE_API_BASE_URL",
+        "DATABASE_URL",
+        "GamificationContext",
+        "ArcadiaShell",
+        "AppShell",
+        "E2E_BASE_URL",
+        "ScenarioUpdate",
+        "DISTANCE",
+        "SolveInput",
+        "LocalConfig",
+        "Customer",
+        "ExportScenarioParams",
+        "API_PROXY_TARGET",
+        "Dialog",
+        "Badge",
+        "ManifestSchema",
+        "MODEL_IDS",
+        "SolveResult",
+        "NetworkMap",
+        "BAND_COLORS",
+        "FitBounds",
+        "MapClickDeselect",
+        "MapContainer",
+        "SOLVER_PY",
+        "CompareRejection",
+        "ScenarioMetrics",
+        "CompareResult",
+        "InputDiffCell",
+        "MetricRowCells",
+        "CONCURRENCY",
+        "QUEUE_DEPTH_LIMIT",
+        "SOLVE_WORKER_CONCURRENCY",
+        "SOLVE_QUEUE_DEPTH_LIMIT",
+        "ErrorEnvelope",
+        "ResultEnvelopeSchema",
+        "PACKAGE_SPECS",
+        "VALID_MODEL_IDS",
+        "LegAverageDistance",
+        "SOLVABLE",
+        "ERR_PNPM_OUTDATED_LOCKFILE",
+        "DELETE",
+        "CHAPTERS",
+        "ObjectiveBar",
+        "MODEL_TARGETS",
+        "CONSTRAINTS",
+        "SidebarTree",
+        "TabBar",
+        "SolveDialog",
+        "StaleOutputBanner",
+        "WarehousesTab",
+        "CustomersTab",
+        "OptimizationParametersTab",
+        "OutputMapTab",
+        "MinesTab",
+        "StationsTab",
+        "AskUserQuestion",
+        "FlowsTab",
+        "ClipboardItem",
+        "WarehouseCandidate",
+        "WarehouseTable",
+        "CustomerTable",
+        "MineTable",
+        "StationTable",
+        "CreateEntityDialog",
+        "MapDetailsCard",
+        "MapActionMenu",
+        "Checkbox",
+        "MapLegend",
+        "ETag",
+        "SOLVERS_ROOT",
+        "InputMapTab",
+        "Card",
+        "AppFooter",
+        "ChevronLeft",
+        "ChevronRight",
+        "LegDistancesTab",
+        "Table",
+        "Input",
+        "WarehouseCandidateKind",
+        "Flows",
+        "JadeAssignmentsTab",
+        "JadeFlowsTab",
+        "ResultHistoryEntry",
+        "FilterMenu",
+        "BASE_OK",
+        "ImportDialog",
+        "JadeBandEditor",
+        "ChensCosmeticsV1",
+        "NNNN00",
+        "KNOWN_SCHEMAS",
+        "CostSummaryTab",
+        "Units",
+        "JadeDistancesTab",
+        "EntityIdCell",
+        "EntityMarkers",
+        "Overflow",
+        "UnitToggle",
+        "Solver",
+        "DistancesTab",
+        "LaneCostsTab",
+        "BandChipEditor",
+        "COMPLETE_NUMBER",
+        "Switch",
+        "RECOVERY_CONTRACT_IDENTITY"
+      ],
+      "routes": [
+        "POST /auth/register",
+        "GET /scenarios",
+        "GET /scenarios/:id/export",
+        "POST /scenarios/:id/import",
+        "POST /scenarios/:id/import/apply",
+        "POST /scenarios/:id/reset-to-baseline",
+        "GET /api/models",
+        "POST /scenarios/:id/solve",
+        "GET /scenarios/:id/solve-jobs/:jobId",
+        "GET /solve-history",
+        "POST /scenarios/compare",
+        "DELETE /scenarios/:id",
+        "DELETE /api/scenarios/:id",
+        "POST /solve",
+        "GET /dataset",
+        "GET /models/:id/reference-distances",
+        "GET /landing-summary",
+        "POST /api/auth/register",
+        "POST /api/scenarios"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "docs/superpowers/plans/2026-07-24-render-migration.md",
+        "lib/db/src/index.ts",
+        "lib/api-client-react/src/custom-fetch.ts",
+        "artifacts/studio/src/main.tsx",
+        ".github/workflows/ci.yml",
+        "e2e/labs.spec.ts",
+        "lib/chapters.ts",
+        "solvers/{p-median-us,transport-coal,p-median-brazil}/dataset/*.json",
+        "docs/dataset-audit.md",
+        "scripts/src/migrate-scenario-inputs.ts",
+        "artifacts/api-server/src/validation/inputs/{pMedian,transportLp}.ts",
+        "lib/api-zod/src/index.ts",
+        "e2e/import.spec.ts",
+        "solvers/<model-id>/manifest.json",
+        "solvers/*/manifest.json",
+        "lib/quality.ts",
+        "lib/bands.ts",
+        "lib/bandPalette.ts",
+        "lib/mapBounds.ts",
+        "artifacts/api-server/src/solver/tests/e2e_journey.py",
+        "lib/db/src/schema/result_cache.ts",
+        "docs/superpowers/plans/2026-07-24-post-migration-audit.md",
+        "docs/superpowers/plans/2026-07-24-chapter-10-two-echelon-gold-refinery.md",
+        "solvers/two-echelon-gold-au/dataset/*.json",
+        "e2e/two-echelon.spec.ts",
+        "lib/dataset-schema/package.json",
+        "docs/superpowers/plans/2026-08-20-scn-v0.3-workspace.md",
+        "solvers/*/dataset/*.json",
+        "lib/workspaceTabs.ts",
+        "lib/exportEntity.ts",
+        "docs/superpowers/specs/2026-08-24-scn-v0.3-phase-c-team-execution-design.md",
+        "docs/superpowers/plans/2026-08-24-scn-v0.3-phase-c-outputs-reporting.md",
+        "docs/superpowers/specs/2026-08-24-scn-v0.3-phase-c-c61-fastfollow-design.md",
+        "docs/superpowers/plans/2026-08-24-scn-v0.3-c61-outputs-fastfollow.md",
+        "docs/superpowers/specs/2026-08-24-scn-v0.3-c42-clipboard-copy-design.md",
+        "docs/superpowers/plans/2026-08-24-scn-v0.3-c42-clipboard-copy.md",
+        "docs/superpowers/specs/2026-08-24-copy-map-clipboard-spike.md",
+        "lib/copyMapToClipboard.ts",
+        "docs/superpowers/specs/2026-08-24-scn-v0.3-phase3.1-design-system-design.md",
+        "docs/superpowers/plans/2026-08-24-scn-v0.3-phase3.1-design-system.md",
+        "docs/superpowers/specs/2026-08-26-scn-v0.3-phase3.2-ui-changes-design.md",
+        "docs/superpowers/plans/2026-08-26-scn-v0.3-phase3.2-ui-changes.md",
+        "scripts/src/fetch-postal-codes.ts",
+        "lib/dataset-schema/src/index.test.ts",
+        "e2e/tab-coverage.spec.ts",
+        "artifacts/api-server/src/__tests__/resultEnvelope.test.ts",
+        "docs/superpowers/specs/2026-09-02-bundle2.2-workspace-ui-updates-design.md",
+        "docs/superpowers/{specs,plans}/2026-09-03-bundle3-book-cover-design-system*.md",
+        "docs/design-system/DECISIONS.md",
+        "docs/superpowers/{specs,plans}/2026-09-03-bundle4-auth-landing-reskin*.md",
+        "artifacts/api-server/src/routes/landingSummary.ts",
+        "docs/superpowers/{specs,plans}/2026-09-04-bundle5-homepage-distances-polish*.md",
+        "e2e/bundle5-homepage-distances.spec.ts",
+        "docs/superpowers/{specs,plans}/2026-09-04-bundle6-ui-tweaks*.md",
+        "e2e/bundle6-ui-tweaks.spec.ts",
+        "docs/superpowers/{specs,plans}/2026-09-05-bundle6.1-legend-distances*.md",
+        "e2e/bundle6.1-legend-distances.spec.ts",
+        "docs/superpowers/{specs,plans}/2026-09-17-jade-ch9-workspace-bundle*.md",
+        "lib/jadeCapability.ts",
+        "e2e/jade-ch9-workspace-bundle.spec.ts",
+        "e2e/chens-cosmetics.spec.ts",
+        "docs/superpowers/specs/2026-09-19-workspace-fixups-bundle-design.md",
+        "docs/superpowers/plans/2026-09-19-workspace-fixups-bundle.md",
+        "e2e/workspace-fixups.spec.ts",
+        "docs/superpowers/specs/2026-09-20-workspace-fixups-2-design.md",
+        "docs/superpowers/plans/2026-09-20-workspace-fixups-2.md",
+        "e2e/workspace-fixups-2.spec.ts",
+        "docs/superpowers/specs/2026-09-19-chen-bands-units-design.md",
+        "docs/superpowers/plans/2026-09-20-chen-bands-units.md",
+        "artifacts/studio/src/lib/bands.ts",
+        "e2e/chen-bands-units-qa.spec.ts",
+        "artifacts/studio/src/lib/formatDistanceDisplay.ts",
+        "solvers/<model>/manifest.json",
+        "docs/CHANGELOG-implementation.md",
+        "lib/normalizeEmail.ts"
+      ]
+    }
+  },
+  {
     "path": "docs/dataset-audit.md",
     "origin": "repo",
     "title": "Dataset label audit (C2.1)",
@@ -1352,8 +2218,8 @@
     ],
     "lastChange": "2026-07-22",
     "inboundLinks": [
-      "CLAUDE.md",
-      "IMPLEMENTATION_PLAN.md"
+      "IMPLEMENTATION_PLAN.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -1426,7 +2292,7 @@
     ],
     "lastChange": "2026-09-03",
     "inboundLinks": [
-      "CLAUDE.md"
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [],
@@ -1831,6 +2697,142 @@
     }
   },
   {
+    "path": "docs/error-plans/README.md",
+    "origin": "repo",
+    "title": "Weekly Sentry error fix plans",
+    "headings": [
+      {
+        "text": "Weekly Sentry error fix plans",
+        "line": 1
+      },
+      {
+        "text": "Required GitHub configuration",
+        "line": 13
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ],
+      "symbols": [
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        ".github/workflows/error-plans.yml",
+        "docs/error-plans/aggregates.json",
+        "docs/error-plans/<date>.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/error-plans/SENTRY-AUDIT.md",
+    "origin": "repo",
+    "title": "Sentry Integration Audit (2026-09-12)",
+    "headings": [
+      {
+        "text": "Sentry Integration Audit (2026-09-12)",
+        "line": 1
+      },
+      {
+        "text": "Confirmed",
+        "line": 5
+      },
+      {
+        "text": "Consequences for later tasks",
+        "line": 16
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "VITE_SENTRY",
+        "SENTRY_DSN"
+      ],
+      "symbols": [
+        "SENTRY_DSN",
+        "VITE_SENTRY"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/ops/ch4-migration-runbook.md",
+    "origin": "repo",
+    "title": "Chapter 4 dataset migration runbook (MIG-16)",
+    "headings": [
+      {
+        "text": "Chapter 4 dataset migration runbook (MIG-16)",
+        "line": 1
+      },
+      {
+        "text": "Stage A — lock the old model (PREPARED, NOT DEPLOYED)",
+        "line": 26
+      },
+      {
+        "text": "Stage B — drain the queue (operator-run, not automated by this runbook)",
+        "line": 88
+      },
+      {
+        "text": "Stage C — delete the old data (point of no return)",
+        "line": 147
+      },
+      {
+        "text": "Stage D — deploy the rename",
+        "line": 215
+      }
+    ],
+    "lastChange": "2026-09-28",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/solver/jobRunner.ts:800-808"
+      ],
+      "scripts": [],
+      "envVars": [
+        "SIGTERM"
+      ],
+      "symbols": [
+        "SIGTERM"
+      ],
+      "routes": [
+        "POST /scenarios",
+        "POST /api/scenarios",
+        "PATCH /api/scenarios/:id",
+        "GET /api/models"
+      ],
+      "services": [
+        "nos-api"
+      ],
+      "files": [
+        "docs/superpowers/plans/2026-09-27-ch4-us-dataset-migration.md",
+        "docs/superpowers/specs/2026-09-27-ch4-us-dataset-migration-design.md",
+        "solvers/chens-cosmetics-cn/manifest.json",
+        "artifacts/studio/src/lib/chapters.ts",
+        "artifacts/api-server/src/middlewares/lockedModel.ts",
+        "scripts/src/migrate-delete-chens-scenarios.ts"
+      ]
+    }
+  },
+  {
     "path": "docs/ops/e2e-stale-specs.md",
     "origin": "repo",
     "title": "Stale e2e specs (surfaced by the OBS-3 flake audit, 2026-09-11)",
@@ -1858,7 +2860,7 @@
     ],
     "lastChange": "2026-09-12",
     "inboundLinks": [
-      "CLAUDE.md"
+      "docs/superpowers/HARNESS.md"
     ],
     "references": {
       "paths": [],
@@ -1879,73 +2881,170 @@
     }
   },
   {
-    "path": "docs/ops/sample-a.md",
+    "path": "docs/ops/measurement-environment.md",
     "origin": "repo",
-    "title": "Sample A (docs-apply test)",
+    "title": "Measurement Environment — Pinned Config + Teardown Runbook (M3.1 Step 1)",
     "headings": [
       {
-        "text": "Sample A (docs-apply test)",
+        "text": "Measurement Environment — Pinned Config + Teardown Runbook (M3.1 Step 1)",
         "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "docs/ops/sample-b.md",
-    "origin": "repo",
-    "title": "Sample B (docs-apply test)",
-    "headings": [
+      },
       {
-        "text": "Sample B (docs-apply test)",
-        "line": 1
+        "text": "1. Pinned configuration (proposed — MP-2 ratifies or amends)",
+        "line": 15
+      },
+      {
+        "text": "2. Isolation guarantees (M3.1 Step 6)",
+        "line": 31
+      },
+      {
+        "text": "3. Teardown procedure (owner-run when measurement completes)",
+        "line": 38
+      },
+      {
+        "text": "4. Cost snapshot (dated 2026-09-24; verify live Render pricing before approving)",
+        "line": 47
+      },
+      {
+        "text": "5. MP-2 checkpoint (the question this artifact exists to support)",
+        "line": 61
       }
     ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "lastChange": "2026-09-24",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
     "references": {
-      "paths": [],
+      "paths": [
+        "solvers/"
+      ],
       "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
+      "envVars": [
+        "DATABASE_URL",
+        "PORT",
+        "SOLVER_V2_WRITE_ENABLED",
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "SENTRY_DSN"
+      ],
+      "symbols": [
+        "DATABASE_URL",
+        "PORT",
+        "SOLVER_V2_WRITE_ENABLED",
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "SENTRY_DSN"
+      ],
+      "routes": [
+        "POST /auth/register"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
       "files": [
-        "artifacts/ghost/sample-b-target.ts"
+        "docs/CHANGELOG-implementation.md"
       ]
     }
   },
   {
-    "path": "docs/ops/sample-c.md",
+    "path": "docs/ops/permission-review-cron.md",
     "origin": "repo",
-    "title": "Sample C (docs-apply test)",
+    "title": "Weekly permission-review capture (local cron)",
     "headings": [
       {
-        "text": "Sample C (docs-apply test)",
+        "text": "Weekly permission-review capture (local cron)",
         "line": 1
+      },
+      {
+        "text": "Manual run / smoke check",
+        "line": 14
+      },
+      {
+        "text": "Dry-run (writes nothing, prints the week + candidate count):",
+        "line": 17
+      },
+      {
+        "text": "Real weekly capture + push to the permissions-capture branch:",
+        "line": 20
+      },
+      {
+        "text": "Schedule it (macOS launchd)",
+        "line": 24
+      },
+      {
+        "text": "Notes / caveats",
+        "line": 63
       }
     ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "lastChange": "2026-09-19",
+    "inboundLinks": [
+      "docs/superpowers/HARNESS.md",
+      "docs/superpowers/metrics/README.md"
+    ],
     "references": {
-      "paths": [],
-      "scripts": [
-        "bogus:not-a-real-script"
+      "paths": [
+        "scripts/harness/permissions-capture-weekly.sh"
       ],
+      "scripts": [],
       "envVars": [],
       "symbols": [],
       "routes": [],
       "services": [],
       "files": []
+    }
+  },
+  {
+    "path": "docs/ops/shutdown-budget.md",
+    "origin": "repo",
+    "title": "Shutdown budget — `nos-api`",
+    "headings": [
+      {
+        "text": "Shutdown budget — `nos-api`",
+        "line": 1
+      },
+      {
+        "text": "Two deadlines, not one",
+        "line": 7
+      },
+      {
+        "text": "App-internal allocation (sums to 90 s)",
+        "line": 36
+      },
+      {
+        "text": "What happens to an in-flight solve that doesn't finish in time",
+        "line": 49
+      },
+      {
+        "text": "Live-setting verification — deferred",
+        "line": 66
+      }
+    ],
+    "lastChange": "2026-09-23",
+    "inboundLinks": [
+      "docs/ops/v2-write-activation.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "SIGTERM",
+        "SIGKILL"
+      ],
+      "symbols": [
+        "SIGTERM",
+        "SIGKILL"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "docs/CHANGELOG-implementation.md"
+      ]
     }
   },
   {
@@ -1976,7 +3075,8 @@
     ],
     "lastChange": "2026-09-12",
     "inboundLinks": [
-      "CLAUDE.md"
+      "README.md",
+      "docs/superpowers/HARNESS.md"
     ],
     "references": {
       "paths": [
@@ -1997,6 +3097,99 @@
         "nos-studio"
       ],
       "files": []
+    }
+  },
+  {
+    "path": "docs/ops/v2-write-activation.md",
+    "origin": "repo",
+    "title": "v2 write activation — `SOLVER_V2_WRITE_ENABLED`",
+    "headings": [
+      {
+        "text": "v2 write activation — `SOLVER_V2_WRITE_ENABLED`",
+        "line": 1
+      },
+      {
+        "text": "The flag",
+        "line": 9
+      },
+      {
+        "text": "A commit is not an environment flip — two different operations",
+        "line": 26
+      },
+      {
+        "text": "Who authorizes",
+        "line": 43
+      },
+      {
+        "text": "R3 activation prerequisites (normative — ALL required)",
+        "line": 51
+      },
+      {
+        "text": "Drain proof — from the Render deploy lifecycle, not health sampling",
+        "line": 71
+      },
+      {
+        "text": "Out-of-band activation evidence record",
+        "line": 94
+      },
+      {
+        "text": "`autoDeployTrigger` suppression procedure (owner: `devops-engineer`)",
+        "line": 117
+      },
+      {
+        "text": "Compatibility window (7 days, R2)",
+        "line": 155
+      },
+      {
+        "text": "`error` is a safe alias, not the raw diagnostic",
+        "line": 163
+      },
+      {
+        "text": "Row behavior on writer disable and rollback",
+        "line": 174
+      },
+      {
+        "text": "Rollback floor (standing rule)",
+        "line": 190
+      },
+      {
+        "text": "Summary — the full state machine",
+        "line": 200
+      }
+    ],
+    "lastChange": "2026-09-23",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "SOLVER_V2_WRITE_ENABLED",
+        "A12",
+        "A10",
+        "SIGTERM"
+      ],
+      "symbols": [
+        "SOLVER_V2_WRITE_ENABLED",
+        "A14a",
+        "A14b",
+        "SIGTERM",
+        "SolveJob",
+        "PublishedSolveResultV2"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api"
+      ],
+      "files": [
+        "docs/superpowers/plans/2026-09-22-scnd-correctness-A-full-contract.md",
+        "docs/superpowers/specs/2026-09-21-scnd-solver-result-contract-design.md",
+        "artifacts/api-server/src/config/featureFlags.ts",
+        "docs/superpowers/specs/2026-09-23-scnd-gcache-artifact.md",
+        "docs/ops/shutdown-budget.md",
+        "docs/CHANGELOG-implementation.md"
+      ]
     }
   },
   {
@@ -2147,6 +3340,71 @@
     }
   },
   {
+    "path": "docs/superpowers/HARNESS.md",
+    "origin": "repo",
+    "title": "Harness self-monitoring (OBS-1…OBS-11) — operating manual",
+    "headings": [
+      {
+        "text": "Harness self-monitoring (OBS-1…OBS-11) — operating manual",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-22",
+    "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
+      ".claude/agents/devops-engineer.md",
+      ".claude/agents/frontend-engineer.md",
+      ".claude/agents/qa-sdet.md",
+      ".claude/agents/solver-engineer.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [
+        "docs/superpowers/gates/",
+        "docs/superpowers/metrics/",
+        "scripts/src/harness/",
+        "scripts/src/deploy/",
+        "scripts/harness/",
+        "docs/superpowers/metrics/permissions-review/<week>.{json,md}",
+        "scripts/harness/permissions-capture-weekly.sh",
+        "docs/superpowers/specs/**"
+      ],
+      "scripts": [
+        "harness:record",
+        "harness:permissions",
+        "harness:permissions:capture",
+        "harness:permissions:apply",
+        "harness:report",
+        "smoke",
+        "docs:audit",
+        "docs:lint"
+      ],
+      "envVars": [
+        "NOS_API_BASE",
+        "NOS_STUDIO_BASE"
+      ],
+      "symbols": [
+        "NOS_API_BASE",
+        "NOS_STUDIO_BASE"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/superpowers/metrics/README.md",
+        "docs/superpowers/specs/harness-self-monitoring.md",
+        "docs/superpowers/plans/harness-self-monitoring.md",
+        "docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md",
+        "docs/superpowers/{specs,plans}/harness-self-monitoring.md",
+        "docs/ops/permission-review-cron.md",
+        "docs/ops/smoke.md",
+        "docs/superpowers/docs-audit/inventory.json",
+        "docs/ops/e2e-stale-specs.md",
+        ".github/workflows/harness-weekly.yml"
+      ]
+    }
+  },
+  {
     "path": "docs/superpowers/gates/doc_drift.md",
     "origin": "repo",
     "title": "Gate proposal: doc_drift",
@@ -2175,6 +3433,34 @@
         "scripts/src/harness/docs-lint.ts",
         "scripts/src/harness/lib/detectors/staleReference.ts",
         ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/migration_order.md",
+    "origin": "repo",
+    "title": "Gate proposal: migration_order",
+    "headings": [
+      {
+        "text": "Gate proposal: migration_order",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-24",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "lib/db"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [
+        "nos-api"
+      ],
+      "files": [
+        "scripts/harness/schema-sync-check.ts"
       ]
     }
   },
@@ -2220,101 +3506,64 @@
         "line": 78
       },
       {
-        "text": "Finding states (docs pipeline)",
+        "text": "`permissions.csv` — one row per retro permission audit (`pnpm harness:permissions`)",
         "line": 93
+      },
+      {
+        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
+        "line": 113
+      },
+      {
+        "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
+        "line": 125
+      },
+      {
+        "text": "`benchmark-aggregates.csv` — one row per usable/unusable cell",
+        "line": 150
+      },
+      {
+        "text": "Finding states (docs pipeline)",
+        "line": 172
       }
     ],
-    "lastChange": "2026-09-11",
+    "lastChange": "2026-09-23",
     "inboundLinks": [
-      ".claude/skills/harness-retro/SKILL.md"
+      ".claude/skills/harness-retro/SKILL.md",
+      "CLAUDE.md",
+      "docs/superpowers/HARNESS.md"
     ],
     "references": {
-      "paths": [],
+      "paths": [
+        "artifacts/api-server/src/solver/tests/benchmark/"
+      ],
       "scripts": [
         "harness:record",
+        "harness:permissions",
         "smoke",
         "harness:report",
-        "e2e:gate"
+        "e2e:gate",
+        "harness:permissions:capture",
+        "harness:permissions:apply"
       ],
-      "envVars": [],
-      "symbols": [],
+      "envVars": [
+        "RUSAGE_SELF",
+        "RUSAGE_CHILDREN"
+      ],
+      "symbols": [
+        "RUSAGE_SELF",
+        "RUSAGE_CHILDREN",
+        "False"
+      ],
       "routes": [],
       "services": [
         "nos-api",
         "nos-studio"
       ],
       "files": [
-        "docs/superpowers/gates/<cause>.md"
+        "docs/superpowers/gates/<cause>.md",
+        "scripts/src/harness/lib/permissions.ts",
+        "docs/ops/permission-review-cron.md"
       ]
-    }
-  },
-  {
-    "path": "docs/superpowers/prompts/jobs/docs-audit-sunday.md",
-    "origin": "repo",
-    "title": "Cron job: Sunday documentation sweep",
-    "headings": [
-      {
-        "text": "Cron job: Sunday documentation sweep",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 23
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/specs/**",
-        "docs/superpowers/plans/**"
-      ],
-      "scripts": [
-        "docs:audit"
-      ],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": [
-        "docs/superpowers/docs-audit/inventory.json"
-      ]
-    }
-  },
-  {
-    "path": "docs/superpowers/prompts/jobs/harness-weekly.md",
-    "origin": "repo",
-    "title": "Cron job: weekly harness report",
-    "headings": [
-      {
-        "text": "Cron job: weekly harness report",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 36
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/metrics/flake.csv"
-      ],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
     }
   },
   {
@@ -2336,45 +3585,53 @@
       },
       {
         "text": "Gate 2 — Dataset integrity",
-        "line": 89
+        "line": 90
       },
       {
         "text": "Gate 3 — Solver hygiene",
-        "line": 115
+        "line": 116
       },
       {
         "text": "Gate 4 — Distance bands",
-        "line": 141
+        "line": 142
       },
       {
         "text": "Gate 5 — Contract & caching",
-        "line": 155
+        "line": 156
       },
       {
         "text": "Gate 6 — Frontend",
-        "line": 170
+        "line": 171
       },
       {
         "text": "Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)",
-        "line": 201
+        "line": 202
       },
       {
         "text": "Gate 7 — Tests",
-        "line": 256
+        "line": 257
       },
       {
         "text": "Gate 8 — Rollout",
-        "line": 289
+        "line": 290
       },
       {
         "text": "Quick reference — the nine silent failures",
-        "line": 306
+        "line": 307
       }
     ],
-    "lastChange": "2026-09-01",
+    "lastChange": "2026-09-15",
     "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
+      ".claude/agents/devops-engineer.md",
+      ".claude/agents/frontend-engineer.md",
+      ".claude/agents/qa-sdet.md",
+      ".claude/agents/solver-engineer.md",
+      "AGENTS.md",
       "CLAUDE.md",
-      "chapter-10-two-echelon-gold-refinery-integration.md"
+      "README.md",
+      "chapter-10-two-echelon-gold-refinery-integration.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -2428,122 +3685,6 @@
         "lib/entityId.ts",
         "lib/gazetteer.ts"
       ]
-    }
-  },
-  {
-    "path": "MEMORY.md",
-    "origin": "memory",
-    "title": "MEMORY.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_merge_spec_plan_docs_to_main.md",
-    "origin": "memory",
-    "title": "feedback_merge_spec_plan_docs_to_main.md",
-    "headings": [],
-    "lastChange": "2026-09-01",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_no_unilateral_decision_changes.md",
-    "origin": "memory",
-    "title": "feedback_no_unilateral_decision_changes.md",
-    "headings": [],
-    "lastChange": "2026-08-31",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_orchestration_next_phase.md",
-    "origin": "memory",
-    "title": "feedback_orchestration_next_phase.md",
-    "headings": [],
-    "lastChange": "2026-08-22",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_posthog_cli.md",
-    "origin": "memory",
-    "title": "feedback_posthog_cli.md",
-    "headings": [],
-    "lastChange": "2026-07-26",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_qa_default_in_plans.md",
-    "origin": "memory",
-    "title": "feedback_qa_default_in_plans.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [
-        "API_PROXY_TARGET"
-      ],
-      "symbols": [
-        "API_PROXY_TARGET"
-      ],
-      "routes": [],
-      "services": [],
-      "files": []
     }
   }
 ]
