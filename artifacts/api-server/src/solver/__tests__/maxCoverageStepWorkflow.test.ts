@@ -192,4 +192,61 @@ describe("R8 — combined name-and-inputs PATCHes are atomic", () => {
     expect((after!.inputs as Record<string, unknown>).p).toBe(3);
     expect(await readEpoch(scenario.id)).toBe(1);
   });
+
+  // CH4-2s-3 — the guard from Task 3 makes `coverageFloorDemand` genuinely
+  // rejectable (it was a plain valid optional field before this task), so the
+  // atomicity property above deserves its own case against the field CH4-25
+  // actually exists to reject, not just an unrelated schema violation.
+  it("applies NEITHER when the inputs half carries a rejected coverageFloorDemand", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    const [before] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ name: "must not stick", inputs: { ...step1Inputs, p: 4, coverageFloorDemand: 1 } })
+      .expect(422);
+
+    const [after] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    expect(after!.name).toBe(before!.name);
+    expect((after!.inputs as Record<string, unknown>).p).toBe(3);
+    expect((after!.inputs as Record<string, unknown>).coverageFloorDemand).toBeUndefined();
+    expect(await readEpoch(scenario.id)).toBe(1);
+  });
+});
+
+describe("CH4-24/CH4-25 — the floor is rejected literally, not stripped", () => {
+  it("422s a PATCH carrying coverageFloorDemand and leaves the row untouched", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ inputs: { ...step1Inputs, p: 4, coverageFloorDemand: 1 } })
+      .expect(422);
+
+    // Read the PERSISTED row back: a stripping bug and a rejecting guard are
+    // indistinguishable from the response alone. If the guard had merely
+    // stripped, `p` would now be 4 and the epoch 2.
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    const inputs = row!.inputs as Record<string, unknown>;
+    expect(inputs.p).toBe(3);
+    expect(inputs.coverageFloorDemand).toBeUndefined();
+    expect(inputs.stepEpoch).toBe(1);
+  });
+
+  it("422s a PATCH carrying objective min_distance", async () => {
+    const cookie = await registerAndGetCookie();
+    const scenario = await createScenario(cookie);
+    await request(app).patch(`/api/scenarios/${scenario.id}`).set("Cookie", cookie)
+      .send({ inputs: { ...step1Inputs, objective: "min_distance", coverageFloorDemand: 53385024 } })
+      .expect(422);
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
+    expect((row!.inputs as Record<string, unknown>).objective).toBe("coverage");
+  });
+
+  it("422s a create carrying a floor", async () => {
+    const cookie = await registerAndGetCookie();
+    await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "rejected", modelId: "max-coverage-us", inputs: { ...step1Inputs, coverageFloorDemand: 1 } })
+      .expect(422);
+  });
 });

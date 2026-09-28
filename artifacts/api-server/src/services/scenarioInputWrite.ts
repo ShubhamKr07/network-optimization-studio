@@ -104,3 +104,38 @@ export async function applyScenarioInputWrite(
 
 // Re-exported so route files import one module for the whole write contract.
 export { initialInputsForInsert, isStep1Key } from "./maxCoverageSteps.js";
+
+/**
+ * CH4-24/CH4-25 — the write-route narrowing guard.
+ *
+ * The model registry's validator stays the EXECUTABLE one (it must accept
+ * `min_distance`, because `validateInputsForModel` is called by BOTH
+ * `buildValidatedInputSnapshot` at enqueue AND the recovery reconstructor
+ * that rebuilds a queued job after a process restart — a coverage-only
+ * registry entry would make every recovered Step 2 job permanently
+ * unrunnable). The narrowing therefore has to sit here, at the write routes.
+ *
+ * It inspects the RAW request body, before Zod has a chance to strip
+ * anything. This repo's validators are deliberately non-`.strict()`, so
+ * unknown and omitted keys are STRIPPED, not refused — simply leaving
+ * `coverageFloorDemand` out of a persisted schema would silently discard a
+ * client-supplied floor and report success, the opposite of what CH4-24
+ * promises. Only the server can produce a payload that reaches the
+ * executable validator with `min_distance` set; that is what makes the floor
+ * un-typeable rather than merely un-shown.
+ */
+export function assertNoServerOwnedStepFields(modelId: string, rawInputs: unknown): string | null {
+  if (modelId !== MAX_COVERAGE_MODEL_ID) return null;
+  if (rawInputs === null || typeof rawInputs !== "object") return null;
+  const raw = rawInputs as Record<string, unknown>;
+
+  if (raw.objective === "min_distance") {
+    return "objective min_distance is produced by the Step 2 solve and cannot be set directly";
+  }
+  // `in`, not a truthiness check: the key is refused when PRESENT, even if
+  // null or undefined.
+  if ("coverageFloorDemand" in raw) {
+    return "coverageFloorDemand is produced by the Step 1 solve and cannot be set directly";
+  }
+  return null;
+}
