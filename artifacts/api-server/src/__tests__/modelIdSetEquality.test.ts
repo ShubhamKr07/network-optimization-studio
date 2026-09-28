@@ -27,7 +27,7 @@ describe("model-id registries are one set", () => {
     for (const id of canonical) expect(yaml.split(`- ${id}\n`).length - 1).toBe(3);
     // The GET /dataset site (:47) is a single-line "enum: [a, b, c]" whose ORDER
     // does not match MODEL_IDS - compare as sets, never as a joined string.
-    const single = yaml.match(/enum: \[([^\]]+)\]/g) ?? [];
+    const single: string[] = yaml.match(/enum: \[([^\]]+)\]/g) ?? [];
     const site = single.find((s) => s.includes("p-median-us"))!;
     const ids = site.slice("enum: [".length, -1).split(",").map((s) => s.trim());
     expect(new Set(ids)).toEqual(canonical);
