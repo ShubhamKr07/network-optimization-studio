@@ -1938,8 +1938,8 @@ git commit -m "[ch4-2s-5] project per-step state on the scenario read and serve 
 ## Task 6: Remove the free objective toggle from both mounts
 
 **Files:**
-- Modify: `artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx:234-357`
-- Modify: `artifacts/studio/src/components/workspace/SolveDialog.tsx:216-296`
+- Modify: `artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx:235-359`
+- Modify: `artifacts/studio/src/components/workspace/SolveDialog.tsx:219-293`
 - Modify: `artifacts/studio/src/pages/Workspace.tsx:122-123`, `:1817-1840`, `:3334-3335`, `:4044-4045`
 - Create: `artifacts/studio/src/hooks/useMaxCoverageSteps.ts`
 - Modify: `artifacts/studio/src/__tests__/OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx`, `Workspace.test.tsx`
@@ -1949,6 +1949,10 @@ git commit -m "[ch4-2s-5] project per-step state on the scenario read and serve 
 - Produces: `useMaxCoverageSteps(scenario)` → `{ isMaxCoverage: boolean; steps: ScenarioSteps | null; solvedCount: 0|1|2; targetStep: 1|2; step1Frozen: boolean; solveLabel: string }`.
 
 **Why both mounts:** CH4-17 names only `OptimizationParametersTab.tsx:233`, but a second toggle lives at `SolveDialog.tsx:226` with its own floor input at `:282`, and `Workspace.tsx:1827`'s `setChenObjectiveMode` writes `coverageFloorDemand` into `localInputs`. Left in place, the first save after Task 3 would 422 against this feature's own guard.
+
+**Known incoming change to the same file (cross-session, Chapter 5).** A parallel Chapter 5 design (`docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md` §7.3, on local `main`) adds an "Adjust Cost Table" control to `OptimizationParametersTab.tsx`: four members on the `OptimizationParametersField` union, four optional props on `OptimizationParametersTabProps`, and one presence-gated JSX block at **388-437**, landing beside the existing `capacityFactor` family. Agreed ordering is **this plan first**, Chapter 5 rebasing onto it.
+
+The JSX does not conflict — this task's last deletion ends at 357 and that block starts at 388, thirty lines clear of git's three-line context. The conflict surface is the **union at line 10 and the props interface at 32-133**, which both changes edit. When rebasing, expect to reconcile a type union and an interface, not to relocate any markup. Chapter 5's block is specified to land **outside** Task 7's `{(step ?? 1) === 1 && …}` wrapper, because Chapter 5 has no step concept and its control must render whenever its props are present — do not move it inside that wrapper while resolving.
 
 - [ ] **Step 1: Write the failing removal tests**
 
@@ -1996,7 +2000,9 @@ Expected: FAIL — both toggles still render.
 
 - [ ] **Step 3: Delete the toggle from `OptimizationParametersTab.tsx`**
 
-Remove the entire `<div className="space-y-2">…</div>` block that renders the `Objective` label and the `chen-objective-toggle` group (lines 236-260), and remove the whole `{objective === "min_distance" && ( … )}` coverage-floor block (lines 345-357). Keep `chen-objective-section`, the two `ChenDistanceInput` fields, and the `{objective === "coverage" && …}` average-service-cap block.
+Line numbers measured at `32cacf8`. The whole Chapter 4 region is **one** enclosing block — `{objective != null && (` at 235, `chen-objective-section` opening at 236, closing `</div>` at 358 and `)}` at 359 — so both removals below are *inside* it and the block itself stays.
+
+Remove the entire `<div className="space-y-2">…</div>` that renders the `Objective` label and the `chen-objective-toggle` group (**lines 237-262**), and remove the whole `{objective === "min_distance" && ( … )}` coverage-floor block (**lines 343-357**). Keep `chen-objective-section`, the two `ChenDistanceInput` fields, and the `{objective === "coverage" && …}` average-service-cap block at 316.
 
 Then drop the now-unused prop from the component's interface and its destructuring:
 
@@ -2011,7 +2017,9 @@ Delete the declaration outright rather than leaving it commented; the comment ab
 
 - [ ] **Step 4: Delete the toggle and floor input from `SolveDialog.tsx`**
 
-Remove the `solve-dialog-chen-objective-toggle` group (lines 219-245) and the entire `{objective === "min_distance" && ( … )}` block containing `solve-dialog-input-coverage-floor` (lines 276-296). Keep the `{objective === "coverage" && …}` average-service-cap block. Remove `coverageFloorDemand` from `SolveDialogProps` (line 116) and from the destructuring (line 169), and remove the `onObjectiveModeChange` prop.
+Same structure here: `{objective != null && (` at 219 opens the gate, `solve-dialog-chen-objective-section` at 220, closing `</div>` at 292 and `)}` at 293. The gate stays; the two blocks inside it go.
+
+Remove the `solve-dialog-chen-objective-toggle` group (**lines 222-245**) and the entire `{objective === "min_distance" && ( … )}` block containing `solve-dialog-input-coverage-floor` (**lines 276-291**). Keep the `{objective === "coverage" && …}` average-service-cap block at 247. Remove `coverageFloorDemand` from `SolveDialogProps` (line 116) and from the destructuring (line 169), and remove the `onObjectiveModeChange` prop.
 
 - [ ] **Step 5: Remove the floor authoring from `Workspace.tsx`**
 
