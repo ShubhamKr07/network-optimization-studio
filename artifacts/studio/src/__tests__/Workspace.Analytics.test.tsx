@@ -122,6 +122,12 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
+  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
+  // non-Chapter-4 test in this file never has `scenario.steps` set, so
+  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
+  // false here regardless of what it returns.
+  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
+  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace } from "@/pages/Workspace";

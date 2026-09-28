@@ -1080,7 +1080,7 @@ export function Studio({ modelId }: StudioProps) {
       </header>
 
       {/* OBJECTIVE BAR */}
-      <ObjectiveBar result={result} scenarioId={scenarioId} modelId={currentScenario?.modelId} scenarioName={currentScenario?.name} distanceUnit={activeModelManifest?.distanceUnit ?? "mi"} />
+      <ObjectiveBar result={result} scenarioId={scenarioId} modelId={currentScenario?.modelId} scenarioName={currentScenario?.name} distanceUnit={activeModelManifest?.distanceUnit ?? "mi"} steps={currentScenario?.steps ?? null} />
 
       {/* EXPORT / IMPORT TOOLBAR — one full-width row above the three-panel
           layout. Relocated out of the left panel's per-model Overrides

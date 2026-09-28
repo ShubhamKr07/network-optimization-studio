@@ -102,6 +102,20 @@ describe("SidebarTree", () => {
     render(<SidebarTree {...baseProps()} scenarios={[]} activeScenarioId={null} />);
     expect(screen.getByText(/no scenarios yet/i)).toBeInTheDocument();
   });
+
+  // CH4-18 — Chapter 4's output entries stay clickable even before the
+  // selected step is solved (the tab itself renders the empty state); every
+  // other model (the default, `keepOutputsClickable` unset) keeps today's
+  // disabled-until-solved behaviour, proven above.
+  it("keeps outputs clickable (not greyed/disabled) when keepOutputsClickable is true, even with no solved run", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} hasSolvedRun={false} keepOutputsClickable={true} />);
+    const output = screen.getByTestId("sidebar-output-open-warehouses");
+    expect(output).not.toBeDisabled();
+    expect(output).toHaveAttribute("aria-disabled", "false");
+    await userEvent.click(output);
+    expect(props.onOpenOutput).toHaveBeenCalledWith(props.outputs[0]);
+  });
 });
 
 // A4.1 — scenario row operations: rename, clone, delete.
