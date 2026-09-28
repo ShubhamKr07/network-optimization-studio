@@ -76,7 +76,7 @@ fix.
 | 7 | `dist <= threshold` takes the low rate | See §2.1 |
 | 8 | `P` is editable, defaults to 3, constrained `Σ open <= P` | Diverges from `p-median-us`, which uses `Σ open == p` (`solve.py:405`). Matches the COG notebook's `lpSum(use_plant) <= max_plants`. |
 | 9 | Every customer is served by exactly one DC. No toggle. | Required for the weighted-average-distance and %-within-distance metrics to mean what the case study says |
-| 10 | Solution Summary shows Objective, Weighted avg. distance, and cumulative % of demand within 400/800/1200/1600 mi | Matches the `Outputs Needed` sheet. The distance-band machinery already produces this. |
+| 10 | The three required outputs are Objective, Weighted avg. distance, and cumulative % of demand within 400/800/1200/1600 mi — **split across two tabs** per §7.6, not all in Solution Summary | Matches the `Outputs Needed` sheet. The distance-band machinery already produces the coverage half. |
 | 11 | The cost table is the only editable input. Demand and geography are fixed dataset. | No added entities, no facility status editing, no demand overrides, no customer exclusion |
 | 12 | No capacity constraint anywhere | The `Plants` sheet has no capacity column and the notebook writes no capacity row. `capacityModes: []`. |
 | 13 | `delivery-teaching-us`, route `/chapter-5/delivery`, chapter "Chapter 5", title "Delivery Company Teaching Example" | |
@@ -190,6 +190,39 @@ The design-time prototype that produced §8.1's golden values is preserved at
 xlsx directly and depends on nothing in `solve.py`, which is what makes it an
 independent check on the real implementation rather than a restatement of it.
 
+**As committed it is not yet reproducible by anyone else.** It hardcodes an
+absolute `~/Downloads` path and writes to `/tmp/ch5x/`, assuming that directory
+exists. Before it counts as an oracle it takes arguments and verifies its source:
+
+```text
+python3 docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py \
+  --xlsx attached_assets/<source-workbook>.xlsx \
+  [--json-out <path>]
+```
+
+with `--json-out` optional, the recorded source SHA-256 checked before solving,
+and only an explicitly requested output directory created.
+
+The extractor of §4.3 additionally needs a deterministic `--check` mode that
+regenerates into a temporary directory and compares every file against the
+committed dataset byte-for-byte. `test_datasets.py`'s shape assertions cannot
+catch a swapped pair of ids, a value-preserving cardinality error, or any
+transcription difference that happens not to move the two golden optima.
+
+**Source SHA-256, read from the three files during design:**
+
+| Source | SHA-256 |
+| --- | --- |
+| `Network Optimization.ipynb` (COG notebook) | `f3de39fb9306d5836a986a0f5349be285e883c904d91d9487b679b8d62f5c097` |
+| `COG Model Data for In Class Example  3 DC 3 WH.xlsx` | `0b8feeba841d55cdbc3c9b852413e0fbc80cb1dc06b7531ef3503a9e42be28c3` |
+| `Notebook_LP_Transportation_Problem_Chapter_5_Network_Design_Book.ipynb` | `98ef03da4fee2f54d9f5d30fbe88f212b870b92fa5aab11ba46b3e266c07fd01` |
+
+These are recorded so the copy into `attached_assets/` can be verified rather than
+trusted — `~/Downloads` is not a controlled source directory. Re-hash after the
+copy and record the values in `attached_assets/NOTEBOOKS.md`. Writing under
+`attached_assets/` needs its own named implementation task listing the exact files
+and hashes.
+
 ### 4.4 Package registration
 
 `PACKAGE_SPECS` (`lib/dataset-schema/src/index.ts:115`) gains an entry reusing
@@ -223,8 +256,14 @@ the new id.
 ### 5.1 Approach
 
 Approach A of three considered: **a new `solve_delivery()` function and a new
-`modelType: "delivery"`**, adding one branch to the dispatcher at `solve.py:1473`
-and changing zero lines in any existing solver.
+`modelType: "delivery"`**, adding one branch to the dispatcher at `solve.py:1473`.
+
+The accurate risk claim is **isolated solver mathematics with shared integration
+changes** — not "changes zero lines". No existing model's *mathematics* moves:
+`solve_pmedian`, `solve_transport`, `solve_max_coverage` and the rest are not
+edited. But the shared dispatcher, the TypeScript payload builder, the module-level
+dataset loaders, four registries, the precheck dispatcher, the route allowlists and
+the Studio's model routing all necessarily change. §9 is the real count.
 
 The alternatives were to extend `solve_pmedian()` with optional cost parameters
 (one code path, but every Chapter 3 solve — the most-used lab — then runs
@@ -329,9 +368,14 @@ Two deliberate choices:
 
 **`LpConstraintLE` on `FacilityCount`.** `solve.py:405` uses `LpConstraintEQ`
 for `p-median-us`. This model uses `<=`, matching the COG notebook's
-`lpSum(use_plant) <= max_plants`. With no fixed facility cost the optimum always
-uses all `P`, so the two forms give the same answer here — but the divergence is
-deliberate and gets a test (§8.2) so that a later reader does not "fix" it.
+`lpSum(use_plant) <= max_plants`.
+
+The defensible statement is narrow: with no fixed opening cost, opening a further
+facility never *worsens* the objective, so an optimum using all `P` always exists —
+but it is not the only optimum, and an unused open facility is unconstrained, so
+the solver may return fewer. Both pinned golden scenarios happen to open exactly
+three (§8.1). The general contract stays **at most `P`**, the constraint sense is
+`LE`, and §8.2 pins the sense so a later reader does not "fix" it to `EQ`.
 
 **Per-pair linking rather than the aggregated `Σ_c A[w,c] <= |C|·Open[w]`.** The
 aggregated form is 33 rows instead of 10,329, but its LP relaxation is far
@@ -346,13 +390,24 @@ for (w, c) in assigned_pairs:
     d = dist[(w, c)]                      # distance table. never ec, never cost.
     dist_weighted += d * demand[c]
     edges.append({"fromId": w, "toId": c, "flow": round(demand[c]),
-                  "distance": d, "band": band_idx})
+                  "distance": d, "band": assign_band_or_overflow(d, distance_bands)})
     for b in distance_bands:
         if d <= b:
             band_demand[b] += demand[c]
 
 weighted_avg_distance = dist_weighted / total_demand
 ```
+
+**Overflow is explicit.** The dataset reaches 3,268.87 mi (§4.1) while the
+largest default band is 1,600, so lanes outside every band are possible. The
+shared client path already handles this — `computeCumulativeBandCoverage`
+(`lib/units/src/bands.ts:37-52`) appends an `OVERFLOW_BAND` row when
+`overflowFlow > 0`, and `assignBandOrOverflow` (`:20`) is what colours routes.
+The solver's band index must use the overflow-aware form, not the legacy
+`assignBand`. Both pinned scenarios reach 100% by 1,600 mi so neither produces an
+overflow row, which is precisely why a synthetic over-1,600 case is required in
+§8.2 rather than relying on the goldens to exercise it. Coverage below 100% at
+1,600 in a student what-if is not an error; the remainder belongs in Overflow.
 
 Three things here are load-bearing.
 
@@ -386,10 +441,9 @@ coverage bars — only route colouring via `assignBand`.
 ### 5.7 Emitted envelope
 
 ```python
-_envelope(cbc.solutionStatus, status_str, round(obj_val), run_time, edges,
-          {"utilizationByNode": utilization,
-           "bandCoverage": band_coverage,
-           "weightedAvgDistance": round(weighted_avg_distance, 1)},
+_envelope(cbc.solutionStatus, status_str, round(obj_val, 2), run_time, edges,
+          {"bandCoverage": band_coverage,                       # percent: round(pct, 2)
+           "weightedAvgDistance": round(weighted_avg_distance, 4)},
           {"openWarehouseIds": open_ids,
            "assignments": assignments,
            "objective": "cost_adjusted" if cost_adjust_enabled else "base"},
@@ -399,6 +453,31 @@ _envelope(cbc.solutionStatus, status_str, round(obj_val), run_time, edges,
 `details.objective` exists to drive units — see §6.5. No new `MetricsSchema`
 fields are needed; `weightedAvgDistance` and `bandCoverage` are already optional
 members of the shared schema (`resultEnvelope.ts:34`).
+
+**Precision is part of the contract, not a display choice.** The existing
+solvers store `round(obj_val)` and `round(avg_dist, 1)`; copying that would make
+§8.1's goldens unpinnable — the objectives run to cents and the weighted averages
+to four decimals. The stored envelope therefore keeps `objective` to 2 dp,
+`weightedAvgDistance` to 4 dp and band percentages to 2 dp. Studio may *display*
+one decimal; it must not be the reason the stored value lost precision.
+
+Band percentages are the one place this collides with shared code:
+`computeCumulativeBandCoverage` returns `Math.round((within * 100) / totalFlow)` —
+integers. Service Stats recomputes live from `edges` through that function, so a
+2 dp solver metric would be displayed as an integer the moment a student touches
+the bands. **Decision: add opt-in decimal precision to that helper, defaulted to
+the current integer behaviour**, so no existing model's output moves, and pass
+2 dp for this model. Changing its default rounding is out of scope — five models
+have tests pinned to integers.
+
+**`utilizationByNode` is not emitted.** This model has no capacity, so there is
+no utilisation denominator and any value would be fabricated.
+`OpenWarehousesTab.tsx:158` keys on `capabilities.capacityModes` being an empty
+array — `showDemandServed = capacityModes != null && capacityModes.length === 0` —
+which §6.1's manifest already satisfies, so the tab renders a **Demand Served**
+column and `showUtilization` (`:160`) is false. The Demand Served value is summed
+from `edges`, not from `utilizationByNode`, so omitting the metric costs nothing
+and emitting it would plant a number nothing can compute.
 
 ### 5.8 Failure modes
 
@@ -503,7 +582,7 @@ New `artifacts/api-server/src/validation/inputs/delivery.ts`:
 const laneCostOverrideSchema = z.object({
   fromId: z.string().min(1),
   toId:   z.string().min(1),
-  cost:   z.number().positive(),
+  cost:   z.number().finite().nonnegative(),
 });
 
 export const deliveryInputsSchema = z.object({
@@ -529,8 +608,45 @@ Two notes:
 - `costPerMileOver >= costPerMile` is **not** enforced. The case study uses 1 and
   10, but a student exploring a long-haul discount is doing legitimate
   what-if work, and an invented constraint would block it.
+- **The cost domain is nonnegative, not positive.** The source data contains 33
+  zero-distance self-lanes (§4.1), seeded into `costs.json` as zero costs, so a
+  schema that forbids a zero *override* would forbid restoring a value the
+  dataset itself ships. The rates stay strictly positive (a zero rate makes every
+  lane free and the objective degenerate); demand stays positive.
+- The dataset files themselves are not a second line of defence here:
+  `DistanceMap` is `z.record(z.string(), z.number())`
+  (`lib/dataset-schema/src/index.ts:23`), which accepts zero *and negative*
+  values. Domain validation for the lane tables therefore has to live in the
+  reference-cost builder (§6.4), not in `PACKAGE_SPECS`.
 
 Registered in `KNOWN_SCHEMAS` (`registry/modelRegistry.ts:19`).
+
+**A Zod bound is not a UI bound.** `p: 1..33` constrains the API only. Both
+parameter surfaces default `pMax = 50` — `OptimizationParametersTab.tsx:151` and
+`SolveDialog.tsx:156` — and the quick-pick row is
+`[2, 3, 4, 10, 25].filter(n => n <= pMax)` (`:209`). Without passing `pMax={33}`
+at both call sites a student can select 40 and receive a 422 from a control that
+offered it. Tests must cover 33 accepted and 34 rejected, in the UI as well as
+the schema.
+
+### 6.2.1 Precheck
+
+`runNetworkEditsPrecheckForModel` (`services/precheck.ts:1368`) is a chain of six
+`if (modelId === …)` branches ending in `return { ok: true, errors: [] }`. An
+unregistered model is therefore **silently pre-approved** — every override sails
+through to the worker, and a bad id surfaces as a generic `internal_error` from
+`UnresolvableIdError` instead of an actionable 422.
+
+`precheckDeliveryInputs()` is required, dispatched from that chain, and must
+verify: `fromId` is in the warehouse set; `toId` is in the customer set; the pair
+exists in both `costs.json` and `distances.json`; the cost is finite and within
+the §6.2 domain; and duplicate `(fromId, toId)` pairs are rejected — the Zod
+`.refine` catches duplicates within one request, not a duplicate that arrives
+across two writes.
+
+The solver keeps its own `UnresolvableIdError` and fails closed. Precheck exists
+so that invalid *user input* is a 422 the student can act on, and the solver
+guard is the backstop for anything that bypasses it.
 
 ### 6.3 Routes
 
@@ -542,8 +658,13 @@ Registered in `KNOWN_SCHEMAS` (`registry/modelRegistry.ts:19`).
 - The export/import `entityIs*` gate chains (`:906-922`, `:1602-1618`,
   `:1670-1686`) need **no** entry — see §7.4, import/export is out of scope.
 - `GET /dataset` (`routes/dataset.ts:12`) gains a branch returning
-  `{ warehouses, customers }`. This endpoint returns *only* entities, never lane
-  tables, so the 10,329-lane files never reach the browser through it.
+  `{ warehouses, customers }`, **and** the dataset loader it reads from gains the
+  delivery entities. This endpoint returns *only* entities, never lane tables, so
+  the 10,329-lane files never reach the browser through it.
+- `routes/index.ts` must `import` and `router.use()` the new reference-costs
+  router. This repo mounts every router there, not in `app.ts` (the file says so
+  at `:10-15`), and a route file that exists but is never mounted 404s with no
+  error anywhere — creating `referenceCosts.ts` is not self-wiring.
 
 ### 6.4 Reference costs
 
@@ -583,6 +704,17 @@ lie in the contract that some future reader would have to discover.
 
 The response is ~10,329 pairs in one document. It is ETag-cached with
 `must-revalidate`, so a student pays it once per dataset version.
+
+**The builder validates before it serves.** `PACKAGE_SPECS` cannot do this —
+`DistanceMap` accepts any number (§6.2) — so this is the only place a malformed
+lane table is caught. It must assert: exactly 33 × 313 = 10,329 pairs; identical
+key sets in `costs.json` and `distances.json`; every id role-prefixed and present
+in its entity file; and every value finite and nonnegative. A failure is a boot/
+load error, not a 200 with bad data.
+
+Tests: 200 with pairs, ETag present, 304 on matching `if-none-match`, 422 for a
+model without the capability, a malformed-source case, and a test that the router
+is actually reachable through the top-level mount.
 
 ### 6.5 Objective units
 
@@ -721,8 +853,40 @@ A new `DeliveryCostsTab.tsx`, modelled directly on `DistancesTab.tsx`:
 - Add-a-row uses typed ids, as `DistancesTab.tsx:660-698` does. Validation is
   non-empty ids, positive cost, and pair-not-already-overridden.
 
-Wiring in `Workspace.tsx` follows the existing per-model input-tab gates around
-`:2140-2200` and the tab-content render gates around `:3356-3465`.
+**The fixed input surface has to be declared, not left to omission.** This is the
+one place decision 11 could silently fail. `inputEntriesForModel`
+(`Workspace.tsx:1184`) is a `switch (modelId)` whose tail reads:
+
+```ts
+case "p-median-brazil":
+case "p-median-us":
+default:
+  return [input-map, customers, warehouses, distances, optimization-parameters];
+```
+
+A model that is merely absent from the switch lands in `default:` and inherits the
+**full p-median editing surface** — Customers, Warehouses and Distances editors —
+which is the exact opposite of decision 11. The Input Map is likewise rendered
+with `mode="pmedian"` and `onInputsChange={handlePMedianMapInputsChange}`
+(`Workspace.tsx:2999-3003`), an editable map. Omitting this model from allowlists
+does not produce a read-only lab; it produces an editable one by default.
+
+So `inputEntriesForModel` gets an **explicit** three-entry case:
+
+1. **Input Map** — read-only.
+2. **Delivery Costs** — sparse overrides, the only editable dataset surface.
+3. **Optimization Parameters**.
+
+The read-only map is the smallest safe change: a variant of the existing p-median
+map with every mutation affordance removed — add, copy, move, delete, status,
+coordinate and demand controls, and any Save action for map data. Not a new map
+component.
+
+A Studio test must assert **both halves**: that the tab set is exactly those three,
+and that each named mutation affordance is absent. Asserting the tab list alone
+would pass against a map that still lets a student drag a warehouse.
+
+The remaining wiring follows the existing per-model tab-content render gates.
 
 **Import/export is deliberately out of scope for v1.** Registration point 9 —
 `services/templates.ts`, `services/import.ts`'s `ImportEntity` union and
@@ -748,7 +912,22 @@ single-scenario and compare views automatically. The "Open facilities" row is
 absent by §6.1's `supportsFacilityStatus: false`.
 
 Service Stats renders the four bands from `bandCoverage`, recomputing live from
-`edges[].distance` when a student edits the bands (`ServiceStatsTab.tsx:288-290`).
+`edges[].distance` when a student edits the bands (`ServiceStatsTab.tsx:288-290`),
+plus the Overflow row when any lane exceeds the largest band (§5.6).
+
+**Where each of the three required outputs lives** — decision 10's placement,
+stated once so the two sections cannot drift apart again:
+
+| `Outputs Needed` item | Tab |
+| --- | --- |
+| Objective | Solution Summary |
+| Weighted average distance | Solution Summary |
+| % of demand within 400 / 800 / 1200 / 1600 (+ Overflow) | Service Stats |
+| Map of the solution with the lines | Output Map |
+
+Open Warehouses shows facility, city and **Demand Served** (§5.7). This is the
+least invasive split: it is where every other model already puts these values,
+so no shared component needs a new row type.
 
 ### 7.7 Coordination with the in-flight Chapter 4 two-step work
 
@@ -871,13 +1050,23 @@ template.
 | `test_scenario_1_golden` | §8.1's base column end to end |
 | `test_scenario_2_golden` | §8.1's adjusted column end to end |
 | `test_avg_distance_not_derived_from_objective` | With `costPerMileOver = 10`, the reported `weightedAvgDistance` equals the hand-computed distance mean and **not** `objective / totalDemand`. The §5.6 bug class, third occurrence. Cloned from `test_two_echelon.py:91`. |
-| `test_cost_override_does_not_move_distance_metrics` | A `laneCostOverride` changes the objective and leaves `weightedAvgDistance` and `bandCoverage` untouched when the assignment is unchanged. The §5.4 invariant. |
+| `test_cost_override_does_not_move_distance_metrics` | The §5.4 invariant. The "assignment unchanged" precondition must be **forced, not hoped for**: the fixture pins the open set and asserts assignment equality before comparing metrics, because a large enough cost override legitimately changes the optimum and therefore legitimately moves `weightedAvgDistance`. A companion case covers the other side — an override big enough to move the assignment, where the metrics *are* expected to change. |
 | `test_threshold_boundary_is_inclusive` | A synthetic lane at exactly the threshold bills at `costPerMile`, not `costPerMileOver`. Decision 7 — untestable on the real dataset, which has no such lane, so this one is synthetic by necessity. |
-| `test_facility_count_is_at_most_p` | `Σ open <= p`, and the constraint sense is `LE`. Decision 8, guarding against a later "fix" to `EQ`. |
+| `test_facility_count_is_at_most_p` | `Σ open <= p`, and the constraint sense is `LE`. Decision 8, guarding against a later "fix" to `EQ`. Asserted against the **built PuLP problem** via the `_build_delivery_problem()` seam below — never by reading `solve.py`'s source text. |
 | `test_single_source` | Every customer has exactly one assignment with `flow == demand`. |
-| `test_band_coverage_is_cumulative` | Band percentages are non-decreasing across ascending bands. |
+| `test_band_coverage_is_cumulative` | **Exact** demand-derived percentages, not merely non-decreasing — §8.1's four values per scenario to 2 dp. Non-decreasing is satisfied by an exclusive rollup too, so it cannot tell the two semantics apart, which is the only thing this test exists to pin. |
+| `test_overflow_band_is_emitted` | A synthetic lane beyond the largest band produces an Overflow row that is counted and exported, and coverage at 1,600 below 100% is not treated as an error. Synthetic by necessity — both goldens reach 100% by 1,600. |
 | `test_edges_carry_distance_not_cost` | With the toggle on, `edges[].distance` matches `distances.json`, not `ec`. The §5.6 live-coverage trap. |
 | `test_toggle_off_equals_unit_rate` | `costAdjustEnabled: false` and `true` with both rates `= 1` give the same objective. Confirms §5.4's claim that "off" is the case study's Scenario 1. |
+
+**Two pure seams make these testable without source-text inspection.**
+`solve_delivery` is factored so that `_effective_delivery_costs(cost, dist, opts)`
+(§5.4's rule) and `_build_delivery_problem(...)` (§5.5's LP, returning the PuLP
+object before `_run_cbc`) are separately callable. Constraint-sense and
+threshold-boundary assertions run against those return values. Asserting on
+`Function.prototype.toString()`-style source reads is the failure mode this repo
+has already documented — the transform strips comments and the assertion quietly
+tests nothing.
 
 `test_datasets.py` gains a `delivery-teaching-us` case: 33 warehouses, 313
 customers, 10,329 lanes in each of `distances.json` and `costs.json`, no missing
@@ -915,8 +1104,27 @@ distance → toggle Adjust Cost Table → re-solve → assert the DC set flips t
 Scenario 2's and 800-mile coverage rises → override one lane's cost → re-solve →
 assert the objective moves and the distance metrics behave per §8.2.
 
-`e2e_accuracy.py` and `e2e_journey.py` gain a `delivery` case each, following
-their existing relative-assertion style.
+Most browser assertions run against **seeded solver results**. pytest owns the
+numeric proof; Playwright should carry at most one real-CBC journey, or the suite
+pays for three slow redundant solves to re-prove what §8.2 already pins. The
+cost-override step in particular must pin a lane whose override cannot change the
+assignment, or assert the correct result of a controlled change — the same
+ambiguity §8.2 closes.
+
+**`e2e_accuracy.py` is NOT modified.** An earlier revision of this spec said it
+would "gain a `delivery` case", which violates CLAUDE.md hard rule 2 — that script
+validates solver output against the textbook's published answers, must pass
+unmodified, and changing it requires explicit human approval. It has no
+`max-coverage-us` section either, for the same reason; per-model accuracy lives in
+`test_<model>.py`. This model's goldens live in `test_delivery.py` (§8.2), and
+`e2e_accuracy.py` is only **run** at the gate, never edited.
+
+`e2e_journey.py` does gain a `delivery` journey. Note that CLAUDE.md:139 still
+describes that script as "fully non-runnable" because it authenticates via the
+removed `POST /login {userId}`. That note is **stale** — the script now uses
+`POST /auth/register` + `POST /auth/login` (`e2e_journey.py:201,235,239`). The
+note must be corrected as part of closeout; until it is, it will be read as a
+reason to skip a gate that in fact works.
 
 ---
 
@@ -939,12 +1147,37 @@ during this design and both fail silently. The working list for this model:
 | 10 | Map multi-select allowlist | `Studio.tsx` — N/A, no bulk entity editing |
 | **11** | **`objectiveDimension()`** | **`lib/units/src/objective.ts:20` — silent `"opaque"` on miss** |
 | **12** | **`MODEL_IDS`** | **`lib/dataset-schema/src/index.ts:269`** |
+| **13** | **`inputEntriesForModel` explicit case** | **`Workspace.tsx:1184` — a permissive `default:` grants the full p-median editing surface (§7.4)** |
+| **14** | **`runNetworkEditsPrecheckForModel` branch** | **`services/precheck.ts:1368` — returns `{ok:true}` for an unknown model (§6.2.1)** |
+| **15** | **Router mount** | **`routes/index.ts` — an unmounted route file 404s silently** |
+| **16** | **`buildEffectiveFacilityCityLookup`** | **`services/templates.ts` — per-model dataset branches; missing it blanks the city column in Open Warehouses exports** |
+| **17** | **`pMax` at both parameter mounts** | **`OptimizationParametersTab.tsx:151`, `SolveDialog.tsx:156` — both default 50 against a schema cap of 33** |
+| **18** | **`registration.test.ts`** | **`registry/__tests__/registration.test.ts` — `SOLVABLE` set, stub inputs, exact model count** |
 
 Plus `chapters.ts`'s `StudioModelType` union and `CHAPTERS` entry,
 `defaultInputsForModel`, and `routes/dataset.ts`.
 
-Points 11 and 12 should be folded back into `model-integration-precheck.md` as
-part of this work, so the eighth model does not rediscover them.
+Six of these eighteen — 13 through 18 — were found only by reviewing this spec
+against source, and **five of the six fail silently**: a permissive default, an
+unmounted router, a pre-approving precheck, a blank export column, and a UI bound
+that disagrees with its schema. Points 11 through 18 should be folded back into
+`model-integration-precheck.md` as part of this work, so that the next model to
+be added does not rediscover them.
+
+**Registry set-equality should become a test, not a checklist.** Eighteen
+hand-maintained lists is past the point where a search-and-remember process is
+reliable. A single test asserting set equality across `KNOWN_MODEL_IDS`,
+`MODEL_IDS`, `VALID_MODEL_IDS`, `KNOWN_SCHEMAS`, `PACKAGE_SPECS`, the OpenAPI
+enums, `StudioModelType` and the solver dispatcher would convert most of this
+table into one failing assertion.
+
+**On counts in tests.** This is the **seventh** registered model on a six-model
+base. `registration.test.ts` carries an exact count, Landing goes from three
+visible labs to four, and `bundle4-auth-landing.spec.ts` / `bundle6-ui-tweaks.spec.ts`
+assert lab counts and chapter strips. Those two specs are *already* stale at main
+— `docs/CHANGELOG-implementation.md:411` records them asserting "2 labs" when the
+true figure has been 3 since Chapter 4 was unlocked — so this work must not
+assume their current expectations are a correct baseline to increment.
 
 ---
 
@@ -952,7 +1185,14 @@ part of this work, so the eighth model does not rediscover them.
 
 Stated so that their absence reads as a decision rather than an omission:
 
-- **CSV/JSON import/export for the cost table** — §7.4. Additive later.
+- **CSV/JSON import/export for the *editable input* cost table** — §7.4. Additive
+  later. This exclusion is **input-side only**. All four output grids — Open
+  Warehouses, Assignments, Cost Summary, Service Stats — remain downloadable as
+  CSV and JSON exactly as they are for every other model, and are in scope and
+  tested. Exports must carry the correct objective mode and units, §5.7's
+  precision, and Overflow rows; and `buildEffectiveFacilityCityLookup` must gain
+  this model (checklist point 16) or the Open Warehouses export ships blank
+  cities.
 - **Editing demand, adding warehouses or customers, excluding customers,
   facility open/close status** — decision 11.
 - **Any capacity constraint** — decision 12.
@@ -975,3 +1215,483 @@ Stated so that their absence reads as a decision rather than an omission:
 | `reference-costs` payload size | ~10,329 pairs, ETag-cached with `must-revalidate`; paid once per dataset version. Acceptable, and identical in shape to what `p-median-us` already serves. |
 | Three "Chapter 5" cards, two hidden | Cosmetic. Landing shows one; the label is only visibly duplicated if the other two are ever unhidden. |
 | Dataset transcription error | Mitigated by a committed, re-runnable extraction script (§4.3) and `test_datasets.py`'s shape assertions, plus the §8.1 goldens which were computed from the xlsx directly and would not reproduce from a corrupted transcription. |
+
+---
+
+## 12. Implementation-readiness review
+
+**Review status: changes required before implementation approval.** The
+mathematical core and both teaching scenarios have been independently
+reproduced, but the integration design is not yet complete. The items in this
+section supersede any conflicting statements earlier in the document.
+
+### 12.1 Scope and over-engineering assessment
+
+The separate delivery solver and separate reference-cost endpoint are justified:
+the model's objective semantics differ from the existing distance-driven models,
+and keeping the solver isolated reduces regression risk. A broad refactor of the
+shared optimization code would be over-engineering for this chapter.
+
+Similarly, creating a new map editor is unnecessary. The smallest safe UI change
+is a read-only variant of the existing p-median map that removes all entity,
+demand, status, and coordinate mutation affordances. The delivery cost table is
+the only dataset editor this chapter needs.
+
+The statement that this feature changes "zero lines" of existing solver code
+should be read narrowly: the mathematical implementations of existing models do
+not change, but the shared Python dispatcher, TypeScript payload builder, model
+loaders, registries, and UI routing necessarily do. The correct risk claim is
+"isolated solver mathematics with shared integration changes."
+
+### 12.2 Independently verified numerical evidence
+
+The committed prototype was run independently against the source workbook. It
+reproduced:
+
+| Measurement | Base scenario | Adjusted scenario |
+| --- | ---: | ---: |
+| Objective | 88,240,913,478.1000 | 150,194,534,098.6002 |
+| Open warehouses | W1, W2, W60 | W6, W43, W45 |
+| Weighted average distance | 422.5511 | 508.6534 |
+| Cumulative coverage | 59.38 / 81.45 / 99.44 / 100.00 | 26.43 / 97.19 / 100.00 / 100.00 |
+
+The extracted shape also reproduced: 33 warehouses, 313 customers, 10,329
+lanes, and total demand 208,829,000. This approves the numerical source and the
+teaching claim, but not yet the integration implementation.
+
+### 12.3 Blocking contract corrections
+
+#### 12.3.1 Result precision
+
+The envelope pseudocode in §5.6 currently rounds the objective to an integer and
+weighted average distance to one decimal, while §8.1 pins objective cents and
+WAD to four decimals. The canonical solver-envelope contract is:
+
+```python
+objective = round(obj_val, 2)
+weightedAverageDistance = round(weighted_avg_distance, 4)
+bandCoverage = round(percent, 2)
+```
+
+The Studio may display WAD at one decimal, but it must not discard precision in
+the stored result. The current shared `computeCumulativeBandCoverage()` rounds
+percentages to integers; delivery must either add precision support without
+changing existing model output or explicitly accept integer UI percentages.
+The preferred behavior is two-decimal delivery percentages in both the envelope
+and Service Stats.
+
+#### 12.3.2 Fixed geography and demand
+
+The intended editable surface is not secured merely by omitting delivery from
+some tab allowlists. `Workspace.tsx` currently defaults unknown models to the
+p-median input list and editable p-median map mode. Delivery must have an
+explicit input-tab definition:
+
+1. Input Map — read-only.
+2. Delivery Costs — editable overrides only.
+3. Optimization Parameters.
+
+The delivery map must hide add, copy, move, delete, status, coordinate, and
+demand controls, together with any Save action for map data. A Studio test must
+assert both the allowed tabs and the absence of every mutation affordance.
+
+#### 12.3.3 Override ID integrity and precheck
+
+The proposed API says an unknown ID raises `UnresolvableIdError`, but the current
+precheck dispatcher accepts unknown model IDs without delivery-specific semantic
+validation. Add `precheckDeliveryInputs()` and dispatch to it before creating a
+job. It must verify:
+
+- `fromId` belongs to the warehouse set;
+- `toId` belongs to the customer set;
+- the pair exists in both `costs.json` and `distances.json`;
+- the override is finite and inside the documented cost domain; and
+- duplicate overrides are resolved deterministically or rejected explicitly.
+
+The solver must repeat the essential checks and fail closed, but invalid user
+input must normally return an actionable 422 rather than a generic worker
+`internal_error`. Warehouse and customer selectors/autocomplete are preferable
+to unrestricted free-text ID entry.
+
+#### 12.3.4 Cost domain
+
+The source data contains zero-cost self lanes, but §6.1's proposed override
+schema uses `.positive()`. The recommended canonical rule is:
+
+- lane cost overrides: finite and nonnegative;
+- `costPerMile` and `costPerMileOver`: finite and positive; and
+- demand: positive.
+
+If zero-value overrides are intentionally forbidden, that restriction and its
+teaching rationale must be stated explicitly because it differs from the source
+domain.
+
+#### 12.3.5 Meaning of `P`
+
+`sum(y) <= P` is the intended contract and must remain an `LE` constraint. The
+claim that an optimum "always uses all P" is too broad: with no opening cost,
+unused opens can be arbitrary and more facilities need not strictly improve
+every possible dataset. The supported statement is that both pinned golden
+scenarios use exactly three warehouses while the general model remains
+"at most P."
+
+The maximum of 33 must be wired into both `OptimizationParametersTab` and
+`SolveDialog`; schema validation alone is insufficient because the generic UI
+currently allows values up to 50. Tests must cover 33 as valid and 34 as invalid.
+
+#### 12.3.6 Solution Summary versus Service Stats
+
+Decision 10 and §7.3 disagree about where cumulative coverage appears. The
+least invasive canonical presentation is:
+
+- Solution Summary / Cost Summary: objective and weighted average distance;
+- Service Stats: the four cumulative thresholds and Overflow; and
+- Open Warehouses: facility, city, and Demand Served.
+
+Delivery has no capacity model. Do not emit an undefined utilization value or
+allow `OpenWarehousesTab` to fall back to its utilization column. Pass the same
+no-capacity configuration used by models that display Demand Served.
+
+#### 12.3.7 Overflow semantics
+
+The source contains distances above 1,600 miles. Shared map code now uses
+`assignBandOrOverflow`, not the older `assignBand` behavior described in §5.6.
+Delivery must preserve the explicit Overflow bucket for routes outside the
+largest configured band. A synthetic or controlled test must prove that a route
+above 1,600 miles is colored, counted, and exported as Overflow.
+
+Coverage through 1,600 miles may be below 100% in student what-if scenarios;
+the remaining share is not an error if it appears in Overflow.
+
+### 12.4 Missing integration dependencies
+
+#### 12.4.1 Output exports are in scope
+
+The §9 import/export `N/A` applies only to importing and exporting the editable
+input cost table. It does not apply to solution outputs. All four output grids
+remain downloadable and must be tested as CSV and JSON:
+
+- Open Warehouses;
+- Assignments;
+- Cost Summary; and
+- Service Stats.
+
+`buildEffectiveFacilityCityLookup()` has model-specific dataset branches.
+Delivery must be added or Open Warehouses exports will have blank city values.
+Exports must also retain the correct objective mode, units, WAD precision,
+coverage precision, and Overflow rows.
+
+#### 12.4.2 Route and dataset mounting
+
+Adding `referenceCosts.ts` is insufficient by itself. The router must be
+imported and mounted in `routes/index.ts`, and the delivery dataset must be added
+to the dataset loader used by `GET /dataset`.
+
+The reference-cost builder must validate before serving data:
+
+- exactly 33 × 313 pairs;
+- identical key sets in cost and distance matrices;
+- valid role-prefixed warehouse and customer IDs;
+- finite, nonnegative costs and distances; and
+- no missing or extra pairs.
+
+Tests must cover 200, ETag, 304, unsupported-model 422, malformed source data,
+and successful top-level router mounting.
+
+#### 12.4.3 Registry and exact-count tests
+
+The checklist must include
+`artifacts/api-server/src/registry/__tests__/registration.test.ts`, not only
+`registry.test.ts`. Update its `SOLVABLE` set, stub inputs, and exact model count.
+This is the seventh registered model on the current six-model base; wording that
+calls it the eighth model must not be used unless another model lands first.
+
+The dependency audit must also include:
+
+- `KNOWN_MODEL_IDS`, `MODEL_IDS`, `VALID_MODEL_IDS`, and `KNOWN_SCHEMAS`;
+- `PACKAGE_SPECS` and the manifest tests;
+- all four OpenAPI model enums followed by code generation;
+- `SolveInput`, `buildPayload`, and the Python solve dispatcher;
+- scenario route allowlists and dataset loaders;
+- `StudioModelType`, `CHAPTERS`, and `defaultInputsForModel`;
+- objective-dimension and objective-label mappings;
+- Landing visibility and recent-solve rendering; and
+- hard-coded exact model and lab counts in unit and browser tests.
+
+The Landing count changes from three visible labs to four on the current base.
+Login/AuthShell chapter-strip tests and `bundle4-auth-landing.spec.ts` /
+`bundle6-ui-tweaks.spec.ts` must be audited alongside `Landing.test.tsx`.
+`transport-coal` and `p-median-brazil` remain registered but hidden.
+
+#### 12.4.4 Documentation and source inventory
+
+The closeout must update all documentation that still says the product has six
+models, including README and CLAUDE model tables. `attached_assets/NOTEBOOKS.md`
+currently says Chapter 5 has no notebook and must be updated when the sources are
+committed. Source checksums must be recorded exactly.
+
+Changes under `attached_assets/` require an explicit implementation-plan task
+and authorization under the repository rules. This design supplies the intended
+authorization, but the execution task must still name the exact files and hashes.
+
+### 12.5 Reproducibility corrections
+
+The prototype currently hardcodes a user-specific Downloads path and writes to
+`/tmp/ch5x/goldens.json`, assuming the directory exists. Before it is accepted as
+a committed independent oracle, change it to:
+
+```text
+python3 docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py \
+  --xlsx attached_assets/<source-workbook>.xlsx \
+  --json-out /tmp/<generated-file>.json
+```
+
+The output argument should be optional. The script must verify the recorded
+source SHA-256 and create only an explicitly requested output directory.
+
+The extractor should have a deterministic `--check` mode that writes to a
+temporary directory and byte-compares, or hashes and compares, every generated
+file against the committed solver dataset. Shape assertions alone cannot detect
+a value-preserving cardinality error, swapped IDs, or a transcription difference
+that happens not to alter the two golden optima.
+
+The review observed these source hashes at design time; re-check them when the
+files are copied because Downloads is not a controlled source directory:
+
+| Source | SHA-256 |
+| --- | --- |
+| COG notebook | `f3de39fb9306d5836a986a0f5349be285e883c904d91d9487b679b8d62f5c097` |
+| COG workbook | `0b8feeba841d55cdbc3c9b852413e0fbc80cb1dc06b7531ef3503a9e42be28c3` |
+| Transportation notebook | `98ef03da4fee2f54d9f5d30fbe88f212b870b92fa5aab11ba46b3e266c07fd01` |
+
+These hashes were re-read from the three named source files during the review.
+They must still be re-verified after the files are copied into `attached_assets/`.
+
+### 12.6 Test-plan corrections
+
+1. `test_cost_override_does_not_move_distance_metrics` is valid only when the
+   assignment is held constant. Use a constructed fixture that forces the same
+   opens and assignments, or make the assertion conditional on assignment
+   equality. A cost change may legitimately change the optimum and therefore
+   change WAD and coverage.
+2. The Playwright cost-override assertion has the same ambiguity. Pin a lane
+   whose override cannot change the assignment, or assert the mathematically
+   correct result of a controlled scenario.
+3. Test cumulative bands against exact demand-derived percentages and explicit
+   Overflow behavior. Merely asserting non-decreasing percentages is too weak.
+4. Constraint-sense and threshold-boundary tests need stable seams. Prefer pure
+   helpers such as `_effective_delivery_costs()` and `_build_delivery_problem()`,
+   or capture the built PuLP problem. Do not inspect Python source text.
+5. Most browser tests should use seeded solver results. Pytest owns full numeric
+   proof; retain at most one thin real-CBC browser/journey integration to avoid
+   three slow and redundant solves in Playwright.
+6. `e2e_accuracy.py` is a protected baseline under repository rules. Keep it
+   unchanged unless explicit human approval is recorded. Delivery goldens can
+   live in `test_delivery.py`, while `e2e_journey.py` gains the delivery workflow.
+7. The stale CLAUDE note that describes `e2e_journey.py` as broken must be
+   reconciled with the current repaired script and changelog before using that
+   note as a release decision.
+
+### 12.7 Review-closeout strategy
+
+Maintain a review matrix with these columns for every item below:
+`Decision`, `Producer`, `Consumer`, `Test`, `Owner`, `Status`, and `Evidence`.
+The review is closed only when every row has a named test or a documented reason
+that no executable check is possible.
+
+#### Gate A — freeze the implementation base
+
+- Land and verify the Chapter 4 parameter work first.
+- Record the base commit and confirm ancestry before implementation begins.
+- Re-run dependency searches because this document's line references were
+  captured before Chapter 4 implementation.
+- Run `git diff --check` and the baseline gates before changing delivery code.
+
+#### Gate B — source and dataset proof
+
+- Verify all complete SHA-256 values.
+- Run deterministic extractor `--check`.
+- Assert entity and lane cardinalities, unique IDs, pair completeness, role
+  prefixes, coordinate and ZIP validity, total demand, and cost/distance domains.
+- Assert exact key parity between distances and costs.
+
+#### Gate C — registration and contract proof
+
+- Compare the complete model-ID sets across registry, validation, package specs,
+  chapters, OpenAPI, payload building, and solver dispatch.
+- Add the route allowlist and dataset loader.
+- Generate clients from OpenAPI; never edit generated artifacts by hand.
+- Prove reference-cost 200/304/422 behavior and top-level mounting.
+
+#### Gate D — input and precheck proof
+
+- Prove the fixed input-tab set and read-only map behavior.
+- Prove `P` bounds in both parameter surfaces.
+- Prove known and unknown override IDs, missing pairs, duplicates, zero cost,
+  negative cost, non-finite values, and stale dataset versions.
+
+#### Gate E — solver and metric proof
+
+- Reproduce both goldens from the production solver and independent prototype.
+- Prove the `LE` facility constraint, inclusive threshold, disabled-toggle
+  equivalence, single-source assignment, and cost/distance separation.
+- Prove objective decomposition, WAD, exact cumulative bands, and Overflow.
+- Prove a controlled override both with and without an assignment change.
+
+#### Gate F — UI and output proof
+
+- Test Landing, chapter strip, recent solves, scenario creation, solve, and
+  restored saved inputs.
+- Test objective labels and units in both modes and explicitly reject `opaque`.
+- Test Open Warehouses Demand Served behavior.
+- Test all four output grids and both export formats.
+- Test reference-cost filtering and pagination at 10,329 rows.
+
+#### Gate G — release and documentation proof
+
+- Run typecheck, API tests, Studio tests, pytest, the protected accuracy harness,
+  the delivery journey, and targeted plus full Playwright gates.
+- Update README, CLAUDE, NOTEBOOKS, changelog, and the model-integration precheck.
+- Complete the harness retrospective and attach command output to the review
+  matrix or implementation plan.
+
+### 12.8 Dependency-discovery commands
+
+Run these searches after Chapter 4 lands and again immediately before merge:
+
+```bash
+rg -n 'p-median-us|transport-coal|max-coverage-us|MODEL_IDS|VALID_MODEL_IDS|KNOWN_SCHEMAS|PACKAGE_SPECS' \
+  artifacts lib scripts README.md CLAUDE.md
+
+rg -n 'toHaveLength\(6\)|six models|[234] labs|hiddenFromLanding|chapterStrip|Chapter 4' \
+  artifacts lib e2e README.md CLAUDE.md
+
+rg -n 'modelId ===|switch \(modelId\)|case "' \
+  artifacts/studio/src artifacts/api-server/src
+
+rg -n 'inputEntriesForModel|mode="pmedian"|pMax=|capacityModes|supportsFacilityStatus' \
+  artifacts/studio/src
+
+rg -n 'router.use\(|referenceDistancesRouter|buildEffectiveFacilityCityLookup|outputGrids|OUTPUT_ENTITIES' \
+  artifacts/api-server/src
+
+rg -n 'e2e_accuracy|e2e_journey|bundle4-auth-landing|bundle6-ui-tweaks' \
+  artifacts scripts .
+```
+
+Add a permanent automated set-equality test across model registries rather than
+relying indefinitely on manual searches. Also compare the implementation diff
+against the frozen base with:
+
+```bash
+git diff --name-only <base-commit>...HEAD
+git diff --check <base-commit>...HEAD
+```
+
+### 12.9 Required release commands
+
+Use the repository's exact documented environment and database setup. At
+minimum, capture evidence for:
+
+```bash
+pnpm run typecheck
+pnpm --filter api-server test
+pnpm --filter studio test
+python3 -m pytest artifacts/api-server/src/solver/tests
+python3 e2e_accuracy.py
+python3 e2e_journey.py delivery
+pnpm e2e:gate
+```
+
+The review attempt could not start the targeted pnpm baseline because the local
+package-manager signature/bootstrap check attempted registry access and failed.
+That is an environment/bootstrap failure, not evidence of either passing or
+failing repository tests. Resolve and record the package-manager environment
+before claiming a green baseline.
+
+### 12.10 Approval criteria
+
+Implementation may begin after the decisions in §12.3 are incorporated into the
+canonical contracts and an implementation plan assigns every §12.7 gate. Final
+review may close only when:
+
+- both goldens pass in the independent prototype and production solver;
+- every registry and consumer contains the same delivery model ID;
+- fixed geography/demand is proven in the UI and API;
+- override errors are actionable precheck failures;
+- every output grid and export is verified;
+- the complete documented gate set is green; and
+- provenance, docs, and the review matrix contain reproducible evidence.
+
+---
+
+## 13. Review response — 2026-09-28
+
+**Twenty-two of twenty-four items accepted and folded into §1–§11 above; two
+partially rejected with evidence.** Every item was verified against source before
+folding — none was accepted on the report alone, and the two rejections are
+rejections of fact, not of judgement. Six were defects that would have shipped,
+and five of those fail *silently*.
+
+Sections §1–§11 are the normative body. This section records what changed and
+why; where it and an earlier section could be read as disagreeing, the earlier
+section wins.
+
+### 13.1 Verdicts
+
+| Item | Verdict | Verified how | Landed in |
+|---|---|---|---|
+| 12.1 "zero lines" too broad | **Accept** | The dispatcher, payload builder, loaders and registries all change; §9 now lists 18 points | §5.1 |
+| 12.1 read-only map variant | **Accept** | Spec had no Input Map story at all | §7.4 |
+| 12.2 numerical evidence | **Noted** | Independent re-run reproduced all four rows and the 33/313/10,329/208,829,000 shape | §8.1 unchanged |
+| 12.3.1 precision | **Accept** | §5.7 stored `round(obj_val)`/`round(…,1)` while §8.1 pinned cents and 4 dp — self-contradictory. `computeCumulativeBandCoverage` (`bands.ts:37-52`) returns `Math.round(...)` integers | §5.7 |
+| 12.3.2 fixed geography | **Accept — and it is worse than stated** | `inputEntriesForModel` (`Workspace.tsx:1184`) ends `case "p-median-brazil": case "p-median-us": default:` returning the full p-median tab list; the map is `mode="pmedian"` with `onInputsChange` (`:2999`). Omission grants the editable surface | §7.4, §9 pt 13 |
+| 12.3.3 override precheck | **Accept** | `runNetworkEditsPrecheckForModel` (`precheck.ts:1368`) falls through to `return { ok: true, errors: [] }` for an unknown model | §6.2.1, §9 pt 14 |
+| 12.3.4 cost domain | **Accept, narrowed** | Overrides move to `finite().nonnegative()`. But the *dataset* was never at risk: `DistanceMap` is `z.record(z.string(), z.number())` (`dataset-schema/src/index.ts:23`), which accepts the 33 zero lanes — and also negatives, which is why validation moves to the reference-cost builder | §6.2, §6.4 |
+| 12.3.5 meaning of `P` | **Accept** | "always uses all P" was wrong; an optimum using all P exists, it is not unique, and unused opens are unconstrained. `pMax` defaults to 50 at `OptimizationParametersTab.tsx:151` and `SolveDialog.tsx:156` | §5.5, §6.2, §9 pt 17 |
+| 12.3.6 Summary vs Service Stats | **Accept** | Decision 10 and §7.6 genuinely disagreed. `OpenWarehousesTab.tsx:158` already yields Demand Served for `capacityModes: []`, so the manifest was right and the metric was wrong | Decision 10, §5.7, §7.6 |
+| 12.3.7 Overflow | **Accept** | `assignBandOrOverflow`/`OVERFLOW_BAND` (`bands.ts:20,37-52`) are the current path; §5.6 named the legacy `assignBand` | §5.6, §8.2 |
+| 12.4.1 output exports | **Accept** | §9's `N/A` was input-side only and did not say so. `buildEffectiveFacilityCityLookup` has per-model branches (`templates.test.ts:1034-1050`) | §10, §9 pt 16 |
+| 12.4.2 route + dataset mounting | **Accept** | `routes/index.ts` mounts every router; its own comment (`:10-15`) records that as the convention | §6.3, §6.4 |
+| 12.4.3 `registration.test.ts` | **Accept** | File exists with a `SOLVABLE` set and exact counts | §9 |
+| 12.4.3 "eighth model" wording | **Reject** | §9 said "so the **eighth** model does not rediscover them", meaning the model added *after* this one. This is the seventh; the next is the eighth. The sentence was correct. Reworded to "the next model to be added" anyway, since it was misread once | §9 |
+| 12.4.3 Landing counts | **Accept** | Confirmed, and sharpened: `bundle4`/`bundle6` are *already* stale at main per `CHANGELOG-implementation.md:411` — they assert "2 labs" against a true 3 — so their current values are not a baseline to increment | §9 |
+| 12.4.4 documentation | **Accept** | `README.md:155,171` say "six models" | §4.3, §13.2 |
+| 12.5 reproducibility | **Accept** | The committed prototype hardcodes `~/Downloads` and `/tmp/ch5x/`. All three SHA-256 values re-computed and **match exactly** | §4.3 |
+| 12.6.1 override test | **Partially reject** | §8.2 already carried "when the assignment is unchanged". The gap was that it did not say how the precondition is *enforced*, which is a real omission — now forced by fixture, plus a companion case for a change that does move the assignment | §8.2 |
+| 12.6.2 Playwright override | **Accept** | §8.5's "behave per §8.2" was too loose to implement | §8.5 |
+| 12.6.3 exact band percentages | **Accept** | Non-decreasing passes for an exclusive rollup too, so it cannot pin the semantics | §8.2 |
+| 12.6.4 test seams | **Accept** | `_effective_delivery_costs()` / `_build_delivery_problem()` added as named seams | §8.2 |
+| 12.6.5 seeded browser results | **Accept** | | §8.5 |
+| 12.6.6 `e2e_accuracy.py` protected | **Accept — this was a hard-rule violation** | CLAUDE.md rule 2: sacred, must pass unmodified, changes need explicit human approval. §8.5 had it "gain a delivery case" | §8.5 |
+| 12.6.7 stale CLAUDE note | **Accept** | CLAUDE.md:139 calls `e2e_journey.py` "fully non-runnable" via the removed `POST /login`; the script now uses `/auth/register` + `/auth/login` (`:201,235,239`). The note is stale | §8.5 |
+| 12.7–12.10 gates and closeout | **Accept as the implementation plan's shape** | These describe how the work is sequenced and evidenced, not what it is. They belong in the plan, and `writing-plans` will carry Gates A–G, the review matrix, and the required-evidence set | Plan, not spec |
+
+### 13.2 Closeout items this review added
+
+- `README.md:155,171` — "six models" becomes seven.
+- `attached_assets/NOTEBOOKS.md` — currently records Chapter 5 as having no
+  notebook; update when the two COG sources and the Chapter 5 notebook are
+  committed, with re-computed hashes (§4.3).
+- `CLAUDE.md:139` — correct the stale `e2e_journey.py` "non-runnable" note.
+- `model-integration-precheck.md` — fold in checklist points 11–18 (§9).
+- `docs/CHANGELOG-implementation.md` — the implementation entry, and the
+  `:448` line recording "Chapter 5 — nothing to commit".
+
+### 13.3 On the two rejections
+
+Neither changes the work. The "eighth model" item was a misreading of a correct
+sentence, and the override-test item was a real gap sitting underneath an
+incorrect characterisation — the caveat was present, the enforcement was not.
+Both are recorded rather than quietly absorbed, because a review response that
+reports twenty-four acceptances when two were not is the same failure mode as a
+spec whose line references were silently rewritten.
+
+### 13.4 What this review cost and caught
+
+Six defects would have reached implementation: the precision contradiction, the
+permissive tab default, the pre-approving precheck, the `pMax` mismatch, the
+blank export city column, and the `e2e_accuracy.py` rule violation. Five fail
+silently — no exception, no failing test, just wrong behaviour or a wrong number.
+That ratio is the argument for the §9 registry set-equality test: a checklist of
+eighteen hand-maintained lists is not a control, it is a hope.
