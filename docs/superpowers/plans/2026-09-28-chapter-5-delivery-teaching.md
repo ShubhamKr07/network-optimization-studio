@@ -1480,7 +1480,7 @@ git commit -m "[ch5-del-3] add solve_delivery with the cost/distance separation 
 - Modify: `artifacts/api-server/src/routes/scenarios.ts` (`VALID_MODEL_IDS` `:92-106`)
 - Modify: `artifacts/api-server/src/solver/pmedian.ts` (`SolveInput` `:8-13`, `buildPayload` branches `:20/:45/:86/:137`, fallthrough `:173`)
 - Modify: `lib/api-spec/openapi.yaml` (4 `modelId` enums at `:47`, `:166-172`, `:1417-1424`, `:1618-1625`; inline `ModelInfo.capabilities` at `:932-958`)
-- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (`SOLVABLE` `:25`, count `:98`, `STUB_INPUTS` `:118`, source gates `:222-238`)
+- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (`SOLVABLE` `:25`, `STUB_INPUTS` `:118`, source gates `:222-238`; the count at `:98` was already taken to `7` by Task 2 — verify only)
 - Create: `artifacts/api-server/src/__tests__/deliveryContract.test.ts`
 - Create: `artifacts/api-server/src/__tests__/modelIdSetEquality.test.ts`
 
@@ -1684,7 +1684,7 @@ There is no barrel to re-export from: `validation/inputs/index.ts` exports only 
 
 1. `SOLVABLE` (`:25`) — add `"delivery-teaching-us"`.
 2. `STUB_INPUTS` (`:118`) — add a minimal delivery object: `{ p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 60, costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10, laneCostOverrides: [] }`.
-3. `expect(res.body).toHaveLength(6)` (`:98`, `GET /api/models`) → **7**.
+3. `expect(res.body).toHaveLength(6)` (`:98`, `GET /api/models`) — **already `7`; verify, do not change.** Task 2 made this edit in commit `c4ecfb5`, because registering the 7th manifest breaks the assertion the instant it lands, and leaving it red across Tasks 3 and 4 would have masked any genuinely new api-server breakage in that window. Human-approved plan deviation, recorded in the progress ledger. Confirm the value reads `7` and move on; if it reads `6`, something reverted it and that is a real finding.
 4. The three `readFileSync` source-text gates at `:222-238` are written per model for the newest one (`max-coverage-us`). Add the delivery equivalents beside them: `pmedian.ts` contains `'input.modelId === "delivery-teaching-us"'` and `'modelType: "delivery"'`; `solve.py` contains `"if model_type == 'delivery':"`; the openapi enum loop over `KNOWN_MODEL_IDS` already covers the yaml once `KNOWN_SCHEMAS` has the key.
 
 - [ ] **Step 5: Add the set-equality test**
