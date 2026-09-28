@@ -146,71 +146,83 @@ describe("SolveDialog — max-coverage-us pMax + no band editor (C4.12)", () => 
   });
 });
 
-// Chen objective-mode toggle in the Run Optimizer dialog — mirrors
-// OptimizationParametersTab's own Chen block. Gated on `objective != null`
-// (opt-in prop, default undefined), so every other model's dialog is
+// CH4-17 — the free objective toggle (and its coverage-floor input) are
+// gone from this dialog. `objective` stays a read-only display prop, gated
+// on presence exactly like before, so every other model's dialog is
 // unaffected.
-describe("SolveDialog — Chen objective mode toggle", () => {
-  it("shows the toggle + active-mode field for a Chen scenario (coverage)", () => {
+describe("SolveDialog — Chen objective display (CH4-17: no toggle)", () => {
+  it("no longer renders a free objective toggle or a coverage-floor input for a Chen scenario (coverage)", () => {
     renderDialog({ objective: "coverage", avgServiceDistCapKm: 1000, distanceUnit: "km" });
-    expect(screen.getByTestId("solve-dialog-chen-objective-toggle")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeInTheDocument();
   });
 
-  it("shows the coverage-floor field in min-distance mode", () => {
-    renderDialog({ objective: "min_distance", coverageFloorDemand: 131645389, distanceUnit: "km" });
-    expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
+  it("renders no avg-service-cap or coverage-floor input for a min_distance display (only the server can produce that objective)", () => {
+    renderDialog({ objective: "min_distance", distanceUnit: "km" });
+    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
   });
 
-  it("toggling Coverage → Min-distance calls the shared onObjectiveModeChange handler, which swaps the visible field and keeps only the active mode's field persisted", () => {
-    const onObjectiveModeChange = vi.fn();
-    // Simulates Workspace.tsx's real setChenObjectiveMode transition: it
-    // clears the previous mode's field and seeds the new one atomically —
-    // this test asserts the dialog calls the SAME handler (not a
-    // reimplementation) and re-renders correctly once the parent applies it.
-    const { rerender } = renderDialog({
-      objective: "coverage",
-      avgServiceDistCapKm: 1000,
-      distanceUnit: "km",
-      onObjectiveModeChange,
-    });
-
-    fireEvent.click(screen.getByTestId("solve-dialog-chen-objective-min_distance"));
-    expect(onObjectiveModeChange).toHaveBeenCalledWith("min_distance");
-    expect(onObjectiveModeChange).toHaveBeenCalledTimes(1);
-
-    // Re-render as Workspace.tsx would after applying setChenObjectiveMode's
-    // atomic update: objective flips, coverageFloorDemand is seeded,
-    // avgServiceDistCapKm is gone (undefined) — only the active field shows.
-    rerender(
-      <SolveDialog
-        open
-        onOpenChange={vi.fn()}
-        gap={0}
-        timeLimitSec={120}
-        distanceBands={[200, 400, 800]}
-        phase="idle"
-        onChange={vi.fn()}
-        onSolve={vi.fn()}
-        objective="min_distance"
-        coverageFloorDemand={131645389}
-        avgServiceDistCapKm={undefined}
-        distanceUnit="km"
-        onObjectiveModeChange={onObjectiveModeChange}
-      />,
-    );
-
-    expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
-  });
-
-  it("does not render the toggle for a non-Chen scenario (objective omitted)", () => {
+  it("does not render the objective section for a non-Chen scenario (objective omitted)", () => {
     renderDialog({ p: 3 });
     expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
+  });
+});
+
+// R5 — for max-coverage-us the dialog becomes confirmation-only:
+// `readOnlyParams=true` hides every editable parameter control (P slider,
+// avg-service-cap, gap/time-limit, band editor) regardless of which step's
+// objective is being displayed, replacing them with a read-only summary.
+// The other five models never pass this prop, so their dialogs are
+// unaffected (asserted below via p-median-us's own render).
+describe("SolveDialog — R5 readOnlyParams (max-coverage-us confirmation-only)", () => {
+  const INPUT_TESTID_PREFIX = "solve-dialog-input-";
+
+  function queryAllInputControls() {
+    return document.querySelectorAll(`[data-testid^="${INPUT_TESTID_PREFIX}"]`);
+  }
+
+  it("exposes no editable parameter control in Step 1's display (objective=coverage)", () => {
+    renderDialog({
+      readOnlyParams: true,
+      p: 3,
+      objective: "coverage",
+      avgServiceDistCapKm: 1000,
+      distanceUnit: "km",
+      distanceBands: [700, 1400, 2800, 5500],
+    });
+    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(queryAllInputControls().length).toBe(0);
+    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-readonly-objective")).toHaveTextContent("Coverage");
+  });
+
+  it("exposes no editable parameter control in Step 2's display (objective=min_distance)", () => {
+    renderDialog({
+      readOnlyParams: true,
+      p: 3,
+      objective: "min_distance",
+      distanceUnit: "km",
+    });
+    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(queryAllInputControls().length).toBe(0);
+    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
+  });
+
+  it("p-median-us's dialog (readOnlyParams omitted) is unchanged — every editable control still renders", () => {
+    renderDialog({ p: 3, distanceBands: [200, 400, 800] });
+    expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-time-limit")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-readonly-summary")).not.toBeInTheDocument();
   });
 });
 
@@ -441,24 +453,22 @@ describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", 
     expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 804.672);
   });
 
-  it("gap / timeLimitSec / coverageFloorDemand are untouched by the toggle", () => {
+  // CH4-17 — there is no coverageFloorDemand field any more; a
+  // min_distance display renders no avg-service-cap and no floor field,
+  // leaving gap/timeLimitSec untouched.
+  it("gap / timeLimitSec are untouched by a min_distance display (no floor field exists)", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
-    const onChange = vi.fn();
     renderDialog({
       canonicalUnit: "km",
       objective: "min_distance",
-      coverageFloorDemand: 131645389,
       distanceBands: [600, 5000],
       gap: 0.02,
       timeLimitSec: 300,
-      onChange,
     });
     expect(screen.getByTestId("solve-dialog-input-gap")).toHaveValue(0.02);
     expect(screen.getByTestId("solve-dialog-input-time-limit")).toHaveValue(300);
-    const floor = screen.getByTestId("solve-dialog-input-coverage-floor");
-    expect(floor).toHaveValue(131645389);
-    fireEvent.change(floor, { target: { value: "200000000" } });
-    expect(onChange).toHaveBeenCalledWith("coverageFloorDemand", 200000000);
+    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
   });
 
   it("re-enables the free band chip editor for Chen and blocks removing the last boundary", () => {

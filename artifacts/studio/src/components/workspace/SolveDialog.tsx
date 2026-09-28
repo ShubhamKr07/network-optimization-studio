@@ -75,8 +75,8 @@ interface SolveDialogProps {
    * no fallback); a resolved `CanonicalUnit` -> full display-unit-aware
    * editing via `useDistanceDraft`, the SAME hook and math
    * `OptimizationParametersTab` uses — one state source, not a parallel
-   * copy. `gap` / `timeLimitSec` / `coverageFloorDemand` are never gated
-   * or converted by this prop. */
+   * copy. `gap` / `timeLimitSec` are never gated or converted by this
+   * prop. */
   canonicalUnit?: CanonicalUnit | null;
   /** C4.12/D13/D19 (superseded by chen-bands-units, T13): originally hid the
    * free-edit distance-bands chip editor for Chen, whose bands were then
@@ -87,6 +87,17 @@ interface SolveDialogProps {
    * Kept as an opt-out seam for a future caller, not currently exercised by
    * any model. */
   showBandEditor?: boolean;
+  /** CH4-17/R5 — `true` only for max-coverage-us. That model's dialog
+   * becomes confirmation-only: `p` and the service-distance fields are
+   * inherited and frozen once Step 1 is solved (CH4-6), the average-service
+   * cap does not exist in min-distance mode, and editing top-level
+   * `gap`/`timeLimitSec` here would silently edit Step 1's limits while a
+   * Step-2-targeting student believes they're tuning the run about to
+   * happen. When true, every editable parameter control (P slider,
+   * avg-service-cap, gap/time-limit, band editor) is replaced by a
+   * read-only summary; only Solve/Cancel stay interactive. The other five
+   * models render exactly as before (defaults to `false`/falsy). */
+  readOnlyParams?: boolean;
   // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
   // All four OPTIONAL, default undefined: with none supplied the dialog
   // renders nothing timing-related (every existing caller is unaffected).
@@ -103,21 +114,16 @@ interface SolveDialogProps {
    * throws) — "terminal" here is a job-lifecycle concept, not an
    * optimal/infeasible one. */
   jobStatus?: ElapsedJobStatus;
-  // ── Chen's Cosmetics (max-coverage-us) objective mode toggle ──────────
-  // Mirrors OptimizationParametersTab's own Chen block (same props, same
-  // gate: presence of `objective`), but scoped down to just the toggle +
-  // the active mode's field — the two always-visible service-distance
-  // thresholds stay tab-only, this dialog doesn't need them to run a solve.
+  // ── Chen's Cosmetics (max-coverage-us) objective display ──────────────
+  // CH4-17 — no toggle any more: `objective` stays "coverage" for every
+  // persisted Chapter 4 payload (only the server may produce a
+  // "min_distance" payload, Task 3/4), so this section is read-only display
+  // scoped to the active mode's field. Presence of `objective` gates it, the
+  // same convention as `p`/`bomRatio` above.
   /** Coverage vs min-distance objective mode. Presence gates the section. */
   objective?: "coverage" | "min_distance";
   /** Coverage-mode-only cap (present when `objective === "coverage"`). */
   avgServiceDistCapKm?: number;
-  /** Min-distance-mode-only floor (present when `objective === "min_distance"`). */
-  coverageFloorDemand?: number;
-  /** Atomic mode toggle — same `setChenObjectiveMode` handler Workspace.tsx
-   * passes to OptimizationParametersTab (single source of truth for the
-   * clear-other-field transition logic; this dialog never reimplements it). */
-  onObjectiveModeChange?: (mode: "coverage" | "min_distance") => void;
   /** Writes directly into Workspace.tsx's `localInputs` draft via
    * `updateInputsField` — the exact same callback shape
    * OptimizationParametersTab uses, so there is exactly one source of
@@ -160,14 +166,13 @@ export function SolveDialog({
   distanceUnit,
   canonicalUnit,
   showBandEditor = true,
+  readOnlyParams = false,
   queuedAt,
   startedAt,
   finishedAt,
   jobStatus,
   objective,
   avgServiceDistCapKm,
-  coverageFloorDemand,
-  onObjectiveModeChange,
   onChange,
   phase,
   errorMessage,
@@ -192,7 +197,42 @@ export function SolveDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {p != null && (
+          {/* CH4-17/R5 — max-coverage-us's dialog is confirmation-only: a
+              read-only summary of the effective settings replaces every
+              editable control below (P slider, objective display, gap/time
+              limit, band editor). No `input-*` testid renders in this
+              branch — parameter editing stays in the Optimization
+              Parameters tab. */}
+          {readOnlyParams && (
+            <div className="space-y-1 text-sm" data-testid="solve-dialog-readonly-summary">
+              {p != null && (
+                <p className="text-muted-foreground">
+                  Warehouses to open (P): <span className="font-mono text-foreground">{p}</span>
+                </p>
+              )}
+              {objective != null && (
+                <p className="text-muted-foreground" data-testid="solve-dialog-readonly-objective">
+                  Objective: <span className="font-mono text-foreground">{objective === "coverage" ? "Coverage" : "Min-distance"}</span>
+                </p>
+              )}
+              {objective === "coverage" && avgServiceDistCapKm != null && (
+                <p className="text-muted-foreground">
+                  Avg service distance cap: <span className="font-mono text-foreground">{avgServiceDistCapKm}{distanceUnit ? ` ${distanceUnit}` : ""}</span>
+                </p>
+              )}
+              <p className="text-muted-foreground">
+                Optimization gap: <span className="font-mono text-foreground">{gap}%</span>
+              </p>
+              <p className="text-muted-foreground">
+                Max time: <span className="font-mono text-foreground">{timeLimitSec}s</span>
+              </p>
+              <p className="text-xs text-muted-foreground pt-1">
+                Edit these in the Optimization Parameters tab.
+              </p>
+            </div>
+          )}
+
+          {!readOnlyParams && p != null && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
@@ -213,37 +253,13 @@ export function SolveDialog({
             </div>
           )}
 
-          {/* Chen's Cosmetics coverage/min-distance mode toggle — mirrors
-              OptimizationParametersTab's own Chen block, scoped to just the
-              toggle + the active mode's field. */}
-          {objective != null && (
+          {/* Chen's Cosmetics objective display — CH4-17: no toggle, no
+              floor input. `objective` is always "coverage" for a persisted
+              Chapter 4 payload; this is read-only display of the one
+              mode-specific field, scoped exactly like
+              OptimizationParametersTab's surviving `chen-objective-section`. */}
+          {!readOnlyParams && objective != null && (
             <div className="space-y-2" data-testid="solve-dialog-chen-objective-section">
-              <Label className="text-xs font-semibold text-foreground">Objective</Label>
-              <div
-                className="inline-flex rounded border border-border overflow-hidden"
-                role="group"
-                aria-label="Objective mode"
-                data-testid="solve-dialog-chen-objective-toggle"
-              >
-                {(["coverage", "min_distance"] as const).map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    data-testid={`solve-dialog-chen-objective-${mode}`}
-                    aria-pressed={objective === mode}
-                    disabled={busy}
-                    onClick={() => onObjectiveModeChange?.(mode)}
-                    className={`text-xs px-3 py-1 transition-colors ${
-                      objective === mode
-                        ? "bg-primary text-white"
-                        : "bg-white text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {mode === "coverage" ? "Coverage" : "Min-distance"}
-                  </button>
-                ))}
-              </div>
-
               {objective === "coverage" && (
                 canonicalUnit !== undefined ? (
                   <SolveDialogDistanceInput
@@ -272,57 +288,42 @@ export function SolveDialog({
                   </div>
                 )
               )}
-
-              {objective === "min_distance" && (
-                <div>
-                  <Label htmlFor="solve-dialog-input-coverage-floor" className="text-xs text-muted-foreground">
-                    Coverage floor (demand)
-                  </Label>
-                  <Input
-                    id="solve-dialog-input-coverage-floor"
-                    type="number"
-                    value={coverageFloorDemand ?? ""}
-                    disabled={busy}
-                    onChange={e => onChange("coverageFloorDemand", parseFloat(e.target.value) || 0)}
-                    className="h-8 text-sm mt-1 font-mono"
-                    data-testid="solve-dialog-input-coverage-floor"
-                  />
-                </div>
-              )}
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="solve-dialog-gap" className="text-xs text-muted-foreground">
-                Optimization gap (%)
-              </Label>
-              <Input
-                id="solve-dialog-gap"
-                type="number"
-                step="0.01"
-                value={gap}
-                disabled={busy}
-                onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="solve-dialog-input-gap"
-              />
+          {!readOnlyParams && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="solve-dialog-gap" className="text-xs text-muted-foreground">
+                  Optimization gap (%)
+                </Label>
+                <Input
+                  id="solve-dialog-gap"
+                  type="number"
+                  step="0.01"
+                  value={gap}
+                  disabled={busy}
+                  onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
+                  className="h-8 text-sm mt-1 font-mono"
+                  data-testid="solve-dialog-input-gap"
+                />
+              </div>
+              <div>
+                <Label htmlFor="solve-dialog-time-limit" className="text-xs text-muted-foreground">
+                  Max time (seconds)
+                </Label>
+                <Input
+                  id="solve-dialog-time-limit"
+                  type="number"
+                  value={timeLimitSec}
+                  disabled={busy}
+                  onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
+                  className="h-8 text-sm mt-1 font-mono"
+                  data-testid="solve-dialog-input-time-limit"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="solve-dialog-time-limit" className="text-xs text-muted-foreground">
-                Max time (seconds)
-              </Label>
-              <Input
-                id="solve-dialog-time-limit"
-                type="number"
-                value={timeLimitSec}
-                disabled={busy}
-                onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="solve-dialog-input-time-limit"
-              />
-            </div>
-          </div>
+          )}
 
           {/* R5 — distance-band range editor, prefilled from the scenario's
               current `inputs.distanceBands` and two-way synced with the same
@@ -332,8 +333,10 @@ export function SolveDialog({
               add/remove implementations again. jade-INT (workspace-fixups-2,
               item 7) — JADE renders this too (fixed-4-slot `JadeBandEditor`
               deleted upstream; JADE's `distanceBands` schema is `.min(1)`
-              like every other model). */}
-          {showBandEditor && (
+              like every other model). CH4-17 — hidden for max-coverage-us
+              (`readOnlyParams`): the bands stay visible in the Optimization
+              Parameters tab, which is now the ONLY place to edit them. */}
+          {!readOnlyParams && showBandEditor && (
             <BandChipEditor
               bands={distanceBands}
               onChange={bands => onChange("distanceBands", bands)}

@@ -106,16 +106,39 @@ async function getScenarioResult(page: Page, id: number): Promise<ScenarioResult
  * one at a time via the "+ Add" flow. Caller must already be on the
  * Optimization Parameters tab. */
 async function replaceBandsViaChipEditor(page: Page, currentBands: number[], newBands: number[]): Promise<void> {
+  // Add the new band(s) FIRST, then remove the old ones. The chip editor
+  // enforces a last-boundary guard (at least one band must always remain —
+  // its remove button is `disabled`, not absent, once only one band is
+  // left). Removing old bands first means the LAST old band's remove button
+  // is visible-but-disabled, and a plain `isVisible()` guard doesn't catch
+  // that: `.click()` on a disabled target has no explicit timeout, so it
+  // silently inherits the whole remaining test budget and only surfaces (as
+  // a confusing failure) wherever the test happens to hit its next await —
+  // often an unrelated `finally`-block cleanup call. Adding first guarantees
+  // band count is always >= 2 while removing old ones, so the guard never
+  // engages during removal.
+  //
+  // A `newBands` value that already exists in `currentBands` (coincidence,
+  // not the common case, but real for check 2 below — BOUNDARY=1000 is
+  // chosen for its distance-range meaning and happens to already be one of
+  // the model's default bands) must be handled explicitly: adding it is a
+  // no-op (the chip already exists), and removing it during the "old bands"
+  // cleanup would delete the very value this call is trying to establish.
+  // Skip both sides of the overlap so the final set is exactly `newBands`.
+  const currentSet = new Set(currentBands);
+  const newSet = new Set(newBands);
+  for (const b of newBands) {
+    if (currentSet.has(b)) continue; // already present as an old band — no-op
+    await page.getByTestId("button-bands-plus").click();
+    await page.getByTestId("input-new-band").fill(String(b));
+    await page.getByTestId("button-add-band-confirm").click();
+  }
   for (const b of currentBands) {
+    if (newSet.has(b)) continue; // also a target band — keep it, don't remove
     const chip = page.getByTestId(`button-remove-band-${b}`);
     if (await chip.isVisible().catch(() => false)) {
       await chip.click();
     }
-  }
-  for (const b of newBands) {
-    await page.getByTestId("button-bands-plus").click();
-    await page.getByTestId("input-new-band").fill(String(b));
-    await page.getByTestId("button-add-band-confirm").click();
   }
 }
 
@@ -330,91 +353,28 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
   });
 });
 
-// ── Check 3 (NEGATIVE): max-coverage-us stays frozen ────────────────────────
-
-function maxCoverageInputs() {
-  return {
-    objective: "coverage",
-    p: 3,
-    highServiceDistKm: 700,
-    maxDistKm: 5500,
-    avgServiceDistCapKm: 1000,
-    gap: 0,
-    timeLimitSec: 120,
-    capacityMode: "none",
-    distanceBands: [700, 5500],
-    warehouseOverrides: [],
-    customerOverrides: [],
-    addedWarehouses: [],
-    addedCustomers: [],
-    distanceOverrides: [],
-  };
-}
-
-async function createMaxCoverageScenario(page: Page): Promise<number> {
-  const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E SSC-T1 MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: maxCoverageInputs() },
-  });
-  expect(resp.status()).toBe(201);
-  return Number((await resp.json()).id);
-}
-
-test.describe("Non-JADE ServiceStats live coverage — max-coverage-us NEGATIVE (frozen)", () => {
-  test("a band-affecting edit does NOT change the Service Stats bars", async ({ page }) => {
-    test.setTimeout(180_000);
-    await registerAndGoHome(page, "ssc-maxcov");
-    const id = await createMaxCoverageScenario(page);
-
-    try {
-      await solveViaApi(page, id);
-
-      await page.goto(`/chapter-4?scenario=${id}`);
-      await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const solveCalls = makeSolveCallTracker(page);
-
-      await page.getByTestId("sidebar-output-service-stats").click();
-      const bandRow700 = page.getByTestId("service-stats-band-700");
-      const bandRow5500 = page.getByTestId("service-stats-band-5500");
-      await expect(bandRow700).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(bandRow5500).toBeVisible();
-      const before700 = await bandRow700.innerText();
-      const before5500 = await bandRow5500.innerText();
-
-      // Edit the field that DOES re-derive `distanceBands` locally
-      // (`highServiceDistKm` -> `[high, max]`, Workspace.tsx's
-      // `updateChenServiceDistance`) — max-coverage-us's ServiceStats stays
-      // frozen regardless (Workspace.tsx never wires `presentationBands` for
-      // it; ServiceStatsTab gates its own live-recompute on the caller
-      // wiring it, never on modelId), so this is a valid "band edit" probe
-      // even though the model also has its own free band chip editor now.
-      await page.getByTestId("sidebar-input-optimization-parameters").click();
-      await expect(page.getByTestId("chen-objective-section")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("input-high-service-dist").fill("50");
-      await expect(page.getByTestId("text-unsaved-changes")).toBeVisible({ timeout: HEADER_TIMEOUT });
-
-      const callsBeforeCheck = solveCalls.count();
-
-      // Service Stats bars are UNCHANGED — still keyed by the original
-      // solved bands (700/5500), not the just-edited 50, and their
-      // percentages are byte-identical to before the edit.
-      await page.getByTestId("sidebar-output-service-stats").click();
-      await expect(page.getByTestId("service-stats-band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("service-stats-band-5500")).toBeVisible();
-      // The derived-band value (50) never appears as a coverage row.
-      await expect(page.getByTestId("service-stats-band-50")).toHaveCount(0);
-      // Byte-identical to their pre-edit text (innerText, not toHaveText's
-      // own whitespace-normalized comparison, to avoid a false mismatch
-      // purely from how the two APIs join the row's two text nodes).
-      await expect
-        .poll(() => page.getByTestId("service-stats-band-700").innerText())
-        .toBe(before700);
-      await expect
-        .poll(() => page.getByTestId("service-stats-band-5500").innerText())
-        .toBe(before5500);
-
-      expect(solveCalls.count()).toBe(callsBeforeCheck);
-    } finally {
-      await page.request.delete(`/api/scenarios/${id}`);
-    }
-  });
-});
+// ── Check 3 (NEGATIVE, max-coverage-us): RETIRED, not redirected ───────────
+//
+// This block used to commit a `highServiceDistKm` edit (a Step 1 field)
+// against an already-solved Chapter 4 scenario and assert the ServiceStats
+// bars stay frozen. Under the two-step workflow, editing a Step 1 field
+// post-solve now correctly raises the freeze-confirm dialog, and accepting
+// it CLEARS the result (that's the two-step contract's whole point — a
+// Step 1 change invalidates the Step 2 solve). Once the result is cleared,
+// "the bars didn't move" is no longer provable: there's no stable
+// `result.metrics.bandCoverage` snapshot left to diff against. The probe's
+// premise — proving frozen bars via a live `highServiceDistKm` edit — is
+// structurally unprovable for this model under the current workflow, not
+// merely flaky.
+//
+// Deliberately NOT redirected to the band-chip editor (max-coverage-us also
+// has one now): band-chip edits aren't Step 1 fields, so they don't raise
+// freeze-confirm and the assertion would go green — but it would prove only
+// "the band-chip editor doesn't move ServiceStats," a materially weaker claim
+// than the original "no distance-band-affecting edit moves ServiceStats,"
+// while keeping the original's name and NEGATIVE framing. A test that's
+// easier to pass because it now checks less, while still presenting itself
+// as the same guarantee, is worse than no test.
+//
+// See docs/CHANGELOG-implementation.md (e2e-inherited-repair,
+// [e2e-decided] bundle) for the decision record.

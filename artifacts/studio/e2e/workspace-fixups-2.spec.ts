@@ -28,6 +28,7 @@
  * own scenario in a `finally` block.
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import { skipIfJadeLocked } from "./helpers/modelLock";
 
 // Same rationale as jade-ch9-workspace-bundle.spec.ts/workspace-fixups.spec.ts:
 // a plain `.click()`/`.hover()` with no explicit action timeout defaults to
@@ -442,6 +443,7 @@ async function distinctFilterOptionLabels(page: Page, filterKey: string): Promis
 test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
   test("no Added Entities tab; Plants inline add + Save persists; Filter shares the toolbar row; plant hover both maps; Band filter range labels; free chip band editor", async ({ page }) => {
     test.setTimeout(240_000);
+    await skipIfJadeLocked(page);
     await registerAndGoHome(page, "wfx2-jade");
     const id = await createScenario(page, "two-echelon-jade-us", jadeGroundTruthInputs(), "/chapter-9/jade");
 

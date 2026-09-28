@@ -25,6 +25,11 @@ interface SidebarTreeProps {
    * solved-but-stale scenario also greys Outputs, not just an unsolved one.
    */
   hasSolvedRun: boolean;
+  /** CH4-18 — per frame 3e, Chapter 4's output entries stay CLICKABLE when the
+   *  selected step is unsolved; the tab itself renders an empty state instead.
+   *  A student can see what they would get before committing to a solve. Every
+   *  other model keeps the existing disabled-until-solved behaviour. */
+  keepOutputsClickable?: boolean;
   /** Currently-open/active tab's entity id, for highlighting. */
   activeEntityId?: string | null;
   onOpenInput: (entry: SidebarEntry) => void;
@@ -53,6 +58,7 @@ export function SidebarTree({
   inputs,
   outputs,
   hasSolvedRun,
+  keepOutputsClickable = false,
   activeEntityId = null,
   onOpenInput,
   onOpenOutput,
@@ -120,12 +126,12 @@ export function SidebarTree({
               <button
                 type="button"
                 data-testid={`sidebar-output-${entry.id}`}
-                disabled={!hasSolvedRun}
-                aria-disabled={!hasSolvedRun}
+                disabled={!hasSolvedRun && !keepOutputsClickable}
+                aria-disabled={!hasSolvedRun && !keepOutputsClickable}
                 aria-current={entry.id === activeEntityId}
                 onClick={() => onOpenOutput(entry)}
                 className={
-                  !hasSolvedRun
+                  !hasSolvedRun && !keepOutputsClickable
                     ? "w-full text-left px-3 py-1.5 truncate text-muted-foreground/40 cursor-not-allowed"
                     : rowClass(entry.id === activeEntityId)
                 }

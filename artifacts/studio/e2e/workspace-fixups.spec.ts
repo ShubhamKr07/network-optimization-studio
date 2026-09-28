@@ -31,6 +31,7 @@
  * own scenario in a `finally` block.
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import { skipIfJadeLocked } from "./helpers/modelLock";
 
 // Same rationale as jade-ch9-workspace-bundle.spec.ts: a plain `.click()`
 // with no explicit action timeout defaults to the whole TEST timeout, so an
@@ -222,6 +223,7 @@ function emptyMapOffset(box: { width: number; height: number }): { x: number; y:
 test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability Matrix, live band filters)", () => {
   test("plant factory markers on Input/Output map + legend; Capability Matrix id+City,State/single-line/Units; band-range filter re-ranges live via Run Optimizer without unmounting the report", async ({ page }) => {
     test.setTimeout(180_000);
+    await skipIfJadeLocked(page);
     await registerAndGoHome(page, "wfx-jade");
     const id = await createJadeScenario(page);
     const solveCalls = makeSolveCallTracker(page);

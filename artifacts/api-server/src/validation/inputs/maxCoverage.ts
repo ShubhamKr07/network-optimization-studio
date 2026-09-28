@@ -93,6 +93,25 @@ const distanceBandsSchema = z
     message: "distanceBands must be strictly ascending and unique",
   });
 
+// CH4-6 — Step 2 owns exactly two parameters. `p`, `highServiceDistKm` and
+// `maxDistKm` are INHERITED from Step 1 (inheriting highServiceDistKm is
+// load-bearing: the floor must constrain demand within the same radius that
+// produced it), and `avgServiceDistCapKm` does not exist in min-distance mode.
+//
+// `.strict()` here is a DELIBERATE local exception to this repo's
+// non-strict convention (pMedian.ts:18, jadeInputs.ts:6, twoEchelon.ts:30,
+// transportLp.ts:6). That convention exists so an OLD payload missing a key
+// still validates; `step2` is new, so there is no legacy shape to be lenient
+// toward, and CH4-6 requires the inherited fields to be REJECTED rather than
+// silently stripped — a strip would accept a Step 2 payload that looks like
+// it re-parameterized the network and quietly ignore it.
+const step2ParamsSchema = z
+  .object({
+    gap: z.number().min(0),
+    timeLimitSec: z.number().int().min(1),
+  })
+  .strict();
+
 export const maxCoverageInputsSchema = z
   .object({
     objective: z.enum(["coverage", "min_distance"]),
@@ -109,6 +128,15 @@ export const maxCoverageInputsSchema = z
     coverageFloorDemand: z.number().int().nonnegative().optional(),
     gap: z.number().min(0),
     timeLimitSec: z.number().int().min(1),
+    // CH4-7/CH4-23 — the step-validity marker. SERVER-AUTHORITATIVE: declared
+    // here so it round-trips instead of being stripped, but every write route
+    // discards whatever the client sent and recomputes it from the persisted
+    // row (services/scenarioInputWrite.ts). Declaring it without that guard
+    // would let a client submit an OLD epoch and resurrect a superseded job.
+    // Defaults to 1 so a payload written before this contract reads as epoch 1.
+    stepEpoch: z.number().int().min(1).default(1),
+    // Absent until Step 2 is first touched.
+    step2: step2ParamsSchema.optional(),
     // max-coverage-us has no capacity concept — persisted as "none"
     // (defaulted so an omitting client still stores it explicitly).
     capacityMode: z.literal("none").default("none"),

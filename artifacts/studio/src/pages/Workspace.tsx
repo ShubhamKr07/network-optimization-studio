@@ -16,6 +16,8 @@ import {
   useListModels,
   usePrecheckScenario,
   precheckScenario,
+  useGetScenarioStepResult,
+  getGetScenarioStepResultQueryKey,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
@@ -64,6 +66,10 @@ import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/works
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import { DirtyNavPrompt } from "@/components/workspace/DirtyNavPrompt";
+import { StepToggle } from "@/components/workspace/StepToggle";
+import { FreezeConfirmDialog } from "@/components/workspace/FreezeConfirmDialog";
+import { StepComparisonTable } from "@/components/workspace/StepComparisonTable";
+import { useMaxCoverageSteps } from "@/hooks/useMaxCoverageSteps";
 import { ExportProvider, type ExportProviderValue } from "@/contexts/ExportContext";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { UnitToggle } from "@/components/UnitToggle";
@@ -116,11 +122,18 @@ import { track } from "@/lib/analytics";
 // params (p:3, highServiceDistKm:700, maxDistKm:5500,
 // avgServiceDistCapKm:1000) — the coverage-mode solve's real coveredDemand,
 // verified 2026-09-28 via a direct solve.py invocation: coveragePct
-// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}. Total dataset
-// demand is 78,026,333, so this floor sits safely below it (a floor above
-// total demand would make the coverage→min-distance toggle infeasible).
-const MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM = 1000;
-const MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND = 53385024;
+// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}.
+// CH4-17 — `MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND` (the former
+// min-distance-mode seed default) is deleted along with `setChenObjectiveMode`:
+// the floor is now produced solely by the server from Step 1's achieved
+// `coveredDemand` (Task 4/CH4-21), so no client-side default for it can
+// exist without becoming dead configuration a later reader could mistake
+// for live behavior.
+//
+// ch4-2s-7 — `MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM` (this constant's own
+// former neighbor) is ALSO removed here: Task 6 deleted its only consumer
+// (`setChenObjectiveMode`) but kept the constant declaration itself, which
+// left it dead (verified zero remaining references in artifacts/studio/src).
 
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
@@ -247,6 +260,26 @@ function gapFromInputs(inputs: Record<string, unknown> | null): number {
 
 function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number {
   const raw = inputs?.timeLimitSec;
+  return typeof raw === "number" ? raw : 120;
+}
+
+// ch4-2s-7 — CH4-6: Step 2 owns exactly `gap`/`timeLimitSec`, nested under
+// `localInputs.step2`, never the top-level fields (those are Step 1's).
+// Defaults mirror the top-level defaults (`gapFromInputs`/
+// `timeLimitSecFromInputs`) since Step 2 has never been solved before its
+// own panel is first shown.
+function step2FromInputs(inputs: Record<string, unknown> | null): { gap?: number; timeLimitSec?: number } {
+  const raw = inputs?.step2;
+  return raw && typeof raw === "object" ? (raw as { gap?: number; timeLimitSec?: number }) : {};
+}
+
+function step2GapFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = step2FromInputs(inputs).gap;
+  return typeof raw === "number" ? raw : 0;
+}
+
+function step2TimeLimitSecFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = step2FromInputs(inputs).timeLimitSec;
   return typeof raw === "number" ? raw : 120;
 }
 
@@ -1438,6 +1471,68 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // StaleOutputBanner (see renderTabContent's output-map branch below).
   const hasFreshSolvedRun = currentScenario?.result != null && !currentScenario?.stale;
 
+  // ch4-2s-6/7 — max-coverage-us's server-derived two-step workflow state.
+  // `stepState.isMaxCoverage` is exactly `scenario.steps` presence, not a
+  // modelId comparison — see the hook's own comment.
+  const stepState = useMaxCoverageSteps(currentScenario);
+  const [selectedStep, setSelectedStep] = useState<1 | 2>(1);
+  // Holds the fully-computed next `inputs` blob, NOT a callback. Computing
+  // the blob at intercept time means confirm has nothing left to derive —
+  // an earlier draft stored a closure and needed an invented helper to turn
+  // it back into a payload at confirm time.
+  const [pendingStep1Inputs, setPendingStep1Inputs] = useState<Record<string, unknown> | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  // CH4-16 — every Step 1 write funnels through here. `distanceBands` is
+  // exempt: it is a reporting lens, not a model constraint, and stays
+  // editable while Step 1 is frozen (§4.3). Safe to call unconditionally
+  // from a non-Chapter-4 mutator too: `stepState.step1Frozen` is always
+  // false when `stepState.isMaxCoverage` is false, so every non-Chapter-4
+  // caller always takes the bypass branch and behaves exactly as before.
+  //
+  // `nextInputs` is the complete blob the edit would produce, so each call
+  // site computes its own change exactly as it does today and passes the
+  // result rather than a mutation function.
+  function guardStep1Edit(nextInputs: Record<string, unknown>, field?: string) {
+    if (!stepState.step1Frozen || field === "distanceBands") {
+      setLocalInputs(nextInputs);
+      return;
+    }
+    setPendingStep1Inputs(nextInputs);
+  }
+
+  // R3 — confirm-and-clear is a PERSISTED operation, not a draft edit.
+  //
+  // An earlier draft only invoked a local callback, so the epoch never
+  // moved, `steps` never refetched, and the counter kept reading `1 of 2`
+  // until the student happened to press Save. The dialog said results were
+  // cleared while the server still held them.
+  //
+  // Apply the draft edit, PATCH it, AWAIT the response, invalidate the
+  // scenario query so `steps` refetches, and only then close. The server
+  // bumps the epoch inside its own locked transaction (CH4-23) — the client
+  // never sends one. On failure the old state stands and the dialog reports
+  // the error rather than closing on a lie.
+  async function confirmStep1Edit() {
+    if (!pendingStep1Inputs || !currentScenario) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      await updateScenario.mutateAsync({
+        scenarioId: currentScenario.id,
+        data: { inputs: pendingStep1Inputs },
+      });
+      await queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
+      setLocalInputs(pendingStep1Inputs);
+      setPendingStep1Inputs(null);
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : "Could not clear the results. Nothing was changed.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   // A1.1 — local draft of the active scenario's `inputs` blob, decoupled
   // from the persisted row so an in-progress edit (e.g. a warehouse status
   // click) isn't visually reverted by a background refetch mid-edit — same
@@ -1705,6 +1800,48 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       ? (resultHistoryState.items[resultHistoryState.index]?.inputs ?? null)
       : ((currentScenario?.inputs as Record<string, unknown> | undefined) ?? null);
 
+  // ch4-2s-8 (R4) — the single source of output truth. `Workspace.tsx` had
+  // 44 references to `displayedResult`/`displayedInputs` (T4/R5's history-
+  // stepper-aware pair above) plus `hasFreshSolvedRun` (A3.2, declared
+  // earlier), all of which describe the SCENARIO's latest solve — never
+  // Chapter 4's step toggle. Firing `useGetScenarioStepResult` without
+  // rewiring every output call site onto these three would leave a Step 2
+  // tab rendering Step 1's numbers with no error anywhere (see this task's
+  // own report for the full audit of rewired call sites). For every other
+  // model this resolves to exactly `displayedResult`/`displayedInputs`/
+  // `hasFreshSolvedRun` — `stepState.isMaxCoverage` is false, so every
+  // ternary below always takes its existing (unchanged) branch.
+  const selectedStepSolved = stepState.isMaxCoverage
+    ? (selectedStep === 1 ? stepState.steps!.step1.solved : stepState.steps!.step2.solved)
+    : hasFreshSolvedRun;
+
+  // CH4-14 — the per-step envelope is fetched lazily, one step at a time,
+  // only once that step is actually solved (never speculatively while
+  // unsolved — there is nothing to fetch, and Task 5's endpoint 404s a
+  // step whose `jobId` is null anyway).
+  const stepResultQuery = useGetScenarioStepResult(
+    currentScenario?.id ?? 0,
+    selectedStep,
+    {
+      query: {
+        enabled: stepState.isMaxCoverage && selectedStepSolved,
+        queryKey: getGetScenarioStepResultQueryKey(currentScenario?.id ?? 0, selectedStep),
+      },
+    },
+  );
+
+  const activeOutputResult: SolveResult | null = stepState.isMaxCoverage
+    ? (stepResultQuery.data?.result ?? null)
+    : displayedResult;
+
+  const activeOutputInputs: Record<string, unknown> | null = stepState.isMaxCoverage
+    ? ((currentScenario?.inputs as Record<string, unknown> | undefined) ?? null)
+    : displayedInputs;
+
+  const activeOutputReady = stepState.isMaxCoverage
+    ? (selectedStepSolved && stepResultQuery.isSuccess && activeOutputResult != null)
+    : hasFreshSolvedRun;
+
   // jade-INT (#8, spec §9) — the DISPLAYED history entry's own frozen solve
   // timing (undefined for the scenario's already-persisted result on first
   // load/scenario-switch, and for any entry stepped to before this session
@@ -1724,8 +1861,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // don't rebuild the array (keeps JadeFlowsTab's own `pwRows` memo, which
   // depends on a signature derived from this array, stable).
   const effectiveFlowsPlants: Plant[] = useMemo(
-    () => mergeEffectivePlants(dataset, displayedInputs),
-    [dataset, displayedInputs],
+    () => mergeEffectivePlants(dataset, activeOutputInputs),
+    [dataset, activeOutputInputs],
   );
 
   // jade-INT (workspace-fixups-2, item 2) — the one canonical-id -> {city,
@@ -1744,8 +1881,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   //     unsaved draft must show its correct location/code immediately, not
   //     only after the next solve.
   const outputIdentityById = useMemo(
-    () => buildEntityIdentityById(modelId, dataset, displayedInputs),
-    [modelId, dataset, displayedInputs],
+    () => buildEntityIdentityById(modelId, dataset, activeOutputInputs),
+    [modelId, dataset, activeOutputInputs],
   );
   const inputIdentityById = useMemo(
     () => buildEntityIdentityById(modelId, dataset, localInputs),
@@ -1789,9 +1926,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // so the whole-input PATCH is genuinely unreachable regardless of
   // whether every individual editor's own disabled-attribute wiring is
   // perfect. See Task 14's own report for the exact scope of this guard.
+  // ch4-2s-7 — routed through `guardStep1Edit` so a max-coverage-us edit
+  // while Step 1 is frozen raises the confirm-and-clear dialog instead of
+  // landing directly in the draft. Harmless for every other model: see
+  // `guardStep1Edit`'s own comment for why the bypass is unconditional there.
   function updateInputsField(key: string, value: unknown) {
     if (isBrowsingHistoryNow) return;
-    setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
+    if (!localInputs) return;
+    guardStep1Edit({ ...localInputs, [key]: value }, key);
   }
 
   // chen-bands-units, Part A/G (plan-review HIGH #5) — the ONE onChange
@@ -1809,35 +1951,35 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       setActiveBandLens(Array.isArray(value) ? (value as number[]) : []);
       return;
     }
+    // CH4-6 — step2Gap/step2TimeLimitSec are NEVER Step 1 fields (they are
+    // the two named exceptions the spec carves out for `step2`), so they
+    // bypass `guardStep1Edit`/`updateInputsField` entirely and write
+    // directly into `localInputs.step2` via the dedicated mutator — never
+    // onto the top-level `gap`/`timeLimitSec`, which belong to Step 1.
+    if (field === "step2Gap") { updateStep2Field("gap", value as number); return; }
+    if (field === "step2TimeLimitSec") { updateStep2Field("timeLimitSec", value as number); return; }
     updateInputsField(field, value);
   }
 
-  // C4.12 — Chen objective mode toggle (D1). Atomic (a single functional
-  // setLocalInputs) so the three coupled edits — set `objective`, SEED the
-  // newly-required mode field, and DELETE the other mode's field — land in one
-  // render. C4.6's maxCoverageInputsSchema is a discriminated union: the wrong-mode
-  // field must be ABSENT (not just ignored), so deleting is load-bearing, not
-  // cosmetic. Deleting (rather than nulling) keeps the persisted blob exactly
-  // the shape the Zod contract expects. Seeds the default only when the target
-  // field is currently absent — which it always is right after a toggle, since
-  // the opposite toggle deleted it.
-  function setChenObjectiveMode(mode: "coverage" | "min_distance") {
+  // ch4-2s-7 — the dedicated Step 2 writer. Never Step1-frozen-gated — step2
+  // is explicitly exempt from the epoch bump (Global Constraints) — so this
+  // bypasses `guardStep1Edit` entirely, but still respects the
+  // history-browsing no-op like every other ordinary editor.
+  function updateStep2Field(field: "gap" | "timeLimitSec", value: number) {
     if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
-      const next: Record<string, unknown> = { ...prev, objective: mode };
-      if (mode === "coverage") {
-        next.avgServiceDistCapKm =
-          typeof prev.avgServiceDistCapKm === "number" ? prev.avgServiceDistCapKm : MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM;
-        delete next.coverageFloorDemand;
-      } else {
-        next.coverageFloorDemand =
-          typeof prev.coverageFloorDemand === "number" ? prev.coverageFloorDemand : MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND;
-        delete next.avgServiceDistCapKm;
-      }
-      return next;
+      const prevStep2 = prev.step2 && typeof prev.step2 === "object" ? (prev.step2 as Record<string, unknown>) : {};
+      return { ...prev, step2: { ...prevStep2, [field]: value } };
     });
   }
+
+  // CH4-17 — `setChenObjectiveMode` (the free coverage/min-distance toggle
+  // handler) is removed. The server derives Step 2's `objective` and
+  // `coverageFloorDemand` solely from Step 1's achieved `coveredDemand`
+  // (Task 4); a client-authored toggle would write a payload the write-route
+  // guard (Task 3) now 422s. The step toggle (Task 7) is the only UI that
+  // changes which step is targeted.
 
   // C4.12 — editing Chen's high-service / max distance.
   // chen-bands-units, Part A (amendment table: D13/D19 superseded) — this NO
@@ -1849,12 +1991,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // ...)` — routed to `activeBandLens` by this component's wrapper below —
   // BEFORE calling this function, so the two updates compose correctly
   // without this function touching bands at all.
+  // ch4-2s-7 — this function is Chapter-4-only (highServiceDistKm/maxDistKm
+  // exist on no other model's inputs shape), so it always routes through
+  // `guardStep1Edit` — an edit here while Step 1 is frozen raises the
+  // confirm-and-clear dialog.
   function updateChenServiceDistance(field: "highServiceDistKm" | "maxDistKm", value: number) {
     if (isBrowsingHistoryNow) return;
-    setLocalInputs(prev => {
-      if (!prev) return prev;
-      return { ...prev, [field]: value };
-    });
+    if (!localInputs) return;
+    guardStep1Edit({ ...localInputs, [field]: value }, field);
   }
 
   // B5.2/B6.2 — deleting an added warehouse/customer/refinery must ALSO
@@ -1873,6 +2017,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // and `{fromId, toId, distance}` shape p-median-us's does (a deliberate
   // naming choice made in this task's stage 1, specifically so this
   // function would generalize without a third near-duplicate).
+  // ch4-2s-7 — routed through `guardStep1Edit` (harmless for the two other
+  // models sharing this function — see that function's own comment).
   function deleteAddedEntityAndOverrides(arrayKey: "addedWarehouses" | "addedCustomers" | "addedRefineries", id: string) {
     // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
     // input editing is unreachable while an older result is displayed. The
@@ -1881,16 +2027,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `localInputs` at all, which would otherwise survive a step back to the
     // latest entry and silently become part of the next save.
     if (isBrowsingHistoryNow) return;
-    setLocalInputs(prev => {
-      if (!prev) return prev;
-      const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
-      const overrides = Array.isArray(prev.distanceOverrides) ? (prev.distanceOverrides as DistanceOverride[]) : [];
-      return {
-        ...prev,
-        [arrayKey]: arr.filter(e => e.id !== id),
-        distanceOverrides: overrides.filter(o => o.fromId !== id && o.toId !== id),
-      };
-    });
+    if (!localInputs) return;
+    const arr = Array.isArray(localInputs[arrayKey]) ? (localInputs[arrayKey] as { id: string }[]) : [];
+    const overrides = Array.isArray(localInputs.distanceOverrides) ? (localInputs.distanceOverrides as DistanceOverride[]) : [];
+    guardStep1Edit({
+      ...localInputs,
+      [arrayKey]: arr.filter(e => e.id !== id),
+      distanceOverrides: overrides.filter(o => o.fromId !== id && o.toId !== id),
+    }, arrayKey);
   }
 
   // Task 30 (B6.1 stage 4) — transport-coal analogue of the function above:
@@ -2337,7 +2481,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
       }
     }
-    setLocalInputs(next);
+    // ch4-2s-7 — routed through `guardStep1Edit` (harmless for the other
+    // models sharing this handler — see that function's own comment).
+    guardStep1Edit(next);
   }
 
   // T6 (Bundle 2) — InputMapTab's "transport" mode onInputsChange, the
@@ -2837,6 +2983,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       setPollingJobId(null);
       setSolveDialogOpen(false);
       openTab("output", OUTPUT_MAP_ENTRY);
+      // ch4-2s-7 — point the toggle at whichever step just ran, derived the
+      // SAME way the Solve button's own label was (CH4-9).
+      if (stepState.isMaxCoverage) setSelectedStep(stepState.targetStep);
       queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
     } else if (jobStatus.status === "failed") {
@@ -2908,6 +3057,66 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
         },
       },
+    );
+  }
+
+  // ch4-2s-8 — the ONE place Chapter 4's output-gating content is decided,
+  // shared by both output-gated branches below (Output Map, and the five
+  // output grids) so they can't drift onto two different empty/loading/
+  // error renderings. Returns `null` when there is nothing to show instead
+  // of the caller's own real content (i.e. `!stepState.isMaxCoverage`, or
+  // Chapter 4 with `activeOutputReady` already true) — callers check for
+  // `null` and fall through to their EXISTING (byte-identical) StaleOutputBanner
+  // gate for every non-Chapter-4 model.
+  //
+  // CH4-18 — an unsolved step's output tabs stay CLICKABLE (SidebarTree's
+  // `keepOutputsClickable`); this is the "empty state instead of content"
+  // half of that contract. Loading/error are handled explicitly: an
+  // unhandled `stepResultQuery.isError` would otherwise fall through this
+  // same `!selectedStepSolved` check as false (the STEP itself solved fine
+  // server-side; only fetching its envelope failed) and silently render as
+  // if nothing were wrong, misreporting a solved step as unsolved.
+  function chapter4OutputGate(): ReactNode | null {
+    if (!stepState.isMaxCoverage) return null;
+    if (activeOutputReady) return null;
+    if (!selectedStepSolved) {
+      return (
+        <div className="p-6 text-sm text-muted-foreground" data-testid="step-not-solved-empty">
+          Not solved yet — Solve Step {selectedStep}
+        </div>
+      );
+    }
+    if (stepResultQuery.isLoading) {
+      return (
+        <div className="p-6 text-sm text-muted-foreground" data-testid="step-result-loading">
+          Loading Step {selectedStep}'s result…
+        </div>
+      );
+    }
+    if (stepResultQuery.isError) {
+      return (
+        <div className="p-6 text-sm text-destructive space-y-2" data-testid="step-result-error">
+          <p>Couldn't load Step {selectedStep}'s result.</p>
+          <button
+            type="button"
+            data-testid="step-result-retry"
+            className="text-xs border rounded px-2 py-1 hover:bg-muted"
+            onClick={() => stepResultQuery.refetch()}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    // Defensive fallback — `selectedStepSolved` true, query neither loading
+    // nor errored, yet `activeOutputReady` still false (e.g. a successful
+    // fetch whose `result` was somehow null). Same message as the "not
+    // solved yet" case: truthful enough, and this combination shouldn't
+    // arise from the real server contract.
+    return (
+      <div className="p-6 text-sm text-muted-foreground" data-testid="step-not-solved-empty">
+        Not solved yet — Solve Step {selectedStep}
+      </div>
     );
   }
 
@@ -3331,9 +3540,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           highServiceDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
           maxDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
           avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-          coverageFloorDemand={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
-          onObjectiveModeChange={setChenObjectiveMode}
           onServiceDistanceChange={updateChenServiceDistance}
+          // ch4-2s-7 — the two-step workflow's Step 2 panel wiring, Chapter 4
+          // only (undefined for every other model, so `(step ?? 1) === 1`
+          // keeps their view exactly as it rendered before this task).
+          step={stepState.isMaxCoverage ? selectedStep : undefined}
+          // R6 — reuses `step1Frozen` (== `steps.step1.solved`) directly:
+          // Step 2's own fields become editable at EXACTLY the moment Step 1
+          // is frozen, by construction — the same boolean, not a parallel one
+          // that could drift from it.
+          stepEditable={stepState.isMaxCoverage ? stepState.step1Frozen : undefined}
+          step2Gap={stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined}
+          step2TimeLimitSec={stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined}
+          coverageFloorFromStep1={stepState.isMaxCoverage ? (stepState.steps?.step1.summary?.coveredDemand ?? null) : undefined}
           onChange={handleOptimizationParamsChange}
         />
       );
@@ -3494,7 +3713,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // scenario transitioned to stale (e.g. solved once, then an input was
       // edited+saved again without re-solving). Checked before the dataset
       // loading guard so the banner never has to wait on the map's own data.
-      if (!hasFreshSolvedRun) {
+      // ch4-2s-8 (R4/CH4-18) — Chapter 4 renders its own empty/loading/error
+      // state here instead (chapter4OutputGate returns null for every other
+      // model, which then takes this exact StaleOutputBanner path unchanged).
+      {
+        const gate = chapter4OutputGate();
+        if (gate) return gate;
+      }
+      if (!stepState.isMaxCoverage && !hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
       // T5 (Bundle 2) — p-median-brazil migrated off BrazilMap (which needed
@@ -3561,12 +3787,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // B2.1-T2 — the metric overlay resolves its distance unit from the
           // model's manifest (useListModels), so the tab needs the active id.
           modelId={modelId}
-          // T6 — also displayedInputs, not localInputs: an unsaved
+          // T6 — also activeOutputInputs, not localInputs: an unsaved
           // forced-open/inactive edit shouldn't retroactively re-style a
           // solve that's already on screen, for the same reason `bands`
-          // reads displayedInputs (R5's displayedInputs principle, P1).
-          warehouseStatuses={warehouseStatusesFromInputs(displayedInputs, modelId)}
-          result={activeTab.entity === "output-map" ? displayedResult : null}
+          // reads activeOutputInputs (R5's displayedInputs principle, P1 —
+          // ch4-2s-8 (R4) generalizes this to the step-toggle-aware adapter).
+          warehouseStatuses={warehouseStatusesFromInputs(activeOutputInputs, modelId)}
+          result={activeTab.entity === "output-map" ? activeOutputResult : null}
           // jade-INT (#1 live band recolor, spec §2) — LIVE
           // localInputs.distanceBands, all models, OVERRIDING T4's
           // displayedInputs-only rule for this one lens: requirement #1
@@ -3586,21 +3813,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             !projectsAddedEntities
               ? []
               : modelId === "transport-coal"
-                ? addedMinesFromInputs(displayedInputs)
+                ? addedMinesFromInputs(activeOutputInputs)
                 : modelId === "two-echelon-gold-au"
-                  ? addedRefineriesFromInputs(displayedInputs)
+                  ? addedRefineriesFromInputs(activeOutputInputs)
                   : modelId === "two-echelon-jade-us"
-                    ? [...addedWarehousesFromInputs(displayedInputs), ...addedPlantsFromInputs(displayedInputs)]
-                    : addedWarehousesFromInputs(displayedInputs)
+                    ? [...addedWarehousesFromInputs(activeOutputInputs), ...addedPlantsFromInputs(activeOutputInputs)]
+                    : addedWarehousesFromInputs(activeOutputInputs)
           }
           addedCustomers={
             !projectsAddedEntities
               ? []
               : modelId === "transport-coal"
-                ? addedStationsFromInputs(displayedInputs)
+                ? addedStationsFromInputs(activeOutputInputs)
                 : modelId === "two-echelon-jade-us"
-                  ? jadeAddedCustomersFromInputs(displayedInputs)
-                  : addedCustomersFromInputs(displayedInputs)
+                  ? jadeAddedCustomersFromInputs(activeOutputInputs)
+                  : addedCustomersFromInputs(activeOutputInputs)
           }
           hideClosedWarehouses={hidesClosedFacilities}
           // jade-INT (#2, spec §3 R2-4) — base dataset plants ∪ this solve
@@ -3611,10 +3838,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // matching every other prop on this call). undefined for every
           // non-JADE model — OutputMapTab's own `plants = []` default
           // keeps them unaffected.
-          plants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, displayedInputs) : undefined}
+          plants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, activeOutputInputs) : undefined}
           // jade-INT (#8, spec §9) — the displayed history entry's own
           // frozen timing; suppressed by OutputMapTab itself when absent.
-          timing={displayedTiming}
+          // ch4-2s-8 (R4, "timing") — Chapter 4 has no result-history
+          // stepper (hidden per this task's own spec) and its per-step
+          // `ScenarioStepSummary` carries only a `runTimeSec` scalar, not the
+          // queued/started/finished timestamps `SolveTiming` needs — rather
+          // than fabricate timestamps or show one step's timing under the
+          // other's toggle selection, this is suppressed outright for
+          // Chapter 4 (OutputMapTab already treats `undefined` as "don't
+          // render the timing line").
+          timing={stepState.isMaxCoverage ? undefined : displayedTiming}
           // jade-INT (workspace-fixups-2, item 4) — canonical-id -> displayId
           // map, forwarded verbatim to NetworkMap so an added output marker
           // (warehouse/customer/plant) shows its display code instead of its
@@ -3637,7 +3872,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       activeTab.kind === "output" &&
       ["open-warehouses", "customer-assignments", "cost-summary", "service-stats", "flows"].includes(activeTab.entity)
     ) {
-      if (!hasFreshSolvedRun) {
+      // ch4-2s-8 (R4/CH4-18) — same shared gate as the Output Map branch
+      // above (null for every non-Chapter-4 model, which then takes the
+      // existing StaleOutputBanner path unchanged).
+      {
+        const gate = chapter4OutputGate();
+        if (gate) return gate;
+      }
+      if (!stepState.isMaxCoverage && !hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
       const outputGrids = activeModelManifest?.capabilities?.outputGrids ?? [];
@@ -3648,24 +3890,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           </span>
         );
       }
-      const result = displayedResult;
+      const result = activeOutputResult;
       // JADE output "City, ST" labels — built from the SAME snapshot
-      // (displayedInputs, never localInputs) each output grid already reads
-      // for added-entity display codes, so added entities resolve
+      // (activeOutputInputs, never localInputs) each output grid already
+      // reads for added-entity display codes, so added entities resolve
       // consistently between the two. JADE-only per explicit scope: every
       // other model's call site below passes `undefined`, which each
       // component's own `locationById` prop treats as "unchanged ID-only
       // rendering" (back-compat default) — the gate lives HERE, never inside
       // the shared components themselves.
       const jadeOutputLocationById =
-        modelId === "two-echelon-jade-us" ? jadeLocationMapFromInputs(dataset, displayedInputs) : undefined;
+        modelId === "two-echelon-jade-us" ? jadeLocationMapFromInputs(dataset, activeOutputInputs) : undefined;
       // ch4-tab-city-labels — same SAME-snapshot pattern as jadeOutputLocationById
       // above, Chen-only. Only wired into Open Warehouses/Customer Assignments
       // (this task's explicit scope) — Solution Summary/Flows stay JADE-only,
       // unchanged. Mutually exclusive with jadeOutputLocationById by modelId,
       // so `??` below always resolves to at most one non-undefined map.
       const chenOutputLocationById =
-        modelId === "max-coverage-us" ? chenLocationMapFromInputs(dataset, displayedInputs) : undefined;
+        modelId === "max-coverage-us" ? chenLocationMapFromInputs(dataset, activeOutputInputs) : undefined;
       if (activeTab.entity === "open-warehouses")
         return (
           <OpenWarehousesTab
@@ -3677,7 +3919,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // two-echelon-gold-au's rendering too, since its manifest ALSO
             // declares capacityModes:[] but has never shown "Demand Served").
             displayedInputs={facilityDisplayedInputs(
-              displayedInputs,
+              activeOutputInputs,
               modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
@@ -3705,8 +3947,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             distanceUnit={canonicalUnit}
             scenarioId={currentScenario!.id}
             displayedInputs={{
-              addedWarehouses: addedWarehousesFromInputs(displayedInputs),
-              addedCustomers: jadeAddedCustomersFromInputs(displayedInputs),
+              addedWarehouses: addedWarehousesFromInputs(activeOutputInputs),
+              addedCustomers: jadeAddedCustomersFromInputs(activeOutputInputs),
             }}
             identityById={outputIdentityById}
           />
@@ -3716,7 +3958,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <AssignmentsTab
             result={result}
             scenarioId={currentScenario!.id}
-            displayedInputs={facilityDisplayedInputs(displayedInputs)}
+            displayedInputs={facilityDisplayedInputs(activeOutputInputs)}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
             distanceUnit={canonicalUnit}
             identityById={outputIdentityById}
@@ -3729,8 +3971,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // per-scenario fetch is needed. `isBrowsingHistory` reuses
       // `canGoForwardResult` verbatim — it's already exactly "the stepper is
       // parked on a non-latest entry" (see that variable's own comment).
-      if (activeTab.entity === "cost-summary")
-        return (
+      if (activeTab.entity === "cost-summary") {
+        const costSummary = (
           <CostSummaryTab
             result={result}
             scenarioId={currentScenario!.id}
@@ -3740,6 +3982,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             locationById={jadeOutputLocationById}
           />
         );
+        // ch4-2s-8, Step 6 — the `2 of 2` side-by-side comparison, rendered
+        // from `stepState.steps` (the scenario already carries this — no
+        // extra fetch). `!` is safe here: `solvedCount === 2` is exactly
+        // "both steps.step1.summary and steps.step2.summary are non-null".
+        if (!stepState.isMaxCoverage || stepState.solvedCount !== 2) return costSummary;
+        return (
+          <>
+            {costSummary}
+            <div className="mt-6 px-2" data-testid="step-comparison-section">
+              <h3 className="text-sm font-semibold mb-2">Step comparison</h3>
+              <StepComparisonTable
+                step1={stepState.steps!.step1.summary!}
+                step2={stepState.steps!.step2.summary!}
+              />
+            </div>
+          </>
+        );
+      }
       // jade-INT (#4/#5, spec §5b) — JADE gets its own two-inner-tab Flows
       // component (`JadeFlowsTab`), NOT the shared `FlowsTab` — same
       // "no regression to shared tabs" reasoning as Customer Assignments
@@ -3787,10 +4047,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           result={result}
           scenarioId={currentScenario!.id}
           modelId={modelId}
-          effectivePlants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, displayedInputs) : undefined}
+          effectivePlants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, activeOutputInputs) : undefined}
           products={modelId === "two-echelon-jade-us" ? (dataset?.products ?? []) : undefined}
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
-          capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(displayedInputs) : []}
+          capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(activeOutputInputs) : []}
           presentationBands={activeBandLens}
           identityById={outputIdentityById}
         />
@@ -3817,12 +4077,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // construction (a provider with no consumers cannot regress anything).
   const displayedHistoryEntryForExport =
     resultHistoryState.index >= 0 ? resultHistoryState.items[resultHistoryState.index] : undefined;
+  // ch4-2s-8 — reuses Part F's EXISTING runId-addressed export mechanism
+  // (already how the result-history stepper exports a non-latest entry for
+  // the other five models): each step's own `jobId` is a real `solve_jobs`
+  // row, addressable the exact same way. Without this, downloading a CSV
+  // while Step 1 is selected would silently export Step 2's data — `scenario.
+  // result` is always whichever step solved last — the same wrong-step
+  // defect this task closes everywhere else, just on the export surface.
+  const activeOutputRunId: number | undefined = stepState.isMaxCoverage
+    ? ((selectedStep === 1 ? stepState.steps?.step1.jobId : stepState.steps?.step2.jobId) ?? undefined)
+    : (isBrowsingHistoryNow ? displayedHistoryEntryForExport?.runId : undefined);
   const exportValue: ExportProviderValue = {
     scenarioId: currentScenario?.id ?? null,
     // No fallback — stays null until `canonicalUnit` itself resolves,
     // matching every other distance surface Step 6a touched.
     unit: canonicalUnit == null ? null : effectiveUnit(canonicalUnit),
-    runId: isBrowsingHistoryNow ? displayedHistoryEntryForExport?.runId : undefined,
+    runId: activeOutputRunId,
     // decision 1g — set only for an UNADDRESSABLE historical entry (a
     // legacy latest result stays exportable via the latest-result path with
     // runId omitted, exactly as before this bundle).
@@ -3878,7 +4148,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           {/* Right — stepper + save-as + run (own grid track at md+; wraps/stacks
               below md, never forces horizontal overflow). */}
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            {resultHistoryState.items.length > 0 && (
+            {/* ch4-2s-8 — the result-history stepper is Chapter 4's OWN
+                step toggle would need two-dimensional semantics nobody has
+                specified (which of the two selectors wins?), so it is hidden
+                outright for max-coverage-us; the step toggle below is its
+                only result selector. Unchanged for every other model. */}
+            {!stepState.isMaxCoverage && resultHistoryState.items.length > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <button type="button" data-testid="button-result-back" disabled={!canGoBackResult} onClick={stepResultBack} title="Previous result"
                   className="w-8 h-8 rounded flex items-center justify-center border border-[color:var(--ink-500)] text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
@@ -3897,6 +4172,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 </button>
               </div>
             )}
+            {/* ch4-2s-7 — the two-step workflow's header toggle, Chapter 4
+                only. `stepState.steps` is only present for max-coverage-us
+                (Task 5's server-derived projection). */}
+            {stepState.isMaxCoverage && stepState.steps && (
+              <StepToggle
+                selected={selectedStep}
+                onSelect={setSelectedStep}
+                solvedCount={stepState.solvedCount}
+                steps={stepState.steps}
+              />
+            )}
             {/* chen-bands-units, Task 14 Step 7a — the model-page mount of
                 UnitToggle (AppShell owns the Landing-header mount, T10). */}
             <UnitToggle />
@@ -3912,7 +4198,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               onClick={openSolveDialog}
               data-testid="button-run-optimizer"
             >
-              Run Optimizer
+              {/* ch4-2s-7 — CH4-9: the label is derived from the SAME
+                  server-derived state the toggle reads, so it can never
+                  disagree with what actually runs. */}
+              {stepState.isMaxCoverage ? stepState.solveLabel : "Run Optimizer"}
             </Button>
           </div>
         </div>
@@ -3938,6 +4227,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
           )}
           hasSolvedRun={hasFreshSolvedRun}
+          // CH4-18 — Chapter 4's output entries stay clickable before the
+          // selected step is solved; the tab renders its own empty state
+          // (chapter4OutputGate above) instead of a disabled sidebar row.
+          keepOutputsClickable={stepState.isMaxCoverage}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
@@ -4035,14 +4328,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
         pMax={modelId === "max-coverage-us" ? 26 : undefined}
-        // Chen's coverage/min-distance mode toggle — same wiring as
-        // OptimizationParametersTab above (`setChenObjectiveMode` is the
-        // single shared transition handler; do not reimplement its
-        // clear-other-field logic here).
+        // CH4-17/R5 — Chapter 4's dialog is confirmation-only: no client can
+        // author `objective`/`coverageFloorDemand` any more (the server
+        // derives both from Step 1's achieved coverage), so this dialog no
+        // longer renders the toggle or the floor input. `readOnlyParams`
+        // additionally hides every OTHER editable control (P slider,
+        // avg-service cap, gap/time-limit, band editor) for this model only
+        // — `p`/the service-distance fields are inherited and frozen once
+        // Step 1 is solved, and editing top-level gap/timeLimitSec here
+        // would silently edit Step 1's limits while a Step-2-targeting
+        // student believes they're tuning the run about to happen.
+        readOnlyParams={modelId === "max-coverage-us"}
         objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
         avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-        coverageFloorDemand={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
-        onObjectiveModeChange={setChenObjectiveMode}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // chen-bands-units, Part A/G — the DEDICATED band lens (decision
@@ -4073,6 +4371,20 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         onSave={handleDirtyNavSave}
         onDiscard={handleDirtyNavDiscard}
         onCancel={handleDirtyNavCancel}
+      />
+
+      {/* ch4-2s-7 — confirm-and-clear interception, Chapter 4 only (`open`
+          is derived from `pendingStep1Inputs`, which only `guardStep1Edit`
+          ever sets, and only for a max-coverage-us scenario). Rendered
+          UNCONDITIONALLY from this component's single main return — same
+          "Dialog in a branch that never renders it" gotcha DirtyNavPrompt's
+          own comment above documents (CLAUDE.md). */}
+      <FreezeConfirmDialog
+        open={pendingStep1Inputs !== null}
+        busy={clearing}
+        error={clearError}
+        onCancel={() => { setPendingStep1Inputs(null); setClearError(null); }}
+        onConfirm={confirmStep1Edit}
       />
 
       {/* A4.1 — create-scenario dialog, triggered by SidebarTree's "+".

@@ -374,12 +374,19 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // reverts to blank rather than committing "5" or keeping "5." on screen.
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.", { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-new-distance-value")).toHaveValue("");
-      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
+      // ALN-C4 is a real base pair (solvers/max-coverage-us/dataset/distances.json
+      // has "ALN,C4") — the merged base+override table always renders a base row
+      // for it via `input-distance-${fromId}-${toId}`, regardless of whether an
+      // override was ever committed, so `toHaveCount(0)` on the input itself is
+      // never a valid "no override" check. The "Changed" badge only renders when
+      // `isChangedRow` is true (a real committed-or-draft override exists), so
+      // its absence is the correct proof the incomplete draft never committed.
+      await expect(page.getByTestId("badge-distance-changed-ALN-C4")).toHaveCount(0);
 
       await page.getByTestId("input-new-distance-value").fill("5e");
       await page.getByTestId("button-add-distance-confirm").click();
       await expect(page.getByTestId("text-add-distance-error")).toContainText("Distance must be a positive number.");
-      await expect(page.getByTestId("input-distance-ALN-C4")).toHaveCount(0);
+      await expect(page.getByTestId("badge-distance-changed-ALN-C4")).toHaveCount(0);
 
       // ── Now commit a real value (km, since unit=auto for max-coverage-us) ──
       await page.getByTestId("input-new-distance-value").fill("500");
@@ -426,6 +433,18 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // ── Edit while displayed in mi: confirm the stored CANONICAL value ──
       await page.getByTestId("unit-toggle-mi").click();
       const overrideInput = page.getByTestId("input-distance-ALN-C4");
+      // ch4-fixes item 4's "grouped" presentation swaps the idle 2-dp text
+      // (`miText1`, e.g. "310.69") for the full-precision raw value the
+      // instant the field is focused (onFocus -> setFocused(true) ->
+      // re-render). `.fill()` focuses the element as its first step, and if
+      // it selects-and-replaces before that focus-triggered re-render has
+      // committed, the new text lands next to (not over) the stale grouped
+      // value instead of replacing it — e.g. "310.6034" + "310.69" both in
+      // the field, which fails the draft's completeness grammar and silently
+      // discards on blur. Click first and wait for the raw swap to actually
+      // land before filling, so .fill() operates on a stable value.
+      await overrideInput.click();
+      await expect(overrideInput).not.toHaveValue(miText1);
       await overrideInput.fill("310.6034");
       await overrideInput.blur();
       await saveViaHeader(page);
@@ -444,10 +463,25 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
 });
 
 test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", () => {
-  test("ordinary editors no-op while browsing history, band lens stays editable, dirty-nav prompt: cancel/discard/reject-save/succeed", async ({ page }) => {
+  // ch4-2s-9 — moved from max-coverage-us to p-median-us. Task 8
+  // (ch4-2s-8) hides the ENTIRE result-history stepper for max-coverage-us
+  // (Workspace.tsx: `{!stepState.isMaxCoverage && resultHistoryState.items
+  // .length > 0 && (...)}` — the step toggle is Chapter 4's only result
+  // selector now), so `button-result-back`/`button-result-forward`/
+  // `text-result-history-position`/`button-save-as-scenario` no longer
+  // exist for this model at all — this test's entire premise (browsing
+  // result history) became unreachable UI. The mechanics under test
+  // (dirty-nav-prompt, ordinary-editor no-op while historical, the band
+  // lens staying editable while historical) are generic Workspace.tsx
+  // behavior, unchanged for every non-Chapter-4 model — p-median-us
+  // exercises the identical code paths. Also folds in (see below) the
+  // "input exports disabled / result export still works via runId while
+  // browsing history" assertions relocated from the test below, which lost
+  // its own history-browsing half for the same reason.
+  test("ordinary editors no-op while browsing history, band lens stays editable, dirty-nav prompt: cancel/discard/reject-save/succeed, export gating while historical", async ({ page }) => {
     test.setTimeout(300_000);
     await registerAndGoHome(page);
-    const id = await createScenario(page, "max-coverage-us", "/chapter-4", maxCoverageInputs());
+    const id = await createScenario(page, "p-median-us", "/chapter-3", pMedianInputs());
 
     try {
       // Two solves -> two history entries.
@@ -520,38 +554,23 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
 
       // ── Now at an OLDER (historical) entry: ordinary editors no-op ──────
-      // NOTE (real finding, not asserted as a defect here — see the final
-      // report): `CustomerTable`/`WarehouseTable` keep their own per-cell
-      // local `drafts` state (component-local, keyed by id, populated on
-      // every keystroke) with no reset tied to `isBrowsingHistoryNow` — so
-      // the input VISUALLY keeps whatever was typed rather than reverting,
-      // even though `updateInputsField`'s guard correctly no-ops the
-      // underlying `localInputs` write. This test asserts the DATA-SAFETY
-      // half (Save never enables from this keystroke; the server-persisted
-      // value is untouched), not the visual-revert half.
-      const histDemandTestId = (await page.locator('[data-testid^="input-customer-demand-"]').first().getAttribute("data-testid"))!;
-      const histDemandCustomerId = histDemandTestId.replace("input-customer-demand-", "");
-      const histDemand = page.getByTestId(histDemandTestId);
-      await histDemand.fill("999999999");
-      await histDemand.blur();
-      await page.waitForTimeout(300);
-      // The guarded no-op means this edit never became a real (ordinary)
-      // dirty draft — Save must NOT be enabled purely from this keystroke
-      // (it may still read "Save bands" and be enabled from the earlier
-      // lens save's already-clean state, or disabled entirely).
-      const saveAfterStrayEdit = page.getByTestId("button-save").first();
-      const strayEditSaveLabel = (await saveAfterStrayEdit.innerText()).trim();
-      if (strayEditSaveLabel === "Save") {
-        await expect(saveAfterStrayEdit).toBeDisabled();
-      }
-      // Confirm no data corruption directly against the server: the stray
-      // "999999999" must never appear in the persisted customerOverrides,
-      // regardless of what the (unreverted) input visually shows.
-      const serverBodyAfterStrayEdit = await (await page.request.get(`/api/scenarios/${id}`)).json();
-      const strayPersisted = (serverBodyAfterStrayEdit.inputs.customerOverrides as Array<{ id: string; demand?: number }>).find(
-        o => o.id === histDemandCustomerId,
-      );
-      expect(strayPersisted?.demand).not.toBe(999999999);
+      // ch4-2s-9 — rewritten. The comment this replaced described a real
+      // finding (a keystroke typed while browsing history visually "took"
+      // even though nothing persisted) that predates a later "chen-bands-
+      // units follow-up (QA defect)" fix: `CustomerTable`'s own `disabled`
+      // prop (`CustomerTable.tsx`'s own doc comment names it explicitly) is
+      // now wired to `isBrowsingHistoryNow` (Workspace.tsx passes
+      // `disabled={isBrowsingHistoryNow}` into `CustomersTab`), which
+      // disables the demand INPUT ELEMENT ITSELF while historical — so a
+      // `.fill()` attempt here now hangs forever waiting for an element
+      // that can never become "editable" (confirmed empirically: reliably
+      // timed out at the test's outer budget with zero console/network
+      // activity in between). The old visual-drift defect is now
+      // structurally impossible, not just asserted-around — proving the
+      // input is disabled IS the data-safety proof, no server round-trip
+      // needed.
+      const histDemand = page.locator('[data-testid^="input-customer-demand-"]').first();
+      await expect(histDemand).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
       // ── Band lens STAYS editable while browsing history ─────────────────
       await page.getByTestId("sidebar-input-optimization-parameters").click();
@@ -568,11 +587,40 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await saveBtn.click();
       await expect(saveBtn).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
+      // ── Relocated from the "unit= applies on the wire" test below (it lost
+      // this half for the same reason this whole test moved models): input
+      // exports are disabled while browsing a historical entry. ──────────
+      await page.getByTestId("sidebar-input-distances").click();
+      await expect(page.getByTestId("button-export-distances-csv")).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-export-distances-csv")).toHaveAttribute(
+        "title",
+        "Input exports reflect the current scenario",
+      );
+
+      // ch4-2s-9 — the ORIGINAL block here also clicked into the Solution
+      // Summary OUTPUT tab and checked its result export still worked with
+      // `runId`, while browsing history. That half is Chapter-4-specific
+      // and does NOT relocate: `SidebarTree`'s `keepOutputsClickable` is
+      // true ONLY for max-coverage-us (CH4-18) — for every other model,
+      // including p-median-us here, output sidebar entries are genuinely
+      // `disabled` while browsing a non-latest entry (confirmed via trace
+      // replay: the click hung on a real `disabled aria-disabled="true"`
+      // button, inheriting the whole test budget since this pre-existing
+      // `.click()` carried no explicit timeout). Result-export-while-
+      // historical for a NORMAL model would need the output tab already
+      // open from before stepping back — out of scope for this relocation;
+      // the input-export half above is the part that's genuinely model-
+      // agnostic and was the actual point of moving this block at all.
+      //
+      // Back to Optimization Parameters — the "step forward while dirty"
+      // block below re-opens Customers itself and expects to be there.
+      await page.getByTestId("sidebar-input-optimization-parameters").click();
+
       // ── Discard: step forward while dirty (re-dirty at latest, then discard) ──
       await page.getByTestId("button-result-forward").click();
       await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: HEADER_TIMEOUT });
-      // Optimization Parameters is still the active tab from the band-editing
-      // step above — reopen Customers.
+      // Reopen Customers (active tab is Optimization Parameters from the
+      // step above's explicit navigation back to it).
       await page.getByTestId("sidebar-input-customers").click();
       const latestDemand2 = page.locator('[data-testid^="input-customer-demand-"]').first();
       const latestDemandTestId = (await latestDemand2.getAttribute("data-testid"))!;
@@ -606,8 +654,18 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
 });
 
 test.describe("chen-bands-units QA — export controls", () => {
-  test("unit= applies on the wire, input exports disabled while browsing history, result export from a historical entry still works, file content carries the right unit", async ({ page }) => {
-    test.setTimeout(240_000);
+  // ch4-2s-9 — was two solves purely to create a second history entry to
+  // step back into; that half moved to the (now p-median-us-targeting)
+  // "ordinary editors no-op while browsing history..." test above, since
+  // Task 8 (ch4-2s-8) hides `button-result-back`/`text-result-history-
+  // position` outright for max-coverage-us (no stepper exists to step back
+  // with) — see that test's own header comment. What's left here is
+  // model-specific (max-coverage-us is the only km-canonical model, and
+  // `ALN`/`C4` are its own dataset ids) and needs no history at all: one
+  // solve, then unit=mi/km wire + CSV-content assertions against the
+  // single latest entry.
+  test("unit= applies on the wire, file content carries the right unit (max-coverage-us, km-canonical)", async ({ page }) => {
+    test.setTimeout(180_000);
     await registerAndGoHome(page);
     // Seed one distance override so the CSV content-check below has a real
     // data row to inspect (an unoverridden scenario's "distances" export is
@@ -622,15 +680,8 @@ test.describe("chen-bands-units QA — export controls", () => {
 
     try {
       await solveViaUi(page, id);
-      await page.getByTestId("sidebar-input-customers").click();
-      const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
-      const original = Number(await demandInput.inputValue()) || 0;
-      await demandInput.fill(String(original + 1000));
-      await saveViaHeader(page);
-      await solveViaUi(page, id);
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: HEADER_TIMEOUT });
 
-      // ── unit= applies on a real click, at the latest entry ──────────────
+      // ── unit= applies on a real click ────────────────────────────────────
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("button-export-distances-csv")).toBeEnabled();
@@ -648,25 +699,6 @@ test.describe("chen-bands-units QA — export controls", () => {
         page.getByTestId("button-export-distances-csv").click(),
       ]);
       expect(reqKm.url()).toContain("unit=km");
-
-      // ── Step back into history: input exports disabled, result exports still work ──
-      await page.getByTestId("button-result-back").click();
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
-
-      await page.getByTestId("sidebar-input-distances").click();
-      await expect(page.getByTestId("button-export-distances-csv")).toBeDisabled({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-export-distances-csv")).toHaveAttribute(
-        "title",
-        "Input exports reflect the current scenario",
-      );
-
-      await page.getByTestId("sidebar-output-cost-summary").click();
-      await expect(page.getByTestId("button-download-cost-summary-csv")).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      const [reqHistorical] = await Promise.all([
-        page.waitForRequest(req => req.url().includes("/export") && req.method() === "GET"),
-        page.getByTestId("button-download-cost-summary-csv").click(),
-      ]);
-      expect(reqHistorical.url()).toMatch(/runId=\d+/);
 
       // ── File content carries the right unit label + converted values ───
       const distExportKm = await page.request.get(`/api/scenarios/${id}/export?entity=distances&format=csv&unit=km`);

@@ -199,3 +199,63 @@ describe("maxCoverageInputsSchema — sparse network-edit arrays", () => {
     expect(r.distanceOverrides).toHaveLength(2);
   });
 });
+
+describe("two-step workflow keys (CH4-5, CH4-6, CH4-7)", () => {
+  function baseCoverageInputs(): Record<string, unknown> {
+    return {
+      objective: "coverage",
+      p: 3,
+      highServiceDistKm: 700,
+      maxDistKm: 5500,
+      avgServiceDistCapKm: 1000,
+      gap: 0,
+      timeLimitSec: 120,
+      capacityMode: "none",
+      distanceBands: [700, 1400, 2800, 5500],
+      warehouseOverrides: [],
+      customerOverrides: [],
+      addedWarehouses: [],
+      addedCustomers: [],
+      distanceOverrides: [],
+    };
+  }
+
+  it("round-trips stepEpoch and step2 without stripping them", () => {
+    const parsed = maxCoverageInputsSchema.parse({
+      ...baseCoverageInputs(),
+      stepEpoch: 4,
+      step2: { gap: 0.01, timeLimitSec: 60 },
+    });
+    expect(parsed.stepEpoch).toBe(4);
+    expect(parsed.step2).toEqual({ gap: 0.01, timeLimitSec: 60 });
+  });
+
+  it("defaults stepEpoch to 1 for a payload that predates the workflow", () => {
+    const parsed = maxCoverageInputsSchema.parse(baseCoverageInputs());
+    expect(parsed.stepEpoch).toBe(1);
+    expect(parsed.step2).toBeUndefined();
+  });
+
+  it("rejects stepEpoch below 1 and non-integer stepEpoch", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), stepEpoch: 0 }).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), stepEpoch: 1.5 }).success).toBe(false);
+  });
+
+  // CH4-6 — these three are inherited from Step 1. Rejection, not stripping:
+  // step2 is `.strict()` precisely so a client cannot smuggle them in.
+  it.each(["p", "highServiceDistKm", "maxDistKm", "avgServiceDistCapKm"])(
+    "rejects %s inside step2",
+    (field) => {
+      const result = maxCoverageInputsSchema.safeParse({
+        ...baseCoverageInputs(),
+        step2: { gap: 0, timeLimitSec: 60, [field]: 1 },
+      });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it("requires both gap and timeLimitSec when step2 is present", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), step2: { gap: 0 } }).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), step2: { timeLimitSec: 60 } }).success).toBe(false);
+  });
+});

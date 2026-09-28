@@ -229,44 +229,33 @@ const chenCoverageProps = {
   onChange: vi.fn(),
 };
 
+// CH4-17 — the only way to build a max-coverage-us render for this
+// describe block now; there is no longer an `onObjectiveModeChange` prop
+// or a `coverageFloorDemand` prop to vary a render by.
+function renderMaxCoverageTab(overrides: Partial<typeof chenCoverageProps> = {}) {
+  return render(<OptimizationParametersTab {...chenCoverageProps} {...overrides} onChange={overrides.onChange ?? vi.fn()} />);
+}
+
 describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
-  it("renders the objective toggle only when `objective` is set (not for other models)", () => {
-    const { rerender } = render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+  it("no longer renders a free objective toggle for max-coverage-us (CH4-17)", () => {
+    renderMaxCoverageTab();
     expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
-    rerender(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
-    expect(screen.getByTestId("chen-objective-toggle")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    // The section itself stays — it still renders the service-distance fields.
+    expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
   });
 
-  it("coverage mode shows the avg-service-cap field and HIDES the coverage-floor field", () => {
-    render(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+  it("does not render the objective section at all for other models (`objective` is undefined)", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
+  });
+
+  it("coverage mode shows the avg-service-cap field", () => {
+    renderMaxCoverageTab();
     expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
-    // Both thresholds are always visible in either mode.
+    // Both thresholds are always visible.
     expect(screen.getByTestId("input-high-service-dist")).toHaveValue(600);
     expect(screen.getByTestId("input-max-dist")).toHaveValue(5000);
-  });
-
-  it("min-distance mode shows the coverage-floor field and HIDES avg-service-cap", () => {
-    render(
-      <OptimizationParametersTab
-        {...chenCoverageProps}
-        objective="min_distance"
-        avgServiceDistCapKm={undefined}
-        coverageFloorDemand={131645389}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
-    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
-  });
-
-  it("clicking a mode button calls onObjectiveModeChange with that mode (the atomic toggle lives in Workspace)", () => {
-    const onObjectiveModeChange = vi.fn();
-    render(<OptimizationParametersTab {...chenCoverageProps} onObjectiveModeChange={onObjectiveModeChange} onChange={vi.fn()} />);
-    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
-    expect(onObjectiveModeChange).toHaveBeenCalledWith("min_distance");
-    fireEvent.click(screen.getByTestId("chen-objective-coverage"));
-    expect(onObjectiveModeChange).toHaveBeenCalledWith("coverage");
   });
 
   it("editing a service-distance threshold calls onServiceDistanceChange (NOT the generic onChange — bands resync there)", () => {
@@ -418,25 +407,25 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 643.7376);
   });
 
-  it("p / gap / timeLimitSec / coverageFloorDemand are untouched by the toggle", () => {
+  // CH4-17 — there is no coverageFloorDemand prop/field any more: the
+  // objective toggle is gone, so a "min_distance" display (which only the
+  // server can produce, never a client write) renders NEITHER the
+  // avg-service-cap NOR a floor field — just p/gap/timeLimitSec unaffected.
+  it("p / gap / timeLimitSec are untouched by an objective=min_distance display (no floor field exists)", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
-    const onChange = vi.fn();
     render(
       <OptimizationParametersTab
         {...chenUnitProps}
         objective="min_distance"
         avgServiceDistCapKm={undefined}
-        coverageFloorDemand={131645389}
-        onChange={onChange}
+        onChange={vi.fn()}
       />,
     );
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
     expect(screen.getByTestId("input-gap")).toHaveValue(0);
     expect(screen.getByTestId("input-time-limit")).toHaveValue(120);
-    const floor = screen.getByTestId("input-coverage-floor");
-    expect(floor).toHaveValue(131645389);
-    fireEvent.change(floor, { target: { value: "200000000" } });
-    expect(onChange).toHaveBeenCalledWith("coverageFloorDemand", 200000000);
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
   });
 
   it("a high-service edit retargets a band equal to the OLD high, then dedupes and re-sorts", () => {
@@ -498,5 +487,103 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     render(<OptimizationParametersTab {...chenUnitProps} canonicalUnit={null} onChange={vi.fn()} />);
     expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
     expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
+  });
+});
+
+// ch4-2s-7 — CH4-6: Step 2's own dedicated panel. `step`/`stepEditable`/
+// `step2Gap`/`step2TimeLimitSec`/`coverageFloorFromStep1` are all new; every
+// test above this point omits them and is unaffected (`(step ?? 1) === 1`
+// keeps the Step 1 view — including the P slider and the top gap/time-limit
+// block — exactly as it rendered before this task).
+describe("OptimizationParametersTab — Step 2 panel (ch4-2s-7, CH4-6)", () => {
+  const step1Props = {
+    ...chenCoverageProps,
+    step: 1 as const,
+  };
+
+  it("renders Step 1's view (P slider, chen-objective-section, top gap/time-limit) when step=1", () => {
+    render(<OptimizationParametersTab {...step1Props} onChange={vi.fn()} />);
+    expect(screen.getByTestId("slider-p-value")).toBeInTheDocument();
+    expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
+    expect(screen.getByTestId("input-gap")).toBeInTheDocument();
+    expect(screen.getByTestId("input-time-limit")).toBeInTheDocument();
+    expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
+  });
+
+  it("renders ONLY the Step 2 panel when step=2 — Step 1's editable fields are hidden", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        coverageFloorFromStep1={53385024}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("step2-parameters")).toBeInTheDocument();
+    expect(screen.queryByTestId("slider-p-value")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("input-gap")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("input-time-limit")).not.toBeInTheDocument();
+  });
+
+  it("shows the inherited P/highServiceDistKm/maxDistKm as read-only display", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
+    const inherited = screen.getByTestId("step2-inherited");
+    expect(inherited).toHaveTextContent("3");
+    expect(inherited).toHaveTextContent("600");
+    expect(inherited).toHaveTextContent("5000");
+  });
+
+  it("shows a placeholder for the coverage floor until Step 1 has solved (coverageFloorFromStep1 null/undefined)", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
+    expect(screen.getByTestId("step2-floor-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("step2-floor-value")).not.toBeInTheDocument();
+  });
+
+  it("shows the locked floor value once Step 1 has solved", () => {
+    render(
+      <OptimizationParametersTab {...chenCoverageProps} step={2} coverageFloorFromStep1={53385024} onChange={vi.fn()} />,
+    );
+    expect(screen.getByTestId("step2-floor-value")).toHaveTextContent("53,385,024");
+    expect(screen.queryByTestId("step2-floor-placeholder")).not.toBeInTheDocument();
+  });
+
+  // R6 — `stepEditable` false at `0 of 2`: Step 2 is viewable but its own
+  // fields must not be editable yet.
+  it("disables Step 2's own gap/time-limit fields when stepEditable is false", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        stepEditable={false}
+        step2Gap={0}
+        step2TimeLimitSec={60}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("input-step2-gap")).toBeDisabled();
+    expect(screen.getByTestId("input-step2-time-limit")).toBeDisabled();
+  });
+
+  it("enables Step 2's own gap/time-limit fields when stepEditable is true, and writes step2Gap/step2TimeLimitSec", () => {
+    const onChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        step={2}
+        stepEditable
+        step2Gap={0}
+        step2TimeLimitSec={60}
+        onChange={onChange}
+      />,
+    );
+    const gapInput = screen.getByTestId("input-step2-gap");
+    const timeInput = screen.getByTestId("input-step2-time-limit");
+    expect(gapInput).toBeEnabled();
+    expect(timeInput).toBeEnabled();
+    fireEvent.change(gapInput, { target: { value: "0.02" } });
+    expect(onChange).toHaveBeenCalledWith("step2Gap", 0.02);
+    fireEvent.change(timeInput, { target: { value: "90" } });
+    expect(onChange).toHaveBeenCalledWith("step2TimeLimitSec", 90);
   });
 });

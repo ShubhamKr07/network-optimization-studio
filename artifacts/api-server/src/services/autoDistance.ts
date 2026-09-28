@@ -562,3 +562,48 @@ export function fillEstimatedMaxCoverageDistances(
 
   return maxCoverageInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
 }
+
+// T1 (Input Map v2) / follow-up item 3 — auto-estimate normalizer, run on
+// every persist path (POST create, PATCH, import/apply) right before the
+// already-validated inputs are written to the DB row. Covers all 6 models.
+// p-median-brazil shares p-median-us's schema but a different base
+// dataset/geography (BRAZIL_CIRCUITY, B2-T2) — this landed alongside T3's
+// GET /dataset endpoint, closing the boundary D1.1/D2/D3 originally drew (no
+// warehouse/customer table UI/map wiring existed for that model until now).
+// Every other modelId falls through unchanged.
+//
+// CH4-2s-2 — moved verbatim from routes/scenarios.ts into this service
+// module so services/scenarioInputWrite.ts (the single write authority for
+// `scenarios.inputs`) can call it too, without a circular import between a
+// route file and a service file (the same reason
+// runNetworkEditsPrecheckForModel already lives in services/precheck.ts
+// rather than routes/scenarios.ts — see that function's own header comment).
+// routes/scenarios.ts now imports this instead of defining it locally; every
+// existing call site is untouched.
+export function normalizeAddedEntityDistances(modelId: string, data: Record<string, unknown>): Record<string, unknown> {
+  if (modelId === "p-median-us") {
+    return fillEstimatedDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
+  }
+  if (modelId === "p-median-brazil") {
+    return fillEstimatedBrazilDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
+  }
+  if (modelId === "transport-coal") {
+    return fillEstimatedLaneCosts(data as unknown as TransportLpInputs) as unknown as Record<string, unknown>;
+  }
+  if (modelId === "two-echelon-gold-au") {
+    return fillEstimatedTwoEchelonDistances(data as unknown as TwoEchelonInputs) as unknown as Record<string, unknown>;
+  }
+  if (modelId === "two-echelon-jade-us") {
+    return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
+  }
+  // C4.7 (Chapter 4) — max-coverage-us fills missing added-entity
+  // warehouse<->customer distances as `estimated` raw km (R=6371, no
+  // circuity) on every persist path (POST create, PATCH, import/apply). Its
+  // reparse through maxCoverageInputsSchema also re-applies the D19
+  // distanceBands=[high,max] transform, so a distances-import staging a stale
+  // third boundary is corrected here.
+  if (modelId === "max-coverage-us") {
+    return fillEstimatedMaxCoverageDistances(data as unknown as MaxCoverageInputs) as unknown as Record<string, unknown>;
+  }
+  return data;
+}

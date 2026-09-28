@@ -50,9 +50,10 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     // AuthShell's labs strip is derived from CHAPTERS' non-hidden chapters
     // (deduped by `chapter`, in array order), not a hardcoded per-model list —
     // with transport-coal/p-median-brazil (Chapter 5) and two-echelon-gold-au
-    // (Chapter 10) hiddenFromLanding but Chapter 9 (JADE) visible, it shows
-    // Chapter 3, then Chapter 9.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 9");
+    // (Chapter 10) hiddenFromLanding, Chapter 4 (max-coverage-us) unlocked and
+    // visible, and Chapter 9 (JADE) visible, it shows Chapter 3, Chapter 4,
+    // then Chapter 9.
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 9");
 
     const credit = page.getByTestId("auth-credit");
     await expect(credit).toBeVisible();
@@ -111,13 +112,13 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     await expect(page.getByText("Network Design Labs")).toBeVisible();
     await expect(page.getByTestId("hero-tagline")).toContainText(/build a scenario/i);
 
-    // Chapter 3 (p-median-us) and Chapter 9 (JADE) are visible on Landing now —
-    // transport-coal/p-median-brazil (Chapter 5) and two-echelon-gold-au
-    // (Chapter 10) stay hiddenFromLanding, and the stats line is computed from
-    // the visible-only perChapter rows.
+    // Chapter 3 (p-median-us), Chapter 4 (max-coverage-us), and Chapter 9
+    // (JADE) are visible on Landing now — transport-coal/p-median-brazil
+    // (Chapter 5) and two-echelon-gold-au (Chapter 10) stay hiddenFromLanding,
+    // and the stats line is computed from the visible-only perChapter rows.
     const stats = page.getByTestId("landing-stats-line");
     await expect(stats).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(stats).toHaveText("2 labs · 0 scenarios · 0 solved");
+    await expect(stats).toHaveText("3 labs · 0 scenarios · 0 solved");
 
     const footer = page.getByTestId("landing-card-footer-p-median-us");
     await expect(footer).toContainText("no scenarios yet");
@@ -147,11 +148,12 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
     await page.goto("/");
     await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 
-    // Baseline before any scenario exists. Chapter 3 (p-median-us) and
-    // Chapter 9 (JADE) are visible; Chapter 10 + Chapter 5 stay hidden — so this
-    // and every stats-line assertion below reads "2 labs".
+    // Baseline before any scenario exists. Chapter 3 (p-median-us), Chapter 4
+    // (max-coverage-us), and Chapter 9 (JADE) are visible; Chapter 10 +
+    // Chapter 5 stay hidden — so this and every stats-line assertion below
+    // reads "3 labs".
     await expect(page.getByTestId("landing-stats-line")).toHaveText(
-      "2 labs · 0 scenarios · 0 solved",
+      "3 labs · 0 scenarios · 0 solved",
       { timeout: HEADER_TIMEOUT },
     );
 
@@ -181,7 +183,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // should reflect the scenario count without a solved badge yet.
       await page.reload();
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "2 labs · 1 scenarios · 0 solved",
+        "3 labs · 1 scenarios · 0 solved",
         { timeout: HEADER_TIMEOUT },
       );
       const footerUnsolved = page.getByTestId("landing-card-footer-p-median-us");
@@ -210,7 +212,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // completed solve.
       await page.reload();
       const stats = page.getByTestId("landing-stats-line");
-      await expect(stats).toHaveText("2 labs · 1 scenarios · 1 solved", {
+      await expect(stats).toHaveText("3 labs · 1 scenarios · 1 solved", {
         timeout: HEADER_TIMEOUT,
       });
 

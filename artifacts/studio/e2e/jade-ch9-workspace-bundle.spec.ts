@@ -16,6 +16,7 @@
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { skipIfJadeLocked } from "./helpers/modelLock";
 
 // Bounds every action (click/fill/hover/etc — NOT `expect()` assertions,
 // which have their own separate default) to a real, diagnosable failure
@@ -186,6 +187,7 @@ async function pickIsolatedCustomerMarker(page: Page) {
 test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
   test("JADE model: overflow color, plants, avg-distance lines, restructured reports, plant production, capability capacity, no 10M leak, solve clock, FilterMenu", async ({ page }) => {
     test.setTimeout(300_000);
+    await skipIfJadeLocked(page);
     await registerAndGoHome(page, "jade-bundle");
     const id = await createJadeScenario(page);
     const solveCalls = makeSolveCallTracker(page);
