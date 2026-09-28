@@ -94,7 +94,11 @@ interface OptimizationParametersTabProps {
   // The whole Chen block is gated on `objective != null` (present only for
   // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
   // model passing none of these renders none of it, so this stays generic.
-  /** Coverage vs min-distance objective mode. Presence gates the Chen block. */
+  /** Coverage vs min-distance objective mode. Presence gates the Chen block.
+   * CH4-17 — removed. The step toggle (Task 7) is now the ONLY way to choose
+   * an objective, so two controls cannot disagree and no path reaches a
+   * min-distance solve without the floor that gives it meaning. This value
+   * is read-only for display; there is no `onObjectiveModeChange` prop. */
   objective?: "coverage" | "min_distance";
   /** Chen's two service-distance thresholds (both always visible in the
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
@@ -104,12 +108,6 @@ interface OptimizationParametersTabProps {
   maxDistKm?: number;
   /** Coverage-mode-only cap (present when `objective === "coverage"`). */
   avgServiceDistCapKm?: number;
-  /** Min-distance-mode-only floor (present when `objective === "min_distance"`). */
-  coverageFloorDemand?: number;
-  /** Atomic mode toggle — the caller (Workspace) seeds the newly-required
-   * field and CLEARS the previous mode's field in one update, matching
-   * C4.6's discriminated maxCoverageInputsSchema. */
-  onObjectiveModeChange?: (mode: "coverage" | "min_distance") => void;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */
   onServiceDistanceChange?: (field: "highServiceDistKm" | "maxDistKm", value: number) => void;
@@ -162,8 +160,6 @@ export function OptimizationParametersTab({
   highServiceDistKm,
   maxDistKm,
   avgServiceDistCapKm,
-  coverageFloorDemand,
-  onObjectiveModeChange,
   onServiceDistanceChange,
   showBandEditor = true,
   onChange,
@@ -234,33 +230,6 @@ export function OptimizationParametersTab({
           the `{showBandEditor && ...}` render below. */}
       {objective != null && (
         <div className="space-y-4" data-testid="chen-objective-section">
-          <div className="space-y-2">
-            <Label className="text-xs font-semibold text-foreground">Objective</Label>
-            <div
-              className="inline-flex rounded border border-border overflow-hidden"
-              role="group"
-              aria-label="Objective mode"
-              data-testid="chen-objective-toggle"
-            >
-              {(["coverage", "min_distance"] as const).map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  data-testid={`chen-objective-${mode}`}
-                  aria-pressed={objective === mode}
-                  onClick={() => onObjectiveModeChange?.(mode)}
-                  className={`text-xs px-3 py-1 transition-colors ${
-                    objective === mode
-                      ? "bg-primary text-white"
-                      : "bg-white text-foreground hover:bg-muted"
-                  }`}
-                >
-                  {mode === "coverage" ? "Coverage" : "Min-distance"}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             {canonicalUnit !== undefined ? (
               <>
@@ -340,21 +309,6 @@ export function OptimizationParametersTab({
             )
           )}
 
-          {objective === "min_distance" && (
-            <div>
-              <Label htmlFor="input-coverage-floor" className="text-xs text-muted-foreground">
-                Coverage floor (demand)
-              </Label>
-              <Input
-                id="input-coverage-floor"
-                type="number"
-                value={coverageFloorDemand ?? ""}
-                onChange={e => onChange("coverageFloorDemand", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="input-coverage-floor"
-              />
-            </div>
-          )}
         </div>
       )}
 
