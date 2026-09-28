@@ -5,6 +5,7 @@ import {
   precheckTwoEchelonInputs,
   precheckJadeInputs,
   precheckMaxCoverageInputs,
+  runNetworkEditsPrecheckForModel,
   buildTransportIdSpaces,
   buildTwoEchelonIdSpaces,
   buildActivePMedianIds,
@@ -1589,5 +1590,69 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       };
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["reference_integrity"]);
     });
+  });
+});
+
+describe("precheckDeliveryInputs", () => {
+  const base = {
+    p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 120,
+    costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10,
+    laneCostOverrides: [],
+  };
+
+  it("passes a clean payload", () => {
+    expect(runNetworkEditsPrecheckForModel("delivery-teaching-us", base).ok).toBe(true);
+  });
+
+  it("rejects an unknown warehouse id as reference_integrity, naming it", () => {
+    const r = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W999", toId: "C1", cost: 5 }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.code).toBe("reference_integrity");
+    expect(r.errors[0]!.message).toContain("W999");
+  });
+
+  it("rejects an unknown customer id", () => {
+    const r = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W1", toId: "C999", cost: 5 }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.message).toContain("C999");
+  });
+
+  // A role-swapped pair is individually valid on both sides and still not a lane.
+  it("rejects a pair that exists in neither lane table", () => {
+    const r = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "C1", toId: "W1", cost: 5 }] });
+    expect(r.ok).toBe(false);
+  });
+
+  it("accepts a zero override, matching the dataset's 33 zero self-lanes", () => {
+    const r = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W1", toId: "C1", cost: 0 }] });
+    expect(r.ok).toBe(true);
+  });
+
+  // Spec 6.2.1 / Gate D: the Zod schema already refuses these on PATCH, but
+  // the precheck runs on the STORED row at solve time and must not trust it.
+  it("rejects a duplicate (fromId,toId) pair and a negative or non-finite cost", () => {
+    const dup = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W1", toId: "C2", cost: 5 }, { fromId: "W1", toId: "C2", cost: 6 }] });
+    expect(dup.ok).toBe(false);
+    expect(dup.errors[0]!.code).toBe("id_collision");
+    const neg = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W1", toId: "C2", cost: -1 }] });
+    expect(neg.ok).toBe(false);
+    expect(neg.errors[0]!.code).toBe("completeness");
+    const inf = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "W1", toId: "C2", cost: Number.POSITIVE_INFINITY }] });
+    expect(inf.ok).toBe(false);
+  });
+
+  // The regression that matters: before this task the dispatcher's fallback
+  // returned ok:true for this model, so every one of the cases above passed.
+  it("no longer falls through to the unknown-model pre-approval", () => {
+    const r = runNetworkEditsPrecheckForModel("delivery-teaching-us",
+      { ...base, laneCostOverrides: [{ fromId: "nonsense", toId: "nonsense", cost: 1 }] });
+    expect(r.ok).toBe(false);
   });
 });
