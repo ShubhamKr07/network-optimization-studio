@@ -81,3 +81,25 @@ describe("buildPayload — delivery-teaching-us", () => {
     expect(payload.modelType).not.toBe("p_median");
   });
 });
+
+import request from "supertest";
+import app from "../app.js";
+
+describe("GET /dataset — delivery-teaching-us", () => {
+  it("returns 33 warehouses and 313 customers and no lane tables", async () => {
+    const res = await request(app).get("/api/dataset?modelId=delivery-teaching-us").expect(200);
+    expect(res.body.warehouses).toHaveLength(33);
+    expect(res.body.customers).toHaveLength(313);
+    // The 10,329-lane files must never reach the browser through this route.
+    expect(res.body.distances).toBeUndefined();
+    expect(res.body.costs).toBeUndefined();
+  });
+
+  it("carries role-prefixed ids and inline demand", async () => {
+    const res = await request(app).get("/api/dataset?modelId=delivery-teaching-us").expect(200);
+    expect(res.body.warehouses.every((w: { id: string }) => w.id.startsWith("W"))).toBe(true);
+    expect(res.body.customers.every((c: { id: string }) => c.id.startsWith("C"))).toBe(true);
+    expect(res.body.customers.reduce((s: number, c: { demand: number }) => s + c.demand, 0))
+      .toBe(208829000);
+  });
+});
