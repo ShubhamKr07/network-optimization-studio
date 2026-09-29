@@ -1884,6 +1884,43 @@ is the only part of this amendment that touches the other six models.
   `inactive` keeps one out; more-than-`P` forced-open returns infeasible; all-inactive returns
   infeasible; all-excluded does not divide by zero.
 - The non-optimal branch coverage §14.4 makes necessary.
+
+**Override golden values.** Measured the same way as §8.1 — the extended prototype
+(`docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py`), PuLP 3.3.2 / CBC, against
+the same xlsx. Reproducing §8.1's two scenarios first, unchanged, is what makes this run a valid
+oracle for the four cases below: `88,240,913,478.10` / `{W1, W2, W60}` / `422.5511` mi and
+`150,194,534,098.60` / `{W6, W43, W45}` / `508.6534` mi both came back exactly as pinned.
+
+The prototype reads the xlsx directly and keys plants/customers by the sheet's raw ids
+(`"1"`, `"60"`); the runtime dataset prefixes them by role. Translating: sheet plant `1` is
+`W1`, sheet plant `60` is `W60`, sheet customer `1` is `C1`, and so on for every id in this
+table and in §14.3's test descriptions.
+
+| | G1 — demand override (`C1` demand → 20,000,000) | G2 — exclusion (`C1` excluded) | G3 — forced_open > P (`W6`, `W43`, `W45`, `W60` forced open, `p=3`) | G4 — all warehouses `inactive` |
+| --- | --- | --- | --- | --- |
+| `p` | 3 | 3 | 3 | 3 |
+| Status | Optimal | Optimal | **Infeasible** | **Infeasible** |
+| Objective | 88,240,913,478.10 | 87,536,319,376.50 | n/a | n/a |
+| Open DCs | `W1` Los Angeles, `W2` New York City, `W60` Louisville | `W2` New York City, `W44` Las Vegas, `W60` Louisville | n/a | n/a |
+| Weighted avg. distance | 401.6720 mi | 438.3742 mi | n/a | n/a |
+| % demand within 400 mi | 61.39 | 57.58 | n/a | n/a |
+| % demand within 800 mi | 82.37 | 82.90 | n/a | n/a |
+| % demand within 1200 mi | 99.47 | 99.49 | n/a | n/a |
+| % demand within 1600 mi | 100.00 | 100.00 | n/a | n/a |
+
+**G1's objective is identical to Scenario 1's, and that is a measured result, not an error.**
+Sheet customer `1` (`C1`) and sheet plant `1` (`W1`) are both Los Angeles — the distance
+between them is `0.0` mi, so scaling `C1`'s demand to 20,000,000 adds zero cost regardless of
+demand, while it still pulls the weighted-average distance down (a much larger zero-distance
+term dilutes the average). The open set is unchanged from Scenario 1 for the same reason: an
+assignment cost comparison for one customer scales by that customer's demand uniformly across
+every candidate plant, so demand magnitude alone cannot change which plant is cheapest for it,
+only how much the objective and the metrics weight it once assigned.
+
+G3 and G4 are pinned by status only, per the brief — both are expected-infeasible constructions
+(more forced-open warehouses than `p` allows; every warehouse's upper bound driven to 0), and
+CBC reported `Infeasible` for both, not a wrong number to reconcile.
+
 - Studio: the five-tab set; the Warehouses/Customers tabs render with **no** added-entity
   section; the map still refuses add/copy/move/delete while allowing status and demand.
 - `Workspace.TabCoverage.test.tsx`'s delivery block moves from three input entries to five.

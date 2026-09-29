@@ -75,7 +75,15 @@ def main():
     dist = {(r[xh.index('Plant ID')], r[xh.index('Customer ID')]): float(r[xh.index('Distance')]) for r in Xs[1:]}
     TOTAL = sum(dem[c] for c in cust)
 
-    def run(label, P, adjust, thr=800.0, cpm=1.0, cpmo=10.0, binary_assign=True, gap=0.0, tl=600):
+    def run(label, P, adjust, thr=800.0, cpm=1.0, cpmo=10.0,
+            demand_overrides=None, excluded=None, forced_open=None, inactive=None,
+            binary_assign=True, gap=0.0, tl=600):
+        cust_active = [c for c in cust if c not in (excluded or set())]
+        dem_eff = dict(dem)
+        for cid, v in (demand_overrides or {}).items():
+            dem_eff[cid] = v
+        total_active = sum(dem_eff[c] for c in cust_active) or 1.0
+
         cost = {k: v for k, v in dist.items()}          # cost seeded == distance
         if adjust:
             ec = {k: v * (cpm if dist[k] <= thr else cpmo) for k, v in cost.items()}
@@ -84,44 +92,61 @@ def main():
         t0 = time.time()
         prob = pulp.LpProblem("delivery", pulp.LpMinimize)
         cat = 'Binary' if binary_assign else 'Continuous'
-        y = pulp.LpVariable.dicts("A", [(w, c) for w in plant for c in cust], 0, 1, cat=cat)
+        y = pulp.LpVariable.dicts("A", [(w, c) for w in plant for c in cust_active], 0, 1, cat=cat)
         o = pulp.LpVariable.dicts("O", plant, 0, 1, cat='Binary')
-        prob += pulp.lpSum(ec[(w, c)] * dem[c] * y[(w, c)] for w in plant for c in cust)
-        for c in cust:
+        prob += pulp.lpSum(ec[(w, c)] * dem_eff[c] * y[(w, c)] for w in plant for c in cust_active)
+        for c in cust_active:
             prob += pulp.lpSum(y[(w, c)] for w in plant) == 1
         prob += pulp.lpSum(o[w] for w in plant) <= P
         for w in plant:
-            for c in cust:
+            for c in cust_active:
                 prob += y[(w, c)] <= o[w]
+        # bounds, mirroring the solver:
+        for w in plant:
+            if w in (forced_open or set()):
+                prob += o[w] >= 1
+            if w in (inactive or set()):
+                prob += o[w] <= 0
         build = time.time() - t0
         t1 = time.time()
         prob.solve(pulp.PULP_CBC_CMD(msg=0, gapRel=gap, timeLimit=tl))
         solve_t = time.time() - t1
+        status = pulp.LpStatus[prob.status]
+        print(f"\n=== {label}  P={P} adjust={adjust} assign={cat}")
+        print(f"  status            : {status}")
+        if status != "Optimal":
+            print(f"  build {build:.1f}s  solve {solve_t:.1f}s  total {build + solve_t:.1f}s")
+            return dict(label=label, status=status)
         obj = pulp.value(prob.objective)
         opened = sorted([w for w in plant if o[w].varValue and o[w].varValue > 0.5], key=lambda w: int(w))
         dw = 0.0; band = {b: 0.0 for b in (400, 800, 1200, 1600)}
         for w in plant:
-            for c in cust:
+            for c in cust_active:
                 v = y[(w, c)].varValue
                 if v and v > 0.5:
-                    d = dist[(w, c)]; dw += d * dem[c]
+                    d = dist[(w, c)]; dw += d * dem_eff[c]
                     for b in band:
                         if d <= b:
-                            band[b] += dem[c]
-        print(f"\n=== {label}  P={P} adjust={adjust} assign={cat}")
-        print(f"  status            : {pulp.LpStatus[prob.status]}")
+                            band[b] += dem_eff[c]
         print(f"  objective         : {obj:,.4f}")
         print(f"  open DCs          : {[(w, pname[w]) for w in opened]}")
-        print(f"  weightedAvgDist   : {dw / TOTAL:,.4f} mi")
-        print(f"  bandCoverage %    : " + ", ".join(f"{b}:{band[b] * 100 / TOTAL:.2f}" for b in sorted(band)))
+        print(f"  weightedAvgDist   : {dw / total_active:,.4f} mi")
+        print(f"  bandCoverage %    : " + ", ".join(f"{b}:{band[b] * 100 / total_active:.2f}" for b in sorted(band)))
         print(f"  build {build:.1f}s  solve {solve_t:.1f}s  total {build + solve_t:.1f}s")
-        return dict(label=label, obj=obj, opened=opened, wad=dw / TOTAL,
-                    bands={b: band[b] * 100 / TOTAL for b in band}, build=build, solve=solve_t)
+        return dict(label=label, status=status, obj=obj, opened=opened, wad=dw / total_active,
+                    bands={b: band[b] * 100 / total_active for b in band}, build=build, solve=solve_t)
 
     print(f"plants={len(plant)} customers={len(cust)} lanes={len(dist)} totalDemand={TOTAL:,.0f}")
     res = []
     res.append(run("Scenario 1 (base, $1/mi)", 3, False))
     res.append(run("Scenario 2 (adjusted 1/10 @800)", 3, True))
+
+    res.append(run("G1 demand override: C1 -> 20,000,000", 3, False,
+                   demand_overrides={"1": 20_000_000}))
+    res.append(run("G2 exclusion: drop C1", 3, False, excluded={"1"}))
+    res.append(run("G3 forced_open > P: pin 4 with P=3", 3, False,
+                   forced_open={"6", "43", "45", "60"}))
+    res.append(run("G4 all inactive", 3, False, inactive=set(plant)))
 
     if args.json_out:
         out_dir = os.path.dirname(args.json_out)
