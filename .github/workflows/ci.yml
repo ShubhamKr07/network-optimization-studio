@@ -1,8 +1,24 @@
 name: CI
 
+# Runs on EVERY branch, not just main.
+#
+# ch5-delivery (2026-09-29) was a 25-commit feature branch merged by
+# fast-forward with no PR, so with the old `branches: [main]` trigger CI never
+# ran on any of its commits — the first run would have happened after the
+# merge. `pnpm run typecheck` was consequently red from Task 4 through Task 7
+# with nothing to catch it: one review reported having run it clean when it had
+# not, and a later agent mis-attributed the failure to an unrelated test. It
+# was found only when a human ran the command directly, four tasks late.
+#
+# Deliberately `branches-ignore: []` (all branches) rather than a pattern list
+# like [main, 'ch*', 'bundle*']. A pattern list reopens the same gap silently
+# the first time someone names a branch outside it, which is the exact failure
+# mode this change exists to close.
+#
+# See docs/superpowers/gates/spec_gap.md.
 on:
   push:
-    branches: [main]
+    branches-ignore: []
   pull_request:
 
 jobs:
