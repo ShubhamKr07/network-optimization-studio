@@ -86,6 +86,17 @@ Three invariants bind everyday work, so they stay here:
 
 ## Branch discipline (standing)
 
+**The merge-to-main pipeline. This is the governing rule; everything below elaborates it.**
+
+1. **Every new commit lands on its own branch.** No exceptions, no "just this one" — not docs, not a typo fix, not a metrics row. `main` is never a working branch.
+2. **No merge to `main` until every task in the plan is complete.** A partially-executed plan does not get integrated, however green its finished tasks are.
+3. **When all tasks are done, STOP and prompt the user for approval to merge.** This is a hard stop, not a notification. Do not merge on your own judgement that the work looks finished.
+4. **On approval, merge to local `main`.** This is where integration conflicts surface and get resolved — deliberately *before* the review, so the review sees the real merged result rather than a pre-merge fiction.
+5. **Then run the whole-branch review**, on the merged state. It reviews what will actually ship, including anything the merge pulled in or changed.
+6. **Only then push to `origin/main`.**
+
+Never reorder these. Reviewing before the merge reviews code that does not exist yet; pushing before the review publishes unreviewed code. A branch that is merged locally but not yet reviewed is recoverable; a pushed one is not.
+
 - Do not commit directly to `main` for routine bundle work or ad hoc fixes. Every feature or remediation change must land on a descriptive branch first.
 - Keep a branch for each bundle or repair, and set an upstream remote at the first stable checkpoint so the work is recoverable outside the local machine.
 - Protect the active worktree and branch from cleanup or deletion until its branch has been reviewed, backed up remotely, and explicitly approved for retirement.
