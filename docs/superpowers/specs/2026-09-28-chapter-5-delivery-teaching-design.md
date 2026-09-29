@@ -1888,38 +1888,77 @@ is the only part of this amendment that touches the other six models.
 **Override golden values.** Measured the same way as §8.1 — the extended prototype
 (`docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py`), PuLP 3.3.2 / CBC, against
 the same xlsx. Reproducing §8.1's two scenarios first, unchanged, is what makes this run a valid
-oracle for the four cases below: `88,240,913,478.10` / `{W1, W2, W60}` / `422.5511` mi and
+oracle for the cases below: `88,240,913,478.10` / `{W1, W2, W60}` / `422.5511` mi and
 `150,194,534,098.60` / `{W6, W43, W45}` / `508.6534` mi both came back exactly as pinned.
 
 The prototype reads the xlsx directly and keys plants/customers by the sheet's raw ids
 (`"1"`, `"60"`); the runtime dataset prefixes them by role. Translating: sheet plant `1` is
-`W1`, sheet plant `60` is `W60`, sheet customer `1` is `C1`, and so on for every id in this
-table and in §14.3's test descriptions.
+`W1`, sheet plant `60` is `W60`, sheet customer `1` is `C1`, sheet customer `10` is `C10`, and
+so on for every id in this table and in §14.3's test descriptions.
 
-| | G1 — demand override (`C1` demand → 20,000,000) | G2 — exclusion (`C1` excluded) | G3 — forced_open > P (`W6`, `W43`, `W45`, `W60` forced open, `p=3`) | G4 — all warehouses `inactive` |
-| --- | --- | --- | --- | --- |
-| `p` | 3 | 3 | 3 | 3 |
-| Status | Optimal | Optimal | **Infeasible** | **Infeasible** |
-| Objective | 88,240,913,478.10 | 87,536,319,376.50 | n/a | n/a |
-| Open DCs | `W1` Los Angeles, `W2` New York City, `W60` Louisville | `W2` New York City, `W44` Las Vegas, `W60` Louisville | n/a | n/a |
-| Weighted avg. distance | 401.6720 mi | 438.3742 mi | n/a | n/a |
-| % demand within 400 mi | 61.39 | 57.58 | n/a | n/a |
-| % demand within 800 mi | 82.37 | 82.90 | n/a | n/a |
-| % demand within 1200 mi | 99.47 | 99.49 | n/a | n/a |
-| % demand within 1600 mi | 100.00 | 100.00 | n/a | n/a |
+| | G1 — demand override (`C10` demand → 20,000,000) | G1b — demand override, co-located, **non-discriminating** (`C1` demand → 20,000,000) | G2 — exclusion (`C1` excluded) | G3 — forced_open > P (`W6`, `W43`, `W45`, `W60` forced open, `p=3`) | G4 — all warehouses `inactive` |
+| --- | --- | --- | --- | --- | --- |
+| `p` | 3 | 3 | 3 | 3 | 3 |
+| Status | Optimal | Optimal | Optimal | **Infeasible** | **Infeasible** |
+| Objective | 89,244,019,159.00 | 88,240,913,478.10 | 87,536,319,376.50 | n/a | n/a |
+| Open DCs | `W1` Los Angeles, `W2` New York City, `W60` Louisville | `W1` Los Angeles, `W2` New York City, `W60` Louisville | `W2` New York City, `W44` Las Vegas, `W60` Louisville | n/a | n/a |
+| Weighted avg. distance | 395.2943 mi | 401.6720 mi | 438.3742 mi | n/a | n/a |
+| % demand within 400 mi | 62.43 | 61.39 | 57.58 | n/a | n/a |
+| % demand within 800 mi | 82.84 | 82.37 | 82.90 | n/a | n/a |
+| % demand within 1200 mi | 99.48 | 99.47 | 99.49 | n/a | n/a |
+| % demand within 1600 mi | 100.00 | 100.00 | 100.00 | n/a | n/a |
 
-**G1's objective is identical to Scenario 1's, and that is a measured result, not an error.**
-Sheet customer `1` (`C1`) and sheet plant `1` (`W1`) are both Los Angeles — the distance
-between them is `0.0` mi, so scaling `C1`'s demand to 20,000,000 adds zero cost regardless of
-demand, while it still pulls the weighted-average distance down (a much larger zero-distance
-term dilutes the average). The open set is unchanged from Scenario 1 for the same reason: an
-assignment cost comparison for one customer scales by that customer's demand uniformly across
-every candidate plant, so demand magnitude alone cannot change which plant is cheapest for it,
-only how much the objective and the metrics weight it once assigned.
+**G1 is the primary demand-override golden, and it is discriminating by construction.**
+`C10` (Riverside) is the override target *because* it measurably moves the result: its nearest
+warehouse is 59.2 mi away (no warehouse is co-located with it), so scaling its demand to
+20,000,000 raises the objective by **+1,003,105,680.90** over Scenario 1
+(`89,244,019,159.00` vs `88,240,913,478.10`) and moves the weighted average by **-27.2568 mi**
+(`395.2943` vs `422.5511`). A downstream test asserting either of those deltas fails if demand
+overrides are ignored — which is the property G1b lacks.
+
+**G1b is kept as a documented dataset property, not as the override-plumbing golden — its
+objective is deliberately non-discriminating and must not be the sole assertion for override
+correctness.** Sheet customer `1` (`C1`) and sheet plant `1` (`W1`) are both Los Angeles, at
+distance `0.0` mi. `W1` is open and serves `C1` in every case here, so
+`effectiveCost * demand = 0 * demand = 0` for that lane regardless of `C1`'s demand — the
+objective is unchanged from Scenario 1 to the last digit, and the open set is unchanged too
+(a single customer's plant-cost comparison scales uniformly by that customer's own demand, so
+demand magnitude alone cannot flip which plant is cheapest for it). The weighted average *does*
+move (`422.5511` -> `401.6720`) because the denominator grows while the zero-distance numerator
+contribution stays zero, diluting the average downward. Useful as a worked example of the
+co-location property (every one of the 33 warehouses sits at distance 0.0 from some customer —
+verified independently, not just for `W1`/`C1`); wrong as the thing a test hangs override
+correctness on.
 
 G3 and G4 are pinned by status only, per the brief — both are expected-infeasible constructions
 (more forced-open warehouses than `p` allows; every warehouse's upper bound driven to 0), and
 CBC reported `Infeasible` for both, not a wrong number to reconcile.
+
+**G5 vs G2, and G5b vs G2b — zero-demand measured against exclusion.** §14.3 frames these as
+distinct: "excluded customers leave the denominator... zero-demand customers do not." Measured,
+not assumed:
+
+| | G5 — `C1` demand → 0 (not excluded) | G2 — `C1` excluded | G5b — `C10` demand → 0 (not excluded) | G2b — `C10` excluded |
+| --- | --- | --- | --- | --- |
+| Status | Optimal | Optimal | Optimal | Optimal |
+| Objective | 87,536,319,376.50 | 87,536,319,376.50 | 88,059,505,159.00 | 88,059,505,159.00 |
+| Open DCs | `W2`, `W44`, `W60` | `W2`, `W44`, `W60` | `W1`, `W2`, `W60` | `W1`, `W2`, `W60` |
+| Weighted avg. distance | 438.3742 mi | 438.3742 mi | 427.9595 mi | 427.9595 mi |
+| % demand within 400/800/1200/1600 mi | 57.58 / 82.90 / 99.49 / 100.00 | 57.58 / 82.90 / 99.49 / 100.00 | 58.78 / 81.17 / 99.43 / 100.00 | 58.78 / 81.17 / 99.43 / 100.00 |
+| Customers in the model | 313 (312 assigned + 1 at zero demand) | 312 | 313 (312 assigned + 1 at zero demand) | 312 |
+
+**G5 and G2 are identical on every demand-weighted metric — objective, open set, weighted
+average, and all four band percentages — to the digit, for both a co-located customer (`C1`)
+and a non-co-located one (`C10`).** This is not an artifact of `C1`'s zero distance: `C10`'s
+G5b/G2b pair matches identically too. §14.3's framing ("an excluded customer leaves the
+denominator while a zero-demand customer stays in it") is misleading if read as implying the
+two produce different *metrics* — a zero-demand customer contributes `0` to both the numerator
+and the denominator of every demand-weighted sum, exactly as an absent one does, so no
+demand-weighted metric can ever tell them apart. **A downstream test asserting G5's metrics
+differ from G2's would fail against a correct solver.** The one real, observable difference is
+`customersActive` (313 vs 312) and the zero-demand customer's continued presence in
+`assignments`/`edges` (still assigned to a warehouse, at `flow == 0`) — that is the correct
+thing for §14.3's tests to assert instead.
 
 - Studio: the five-tab set; the Warehouses/Customers tabs render with **no** added-entity
   section; the map still refuses add/copy/move/delete while allowing status and demand.

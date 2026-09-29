@@ -114,6 +114,7 @@ def main():
         status = pulp.LpStatus[prob.status]
         print(f"\n=== {label}  P={P} adjust={adjust} assign={cat}")
         print(f"  status            : {status}")
+        print(f"  customersActive   : {len(cust_active)} / {len(cust)}")
         if status != "Optimal":
             print(f"  build {build:.1f}s  solve {solve_t:.1f}s  total {build + solve_t:.1f}s")
             return dict(label=label, status=status)
@@ -134,19 +135,38 @@ def main():
         print(f"  bandCoverage %    : " + ", ".join(f"{b}:{band[b] * 100 / total_active:.2f}" for b in sorted(band)))
         print(f"  build {build:.1f}s  solve {solve_t:.1f}s  total {build + solve_t:.1f}s")
         return dict(label=label, status=status, obj=obj, opened=opened, wad=dw / total_active,
-                    bands={b: band[b] * 100 / total_active for b in band}, build=build, solve=solve_t)
+                    bands={b: band[b] * 100 / total_active for b in band},
+                    customersActive=len(cust_active), build=build, solve=solve_t)
 
     print(f"plants={len(plant)} customers={len(cust)} lanes={len(dist)} totalDemand={TOTAL:,.0f}")
     res = []
     res.append(run("Scenario 1 (base, $1/mi)", 3, False))
     res.append(run("Scenario 2 (adjusted 1/10 @800)", 3, True))
 
-    res.append(run("G1 demand override: C1 -> 20,000,000", 3, False,
+    # G1: demand override on a customer NOT co-located with any warehouse (C10, Riverside,
+    # min distance to any warehouse 59.2 mi) so both the objective and the weighted average
+    # are forced to move -- a discriminating golden for override plumbing.
+    res.append(run("G1 demand override: C10 -> 20,000,000", 3, False,
+                   demand_overrides={"10": 20_000_000}))
+    # G1b: the original co-located case (C1/W1 both Los Angeles, distance 0). Kept as a
+    # documented dataset property, but its objective is deliberately non-discriminating --
+    # see the caveat in the §14.6 caption. Must NOT be used as the sole override-plumbing test.
+    res.append(run("G1b demand override (co-located, non-discriminating): C1 -> 20,000,000", 3, False,
                    demand_overrides={"1": 20_000_000}))
     res.append(run("G2 exclusion: drop C1", 3, False, excluded={"1"}))
     res.append(run("G3 forced_open > P: pin 4 with P=3", 3, False,
                    forced_open={"6", "43", "45", "60"}))
     res.append(run("G4 all inactive", 3, False, inactive=set(plant)))
+    # G5 vs G2: same customer (C1), zero-demand (still assigned) vs excluded (removed).
+    # Measures whether the plan's "leaves the denominator / stays in it" distinction produces
+    # an observable metric difference, or only an assignment-count difference.
+    res.append(run("G5 zero-demand, not excluded: C1 -> 0", 3, False,
+                   demand_overrides={"1": 0}))
+    # G2b / G5b: same comparison on a non-co-located customer (C10), so the conclusion is not
+    # an artifact of C1's zero-distance property.
+    res.append(run("G2b exclusion: drop C10", 3, False, excluded={"10"}))
+    res.append(run("G5b zero-demand, not excluded: C10 -> 0", 3, False,
+                   demand_overrides={"10": 0}))
 
     if args.json_out:
         out_dir = os.path.dirname(args.json_out)
