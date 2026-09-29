@@ -1811,11 +1811,24 @@ def get_bounds(w):
 plus `lb_{w}` / `ub_{w}` rows on `Open[w]`, and every existing sum re-expressed over
 `customers_list` rather than all customers.
 
-**Excluded customers leave the denominator; zero-demand customers do not.** `total_demand`
-sums `get_demand(c)` over `customers_list`. Excluding a city removes it from
-`weightedAvgDistance` and from every band percentage. Setting its demand to zero keeps it
-assigned and served, contributing nothing. The two produce genuinely different metrics — that
-is the point of allowing both, and the UI must distinguish them in words or it reads as a bug.
+**Exclusion and zero demand differ in MEMBERSHIP, not in metrics.** `total_demand` sums
+`get_demand(c)` over `customers_list`: an excluded city is not in the list, and a zero-demand
+city is, contributing `0`.
+
+**Corrected 2026-09-29, by measurement — this passage previously claimed "the two produce
+genuinely different metrics", and that is false.** Task 1's prototype run (§14.6, goldens
+G5/G2 and G5b/G2b) measured the two side by side and they are **identical to the digit** on
+objective, open set, `weightedAvgDistance` and all four band percentages — for a co-located
+customer (`C1`) and a non-co-located one (`C10`) alike. That is arithmetic, not coincidence: a
+zero-demand customer contributes `0` to both the numerator and the denominator of every
+demand-weighted sum, exactly as an absent one does, so **no demand-weighted metric can ever
+separate them.** Any test asserting otherwise fails against a correct solver.
+
+The distinction is real and worth keeping, but it lives elsewhere: the zero-demand customer is
+**still in the model** — still assigned, still emitted in `assignments` and as an `edges` lane
+at zero flow, still counted in `313` — while the excluded one is gone (`312`). That is what the
+UI must convey, and it is what §14.6's tests assert. Phrasing the difference as a metric one is
+what made this wrong the first time.
 
 **Everything §5 established still holds and is easy to break here:** `weightedAvgDistance`
 stays its own accumulator over the distance table, never derived from the objective;
@@ -1878,11 +1891,14 @@ is the only part of this amendment that touches the other six models.
 - The frozen §8.1 goldens are unchanged and become the **no-override regression fence**: if
   override plumbing moves `88,240,913,478.10` / `{W1, W2, W60}` / `422.5511`, it leaked into
   the no-override path.
-- New solver tests: a demand override changes the objective and the weighted average; an
-  excluded customer leaves the denominator while a zero-demand customer stays in it (the pair
-  that proves §14.3's distinction); `forced_open` pins a warehouse into the open set;
-  `inactive` keeps one out; more-than-`P` forced-open returns infeasible; all-inactive returns
-  infeasible; all-excluded does not divide by zero.
+- New solver tests: a demand override **on `C10`** changes the objective and the weighted
+  average (golden G1 — **not `C1`**, whose co-location with `W1` makes the objective a no-op,
+  golden G1b); an excluded customer is absent from assignments and from every demand-weighted
+  sum; zero demand and exclusion differ in **membership** — `313` versus `312` assignments —
+  and are **identical on every metric**, which is the corrected form of §14.3's distinction;
+  `forced_open` pins a warehouse into the open set; `inactive` keeps one out; more-than-`P`
+  forced-open returns infeasible; all-inactive returns infeasible; all-excluded does not divide
+  by zero.
 - The non-optimal branch coverage §14.4 makes necessary.
 
 **Override golden values.** Measured the same way as §8.1 — the extended prototype

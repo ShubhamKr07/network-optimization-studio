@@ -23,7 +23,8 @@ Every task's requirements implicitly include this section.
 - `supportsFacilityStatus` **false → true**; `demandEditable` **false → true**. Both on a **live, shipped** manifest.
 - Input tabs go from three to five: Input Map, Warehouses, Customers, Delivery Costs, Optimization Parameters.
 - `demand` is `nonnegative`, **not** `positive` — zero is legal.
-- **Excluded customers leave the denominator; zero-demand customers do not.** `total_demand` sums `get_demand(c)` over `customers_list` only.
+- **`total_demand` sums `get_demand(c)` over `customers_list` only** — excluded customers are not in the list; zero-demand customers are, and add `0`.
+- **Zero demand and exclusion are a MEMBERSHIP distinction, not a metric one — measured, Task 1.** They produce identical objectives, open sets, weighted averages and band percentages to the digit, for co-located and non-co-located customers alike, because a zero-demand customer contributes `0` to both the numerator and the denominator of every demand-weighted sum, exactly as an absent one does. The difference that exists and matters: the zero-demand customer is **still in the model** — still assigned, still drawn as a lane at zero flow, still counted in `313` — while the excluded one is gone (`312`). Any test asserting the two differ on a *metric* fails against a correct solver.
 - Override ids are **role-prefixed end to end** — `W8`, `C269` — with no translation step (§14.8).
 - `capacity` is **deliberately omitted** from the warehouse override shape: this model has no capacity, and accepting a field the solver ignores is the persisted-but-ignored trap.
 
@@ -497,36 +498,77 @@ Append to `test_delivery.py`. **Replace every `PIN_*` placeholder with the numbe
 
 ```python
 def test_demand_override_changes_objective_and_wad():
-    """Section 14.3. Pinned, not merely `!=` — an inequality assertion passes
-    against any wrong number."""
-    env = solve_delivery({**BASE, "customerDemands": {"C1": 20_000_000}})
+    """Section 14.3, golden G1. Pinned, not merely `!=` — an inequality
+    assertion passes against any wrong number.
+
+    The target is C10 (Riverside) and NOT C1, deliberately. Every one of the 33
+    warehouses sits at distance 0.0 from some customer, and C1 is co-located
+    with W1 — so overriding C1's demand leaves the objective unchanged to the
+    last digit (golden G1b), and a test built on it would pass with demand
+    overrides IGNORED ENTIRELY. C10's nearest warehouse is 59.2 mi away, so
+    both the objective and the weighted average move by an unambiguous margin:
+    +1,003,105,680.90 and -27.2568 mi against Scenario 1."""
+    env = solve_delivery({**BASE, "customerDemands": {"C10": 20_000_000}})
     assert env["solutionStatus"] == "optimal"
-    assert env["objective"] == pytest.approx(PIN_G1_OBJECTIVE, rel=1e-9)
-    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(PIN_G1_WAD, abs=5e-4)
+    assert env["objective"] == pytest.approx(89_244_019_159.00, rel=1e-9)
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(395.2943, abs=5e-4)
 
 
-def test_excluded_customer_leaves_the_denominator():
-    """Section 14.3's distinction, half one: an excluded customer is absent from
-    assignments AND from the weighted-average/band denominator."""
+def test_co_located_demand_override_is_a_documented_no_op():
+    """Golden G1b — the dataset property that makes G1's customer choice
+    load-bearing. Pinned so that if it ever STOPS being a no-op, someone finds
+    out deliberately rather than through a mystery failure elsewhere."""
+    env = solve_delivery({**BASE, "customerDemands": {"C1": 20_000_000}})
+    assert env["objective"] == pytest.approx(88_240_913_478.10, rel=1e-9)
+    # The weighted average still moves: the denominator grows while C1's
+    # zero-distance numerator contribution stays zero.
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(401.6720, abs=5e-4)
+
+
+def test_excluded_customer_is_absent_from_assignments_and_metrics():
+    """Golden G2. An excluded customer is absent from assignments and from
+    every demand-weighted sum."""
     env = solve_delivery({**BASE, "excludedCustomerIds": ["C1"]})
     assert all(a["customerId"] != "C1" for a in env["details"]["assignments"])
     assert len(env["details"]["assignments"]) == 312
-    assert env["objective"] == pytest.approx(PIN_G2_OBJECTIVE, rel=1e-9)
-    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(PIN_G2_WAD, abs=5e-4)
+    assert env["objective"] == pytest.approx(87_536_319_376.50, rel=1e-9)
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(438.3742, abs=5e-4)
+    assert set(env["details"]["openWarehouseIds"]) == {"W2", "W44", "W60"}
 
 
-def test_zero_demand_customer_stays_in_the_denominator():
-    """Section 14.3's distinction, half two — the half that makes the pair
-    meaningful. A zero-demand customer is STILL assigned and still counted in
-    the served set; it simply contributes nothing. If this and the exclusion
-    test produced the same numbers, the two mechanisms would be redundant and
-    one of them would be a lie to the student."""
-    env = solve_delivery({**BASE, "customerDemands": {"C1": 0}})
-    assert any(a["customerId"] == "C1" for a in env["details"]["assignments"])
-    assert len(env["details"]["assignments"]) == 313
+def test_zero_demand_and_exclusion_differ_in_MEMBERSHIP_not_in_metrics():
+    """Goldens G5/G2 and G5b/G2b. The pair that proves section 14.3's
+    distinction — but NOT in the way an earlier revision of this plan claimed.
+
+    Measured: a zero-demand customer and an excluded one produce IDENTICAL
+    objectives, open sets, weighted averages and band percentages, to the
+    digit, for a co-located customer (C1) and a non-co-located one (C10)
+    alike. That is arithmetic, not coincidence: a zero-demand customer
+    contributes 0 to both the numerator AND the denominator of every
+    demand-weighted sum, exactly as an absent one does, so no demand-weighted
+    metric can ever separate them.
+
+    An earlier revision asserted the weighted averages DIFFER. That assertion
+    fails against a correct solver -- the same defect class as asserting the
+    band rows sum to 100. The real, and genuinely useful, difference is
+    membership: the zero-demand customer is still in the model, still assigned,
+    still drawn as a lane carrying zero flow. The excluded one is gone."""
+    zeroed = solve_delivery({**BASE, "customerDemands": {"C1": 0}})
     excluded = solve_delivery({**BASE, "excludedCustomerIds": ["C1"]})
-    assert env["metrics"]["weightedAvgDistance"] != pytest.approx(
-        excluded["metrics"]["weightedAvgDistance"], abs=1e-6)
+
+    # Membership differs -- this is the whole distinction.
+    assert any(a["customerId"] == "C1" for a in zeroed["details"]["assignments"])
+    assert len(zeroed["details"]["assignments"]) == 313
+    assert len(excluded["details"]["assignments"]) == 312
+
+    # Metrics are identical. Asserted POSITIVELY so the equality is the claim,
+    # not an accident nobody checked.
+    assert zeroed["objective"] == pytest.approx(excluded["objective"], rel=1e-12)
+    assert zeroed["metrics"]["weightedAvgDistance"] == pytest.approx(
+        excluded["metrics"]["weightedAvgDistance"], abs=1e-9)
+    assert zeroed["metrics"]["bandCoverage"] == excluded["metrics"]["bandCoverage"]
+    assert (set(zeroed["details"]["openWarehouseIds"])
+            == set(excluded["details"]["openWarehouseIds"]) == {"W2", "W44", "W60"})
 
 
 def test_forced_open_pins_a_warehouse_into_the_open_set():
