@@ -73,7 +73,7 @@ If override plumbing moves these, it leaked into the no-override path. `150,194,
 | 1 | §14.5 "Task 9's `readOnly` prop … rename to `fixedGeography`" | `readOnly` also exists as an **unrelated prop** on `FreezeConfirmDialog.tsx` and `SolveDialog.tsx`. A repo-wide rename would corrupt both | Task 6 — rename scoped to `InputMapTab.tsx` (17 hits), `MapDetailsCard.tsx` and the `Workspace.tsx` call site only |
 | 2 | §14.3 mirrors `solve_pmedian` | p-median's `customers_list` filters on `cust_data[k]['id']` because its dataset is **ordinal-keyed**; delivery is **id-keyed**, so the filter is on the key itself | Task 3 — filter is `[c for c in customers if c not in excluded_ids]`, no `['id']` indirection |
 | 3 | §14.2 "reusing p-median's shapes" | p-median's `warehouseOverrideSchema` carries `capacity`; this model has none | Task 2 — shape copied **minus** `capacity` |
-| 4 | §16.4 #4 canonical-copy divergence | §14–§16 exist only on `ch5-delivery`; `main` has §1–§13 without them | Task 0 Step 1 — merge the doc to `main` **before** any other work |
+| 4 | §16.4 #4 canonical-copy divergence | §14–§16 exist only on `ch5-delivery`; `main` has §1–§13 without them | Task 0 Step 1 — **monitor** the divergence; the merge happens at the pipeline's end-of-plan point, not up front (review M1) |
 
 ---
 
@@ -106,25 +106,33 @@ If override plumbing moves these, it leaked into the no-override path. `150,194,
 
 ---
 
-## Task 0: Reconcile the canonical doc, freeze the base, re-anchor
+## Task 0: Monitor the doc divergence, freeze the base, re-anchor
 
-**Files:** none changed in the repo's source. Produces a merged doc and a recorded finding list.
+**Files:** none changed in the repo's source. Produces a recorded divergence baseline and a finding list.
 
-**Why first.** §16.4 #4: §14–§16 exist only on `ch5-delivery`, `main` has §1–§13 without them, and the `ch4-ux-fixes` working tree is pre-amendment. Any edit to another copy guarantees an add/add conflict on a 2,148-line document. Merging first costs one command; not merging costs a hand-resolved conflict in the file that defines the work.
+**Why first.** §16.4 #4: §14–§16 exist only on `ch5-delivery`, `main` has §1–§13 without them, and the `ch4-ux-fixes` working tree is pre-amendment. An edit to another copy would mean a hand-resolved add/add conflict on a 2,148-line document.
 
-- [ ] **Step 1: Merge the spec to local `main` before anything else — after asking**
+**Why this is now a monitor and not a merge (review M1).** An earlier revision of this step merged the spec to local `main` before any task ran. That violated two standing rules: the governing merge-to-main pipeline's rule 2 — *"No merge to `main` until every task in the plan is complete"* — and `CLAUDE.md`'s harness invariant that no documentation reaches `main` except via a reviewed PR. It was also unnecessary: measured at `0c47077`, **only the ch5 line has ever committed to that file**, so the conflict it hedged against is hypothetical rather than live. Task 1 edits §14.6 anyway, so an up-front merge would re-diverge one task later.
 
-**Ask first.** Show the commit list and `--stat`, then merge only on approval. **Local `main` only — do not push to `origin`**; that happens only for an approved deploy.
+**The merge happens where the pipeline puts it** — after all ten tasks are complete, on an explicit approval prompt, then the whole-branch review on the merged state, then the push. Never reordered. See Task 9's closeout.
+
+- [ ] **Step 1: Record the divergence and confirm nothing else is editing the doc**
+
+Do **not** merge. Capture the baseline and prove the risk is still dormant:
 
 ```bash
 git log --oneline main..HEAD
-git diff --stat main..HEAD
-# on approval:
-git push . HEAD:main
-git rev-parse --short main HEAD
+git diff --stat main..HEAD -- docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md
+# every branch that has ever touched the spec — expect only the ch5 line:
+git log --oneline --all -- docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md
+# and nothing uncommitted against it in any other worktree:
+git worktree list
+git status --short -- docs/superpowers/specs/
 ```
 
-Expected: both SHAs identical. `main` is not checked out in any worktree (`git worktree list` shows the shared checkout on `ch4-ux-fixes`), so this fast-forward is unblocked.
+Record the insertion count and the branch list. **If any branch other than this one appears, or another worktree holds uncommitted edits to the spec, stop and report** — that converts the hypothetical conflict into a live one and the plan needs a decision before Task 1 touches §14.6.
+
+Note that `main` may be ahead of this branch on unrelated files (it was, by `6dfb8b7`, when this was written). That is expected and is resolved by the end-of-plan merge, not here.
 
 - [ ] **Step 2: Record the base and confirm a clean tree**
 
@@ -1027,6 +1035,26 @@ git add artifacts/studio/e2e/delivery-teaching.spec.ts \
 git commit -m "[ch5-edit-9] rewrite the delivery e2e journey and add the registry set-equality test"
 ```
 
+- [ ] **Step 7: Integration — the governing pipeline, in order, never reordered**
+
+This is where Task 0's deferred doc merge lands, and it is the same sequence for the code.
+`CLAUDE.md`'s merge-to-main pipeline governs; do not compress or reorder these.
+
+1. **Every task above is complete.** A partially-executed plan does not get integrated,
+   however green its finished tasks are.
+2. **STOP and prompt for approval to merge.** A hard stop, not a notification. Do not merge
+   on a judgement that the work looks finished.
+3. **On approval, merge to local `main`.** Integration conflicts surface and are resolved
+   here — deliberately before the review, so the review sees the real merged result. This
+   is also where the spec's §14–§16 divergence (Task 0 Step 1) finally reconciles; if
+   Task 0's monitor ever tripped, that conflict is resolved here too.
+4. **Run the whole-branch review on the merged state.** It reviews what will actually ship,
+   including anything the merge pulled in. The previous branch needed a `[ch5-del-fix]`
+   commit for exactly this.
+5. **Only then push to `origin/main`.**
+
+A branch merged locally but not yet reviewed is recoverable; a pushed one is not.
+
 ---
 
 ## Self-Review
@@ -1159,8 +1187,8 @@ before instructing the implementer to read testids from source rather than guess
 
 | ID | Finding |
 |---|---|
-| M1 | Task 0 Step 1's `git push . HEAD:main` contradicts the standing harness invariant *"No documentation reaches `main` except via a reviewed PR."* Asking first satisfies the merge-preference rule but not this one. Route it through a PR, or record the exception in the plan with its reason. |
-| M2 | Task 0 reconciles the canonical doc; Task 1 Step 3 edits §14.6 on the branch immediately after, so the reconciliation lasts exactly one task. Not wrong — but the plan should name when the doc re-merges (Task 9 closeout) or Task 0's rationale reads stronger than it is. |
+| M1 | **RESOLVED 2026-09-29 — early merge dropped.** Task 0 Step 1's `git push . HEAD:main` broke two rules, not one: the governing merge-to-main pipeline's rule 2 (*"No merge to `main` until every task in the plan is complete"*, `main@6dfb8b7`) and the harness invariant at `CLAUDE.md:67` (*"No documentation reaches `main` except via a reviewed PR"*). Measurement settled it — only the ch5 line has ever committed to the spec, so the conflict being hedged was hypothetical. Step 1 is now a divergence **monitor** with a stop-and-report trigger; the merge moves to the pipeline's end-of-plan point (Task 9 Step 7). |
+| M2 | **Subsumed by M1.** The original concern — Task 0 reconciles the doc and Task 1 re-diverges it one task later — is gone now that there is no up-front reconciliation. It is instead part of M1's evidence that the early merge bought nothing. |
 | M3 | `test_overrides_do_not_move_the_frozen_goldens` pins **Scenario 1 only**. §14.6 calls both §8.1 columns the fence, and Scenario 2 is the one that exercises the cost-adjust path the new override code sits beside. Add the adjusted column. |
 | M4 | No QA task and no `/harness-retro`. CLAUDE.md: *"A branch is not finished until `/harness-retro <task_id>` has run."* Task 9's e2e rewrite is spec authoring, not exploratory real-browser QA; the standing expectation is a dedicated QA task. |
 | M5 | Task 8 changes a shared-map default for all seven models, while Global Constraints forbids touching `input-map-v2` and `tab-coverage`. If either asserts demand-sized markers, Task 8 breaks a spec the implementer is barred from fixing. Name the resolution up front rather than discovering it at Task 9's gate. |
