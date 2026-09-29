@@ -44,6 +44,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes | L459 |
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
 | Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
+| Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L946 |
 
 ---
 
@@ -944,3 +945,120 @@ the original text above is left as-is; this note supersedes it on these two poin
    were then independently confirmed passing 27/27 in isolation. "1594/1594" implies every test passed
    in that one run; the correct claim is 1591 passed outright with the remaining 3 accounted for by
    documented, reproduced-in-isolation flakes, not a clean 1594/1594.
+
+## Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)
+
+The `ch5-del-1`–`ch5-del-13` entry above (and its whole-branch-review amendment) covers the FIRST
+`delivery-teaching-us` implementation. A subsequent plan revision (`ch5-delivery-plan-review`,
+"Rev 2.1") reopened the model's Input Map from fully read-only to `fixedGeography` (geometry still
+fixed — no add/move/delete — but facility status and customer demand/exclusion now editable via two
+new Warehouses/Customers tabs, mirroring every other p-median-shaped model) and rebuilt tasks 0–9 on
+top of the merged `ch5-del` work as `ch5-edit-0`–`ch5-edit-9` (commits `dbf3418`…`3a2dfa2`, this
+entry's task numbering restarts at 0 for the new plan revision, not a duplicate of `ch5-del-0`). This
+entry records Task 9, the rework's closeout — the first CHANGELOG entry any `ch5-edit-*` task has
+written (Tasks 0–8 landed their own commits/tests but deferred the changelog write to this task).
+
+**Task 9 — three pieces:**
+
+1. **`artifacts/studio/e2e/delivery-teaching.spec.ts` rewritten.** Task 5 (`c642954`) widened the
+   sidebar from three input tabs to five and deliberately left this spec red (it hard-coded exactly
+   `input-map`/`deliveryCosts`/`optimization-parameters`) for this task to close. Rewritten to assert
+   all five tabs (`input-map`, `warehouses`, `customers`, `deliveryCosts`, `optimization-parameters`),
+   keep the pre-existing `button-input-map-place-wh` count-0 assertion (geometry still fixed — Task 6
+   renamed the map's `readOnly` prop to `fixedGeography` but never lifted the geometry gate, only
+   status/demand), and add two new real-CBC journey steps: set DC W1 `inactive` on the Warehouses tab
+   → re-solve → W1 leaves the open set, assignment count stays 313 (mirrors
+   `test_delivery.py::test_inactive_keeps_a_warehouse_out`); exclude customer C1 on the Customers tab
+   → re-solve → assignment count drops 313→312 (mirrors
+   `test_delivery.py::test_excluded_customer_is_absent_from_assignments_and_metrics`). Six real CBC
+   solves total now (was four) — still cheap (this model solves in 2–4s), so no departure from
+   `max-coverage-us`'s "one real solve" discipline is needed here, same rationale the spec's own header
+   comment already gave for the original four.
+2. **`artifacts/api-server/src/__tests__/modelIdSetEquality.test.ts` completed**, not rebuilt — the
+   file already existed and asserted `MODEL_IDS ≡ KNOWN_MODEL_IDS ≡ VALID_MODEL_IDS ≡ PACKAGE_SPECS`,
+   all four OpenAPI enum sites, and `chapters.ts`'s `StudioModelType`. Two gaps closed: (a) its first
+   `it(...)` title named `KNOWN_SCHEMAS` but the body never touched that symbol (only its already-
+   derived shadow, `KNOWN_MODEL_IDS`) — `KNOWN_SCHEMAS` was a module-private `const` in
+   `modelRegistry.ts`, so closing this required exporting it (one-line addition, `KNOWN_SCHEMAS` now
+   `export const`) and asserting `new Set(Object.keys(KNOWN_SCHEMAS))` directly, with the title
+   corrected to name every symbol the body actually checks. (b) `solve.py`'s dispatcher — the one
+   registration point on the Python side, and the one whose omission fails silently at runtime rather
+   than at typecheck — was entirely unasserted. Added a second `it(...)` that reads `solve.py`, isolates
+   the `def solve(inp):` function body, regex-extracts every `model_type == '...'` branch, and compares
+   that set against a literal `WIRE_MODEL_TYPE_BY_MODEL_ID` map (`p-median-us` → `p_median`,
+   `p-median-brazil` → `capacitated_pmedian`, `transport-coal` → `transport`,
+   `two-echelon-gold-au` → `two_echelon`, `two-echelon-jade-us` → `two_echelon_jade`,
+   `max-coverage-us` → `max_coverage_us`, `delivery-teaching-us` → `delivery`) mirroring
+   `pmedian.ts`'s `buildPayload` translation 1:1 — the wire values are deliberately different strings
+   from the public model ids (MIG-21), so a direct string-set comparison against `MODEL_IDS` was never
+   possible; `satisfies Record<(typeof MODEL_IDS)[number], string>` makes the TS compiler itself refuse
+   to typecheck if a future model id is added to `MODEL_IDS` without a corresponding wire-value entry
+   here. **Mutation-tested per the review protocol:** deleting `"delivery-teaching-us": deliveryInputsSchema`
+   from `KNOWN_SCHEMAS` turned the first `it` red (`Set{…5} ≠ Set{…6}`, missing `delivery-teaching-us`);
+   deleting the `if model_type == 'delivery': return solve_delivery(inp)` branch from `solve.py` turned
+   the second `it` red (`Set{…6 wire values} ≠ Set{…7}`, missing `delivery`). Both mutations reverted
+   after confirming red; final state re-verified green (4/4 tests, `pnpm run typecheck` clean).
+3. **This entry.** `model-integration-precheck.md` was left untouched — no Gate 1 registration
+   mechanism changed (this task only added test coverage and exported an already-existing internal
+   map; it registered nothing new).
+
+**Full gate, run 2026-09-29 (dev servers started fresh for this task on `:3011`/`:5180` from THIS
+worktree — the `:3001`/`:5399` pair the dispatching brief pointed at turned out to belong to an
+unrelated concurrent session's `.worktrees/e2e-repair` checkout, confirmed via `lsof`+`cwd`; using it
+would have run `e2e_journey.py`/`pnpm e2e:gate` against the wrong branch's server, which the
+dataset-fetch 400 on the first attempt against `:3001` actually caught in real time):**
+
+- `git diff --check` clean.
+- `pnpm run typecheck` clean across all workspace projects.
+- `DATABASE_URL=... pnpm --filter api-server test`: **1601/1607** in the full run (3 files —
+  `cors`, `resultEnvelope`, `dispatcherRecovery` — flaked under concurrent load, all three already on
+  CLAUDE.md's documented load-flake list); re-run in isolation immediately after: **43/43 clean**
+  (`cors` 3/3, `resultEnvelope` 13/13, `dispatcherRecovery` 27/27). Effectively 1607/1607.
+- `pnpm --filter studio test`: **2168/2168** (119 files) — byte-identical to the recorded baseline
+  (`ee5174c`…`3a2dfa2`), confirming the e2e/registry changes touch nothing under unit-test coverage.
+  `ps aux | grep -c "[v]itest"` was 0 before this run, per the documented cross-session contention
+  gotcha.
+- `(cd .../solver && python3 -m pytest tests/ -q)`: **309/312** in the full run (3 failures, all
+  `test_transport.py::TestSingleSource`, under concurrent load — this session's own `e2e_accuracy.py`
+  was running in parallel); re-ran `test_transport.py` alone immediately after: **24/24 clean**.
+  Effectively 312/312, matching the branch baseline.
+- `(cd .../solver/tests && python3 e2e_accuracy.py)`: **99/99**, file unmodified (hard rule #2).
+- `(cd .../solver/tests && python3 e2e_journey.py http://localhost:3011 delivery)`: **42/42** — this
+  section's first confirmed run under the current plan revision (the dispatching brief noted it had
+  no prior baseline); full auth + dataset (33 DCs/313 customers) + Scenario 1 (weightedAvgDistance in
+  `[400,450]`) + toggle-on Scenario 2 (`[490,530]`) + cleanup, all real CBC solves.
+- `pnpm e2e:gate` (against the two servers started for this task, `E2E_BASE_URL=http://localhost:5180`,
+  default 4 workers): **41 passed / 14 failed / 1 flaky / 4 skipped** (60 total). The rewritten
+  `delivery-teaching.spec.ts` is the **1 flaky** entry (failed once on `output-map-tab` visibility at
+  a 60s timeout while three other specs were mid-solve on the other three workers — `chen-bands-
+  units-qa.spec.ts` alone ran 5.2m in this same gate — then passed on retry); re-run in total isolation
+  (`--workers=1`, no contention) immediately after: **2/2 passed, 16.1s**, confirming the rewrite
+  itself is correct and the flake is concurrent-CBC-load contention, not a spec defect. Of the 14
+  hard failures, 13 are the pre-existing, explicitly out-of-scope set this task was told not to touch
+  (`bundle2-fastfollow.spec.ts`, `design-system.spec.ts` ×2, `import.spec.ts`, `input-map-v2.spec.ts`
+  ×2, `tab-coverage.spec.ts` ×3, `two-echelon.spec.ts`, `workspace-ux-r1-r9.spec.ts`, plus the two
+  local-env-gap specs `posthog-analytics.spec.ts`/`sentry-capture.spec.ts` needing
+  `VITE_POSTHOG_KEY`/`VITE_SENTRY_DSN`).
+  **One failure is new and NOT part of that pre-existing set: `bundle6.1-legend-distances.spec.ts:113`
+  ("Input Map: one map-legend box, demand-bucket swatches size-encode and fit their cells") —
+  `legend-demand-bucket-*` count is 0.** Re-ran in isolation (`--workers=1`): fails identically both
+  attempts, same assertion, same line — deterministic, not a load flake. Root cause (not fixed here,
+  out of this task's scope): `ch5-edit-8` (`a339644`, landed immediately before this task, unrelated
+  to Task 9's own changes) flipped "Size customers by demand" from checked to unchecked **by default**
+  across every model; the Input Map legend's demand-bucket swatches only render while that layer is
+  on, so a spec asserting the legend shows bucket cells **without first turning the toggle on** now
+  finds none. This is exactly the standing CLAUDE.md gotcha ("a UI-changing bundle silently breaks
+  PRIOR bundles' Playwright e2e specs — rewrite the sibling specs before merge") — `ch5-edit-8`'s own
+  gate (typecheck + studio unit tests only, per its own report) could not have caught this, since
+  Playwright specs aren't in `pnpm --filter studio test`. Flagged here for the orchestrator to triage
+  (fix the spec to turn the layer on first, since a default-off toggle with a legend that only shows
+  its own layer's content is arguably correct product behavior, not a bug) — left unmodified per this
+  task's explicit instruction to touch only `delivery-teaching.spec.ts` among the e2e suite.
+
+**Deviation from the brief's file list:** `artifacts/api-server/src/registry/modelRegistry.ts` gained
+one line (`const KNOWN_SCHEMAS` → `export const KNOWN_SCHEMAS`) beyond the brief's three-file list
+(`delivery-teaching.spec.ts`, `modelIdSetEquality.test.ts`, the two docs). Required to import the
+symbol into the test at all — per CLAUDE.md hard rule #8, the smallest correct fix, recorded here in
+the same commit as the work.
+
+Commit: `[ch5-edit-9] rewrite the delivery e2e journey and add the registry set-equality test`.

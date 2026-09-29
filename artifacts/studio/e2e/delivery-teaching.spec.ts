@@ -1,17 +1,23 @@
 /**
  * Browser E2E — Chapter 5 (modified) Delivery Company Teaching Example
- * (`delivery-teaching-us`), Task 13.
+ * (`delivery-teaching-us`), Task 13 (Task 5/6/9 rewrite: five input tabs,
+ * `fixedGeography` map, editable Warehouses/Customers).
  *
  * Exercises the full delivery model through the Workspace UI against local
  * dev servers:
  *   1. Landing shows the Chapter 5 Delivery card; the two RETIRED Chapter 5
  *      models (transport-coal, p-median-brazil — both hiddenFromLanding)
  *      stay absent.
- *   2. Create a scenario → the tab rail shows exactly Input Map, Delivery
- *      Costs, Optimization Parameters (spec decision 11 — the cost table is
- *      this model's ONLY editable dataset surface).
- *   3. The Input Map renders read-only: no add/move/delete/status/demand/
- *      Save affordance (Task 9's `readOnly` gate).
+ *   2. Create a scenario → the tab rail shows exactly Input Map, Warehouses,
+ *      Customers, Delivery Costs, Optimization Parameters (§14/Task 5 — the
+ *      cost table is no longer this model's only editable surface; facility
+ *      status and customer demand/exclusion are also editable, geometry
+ *      stays fixed).
+ *   3. The Input Map renders `fixedGeography`: no add/move/delete/Save
+ *      affordance (geometry stays fixed — Task 6's inversion only lifted
+ *      status/demand editing, not the map's own add/move/delete controls;
+ *      the map's right-click action menu shows an Edit action only, proven
+ *      by InputMapTab.deliveryFixedGeography.test.tsx at the unit layer).
  *   4. Solve (real CBC) → Scenario 1's golden: open {W1, W2, W60}, weighted
  *      avg distance 422.6 mi (the on-screen 1dp form), Service Stats 81.45%
  *      at the 800mi band.
@@ -28,10 +34,19 @@
  *   7. Export Open Warehouses as CSV (city column populated) and Cost
  *      Summary as JSON (`weightedAvgDistance` at the 4dp envelope value,
  *      unchanged by the override per step 6).
+ *   8. Warehouses tab: set DC W1 `inactive`, re-solve → W1 leaves the open
+ *      set (mirrors solver/tests/test_delivery.py::
+ *      test_inactive_keeps_a_warehouse_out; assignment count stays 313 —
+ *      excluding a facility reroutes demand, it doesn't drop a customer).
+ *   9. Customers tab: exclude customer C1, re-solve → assignment count
+ *      drops from 313 to 312 (mirrors solver/tests/test_delivery.py::
+ *      test_excluded_customer_is_absent_from_assignments_and_metrics).
  *
  * Every numeric assertion below is a KNOWN pytest golden
  * (solver/tests/test_delivery.py::test_scenario_1_golden /
- * test_scenario_2_golden / test_cost_override_does_not_move_distance_metrics)
+ * test_scenario_2_golden / test_cost_override_does_not_move_distance_metrics /
+ * test_inactive_keeps_a_warehouse_out /
+ * test_excluded_customer_is_absent_from_assignments_and_metrics)
  * — pytest owns the precision proof; this spec proves the UI wiring drives
  * the same real solver to the same real numbers. "Toggle off" IS the case
  * study's $1/mile Scenario 1 (test_toggle_off_equals_unit_rate) — costs are
@@ -39,12 +54,13 @@
  * distance (317.5506) without a separate cost lookup.
  *
  * This model solves in ~2-4s (measured; 33 candidate DCs × 313 customers),
- * nothing like max-coverage-us's ~170s — four real CBC solves here cost a
+ * nothing like max-coverage-us's ~170s — six real CBC solves here cost a
  * few seconds total, not minutes, so this spec does not chase max-coverage's
- * "one real solve" discipline: the four solves below (initial, toggle-on,
- * toggle-off, override) are each load-bearing to the journey the plan
- * describes, and re-deriving Scenario 1 without them would only replace a
- * cheap real solve with a slower, less faithful mock.
+ * "one real solve" discipline: the six solves below (initial, toggle-on,
+ * toggle-off, override, inactive-warehouse, excluded-customer) are each
+ * load-bearing to the journey the plan describes, and re-deriving Scenario 1
+ * without them would only replace a cheap real solve with a slower, less
+ * faithful mock.
  *
  * Target: E2E_BASE_URL env var. Requires a local dev proxy (vite's
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md's
@@ -162,16 +178,20 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     await expect(page.getByTestId("landing-card-transport-coal")).toHaveCount(0);
     await expect(page.getByTestId("landing-card-p-median-brazil")).toHaveCount(0);
 
-    // ── 2. Create a scenario → exactly Input Map / Delivery Costs /
-    // Optimization Parameters on the tab rail ────────────────────────────────
+    // ── 2. Create a scenario → exactly Input Map / Warehouses / Customers /
+    // Delivery Costs / Optimization Parameters on the tab rail (§14/Task 5 —
+    // was three tabs, now five) ───────────────────────────────────────────
     const id = await createDeliveryScenario(page);
     await expect(page.getByTestId("sidebar-input-input-map")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("sidebar-input-warehouses")).toBeVisible();
+    await expect(page.getByTestId("sidebar-input-customers")).toBeVisible();
     await expect(page.getByTestId("sidebar-input-deliveryCosts")).toBeVisible();
     await expect(page.getByTestId("sidebar-input-optimization-parameters")).toBeVisible();
-    expect(await page.locator('[data-testid^="sidebar-input-"]').count()).toBe(3);
+    expect(await page.locator('[data-testid^="sidebar-input-"]').count()).toBe(5);
 
-    // ── 3. Input Map renders read-only: no add/move/delete/status/demand/
-    // Save affordance ─────────────────────────────────────────────────────
+    // ── 3. Input Map renders fixedGeography: no add/move/delete/Save
+    // affordance — geometry stays fixed even though status/demand editing
+    // moved to the Warehouses/Customers tabs (Task 6's inversion) ─────────
     await page.getByTestId("sidebar-input-input-map").click();
     const inputMap = page.getByTestId("input-map-tab");
     await expect(inputMap).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -253,6 +273,31 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     expect(csJson.status()).toBe(200);
     const csBody = await csJson.json();
     expect(csBody.rows[0].weightedAvgDistance).toBeCloseTo(422.5511, 3);
+
+    // ── 8. Warehouses tab: setting candidate DC W1 inactive removes it from
+    // the open set on re-solve (test_inactive_keeps_a_warehouse_out) —
+    // demand reroutes to the remaining candidates, so every customer is
+    // still assigned (assignment count stays 313) ─────────────────────────
+    await page.getByTestId("sidebar-input-warehouses").click();
+    const warehousesTab = page.getByTestId("warehouses-tab");
+    await expect(warehousesTab).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await warehousesTab.getByTestId("button-wh-W1-inactive").click();
+
+    const inactiveW1 = await solveViaUi(page, id);
+    expect(openSet(inactiveW1).has("W1")).toBe(false);
+    expect(inactiveW1.details.assignments.length).toBe(313);
+
+    // ── 9. Customers tab: excluding city C1 drops the assignment count by
+    // exactly one — 313 → 312
+    // (test_excluded_customer_is_absent_from_assignments_and_metrics) —
+    // independent of the warehouse override in step 8 above ───────────────
+    await page.getByTestId("sidebar-input-customers").click();
+    const customersTab = page.getByTestId("customers-tab");
+    await expect(customersTab).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await customersTab.getByTestId("button-customer-C1-excluded").click();
+
+    const excludedC1 = await solveViaUi(page, id);
+    expect(excludedC1.details.assignments.length).toBe(312);
 
     await page.request.delete(`/api/scenarios/${id}`);
   });
