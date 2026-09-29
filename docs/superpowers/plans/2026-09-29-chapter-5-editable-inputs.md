@@ -1038,3 +1038,194 @@ git commit -m "[ch5-edit-9] rewrite the delivery e2e journey and add the registr
 **3. Type consistency.** `warehouseOverrides` / `customerOverrides` are declared in Task 2 and consumed in Tasks 4, 5. The wire fields `customerDemands` / `excludedCustomerIds` / `warehouseStatuses` are produced in Task 2 and consumed in Task 3. `get_demand` / `get_bounds` / `customers_list` / `active_demand` are declared in Task 3 and used only there. `fixedGeography` replaces `readOnly` in Task 6 and appears nowhere earlier. Status values are `active` / `forced_open` / `inactive` throughout; customer status is `active` / `excluded` throughout.
 
 **Open risk to watch at review:** Task 2 flips two capabilities on a **live, shipped** manifest. Task 0 Step 4's sweep is the only thing standing between that and a test whose coverage silently shifts — and the previous branch's evidence is that a reviewer claiming a gate is green is not the same as the gate being green.
+
+---
+
+# Plan review — 2026-09-29
+
+An independent pass over this plan at `ee5f9c0`, with every repo claim it makes
+re-measured against the working tree rather than read off the plan. **Three blocking
+defects, and all three fail silently** — no exception, no red test, just wrong
+behaviour or a test chasing a non-bug. Fix them in the plan text before Task 1 runs;
+they are plan defects, not implementation risk.
+
+The findings share one shape: *the plan names N call sites and there are M.* Two of the
+five shared symbols it changes had an undercount. §R.4's method exists for that.
+
+## R.1 Blocking
+
+### B1 — Task 6 misses `PMEDIAN_MAP_READONLY_NOOP`; map edits are silently discarded
+
+`Workspace.tsx:146` declares `const PMEDIAN_MAP_READONLY_NOOP = (_next: PMedianMapInputs) => {};`
+and `:3268` wires it in:
+
+```tsx
+onInputsChange={modelId === "delivery-teaching-us" ? PMEDIAN_MAP_READONLY_NOOP : handlePMedianMapInputsChange}
+readOnly={modelId === "delivery-teaching-us"}
+```
+
+Task 6 renames `readOnly` → `fixedGeography` and removes the gate from the status and
+demand affordances, but touches **neither the noop const nor line 3268**. The map then
+renders status and demand controls whose every change is handed to a function with an
+empty body. Nothing throws, nothing fails: Task 6 Step 1's tests assert only that the
+controls are *present*.
+
+**Fix.** Task 6 must also route `delivery-teaching-us` to a real `onInputsChange` — either
+`handlePMedianMapInputsChange` or a narrowed handler that accepts status and demand and
+ignores geometry — and retire or re-scope `PMEDIAN_MAP_READONLY_NOOP`. Add a test that a
+status edit on the map actually reaches `onInputsChange`, not merely that the control renders.
+
+### B2 — Task 8 flips four of nine sites; the checkbox unchecks while markers stay sized
+
+Measured, not quoted. `sizeByDemand ?? true` appears at:
+
+| File | Lines | What they are |
+|---|---|---|
+| `InputMapTab.tsx` | 859, 1363, 1856, 2436 | the four `LayerCheckbox` sites the plan names |
+| `InputMapTab.tsx` | **952, 1432, 1953, 2504** | `sizeByDemand={toggles.sizeByDemand ?? true}` passed down to the child |
+| **`EntityMarkers.tsx`** | **193** | `const sizeByDemand = toggles.sizeByDemand ?? true;` |
+
+Task 8 Step 3 names only the first row, and Task 8's file list names only `InputMapTab.tsx`.
+Flipping just those four leaves the **checkbox rendering unchecked while the markers are still
+sized by demand** — a visible contradiction between control and map, with no failing test,
+because Task 8 Step 1 asserts the checkbox's own state and nothing downstream.
+
+**Fix.** Flip all nine. Add `EntityMarkers.tsx` to Task 8's file list. Assert the **marker
+radius** (or the prop `EntityMarkers` receives), not just `toBeChecked()`.
+
+### B3 — Task 3's overflow test asserts a sum that cannot be 100
+
+`solve_delivery` accumulates band demand **cumulatively** (`if d <= b: band_demand[b] += …`)
+and then appends an **exclusive** overflow row:
+
+```python
+band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / total_demand, 2)}
+                 for b in distance_bands]
+if overflow_demand:
+    band_coverage.append({"band": -1, "percent": round(overflow_demand * 100 / total_demand, 2)})
+```
+
+For bands `[100, 200]` the rows are `P≤100`, `P≤200`, and `100 − P≤200`. Their sum is
+`100 + P≤100`, not `100`. On this dataset `P≤100 > 0`, so
+
+```python
+assert sum(rows.values()) == pytest.approx(100.0, abs=0.05)
+```
+
+**fails against a correct solver.** An implementer following the plan literally will go
+looking for a bug in `solve_delivery` that is not there.
+
+**Fix.** The invariant that actually holds is largest-band plus overflow:
+
+```python
+assert rows[200] + rows[-1] == pytest.approx(100.0, abs=0.05)
+```
+
+Keep the `-1 in rows` assertion and the post-exclusion-denominator intent (§14.8 / G7) —
+only the arithmetic changes.
+
+## R.2 High
+
+**H1 — the gate omits `e2e_journey.py`, which has a live delivery journey.**
+`e2e_journey.py:620` defines `journey_delivery()`, which fetches
+`/api/dataset?modelId=delivery-teaching-us` and solves; CLAUDE.md records the script as real
+coverage dispatching `auth|dataset|pmedian|transport|delivery|brazil`. Task 2's manifest flip
+and Task 5's tab change are precisely what it exercises, and Task 9 Step 4 runs only
+`e2e_accuracy.py`. Add `python3 e2e_journey.py http://localhost:3001 delivery` to Task 9
+Step 4 **and** to Task 0 Step 5's baseline, so the before/after comparison exists.
+
+**H2 — `modelIdSetEquality.test.ts` already exists; Task 9 Step 2's premise is wrong.**
+The file is present and already asserts `MODEL_IDS ≡ KNOWN_MODEL_IDS ≡ VALID_MODEL_IDS ≡
+PACKAGE_SPECS`, all four OpenAPI enum sites, and `StudioModelType`. It is not "still unbuilt".
+What is genuinely missing is **`KNOWN_SCHEMAS`** and **`solve.py`'s dispatcher**. And the
+existing test carries its own defect: the `it(...)` title reads *"KNOWN_SCHEMAS,
+VALID_MODEL_IDS and PACKAGE_SPECS match MODEL_IDS exactly"* while the body asserts
+`KNOWN_MODEL_IDS` — `KNOWN_SCHEMAS` is never asserted at all. A title that misdescribes its
+own body is the same class as the vacuous `.not.toBe(<status>)` assertion this plan warns
+about in Global Constraints. Task 9 Step 2 should: correct the title, add `KNOWN_SCHEMAS`,
+add the solver dispatcher.
+
+**H3 — Task 6 must invert an existing test it presents as new.**
+`artifacts/studio/src/__tests__/InputMapTab.deliveryReadOnly.test.tsx` already exists and at
+`:161-170` asserts that clicking a marker shows the details card but **no** action menu and no
+`map-action-*` entries. If status editing lands behind either, that test now contradicts Task 6.
+The plan lists the file only under Task 6's "Test:" line and omits it from the File Structure
+table, so it reads as a new file. This is the same inversion Task 7 handles explicitly for
+`CostSummaryTab.test.tsx` — it deserves the same explicit step. Separately, Task 6 Step 1
+**guesses** the testids `edit-warehouse-status` and `edit-customer-demand-input` one line
+before instructing the implementer to read testids from source rather than guess.
+
+## R.3 Medium and low
+
+| ID | Finding |
+|---|---|
+| M1 | Task 0 Step 1's `git push . HEAD:main` contradicts the standing harness invariant *"No documentation reaches `main` except via a reviewed PR."* Asking first satisfies the merge-preference rule but not this one. Route it through a PR, or record the exception in the plan with its reason. |
+| M2 | Task 0 reconciles the canonical doc; Task 1 Step 3 edits §14.6 on the branch immediately after, so the reconciliation lasts exactly one task. Not wrong — but the plan should name when the doc re-merges (Task 9 closeout) or Task 0's rationale reads stronger than it is. |
+| M3 | `test_overrides_do_not_move_the_frozen_goldens` pins **Scenario 1 only**. §14.6 calls both §8.1 columns the fence, and Scenario 2 is the one that exercises the cost-adjust path the new override code sits beside. Add the adjusted column. |
+| M4 | No QA task and no `/harness-retro`. CLAUDE.md: *"A branch is not finished until `/harness-retro <task_id>` has run."* Task 9's e2e rewrite is spec authoring, not exploratory real-browser QA; the standing expectation is a dedicated QA task. |
+| M5 | Task 8 changes a shared-map default for all seven models, while Global Constraints forbids touching `input-map-v2` and `tab-coverage`. If either asserts demand-sized markers, Task 8 breaks a spec the implementer is barred from fixing. Name the resolution up front rather than discovering it at Task 9's gate. |
+| L1 | Task 6 Step 4's completeness grep covers only `InputMapTab.tsx` and `MapDetailsCard.tsx`. `readOnly` also appears in `Workspace.tsx`, `Workspace.test.tsx`, `MapDetailsCard.test.tsx` and the delivery map test. Typecheck is the real backstop; the grep is advertised as the proof and is not one. |
+| L2 | The plan never states that **no OpenAPI or codegen change is needed** — scenario `inputs` is a free-form `type: object` by design (§6.6). Global Constraints mentions codegen, which invites a pointless regeneration. |
+| L3 | Global Constraints omits **hard rule 6** (*"solver changes enter as data, not branches"*) — the rule Task 3's `get_bounds` / bound-rows design exists to satisfy. Citing it defends the design at review instead of leaving it to be re-litigated. |
+
+## R.3.1 Claims re-measured and confirmed correct
+
+Recorded so the review is not read as uniformly negative, and so these are not re-checked:
+
+- `attached_assets/COG-Model-Data-3DC-3WH.xlsx` — the filename in Task 1 Step 2 is exact.
+- `readOnly` is 17 hits in `InputMapTab.tsx`, and the rename trap is real: `FreezeConfirmDialog.tsx`
+  and `SolveDialog.tsx` carry their own unrelated `readOnly`. Scoping the rename is correct.
+- `runNetworkEditsPrecheckForModel(modelId, inputs): PrecheckResult` is **synchronous**, as Task 4's
+  tests assume, and `reference_integrity` is a member of the closed `PrecheckErrorCode` union.
+- `solve_delivery(inp)` is at `solve.py:1557`; `DELIV_WAREHOUSES` / `DELIV_CUSTOMERS` exist as named.
+- `inputEntriesForModel`'s delivery case currently returns exactly three entries
+  (`input-map`, `deliveryCosts`, `optimization-parameters`) and the switch tail is
+  `case "p-median-brazil": case "p-median-us": default:` — the omission hazard is as described.
+
+## R.4 Closeout strategy
+
+1. **Fix B1–B3 in the plan text first.** They are wrong instructions, not risky ones; an
+   implementer who follows the plan faithfully still ships two silent bugs and debugs a
+   third that does not exist.
+2. **Add a Task 0 Step 6 — consumer census.** For every shared symbol this plan changes
+   (`sizeByDemand`, `readOnly`, `supportsFacilityStatus`, `demandEditable`, the map's
+   `onInputsChange`), count *every* read site and compare the count against the number the
+   plan states. **A mismatch is a stop-and-report**, not a note. Two of five were wrong here.
+3. **Correct H1–H3 and M1–M5 in place**, each as an explicit step in its own task rather
+   than a note, so a checkbox exists for it.
+4. **Add a Task 10: QA, whole-branch review, retro.** Real-browser QA of the five-tab
+   surface and the editable map, a whole-branch review pass, then `/harness-retro`. The
+   previous branch needed a `[ch5-del-fix]` whole-branch-review commit; this plan has no
+   equivalent slot.
+5. **Re-measure every "expected" number at Task 0**, do not carry it from `ec54a6f`. The
+   plan already says line numbers will drift; the same applies to its gate counts and to
+   the `43 passed / 13 failed / 4 skipped` e2e baseline.
+6. **Track closure in a review matrix** — `Finding · Task · Fix · Owner · Status · Evidence`,
+   one row per B/H/M/L above, closed only with a named test or a stated reason none is possible.
+
+## R.5 Dependency-check methods
+
+The generalisable lesson from B1 and B2: **the plan's factual errors were all undercounts of
+call sites.** So the method is count-first, and a count mismatch halts the task.
+
+```bash
+# The five shared symbols this plan changes. Compare each count to the plan's stated count.
+grep -rn "sizeByDemand" artifacts/studio/src | grep -v node_modules            # plan says 4; there are 9
+grep -rln "readOnly" artifacts/studio/src | grep -v node_modules               # incl. the two unrelated dialogs
+grep -rn "PMEDIAN_MAP_READONLY_NOOP\|onInputsChange" artifacts/studio/src/pages/Workspace.tsx
+grep -rn "supportsFacilityStatus\|demandEditable" artifacts lib --include=*.ts --include=*.tsx | grep -v /dist/
+grep -rn "delivery-teaching-us" artifacts lib e2e scripts solvers | grep -v node_modules
+```
+
+Two structural checks that turn this from a grep habit into a gate:
+
+- **Finish the registry set-equality test** (H2) — add `KNOWN_SCHEMAS` and `solve.py`'s
+  dispatcher, and fix its misleading title. It is still the one item in this plan that
+  reduces future work.
+- **Run both standalone solver scripts, not one.** `python3 -m pytest tests/` discovers
+  neither `e2e_accuracy.py` nor `e2e_journey.py`. The gate must name both, and
+  `e2e_journey.py delivery` is the only automated check that exercises this model end to end
+  over real HTTP.
+
+Line references above were read at `ee5f9c0` and will drift — locate by symbol, as
+Global Constraints already requires.
