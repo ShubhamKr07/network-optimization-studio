@@ -1284,9 +1284,24 @@ This is where Task 0's deferred doc merge lands, and it is the same sequence for
 4. **Re-run the whole-branch review on the merged state** if the merge pulled anything in.
    It must review what will actually ship. The previous branch needed a `[ch5-del-fix]`
    commit for exactly this.
-5. **Only then push to `origin/main`.**
+5. **STOP again and ask before pushing to `origin/main`.** A second hard stop, not a
+   continuation of step 2's approval. Approval to merge locally is not approval to publish.
+6. **STOP a third time before deploying.** Deploy is its own decision, and on this repo it
+   is a deliberate manual act: `autoDeploy` does not reliably fire for `nos-studio`, so
+   shipping means someone explicitly calls `mcp__render__trigger_deploy`. That makes it
+   easy to treat as the tail of a push — it is not. **Never trigger a deploy, to either
+   service, without asking in the same turn and getting an answer.**
+   - `nos-studio` (`srv-d9hg4gvlk1mc73dtp67g`) — this change touches `artifacts/studio/**`.
+   - `nos-api` (`srv-d9hglg6pbkes73a1j8b0`) — this change touches `artifacts/api-server/**`
+     (Zod validation, precheck, `solve.py`), so **both** services need deploying, not just
+     the frontend.
 
-A branch merged locally but not yet reviewed is recoverable; a pushed one is not.
+A branch merged locally but not yet reviewed is recoverable; a pushed one is less so; a
+deployed one is live in front of students. Three separate decisions, three separate asks.
+
+**This is a standing instruction from the human, given 2026-09-29, and it binds every agent
+this plan dispatches.** A subagent cannot grant it, relay it, or infer it from the fact that
+the previous step was approved.
 
 - [ ] **Step 5: `/harness-retro ch5-editable`**
 
