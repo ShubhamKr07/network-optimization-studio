@@ -8,6 +8,12 @@ const mockDb = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
+  // cmp-1 — maxCoverageSteps.ts's loadScenarioSteps/loadScenarioStepsBatch
+  // read solve_jobs via a raw db.execute (DISTINCT ON needs it; the query
+  // builder doesn't). Defaulted to zero rows below so a max-coverage-us row
+  // flowing through this mocked app (e.g. the unscoped-list test) resolves
+  // to "both steps unsolved" instead of throwing on an unmocked method.
+  execute: vi.fn(),
   transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
 
@@ -362,6 +368,7 @@ beforeEach(() => {
   mockDb.select.mockReturnValue(makeChain([]));
   mockDb.update.mockReturnValue(makeChain([]));
   mockDb.delete.mockReturnValue(makeChain([]));
+  mockDb.execute.mockResolvedValue({ rows: [] });
   // transaction defaults to running the callback against the shared mockDb,
   // so a route that deletes child rows then the parent resolves in order.
   mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb));
