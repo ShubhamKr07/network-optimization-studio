@@ -201,6 +201,7 @@ vi.mock("@workspace/api-client-react", () => ({
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
+import { ch4Scenario } from "./helpers/ch4";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListModels = vi.mocked(useListModels);
@@ -211,6 +212,22 @@ const mockUseSearch = vi.mocked(useSearch);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+}
+
+// CH4UX-1 — Chapter 4 needs a different modelId and a server-derived `steps`
+// projection, neither of which the existing parameterless renderWorkspace()
+// can express. A sibling helper, so no existing call site changes. Kept in
+// this file (not helpers/ch4.tsx) because it closes over this file's own
+// module mocks (mockUseListScenarios/mockUseGetScenario/mockUseSearch).
+function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeId = scenarios[0].id) {
+  mockUseListScenarios.mockReturnValue({ data: scenarios } as never);
+  mockUseGetScenario.mockReturnValue({
+    data: scenarios.find(s => s.id === activeId),
+    isLoading: false,
+    isError: false,
+  } as never);
+  mockUseSearch.mockReturnValue(`?scenario=${activeId}`);
+  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 }
 
 beforeEach(() => {
@@ -2784,5 +2801,59 @@ describe("CH4-17 — no client-side floor authoring survives", () => {
     const patched = await saveMaxCoverageScenarioAndCaptureBody();
     expect("coverageFloorDemand" in patched.inputs).toBe(false);
     expect(patched.inputs.objective).toBe("coverage");
+  });
+});
+
+describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
+  it("disables every sidebar Output row when Step 1 is unsolved", () => {
+    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
+    const outputMap = screen.getByTestId("sidebar-output-output-map");
+    expect(outputMap).toBeDisabled();
+    expect(outputMap).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("enables the sidebar Output rows once Step 1 has solved, even with Step 2 unsolved", () => {
+    renderCh4Workspace([
+      ch4Scenario({
+        steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+      }),
+    ]);
+    expect(screen.getByTestId("sidebar-output-output-map")).not.toBeDisabled();
+  });
+
+  it("leaves a non-Chapter-4 model gated by hasFreshSolvedRun alone", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-output-output-map")).toBeDisabled();
+  });
+
+  // CH4UX-1 — reproduce the ACTUAL defect, not a proxy for it. An output tab
+  // must already be open, because the user-visible symptom is that tab naming
+  // the wrong unmet prerequisite. Asserting only the header toggle would pass
+  // against a fix that left the gate copy wrong.
+  it("switching to a 0-of-2 scenario with an output tab open re-targets the view to Step 1", () => {
+    const a = ch4Scenario({
+      id: 1,
+      name: "A",
+      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+    });
+    const b = ch4Scenario({ id: 2, name: "B", steps: { step1: { solved: false }, step2: { solved: false } } });
+
+    const view = renderCh4Workspace([a, b], 1);
+
+    // Scenario A is 1-of-2, so its outputs are unlocked. Open one, and view Step 2.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    fireEvent.click(screen.getByTestId("step-toggle-2"));
+    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
+
+    // Switch to the 0-of-2 scenario. Re-point the query mocks the way a real
+    // scenario switch would, then let the component re-render.
+    mockUseGetScenario.mockReturnValue({ data: b, isLoading: false, isError: false } as never);
+    fireEvent.click(screen.getByTestId("sidebar-scenario-2"));
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // The header toggle snapped back...
+    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
+    // ...and the still-open output tab now names the RIGHT prerequisite.
+    expect(screen.getByTestId("tab-content-region")).toHaveTextContent("Solve Step 1");
   });
 });

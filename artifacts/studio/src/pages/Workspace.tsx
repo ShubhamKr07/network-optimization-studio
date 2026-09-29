@@ -1476,6 +1476,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // modelId comparison — see the hook's own comment.
   const stepState = useMaxCoverageSteps(currentScenario);
   const [selectedStep, setSelectedStep] = useState<1 | 2>(1);
+  // CH4UX-1 — `selectedStep` previously had one writer (the solve-success
+  // effect), so it survived a scenario switch: switching from a 1-of-2
+  // scenario viewing Step 2 to a 0-of-2 scenario left an already-open output
+  // tab saying "Solve Step 2" when Step 1 was the unmet prerequisite. Snap the
+  // view to the new scenario's own target instead.
+  //
+  // Render-phase adjustment rather than an effect (same pattern as
+  // BandChipEditor's prevUnitRef): it keys on scenario IDENTITY, not on
+  // `targetStep`, so it cannot fight the solve-success `setSelectedStep`, and
+  // it needs no exhaustive-deps suppression.
+  const prevScenarioIdRef = useRef(currentScenario?.id);
+  if (currentScenario?.id !== prevScenarioIdRef.current) {
+    prevScenarioIdRef.current = currentScenario?.id;
+    if (stepState.isMaxCoverage) setSelectedStep(stepState.targetStep);
+  }
   // Holds the fully-computed next `inputs` blob, NOT a callback. Computing
   // the blob at intercept time means confirm has nothing left to derive —
   // an earlier draft stored a closure and needed an invented helper to turn
@@ -4227,10 +4242,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
           )}
           hasSolvedRun={hasFreshSolvedRun}
-          // CH4-18 — Chapter 4's output entries stay clickable before the
-          // selected step is solved; the tab renders its own empty state
-          // (chapter4OutputGate above) instead of a disabled sidebar row.
-          keepOutputsClickable={stepState.isMaxCoverage}
+          // CH4UX-1 (supersedes CH4-18's pre-Step-1 half) — Chapter 4's output
+          // entries are hard-locked until Step 1 has solved: before any run
+          // exists there is nothing to preview, so this matches every other
+          // model. CH4-18's real value is kept for the post-Step-1 case — once
+          // Step 1 has solved, the rows stay clickable even when Step 2 is
+          // selected-but-unsolved, and `chapter4OutputGate` renders the
+          // "Not solved yet — Solve Step 2" empty state.
+          keepOutputsClickable={stepState.isMaxCoverage && stepState.steps?.step1.solved === true}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
