@@ -45,6 +45,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
 | Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
 | Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L946 |
+| Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1067 |
 
 ---
 
@@ -1062,3 +1063,123 @@ symbol into the test at all — per CLAUDE.md hard rule #8, the smallest correct
 the same commit as the work.
 
 Commit: `[ch5-edit-9] rewrite the delivery e2e journey and add the registry set-equality test`.
+
+## Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) (2026-09-29)
+
+The whole-branch review that produced `ch5-del-fix` (see the entry above) surfaced a brand-new
+broken affordance introduced by Rev 2.1's §14 Warehouses/Customers tabs (`ch5-edit-0`–`ch5-edit-9`):
+`WarehousesTab`/`CustomersTab` render CSV Download/Upload buttons whenever passed a `scenarioId`
+(`Workspace.tsx`'s call sites for `delivery-teaching-us` do), but `routes/scenarios.ts`'s export/import
+allow-lists never included `delivery-teaching-us` — every one of those buttons 422'd
+("Export/Import is not supported for this model"). The human was offered a choice between hiding the
+buttons and implementing the feature, and chose to implement it. This task builds it — input entities
+only (warehouses/customers); output-entity exports (assignments/openWarehouses/costSummary/
+serviceStats) already worked and are untouched.
+
+**What shipped:**
+
+1. **`services/templates.ts`** — `applyDeliveryWarehouseOverrides`/`applyDeliveryCustomerOverrides`,
+   modeled on `applyMaxCoverageWarehouseOverrides`/`applyMaxCoverageCustomerOverrides` (the closer
+   analogue per the brief: also no capacity concept). `capacity` is always `null` on export (this
+   model's `capacityModes: []`, and `warehouseOverrideSchema` deliberately has no `capacity` field —
+   see `validation/inputs/delivery.ts`'s own header comment). UNLIKE every other model sharing these
+   entity names, `deliveryInputsSchema` has no `addedWarehouses`/`addedCustomers` field at all, so
+   these two functions take only the override array — no second `added*` parameter, and they never
+   append an added-entity row.
+2. **`services/import.ts`** — `delivery-teaching-us` wired into the existing baseline-dispatch ternary
+   for both `warehouses` and `customers` (reusing `applyDeliveryWarehouseOverrides`/
+   `applyDeliveryCustomerOverrides` as the diff baseline, the same generic single-id-row machinery
+   every other model already uses — no new/second id-validation path, per the brief's explicit
+   instruction to reuse `parseAndValidateImport`'s existing baseline-membership idiom rather than
+   inventing one; `precheckDeliveryInputs` in `services/precheck.ts` — added earlier this branch by a
+   concurrent fix — validates the same dataset at solve time, and both now source id-membership from
+   the same `DELIVERY_WAREHOUSES`/`DELIVERY_CUSTOMERS` dataset module, never a second copy). `canAdd`
+   gained an explicit `modelId !== "delivery-teaching-us"` exclusion for the `warehouses` half (the
+   `customers` half was already model-gated to a whitelist that never included delivery) — this is the
+   first model on the `warehouses` entity with no add-entity schema field at all, so a blank id must
+   fall through to the generic "Unknown id" rejection rather than minting a record nothing would ever
+   persist (an add-mode write would silently strip at the Zod layer, non-strict per DD-8 — worse than
+   never producing it).
+3. **`routes/scenarios.ts`** — `delivery-teaching-us` added to the export allow-list, both import
+   allow-lists (`POST .../import` and `POST .../import/apply`), and their respective big model
+   OR-lists, all scoped to `entityIsDelivery = warehouses/customers only` (this model's
+   distance-bearing entity is `laneCostOverrides`, out of scope for this pass — a `distances` or
+   `laneCosts` export/import request now 422s explicitly rather than silently falling through to the
+   p-median dataset). A new `delivery-teaching-us` export branch mirrors the `max-coverage-us` branch
+   immediately above it, minus the `distances` sub-branch, reading only
+   `warehouseOverrides`/`customerOverrides` off `scenario.inputs`. The per-entity output-grid guard at
+   the top of the export route (`:712` in the brief's line numbers) needed no change — it gates
+   `OUTPUT_ENTITIES` (assignments/openWarehouses/etc.), which `warehouses`/`customers` were never part
+   of.
+4. **A stray `capacity` CSV value is dropped, not rejected — deliberate, tested.** `ENTITY_HAS_VALUE`
+   in `import.ts` is keyed by entity name only, not model, so the `warehouses` entity's capacity column
+   is still physically present in a delivery CSV (always blank on export) and a value typed into it
+   still parses without error. The merge layer (`mergeChangesIntoOverrides`, also model-agnostic)
+   still attaches a `capacity` key to the merged override row. `deliveryInputsSchema`'s
+   `warehouseOverrideSchema` is non-strict (DD-8) and has no `capacity` field, so
+   `applyScenarioInputWrite`'s revalidation silently strips that key before persistence — the exact
+   same mechanism `max-coverage-us`/`two-echelon-jade-us`'s own capacity-less warehouses already rely
+   on, reused rather than reinvented. Covered by an HTTP-level test asserting the persisted
+   `db.update().set()` payload has no `capacity` key.
+5. **Zero demand vs. exclusion, proven distinguishable through a real round trip.** `demand: 0` (still
+   in the model, still assigned) and `status: "excluded"` (removed) are independent fields end to end:
+   `applyDeliveryCustomerOverrides`'s `o?.demand ?? c.demand` fallback only triggers on
+   `null`/`undefined` (not `0`, since `??` — not `||` — is used), so an explicit zero demand override
+   survives export/import unchanged, and a customer can carry both a demand override AND `excluded`
+   status simultaneously without either field being lost.
+
+**Test coverage (grep `ch5-edit-11` for the new blocks):**
+
+- `src/__tests__/import.test.ts` — 9 new unit tests on `parseAndValidateImport` directly: a real
+  warehouse (`W8`) UPDATE, a real customer (`C269`) demand-0 UPDATE (a genuine change, not a no-op), a
+  status-only exclusion distinct from a demand override, add-mode NOT reachable for either entity
+  (blank id → `Unknown id`, not an implicit add), unknown ids for both entities rejected by name, a
+  stray capacity value parsing without error (dropped later, not here), and the shared header-check
+  machinery still enforced. 134/134 in this file (was 125 pre-task).
+- `src/__tests__/importMultiModelRoundTrip.test.ts` — 9 new HTTP-level tests against the real,
+  unmocked route/merge/Zod-revalidation pipeline (only the DB persistence layer is mocked): own-dataset
+  export resolution (33 warehouses/313 customers, no capacity column), a sibling model's entity and the
+  out-of-scope `distances` entity both 422, import preview resolves the own dataset with unknown ids
+  rejected end to end (no DB write), a blank-id add attempt rejected end to end, and — the requirement
+  called out explicitly by the brief — **two genuine round-trip tests that export from one scenario and
+  import/apply into a DIFFERENT, initially-empty scenario** (not re-importing into the same scenario,
+  which would pass trivially even if a field were silently dropped, since "no change" and "change
+  dropped" are indistinguishable when source and target start identical): warehouse status overrides
+  (`inactive`/`forced_open`) round-trip byte-identically, and customer demand-0 + a demand+exclusion
+  override round-trip byte-identically while staying distinguishable from each other. Plus the stray-
+  capacity persistence test from point 4 above. 50/50 in this file (was 41 pre-task).
+
+**Mutation-tested per the brief's explicit instruction, both reverted after confirming red:**
+
+1. **Dropped `status` silently** — `mergeChangesIntoOverrides` (`routes/scenarios.ts`) edited to write
+   `status: "active"` unconditionally instead of `c.after.status`. Result: both new round-trip tests
+   went red (plus one pre-existing `max-coverage-us` distanceBands test, confirming the mutation's
+   blast radius was real and not narrowly targeted at delivery). Reverted; suite back to green.
+2. **Accepted an unknown id silently** — the `else` branch in `import.ts`'s uid-identity-model dispatch
+   (a non-blank id matching neither `baselineById` nor `addedById`) edited to fall through as if it were
+   a known baseline row instead of erroring. Result: 11 tests went red — the 2 new `import.test.ts` unit
+   tests and 1 new HTTP-level test for delivery, plus 8 pre-existing tests for other models (proving the
+   check is genuinely shared, not delivery-specific dead code). Reverted; suite back to green.
+
+**Verification (this task's own file set only — `import.test.ts`, `importMultiModelRoundTrip.test.ts`,
+`templates.test.ts`, `deliveryContract.test.ts`, `routes/scenarios.ts`, `services/import.ts`,
+`services/templates.ts`):**
+
+- `pnpm --filter api-server run typecheck`: clean.
+- `DATABASE_URL=... npx vitest run src/__tests__/import.test.ts src/__tests__/importMultiModelRoundTrip.test.ts src/__tests__/templates.test.ts src/__tests__/deliveryContract.test.ts`:
+  **367/367**.
+
+**Provisional, not authoritative — run concurrently with two other in-flight dispatches sharing this
+worktree** (a review-fix pass touching `validation/inputs/delivery.ts` — adding a duplicate-id guard,
+explicitly out of scope for this task per the brief — plus `registry/modelRegistry.ts`, `solve.py`,
+`modelIdSetEquality.test.ts`; and a separate `Workspace.tsx`/e2e dispatch): the full
+`pnpm --filter api-server test` / `pnpm --filter studio test` / solver pytest gate was deliberately
+**not** run standalone by this task, since it would include those two dispatches' in-flight,
+not-yet-committed edits and any failure there would be unattributable. The coordinating session runs
+the authoritative full gate once all three dispatches have landed.
+
+**No OpenAPI/codegen change** — `scenario.inputs` stayed free-form by design (per the brief), and no
+DB schema change was needed (zero-migration guarantee intact). `validation/inputs/delivery.ts` was not
+touched, per the brief's explicit instruction (a concurrent dispatch owns it this same branch).
+
+Commit: `[ch5-edit-11] support warehouse and customer CSV export/import for delivery`.

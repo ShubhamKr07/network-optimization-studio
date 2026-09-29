@@ -4,7 +4,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
-import { DELIVERY_WAREHOUSES } from "../data/deliveryDataset.js";
+import { DELIVERY_WAREHOUSES, DELIVERY_CUSTOMERS } from "../data/deliveryDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
@@ -570,6 +570,63 @@ export function applyMaxCoverageCustomerOverrides(overrides: CustomerOverride[],
     overridden: true,
   }));
   return [...baseRows, ...addedRows];
+}
+
+// ch5-edit-11 — Chapter 5 (modified) delivery-teaching-us's own
+// 33-warehouse/313-customer dataset (DELIVERY_WAREHOUSES/DELIVERY_CUSTOMERS),
+// distinct from every other model's. Warehouses carry STATUS but NO capacity
+// concept at all (capacityModes: [], see validation/inputs/delivery.ts's own
+// header comment on why `capacity` is deliberately absent from
+// warehouseOverrideSchema) — `capacity` is always null, same convention as
+// applyMaxCoverageWarehouseOverrides/applyJadeWarehouseOverrides above.
+// UNLIKE every other model sharing this entity name, this model's schema has
+// NO addedWarehouses/addedCustomers concept at all (deliveryInputsSchema has
+// neither field) — so, unlike applyWarehouseOverrides/
+// applyMaxCoverageWarehouseOverrides/etc., these take only the override
+// array, no second `added*` param, and never append an added-entity row.
+export function applyDeliveryWarehouseOverrides(overrides: WarehouseOverride[]): WarehouseTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  return DELIVERY_WAREHOUSES.map(w => {
+    const status = byId.get(w.id)?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: null, // no per-warehouse capacity concept in this model
+      status,
+      overridden: status !== "active",
+    };
+  });
+}
+
+export function applyDeliveryCustomerOverrides(overrides: CustomerOverride[]): CustomerTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  return DELIVERY_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    // customerOverrideSchema's demand is nullable — a present-but-null
+    // override is the explicit "no override" state, same `?? c.demand`
+    // fallback applyCustomerOverrides/applyMaxCoverageCustomerOverrides use
+    // (null is falsy for `??`, so it correctly falls through to the base
+    // demand, not a literal null cell).
+    const demand = o?.demand ?? c.demand;
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand,
+      status,
+      overridden: demand !== c.demand || status !== "active",
+    };
+  });
 }
 
 // GOLD_REFINERIES only — deliberately excludes the mine (GOLD_MINES),

@@ -29,6 +29,8 @@ import {
   applyJadeCustomerOverrides,
   applyMaxCoverageWarehouseOverrides,
   applyMaxCoverageCustomerOverrides,
+  applyDeliveryWarehouseOverrides,
+  applyDeliveryCustomerOverrides,
   applyPlantOverrides,
   applyPlantCapabilityOverrides,
   buildDistanceStubRows,
@@ -915,6 +917,12 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // (warehouses/customers/distances) but its OWN base dataset, so it needs its
   // own guard + export branch (below), never the p-median fallback's dataset.
   const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
+  // ch5-edit-11 — delivery-teaching-us is INPUT-ENTITY-scoped to
+  // warehouses/customers only (no distances export/import in this pass —
+  // this model's distance-bearing entity is laneCostOverrides, which is
+  // out of scope; its own output-entity exports already work independently
+  // of this guard, see the OUTPUT_ENTITIES branch above).
+  const entityIsDelivery = entity === "warehouses" || entity === "customers";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -935,7 +943,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
+  if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers export" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -1284,6 +1296,42 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
+  // ch5-edit-11 — delivery-teaching-us (Chapter 5, modified): warehouses/
+  // customers only (the entityIsDelivery guard above already excludes
+  // distances/laneCosts — this model's distance-bearing entity is
+  // laneCostOverrides, out of scope for this pass). Its OWN 33-warehouse/
+  // 313-customer dataset, resolved via applyDeliveryWarehouseOverrides/
+  // applyDeliveryCustomerOverrides — must NOT fall through to the p-median
+  // fallback below, which would export p-median-us rows. UNLIKE every other
+  // model on this branch, this model's schema has no addedWarehouses/
+  // addedCustomers concept at all (see templates.ts's applyDelivery*
+  // Overrides header comment), so neither apply* call takes a second
+  // added-entity argument.
+  if (scenario.modelId === "delivery-teaching-us") {
+    const inputs = scenario.inputs as {
+      warehouseOverrides?: Parameters<typeof applyDeliveryWarehouseOverrides>[0];
+      customerOverrides?: Parameters<typeof applyDeliveryCustomerOverrides>[0];
+    };
+
+    const rows = entity === "warehouses"
+      ? applyDeliveryWarehouseOverrides(inputs.warehouseOverrides ?? [])
+      : applyDeliveryCustomerOverrides(inputs.customerOverrides ?? []);
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
+    if (format === "csv") {
+      const csv = entity === "warehouses"
+        ? warehouseRowsToCsv(rows as Parameters<typeof warehouseRowsToCsv>[0])
+        : customerRowsToCsv(rows as Parameters<typeof customerRowsToCsv>[0]);
+      res.type("text/csv").send(csv);
+      return;
+    }
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
+
   // p-median-us/p-median-brazil: export reads each model's own warehouse/
   // customer dataset directly (via services/templates.ts). T9 — Brazil
   // shares p-median-us's exact inputs shape/entity set (B6.3/B2-T1), only
@@ -1611,6 +1659,10 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
   const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
+  // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
+  // import too (same scope as export — see that route's own comment on
+  // entityIsDelivery).
+  const entityIsDelivery = entity === "warehouses" || entity === "customers";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1631,7 +1683,11 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
+  if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
@@ -1679,6 +1735,10 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
   const entityIsMaxCoverage = entity === "warehouses" || entity === "customers" || entity === "distances";
+  // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
+  // import too (same scope as export — see that route's own comment on
+  // entityIsDelivery).
+  const entityIsDelivery = entity === "warehouses" || entity === "customers";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1699,7 +1759,11 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "max-coverage-us scenarios only support warehouses/customers/distances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us") {
+  if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }

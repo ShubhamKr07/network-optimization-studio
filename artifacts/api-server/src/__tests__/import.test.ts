@@ -8,6 +8,10 @@ import { parseAndValidateImport } from "../services/import.js";
 // recomputed expectation.
 import { toDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+// ch5-edit-11 — sources the real base demand for a delivery-teaching-us
+// round-trip fixture directly from the dataset module (never hardcoded), so
+// the test can't silently drift from the real data.
+import { DELIVERY_CUSTOMERS } from "../data/deliveryDataset.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures", "imports");
@@ -1382,5 +1386,119 @@ describe("parseAndValidateImport — legDistances for two-echelon-jade-us (plant
     const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
+  });
+});
+
+// ch5-edit-11 — delivery-teaching-us (Chapter 5, modified): shares
+// p-median-us's "warehouses"/"customers" entity names but resolves against
+// its own 33-warehouse/313-customer dataset (W8/C269 are real ids there, not
+// p-median-us's ALN/C1). UNLIKE every other model sharing these entity
+// names, it has NO addedWarehouses/addedCustomers concept at all
+// (deliveryInputsSchema has neither field) — add-mode is disabled for BOTH
+// entities (canAdd excludes it explicitly in import.ts), so a blank id
+// always falls through to the generic "Unknown id" rejection instead of
+// minting a record.
+describe("parseAndValidateImport — delivery-teaching-us resolves against its own dataset, no add-mode", () => {
+  it("warehouses: a real delivery warehouse id (W8) is a known UPDATE", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,W8,,,,,,,inactive\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "W8",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "inactive", value: null },
+    }]);
+  });
+
+  it("customers: a real delivery customer id (C269) can be set to demand 0 while staying active — a genuine change, not a no-op", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C269,,,,,,0,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "C269", after: { status: "active", value: 0 } });
+  });
+
+  it("customers: excluding C269 (status only, no demand override) previews a status-only change distinct from a demand-0 override", () => {
+    // C269's real base demand — the export row always shows it when no
+    // demand override exists (templates.ts's `o?.demand ?? c.demand`), so a
+    // clean re-import of an "excluded, no demand override" row must supply
+    // that real base value to be a no-op on demand while still flipping
+    // status. Sourced from the dataset module directly rather than
+    // hardcoded, so this test can't silently drift from the real fixture.
+    const realDemand = DELIVERY_CUSTOMERS.find(c => c.id === "C269")!.demand;
+    const csv = `template_version,id,display_code,city,state,lat,lng,demand,status\n1,C269,,,,,,${realDemand},excluded\n`;
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "C269",
+      line: 2,
+      before: { status: "active", value: realDemand },
+      after: { status: "excluded", value: realDemand },
+    }]);
+  });
+
+  it("warehouses: add-mode is NOT reachable (blank id is rejected as unknown, not treated as an add)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW,Reno,NV,39.5,-119.8,,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/Unknown id/);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("customers: add-mode is NOT reachable either", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CUST-NEW,Reno,NV,39.5,-119.8,100,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/Unknown id/);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("warehouses: an id unknown to the delivery dataset (a p-median-us-only id, ALN) is rejected, naming the id", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,,,,,,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/Unknown id "ALN"/);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("customers: an id unknown to the delivery dataset (C99999) is rejected, naming the id", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C99999,,,,,,100,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/Unknown id "C99999"/);
+    expect(result.changes).toEqual([]);
+  });
+
+  // A CSV that still carries a value in the (always-present, always-blank-
+  // on-export) capacity column parses without error — this model has no
+  // capacity concept (validation/inputs/delivery.ts's warehouseOverrideSchema
+  // has no `capacity` field at all), so a supplied capacity value is
+  // accepted at the PARSE layer here (parseAndValidateImport has no
+  // model-specific knowledge of which value columns are meaningful — see
+  // ENTITY_HAS_VALUE, keyed by entity name only) but is proven DROPPED
+  // before persistence in importMultiModelRoundTrip.test.ts (deliberate
+  // "ignore", not "reject" — see that file's own comment for why).
+  it("warehouses: a stray capacity value in the CSV parses as a value change without error (dropped later, at persistence)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,W8,,,,,,250000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "W8",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 250000 },
+    }]);
+  });
+
+  it("still enforces the shared header-check machinery (wrong columns -> single format error)", () => {
+    const csv = "template_version,id,city,state,capacity\n1,W8,X,Y,1000\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "delivery-teaching-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
   });
 });

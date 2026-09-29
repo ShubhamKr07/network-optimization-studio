@@ -1,6 +1,6 @@
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyMaxCoverageWarehouseOverrides, applyMaxCoverageCustomerOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyMaxCoverageWarehouseOverrides, applyMaxCoverageCustomerOverrides, applyDeliveryWarehouseOverrides, applyDeliveryCustomerOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 import { BRAZIL_TOTAL_DEMAND } from "../data/brazilDataset.js";
 import { JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
@@ -556,6 +556,12 @@ export function parseAndValidateImport(
           ? applyJadeWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
           : modelId === "max-coverage-us"
           ? applyMaxCoverageWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+          // ch5-edit-11 — delivery-teaching-us shares p-median-us's
+          // warehouses entity name but resolves against its own
+          // 33-warehouse dataset, same disambiguation every other model
+          // above already needs.
+          : modelId === "delivery-teaching-us"
+          ? applyDeliveryWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
           : applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
       )
     : entity === "customers" ? (
@@ -567,6 +573,9 @@ export function parseAndValidateImport(
           ? applyJadeCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : modelId === "max-coverage-us"
           ? applyMaxCoverageCustomerOverrides(currentOverrides.customerOverrides ?? [])
+          // ch5-edit-11 — delivery-teaching-us's own 313-customer dataset.
+          : modelId === "delivery-teaching-us"
+          ? applyDeliveryCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
       )
     : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
@@ -629,7 +638,18 @@ export function parseAndValidateImport(
   // add-mode for JADE customers stays disabled (a blank id row 422s as
   // "Unknown id"), matching this model's own precheck.ts header comment on
   // why per-product demand editing isn't a CSV concern in this pass.
-  const canAdd = entity === "warehouses"
+  // ch5-edit-11 — delivery-teaching-us is the first model on the
+  // "warehouses" entity with NO addedWarehouses/addedCustomers concept at
+  // all (deliveryInputsSchema has neither field, see its own header
+  // comment) — excluded from both halves of this OR, same precedent as
+  // two-echelon-jade-us's own customers exclusion just below (JADE customers
+  // has a real reason too: per-product demand has no room in this
+  // single-value CSV column). A blank id for this model correctly falls
+  // through to the generic "Unknown id" rejection instead of minting a
+  // record nothing would ever persist (deliveryInputsSchema is non-strict —
+  // an addedWarehouses/addedCustomers key on the merged write would silently
+  // strip rather than error, which is worse than never producing it).
+  const canAdd = (entity === "warehouses" && modelId !== "delivery-teaching-us")
     || (entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "max-coverage-us"))
     || entity === "mines" || entity === "stations" || entity === "refineries" || entity === "plants";
   // T11 — whether this row uses the uid+displayCode identity model (a blank

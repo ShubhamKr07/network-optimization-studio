@@ -217,6 +217,46 @@ const maxCoverageRow = {
   updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
 
+// ch5-edit-11 — delivery-teaching-us (Chapter 5, modified). §14's Warehouses/
+// Customers tabs reuse WarehousesTab/CustomersTab and always render CSV
+// Download/Upload buttons when passed a scenarioId — this model was never
+// added to the export/import allow-lists, so every button 422'd. Its own
+// 33-warehouse/313-customer dataset (W8/C269 are real ids there); no
+// addedWarehouses/addedCustomers concept at all (unlike every model above).
+const deliveryInputs = {
+  p: 3,
+  distanceBands: [400, 800, 1200, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  costAdjustEnabled: false,
+  distanceThreshold: 800,
+  costPerMile: 1,
+  costPerMileOver: 10,
+  laneCostOverrides: [],
+  warehouseOverrides: [],
+  customerOverrides: [],
+};
+
+const deliveryRow = {
+  id: 21,
+  name: "Delivery Base Case",
+  modelId: "delivery-teaching-us",
+  userId: OWNER,
+  inputs: deliveryInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-07T00:00:00Z"),
+  updatedAt: new Date("2026-01-07T00:00:00Z"),
+};
+
+// The "target" scenario a round trip re-imports INTO — genuinely empty
+// overrides, a DIFFERENT scenario id from deliveryRow above. Using a second
+// scenario (rather than re-importing into the same one) is deliberate: it
+// means the assertion can't trivially pass by comparing a scenario's export
+// against its own unchanged state (see the round-trip describe block's own
+// header comment for why that would be a weak test).
+const deliveryTargetRow = { ...deliveryRow, id: 22, name: "Delivery Target" };
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
@@ -813,5 +853,216 @@ describe("JADE (two-echelon-jade-us) — plantCapabilities import/apply persists
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
     const capability = setArgs.inputs.plantProductCapability as Array<{ plantId: string; productId: string; enabled: boolean }>;
     expect(capability).toEqual([{ plantId: "plant-1", productId: "product-1", enabled: false }]);
+  });
+});
+
+// ch5-edit-11 — delivery-teaching-us (Chapter 5, modified): warehouses/
+// customers export resolves its OWN 33-warehouse/313-customer dataset
+// (W8/C269 are real ids there, distinct from p-median-us's ALN/C1/26/200
+// facility list — no shared-id-space ambiguity to disambiguate here, unlike
+// max-coverage-us's review-4.4a situation).
+describe("delivery-teaching-us — export resolves its own dataset via its own code path", () => {
+  it("warehouses export returns all 33 rows with no capacity column (this model has no capacity concept)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).get("/api/scenarios/21/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(33);
+    const ids = res.body.rows.map((r: { id: string }) => r.id);
+    expect(ids).toContain("W8");
+    expect(res.body.rows.every((r: { capacity: number | null }) => r.capacity === null)).toBe(true);
+  });
+
+  it("customers export returns all 313 rows", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).get("/api/scenarios/21/export?entity=customers&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(313);
+    const ids = res.body.rows.map((r: { id: string }) => r.id);
+    expect(ids).toContain("C269");
+  });
+
+  it("a sibling model's entity (mines) is rejected (422) for a delivery-teaching-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).get("/api/scenarios/21/export?entity=mines&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  // Scope guard (task requirement): this pass is warehouses/customers only —
+  // laneCostOverrides (this model's distance-bearing entity) is deliberately
+  // out of scope, unlike p-median-us/max-coverage-us's "distances".
+  it("'distances' (out of scope for this model) is rejected (422), not silently resolved via the p-median fallback", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).get("/api/scenarios/21/export?entity=distances&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("delivery-teaching-us — import preview resolves its own dataset, no add-mode", () => {
+  it("a base customer (C269) demand-0 override previews exactly one real change", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C269,,,,,,0,active\n";
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).post("/api/scenarios/21/import").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: csv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0]).toMatchObject({ id: "C269", after: { status: "active", value: 0 } });
+  });
+
+  it("an id absent from this model's own dataset is rejected as unknown, naming the id — no DB write", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C99999,,,,,,100,excluded\n";
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).post("/api/scenarios/21/import/apply").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(422);
+    expect(res.body.preview.errors[0]).toMatchObject({ errorClass: "logic" });
+    expect(res.body.preview.errors[0].message).toMatch(/Unknown id "C99999"/);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  // This model has NO addedWarehouses/addedCustomers concept at all
+  // (deliveryInputsSchema has neither field) — a blank id must fall through
+  // to "Unknown id", never mint an add, all the way through the real HTTP
+  // apply route (not just parseAndValidateImport in isolation — see
+  // import.test.ts's own unit-level coverage of the same rule).
+  it("a blank-id row (the add-mode trigger for every other warehouses/customers model) is rejected end-to-end via HTTP, not silently added", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW,Reno,NV,39.5,-119.8,,active\n";
+    mockDb.select.mockReturnValueOnce(makeChain([deliveryRow]));
+    const res = await request(app).post("/api/scenarios/21/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(422);
+    expect(res.body.preview.errors[0]).toMatchObject({ errorClass: "logic" });
+    expect(res.body.preview.errors[0].message).toMatch(/Unknown id/);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+});
+
+// The mutation-resistant round trip: export a SOURCE scenario's overrides,
+// then apply the exported CSV into a DIFFERENT, INITIALLY-EMPTY target
+// scenario (deliveryTargetRow, id 22 vs deliveryRow's id 21) and inspect the
+// REAL (unmocked) db.update().set() payload — only the DB persistence layer
+// is mocked; parseAndValidateImport, the merge functions, and
+// applyScenarioInputWrite's Zod validation all run for real. Comparing a
+// scenario's export against ITS OWN unchanged state (re-importing into the
+// same scenario) would pass even if status/demand were silently dropped
+// somewhere in the pipeline, because "no change" is indistinguishable from
+// "change dropped" when the source and target start identical — using two
+// scenarios and asserting on the actual merged override arrays closes that
+// gap.
+describe("delivery-teaching-us — export -> import/apply round trip is lossless for status AND demand (zero demand distinct from exclusion)", () => {
+  it("warehouse status overrides (inactive, forced_open) round-trip byte-identically into a fresh target scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const sourceOverrides = [
+      { id: "W8", status: "inactive" },
+      { id: "W15", status: "forced_open" },
+    ];
+    const sourceRow = { ...deliveryRow, inputs: { ...deliveryInputs, warehouseOverrides: sourceOverrides } };
+
+    mockDb.select.mockReturnValueOnce(makeChain([sourceRow]));
+    const exportRes = await request(app).get("/api/scenarios/21/export?entity=warehouses&format=csv").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+
+    mockDb.select.mockReturnValue(makeChain([deliveryTargetRow]));
+    const chain = makeChain([{ ...deliveryTargetRow, inputs: { ...deliveryInputs, warehouseOverrides: sourceOverrides } }]);
+    mockDb.update.mockReturnValue(chain);
+    const applyRes = await request(app).post("/api/scenarios/22/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: exportRes.text, mode: "all_or_nothing" });
+    expect(applyRes.status).toBe(200);
+    expect(applyRes.body.errors).toEqual([]);
+    expect(applyRes.body.applied).toBe(2);
+
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const persisted = setArgs.inputs.warehouseOverrides as Array<{ id: string; status: string }>;
+    // Sort by id — merge order (existing-minus-changed then applied) isn't a
+    // contract, only membership/content is.
+    expect([...persisted].sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "W15", status: "forced_open" },
+      { id: "W8", status: "inactive" },
+    ]);
+  });
+
+  it("customer demand-0 (still in model) and a demand+exclusion override round-trip byte-identically, and remain distinguishable from each other", async () => {
+    const cookie = await loginAs(OWNER);
+    const sourceOverrides = [
+      // Zero demand — customer stays in the model (active), still a real
+      // change from any positive base demand.
+      { id: "C269", demand: 0, status: "active" },
+      // Excluded WITH an explicit demand override present — proves status
+      // and demand persist as independent fields, not collapsed into one.
+      { id: "C50", demand: 12345, status: "excluded" },
+    ];
+    const sourceRow = { ...deliveryRow, inputs: { ...deliveryInputs, customerOverrides: sourceOverrides } };
+
+    mockDb.select.mockReturnValueOnce(makeChain([sourceRow]));
+    const exportRes = await request(app).get("/api/scenarios/21/export?entity=customers&format=csv").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+    expect(exportRes.text).toContain("C269");
+    // The exported row shows demand 0, not blank and not the base demand —
+    // proving zero demand round-trips as a real value, not a "no override"
+    // sentinel.
+    expect(exportRes.text).toMatch(/^1,C269,,[^,]+,[^,]+,[-\d.]+,[-\d.]+,0,active$/m);
+
+    mockDb.select.mockReturnValue(makeChain([deliveryTargetRow]));
+    const chain = makeChain([{ ...deliveryTargetRow, inputs: { ...deliveryInputs, customerOverrides: sourceOverrides } }]);
+    mockDb.update.mockReturnValue(chain);
+    const applyRes = await request(app).post("/api/scenarios/22/import/apply").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: exportRes.text, mode: "all_or_nothing" });
+    expect(applyRes.status).toBe(200);
+    expect(applyRes.body.errors).toEqual([]);
+    expect(applyRes.body.applied).toBe(2);
+
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const persisted = setArgs.inputs.customerOverrides as Array<{ id: string; demand: number; status: string }>;
+    const byId = new Map(persisted.map(o => [o.id, o]));
+    // Both present, both demand AND status intact, and — the specific
+    // property this describe block exists to prove — genuinely
+    // distinguishable from each other: demand=0/active is NOT the same
+    // stored state as demand=12345/excluded.
+    expect(byId.get("C269")).toEqual({ id: "C269", demand: 0, status: "active" });
+    expect(byId.get("C50")).toEqual({ id: "C50", demand: 12345, status: "excluded" });
+    expect(byId.get("C269")).not.toEqual(byId.get("C50"));
+  });
+});
+
+// M6's duplicate-id guard (deliveryInputsSchema's own `.refine()`, a
+// concurrent fix on this same branch) is a SCHEMA-level rule and out of
+// scope for this task, but the import PARSE layer already rejects an
+// in-file duplicate id before it ever reaches that schema — proven at the
+// unit level in import.test.ts. Nothing to duplicate here.
+
+describe("delivery-teaching-us — a stray capacity column value is dropped before persistence (deliberate 'ignore', not 'reject')", () => {
+  // validation/inputs/delivery.ts's warehouseOverrideSchema is {id, status}
+  // ONLY — no `capacity` field (this model has no capacity concept,
+  // capacityModes: []). The CSV's capacity column is still physically
+  // present (ENTITY_HAS_VALUE is keyed by entity name only, not model — see
+  // import.ts's own header comment), so a stray value there parses without
+  // error but must never reach the persisted row: deliveryInputsSchema is
+  // non-strict, so validateInputsForModel silently strips it during
+  // applyScenarioInputWrite's revalidation, exactly like
+  // max-coverage-us/two-echelon-jade-us's own capacity-less warehouses
+  // already rely on.
+  it("a warehouse row carrying a capacity value applies successfully with no error, and the persisted override has no capacity key", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,W8,,,,,,250000,inactive\n";
+    mockDb.select.mockReturnValue(makeChain([deliveryRow]));
+    const chain = makeChain([{ ...deliveryRow, inputs: { ...deliveryInputs, warehouseOverrides: [{ id: "W8", status: "inactive" }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/21/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.applied).toBe(1);
+
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const persisted = setArgs.inputs.warehouseOverrides as Array<Record<string, unknown>>;
+    expect(persisted).toEqual([{ id: "W8", status: "inactive" }]);
+    expect(persisted[0]).not.toHaveProperty("capacity");
   });
 });
