@@ -44,6 +44,13 @@ const HEADER_TIMEOUT = 10_000;
 // spec that already uses 120_000.
 const SOLVE_TIMEOUT = 240_000;
 
+// Bounds every locator action (click/fill/etc.) in this file. Without it, a
+// click on a step-toggle or the header solve trigger that never becomes
+// actionable (e.g. a lock/unlock transition that didn't land) inherits the
+// entire 900_000ms test budget set below, and the failure surfaces at some
+// unrelated later line instead of at the real stuck action.
+test.use({ actionTimeout: 10_000 });
+
 interface MaxCoverageResult {
   status: string;
   objective: number;

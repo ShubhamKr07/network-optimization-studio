@@ -242,8 +242,7 @@ test.describe("solve progress overlay — contract (CH4UX-5/6)", () => {
       // Close path: fail again and dismiss. `resetSolveState` releases the
       // in-flight lock, so the trigger becomes usable again.
       // (Where FOCUS lands after this dismissal is asserted separately
-      // below — see the `test.fail()` case, which records a real,
-      // currently-unfixed gap rather than hiding it here.)
+      // below — see the `Close restores focus…` test below.)
       await page.getByTestId("solve-dialog-solve").click();
       await expect(overlay).toBeVisible({ timeout: OVERLAY_TIMEOUT });
       await expect(page.getByTestId("solve-progress-error")).toHaveText("Solve failed — please try again.");
@@ -293,7 +292,7 @@ test.describe("solve progress overlay — contract (CH4UX-5/6)", () => {
       await expect(overlay).toHaveCount(0);
       await expect(page.getByTestId("button-run-optimizer")).toBeEnabled({ timeout: HEADER_TIMEOUT });
 
-      // The DESIRED behaviour, asserted as-is. Currently fails.
+      // The DESIRED behaviour, asserted as-is.
       await expect(page.getByTestId("button-run-optimizer")).toBeFocused();
     } finally {
       await page.unrouteAll({ behavior: "ignoreErrors" });

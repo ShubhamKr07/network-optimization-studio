@@ -160,9 +160,12 @@ export function SolveProgressOverlay({
         // same commit this overlay opens). Restoring to a detached node is a
         // no-op, so without this handler Close/Adjust leave focus on <body> —
         // the exact mirror of the open-side hole `onOpenAutoFocus` above
-        // fixes. Redirect to the Run Optimizer trigger instead: by the time
-        // Close is clickable the phase is terminal and `resetSolveState()`
-        // has already re-enabled it (see `Workspace.tsx`'s `onClose`).
+        // fixes. Redirect to the Run Optimizer trigger instead: at the
+        // moment Close is clicked the phase is still "failed" and the
+        // trigger is still disabled, but that same click synchronously calls
+        // `resetSolveState()` (see `Workspace.tsx`'s `onClose`), which
+        // re-enables it before this unmount effect runs — so by the time
+        // `onCloseAutoFocus` fires, the trigger is already focusable.
         onCloseAutoFocus={e => {
           e.preventDefault();
           document.querySelector<HTMLElement>('[data-testid="button-run-optimizer"]')?.focus();
