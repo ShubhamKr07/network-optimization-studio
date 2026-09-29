@@ -271,13 +271,27 @@ the first poll landed.
 Because `openSolveDialog()` resets the phase to `"idle"`, a keyboard Enter reaching the underlying
 **Run Optimizer** button would reopen the dialog and cancel the guard mid-job. Therefore:
 
+- a `solveInFlightRef` is set synchronously at the top of `handleSolve()` and checked before
+  anything else;
 - `handleSolve()` returns early when `phase !== "idle"` (alongside its existing browsing-history
   guard) — this protects the enqueue path itself, not just one button;
 - `openSolveDialog()` returns early when `phase !== "idle"`;
 - the header Run button is `disabled` while `phase !== "idle"`;
 - and the overlay is genuinely modal, so the button is not reachable in the first place.
 
-All four, because each alone has a hole.
+All five, because each alone has a hole — and the **ref is load-bearing, not belt-and-braces**: a
+`phase !== "idle"` check protects later renders but not two calls through the same render closure,
+where both observe `"idle"` before React commits the update. The state guard alone cannot make the
+enqueue path single-entry.
+
+The ref is cleared in exactly two places: `resetSolveState()` (which every dismissal and reopen
+routes through) and the poll effect's success branch (which sets the phase directly rather than
+calling the helper). It deliberately stays held while the failure card is up — Close and Adjust own
+that transition.
+
+Its regression test must invoke the solve handler **twice within one synchronous tick**. A
+double-click test cannot cover this: the button unmounts after the first event, so the second click
+never lands.
 
 ### The overlay is a real modal
 
@@ -374,6 +388,8 @@ minutes. Raised and chosen deliberately; the dismissible alternative was decline
 - `artifacts/studio/src/components/workspace/SolveProgressOverlay.tsx`
 - `artifacts/studio/src/lib/solveQuips.ts`
 - `artifacts/studio/src/__tests__/SolveProgressOverlay.test.tsx`
+- `artifacts/studio/e2e/solve-overlay-contract.spec.ts` — the controlled-response modality/focus/
+  reduced-motion contract
 
 **Changed**
 - `artifacts/studio/src/pages/Workspace.tsx` — `keepOutputsClickable`; `selectedStep` reset on
@@ -398,19 +414,38 @@ minutes. Raised and chosen deliberately; the dismissible alternative was decline
 
 Several browser tests use the *disappearance of* `solve-dialog` as their solve-complete signal.
 Under this design the dialog disappears immediately on submit, so those waits become false-green or
-race the real result. There is no `solveAndWait` / `solveViaUi` / `runOptimizerAndWait` helper —
-`e2e/helpers/` contains only `modelLock.ts` — so every site is inline. The full verified inventory:
+race the real result.
 
-| File | Line |
+**Correction to an earlier draft of this section:** it claimed no `solveAndWait` / `solveViaUi` /
+`runOptimizerAndWait` helper existed. That came from a grep scoped to `e2e/helpers/` (which indeed
+contains only `modelLock.ts`). Measured across all of `e2e/` at `9a598db`: **10 spec files** define
+one of those helpers locally, and **13 spec files** reference `solve-dialog`. Because each helper is
+file-local, each must be fixed in place — but the inventory is far wider than the seven inline
+`not.toBeVisible` sites originally listed.
+
+Every `solve-dialog` consumer must therefore be **classified**, not matched against a fixed file
+list:
+
+| Consumer kind | Treatment |
 |---|---|
-| `workspace-fixups.spec.ts` | 377 |
-| `workspace-fixups-2.spec.ts` | 79, 570, 589 |
-| `jade-ch9-workspace-bundle.spec.ts` | 209 |
-| `posthog-analytics.spec.ts` | 194 (`SOLVE_TIMEOUT` — a true completion wait) |
-| `workspace-ux-r1-r9.spec.ts` | 148 (60 s — a true completion wait) |
+| Parameter interaction before submit | Keep, unless a Chapter 4 locator moved into the embedded tab |
+| Explicit Cancel/Close assertion | Keep — not a solve wait; the completion rewrite must not be applied here |
+| Post-completion "the dialog really is gone" | Keep — still true, the dialog just closes earlier |
+| Progress/clock observation | Move the locator **and** the loop's control condition to the overlay |
+| Solve-completion wait | Replace with a durable per-run signal (below) |
+| Helper already polling `solvedAt` or job status | Keep the durable poll; audit only its UI prelude |
 
-Each must be re-pointed at a truthful terminal signal: the overlay disappearing **and** Output Map
-opening, the output row becoming enabled, or the job API reporting a terminal status.
+The definite semantic rewrite is `jade-ch9-workspace-bundle.spec.ts`'s `solveAndObserveClock()`: it
+reads `solve-dialog-elapsed` **and terminates its sampling loop when `solve-dialog` closes**, so
+renaming the id alone would leave a loop that exits before observing anything.
+
+**Completion waits must anchor on durable per-run state, not on transient overlay visibility.**
+Requiring `solve-progress-overlay` to *become visible* is a race — a fast job can finish before
+Playwright samples it — and `output-map-tab` alone is a false positive when that tab was already
+open. Capture a per-run value (`solvedAt`, the job id, or result identity) before submitting and
+require it to change; a spec that solves twice must re-capture before each submit. The overlay's own
+appearance/modality contract gets **one** dedicated browser test with a deliberately delayed and a
+deliberately failed job response, rather than being asserted on every solve.
 
 Baseline greps, to be run before implementation and again before merge:
 
@@ -449,14 +484,27 @@ behaviour-dependent waits whose ids never changed.
 
 ### Browser / accessibility
 
-- Focus stays inside the running overlay; the workspace behind cannot be tabbed to or activated.
-- Escape and backdrop clicks do not dismiss while saving/solving.
-- Error actions are focusable; Adjust moves focus into the reopened dialog; Close restores focus to
-  the Run button.
-- Phase changes announce once; quips and per-second clock updates do not announce.
-- Short viewport and 200% zoom retain access to every parameter and footer action.
-- Run on Chapter 4 and at least one non-Chapter-4 model; a unit matrix over all six model ids covers
-  the remaining routing.
+Modality, focus, and reduced motion are the behaviours most likely to regress and the least
+provable from component tests (which can only reach the Escape handler). They get a **dedicated
+automated spec**, `e2e/solve-overlay-contract.spec.ts`, made deterministic by intercepting the
+solve-job response — one route that stalls, one that returns a terminal failure. It asserts:
+
+- focus enters and stays inside the running overlay; Tab and Shift+Tab cannot reach workspace
+  controls;
+- Escape and backdrop interaction do not dismiss while saving/solving;
+- a failure focuses an error action; Adjust moves focus into the reopened dialog; Close restores
+  focus to the Run button;
+- `page.emulateMedia({ reducedMotion: "reduce" })` leaves the spinner's computed `animation-name`
+  as `none` (with a cheap unit counterpart asserting the `motion-reduce:animate-none` class).
+
+Provoking a real solver failure is **not** a deterministic trigger — a 1 s time limit on a large
+problem may still return a valid terminal result — so real-solver failure handling is exploratory
+QA on top of that spec, never the evidence for it.
+
+Manual pass, in addition: phase changes announce once while quips and per-second clock updates do
+not; short viewport and 200% zoom retain access to every parameter and footer action; run on
+Chapter 4 and at least one non-Chapter-4 model, with a unit matrix over all six model ids covering
+the remaining routing.
 
 ### Commands
 
