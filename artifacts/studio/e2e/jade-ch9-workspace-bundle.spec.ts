@@ -100,28 +100,54 @@ async function createJadeScenario(page: Page): Promise<number> {
   return id;
 }
 
+/** CH4UX-7 — the durable per-run signal this file's solve wait anchors on.
+ * Read from the server, not the DOM: `solvedAt` is written exactly once per
+ * successful publication (`jobRunner.ts`'s scenario CAS), so a value
+ * different from the one captured before the submit can only have been
+ * produced by THIS run. */
+async function readSolvedAt(page: Page, id: number): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
 /**
  * Opens the Run Optimizer dialog, triggers Solve, makes a best-effort
- * attempt to observe the live dialog clock reach the "Queued Xs · Solving
- * Ys" split state before the dialog auto-closes on success (item #8's
- * "queued→active split" — inherently timing-dependent, since a fast local
- * CBC solve can complete before a poll interval elapses), then waits for the
- * auto-close (Output Map tab becomes visible). Returns whether the split was
- * actually observed, purely informational — item #8's real, DETERMINISTIC
- * assertion is the persistent `output-map-timing` overlay checked
- * separately by the caller, which always shows the queued/active split
- * regardless of how fast the solve was.
+ * attempt to observe the live clock reach the "Queued Xs · Solving Ys" split
+ * state while the run is still in flight (item #8's "queued→active split" —
+ * inherently timing-dependent, since a fast local CBC solve can complete
+ * before a poll interval elapses), then waits for the run to really land.
+ * Returns whether the split was actually observed, purely informational —
+ * item #8's real, DETERMINISTIC assertion is the persistent
+ * `output-map-timing` overlay checked separately by the caller, which always
+ * shows the queued/active split regardless of how fast the solve was.
+ *
+ * CH4UX-7 — the sampled surface moved from the Solve dialog to
+ * `SolveProgressOverlay`, and this is a SEMANTIC rewrite, not a rename.
+ * Renaming `solve-dialog-elapsed` alone would leave the loop broken: its
+ * control condition was "the dialog is still visible", and the dialog now
+ * closes on SUBMIT — so the loop would exit on its very first iteration,
+ * having observed nothing, and `sawSplit` would be permanently false.
+ * Both the locator and the control condition move to the overlay.
+ *
+ * The completion wait is likewise no longer `output-map-tab` alone (a false
+ * positive whenever that tab was already open): it anchors on `solvedAt`
+ * advancing past the value captured before the submit.
  */
-async function solveAndObserveClock(page: Page): Promise<boolean> {
+async function solveAndObserveClock(page: Page, id: number): Promise<boolean> {
+  const before = await readSolvedAt(page, id);
   await page.getByTestId("button-run-optimizer").click();
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await page.getByTestId("solve-dialog-solve").click();
 
-  const elapsed = page.getByTestId("solve-dialog-elapsed");
+  const elapsed = page.getByTestId("solve-progress-elapsed");
   let sawSplit = false;
   for (let i = 0; i < 100; i++) {
-    const dialogVisible = await page.getByTestId("solve-dialog").isVisible().catch(() => false);
-    if (!dialogVisible) break;
+    const overlayVisible = await page
+      .getByTestId("solve-progress-overlay")
+      .isVisible()
+      .catch(() => false);
+    if (!overlayVisible) break;
     const text = await elapsed.innerText().catch(() => "");
     if (/Queued \d+s\s*·\s*Solving \d+s/.test(text)) {
       sawSplit = true;
@@ -130,7 +156,12 @@ async function solveAndObserveClock(page: Page): Promise<boolean> {
     await page.waitForTimeout(150);
   }
 
-  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
+  await expect
+    .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+    .not.toBe(before);
+  // The overlay unmounts on success and PERSISTS (error card) on failure.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await expect(page.getByTestId("sidebar-output-cost-summary")).toBeEnabled({ timeout: HEADER_TIMEOUT });
   return sawSplit;
 }
@@ -194,7 +225,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
 
     try {
       // ── Item #8 (part 1) — solve + best-effort live clock split ─────────
-      const sawLiveSplit = await solveAndObserveClock(page);
+      const sawLiveSplit = await solveAndObserveClock(page, id);
 
       // ── Item #8 (part 2, DETERMINISTIC) — persistent frozen total AFTER
       // the dialog auto-closed, on the Output Map overlay. This is the real
@@ -511,7 +542,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
 
       // ── Best-effort informational note (not a hard assertion) ──────────
       test.info().annotations.push({
-        type: "solve-dialog-clock-split-observed",
+        type: "solve-progress-clock-split-observed",
         description: String(sawLiveSplit),
       });
     } finally {

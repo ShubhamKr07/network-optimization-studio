@@ -71,12 +71,44 @@ async function expectNoAddedEntitiesTab(page: Page): Promise<void> {
   await expect(page.getByTestId("sidebar-input-added-entities")).toHaveCount(0);
 }
 
-async function solveAndWait(page: Page): Promise<void> {
+/** CH4UX-7 — the one durable per-run signal this file's solve waits anchor
+ * on. Read from the server, not the DOM: `solvedAt` is written exactly once
+ * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
+ * different from the one captured before the submit can only have been
+ * produced by THIS run. */
+async function readSolvedAt(page: Page, id: string): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
+/**
+ * CH4UX-7 — this helper's old completion signal was
+ * `expect(solve-dialog).not.toBeVisible()`. The dialog now closes the instant
+ * Solve is pressed, so that assertion is true within milliseconds of the
+ * click and proves nothing about the solve. `output-map-tab` alone is a
+ * false positive whenever that tab was already open from an earlier run.
+ * Capture `solvedAt` BEFORE submitting and require it to change instead —
+ * re-read inside the helper on every call, so a test that solves twice
+ * cannot pass on the first run's state.
+ *
+ * Deliberately does NOT wait for `solve-progress-overlay` to become visible:
+ * that state is transient and a fast job outruns Playwright's sampler. The
+ * overlay's own contract is covered deterministically by
+ * `solve-overlay-contract.spec.ts`.
+ */
+async function solveAndWait(page: Page, id: string): Promise<void> {
+  const before = await readSolvedAt(page, id);
   await page.getByTestId("button-run-optimizer").click();
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await page.getByTestId("solve-dialog-solve").click();
-  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
-  await expect(page.getByTestId("solve-dialog")).not.toBeVisible();
+  await expect
+    .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+    .not.toBe(before);
+  // The overlay unmounts on success and PERSISTS (error card, awaiting
+  // Close/Adjust) on failure — the real "the solve did not fail" assertion.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 }
 
 // ── Map-hover helpers (item 4) ──────────────────────────────────────────
@@ -268,7 +300,7 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       assertTooltipShape(csTooltipIn, "Customer");
 
       // ── Solve, so the Output Map + Customer Assignments have real data. ─
-      await solveAndWait(page);
+      await solveAndWait(page, id);
 
       // ── Item 4 (Output map) — a warehouse + a customer. ──────────────────
       const whTooltipOut = await hoverUntilType(page, "output-map-tab", outputWarehouseTriangleMarkers(page), "Warehouse");
@@ -347,7 +379,7 @@ test.describe("Workspace fixups 2 — two-echelon-gold-au", () => {
       expect(mineTooltipIn.trim().endsWith("(fixed)")).toBe(true);
 
       // ── Solve. ────────────────────────────────────────────────────────
-      await solveAndWait(page);
+      await solveAndWait(page, id);
 
       // ── Item 4 (Output map) — same two roles. ────────────────────────────
       const refineryTooltipOut = await hoverUntilType(page, "output-map-tab", outputWarehouseTriangleMarkers(page), "Refinery");
@@ -403,7 +435,7 @@ test.describe("Workspace fixups 2 — transport-coal", () => {
       assertTooltipShape(stationTooltipIn, "Station");
 
       // ── Solve. ────────────────────────────────────────────────────────
-      await solveAndWait(page);
+      await solveAndWait(page, id);
 
       // ── Item 4 (Output map). ─────────────────────────────────────────
       const mineTooltipOut = await hoverUntilType(page, "output-map-tab", outputWarehouseTriangleMarkers(page), "Mine");
@@ -502,7 +534,7 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       assertTooltipShape(plantTooltipIn, "Plant");
 
       // ── Solve (ground-truth bands [200,400,800,1600]). ────────────────
-      await solveAndWait(page);
+      await solveAndWait(page, id);
 
       // ── Item 4 (Output map) — a plant. ────────────────────────────────
       const plantTooltipOut = await hoverUntilType(page, "output-map-tab", outputPlantMarkers(page), "Plant");
@@ -564,11 +596,24 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await expect(page.getByTestId("solve-dialog-band-2000")).toBeVisible();
       await expect(page.locator('[data-testid^="solve-dialog-band-"]')).toHaveCount(5);
 
-      await expect(page.getByTestId("solve-dialog-error")).toHaveCount(0);
+      // CH4UX-7 — this is the SECOND solve of this same scenario (the first
+      // is `solveAndWait` above), so the Output Map tab is already open and
+      // `output-map-tab` being visible proves nothing here. Re-capture
+      // `solvedAt` immediately before this submit — the whole point of
+      // re-capturing per run — and require it to advance.
+      const beforeFifthBandSolve = await readSolvedAt(page, id);
       await page.getByTestId("solve-dialog-solve").click();
-      await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
-      await expect(page.getByTestId("solve-dialog")).not.toBeVisible();
-      await expect(page.getByTestId("solve-dialog-error")).toHaveCount(0);
+      await expect
+        .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+        .not.toBe(beforeFifthBandSolve);
+      // Replaces two `solve-dialog-error` toHaveCount(0) checks. The
+      // pre-submit one was vacuous even before CH4UX-6 (that id only ever
+      // rendered under the dialog's `phase === "failed"` branch, which a
+      // not-yet-submitted dialog can never be in); the post-solve one is
+      // preserved here in its true successor form — the overlay unmounts on
+      // success and PERSISTS as an error card on failure.
+      await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       const persistedAfterFifthBand = await (await page.request.get(`/api/scenarios/${id}`)).json();
       expect(persistedAfterFifthBand.inputs.distanceBands).toContain(2000);

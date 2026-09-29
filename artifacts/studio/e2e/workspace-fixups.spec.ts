@@ -103,11 +103,44 @@ async function createJadeScenario(page: Page): Promise<string> {
   return id;
 }
 
-async function solveAndWait(page: Page): Promise<void> {
+/** CH4UX-7 — the one durable per-run signal every solve helper in this file
+ * anchors on. Read from the server, not the DOM: `solvedAt` is written
+ * exactly once per successful publication (`jobRunner.ts`'s scenario CAS),
+ * so a value different from the one captured before the submit can only
+ * have been produced by THIS run. */
+async function readSolvedAt(page: Page, id: string): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
+/**
+ * CH4UX-7 — the Solve dialog now closes the instant Solve is pressed, so its
+ * disappearance is no longer a completion signal (it is true within
+ * milliseconds of the click). `output-map-tab` alone is not sufficient
+ * either: it is a false positive whenever that tab was already open from an
+ * earlier run in the same test. So capture `solvedAt` BEFORE submitting and
+ * require it to change — re-read inside the helper on every call, so a test
+ * that solves twice cannot pass on the first run's state.
+ *
+ * Deliberately does NOT wait for `solve-progress-overlay` to become visible:
+ * that state is transient and a fast job outruns Playwright's sampler. The
+ * overlay's own contract is covered deterministically (intercepted job
+ * response) by `solve-overlay-contract.spec.ts`, not by every solve.
+ */
+async function solveAndWait(page: Page, id: string): Promise<void> {
+  const before = await readSolvedAt(page, id);
   await page.getByTestId("button-run-optimizer").click();
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await page.getByTestId("solve-dialog-solve").click();
-  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
+  await expect
+    .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+    .not.toBe(before);
+  // The overlay unmounts on success and PERSISTS (error card, awaiting
+  // Close/Adjust) on failure — so this is the real "the solve did not fail"
+  // assertion that the deleted `solve-dialog-error` check used to be.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await expect(page.getByTestId("sidebar-output-customer-assignments")).toBeEnabled({ timeout: HEADER_TIMEOUT });
 }
 
@@ -288,7 +321,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
 
       // ── Solve, so the Output Map and Customer Assignments have real data
       // to check items 1/5 against. ───────────────────────────────────────
-      await solveAndWait(page);
+      await solveAndWait(page, id);
 
       // ── Item 1 — Output Map: factory markers + legend swatch ───────────
       await page.getByTestId("sidebar-output-output-map").click();
@@ -369,7 +402,14 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
         await page.getByTestId(`solve-dialog-button-remove-band-${b}`).click();
       }
       await expect(page.locator('[data-testid^="solve-dialog-band-"]')).toHaveCount(4);
-      await expect(page.getByTestId("solve-dialog-error")).toHaveCount(0);
+      // CH4UX-7 — a `solve-dialog-error` toHaveCount(0) check used to sit
+      // here. It was VACUOUS even before CH4UX-6 deleted that element: the
+      // id only ever rendered under the dialog's `phase === "failed"`
+      // branch, and this block never presses Solve at all (it Cancels
+      // below). `BandChipEditor` renders no error element of its own, so
+      // there is no successor locator — the chip count above is what
+      // actually proves the edit landed, and the failure surface for a real
+      // solve is `solve-progress-overlay`, asserted in `solveAndWait`.
 
       // Close WITHOUT clicking Solve — proves the band edit itself never
       // fires a solve call, and the dialog can be dismissed mid-edit.

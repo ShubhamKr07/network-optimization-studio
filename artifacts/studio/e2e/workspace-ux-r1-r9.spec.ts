@@ -51,6 +51,16 @@ async function solveViaApi(page: Page, id: number): Promise<void> {
   throw new Error(`solve job ${jobId} did not complete in time`);
 }
 
+/** CH4UX-7 — the durable per-run solve signal. Read from the server, not the
+ * DOM: `solvedAt` is written exactly once per successful publication
+ * (`jobRunner.ts`'s scenario CAS), so a value different from the one
+ * captured before the submit can only have been produced by THIS run. */
+async function readSolvedAt(page: Page, id: number): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
 async function gotoScenario(page: Page, path: string, id: number): Promise<void> {
   await page.goto(`${path}?scenario=${id}`);
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -136,6 +146,7 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     expect(Math.round(excludedBox!.width)).toBe(maxWidth); // top quintile, in-scale
 
     // ── R5 — Run Optimizer bands are a persisted SOLVE INPUT ───────────────
+    const solvedAtBeforeR5 = await readSolvedAt(page, id);
     await page.getByTestId("button-run-optimizer").click();
     await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
     await page.getByTestId("solve-dialog-button-bands-plus").click();
@@ -143,9 +154,17 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     await page.getByTestId("solve-dialog-button-add-band-confirm").click();
     await expect(page.getByTestId("solve-dialog-band-1200")).toBeVisible();
     await page.getByTestId("solve-dialog-solve").click();
-    // Real CBC solve — wait for the dialog to close (solve complete) rather
-    // than a fixed sleep.
-    await expect(page.getByTestId("solve-dialog")).not.toBeVisible({ timeout: 60_000 });
+    // CH4UX-7 — this used to wait for the Solve dialog to disappear, calling
+    // that "solve complete". The dialog now closes the instant Solve is
+    // pressed, so that wait resolves in milliseconds and every R5 assertion
+    // below (bands persisted, output surfaces reflecting the SOLVED bands)
+    // would race the real result. Anchor on `solvedAt` advancing, a value
+    // only a completed run can produce.
+    await expect
+      .poll(() => readSolvedAt(page, id), { timeout: 60_000, intervals: [500, 1000, 2000] })
+      .not.toBe(solvedAtBeforeR5);
+    // The overlay unmounts on success and PERSISTS (error card) on failure.
+    await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
     // The solved bands (incl. the dialog-added 1200) persisted to
     // Optimization Parameters — same underlying field, R5's single source of

@@ -123,10 +123,21 @@ test.describe("Input Map v2 — money path (p-median-us)", () => {
       await expect(page.getByTestId("button-save")).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
       // Run Optimizer -> a real CBC solve completes (Output Map ungates).
+      //
+      // CH4UX-7 — the ungate transition IS a durable per-run signal here,
+      // but only because this scenario has never been solved: the row goes
+      // disabled -> enabled exactly once, on this run's result landing. That
+      // precondition was previously implicit, which made the assertion
+      // indistinguishable from a vacuous one on inspection — so assert it.
+      // (The same locator would be a false positive on any second solve; see
+      // `bundle2-fastfollow.spec.ts`'s helper, which was rewritten off it.)
+      await expect(page.getByTestId("sidebar-output-output-map")).toBeDisabled();
       await page.getByTestId("button-run-optimizer").click();
-      await expect(page.getByTestId("solve-dialog")).toBeVisible();
+      await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("solve-dialog-solve").click();
       await expect(page.getByTestId("sidebar-output-output-map")).toBeEnabled({ timeout: 30_000 });
+      // The overlay unmounts on success and PERSISTS (error card) on failure.
+      await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }
