@@ -21,7 +21,9 @@ describe("MapLegend", () => {
   it("renders one demand-bucket row per bucket actually occupied by the given customers, sized off the same quintile scale EntityMarkers uses (scaled by LEGEND_DEMAND_SCALE to fit the cell)", () => {
     const customers = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand) => ({ demand }));
     const scale = makeQuintileRadius(customers.map((c) => c.demand));
-    const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+    // ch5-edit-8: sizeByDemand now defaults false, so this row-rendering
+    // test opts in explicitly.
+    const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
     for (const bucket of scale.usedBuckets) {
       const circle = container.querySelector(`[data-testid="legend-demand-bucket-${bucket}"] circle`);
       expect(circle).not.toBeNull();
@@ -31,7 +33,7 @@ describe("MapLegend", () => {
 
   it("collapses to a single row when every customer has identical demand (a degenerate/all-equal population)", () => {
     const customers = [200, 200, 200, 200].map((demand) => ({ demand }));
-    const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+    const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
     expect(container.querySelectorAll('[data-testid^="legend-demand-bucket-"]').length).toBe(1);
     expect(container.querySelector('[data-testid="legend-demand-bucket-0"]')).not.toBeNull();
   });
@@ -39,14 +41,23 @@ describe("MapLegend", () => {
   it("never renders a row for a bucket nobody occupies (a small population doesn't produce a padded-out 5-row legend)", () => {
     // 2 customers, both landing in bucket 0 (a tiny spread near the bottom).
     const customers = [10, 10].map((demand) => ({ demand }));
-    const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+    const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
     expect(container.querySelectorAll('[data-testid^="legend-demand-bucket-"]').length).toBe(1);
   });
 
   it("falls back to a static demo population (still 5 distinct rows) when no customers prop is supplied", () => {
-    const { container } = render(<UnitProvider><MapLegend /></UnitProvider>);
+    const { container } = render(<UnitProvider><MapLegend sizeByDemand /></UnitProvider>);
     const rows = container.querySelectorAll('[data-testid^="legend-demand-bucket-"]');
     expect(rows.length).toBeGreaterThan(1);
+  });
+
+  // ch5-edit-8 — sizeByDemand now defaults false everywhere, so the input
+  // variant's demand-bucket group is hidden out of the box even with a real
+  // customers population passed in.
+  it("hides the demand-bucket group by default (sizeByDemand now defaults false)", () => {
+    const customers = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand) => ({ demand }));
+    const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+    expect(container.querySelectorAll('[data-testid^="legend-demand-bucket-"]').length).toBe(0);
   });
 
   describe("demand tone (book-cover — bundle3-T8/T10)", () => {
@@ -58,7 +69,7 @@ describe("MapLegend", () => {
     // updated for the retired --demand-* tone system).
     it("demand swatches use --map-customer/--map-customer-stroke for p-median-us, the default modelId", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
-      const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+      const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
       const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
       expect(anySwatch.outerHTML).toContain("var(--map-customer)");
       expect(anySwatch.outerHTML).toContain("var(--map-customer-stroke)");
@@ -66,7 +77,7 @@ describe("MapLegend", () => {
 
     it("demand swatches use the same map-customer pair for every other modelId too (no more per-model tone branch)", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
-      const { container } = render(<UnitProvider><MapLegend customers={customers} modelId="transport-coal" /></UnitProvider>);
+      const { container } = render(<UnitProvider><MapLegend customers={customers} modelId="transport-coal" sizeByDemand /></UnitProvider>);
       const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
       expect(anySwatch.outerHTML).toContain("var(--map-customer)");
       expect(anySwatch.outerHTML).not.toContain("--demand-");
@@ -120,7 +131,7 @@ describe("MapLegend", () => {
 
     it("aligns the status group and the demand group in a 2-column grid-cols-[auto_1fr]", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
-      const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+      const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
       const grids = container.querySelectorAll('[data-testid="map-legend"] .grid-cols-\\[auto_1fr\\]');
       // Status group grid + demand group grid, both aligned the same way.
       expect(grids.length).toBe(2);
@@ -128,7 +139,7 @@ describe("MapLegend", () => {
 
     it("every status/demand swatch cell is a fixed w-6 h-6 (24px) — large enough for the 22px triangle/star, never the old clipping w-[14px]", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
-      const { container } = render(<UnitProvider><MapLegend customers={customers} /></UnitProvider>);
+      const { container } = render(<UnitProvider><MapLegend customers={customers} sizeByDemand /></UnitProvider>);
       const cells = container.querySelectorAll(
         '[data-testid^="legend-status-"], [data-testid^="legend-demand-bucket-"]',
       );

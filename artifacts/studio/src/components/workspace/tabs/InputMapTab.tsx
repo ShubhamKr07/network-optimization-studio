@@ -715,7 +715,7 @@ function PMedianInputMap({
   fixedGeography = false,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -948,7 +948,7 @@ function PMedianInputMap({
         <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
           Show inactive
         </LayerCheckbox>
-        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? false} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? false) }))}>
           Size customers by demand
         </LayerCheckbox>
         {/* ch5-del-9/ch5-edit-6 — fixed geography: no "Add on map"
@@ -1046,7 +1046,7 @@ function PMedianInputMap({
           customers={displayCustomers}
           showWarehouseLayer={toggles.warehouses}
           showCustomerLayer={toggles.customers}
-          sizeByDemand={toggles.sizeByDemand ?? true}
+          sizeByDemand={toggles.sizeByDemand ?? false}
         />
         {selected && (
           <MapDetailsCard
@@ -1269,7 +1269,7 @@ function TransportInputMap({
   onSave,
   saving,
 }: Extract<InputMapTabProps, { mode: "transport" }>) {
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -1472,7 +1472,7 @@ function TransportInputMap({
             no status concept at all, so it would be a meaningless no-op
             control rather than a real gate (see this file's "transport" mode
             comment above). */}
-        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? false} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? false) }))}>
           Size customers by demand
         </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
@@ -1541,7 +1541,7 @@ function TransportInputMap({
           showStatusLegend={false}
           showWarehouseLayer={toggles.warehouses}
           showCustomerLayer={toggles.customers}
-          sizeByDemand={toggles.sizeByDemand ?? true}
+          sizeByDemand={toggles.sizeByDemand ?? false}
         />
         {selected && (
           <MapDetailsCard
@@ -1764,7 +1764,7 @@ function TwoEchelonInputMap({
   // off the registry so this stays correct if that manifest value ever
   // changes).
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion("two-echelon-gold-au");
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -1965,7 +1965,7 @@ function TwoEchelonInputMap({
         <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
           Show inactive
         </LayerCheckbox>
-        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? false} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? false) }))}>
           Size customers by demand
         </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
@@ -2062,7 +2062,7 @@ function TwoEchelonInputMap({
           customers={displayCustomers}
           showWarehouseLayer={toggles.warehouses}
           showCustomerLayer={toggles.customers}
-          sizeByDemand={toggles.sizeByDemand ?? true}
+          sizeByDemand={toggles.sizeByDemand ?? false}
         />
         {selected && (
           <MapDetailsCard
@@ -2327,7 +2327,7 @@ function JadeInputMap({
     customers: true,
     plants: true,
     showInactive: false,
-    sizeByDemand: true,
+    sizeByDemand: false,
   });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" | "pl" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
@@ -2545,7 +2545,7 @@ function JadeInputMap({
         <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
           Show inactive
         </LayerCheckbox>
-        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? false} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? false) }))}>
           Size customers by demand
         </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
@@ -2613,7 +2613,7 @@ function JadeInputMap({
           customers={displayCustomers}
           showWarehouseLayer={toggles.warehouses}
           showCustomerLayer={toggles.customers}
-          sizeByDemand={toggles.sizeByDemand ?? true}
+          sizeByDemand={toggles.sizeByDemand ?? false}
           showPlantLayer={toggles.plants ?? true}
         />
         {selected && (

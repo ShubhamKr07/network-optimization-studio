@@ -29,13 +29,13 @@ export interface EntityMarkersToggles {
   warehouses: boolean;
   customers: boolean;
   showInactive: boolean;
-  /** T3 (Bundle 2.2, A2) — "Size customers by demand". Optional, default
-   * `true` (today's quintile-scale behavior, unchanged) so every existing
-   * caller/test literal that doesn't set this field keeps working. `false`
-   * -> every demand-bearing marker (p-median/two-echelon customers,
+  /** T3 (Bundle 2.2, A2); default flipped ch5-edit-8. Optional, default
+   * `false` (fixed-radius customer markers) so every existing caller/test
+   * literal that doesn't set this field keeps that behavior. `true` ->
+   * every demand-bearing marker (p-median/two-echelon customers,
    * transport-coal stations — this component has no per-model branching,
-   * it's whatever's passed as `customers`) renders at a fixed radius
-   * (`FIXED_CUSTOMER_RADIUS`) instead of the quintile scale. */
+   * it's whatever's passed as `customers`) renders on the quintile scale
+   * instead of the fixed radius (`FIXED_CUSTOMER_RADIUS`). */
   sizeByDemand?: boolean;
   /** jade-T12 (Chapter 9 JADE) — the plant layer. Optional, default `true`
    * (every existing `toggles` literal that doesn't set this field keeps
@@ -188,9 +188,10 @@ export function EntityMarkers({
 }: EntityMarkersProps) {
   const tone = demandTone(modelId);
   const scale = useMemo(() => makeQuintileRadius(customers.map((c) => c.demand)), [customers]);
-  // T3 (Bundle 2.2, A2) — default true keeps today's behavior for every
-  // existing `toggles` literal that doesn't set this field.
-  const sizeByDemand = toggles.sizeByDemand ?? true;
+  // T3 (Bundle 2.2, A2); default flipped ch5-edit-8 — default false keeps
+  // fixed-radius markers for every existing `toggles` literal that doesn't
+  // set this field.
+  const sizeByDemand = toggles.sizeByDemand ?? false;
 
   function bindEventHandlers(entity: MapEntity) {
     return {

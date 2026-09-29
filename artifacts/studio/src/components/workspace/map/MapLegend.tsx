@@ -167,7 +167,7 @@ export function MapLegend({
   showStatusLegend = true,
   showWarehouseLayer = true,
   showCustomerLayer = true,
-  sizeByDemand = true,
+  sizeByDemand = false,
   hasMine = false,
   result = null,
   showRoutes = false,

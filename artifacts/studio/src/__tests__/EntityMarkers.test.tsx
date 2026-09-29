@@ -370,12 +370,18 @@ describe("EntityMarkers", () => {
   });
 
   describe("quintile bubble sizing (R2)", () => {
+    // ch5-edit-8: sizeByDemand now defaults false (fixed-radius markers), so
+    // every test in this describe block that exercises the quintile scale
+    // itself opts in explicitly via toggles.sizeByDemand.
     it("two customers in the same quintile bucket render the same bubble size; a customer in a higher bucket renders larger", () => {
       // 10 customers spanning a wide demand range -> multiple distinct buckets.
       const population = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand, i) =>
         cs({ id: `C${i}`, demand }),
       );
-      const { container } = renderMarkers({ customers: population });
+      const { container } = renderMarkers({
+        customers: population,
+        toggles: { warehouses: true, customers: true, showInactive: false, sizeByDemand: true },
+      });
       const svgs = Array.from(container.querySelectorAll(".cs-marker svg"));
       expect(svgs.length).toBe(10);
       const widths = svgs.map((svg) => Number(svg.getAttribute("width")));
@@ -393,7 +399,10 @@ describe("EntityMarkers", () => {
         cs({ id: "C2", demand: 500, excluded: false }),
         cs({ id: "C3", demand: 50000, excluded: true }),
       ];
-      const { container } = renderMarkers({ customers: population });
+      const { container } = renderMarkers({
+        customers: population,
+        toggles: { warehouses: true, customers: true, showInactive: false, sizeByDemand: true },
+      });
       const excludedMarker = container.querySelector(".cs-excluded") as HTMLElement;
       const otherMarkers = Array.from(container.querySelectorAll(".cs-marker:not(.cs-excluded)"));
       expect(excludedMarker.className).toContain("cs-excluded");
@@ -415,8 +424,9 @@ describe("EntityMarkers", () => {
         cs({ id: "C5", demand: 1000000, excluded: true }),
       ];
       const withoutIt = withHugeExcluded.slice(0, 4);
-      const { container: withHuge } = renderMarkers({ customers: withHugeExcluded });
-      const { container: without } = renderMarkers({ customers: withoutIt });
+      const sizeByDemandToggles = { warehouses: true, customers: true, showInactive: false, sizeByDemand: true };
+      const { container: withHuge } = renderMarkers({ customers: withHugeExcluded, toggles: sizeByDemandToggles });
+      const { container: without } = renderMarkers({ customers: withoutIt, toggles: sizeByDemandToggles });
       // C4 (demand=400) is the last non-excluded customer in render order in
       // both populations, so it's the last ".cs-marker" node in each case.
       const markerWithHuge = Array.from(withHuge.querySelectorAll(".cs-marker"))[3];
@@ -424,6 +434,20 @@ describe("EntityMarkers", () => {
       const widthHuge = Number(markerWithHuge.querySelector("svg")!.getAttribute("width"));
       const widthNoHuge = Number(markerWithout.querySelector("svg")!.getAttribute("width"));
       expect(widthHuge).not.toBe(widthNoHuge);
+    });
+
+    // ch5-edit-8 — the actual default-behavior regression coverage: with the
+    // toggles literal omitting sizeByDemand entirely (this file's own
+    // `renderMarkers` default), every customer marker renders at the SAME
+    // fixed radius regardless of a wide demand spread.
+    it("defaults to fixed-radius markers (sizeByDemand omitted) even across a wide demand spread", () => {
+      const population = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand, i) =>
+        cs({ id: `C${i}`, demand }),
+      );
+      const { container } = renderMarkers({ customers: population });
+      const widths = Array.from(container.querySelectorAll(".cs-marker svg")).map((svg) => Number(svg.getAttribute("width")));
+      expect(widths.length).toBe(10);
+      expect(new Set(widths).size).toBe(1);
     });
   });
 });

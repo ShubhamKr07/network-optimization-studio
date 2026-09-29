@@ -33,10 +33,10 @@ vi.mock("@workspace/api-client-react", () => ({
 // toolbars, per model applicability (p-median-us/brazil: Warehouses/
 // Customers + Show-inactive; transport-coal: Mines/Stations, NO
 // Show-inactive; two-echelon: Refineries/Customers + Show-inactive), plus a
-// new "Size customers by demand" checkbox (default ON) present in all three,
-// and the legend now follows the live toggle state instead of always
-// rendering every group. This file is deliberately separate from
-// InputMapTabV2.{test,transport.test,twoEchelon.test}.tsx (which already
+// "Size customers by demand" checkbox (default OFF as of ch5-edit-8, every
+// model) present in all three, and the legend now follows the live toggle
+// state instead of always rendering every group. This file is deliberately
+// separate from InputMapTabV2.{test,transport.test,twoEchelon.test}.tsx (which already
 // cover create/delete/move/edit/copy dispatch) — it only proves the new A1/A2
 // toolbar/legend/sizing contract, reusing the same real-jsdom-MapContainer
 // convention those files establish.
@@ -56,9 +56,11 @@ const baseWh = (over: Partial<MapWarehouse> = {}): MapWarehouse => ({
   ...over,
 });
 
-// A wide demand spread so the default (sizeByDemand ON) scale produces more
-// than one distinct bucket/radius — otherwise an ON-vs-OFF width comparison
-// couldn't tell the two states apart.
+// A wide demand spread so that once sizeByDemand is toggled ON, the quintile
+// scale produces more than one distinct bucket/radius — otherwise an
+// OFF-vs-ON width comparison couldn't tell the two states apart. (ch5-edit-8:
+// sizeByDemand now defaults OFF, so the "produces distinct radii" claim only
+// holds after the toggle is switched on — see the A2 describe block below.)
 const csPopulation: MapCustomer[] = [100, 500, 1000, 2000, 5000, 12000, 20000, 50000].map((demand, i) => ({
   id: `C${i}`,
   displayCode: `C${i}`,
@@ -261,6 +263,9 @@ describe("Input Map — A1 layer checkboxes (two-echelon-gold-au)", () => {
 describe("Input Map — MapLegend follows the live layer checkboxes", () => {
   it("toggling Customers off hides the demand-bucket legend rows; Warehouses stays unaffected", () => {
     renderPMedian();
+    // ch5-edit-8: sizeByDemand defaults OFF, so opt in first — this test is
+    // about the Customers toggle's own gating, independent of sizeByDemand.
+    fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
     expect(screen.getAllByTestId(/^legend-demand-bucket-/).length).toBeGreaterThan(0);
     expect(screen.getByTestId("legend-status-active")).toBeInTheDocument();
 
@@ -272,6 +277,9 @@ describe("Input Map — MapLegend follows the live layer checkboxes", () => {
 
   it("toggling Warehouses off hides the facility-status legend rows; demand buckets stay unaffected", () => {
     renderPMedian();
+    // ch5-edit-8: sizeByDemand defaults OFF, so opt in first — this test is
+    // about the Warehouses toggle's own gating, independent of sizeByDemand.
+    fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
     expect(screen.getByTestId("legend-status-active")).toBeInTheDocument();
     expect(screen.getAllByTestId(/^legend-demand-bucket-/).length).toBeGreaterThan(0);
 
@@ -285,33 +293,43 @@ describe("Input Map — MapLegend follows the live layer checkboxes", () => {
 // ── A2: size-by-demand ───────────────────────────────────────────────────
 
 describe("Input Map — A2 size customers by demand", () => {
-  it("defaults ON: customer bubbles vary in size across a spread population", () => {
-    const { container } = renderPMedian();
-    const widths = Array.from(container.querySelectorAll(".cs-marker svg")).map((svg) => Number(svg.getAttribute("width")));
-    expect(new Set(widths).size).toBeGreaterThan(1);
+  // ch5-edit-8 — the toggle now defaults OFF for every model, not just
+  // some; these four cases are the marker-level regression coverage (not
+  // just the checkbox) so a partial flip (initializer left true while only
+  // the `?? true` fallbacks were flipped) cannot pass silently.
+  it("starts UNCHECKED", () => {
+    renderPMedian();
+    expect(screen.getByTestId("toggle-layer-size-by-demand")).not.toBeChecked();
   });
 
-  it("toggling OFF fixes every customer marker at FIXED_CUSTOMER_RADIUS (6px, svg width 16) regardless of demand", () => {
+  it("defaults OFF: every customer marker renders at the same FIXED_CUSTOMER_RADIUS (6px, svg width 16) regardless of demand", () => {
     const { container } = renderPMedian();
-    fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
     const widths = Array.from(container.querySelectorAll(".cs-marker svg")).map((svg) => Number(svg.getAttribute("width")));
     expect(widths.length).toBeGreaterThan(0);
     for (const w of widths) expect(w).toBe(16); // Math.ceil(6*2)+4
+    expect(new Set(widths).size).toBe(1);
   });
 
-  it("toggling OFF also fixes transport-coal STATION markers (a demand-bearing role sharing the same EntityMarkers customer slot)", () => {
+  it("defaults OFF for transport-coal STATION markers too (a demand-bearing role sharing the same EntityMarkers customer slot)", () => {
     const { container } = renderTransport();
-    fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
     const widths = Array.from(container.querySelectorAll(".cs-marker svg")).map((svg) => Number(svg.getAttribute("width")));
     expect(widths.length).toBeGreaterThan(0);
     for (const w of widths) expect(w).toBe(16);
   });
 
-  it("hides the legend's demand-bucket section entirely when OFF", () => {
-    renderPMedian();
-    expect(screen.getAllByTestId(/^legend-demand-bucket-/).length).toBeGreaterThan(0);
+  it("toggling ON checks the box and varies customer bubble size across a spread population", async () => {
+    const { container } = renderPMedian();
     fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
+    expect(screen.getByTestId("toggle-layer-size-by-demand")).toBeChecked();
+    const widths = Array.from(container.querySelectorAll(".cs-marker svg")).map((svg) => Number(svg.getAttribute("width")));
+    expect(new Set(widths).size).toBeGreaterThan(1);
+  });
+
+  it("hides the legend's demand-bucket section by default, and shows it once toggled ON", () => {
+    renderPMedian();
     expect(screen.queryAllByTestId(/^legend-demand-bucket-/).length).toBe(0);
+    fireEvent.click(screen.getByTestId("toggle-layer-size-by-demand"));
+    expect(screen.getAllByTestId(/^legend-demand-bucket-/).length).toBeGreaterThan(0);
   });
 });
 
