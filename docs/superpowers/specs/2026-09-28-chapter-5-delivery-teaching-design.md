@@ -1887,3 +1887,121 @@ Of the nineteen in §9 this re-opens **3** (Zod schema), **6** (payload builder)
 capability change alters what the UI renders. It adds no new registration point.
 `crossModelStepContract.test.ts`'s `NON_STEP_MODELS` is unaffected — this model still has no
 step workflow and still must never 409.
+
+---
+
+# 15. Fresh spec-quality review — 2026-09-29
+
+An independent read of the whole document as committed at `f37f728`, including §14.
+This is a spec-quality pass: it looks for internal contradictions, gaps, and unflagged
+risk in the *design text itself*, not at the shipped code. It changes nothing above; it
+records findings and a closeout strategy so the next editor can act on them.
+
+## 15.0 State this review was written against
+
+Measured, not assumed:
+
+- **The delivery model implementation is already merged to `main`.** `git log main..ch5-delivery`
+  is a single commit — `f37f728` — so `[ch5-del-12]`, `[ch5-del-13]`, `[ch5-del-fix]`
+  (whole-branch review) and the CI change are all in `main`. The model ships live.
+- **`f37f728` is doc-only.** The §14 amendment (editable Warehouses/Customers,
+  `supportsFacilityStatus → true`, three tabs → five, infeasibility, the `sizeByDemand`
+  default flip) is spec text. It is **not implemented** and **not merged**.
+- **The canonical doc has diverged across branches.** `f37f728` on `ch5-delivery` is 1,889
+  lines and carries §14. The working-tree copy on `ch4-ux-fixes` is 1,705 lines and has **no
+  §14**. `main` merged the implementation without §14. Three-way divergence of one canonical
+  design doc — the exact add/add + content-merge hazard the branch-discipline rule warns
+  about. Flagged only, per instruction; not reconciled here.
+
+## 15.1 Verdict
+
+Body §1–§13 are implementation-ready and high quality — the shipped model is the evidence.
+**§14 is not held to the same bar.** It reverses decisions the §12 readiness review
+specifically relied on, skipped the §12/§13 adversarial cycle, ships no pinned goldens for
+the paths it adds, and leaves five sites in the body it supersedes still stating the old
+contract. Read §1–§13 in isolation and you build the pre-amendment model.
+
+## 15.2 Live contradictions — a reader hits these
+
+| ID | Severity | Where | Problem |
+|---|---|---|---|
+| C1 | **High** | §10 Out of scope | Still lists *"Editing demand, adding warehouses or customers, excluding customers, facility open/close status — decision 11"* as out of scope. §14 makes demand-edit, exclusion and warehouse status **in scope**. A reader working the out-of-scope list builds the wrong model. Every §14-superseded site (§6.1 flags, §7.4 three-tab, §7.6 open-facilities-absent, §9, §10, §11) needs an inline `→ superseded by §14` marker, not just the §14 preamble. |
+| C2 | Med | §14.7 vs §9 | §14.7 says *"Of the nineteen in §9"*; §9 lists **18** numbered points plus 4 unnumbered extras. Nineteen ≠ eighteen. A doc that made "seventh vs eighth model" a formal rejection (§13.1) should not fumble its own point count. |
+| C3 | Med | §11 vs §14.4 | §14.4 corrects §5.8 — the model *is* reachable-infeasible (all warehouses inactive; more than `P` forced open; all customers excluded → zero-denominator). §11 Risks gained no row. The most likely student trap (more-than-`P` forced-open) has no risk entry and no pinned expected status/reason. |
+| C4 | Low | §8.1 vs §12.2 | Adjusted objective shown as `150,194,534,098.60` (§8.1) and `…098.6002` (§12.2). Reconciles at the 2 dp stored contract (§5.7) but a golden table showing two forms of one number invites a "which is right" round-trip. State once: stored = 2 dp = `.60`; raw = `.6002`. |
+| C5 | Low | Header | *"Branch: ch5-ux / Status: Rev 1, awaiting review."* Reality: merged to `main`, live, amendment appended. The header tracks nothing current. |
+
+## 15.3 Gaps — silent if unaddressed
+
+| ID | Severity | Where | Problem |
+|---|---|---|---|
+| G1 | **High** | §14.6 | **No pinned goldens for the editable paths.** §8.1 pins base/adjusted to exact objective + open-set + WAD (4 dp) + bands (2 dp). §14.6 lists tests (demand override moves objective, exclusion leaves the denominator, `forced_open` pins the open set, all-inactive infeasible) with **zero expected values**. "A demand override changes the objective" with no number asserts only `≠`, not correctness. §14 needs its own §8.1: a prototype run with one demand override and one exclusion, numbers pinned. |
+| G2 | **High** | §6.2.1 vs §14.2 | **Precheck does not cover the new override ids.** §6.2.1 `precheckDeliveryInputs` validates only `laneCostOverrides` ids. §14.2's `warehouseOverrides`/`customerOverrides` ids are `z.string()` — Zod checks shape + the status enum, **not existence**. An override naming an unknown warehouse id is caught nowhere before the solver → generic `internal_error`, the exact failure §6.2.1 exists to prevent. §14 must extend precheck to assert those ids exist in their entity sets. |
+| G3 | Med | §14.5 | **`readOnly → fixedGeography` rename is uncovered.** No call-site enumeration, no completeness test. A missed consumer keeps the old prop name and silently keeps hiding status/demand editing — the rename's whole purpose lost, with no error. |
+| G4 | Med | §8.5 vs §14.6 | **Merged sibling specs written pre-§14.** §14.6 moves `Workspace.TabCoverage.test.tsx` 3 → 5 and inverts Task 12, but the merged `e2e/delivery-teaching.spec.ts` (§8.5) was written for the 3-tab read-only-map world and §14 never says to rewrite it. This is the documented prior-bundle-spec-breakage class — a UI-changing amendment breaking a sibling spec still in `e2e:gate`. |
+| G5 | Med | §14 (manifest) | **Capability flip on a shipped manifest.** `supportsFacilityStatus` false → true on a live model. §14 catches the one inverted assertion (Task 12) but prescribes no sweep for other tests gated on that capability whose coverage silently shifts — the locked-model coverage-shift trap, generalized. |
+| G6 | Low | §14.2 | **Override id form unspecified.** §4.2 lane keys use `W8`/`C8`; §14.2's override `id: z.string()` does not say whether ids are role-prefixed. `buildPayload`'s derivation of `warehouseStatuses`/`excludedCustomerIds` depends on it. |
+| G7 | Low | §14.3 / §14.6 | **Exclusion × overflow untested.** The overflow remainder (§5.6) must use post-exclusion `total_demand`. §14.3 sums over `customers_list` (correct), but §14.6 has no test combining an exclusion with an overflow lane. |
+| G8 | **High (meta)** | §14 whole | **§14 never got an adversarial pass.** §1–§13 caught six would-ship defects (five silent) via the §12 readiness review. §14 reverses decisions that review relied on — Task 3 accepted untested non-optimal branches *because* infeasibility was unreachable, which §14.4 voids — yet §14 is a single-author edit with no independent verification. That is where the next real defect most likely is. |
+
+## 15.4 Closeout strategy
+
+Goal: the doc internally consistent, §14 held to the §1–§13 bar, zero open contradictions.
+
+1. **Resolve the body/§14 split first.** Either fold §14 into the body at each site with the
+   original marked superseded (cleaner), or keep the amendment and drop an inline
+   `→ §14 supersedes` at all six stale sites (§6.1, §7.4, §7.6, §9, §10, §11). Either way §10
+   and §11 must stop stating the reversed contract.
+2. **Run §14 through the §12/§13 cycle.** An independent reviewer (a separate model/agent, not
+   the amendment's author) does a readiness pass on §14 alone, verifies every claim against
+   current-`main` source, produces a verdict table like §13.1, and folds accepted findings.
+   This is the missing adversarial step (G8).
+3. **Add §14 goldens (G1).** Extend the committed prototype
+   (`assets/2026-09-28-cog-prototype-solve.py`) with a demand-override case, an exclusion case,
+   and the two infeasible cases; pin the numbers into a §14.6 golden table.
+4. **Close G2–G4 in text:** extend the precheck spec to the new override ids, specify the
+   `fixedGeography` rename call-site + completeness test, and name the sibling-spec rewrite.
+5. **Fix counts and header (C2, C5)**, add the infeasibility risk row (C3), single-form the
+   golden (C4).
+6. **Refresh line references.** Implementation merged plus Chapter 4 landed, so every `file:NNN`
+   in the body is suspect — the body's `Workspace.tsx:1184` versus §14.5's `:1255` already drift.
+   Re-anchor against current `main` HEAD.
+7. **Track closure with a review matrix** — columns `Finding · Section · Type · Fix · Owner ·
+   Status · Evidence`, one row per C/G above. The review is closed only when each has a named
+   test or a documented reason no executable check is possible (mirrors §12.7).
+8. **Decide the canonical copy before editing.** §14 lives only on `ch5-delivery`; the working
+   tree on `ch4-ux-fixes` is pre-amendment; `main` merged without §14. Any edit to the
+   `ch4-ux-fixes` copy guarantees an add/add + content conflict at merge. Reconcile to one copy
+   before further edits (flagged only here, per instruction).
+
+## 15.5 Dependency-check methods
+
+Two layers, both to be run against **current `main` HEAD** — not the pre-Chapter-4 base the
+§12.8 commands were written for.
+
+**Layer 1 — §12.8 refreshed.** The six §12.8 greps (model-id sets, lab/model counts,
+`switch (modelId)`, `inputEntriesForModel`/`pMax`/`capacityModes`, `router.use`/
+`buildEffectiveFacilityCityLookup`, `e2e_accuracy`/`e2e_journey`) are sound; re-run them on
+`main` and diff the line references.
+
+**Layer 2 — §14-specific, absent from §12.8:**
+
+```bash
+rg -n 'readOnly|fixedGeography' artifacts/studio/src            # G3 rename completeness
+rg -n 'sizeByDemand' artifacts/studio/src                        # §14.5: 4 call sites, default flip — touches all 6 other models
+rg -n 'supportsFacilityStatus|demandEditable' artifacts lib      # G5 capability-flip consumers
+rg -n 'WarehousesTab|CustomersTab|onWarehouseOverridesChange|onCustomerOverridesChange' artifacts/studio/src
+rg -n 'Open facilities|openFacilit|CostSummaryTab' artifacts     # C1 / §14.5 assertion-inversion sites
+rg -n 'delivery-teaching' artifacts lib e2e scripts              # every touchpoint of the live model
+```
+
+**Layer 3 — structural, so this stops being grep-forever.** Build the §9-proposed **registry
+set-equality test**: one assertion that the delivery id set is identical across
+`KNOWN_MODEL_IDS`, `MODEL_IDS`, `VALID_MODEL_IDS`, `KNOWN_SCHEMAS`, `PACKAGE_SPECS`, the OpenAPI
+enums, `StudioModelType` and the solver dispatcher. It converts eighteen hand-maintained lists
+into one failing assertion, and is the single highest-leverage dependency control in the
+document — worth building regardless of §14.
+
+**Line-reference audit method.** For each `file:NNN` in the doc, `git blame -L NNN,NNN <file>`
+on `main` and confirm the named symbol still lives there. The body↔§14 `:1184` vs `:1255` drift
+proves the references are already stale.
