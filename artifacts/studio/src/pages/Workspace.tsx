@@ -210,6 +210,13 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         costPerMile: 1,
         costPerMileOver: 10,
         laneCostOverrides: [],
+        // review M5 — matches every other model's new-scenario convention
+        // (p-median-us/brazil, JADE, two-echelon-gold-au above all list
+        // their array fields empty). Harmless today via Zod's `.default([])`
+        // (pmedian.ts:193-201's delivery branch calls `.filter()` on both
+        // with no `?? []` guard), but listing them here removes that trap.
+        warehouseOverrides: [],
+        customerOverrides: [],
       };
     case "p-median-us":
     default:

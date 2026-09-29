@@ -1,10 +1,11 @@
 # Chapter 5 — Delivery Company Teaching Example — Design
 
 **Date:** 2026-09-28 · amended 2026-09-29
-**Branch:** `ch5-delivery` (§1–§13 merged to `main`; §14 is spec-only, unimplemented)
+**Branch:** `ch5-delivery` (§1–§13 merged to `main`; §14 implemented on-branch)
 **Model id:** `delivery-teaching-us` (the 7th model)
-**Status:** §1–§13 **SHIPPED AND LIVE** in production. §14 amendment **approved, not yet
-implemented**. §15 is an independent spec-quality review of §14; §16 is the response to it.
+**Status:** §1–§13 **SHIPPED AND LIVE** in production. §14 amendment **approved and
+implemented** (`ch5-del-*` commits, this branch). §15 is an independent spec-quality review of
+§14; §16 is the response to it.
 
 > **Read §14 before acting on §1–§13.** The amendment reverses decision 11 and parts of
 > §5.8, §6.1, §7.4, §7.6, §9, §10 and §11. Every superseded passage below carries an inline
@@ -1972,9 +1973,12 @@ two produce different *metrics* — a zero-demand customer contributes `0` to bo
 and the denominator of every demand-weighted sum, exactly as an absent one does, so no
 demand-weighted metric can ever tell them apart. **A downstream test asserting G5's metrics
 differ from G2's would fail against a correct solver.** The one real, observable difference is
-`customersActive` (313 vs 312) and the zero-demand customer's continued presence in
+`len(details.assignments)` (313 vs 312) and the zero-demand customer's continued presence in
 `assignments`/`edges` (still assigned to a warehouse, at `flow == 0`) — that is the correct
-thing for §14.3's tests to assert instead.
+thing for §14.3's tests to assert instead (and is exactly what
+`test_zero_demand_and_exclusion_differ_in_MEMBERSHIP_not_in_metrics` in `test_delivery.py`
+asserts; there is no `customersActive` field in the envelope — that name only ever existed in
+the prototype asset's own `print()`, not the shipped `_envelope()` shape).
 
 - Studio: the five-tab set; the Warehouses/Customers tabs render with **no** added-entity
   section; the map still refuses add/copy/move/delete while allowing status and demand.

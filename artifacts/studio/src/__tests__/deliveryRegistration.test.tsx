@@ -43,6 +43,10 @@ describe("delivery-teaching-us — default inputs", () => {
       costPerMile: 1,
       costPerMileOver: 10,
       laneCostOverrides: [],
+      // review M5 — added alongside every other model's array-field
+      // defaults; see defaultInputsForModel's own comment.
+      warehouseOverrides: [],
+      customerOverrides: [],
     });
   });
 });

@@ -68,8 +68,20 @@ export const deliveryInputsSchema = z.object({
   // solver (see buildPayload's delivery-teaching-us branch in pmedian.ts):
   // `active` warehouses and null/absent demand are the defaults and are not
   // sent on the wire.
-  warehouseOverrides: z.array(warehouseOverrideSchema).default([]),
-  customerOverrides: z.array(customerOverrideSchema).default([]),
+  // M6 — duplicate-id guard, mirroring laneCostOverrides' own `.refine()`
+  // above. Without it, two rows naming the same id with conflicting
+  // statuses/demand resolve last-wins in solve.py's dict comprehension,
+  // silently.
+  warehouseOverrides: z.array(warehouseOverrideSchema).default([])
+    .refine(
+      (rows) => new Set(rows.map((r) => r.id)).size === rows.length,
+      { message: "warehouseOverrides must not contain duplicate ids" },
+    ),
+  customerOverrides: z.array(customerOverrideSchema).default([])
+    .refine(
+      (rows) => new Set(rows.map((r) => r.id)).size === rows.length,
+      { message: "customerOverrides must not contain duplicate ids" },
+    ),
 });
 
 export type DeliveryInputs = z.infer<typeof deliveryInputsSchema>;

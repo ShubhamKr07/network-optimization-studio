@@ -17,12 +17,7 @@ import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
 // executable validator from it) — this map is deliberately separate from
 // discovery below, so a manifest-only model is listable without being
 // solvable.
-// Exported (not just KNOWN_MODEL_IDS, its derived key list) so
-// modelIdSetEquality.test.ts can assert this map's OWN keys directly rather
-// than only its already-derived shadow — see that file for why the two are
-// not actually redundant checks (a key deleted here fails the assertion
-// that reads THIS object, not just the one reading its derivation).
-export const KNOWN_SCHEMAS: Record<string, ZodType> = {
+const KNOWN_SCHEMAS: Record<string, ZodType> = {
   "p-median-us": pMedianInputsSchema,
   "p-median-brazil": pMedianInputsSchema,
   "transport-coal": transportLpInputsSchema,

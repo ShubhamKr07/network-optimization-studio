@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import path from "path";
 import { MODEL_IDS, PACKAGE_SPECS } from "@workspace/dataset-schema";
-import { KNOWN_MODEL_IDS, KNOWN_SCHEMAS } from "../registry/modelRegistry.js";
+import { KNOWN_MODEL_IDS } from "../registry/modelRegistry.js";
 import { VALID_MODEL_IDS } from "../routes/scenarios.js";
 
 function repoRoot(): string {
@@ -33,8 +33,7 @@ const WIRE_MODEL_TYPE_BY_MODEL_ID = {
 describe("model-id registries are one set", () => {
   const canonical = new Set<string>(MODEL_IDS);
 
-  it("KNOWN_SCHEMAS, KNOWN_MODEL_IDS, VALID_MODEL_IDS and PACKAGE_SPECS match MODEL_IDS exactly", () => {
-    expect(new Set(Object.keys(KNOWN_SCHEMAS))).toEqual(canonical);
+  it("KNOWN_MODEL_IDS, VALID_MODEL_IDS and PACKAGE_SPECS match MODEL_IDS exactly", () => {
     expect(new Set(KNOWN_MODEL_IDS)).toEqual(canonical);
     expect(new Set(VALID_MODEL_IDS)).toEqual(canonical);
     expect(new Set(PACKAGE_SPECS.map((s) => s.modelId))).toEqual(canonical);

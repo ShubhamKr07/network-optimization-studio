@@ -1694,7 +1694,12 @@ def solve_delivery(inp):
     return _envelope(
         cbc.solutionStatus, st, round(obj_val, 2), round(time.time() - t, 2), edges,
         {"bandCoverage": band_coverage,
-         "weightedAvgDistance": round(weighted_avg_distance, 4)},
+         "weightedAvgDistance": round(weighted_avg_distance, 4),
+         # M1 — the authoritative open set for a forced-open, zero-outbound-flow
+         # warehouse (never derivable from `edges` alone; see
+         # CostSummaryTab.tsx's/OpenWarehousesTab.tsx's openFacilityIds()
+         # fallback comments). Same field/shape as the JADE envelope (:1367).
+         "openFacilityIds": open_ids},
         {"openWarehouseIds": open_ids,
          "assignments": assignments,
          "objective": "cost_adjusted" if inp.get('costAdjustEnabled') else "base"},

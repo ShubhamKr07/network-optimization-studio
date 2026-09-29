@@ -93,6 +93,7 @@ function renderDeliveryMap(overrides: {
   warehouses?: MapWarehouse[];
   customers?: MapCustomer[];
   inputs?: Partial<PMedianMapInputs>;
+  onSave?: ReturnType<typeof vi.fn>;
 } = {}) {
   const onInputsChange = overrides.onInputsChange ?? vi.fn();
   const result = render(
@@ -104,6 +105,7 @@ function renderDeliveryMap(overrides: {
       inputs={basePMedianInputs(overrides.inputs)}
       countryBounds={{ sw: [24, -125], ne: [50, -66] }}
       onInputsChange={onInputsChange}
+      {...(overrides.onSave ? { onSave: overrides.onSave, isDirty: true } : {})}
     />,
   );
   return { onInputsChange, ...result };
@@ -118,19 +120,32 @@ function renderDeliveryMap(overrides: {
 // onInputsChange makes that trivially true even when broken); every edit
 // test below asserts the ACTUAL onInputsChange call and its payload.
 describe("InputMapTab pmedian — fixedGeography (delivery-teaching-us, §14.5)", () => {
-  // Real testids at 3065c91 — arming chips, armed bar, Layers-row Save.
-  // Asserting the tab list alone would pass against a map a student can
-  // still drag a warehouse on or add a new one, which is why every
-  // geometry-changing affordance is named individually.
+  // Real testids at 3065c91 — arming chips (place-wh/place-cs), each gated
+  // directly on `!fixedGeography` at its own render site (InputMapTab.tsx),
+  // so this genuinely exercises the gate. `armed-status-bar`/
+  // `button-armed-cancel` are dropped from this table (B1 follow-up): they
+  // render only from an `armed` state that Move/Copy alone can set, and
+  // Move/Copy are themselves already proven hidden under fixedGeography by
+  // "Move/Copy/Delete stay hidden" below — so with no reachable path to
+  // `armed`, asserting their absence here was true regardless of the
+  // fixedGeography gate, not because of it.
   it.each([
     "button-input-map-place-wh",
     "button-input-map-place-cs",
-    "armed-status-bar",
-    "button-armed-cancel",
-    "button-save", // Layers-row Save — §14.5 keeps this hidden even though status/demand edits are live.
   ])("still hides %s — geography stays fixed", testid => {
     renderDeliveryMap();
     expect(screen.queryByTestId(testid)).toBeNull();
+  });
+
+  // Layers-row Save — §14.5 keeps this hidden even when status/demand edits
+  // are live AND a caller wires a real onSave (the exact "future caller
+  // mistakenly wires onSave" case the component's own comment names).
+  // Passing onSave here is what makes this discriminating: without it, the
+  // row passed vacuously (onSave was never supplied, so `onSave &&` alone
+  // already hides the button regardless of fixedGeography).
+  it("still hides button-save even when onSave is supplied — geography stays fixed", () => {
+    renderDeliveryMap({ onSave: vi.fn() });
+    expect(screen.queryByTestId("button-save")).toBeNull();
   });
 
   it("right-click on empty map space does not open the add menu — adding a row is a geometry change", () => {

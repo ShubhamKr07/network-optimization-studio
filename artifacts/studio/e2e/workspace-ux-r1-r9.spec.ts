@@ -120,12 +120,30 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     // icon's own bounding box) + the excluded customer (C121, the real
     // highest-demand row) is dim but sized in the TOP bucket, not shrunk ──
     const csMarkers = page.locator(".leaflet-marker-pane .cs-marker");
-    const widths = new Set<number>();
-    const count = await csMarkers.count();
-    for (let i = 0; i < count; i++) {
-      const box = await csMarkers.nth(i).boundingBox();
-      if (box) widths.add(Math.round(box.width));
+
+    // "Size customers by demand" now defaults OFF for every model
+    // (ch5-edit-8) — state that dependency directly rather than silently
+    // inheriting it: every marker is FIXED_CUSTOMER_RADIUS until the layer
+    // is turned on, so widths collapse to a single value.
+    async function markerWidths(): Promise<Set<number>> {
+      const widths = new Set<number>();
+      const count = await csMarkers.count();
+      for (let i = 0; i < count; i++) {
+        const box = await csMarkers.nth(i).boundingBox();
+        if (box) widths.add(Math.round(box.width));
+      }
+      return widths;
     }
+
+    const widthsBeforeToggle = await markerWidths();
+    expect(widthsBeforeToggle.size).toBe(1); // off by default — all markers identical
+
+    const sizeByDemandToggle = page.getByTestId("toggle-layer-size-by-demand");
+    await expect(sizeByDemandToggle).toHaveAttribute("aria-checked", "false");
+    await sizeByDemandToggle.click();
+    await expect(sizeByDemandToggle).toHaveAttribute("aria-checked", "true");
+
+    const widths = await markerWidths();
     expect(widths.size).toBeGreaterThan(1); // stepped, not all-identical
 
     const excludedMarker = page.locator(".cs-marker.cs-excluded");
