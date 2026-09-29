@@ -12,7 +12,7 @@ cross-model.
 - **Item 2** — make Chapter 4's "Run Optimizer" dialog show the *editable* Optimization Parameters
   for the step that will actually run, instead of today's read-only summary.
 - **Item 3** — after Solve, show a blocking loading overlay with a light, quirky treatment.
-  This one applies to **all six models**.
+  This one applies to **every registered model** — six in this tree, seven on `main` once Chapter 5's `delivery-teaching-us` merges. Enumerate the registry; never hardcode a count.
 
 No API, DB, OpenAPI, or solver change. Frontend only.
 
@@ -212,7 +212,7 @@ Chapter 4 dialog therefore sets `max-h-[calc(100dvh-2rem)]` with the parameter r
 
 ---
 
-## 3. Item 3 — blocking solve overlay, all six models
+## 3. Item 3 — blocking solve overlay, every registered model
 
 ### Shared phase type
 
@@ -503,7 +503,7 @@ QA on top of that spec, never the evidence for it.
 
 Manual pass, in addition: phase changes announce once while quips and per-second clock updates do
 not; short viewport and 200% zoom retain access to every parameter and footer action; run on
-Chapter 4 and at least one non-Chapter-4 model, with a unit matrix over all six model ids covering
+Chapter 4 and at least one non-Chapter-4 model, with a unit matrix enumerated from `solvers/*/manifest.json` (not a hardcoded count) covering
 the remaining routing.
 
 ### Commands
