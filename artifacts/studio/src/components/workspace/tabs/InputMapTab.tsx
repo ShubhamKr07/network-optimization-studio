@@ -146,23 +146,32 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
-      /** ch5-del-9 — delivery-teaching-us's only editable dataset surface is
-       * the cost table (Task 8's fixed three-tab surface); Input Map is
-       * pure geography context there. A capability-style boolean, not a
-       * `modelId` check inside this shared component — this codebase's
-       * documented recurring bug is a shared component gated for one model
-       * and not its sibling (a `modelId ===` check can silently miss
-       * p-median-brazil/max-coverage-us, which also render this "pmedian"
-       * arm); a boolean prop can't drift that way. When true: markers,
-       * legend and the details card still render, but every mutation
-       * affordance (arming chips, armed bar, right-click add menu, the
-       * action menu, Layers-row Save) is suppressed at this arm's own
-       * render sites below, never inside the shared AddEntityMenu/
-       * MapActionMenu components (those are reused by transport/
-       * twoEchelon/jade too). Defaults false — every existing caller
-       * (InputMapTabV2.test.tsx etc.) keeps today's fully-editable
-       * behavior unchanged. */
-      readOnly?: boolean;
+      /** ch5-del-9 — delivery-teaching-us's only editable dataset surface was
+       * the cost table (Task 8's fixed three-tab surface); Input Map was
+       * pure geography context there. ch5-edit-6 (§14.5) — narrowed: §14
+       * makes customer demand, customer exclusion and warehouse status
+       * editable too, so this prop no longer means "read-only" — it means
+       * geometry (coordinates, and the ability to add/move/copy/delete a
+       * row) stays fixed. Renamed from `readOnly` to `fixedGeography` so the
+       * name doesn't lie about what it still does. A capability-style
+       * boolean, not a `modelId` check inside this shared component — this
+       * codebase's documented recurring bug is a shared component gated for
+       * one model and not its sibling (a `modelId ===` check can silently
+       * miss p-median-brazil/max-coverage-us, which also render this
+       * "pmedian" arm); a boolean prop can't drift that way. When true:
+       * markers, legend, the details card and the right-click action menu's
+       * "Edit…" action still render — a status/demand edit still reaches
+       * `onInputsChange` — but every GEOMETRY-changing affordance (arming
+       * chips, armed bar, right-click add menu, the action menu's
+       * Move/Copy/Delete, draggable added-entity markers, Layers-row Save)
+       * stays suppressed at this arm's own render sites below, never inside
+       * the shared AddEntityMenu/MapActionMenu components (those are reused
+       * by transport/twoEchelon/jade too — see FixedGeographyActionMenu's
+       * own comment on why this arm renders its own small menu instead of
+       * widening MapActionMenu's props for all four modes). Defaults false —
+       * every existing caller (InputMapTabV2.test.tsx etc.) keeps today's
+       * fully-editable behavior unchanged. */
+      fixedGeography?: boolean;
       /** T5 (Bundle 2, Step 1b) — the active model's `capabilities.demandEditable`.
        * Defaults true when absent (p-median-us's own behavior, unchanged).
        * false (p-median-brazil — textbook-fixed region demand) suppresses
@@ -401,6 +410,81 @@ function AddEntityMenu({
   );
 }
 
+// ch5-edit-6 (§14.5) — a delivery-teaching-us-only action-menu variant.
+// MapActionMenu.tsx's own `actions` array is driven purely by
+// `entity.entity.isAdded` (base -> [edit, copy], added -> [edit, move,
+// copy, delete]) and delivery-teaching-us never has an added entity (no
+// added-entity affordance exists for it), so reusing MapActionMenu
+// unmodified would still surface "Copy" for every base entity — armable,
+// and its drop click creates a brand-new added row via CreateEntityDialog,
+// which IS a geometry change §14.5 must keep refusing. Rather than widen
+// MapActionMenu.tsx's props (shared by transport-coal/two-echelon-gold-au/
+// two-echelon-jade-us too, none of which have this requirement) for one
+// model's restriction, this is a small, InputMapTab-local menu with exactly
+// one action — same overlay-positioning/outside-click/Escape behavior as
+// MapActionMenu, same `map-action-menu`/`map-action-edit` testids, so no
+// caller needs to know which menu variant it's looking at.
+function FixedGeographyActionMenu({
+  entity,
+  containerPoint,
+  containerSize,
+  onEdit,
+  onClose,
+}: {
+  entity: MapEntity;
+  containerPoint: { x: number; y: number };
+  containerSize?: { width: number; height: number };
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  let left = containerPoint.x + 6;
+  let top = containerPoint.y + 6;
+  if (containerSize) {
+    left = Math.max(4, Math.min(left, containerSize.width - 150 - 4));
+    top = Math.max(4, Math.min(top, containerSize.height - 50 - 4));
+  }
+
+  const { entity: e } = entity;
+
+  return (
+    <div
+      ref={rootRef}
+      role="menu"
+      aria-label={`${e.displayCode} actions`}
+      data-testid="map-action-menu"
+      className="absolute bg-card border border-border shadow-md text-xs min-w-[150px] z-40"
+      style={{ left, top }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="map-action-edit"
+        className="w-full text-left px-3 py-1.5 hover:bg-accent-100"
+        onClick={onEdit}
+      >
+        Edit…
+      </button>
+    </div>
+  );
+}
+
 function ToggleChip({
   active,
   onClick,
@@ -628,7 +712,7 @@ function PMedianInputMap({
   saving,
   demandEditable = true,
   modelId,
-  readOnly = false,
+  fixedGeography = false,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
@@ -664,19 +748,24 @@ function PMedianInputMap({
   // requires, with native drag as a second entry point into it rather than
   // a second, competing code path.
   //
-  // ch5-del-9-fix — also gated on `!readOnly` directly, not just left to
-  // follow from `isAdded` being unreachable while read-only (every OTHER
-  // mutation affordance in this component is gated on `readOnly`
-  // explicitly; this is a shared component used by other models where
-  // dragging an added entity IS a live path, so `readOnly`, not `isAdded`
-  // alone, is what must gate it here).
+  // ch5-del-9-fix — also gated on `!fixedGeography` directly, not just left
+  // to follow from `isAdded` being unreachable while geography is fixed
+  // (every OTHER geometry-changing affordance in this component is gated on
+  // `fixedGeography` explicitly; this is a shared component used by other
+  // models where dragging an added entity IS a live path, so
+  // `fixedGeography`, not `isAdded` alone, is what must gate it here).
+  // ch5-edit-6 — renamed from `readOnly`; delivery-teaching-us never
+  // populates addedWarehouses/addedCustomers at all (no add affordance), so
+  // this stays a structural no-op for that model regardless, but the
+  // explicit gate is kept for the same "shared component, don't rely on an
+  // implicit guarantee three hops away" reason the original comment gave.
   const draggableIds = useMemo(() => {
     const ids = new Set<string>();
-    if (readOnly) return ids;
+    if (fixedGeography) return ids;
     warehouses.forEach(w => { if (w.isAdded) ids.add(w.id); });
     customers.forEach(c => { if (c.isAdded) ids.add(c.id); });
     return ids;
-  }, [warehouses, customers, readOnly]);
+  }, [warehouses, customers, fixedGeography]);
 
   // Live-preview bubble resize while EditCustomerDialog is open — rendering
   // concern only, rolled back on Cancel (nothing is written to `inputs`
@@ -773,10 +862,13 @@ function PMedianInputMap({
   }
 
   function handleMapContextMenu(e: L.LeafletMouseEvent) {
-    // ch5-del-9 — read-only: never mount the add menu (belt-and-suspenders
-    // alongside the `!readOnly &&` guard at the addMenu mount site below —
-    // this also skips the state churn on every right-click).
-    if (readOnly) return;
+    // ch5-del-9/ch5-edit-6 — fixed geography: never mount the "Add
+    // warehouse/customer here" menu (belt-and-suspenders alongside the
+    // `!fixedGeography &&` guard at the addMenu mount site below — this also
+    // skips the state churn on every right-click). Right-clicking an ENTITY
+    // (handleEntityRightClick, below) is unaffected — that's the Edit path
+    // §14.5 keeps open.
+    if (fixedGeography) return;
     if (armed) {
       setArmed(null);
       return;
@@ -859,11 +951,12 @@ function PMedianInputMap({
         <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
           Size customers by demand
         </LayerCheckbox>
-        {/* ch5-del-9 — read-only: no "Add on map" affordance at all (arming
-            chips, and the armed-status-bar they can produce) for
-            delivery-teaching-us. Gated here at this arm's own render site,
-            not inside a shared component. */}
-        {!readOnly && (
+        {/* ch5-del-9/ch5-edit-6 — fixed geography: no "Add on map"
+            affordance at all (arming chips, and the armed-status-bar they
+            can produce) for delivery-teaching-us — adding a row is a
+            geometry change, still refused by §14.5. Gated here at this
+            arm's own render site, not inside a shared component. */}
+        {!fixedGeography && (
           <>
             <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
             <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
@@ -874,7 +967,7 @@ function PMedianInputMap({
             </ToggleChip>
           </>
         )}
-        {!readOnly && armed && (
+        {!fixedGeography && armed && (
           <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
@@ -890,12 +983,16 @@ function PMedianInputMap({
             used so no existing assertion needs to know WHERE Save lives,
             only that it's present and behaves the same. `ml-auto` pins it to
             the row's right edge regardless of how many layer/placement chips
-            precede it. ch5-del-9 — also gated on `!readOnly`: delivery-
-            teaching-us's Input Map has nothing to save (Workspace.tsx's
-            isEditableInputTab deliberately has no "input-map" row for that
-            model), so even if a future caller mistakenly wired an `onSave`
-            for it, no dirty-state Save renders here. */}
-        {!readOnly && onSave && (
+            precede it. ch5-del-9/ch5-edit-6 — also gated on
+            `!fixedGeography`: §14.5 keeps this Layers-row Save hidden even
+            though status/demand edits now flow through `onInputsChange` —
+            delivery-teaching-us's Save affordance lives on the Warehouses/
+            Customers/Delivery Costs tabs' shared toolbar instead (same
+            `localInputs.warehouseOverrides`/`customerOverrides` a map edit
+            writes into), not here, so even if a future caller mistakenly
+            wired an `onSave` for it, no dirty-state Save renders in this
+            row. */}
+        {!fixedGeography && onSave && (
           <div className="flex items-center gap-2 ml-auto">
             {isDirty && (
               <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
@@ -957,43 +1054,58 @@ function PMedianInputMap({
             containerPoint={selected.containerPoint}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
-            readOnly={readOnly}
+            fixedGeography={fixedGeography}
           />
         )}
-        {/* ch5-del-9 — read-only: never mount the action menu, even though
-            handleEntityRightClick still sets `actionMenu` state (that
-            handler is shared with left-click's `selected` state machine and
-            isn't itself gated) — gated here at this arm's own render site
-            instead, matching the "gate on the render site, not the shared
-            component" instruction (MapActionMenu is shared by all four map
-            modes). */}
-        {!readOnly && actionMenu && (
-          <MapActionMenu
-            // Forces a full unmount/remount on every open (even a re-open
-            // for the very same entity+position) so its mount effect always
-            // re-focuses the first menu item and its unmount cleanup always
-            // restores focus to THIS open's own restoreFocusTo — without
-            // this, React can coalesce a "close old / open new" pair (e.g.
-            // right-clicking a marker while another marker's menu is still
-            // open) into a single props update on the SAME instance, and
-            // the effect that captures/restores focus never re-runs.
-            key={actionMenu.openId}
-            entity={actionMenu.entity}
-            containerPoint={actionMenu.containerPoint}
-            containerSize={actionMenu.containerSize}
-            restoreFocusTo={actionMenu.restoreFocusTo}
-            onEdit={handleMenuEdit}
-            onMove={handleMenuMove}
-            onCopy={handleMenuCopy}
-            onDelete={handleMenuDelete}
-            onClose={() => setActionMenu(null)}
-          />
+        {/* ch5-del-9/ch5-edit-6 — the action menu itself is no longer
+            gated off entirely: §14.5 keeps the right-click "Edit…" action
+            (handleEntityRightClick still sets `actionMenu` state
+            unconditionally — that handler is shared with left-click's
+            `selected` state machine and isn't itself gated). Which MENU
+            renders is what's gated: `fixedGeography` renders
+            FixedGeographyActionMenu (Edit only — see its own comment on why
+            it doesn't reuse MapActionMenu's `isAdded`-driven action set),
+            everything else renders the full MapActionMenu (Edit/Move/Copy/
+            Delete for an added entity, Edit/Copy for a base one). */}
+        {actionMenu && (
+          fixedGeography ? (
+            <FixedGeographyActionMenu
+              key={actionMenu.openId}
+              entity={actionMenu.entity}
+              containerPoint={actionMenu.containerPoint}
+              containerSize={actionMenu.containerSize}
+              onEdit={handleMenuEdit}
+              onClose={() => setActionMenu(null)}
+            />
+          ) : (
+            <MapActionMenu
+              // Forces a full unmount/remount on every open (even a re-open
+              // for the very same entity+position) so its mount effect always
+              // re-focuses the first menu item and its unmount cleanup always
+              // restores focus to THIS open's own restoreFocusTo — without
+              // this, React can coalesce a "close old / open new" pair (e.g.
+              // right-clicking a marker while another marker's menu is still
+              // open) into a single props update on the SAME instance, and
+              // the effect that captures/restores focus never re-runs.
+              key={actionMenu.openId}
+              entity={actionMenu.entity}
+              containerPoint={actionMenu.containerPoint}
+              containerSize={actionMenu.containerSize}
+              restoreFocusTo={actionMenu.restoreFocusTo}
+              onEdit={handleMenuEdit}
+              onMove={handleMenuMove}
+              onCopy={handleMenuCopy}
+              onDelete={handleMenuDelete}
+              onClose={() => setActionMenu(null)}
+            />
+          )
         )}
-        {/* ch5-del-9 — belt-and-suspenders: handleMapContextMenu already
-            returns early on `readOnly` so `addMenu` state is never set, but
-            gating the mount too keeps this render site self-evidently safe
-            without relying on that handler's early return. */}
-        {!readOnly && addMenu && (
+        {/* ch5-del-9/ch5-edit-6 — belt-and-suspenders: handleMapContextMenu
+            already returns early on `fixedGeography` so `addMenu` state is
+            never set, but gating the mount too keeps this render site
+            self-evidently safe without relying on that handler's early
+            return. */}
+        {!fixedGeography && addMenu && (
           <AddEntityMenu
             containerPoint={addMenu.containerPoint}
             containerSize={addMenu.containerSize}

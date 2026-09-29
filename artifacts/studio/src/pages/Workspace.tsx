@@ -136,15 +136,6 @@ import { track } from "@/lib/analytics";
 // (`setChenObjectiveMode`) but kept the constant declaration itself, which
 // left it dead (verified zero remaining references in artifacts/studio/src).
 
-// ch5-del-9 — delivery-teaching-us's Input Map render (below, the pmedian
-// mode fallback) passes this instead of handlePMedianMapInputsChange.
-// `onInputsChange` is a required prop on InputMapTab's "pmedian" arm, so a
-// deliberate no-op (not an omitted prop) is what keeps the component from
-// ever writing scenario state for this model, even if `readOnly` itself
-// were ever bypassed. Module-level so it's a stable reference across
-// renders rather than a new closure every time.
-const PMEDIAN_MAP_READONLY_NOOP = (_next: PMedianMapInputs) => {};
-
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
     // C4.11 — Al's Athletics — Max Coverage (Chapter 4). Coverage mode by
@@ -3274,16 +3265,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouses={pmedianMapWarehouses(dataset, localInputs)}
           customers={pmedianMapCustomers(dataset, localInputs)}
           inputs={pmedianMapInputsSlice(localInputs)}
-          // ch5-del-9 — delivery-teaching-us's Input Map is read-only (Task
-          // 8's fixed three-tab surface: the cost table is the only
-          // editable dataset). `readOnly` already suppresses every
-          // mutation affordance inside InputMapTab.tsx's pmedian arm, but
-          // `onInputsChange` is a required prop on that arm's type, so this
-          // model gets an explicit no-op rather than the real handler — the
-          // component can never write scenario state even if a future edit
-          // reintroduces an affordance InputMapTab.tsx forgets to gate.
-          onInputsChange={modelId === "delivery-teaching-us" ? PMEDIAN_MAP_READONLY_NOOP : handlePMedianMapInputsChange}
-          readOnly={modelId === "delivery-teaching-us"}
+          // ch5-edit-6 (§14.5) — delivery-teaching-us's Input Map keeps
+          // fixed geography (add/copy/move/delete and the Layers-row Save
+          // all stay refused — InputMapTab.tsx's `fixedGeography` prop
+          // suppresses every geometry-changing affordance at its own
+          // render sites), but status and demand ARE editable now, so this
+          // model routes through the same real `handlePMedianMapInputsChange`
+          // every other "pmedian"-mode model uses — a status/demand edit
+          // writes into `warehouseOverrides`/`customerOverrides` exactly
+          // like the Warehouses/Customers tabs' own edits do (same
+          // `localInputs` slice), and is picked up by isDirty/the shared
+          // toolbar Save the same way. Previously this model got a
+          // module-level no-op (`PMEDIAN_MAP_READONLY_NOOP`, deleted here)
+          // instead of the real handler; §14.5 retires it rather than
+          // re-scoping it, per that constant's own former comment — keeping
+          // it around would let a future model get wired to it by
+          // copy-paste and inherit the same silent-discard bug.
+          onInputsChange={handlePMedianMapInputsChange}
+          fixedGeography={modelId === "delivery-teaching-us"}
           // R4 — Save moves into this tab's own Layers row for p-median-us/
           // p-median-brazil; saveInLayersRow (below) suppresses the toolbar
           // Save exactly when this prop is wired, so there is never a

@@ -1214,6 +1214,88 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
   });
 });
 
+// Task 6 (ch5-edit-6, §14.5) — a full-Workspace integration test, not just
+// an InputMapTab component test, specifically because the review-B1 bug
+// this task closes lived in Workspace.tsx's own call-site wiring
+// (`PMEDIAN_MAP_READONLY_NOOP`), not inside InputMapTab.tsx. A component
+// test that supplies its own `onInputsChange` directly (as
+// InputMapTab.deliveryFixedGeography.test.tsx does) can never observe a
+// regression in which handler Workspace.tsx actually wires up — only
+// rendering the real page can. Editing via the map, then switching to the
+// Warehouses tab (which shares the same `localInputs.warehouseOverrides`
+// slice) and clicking the shared toolbar Save, is the real end-to-end path
+// a student has: the map's own Layers-row Save stays hidden for this model
+// (§14.5 keeps that gated on `fixedGeography`).
+describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6, §14.5)", () => {
+  const deliveryInputs = {
+    p: 3,
+    distanceBands: [400, 800, 1200, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    costAdjustEnabled: false,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
+    laneCostOverrides: [],
+  };
+
+  const deliveryScenario = {
+    id: 22,
+    name: "Delivery map edit case",
+    modelId: "delivery-teaching-us",
+    inputs: deliveryInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-06T00:00:00Z",
+    updatedAt: "2026-01-06T00:00:00Z",
+  };
+
+  function renderDeliveryWorkspace() {
+    return render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+  }
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [deliveryScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
+  });
+
+  it("editing a warehouse's status via the Input Map and Saving from the Warehouses tab PATCHes warehouseOverrides", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    // `dataset` fixture (top of file) has exactly one warehouse, id "CHI".
+    const marker = document.querySelector(".leaflet-marker-icon")!;
+    fireEvent.contextMenu(marker);
+    fireEvent.click(screen.getByTestId("map-action-edit"));
+    fireEvent.click(screen.getByTestId("edit-warehouse-status-inactive"));
+    fireEvent.click(screen.getByTestId("edit-warehouse-save"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 22,
+      data: {
+        inputs: expect.objectContaining({
+          warehouseOverrides: expect.arrayContaining([
+            expect.objectContaining({ id: "CHI", status: "inactive" }),
+          ]),
+        }),
+      },
+    });
+  });
+
+  it("the Input Map's own Layers-row Save stays hidden for this model even though status/demand edits are live", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("pmedian-map-toolbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+});
+
 describe("Workspace — Optimization Parameters tab", () => {
   it("opening the sidebar entry renders the real form with the scenario's values, not a placeholder", () => {
     renderWorkspace();
