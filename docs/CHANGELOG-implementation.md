@@ -944,3 +944,60 @@ the original text above is left as-is; this note supersedes it on these two poin
    were then independently confirmed passing 27/27 in isolation. "1594/1594" implies every test passed
    in that one run; the correct claim is 1591 passed outright with the remaining 3 accounted for by
    documented, reproduced-in-isolation flakes, not a clean 1594/1594.
+
+### CI green for the first time, the 11 rotted e2e specs repaired, Compare made step-aware (2026-09-30)
+
+Merged as `63713ba` (e2e repairs), `e7c06c6` (batch step loader), `7bab4f3` (its consumer fix).
+Four tracked items, plus two review findings folded before push.
+
+**CI had been red since at least `4cf3bc1` (2026-09-26) for one missing step.** The workflow
+provisions Postgres 16 and sets `DATABASE_URL`, but never applied the schema — this repo has no
+migration files — so the service started empty and every DB-touching suite died on
+`relation "users" does not exist`. Attribution by failing-file count: **47** distinct failing test
+files at `1761260` (pre-two-step), **51** at `0a300f8` (post) — a delta of exactly 4, matching the 4
+DB-touching test files that bundle added. The bundle added files to an already-broken run; it never
+introduced a failure mode. Fixed with a `pnpm --filter @workspace/db run push-force` step, verified
+non-interactive against a fresh empty DB with stdin closed before being claimed safe.
+
+**e2e now has real CI infrastructure** — Chromium, app boot, schema seeding — closing the
+infrastructure half of the SKIP decision recorded 2026-09-12. Deliberately `continue-on-error: true`;
+see `docs/ops/e2e-stale-specs.md` for what must happen before it can block.
+
+**All 11 catalogued test-rot specs repaired**, 34/26 → **53 passed / 2 failed / 4 skipped**, a number
+CI reproduced identically (so the gate is deterministic, not environment-sensitive). Two findings
+beyond the catalogue: `import.spec.ts` had a second uncatalogued drift (exported CSV column order
+changed; the spec hardcoded index 4 for `demand`, actually 7 — now located by header name), and
+`transport-coal`'s negative assertions in `workspace-ux-r1-r9` were **vacuously passing** on testids
+that never existed under those names. One is now a real testid, so that check bites for the first time.
+
+`workspace-ux-r1-r9`'s band-draft assertion was testing **retired** behaviour, not a bug: SSC-T1
+deliberately made ServiceStats bars live-recompute off unsaved `localInputs`. Verified in product
+code before changing, and replaced with a positive assertion plus a zero-solve-network guard.
+
+**Compare-list step-awareness** closed the gap deferred during the two-step bundle. That deferral's
+N+1 reasoning did not survive measurement — production holds 83 scenarios, 0 Chapter 4, busiest user
+10 — so one batched query replaces the feared per-row lookups. Each scenario carries its own
+`stepEpoch`, so the snapshot epoch is selected as a column and compared per scenario in Node; the
+whole-branch review traced monotonicity across all four `scenarios.inputs` writers and both
+`jobRunner` scenario updates and confirmed the reasoning holds.
+
+**Two review findings folded before push, both corrections to claims made in this work:**
+
+1. The first merge commit's message states that real-CBC waits were "replaced with seeded results."
+   **That is false** and is corrected here: no seeding was done in any spec, and the repair moved the
+   other way (30s → 90s; `setTimeout(180_000)` with two real solves). No seeding helper exists in the
+   repo, so honouring that half needs new infrastructure. Recorded as open in the ops doc.
+2. The batch loader initially had **no observable effect**. The consumer chain existed —
+   `CostSummaryTab` list rows reach `scenarioObjectiveModeCh4Aware`, which branches on `steps` — but
+   the helper picked `step2.solved ? step2 : step1`, which *is* the last-solved step, the same answer
+   `result.details` already gave. Worse, with `steps` present and both steps unsolved (the state after
+   an epoch bump) both summaries are null and it fell through to `scenarios.result`, deliberately left
+   stale, reporting a mode from a **discarded** solve — which can wrongly lock the compare selection.
+   `7bab4f3` makes `steps` authoritative: present means authoritative, both-unsolved returns null.
+
+**Process note.** The first attempt to merge this work landed on `ch4-ux-fixes` — another session's
+branch — because `git rev-parse main` was read as if it were `HEAD`. Caught at the second merge's
+conflicts, aborted rather than resolved, and that branch reset to its exact tip `6c33024`; nothing had
+been pushed and no remote carried it. Redone in a dedicated `main` worktree with an explicit
+`HEAD == main` guard before each merge, where **both merges applied with zero conflicts** — the
+conflict had been entirely an artifact of the wrong target.

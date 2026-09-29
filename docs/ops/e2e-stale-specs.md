@@ -52,3 +52,50 @@ separate future effort gated on (a) building the CI e2e infra and (b) repairing 
 Repair the 11 specs (update selectors/text to the current DOM; decouple from seed ids; seed solver
 results instead of driving real CBC where a spec only needs a result to exist). Then enable the CI
 e2e gate. Tracked here until scheduled.
+
+---
+
+## STATUS 2026-09-30 — both preconditions are now MET. This section supersedes the two above.
+
+Read this before acting on anything above it; the SKIP decision's stated blockers no longer hold.
+
+**(a) CI e2e infra — BUILT.** `.github/workflows/ci.yml` gained a `Create database schema` step
+(the Postgres service had always started empty — this repo has no migration files, so every
+DB-touching suite had been failing on `relation "users" does not exist`, red since at least
+`4cf3bc1`) and an `e2e` job that installs Chromium, boots api-server + studio, waits for readiness,
+and runs `pnpm e2e:gate`.
+
+**(b) The 11 specs — REPAIRED.** All 11 tests across the 7 files listed above. Measured gate on the
+repair branch: **53 passed / 2 failed / 4 skipped**, reproduced identically by CI, so the gate is
+deterministic rather than environment-sensitive.
+
+### The gate is still `continue-on-error: true`, deliberately
+
+Two specs remain red and **cannot** be fixed by a spec change: `posthog-analytics.spec.ts` and
+`sentry-capture.spec.ts` need `VITE_POSTHOG_KEY` / `VITE_SENTRY_DSN` as **repository secrets**. They
+pass locally when those vars are set — verified — so they are an environment gap, not a defect. Do
+not "fix" them in a spec, and do not tag them `@flaky`: they fail deterministically.
+
+Flipping `continue-on-error` to `false` requires one of: adding those two secrets; a `test.skip()`
+conditioned on the env var being absent (the self-healing pattern
+`artifacts/studio/e2e/helpers/modelLock.ts` already uses for the locked JADE chapter); or a decision
+to accept them as permanently red.
+
+### One half of the repair mandate was NOT done — recorded, not hidden
+
+"Seed solver results instead of driving real CBC" above was **not** carried out, and the repair moved
+the other way: `input-map-v2.spec.ts`'s solve wait went 30s → 90s and `two-echelon.spec.ts` gained
+`test.setTimeout(180_000)` with two real CBC solves. Reason: no result-seeding helper or test-only
+seed endpoint exists anywhere in `artifacts/studio/e2e/` or `artifacts/api-server/src/routes/`, so
+honouring it means building new infrastructure, not editing specs.
+
+For `two-echelon` that is arguably correct regardless — the BOM flip point *is* the thing under test,
+so a seeded result would prove nothing. For `input-map-v2` only the final step needs a result to
+exist, so it is a genuine candidate. **This remains open** and directly affects `e2e:gate`
+wall-clock and flake rate under the default 4-worker run.
+
+### Also still open
+
+`e2e/**` is outside `artifacts/studio/tsconfig.json`'s `include`, so `pnpm run typecheck` does not
+typecheck these specs at all. A typo'd testid ships undetected and the specs can silently re-rot
+exactly as they did before. Consider an `e2e/` tsconfig so at least the type layer is gated.
