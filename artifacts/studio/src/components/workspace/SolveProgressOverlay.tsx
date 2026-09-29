@@ -90,11 +90,14 @@ export function SolveProgressOverlay({
   // sits on <body>, OUTSIDE a modal that has set `body { pointer-events:
   // none }`, with Escape prevented while running — no tab stop, no way back.
   //
-  // Done via `onOpenAutoFocus` rather than a `useEffect` keyed on `open`,
-  // also measured: Radix mounts this content through `Presence`, so on the
-  // commit where `open` flips true the ref is still null in a parent effect
-  // (`hasRef=false`) and the focus call is a silent no-op. `onOpenAutoFocus`
-  // fires once the content and its FocusScope actually exist.
+  // Done via `onOpenAutoFocus` rather than a `useEffect` keyed on `open`: a
+  // userland effect would race Radix's own `FocusScope` mount-time auto-focus,
+  // whereas `onOpenAutoFocus` is the documented hook Radix fires exactly once,
+  // after the content and its FocusScope already exist, precisely so a caller
+  // can redirect that focus. (Measured in jsdom: on the commit where `open`
+  // flips true, `contentRef.current` is still null inside a parent effect —
+  // Radix mounts this content through `Presence` — so a `useEffect`-based
+  // version would be a silent no-op there regardless of the race.)
   const contentRef = useRef<HTMLDivElement>(null);
   const [quipIndex, setQuipIndex] = useState(0);
   useEffect(() => {
@@ -118,7 +121,36 @@ export function SolveProgressOverlay({
         // focusable child; the running branch has none, and the fallback
         // lands on <body> — outside the modal. Point it at the container,
         // which carries Radix's own `tabIndex={-1}`.
+        //
+        // Gated on `running`, matching this handler's actual job: the
+        // redirect below exists ONLY because the running branch has no
+        // focusable child for Radix's own default to land on (see the note
+        // above). The failed branch has two — Close and an `autoFocus`
+        // Adjust — so Radix's default already does the right thing there and
+        // this handler has nothing to add. CH4UX-6 follow-up review raised
+        // the concern that an unconditional version of this handler could
+        // race a cold mount straight into "failed" (a synchronous
+        // save/enqueue rejection collapsing "saving"/"solving" and "failed"
+        // into one batch) and steal focus from Adjust's `autoFocus`.
+        // MEASURED, not assumed, that this is narrower than it sounds:
+        // traced against @radix-ui/react-focus-scope's actual source and
+        // confirmed with a throwaway probe, React commits a host element's
+        // `autoFocus` during the mutation phase, strictly before any passive
+        // effect — including the one that would dispatch the
+        // `onMountAutoFocus` event this handler is wired to. That effect's
+        // own `hasFocusedCandidate` check is therefore already true by the
+        // time it runs whenever a focusable `autoFocus` child exists, so it
+        // never dispatches at all; this handler is provably unreachable on
+        // that exact path regardless of the guard. The guard is kept anyway
+        // because it makes the handler's actual scope match its stated
+        // intent (only the no-focusable-child branch needs a redirect), and
+        // it costs nothing — but do not cite "prevented a live focus theft
+        // on cold-mount-into-failed" as its justification; that path was
+        // never reachable to begin with. See
+        // `SolveProgressOverlay.test.tsx`'s "leaves focus on Adjust..." test
+        // for the full measurement.
         onOpenAutoFocus={e => {
+          if (!running) return;
           e.preventDefault();
           contentRef.current?.focus();
         }}

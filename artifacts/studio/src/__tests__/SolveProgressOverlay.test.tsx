@@ -138,4 +138,39 @@ describe("SolveProgressOverlay — error state", () => {
     renderOverlay({ ...failed, errorMessage: null });
     expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("The solver did not complete.");
   });
+
+  // CH4UX-6 follow-up — a synchronous save/enqueue rejection can set
+  // "saving"/"solving" and then "failed" in the same batch, so the overlay's
+  // very FIRST mount is already the error card (not a transition from
+  // "solving"). Rendered fresh at "failed" (never transitioning through
+  // "solving") to cover exactly that path: Adjust's own `autoFocus` must win,
+  // matching Task 5's deliberate intent.
+  //
+  // IMPORTANT, measured (not assumed): this assertion does NOT discriminate
+  // the `if (!running) return;` guard added alongside it in
+  // `onOpenAutoFocus`. Traced against @radix-ui/react-focus-scope@1.1.7's
+  // actual source and confirmed with a throwaway probe: React applies a
+  // host element's `autoFocus` during the mutation phase, which runs before
+  // any passive effect — including FocusScope's own mount effect, which is
+  // what would dispatch the `onMountAutoFocus` custom event our
+  // `onOpenAutoFocus` prop is wired to. That effect's own
+  // `hasFocusedCandidate` check (`container.contains(document.activeElement)`)
+  // is therefore ALREADY true by the time it runs whenever a focusable
+  // `autoFocus` child exists, so it never even attaches the listener, let
+  // alone dispatches — our handler is unreachable on this exact path
+  // regardless of the `running` guard. Confirmed by reverting the guard:
+  // this test stays green. What DOES turn it red is removing `autoFocus`
+  // from the Adjust button below — Radix's own fallback then focuses Close
+  // (the first tabbable candidate) instead, exercising exactly the "no
+  // focusable candidate" branch Radix's own default handles. This test is
+  // real regression coverage for the `autoFocus` prop and button order, not
+  // for the `running` guard. The `running` guard remains correct — and is
+  // exercised by the pre-existing "moves focus into the overlay when Solve
+  // is pressed" test in Workspace.test.tsx, where the overlay's first-ever
+  // mount genuinely has no focusable child (the running branch) — it is
+  // simply not exercised by a cold mount directly into "failed".
+  it("leaves focus on Adjust when the overlay opens directly into the failed card", () => {
+    renderOverlay(failed);
+    expect(screen.getByTestId("solve-progress-adjust")).toHaveFocus();
+  });
 });

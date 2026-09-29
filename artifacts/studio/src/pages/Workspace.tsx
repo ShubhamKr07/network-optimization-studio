@@ -2943,10 +2943,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     //
     // CH4UX-6 review (Finding 2) — scoped to THIS path deliberately: the
     // shared `enqueueSolve` has a SECOND caller, `handleSaveAsScenario`, which
-    // does not re-run this guard. That caller cannot double-enqueue anyway,
-    // because `enqueueSolve` raises the same modal overlay, which covers the
-    // button that reaches it. Do not read this comment as "the enqueue
-    // helper is single-entry" — it is not; the guard lives here.
+    // does not re-run this guard. That caller cannot RE-ENTER `enqueueSolve`
+    // while one of its own calls is in flight, because `enqueueSolve` raises
+    // the same modal overlay, which covers the button that reaches it — but
+    // that overlay only appears after `createScenario`'s `onSuccess`, so two
+    // rapid clicks on the save-as-scenario button still produce two `create`
+    // calls and therefore two `enqueueSolve` calls, the second overwriting
+    // `pollingJobId`. That double-submit hole is pre-existing and out of
+    // scope here. Do not read this comment as "the enqueue helper is
+    // single-entry" — it is not; the guard lives here.
     if (
       !currentScenario ||
       isBrowsingHistoryNow ||
@@ -3051,7 +3056,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // so `jobPollFailed` reads false on the next render — no re-entry.
     if (jobPollFailed) {
       setSolvePhase("failed");
-      setSolveError("Lost contact with the solve job. Try again.");
+      setSolveError("Lost contact with the solve job. Reload to see whether it finished.");
       setPollingJobId(null);
       return;
     }
