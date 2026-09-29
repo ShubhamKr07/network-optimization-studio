@@ -24,6 +24,8 @@ from solve import (  # noqa: E402
     _assign_band_or_overflow,
     DELIV_DISTANCES,
     DELIV_COSTS,
+    DELIV_WAREHOUSES,
+    DELIV_CUSTOMERS,
 )
 
 BASE = {
@@ -281,3 +283,158 @@ def _assignment_map(env):
 def _customers():
     from solve import DELIV_CUSTOMERS
     return DELIV_CUSTOMERS
+
+
+# ---------------------------------------------------------------------------
+# Section 14.3/14.4 - overrides (demand, exclusion, warehouse status) and the
+# infeasibility they newly make reachable. Goldens pinned from section 14.6's
+# tables (extended prototype run, PuLP 3.3.2 / CBC, same xlsx as section 8.1).
+# ---------------------------------------------------------------------------
+def test_demand_override_changes_objective_and_wad():
+    """Section 14.3, golden G1. Pinned, not merely `!=` — an inequality
+    assertion passes against any wrong number.
+
+    The target is C10 (Riverside) and NOT C1, deliberately. Every one of the 33
+    warehouses sits at distance 0.0 from some customer, and C1 is co-located
+    with W1 — so overriding C1's demand leaves the objective unchanged to the
+    last digit (golden G1b), and a test built on it would pass with demand
+    overrides IGNORED ENTIRELY. C10's nearest warehouse is 59.2 mi away, so
+    both the objective and the weighted average move by an unambiguous margin:
+    +1,003,105,680.90 and -27.2568 mi against Scenario 1."""
+    env = solve_delivery({**BASE, "customerDemands": {"C10": 20_000_000}})
+    assert env["solutionStatus"] == "optimal"
+    assert env["objective"] == pytest.approx(89_244_019_159.00, rel=1e-9)
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(395.2943, abs=5e-4)
+
+
+def test_co_located_demand_override_is_a_documented_no_op():
+    """Golden G1b — the dataset property that makes G1's customer choice
+    load-bearing. Pinned so that if it ever STOPS being a no-op, someone finds
+    out deliberately rather than through a mystery failure elsewhere."""
+    env = solve_delivery({**BASE, "customerDemands": {"C1": 20_000_000}})
+    assert env["objective"] == pytest.approx(88_240_913_478.10, rel=1e-9)
+    # The weighted average still moves: the denominator grows while C1's
+    # zero-distance numerator contribution stays zero.
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(401.6720, abs=5e-4)
+
+
+def test_excluded_customer_is_absent_from_assignments_and_metrics():
+    """Golden G2. An excluded customer is absent from assignments and from
+    every demand-weighted sum."""
+    env = solve_delivery({**BASE, "excludedCustomerIds": ["C1"]})
+    assert all(a["customerId"] != "C1" for a in env["details"]["assignments"])
+    assert len(env["details"]["assignments"]) == 312
+    assert env["objective"] == pytest.approx(87_536_319_376.50, rel=1e-9)
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(438.3742, abs=5e-4)
+    assert set(env["details"]["openWarehouseIds"]) == {"W2", "W44", "W60"}
+
+
+def test_zero_demand_and_exclusion_differ_in_MEMBERSHIP_not_in_metrics():
+    """Goldens G5/G2 and G5b/G2b. The pair that proves section 14.3's
+    distinction — but NOT in the way an earlier revision of this plan claimed.
+
+    Measured: a zero-demand customer and an excluded one produce IDENTICAL
+    objectives, open sets, weighted averages and band percentages, to the
+    digit, for a co-located customer (C1) and a non-co-located one (C10)
+    alike. That is arithmetic, not coincidence: a zero-demand customer
+    contributes 0 to both the numerator AND the denominator of every
+    demand-weighted sum, exactly as an absent one does, so no demand-weighted
+    metric can ever separate them.
+
+    An earlier revision asserted the weighted averages DIFFER. That assertion
+    fails against a correct solver -- the same defect class as asserting the
+    band rows sum to 100. The real, and genuinely useful, difference is
+    membership: the zero-demand customer is still in the model, still assigned,
+    still drawn as a lane carrying zero flow. The excluded one is gone."""
+    zeroed = solve_delivery({**BASE, "customerDemands": {"C1": 0}})
+    excluded = solve_delivery({**BASE, "excludedCustomerIds": ["C1"]})
+
+    # Membership differs -- this is the whole distinction.
+    assert any(a["customerId"] == "C1" for a in zeroed["details"]["assignments"])
+    assert len(zeroed["details"]["assignments"]) == 313
+    assert len(excluded["details"]["assignments"]) == 312
+
+    # Metrics are identical. Asserted POSITIVELY so the equality is the claim,
+    # not an accident nobody checked.
+    assert zeroed["objective"] == pytest.approx(excluded["objective"], rel=1e-12)
+    assert zeroed["metrics"]["weightedAvgDistance"] == pytest.approx(
+        excluded["metrics"]["weightedAvgDistance"], abs=1e-9)
+    assert zeroed["metrics"]["bandCoverage"] == excluded["metrics"]["bandCoverage"]
+    assert (set(zeroed["details"]["openWarehouseIds"])
+            == set(excluded["details"]["openWarehouseIds"]) == {"W2", "W44", "W60"})
+
+
+def test_forced_open_pins_a_warehouse_into_the_open_set():
+    env = solve_delivery({**BASE, "warehouseStatuses": [
+        {"warehouseId": "W8", "status": "forced_open"}]})
+    assert "W8" in env["details"]["openWarehouseIds"]
+    assert len(env["details"]["openWarehouseIds"]) <= 3
+
+
+def test_inactive_keeps_a_warehouse_out():
+    base = solve_delivery(dict(BASE))
+    assert "W1" in base["details"]["openWarehouseIds"]
+    env = solve_delivery({**BASE, "warehouseStatuses": [
+        {"warehouseId": "W1", "status": "inactive"}]})
+    assert "W1" not in env["details"]["openWarehouseIds"]
+
+
+def test_more_than_p_forced_open_is_infeasible():
+    """Section 14.4 case 2 — the likeliest student trap and the least obvious:
+    four lower bounds of 1 against `sum(open) <= 3`."""
+    env = solve_delivery({**BASE, "warehouseStatuses": [
+        {"warehouseId": w, "status": "forced_open"} for w in ("W1", "W2", "W6", "W60")]})
+    assert env["solutionStatus"] == "infeasible"
+    assert env["edges"] == []
+
+
+def test_all_warehouses_inactive_is_infeasible():
+    env = solve_delivery({**BASE, "warehouseStatuses": [
+        {"warehouseId": w, "status": "inactive"} for w in DELIV_WAREHOUSES]})
+    assert env["solutionStatus"] == "infeasible"
+
+
+def test_all_customers_excluded_does_not_divide_by_zero():
+    """Section 14.4 case 3 — degenerate, not infeasible. Without the guard the
+    weighted average divides by zero and the worker dies with a ZeroDivisionError
+    instead of returning an envelope."""
+    env = solve_delivery({**BASE, "excludedCustomerIds": list(DELIV_CUSTOMERS)})
+    assert env["metrics"]["weightedAvgDistance"] == 0
+    assert env["details"]["assignments"] == []
+
+
+def test_overrides_do_not_move_the_frozen_goldens():
+    """The no-override regression fence. Section 14.6 calls BOTH section 8.1
+    columns the fence, and Scenario 2 is the one exercising the cost-adjust
+    path the new override code sits beside — so pin both, not just the
+    toggle-off column (review M3)."""
+    env = solve_delivery(dict(BASE))
+    assert env["objective"] == pytest.approx(88240913478.10, rel=1e-9)
+    assert set(env["details"]["openWarehouseIds"]) == {"W1", "W2", "W60"}
+    assert env["metrics"]["weightedAvgDistance"] == pytest.approx(422.5511, abs=5e-4)
+
+    adjusted = solve_delivery({**BASE, "costAdjustEnabled": True,
+                               "distanceThreshold": 800, "costPerMile": 1,
+                               "costPerMileOver": 10})
+    assert adjusted["objective"] == pytest.approx(150194534098.60, rel=1e-9)
+    assert set(adjusted["details"]["openWarehouseIds"]) == {"W6", "W43", "W45"}
+    assert adjusted["metrics"]["weightedAvgDistance"] == pytest.approx(508.6534, abs=5e-4)
+
+
+def test_exclusion_combined_with_an_overflow_lane():
+    """Section 14.8 / G7 — the overflow remainder must use POST-exclusion
+    total_demand. The two interact precisely in the denominator, and nothing
+    else exercises them together.
+
+    The band rows are CUMULATIVE (`if d <= b: band_demand[b] += ...`) and the
+    overflow row is EXCLUSIVE, so for bands [100, 200] the rows are P<=100,
+    P<=200 and 100 - P<=200. Their sum is 100 + P<=100, NOT 100. The invariant
+    that actually holds is largest-band plus overflow. An earlier revision of
+    this plan asserted the sum was 100; that assertion fails against a CORRECT
+    solver and would have sent an implementer hunting a bug that is not there."""
+    env = solve_delivery({**BASE, "distanceBands": [100, 200],
+                          "excludedCustomerIds": ["C1"]})
+    rows = {r["band"]: r["percent"] for r in env["metrics"]["bandCoverage"]}
+    assert -1 in rows
+    assert rows[200] + rows[-1] == pytest.approx(100.0, abs=0.05)
+    assert rows[100] <= rows[200]

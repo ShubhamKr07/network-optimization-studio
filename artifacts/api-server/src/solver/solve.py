@@ -1521,17 +1521,24 @@ def _effective_delivery_costs(cost, dist, inp):
     return {k: v * (low if dist[k] <= threshold else high) for k, v in cost.items()}
 
 
-def _build_delivery_problem(ec, p):
-    """Build the LP and return it UNSOLVED, so tests can assert on structure."""
+def _build_delivery_problem(ec, p, customers_list=None, get_demand=None, get_bounds=None):
+    """Build the LP and return it UNSOLVED, so tests can assert on structure.
+
+    `customers_list`/`get_demand`/`get_bounds` default to the full, unedited
+    dataset so every pre-existing caller (including tests that build the
+    problem directly) is unaffected. Section 14.3 passes the override-aware
+    forms from solve_delivery.
+    """
     warehouses = list(DELIV_WAREHOUSES.keys())
-    customers = list(DELIV_CUSTOMERS.keys())
-    demand = {c: DELIV_CUSTOMERS[c]['demand'] for c in customers}
+    customers = customers_list if customers_list is not None else list(DELIV_CUSTOMERS.keys())
+    get_demand = get_demand or (lambda c: DELIV_CUSTOMERS[c]['demand'])
+    get_bounds = get_bounds or (lambda w: (0, 1))
 
     prob = LpProblem("Delivery", LpMinimize)
     y = LpVariable.dicts("A", [(w, c) for w in warehouses for c in customers], 0, 1, cat='Binary')
     o = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
 
-    prob += lpSum(ec[(w, c)] * demand[c] * y[w, c] for w in warehouses for c in customers)
+    prob += lpSum(ec[(w, c)] * get_demand(c) * y[w, c] for w in warehouses for c in customers)
 
     for c in customers:
         prob += LpConstraint(lpSum(y[w, c] for w in warehouses),
@@ -1551,6 +1558,15 @@ def _build_delivery_problem(ec, p):
         for c in customers:
             prob += LpConstraint(y[w, c] - o[w], LpConstraintLE, f"route_{w}_{c}", 0)
 
+    # Section 14.3 - forced-open/inactive warehouse status enters as bounds on
+    # the existing Open[w] variables (hard rule 6: data, not a branch). A
+    # forced-open warehouse is (1, 1); an inactive one is (0, 0); untouched
+    # warehouses keep the ordinary (0, 1) binary range.
+    for w in warehouses:
+        lb, ub = get_bounds(w)
+        prob += LpConstraint(o[w], LpConstraintGE, f"lb_{w}", lb)
+        prob += LpConstraint(o[w], LpConstraintLE, f"ub_{w}", ub)
+
     return prob, y, o
 
 
@@ -1566,8 +1582,31 @@ def solve_delivery(inp):
 
     warehouses = list(DELIV_WAREHOUSES.keys())
     customers = list(DELIV_CUSTOMERS.keys())
-    demand = {c: DELIV_CUSTOMERS[c]['demand'] for c in customers}
     dist = DELIV_DISTANCES
+
+    # Section 14.3 - demand/exclusion/status overrides, mirroring
+    # solve_pmedian's helpers. Note the filter is on the KEY: p-median's
+    # dataset is ordinal-keyed so it filters on cust_data[k]['id']; this one
+    # is id-keyed, so there is no indirection. Hard rule 6: these become
+    # variable bounds/coefficient changes below, never a new if/else path
+    # through the model construction.
+    excluded_ids = set(inp.get('excludedCustomerIds', []) or [])
+    customer_demands = inp.get('customerDemands', {}) or {}
+    wh_statuses = {s['warehouseId']: s['status']
+                   for s in (inp.get('warehouseStatuses', []) or [])}
+
+    customers_list = [c for c in customers if c not in excluded_ids]
+
+    def get_demand(c):
+        return customer_demands.get(c, DELIV_CUSTOMERS[c]['demand'])
+
+    def get_bounds(w):
+        s = wh_statuses.get(w)
+        if s == "forced_open":
+            return (1, 1)
+        if s == "inactive":
+            return (0, 0)
+        return (0, 1)
 
     # Overrides land on COST and only on COST. `dist` is read-only for this
     # whole function - that single property is what makes every distance
@@ -1586,7 +1625,7 @@ def solve_delivery(inp):
         cost[key] = ov['cost']
 
     ec = _effective_delivery_costs(cost, dist, inp)
-    prob, y, o = _build_delivery_problem(ec, p)
+    prob, y, o = _build_delivery_problem(ec, p, customers_list, get_demand, get_bounds)
     cbc = _run_cbc(prob, gap, time_limit, problem_uid="delivery")
     st = cbc.lpStatus
 
@@ -1610,38 +1649,44 @@ def solve_delivery(inp):
     obj_val = value(prob.objective) or 0
     open_ids = [w for w in warehouses if o[w].varValue and o[w].varValue > 0.5]
 
-    total_demand = sum(demand.values())
+    total_demand = sum(get_demand(c) for c in customers_list)
+    # Section 14.4 case 3 - every customer excluded is degenerate, not
+    # infeasible (P >= 1 with zero customers is trivially solvable). Guard the
+    # denominator so weightedAvgDistance/band percentages return 0 instead of
+    # raising ZeroDivisionError.
+    active_demand = total_demand if total_demand > 0 else 1
     dist_weighted = 0.0
     band_demand = {b: 0.0 for b in distance_bands}
     overflow_demand = 0.0
     edges, assignments = [], []
 
-    for c in customers:
+    for c in customers_list:
         chosen = next((w for w in warehouses if y[w, c].varValue and y[w, c].varValue > 0.5), None)
         if chosen is None:
             continue
         d = dist[(chosen, c)]          # DISTANCE table. never ec, never cost.
-        dist_weighted += d * demand[c]
+        c_demand = get_demand(c)
+        dist_weighted += d * c_demand
         band_idx = _assign_band_or_overflow(d, distance_bands)
         assignments.append({"customerId": c, "warehouseId": chosen,
                             "distanceMi": d, "band": band_idx})
-        edges.append({"fromId": chosen, "toId": c, "flow": round(demand[c]),
+        edges.append({"fromId": chosen, "toId": c, "flow": round(c_demand),
                       "distance": d, "band": band_idx})
         if band_idx == OVERFLOW_BAND:
-            overflow_demand += demand[c]
+            overflow_demand += c_demand
         for b in distance_bands:
             if d <= b:
-                band_demand[b] += demand[c]
+                band_demand[b] += c_demand
 
-    weighted_avg_distance = dist_weighted / total_demand if total_demand else 0.0
+    weighted_avg_distance = dist_weighted / active_demand
     # Cumulative rows (spec 5.7), plus an explicit Overflow row - band -1, the
     # OVERFLOW_BAND sentinel shared with lib/units and the gold/jade envelopes -
     # whenever any lane lies beyond the largest band (spec 5.6 / 12.3.7). Both
     # goldens reach 100% by 1,600 and so emit no Overflow row.
-    band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / total_demand, 2)}
+    band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / active_demand, 2)}
                      for b in distance_bands]
     if overflow_demand > 0:
-        band_coverage.append({"band": -1, "percent": round(overflow_demand * 100 / total_demand, 2)})
+        band_coverage.append({"band": -1, "percent": round(overflow_demand * 100 / active_demand, 2)})
 
     # Precision is contract, not display (spec 5.7): the goldens run to cents
     # and four decimals. No utilizationByNode - there is no capacity, so there
