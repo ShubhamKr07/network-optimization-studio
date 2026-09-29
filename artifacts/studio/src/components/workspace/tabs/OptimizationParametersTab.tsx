@@ -35,7 +35,12 @@ export type OptimizationParametersField =
   | "step2Gap"
   | "step2TimeLimitSec";
 
-interface OptimizationParametersTabProps {
+// CH4UX-2 — exported because Workspace.tsx now builds ONE base prop object
+// consumed by two renders (the tab itself and the Solve dialog's embedded
+// copy). The annotation is documentation, not enforcement: most of this
+// interface is optional, so a future added prop will NOT fail the build
+// here. The real drift protection is the single base object.
+export interface OptimizationParametersTabProps {
   /** Active model id. jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9)
    * used to render a separate fixed-4-slot `JadeBandEditor` here, gated on
    * this prop; that editor is deleted and JADE now renders the SAME shared
@@ -154,6 +159,16 @@ interface OptimizationParametersTabProps {
    * every edit is just a draft update, exactly like a keystroke in the
    * Warehouses/Customers tables. */
   onChange: (field: OptimizationParametersField, value: number | number[] | boolean) => void;
+  /** CH4UX-2 — instance namespace. The Solve dialog embeds a SECOND copy of
+   * this component while the Optimization Parameters tab may still be mounted
+   * behind it; without a namespace both copies emit the same DOM `id`s (which
+   * breaks `<label htmlFor>` association) and the same `data-testid`s (which
+   * makes every RTL and Playwright locator ambiguous). Defaults to "" so every
+   * existing caller's ids are byte-identical to today's. */
+  idPrefix?: string;
+  /** See `idPrefix`. Forwarded to the nested `BandChipEditor`, which already
+   * takes this exact prop. Defaults to "". */
+  testIdPrefix?: string;
 }
 
 // A1.2 — grid-style editor over the scalar solve-parameter fields
@@ -194,7 +209,13 @@ export function OptimizationParametersTab({
   step2TimeLimitSec,
   coverageFloorFromStep1,
   onChange,
+  idPrefix = "",
+  testIdPrefix = "",
 }: OptimizationParametersTabProps) {
+  // CH4UX-2 — one helper per namespace so a missed call site is a visible
+  // bare string literal in review rather than a silent collision at runtime.
+  const pid = (s: string) => `${idPrefix}${s}`;
+  const tid = (s: string) => `${testIdPrefix}${s}`;
   // chen-bands-units, Part A — the conditionally-linked high boundary: on a
   // highServiceDistKm edit oldHigh -> newHigh, retarget a band EQUAL TO
   // oldHigh to newHigh, but ONLY if such a band is present (the user may
@@ -216,7 +237,7 @@ export function OptimizationParametersTab({
   }
 
   return (
-    <div className="max-w-md space-y-6" data-testid="optimization-parameters-tab">
+    <div className="max-w-md space-y-6" data-testid={tid("optimization-parameters-tab")}>
       {/* ch4-2s-7 — CH4-6: P is a Step 1 field (inherited, read-only, shown
           in Step 2's own `step2-inherited` block below), so this editable
           slider is hidden while Step 2 is selected. `(step ?? 1) === 1` is
@@ -227,7 +248,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-            <span className="text-sm font-bold text-primary font-mono" data-testid="text-p-value">{p}</span>
+            <span className="text-sm font-bold text-primary font-mono" data-testid={tid("text-p-value")}>{p}</span>
           </div>
           <Slider
             min={1}
@@ -235,7 +256,7 @@ export function OptimizationParametersTab({
             step={1}
             value={[p]}
             onValueChange={([v]) => onChange("p", v)}
-            data-testid="slider-p-value"
+            data-testid={tid("slider-p-value")}
             className="my-1"
           />
           <div className="flex gap-1.5 flex-wrap">
@@ -243,7 +264,7 @@ export function OptimizationParametersTab({
               <button
                 key={n}
                 type="button"
-                data-testid={`button-p-quick-${n}`}
+                data-testid={tid(`button-p-quick-${n}`)}
                 onClick={() => onChange("p", n)}
                 className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
                   p === n ? "bg-primary text-white border-primary" : "bg-white text-foreground border-border hover:border-primary"
@@ -270,21 +291,21 @@ export function OptimizationParametersTab({
           caller (and Chapter 4 while Step 1 is selected) omits `step`/passes
           `1` and is unaffected. */}
       {(step ?? 1) === 1 && objective != null && (
-        <div className="space-y-4" data-testid="chen-objective-section">
+        <div className="space-y-4" data-testid={tid("chen-objective-section")}>
           <div className="grid grid-cols-2 gap-3">
             {canonicalUnit !== undefined ? (
               <>
                 <ChenDistanceInput
-                  id="input-high-service-dist"
-                  testId="input-high-service-dist"
+                  id={pid("input-high-service-dist")}
+                  testId={tid("input-high-service-dist")}
                   labelPrefix="High-service distance"
                   canonicalUnit={canonicalUnit}
                   value={highServiceDistKm ?? 0}
                   onCommit={handleHighServiceDistChange}
                 />
                 <ChenDistanceInput
-                  id="input-max-dist"
-                  testId="input-max-dist"
+                  id={pid("input-max-dist")}
+                  testId={tid("input-max-dist")}
                   labelPrefix="Max distance"
                   canonicalUnit={canonicalUnit}
                   value={maxDistKm ?? 0}
@@ -294,29 +315,29 @@ export function OptimizationParametersTab({
             ) : (
               <>
                 <div>
-                  <Label htmlFor="input-high-service-dist" className="text-xs text-muted-foreground">
+                  <Label htmlFor={pid("input-high-service-dist")} className="text-xs text-muted-foreground">
                     High-service distance ({distanceUnit})
                   </Label>
                   <Input
-                    id="input-high-service-dist"
+                    id={pid("input-high-service-dist")}
                     type="number"
                     value={highServiceDistKm ?? ""}
                     onChange={e => handleHighServiceDistChange(parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
-                    data-testid="input-high-service-dist"
+                    data-testid={tid("input-high-service-dist")}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="input-max-dist" className="text-xs text-muted-foreground">
+                  <Label htmlFor={pid("input-max-dist")} className="text-xs text-muted-foreground">
                     Max distance ({distanceUnit})
                   </Label>
                   <Input
-                    id="input-max-dist"
+                    id={pid("input-max-dist")}
                     type="number"
                     value={maxDistKm ?? ""}
                     onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
-                    data-testid="input-max-dist"
+                    data-testid={tid("input-max-dist")}
                   />
                 </div>
               </>
@@ -326,8 +347,8 @@ export function OptimizationParametersTab({
           {objective === "coverage" && (
             canonicalUnit !== undefined ? (
               <ChenDistanceInput
-                id="input-avg-service-cap"
-                testId="input-avg-service-cap"
+                id={pid("input-avg-service-cap")}
+                testId={tid("input-avg-service-cap")}
                 labelPrefix="Avg service distance cap"
                 canonicalUnit={canonicalUnit}
                 value={avgServiceDistCapKm ?? 0}
@@ -335,16 +356,16 @@ export function OptimizationParametersTab({
               />
             ) : (
               <div>
-                <Label htmlFor="input-avg-service-cap" className="text-xs text-muted-foreground">
+                <Label htmlFor={pid("input-avg-service-cap")} className="text-xs text-muted-foreground">
                   Avg service distance cap ({distanceUnit})
                 </Label>
                 <Input
-                  id="input-avg-service-cap"
+                  id={pid("input-avg-service-cap")}
                   type="number"
                   value={avgServiceDistCapKm ?? ""}
                   onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
                   className="h-8 text-sm mt-1 font-mono"
-                  data-testid="input-avg-service-cap"
+                  data-testid={tid("input-avg-service-cap")}
                 />
               </div>
             )
@@ -354,11 +375,11 @@ export function OptimizationParametersTab({
       )}
 
       {step === 2 && (
-        <div className="space-y-4" data-testid="step2-parameters">
+        <div className="space-y-4" data-testid={tid("step2-parameters")}>
           {/* CH4-6 — inherited from Step 1 and NOT editable here. Inheriting
               highServiceDistKm is load-bearing: the floor must constrain demand
               within the same radius that produced it. */}
-          <dl className="grid grid-cols-3 gap-3 text-xs" data-testid="step2-inherited">
+          <dl className="grid grid-cols-3 gap-3 text-xs" data-testid={tid("step2-inherited")}>
             <div><dt className="text-muted-foreground">P (inherited)</dt><dd className="font-mono">{p}</dd></div>
             <div><dt className="text-muted-foreground">High-service distance</dt><dd className="font-mono">{highServiceDistKm}</dd></div>
             <div><dt className="text-muted-foreground">Max distance</dt><dd className="font-mono">{maxDistKm}</dd></div>
@@ -367,12 +388,12 @@ export function OptimizationParametersTab({
           <div>
             <Label className="text-xs text-muted-foreground">Coverage floor (demand)</Label>
             {coverageFloorFromStep1 == null ? (
-              <div data-testid="step2-floor-placeholder"
+              <div data-testid={tid("step2-floor-placeholder")}
                 className="h-8 mt-1 flex items-center px-2 text-sm font-mono text-muted-foreground border border-dashed border-border rounded">
                 — produced by solve
               </div>
             ) : (
-              <div data-testid="step2-floor-value"
+              <div data-testid={tid("step2-floor-value")}
                 className="h-8 mt-1 flex items-center gap-2 px-2 text-sm font-mono border border-border rounded bg-muted">
                 {coverageFloorFromStep1.toLocaleString()}
                 <Lock className="w-3 h-3 text-muted-foreground" />
@@ -385,15 +406,15 @@ export function OptimizationParametersTab({
               something once a Step 1 result exists to seed the floor. */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label htmlFor="input-step2-gap" className="text-xs text-muted-foreground">Gap</Label>
-              <Input id="input-step2-gap" type="number" data-testid="input-step2-gap"
+              <Label htmlFor={pid("input-step2-gap")} className="text-xs text-muted-foreground">Gap</Label>
+              <Input id={pid("input-step2-gap")} type="number" data-testid={tid("input-step2-gap")}
                 disabled={!stepEditable}
                 value={step2Gap ?? ""} className="h-8 text-sm mt-1 font-mono"
                 onChange={e => onChange("step2Gap", parseFloat(e.target.value) || 0)} />
             </div>
             <div>
-              <Label htmlFor="input-step2-time-limit" className="text-xs text-muted-foreground">Time limit (s)</Label>
-              <Input id="input-step2-time-limit" type="number" data-testid="input-step2-time-limit"
+              <Label htmlFor={pid("input-step2-time-limit")} className="text-xs text-muted-foreground">Time limit (s)</Label>
+              <Input id={pid("input-step2-time-limit")} type="number" data-testid={tid("input-step2-time-limit")}
                 disabled={!stepEditable}
                 value={step2TimeLimitSec ?? ""} className="h-8 text-sm mt-1 font-mono"
                 onChange={e => onChange("step2TimeLimitSec", parseInt(e.target.value, 10) || 1)} />
@@ -411,26 +432,26 @@ export function OptimizationParametersTab({
       {(step ?? 1) === 1 && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="input-gap" className="text-xs text-muted-foreground">Optimization gap (%)</Label>
+            <Label htmlFor={pid("input-gap")} className="text-xs text-muted-foreground">Optimization gap (%)</Label>
             <Input
-              id="input-gap"
+              id={pid("input-gap")}
               type="number"
               step="0.01"
               value={gap}
               onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
               className="h-8 text-sm mt-1 font-mono"
-              data-testid="input-gap"
+              data-testid={tid("input-gap")}
             />
           </div>
           <div>
-            <Label htmlFor="input-time-limit" className="text-xs text-muted-foreground">Max time (seconds)</Label>
+            <Label htmlFor={pid("input-time-limit")} className="text-xs text-muted-foreground">Max time (seconds)</Label>
             <Input
-              id="input-time-limit"
+              id={pid("input-time-limit")}
               type="number"
               value={timeLimitSec}
               onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
               className="h-8 text-sm mt-1 font-mono"
-              data-testid="input-time-limit"
+              data-testid={tid("input-time-limit")}
             />
           </div>
         </div>
@@ -449,7 +470,7 @@ export function OptimizationParametersTab({
             step={0.05}
             value={[capacityFactor]}
             onValueChange={([v]) => onChange("capacityFactor", v)}
-            data-testid="slider-capacity-factor"
+            data-testid={tid("slider-capacity-factor")}
             className="my-1"
           />
           <p className="text-[10px] text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
@@ -466,7 +487,7 @@ export function OptimizationParametersTab({
           <Switch
             checked={singleSource}
             onCheckedChange={v => onChange("singleSource", v)}
-            data-testid="switch-single-source"
+            data-testid={tid("switch-single-source")}
           />
         </div>
       )}
@@ -478,7 +499,7 @@ export function OptimizationParametersTab({
           <Switch
             checked={capacityInactive}
             onCheckedChange={v => onChange("capacityInactive", v)}
-            data-testid="switch-capacity-inactive"
+            data-testid={tid("switch-capacity-inactive")}
           />
         </div>
       )}
@@ -491,7 +512,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">BOM ratio (raw kg per refined kg)</Label>
-            <span className="text-xs font-mono w-10 text-right" data-testid="text-bom-ratio">{bomRatio.toFixed(2)}×</span>
+            <span className="text-xs font-mono w-10 text-right" data-testid={tid("text-bom-ratio")}>{bomRatio.toFixed(2)}×</span>
           </div>
           <Slider
             min={1.05}
@@ -499,7 +520,7 @@ export function OptimizationParametersTab({
             step={0.05}
             value={[bomRatio]}
             onValueChange={([v]) => onChange("bomRatio", Math.round(v * 20) / 20)}
-            data-testid="slider-bom-ratio"
+            data-testid={tid("slider-bom-ratio")}
             className="my-1"
           />
           <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
@@ -519,6 +540,7 @@ export function OptimizationParametersTab({
           onChange={bands => onChange("distanceBands", bands)}
           distanceUnit={distanceUnit}
           canonicalUnit={canonicalUnit}
+          testIdPrefix={testIdPrefix}
         />
       )}
     </div>
