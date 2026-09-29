@@ -2881,6 +2881,47 @@ describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
     // ...and the still-open output tab now names the RIGHT prerequisite.
     expect(screen.getByTestId("tab-content-region")).toHaveTextContent("Solve Step 1");
   });
+
+  // CH4UX-8 — the case CH4UX-1's warm A→B test could not reach. The scenario
+  // queries resolve ASYNCHRONOUSLY, so a cold mount (page reload) renders once
+  // with no scenario at all and only then gets one. That first resolution is
+  // not a scenario switch, and must not re-point the view: reloading a 1-of-2
+  // scenario has to keep showing Step 1's result, not snap to "Solve Step 2".
+  //
+  // Sequence-faithful on purpose — `render()` with the queries unresolved,
+  // THEN re-point the mocks and `rerender()`. Rendering the resolved state
+  // directly would seed the ref from real data in the same render that reads
+  // it, which is exactly the ordering the real app does NOT have, and is why
+  // the defect survived a green unit gate.
+  it("resolving the initial scenario on a cold mount does not re-point the view off Step 1", () => {
+    const solvedStep1 = ch4Scenario({
+      id: 5,
+      name: "Chen reload",
+      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+    });
+
+    // First render: the URL already names the scenario, but neither query has
+    // resolved — precisely a browser reload's first paint.
+    mockUseSearch.mockReturnValue("?scenario=5");
+    mockUseListScenarios.mockReturnValue({ data: undefined } as never);
+    mockUseGetScenario.mockReturnValue({ data: undefined, isLoading: true, isError: false } as never);
+    const view = render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // The queries resolve.
+    mockUseListScenarios.mockReturnValue({ data: [solvedStep1] } as never);
+    mockUseGetScenario.mockReturnValue({ data: solvedStep1, isLoading: false, isError: false } as never);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // `targetStep` here is 2 (Step 1 is solved), so a guard that mistakes
+    // first resolution for a switch lands on Step 2.
+    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "false");
+
+    // And the user-visible symptom: opening an output tab must not greet a
+    // just-reloaded, already-solved scenario with Step 2's unmet prerequisite.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(screen.getByTestId("tab-content-region")).not.toHaveTextContent("Solve Step 2");
+  });
 });
 
 // ── CH4UX-6 — the solve overlay owns running + failed ────────────────────────

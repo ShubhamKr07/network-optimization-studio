@@ -1490,10 +1490,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // BandChipEditor's prevUnitRef): it keys on scenario IDENTITY, not on
   // `targetStep`, so it cannot fight the solve-success `setSelectedStep`, and
   // it needs no exhaustive-deps suppression.
-  const prevScenarioIdRef = useRef(currentScenario?.id);
-  if (currentScenario?.id !== prevScenarioIdRef.current) {
-    prevScenarioIdRef.current = currentScenario?.id;
-    if (stepState.isMaxCoverage) setSelectedStep(stepState.targetStep);
+  //
+  // CH4UX-8 — the subtle part: `currentScenario` is ASYNCHRONOUSLY resolved,
+  // so the very first render of a cold mount has none at all. Seeding the ref
+  // from `currentScenario?.id` (its original form) therefore seeded
+  // `undefined`, and the query resolving a moment later read as "the scenario
+  // changed" — snapping a freshly-loaded 1-of-2 scenario to Step 2, i.e. to
+  // "Not solved yet — Solve Step 2" instead of the Step 1 result the user had
+  // just solved. Worse, it was non-deterministic: whether it fired at all
+  // depended on whether the scenario data happened to resolve before or after
+  // the first render. First RESOLUTION is not a switch, so the ref seeds from
+  // a fixed `undefined` sentinel (never from data), a null id is skipped
+  // outright rather than recorded (a transient "no scenario" between A and B
+  // must not make B look like a first resolution), and only a
+  // previously-recorded id transitioning to a different one re-points the
+  // view. Scenario ids are `number` (api.schemas.ts `Scenario.id`), so
+  // `undefined` is an unambiguous "nothing seen yet".
+  const prevScenarioIdRef = useRef<number | undefined>(undefined);
+  if (currentScenario?.id != null && currentScenario.id !== prevScenarioIdRef.current) {
+    const isFirstResolution = prevScenarioIdRef.current === undefined;
+    prevScenarioIdRef.current = currentScenario.id;
+    if (!isFirstResolution && stepState.isMaxCoverage) setSelectedStep(stepState.targetStep);
   }
   // Holds the fully-computed next `inputs` blob, NOT a callback. Computing
   // the blob at intercept time means confirm has nothing left to derive —
