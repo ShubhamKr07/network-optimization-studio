@@ -155,11 +155,16 @@ function expectRealShadowLayer(actual: string, expectedLayer: string): void {
 test.describe("Bundle 3 — book-cover design system", () => {
   test("auth chrome: band header ink bg + primary button ≈ green-600 + accent focus-contrast (AA fix)", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByTestId("auth-band")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    // Bundle 4 renamed the AuthShell band header: the old single
+    // `auth-band` testid is gone (0 src refs) — `auth-shell` is now the
+    // outer flex container (plain bg-background), and `auth-cover` is the
+    // ink-backgrounded band panel this test actually cares about.
+    await expect(page.getByTestId("auth-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("auth-cover")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
     // Band header background ≈ ink. --surface-band is a literal complete
     // hex (#181A15), so this is an exact assertion, not an approximation.
-    const bandBg = await page.getByTestId("auth-band").evaluate((el) => getComputedStyle(el).backgroundColor);
+    const bandBg = await page.getByTestId("auth-cover").evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bandBg).toBe("rgb(24, 26, 21)");
 
     // Primary button (Login's submit — default/primary Button variant)
@@ -228,9 +233,11 @@ test.describe("Bundle 3 — book-cover design system", () => {
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      const band1Row = page.locator("div.flex.items-center.gap-1", { hasText: "Band 1" });
-      await expect(band1Row).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const swatch = band1Row.locator("div").first();
+      // MapLegend no longer labels swatches "Band N" (now "≤ X unit") and
+      // never used a stable class selector — `legend-band-0` (MapLegend.tsx)
+      // is the real, stable per-band swatch testid for the first band.
+      const swatch = page.getByTestId("legend-band-0");
+      await expect(swatch).toBeVisible({ timeout: HEADER_TIMEOUT });
       const swatchColor = await swatch.evaluate((el) => getComputedStyle(el).backgroundColor);
       const band0 = await resolveCssVar(page, "--band-0", "backgroundColor");
       expect(swatchColor).toBe(band0);
