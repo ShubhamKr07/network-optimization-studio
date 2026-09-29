@@ -35,15 +35,13 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // C4.14 — Chen's Cosmetics: km, real facility status.
     { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
-    // Task 12 (Chapter 5, delivery-teaching-us) — supportsFacilityStatus:
-    // false is a deliberate, LOCKED capability (decision 11: students have
-    // no way to force a DC open/closed; verified against
-    // solvers/delivery-teaching-us/manifest.json and
-    // docs/superpowers/specs/2026-09-28-chapter-5-delivery-teaching-design.md
-    // §6.1/§7.6, which states this in so many words: "The 'Open facilities'
-    // row is absent by §6.1's supportsFacilityStatus: false"). This value is
-    // real capability data, not a test-only stand-in.
-    { id: "delivery-teaching-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: false } },
+    // Task 7 (§14, ch5-edit-7) — supportsFacilityStatus flips to `true` for
+    // this model. §14 supersedes §6.1/§7.6's "locked false" framing (this
+    // was never actually locked — the manifest capability was corrected).
+    // Verified against solvers/delivery-teaching-us/manifest.json, which now
+    // declares `supportsFacilityStatus: true`. The Open facilities row is
+    // present, not absent.
+    { id: "delivery-teaching-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: true } },
   ],
 }));
 
@@ -525,19 +523,18 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
   });
 
-  // Task 12 (Chapter 5, delivery-teaching-us) — the CostSummaryTab.tsx
-  // "Open facilities" row (:492) is gated ENTIRELY on
-  // `capabilities.supportsFacilityStatus`, which is `false` for this model —
-  // a deliberate, locked capability (decision 11: students have no way to
-  // force a DC open/closed; pinned by
-  // lib/dataset-schema/src/manifest.test.ts's own
-  // "delivery-teaching-us manifest" describe block, and stated explicitly in
-  // the design spec, §7.6: "The 'Open facilities' row is absent by §6.1's
-  // supportsFacilityStatus: false"). The chosen DCs remain visible in the
-  // dedicated Open Warehouses tab instead (spec's own stated tradeoff) —
-  // this test pins the row's ABSENCE, not a chip list, deliberately
-  // diverging from an earlier draft of this task's brief that predates a
-  // full trace of `supportsFacilityStatus`'s locked value for this model.
+  // Task 7 (§14, ch5-edit-7) — the CostSummaryTab.tsx "Open facilities" row
+  // (:492) is gated ENTIRELY on `capabilities.supportsFacilityStatus`, which
+  // is now `true` for this model — §14 supersedes §6.1/§7.6's "locked false"
+  // framing (verified against solvers/delivery-teaching-us/manifest.json,
+  // which declares `supportsFacilityStatus: true`). CostSummaryTab.tsx needed
+  // no code change: the row simply starts rendering itself once the
+  // capability flips. No `locationById` prop is passed here (delivery has no
+  // JADE-style identity map), so the row falls through to
+  // `openFacilityCityList`, which resolves ids against `dataset.warehouses` —
+  // undefined for delivery-teaching-us in this file's `mockUseGetDataset`
+  // (only p-median-us/two-echelon-gold-au are populated) — so it falls back
+  // further to the raw edge `fromId`s, sorted.
   describe("delivery-teaching-us", () => {
     const d1 = scenario({
       id: 60, name: "Delivery A", modelId: "delivery-teaching-us",
@@ -555,11 +552,12 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       result: { ...result, metrics: { weightedAvgDistance: 500 }, edges: [{ fromId: "W60", toId: "C3", flow: 1, distance: 30 }] },
     });
 
-    it("the Open facilities row is absent in compare mode (supportsFacilityStatus: false, locked)", () => {
+    it("the Open facilities row is present in compare mode (supportsFacilityStatus: true)", () => {
       render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={d1.result} scenarioId={60} modelId="delivery-teaching-us" scenarios={[d1, d2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")!);
-      expect(screen.queryByText("Open facilities")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("cost-summary-compare-open-facilities-cities-60")).not.toBeInTheDocument();
+      expect(screen.getAllByText("Open facilities")).toHaveLength(1);
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-60")).toHaveTextContent("W1, W2");
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-61")).toHaveTextContent("W60");
     });
   });
 
