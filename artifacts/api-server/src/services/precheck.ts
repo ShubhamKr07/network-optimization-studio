@@ -1393,6 +1393,22 @@ export function precheckDeliveryInputs(inputs: DeliveryInputs): PrecheckResult {
       errors.push({ code: "reference_integrity", message: `No lane ${ov.fromId} to ${ov.toId}` });
     }
   }
+
+  // Section 14.8 — Zod validates shape and the status enum, never existence.
+  // Without this an override naming W999 reaches the solver and surfaces as
+  // a generic internal_error. NOT a feasibility rule: section 14.4 keeps
+  // feasibility in the model, and this function stays about malformed input.
+  for (const ov of inputs.warehouseOverrides ?? []) {
+    if (!warehouses.has(ov.id)) {
+      errors.push({ code: "reference_integrity", message: `Unknown warehouse id ${ov.id}` });
+    }
+  }
+  for (const ov of inputs.customerOverrides ?? []) {
+    if (!customers.has(ov.id)) {
+      errors.push({ code: "reference_integrity", message: `Unknown customer id ${ov.id}` });
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 

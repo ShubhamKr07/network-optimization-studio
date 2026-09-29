@@ -1659,4 +1659,41 @@ describe("precheckDeliveryInputs", () => {
       { ...base, laneCostOverrides: [{ fromId: "nonsense", toId: "nonsense", cost: 1 }] });
     expect(r.ok).toBe(false);
   });
+
+  // Task 4 / §14.8 gap G2 — Zod checks shape and the status enum, never
+  // existence. Without this, an override naming W999/C999 reaches the
+  // solver and surfaces as a generic internal_error.
+  describe("precheckDeliveryInputs — section 14 override ids", () => {
+    it("rejects an unknown warehouse override id and names it", () => {
+      const r = runNetworkEditsPrecheckForModel("delivery-teaching-us", {
+        ...base, warehouseOverrides: [{ id: "W999", status: "inactive" }],
+      });
+      expect(r.ok).toBe(false);
+      expect(JSON.stringify(r.errors)).toContain("W999");
+    });
+
+    it("rejects an unknown customer override id and names it", () => {
+      const r = runNetworkEditsPrecheckForModel("delivery-teaching-us", {
+        ...base, customerOverrides: [{ id: "C999", demand: 5, status: "active" }],
+      });
+      expect(r.ok).toBe(false);
+      expect(JSON.stringify(r.errors)).toContain("C999");
+    });
+
+    // A role-swapped id is individually well-formed and still wrong.
+    it("rejects a customer id used as a warehouse override", () => {
+      const r = runNetworkEditsPrecheckForModel("delivery-teaching-us", {
+        ...base, warehouseOverrides: [{ id: "C1", status: "inactive" }],
+      });
+      expect(r.ok).toBe(false);
+    });
+
+    it("accepts valid ids", () => {
+      expect(runNetworkEditsPrecheckForModel("delivery-teaching-us", {
+        ...base,
+        warehouseOverrides: [{ id: "W8", status: "forced_open" }],
+        customerOverrides: [{ id: "C1", demand: 0, status: "excluded" }],
+      }).ok).toBe(true);
+    });
+  });
 });
