@@ -2490,6 +2490,9 @@ it("caps p at 26 in BOTH pMax declarations for max-coverage-us (MIG-8)", () => {
   const src = readFileSync(
     path.resolve(__dirname, "../pages/Workspace.tsx"), "utf8",
   );
+  // NOTE: this regex requires `modelId === "max-coverage-us" ? <n>` to stay
+  // unbroken on ONE line — reformatting the pMax ternary in Workspace.tsx
+  // across lines silently drops a match and fails this test.
   const caps = [...src.matchAll(/modelId === "max-coverage-us" \? (\d+)/g)].map(m => m[1]);
   // Optimization Parameters tab AND SolveDialog render pMax independently.
   expect(caps).toEqual(["26", "26"]);

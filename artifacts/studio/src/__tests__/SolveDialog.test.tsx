@@ -473,21 +473,45 @@ describe("CH4UX-3 — paramsSlot", () => {
   });
 
   it("replaces every built-in control with the slot's content when supplied", () => {
-    // CH4UX-4 — `readOnlyParams: true` added alongside the slot so the
-    // `solve-dialog-readonly-summary` assertion below is actually
-    // meaningful (without it, that block never renders regardless of the
-    // slot, and the assertion would pass vacuously).
-    renderDialog({ p: 5, readOnlyParams: true, paramsSlot: <div data-testid="slotted-params">slotted</div> });
+    // CH4UX-4 review Finding 1 — this test must NOT set `readOnlyParams`:
+    // every built-in block it asserts absent below is gated
+    // `!readOnlyParams && …`, so setting that flag would make all four
+    // assertions pass whether or not `paramsSlot` is supplied — vacuous.
+    // Instead it supplies `objective: "coverage"` so the
+    // chen-objective-section assertion is real too (that block is gated
+    // `!readOnlyParams && objective != null`, and `renderDialog`'s
+    // defaults never pass `objective`).
+    renderDialog({
+      p: 5,
+      objective: "coverage",
+      paramsSlot: <div data-testid="slotted-params">slotted</div>,
+    });
     expect(screen.getByTestId("slotted-params")).toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-slider-p")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-input-gap")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-input-time-limit")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-band-200")).toBeNull();
-    // CH4UX-4 — the two Chapter-4-specific built-in blocks, precisely the
-    // ones a Chapter 4 paramsSlot must displace. The original test asserted
-    // absence for only 3 of the 5 built-in blocks; these were missing.
+    // The two Chapter-4-specific built-in blocks, precisely the ones a
+    // Chapter 4 paramsSlot must displace. The original test asserted
+    // absence for only 3 of the 5 built-in blocks; this was missing.
     expect(screen.queryByTestId("solve-dialog-chen-objective-section")).toBeNull();
+  });
+
+  it("hides the read-only summary too when a slot is supplied in the read-only branch", () => {
+    // CH4UX-4 review Finding 1 — separate test for the `readOnlyParams`
+    // branch: `solve-dialog-readonly-summary` is gated
+    // `readOnlyParams && (…)`, nested inside the same `paramsSlot ?? (…)`
+    // fallback as every other built-in block, so it never renders once a
+    // slot is supplied, regardless of `readOnlyParams`. Proven
+    // non-vacuous: without `paramsSlot`, this exact prop combination
+    // (`readOnlyParams: true`) DOES render `solve-dialog-readonly-summary`.
+    renderDialog({
+      p: 5,
+      readOnlyParams: true,
+      paramsSlot: <div data-testid="slotted-params" />,
+    });
     expect(screen.queryByTestId("solve-dialog-readonly-summary")).toBeNull();
+    expect(screen.getByTestId("slotted-params")).toBeInTheDocument();
   });
 
   it("keeps Solve and Close interactive with a slot supplied", () => {
