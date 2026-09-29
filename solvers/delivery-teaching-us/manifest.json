@@ -41,6 +41,29 @@
           },
           "required": ["fromId", "toId", "cost"]
         }
+      },
+      "warehouseOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "customerOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "demand": { "type": ["number", "null"], "minimum": 0 },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
+          },
+          "required": ["id", "status"]
+        }
       }
     },
     "required": [

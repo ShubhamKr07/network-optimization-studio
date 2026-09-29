@@ -121,6 +121,40 @@ describe("delivery-teaching-us manifest/schema parity", () => {
     expect(new Set(m.required)).toEqual(new Set(["p", "distanceBands", "gap", "timeLimitSec",
       "costAdjustEnabled", "distanceThreshold", "costPerMile", "costPerMileOver"]));
   });
+
+  // Coordinator review (ch5-edit-2b) — the required-only comparison above
+  // cannot catch a field that is optional on BOTH sides (every override
+  // array has `.default([])`), which is exactly how warehouseOverrides/
+  // customerOverrides went missing from the manifest the first time. Compare
+  // the FULL property key set so the next optional field added to one side
+  // and not the other fails here, not silently.
+  it("manifest.inputsSchema declares every deliveryInputsSchema key, and no others", () => {
+    const m = getManifest("delivery-teaching-us")!.inputsSchema as {
+      properties: Record<string, unknown>;
+    };
+    expect(new Set(Object.keys(m.properties)))
+      .toEqual(new Set(Object.keys(deliveryInputsSchema.shape)));
+  });
+
+  // §14 — the model has no capacity; the manifest's published contract must
+  // say so as plainly as the Zod schema does (see delivery.ts's
+  // warehouseOverrideSchema comment). Mirrors max-coverage-us's identical
+  // assertion (manifest.test.ts:381) for the same reason.
+  it("warehouseOverrides item declares no capacity, and customerOverrides carries a nonnegative nullable demand", () => {
+    type Prop = { minimum?: number; enum?: string[] };
+    const m = getManifest("delivery-teaching-us")!.inputsSchema as {
+      properties: {
+        warehouseOverrides: { items: { properties: Record<string, Prop> } };
+        customerOverrides: { items: { properties: Record<string, Prop> } };
+      };
+    };
+    expect(m.properties.warehouseOverrides.items.properties.capacity).toBeUndefined();
+    expect(m.properties.warehouseOverrides.items.properties.status.enum)
+      .toEqual(["active", "forced_open", "inactive"]);
+    expect(m.properties.customerOverrides.items.properties.demand).toMatchObject({ minimum: 0 });
+    expect(m.properties.customerOverrides.items.properties.status.enum)
+      .toEqual(["active", "excluded"]);
+  });
 });
 
 // §14 amendment (ch5-edit-2) — editable Warehouses and Customers.

@@ -26,9 +26,13 @@ const warehouseOverrideSchema = z.object({
   status: z.enum(["active", "forced_open", "inactive"]),
 });
 
-// `demand` is NONNEGATIVE, not positive: zero is a legal demand and means
-// "still a customer, still served, contributes nothing" — distinct from
-// `status: "excluded"`, which removes the customer from the denominator.
+// `demand` is NONNEGATIVE, not positive: zero is a legal demand. Measured
+// (§14.3/§14.6, corrected 2026-09-29): zero demand and exclusion are
+// IDENTICAL on every demand-weighted metric — a zero-demand customer
+// contributes 0 to both the numerator and the denominator, exactly as an
+// absent one does, so no metric can tell them apart. The real difference is
+// MEMBERSHIP: a zero-demand customer is still in the model — still assigned,
+// still emitted as a lane at zero flow — while an excluded one is gone.
 const customerOverrideSchema = z.object({
   id: z.string().min(1),
   demand: z.number().finite().nonnegative().nullable().optional(),
