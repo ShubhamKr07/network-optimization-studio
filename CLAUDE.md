@@ -94,6 +94,13 @@ Three invariants bind everyday work, so they stay here:
 4. **On approval, merge to local `main`.** This is where integration conflicts surface and get resolved — deliberately *before* the review, so the review sees the real merged result rather than a pre-merge fiction.
 5. **Then run the whole-branch review**, on the merged state. It reviews what will actually ship, including anything the merge pulled in or changed.
 6. **Only then push to `origin/main`.**
+7. **Deploying is a SEPARATE approval. Always ask first — merge approval is not deploy approval.** No `mcp__render__trigger_deploy`, no Dashboard deploy, no env-var change on a live service, without an explicit yes for *that deploy*.
+
+**Pushing to `origin/main` is not cleanly separable from deploying, so treat the push itself as deploy-adjacent and say so when asking:**
+- `nos-api` — `autoDeployTrigger: off` in `render.yaml` (Blueprint-authoritative for this service). A push does **not** deploy it; it needs a deliberate trigger.
+- `nos-studio` — Dashboard-managed static site with no suppression. A push **can** deploy it. Historically the webhook has not fired on its own for this service (see Gotchas), but that is observed unreliability, not a guarantee — never rely on it as a safety mechanism.
+
+So a push to `main` may ship the frontend while leaving the API on the previous build. If that skew matters for the change in hand, say so when asking, and check `list_deploys` after any push to see what actually happened.
 
 Never reorder these. Reviewing before the merge reviews code that does not exist yet; pushing before the review publishes unreviewed code. A branch that is merged locally but not yet reviewed is recoverable; a pushed one is not.
 
