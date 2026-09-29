@@ -489,3 +489,27 @@ describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", 
     expect(screen.getByTestId("solve-dialog-band-200")).toHaveTextContent("200");
   });
 });
+
+describe("CH4UX-3 — paramsSlot", () => {
+  it("renders the built-in controls when no slot is supplied", () => {
+    renderDialog({ p: 5 });
+    expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).toBeInTheDocument();
+  });
+
+  it("replaces every built-in control with the slot's content when supplied", () => {
+    renderDialog({ p: 5, paramsSlot: <div data-testid="slotted-params">slotted</div> });
+    expect(screen.getByTestId("slotted-params")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-slider-p")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-input-gap")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-input-time-limit")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-band-200")).toBeNull();
+  });
+
+  it("keeps Solve and Close interactive with a slot supplied", () => {
+    const { onSolve } = renderDialog({ paramsSlot: <div data-testid="slotted-params" /> });
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    expect(onSolve).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("solve-dialog-cancel")).toBeInTheDocument();
+  });
+});

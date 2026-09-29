@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +99,13 @@ interface SolveDialogProps {
    * read-only summary; only Solve/Cancel stay interactive. The other five
    * models render exactly as before (defaults to `false`/falsy). */
   readOnlyParams?: boolean;
+  /** CH4UX-3 — when supplied, replaces this dialog's ENTIRE built-in
+   * parameter region (readOnlyParams summary, P slider, Chen objective
+   * section, gap/time-limit grid, band editor). The caller owns what renders
+   * here. Chapter 4 passes the real `OptimizationParametersTab` so the dialog
+   * and the tab can never drift onto two different parameter editors; every
+   * other model omits it and keeps the built-in controls verbatim. */
+  paramsSlot?: ReactNode;
   // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
   // All four OPTIONAL, default undefined: with none supplied the dialog
   // renders nothing timing-related (every existing caller is unaffected).
@@ -167,6 +175,7 @@ export function SolveDialog({
   canonicalUnit,
   showBandEditor = true,
   readOnlyParams = false,
+  paramsSlot,
   queuedAt,
   startedAt,
   finishedAt,
@@ -188,7 +197,10 @@ export function SolveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="solve-dialog">
+      <DialogContent
+        data-testid="solve-dialog"
+        className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]"
+      >
         <DialogHeader>
           <DialogTitle className="font-heading">Run Optimizer</DialogTitle>
           <DialogDescription>
@@ -196,155 +208,159 @@ export function SolveDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          {/* CH4-17/R5 — max-coverage-us's dialog is confirmation-only: a
-              read-only summary of the effective settings replaces every
-              editable control below (P slider, objective display, gap/time
-              limit, band editor). No `input-*` testid renders in this
-              branch — parameter editing stays in the Optimization
-              Parameters tab. */}
-          {readOnlyParams && (
-            <div className="space-y-1 text-sm" data-testid="solve-dialog-readonly-summary">
-              {p != null && (
+        <div className="space-y-4 py-2 overflow-y-auto min-h-0">
+          {paramsSlot ?? (
+            <>
+            {/* CH4-17/R5 — max-coverage-us's dialog is confirmation-only: a
+                read-only summary of the effective settings replaces every
+                editable control below (P slider, objective display, gap/time
+                limit, band editor). No `input-*` testid renders in this
+                branch — parameter editing stays in the Optimization
+                Parameters tab. */}
+            {readOnlyParams && (
+              <div className="space-y-1 text-sm" data-testid="solve-dialog-readonly-summary">
+                {p != null && (
+                  <p className="text-muted-foreground">
+                    Warehouses to open (P): <span className="font-mono text-foreground">{p}</span>
+                  </p>
+                )}
+                {objective != null && (
+                  <p className="text-muted-foreground" data-testid="solve-dialog-readonly-objective">
+                    Objective: <span className="font-mono text-foreground">{objective === "coverage" ? "Coverage" : "Min-distance"}</span>
+                  </p>
+                )}
+                {objective === "coverage" && avgServiceDistCapKm != null && (
+                  <p className="text-muted-foreground">
+                    Avg service distance cap: <span className="font-mono text-foreground">{avgServiceDistCapKm}{distanceUnit ? ` ${distanceUnit}` : ""}</span>
+                  </p>
+                )}
                 <p className="text-muted-foreground">
-                  Warehouses to open (P): <span className="font-mono text-foreground">{p}</span>
+                  Optimization gap: <span className="font-mono text-foreground">{gap}%</span>
                 </p>
-              )}
-              {objective != null && (
-                <p className="text-muted-foreground" data-testid="solve-dialog-readonly-objective">
-                  Objective: <span className="font-mono text-foreground">{objective === "coverage" ? "Coverage" : "Min-distance"}</span>
-                </p>
-              )}
-              {objective === "coverage" && avgServiceDistCapKm != null && (
                 <p className="text-muted-foreground">
-                  Avg service distance cap: <span className="font-mono text-foreground">{avgServiceDistCapKm}{distanceUnit ? ` ${distanceUnit}` : ""}</span>
+                  Max time: <span className="font-mono text-foreground">{timeLimitSec}s</span>
                 </p>
-              )}
-              <p className="text-muted-foreground">
-                Optimization gap: <span className="font-mono text-foreground">{gap}%</span>
-              </p>
-              <p className="text-muted-foreground">
-                Max time: <span className="font-mono text-foreground">{timeLimitSec}s</span>
-              </p>
-              <p className="text-xs text-muted-foreground pt-1">
-                Edit these in the Optimization Parameters tab.
-              </p>
-            </div>
-          )}
-
-          {!readOnlyParams && p != null && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-                <span className="text-sm font-bold text-primary font-mono" data-testid="solve-dialog-p-value">
-                  {p}
-                </span>
+                <p className="text-xs text-muted-foreground pt-1">
+                  Edit these in the Optimization Parameters tab.
+                </p>
               </div>
-              <Slider
-                min={1}
-                max={pMax}
-                step={1}
-                value={[p]}
-                onValueChange={([v]) => onChange("p", v)}
-                disabled={busy}
-                data-testid="solve-dialog-slider-p"
-                className="my-1"
-              />
-            </div>
-          )}
+            )}
 
-          {/* Chen's Cosmetics objective display — CH4-17: no toggle, no
-              floor input. `objective` is always "coverage" for a persisted
-              Chapter 4 payload; this is read-only display of the one
-              mode-specific field, scoped exactly like
-              OptimizationParametersTab's surviving `chen-objective-section`. */}
-          {!readOnlyParams && objective != null && (
-            <div className="space-y-2" data-testid="solve-dialog-chen-objective-section">
-              {objective === "coverage" && (
-                canonicalUnit !== undefined ? (
-                  <SolveDialogDistanceInput
-                    id="solve-dialog-input-avg-service-cap"
-                    testId="solve-dialog-input-avg-service-cap"
-                    labelPrefix="Avg service distance cap"
-                    canonicalUnit={canonicalUnit}
-                    value={avgServiceDistCapKm ?? 0}
-                    disabled={busy}
-                    onCommit={v => onChange("avgServiceDistCapKm", v)}
-                  />
-                ) : (
-                  <div>
-                    <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
-                      Avg service distance cap{distanceUnit ? ` (${distanceUnit})` : ""}
-                    </Label>
-                    <Input
+            {!readOnlyParams && p != null && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
+                  <span className="text-sm font-bold text-primary font-mono" data-testid="solve-dialog-p-value">
+                    {p}
+                  </span>
+                </div>
+                <Slider
+                  min={1}
+                  max={pMax}
+                  step={1}
+                  value={[p]}
+                  onValueChange={([v]) => onChange("p", v)}
+                  disabled={busy}
+                  data-testid="solve-dialog-slider-p"
+                  className="my-1"
+                />
+              </div>
+            )}
+
+            {/* Chen's Cosmetics objective display — CH4-17: no toggle, no
+                floor input. `objective` is always "coverage" for a persisted
+                Chapter 4 payload; this is read-only display of the one
+                mode-specific field, scoped exactly like
+                OptimizationParametersTab's surviving `chen-objective-section`. */}
+            {!readOnlyParams && objective != null && (
+              <div className="space-y-2" data-testid="solve-dialog-chen-objective-section">
+                {objective === "coverage" && (
+                  canonicalUnit !== undefined ? (
+                    <SolveDialogDistanceInput
                       id="solve-dialog-input-avg-service-cap"
-                      type="number"
-                      value={avgServiceDistCapKm ?? ""}
+                      testId="solve-dialog-input-avg-service-cap"
+                      labelPrefix="Avg service distance cap"
+                      canonicalUnit={canonicalUnit}
+                      value={avgServiceDistCapKm ?? 0}
                       disabled={busy}
-                      onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
-                      className="h-8 text-sm mt-1 font-mono"
-                      data-testid="solve-dialog-input-avg-service-cap"
+                      onCommit={v => onChange("avgServiceDistCapKm", v)}
                     />
-                  </div>
-                )
-              )}
-            </div>
-          )}
-
-          {!readOnlyParams && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="solve-dialog-gap" className="text-xs text-muted-foreground">
-                  Optimization gap (%)
-                </Label>
-                <Input
-                  id="solve-dialog-gap"
-                  type="number"
-                  step="0.01"
-                  value={gap}
-                  disabled={busy}
-                  onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
-                  className="h-8 text-sm mt-1 font-mono"
-                  data-testid="solve-dialog-input-gap"
-                />
+                  ) : (
+                    <div>
+                      <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
+                        Avg service distance cap{distanceUnit ? ` (${distanceUnit})` : ""}
+                      </Label>
+                      <Input
+                        id="solve-dialog-input-avg-service-cap"
+                        type="number"
+                        value={avgServiceDistCapKm ?? ""}
+                        disabled={busy}
+                        onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                        className="h-8 text-sm mt-1 font-mono"
+                        data-testid="solve-dialog-input-avg-service-cap"
+                      />
+                    </div>
+                  )
+                )}
               </div>
-              <div>
-                <Label htmlFor="solve-dialog-time-limit" className="text-xs text-muted-foreground">
-                  Max time (seconds)
-                </Label>
-                <Input
-                  id="solve-dialog-time-limit"
-                  type="number"
-                  value={timeLimitSec}
-                  disabled={busy}
-                  onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-                  className="h-8 text-sm mt-1 font-mono"
-                  data-testid="solve-dialog-input-time-limit"
-                />
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* R5 — distance-band range editor, prefilled from the scenario's
-              current `inputs.distanceBands` and two-way synced with the same
-              draft `onChange` as p/gap/timeLimitSec above. chen-bands-units,
-              T13 — now the SAME shared `BandChipEditor` OptimizationParametersTab
-              renders, so the two surfaces can never drift onto two different
-              add/remove implementations again. jade-INT (workspace-fixups-2,
-              item 7) — JADE renders this too (fixed-4-slot `JadeBandEditor`
-              deleted upstream; JADE's `distanceBands` schema is `.min(1)`
-              like every other model). CH4-17 — hidden for max-coverage-us
-              (`readOnlyParams`): the bands stay visible in the Optimization
-              Parameters tab, which is now the ONLY place to edit them. */}
-          {!readOnlyParams && showBandEditor && (
-            <BandChipEditor
-              bands={distanceBands}
-              onChange={bands => onChange("distanceBands", bands)}
-              disabled={busy}
-              distanceUnit={distanceUnit}
-              canonicalUnit={canonicalUnit}
-              testIdPrefix="solve-dialog-"
-            />
+            {!readOnlyParams && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="solve-dialog-gap" className="text-xs text-muted-foreground">
+                    Optimization gap (%)
+                  </Label>
+                  <Input
+                    id="solve-dialog-gap"
+                    type="number"
+                    step="0.01"
+                    value={gap}
+                    disabled={busy}
+                    onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="solve-dialog-input-gap"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="solve-dialog-time-limit" className="text-xs text-muted-foreground">
+                    Max time (seconds)
+                  </Label>
+                  <Input
+                    id="solve-dialog-time-limit"
+                    type="number"
+                    value={timeLimitSec}
+                    disabled={busy}
+                    onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="solve-dialog-input-time-limit"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* R5 — distance-band range editor, prefilled from the scenario's
+                current `inputs.distanceBands` and two-way synced with the same
+                draft `onChange` as p/gap/timeLimitSec above. chen-bands-units,
+                T13 — now the SAME shared `BandChipEditor` OptimizationParametersTab
+                renders, so the two surfaces can never drift onto two different
+                add/remove implementations again. jade-INT (workspace-fixups-2,
+                item 7) — JADE renders this too (fixed-4-slot `JadeBandEditor`
+                deleted upstream; JADE's `distanceBands` schema is `.min(1)`
+                like every other model). CH4-17 — hidden for max-coverage-us
+                (`readOnlyParams`): the bands stay visible in the Optimization
+                Parameters tab, which is now the ONLY place to edit them. */}
+            {!readOnlyParams && showBandEditor && (
+              <BandChipEditor
+                bands={distanceBands}
+                onChange={bands => onChange("distanceBands", bands)}
+                disabled={busy}
+                distanceUnit={distanceUnit}
+                canonicalUnit={canonicalUnit}
+                testIdPrefix="solve-dialog-"
+              />
+            )}
+            </>
           )}
 
           {busy && (
