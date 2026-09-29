@@ -388,8 +388,10 @@ describe("delivery-teaching-us manifest (Chapter 5, 7th model)", () => {
     const m = readManifest("delivery-teaching-us");
     expect(m.capabilities.supportsP).toBe(true);
     expect(m.capabilities.capacityModes).toEqual([]);
-    expect(m.capabilities.demandEditable).toBe(false);
-    expect(m.capabilities.supportsFacilityStatus).toBe(false);
+    // §14 amendment (2026-09-29) — Warehouses/Customers become editable:
+    // demand + exclusion on customers, open/close status on warehouses.
+    expect(m.capabilities.demandEditable).toBe(true);
+    expect(m.capabilities.supportsFacilityStatus).toBe(true);
     expect(m.capabilities.supportsReferenceCosts).toBe(true);
     expect(m.capabilities.supportsReferenceDistances).toBe(false);
     expect(m.distanceUnit).toBe("mi");

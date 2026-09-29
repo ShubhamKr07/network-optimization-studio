@@ -190,6 +190,16 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       costPerMile: i.costPerMile,
       costPerMileOver: i.costPerMileOver,
       laneCostOverrides: i.laneCostOverrides,
+      // §14 — only deviations from default travel: an `active` warehouse
+      // and a null/absent demand are the defaults and are not sent.
+      customerDemands: Object.fromEntries(
+        i.customerOverrides.filter(o => o.demand != null).map(o => [o.id, o.demand as number]),
+      ),
+      excludedCustomerIds: i.customerOverrides
+        .filter(o => o.status === "excluded").map(o => o.id),
+      warehouseStatuses: i.warehouseOverrides
+        .filter(o => o.status !== "active")
+        .map(o => ({ warehouseId: o.id, status: o.status })),
     };
   }
 

@@ -149,6 +149,9 @@ const STUB_INPUTS: Record<string, unknown> = {
     p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 60,
     costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10,
     laneCostOverrides: [],
+    // §14 (ch5-edit-2) — buildPayload's delivery-teaching-us branch now
+    // .filter()s these; the stub must carry them like every other model's.
+    warehouseOverrides: [], customerOverrides: [],
   },
 };
 

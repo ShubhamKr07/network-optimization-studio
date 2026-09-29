@@ -13,6 +13,28 @@ const laneCostOverrideSchema = z.object({
   cost: z.number().finite().nonnegative(),
 });
 
+// Section 14 — editable Warehouses and Customers. Shapes mirror pMedian.ts's
+// equivalents so the shared tab components, the status enum and the solver's
+// bound logic all transfer unchanged.
+//
+// `capacity` is DELIBERATELY absent from the warehouse override. p-median's
+// shape carries it; this model has capacityModes: [] and the solver has no
+// capacity constraint, so accepting the field would persist a value nothing
+// reads — the persisted-but-ignored trap.
+const warehouseOverrideSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["active", "forced_open", "inactive"]),
+});
+
+// `demand` is NONNEGATIVE, not positive: zero is a legal demand and means
+// "still a customer, still served, contributes nothing" — distinct from
+// `status: "excluded"`, which removes the customer from the denominator.
+const customerOverrideSchema = z.object({
+  id: z.string().min(1),
+  demand: z.number().finite().nonnegative().nullable().optional(),
+  status: z.enum(["active", "excluded"]),
+});
+
 export const deliveryInputsSchema = z.object({
   // 33 candidate DCs. This bound is the API's only enforcement - both UI
   // mounts default pMax = 50 and must be passed pMax={33} explicitly, or a
@@ -37,6 +59,13 @@ export const deliveryInputsSchema = z.object({
       (rows) => new Set(rows.map((r) => `${r.fromId},${r.toId}`)).size === rows.length,
       { message: "laneCostOverrides must not contain duplicate (fromId, toId) pairs" },
     ),
+
+  // §14 — editable Warehouses/Customers. Only deviations travel to the
+  // solver (see buildPayload's delivery-teaching-us branch in pmedian.ts):
+  // `active` warehouses and null/absent demand are the defaults and are not
+  // sent on the wire.
+  warehouseOverrides: z.array(warehouseOverrideSchema).default([]),
+  customerOverrides: z.array(customerOverrideSchema).default([]),
 });
 
 export type DeliveryInputs = z.infer<typeof deliveryInputsSchema>;

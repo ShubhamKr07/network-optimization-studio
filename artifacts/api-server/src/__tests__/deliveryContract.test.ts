@@ -122,3 +122,79 @@ describe("delivery-teaching-us manifest/schema parity", () => {
       "costAdjustEnabled", "distanceThreshold", "costPerMile", "costPerMileOver"]));
   });
 });
+
+// §14 amendment (ch5-edit-2) — editable Warehouses and Customers.
+describe("deliveryInputsSchema — editable overrides (section 14)", () => {
+  it("accepts warehouse status overrides and defaults them to []", () => {
+    const parsed = deliveryInputsSchema.parse(baseInputs());
+    expect(parsed.warehouseOverrides).toEqual([]);
+    expect(parsed.customerOverrides).toEqual([]);
+  });
+
+  it("accepts the three warehouse statuses and rejects anything else", () => {
+    for (const status of ["active", "forced_open", "inactive"]) {
+      expect(deliveryInputsSchema.safeParse({
+        ...baseInputs(), warehouseOverrides: [{ id: "W8", status }],
+      }).success).toBe(true);
+    }
+    expect(deliveryInputsSchema.safeParse({
+      ...baseInputs(), warehouseOverrides: [{ id: "W8", status: "closed" }],
+    }).success).toBe(false);
+  });
+
+  // The model has no capacity. Accepting a field the solver ignores is the
+  // persisted-but-ignored trap section 14 exists to avoid.
+  it("strips or rejects a capacity on a warehouse override", () => {
+    const parsed = deliveryInputsSchema.parse({
+      ...baseInputs(), warehouseOverrides: [{ id: "W8", status: "inactive", capacity: 500 }],
+    });
+    expect((parsed.warehouseOverrides[0] as Record<string, unknown>).capacity).toBeUndefined();
+  });
+
+  it("accepts zero demand but rejects negative", () => {
+    expect(deliveryInputsSchema.safeParse({
+      ...baseInputs(), customerOverrides: [{ id: "C1", demand: 0, status: "active" }],
+    }).success).toBe(true);
+    expect(deliveryInputsSchema.safeParse({
+      ...baseInputs(), customerOverrides: [{ id: "C1", demand: -1, status: "active" }],
+    }).success).toBe(false);
+  });
+});
+
+describe("buildPayload — section 14 wire fields", () => {
+  it("derives customerDemands, excludedCustomerIds and warehouseStatuses", () => {
+    const payload = buildPayload({
+      modelId: "delivery-teaching-us",
+      inputs: deliveryInputsSchema.parse({
+        ...baseInputs(),
+        warehouseOverrides: [
+          { id: "W6", status: "forced_open" },
+          { id: "W8", status: "inactive" },
+          { id: "W9", status: "active" },
+        ],
+        customerOverrides: [
+          { id: "C1", demand: 20_000_000, status: "active" },
+          { id: "C2", demand: null, status: "excluded" },
+        ],
+      }),
+    }) as Record<string, unknown>;
+
+    expect(payload.customerDemands).toEqual({ C1: 20_000_000 });
+    expect(payload.excludedCustomerIds).toEqual(["C2"]);
+    // `active` is the default and is NOT sent — only deviations travel.
+    expect(payload.warehouseStatuses).toEqual([
+      { warehouseId: "W6", status: "forced_open" },
+      { warehouseId: "W8", status: "inactive" },
+    ]);
+  });
+
+  it("keeps the ids role-prefixed with no translation", () => {
+    const payload = buildPayload({
+      modelId: "delivery-teaching-us",
+      inputs: deliveryInputsSchema.parse({
+        ...baseInputs(), customerOverrides: [{ id: "C269", demand: 1, status: "active" }],
+      }),
+    }) as Record<string, Record<string, unknown>>;
+    expect(Object.keys(payload.customerDemands)).toEqual(["C269"]);
+  });
+});

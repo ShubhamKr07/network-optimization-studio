@@ -71,6 +71,9 @@ describe("GET /api/models", () => {
     expect(byId["p-median-brazil"]).toBe(true);
     expect(byId["two-echelon-gold-au"]).toBe(true);
     expect(byId["transport-coal"]).toBe(false);
+    // §14 amendment (ch5-edit-2) — Warehouses become editable: open/close
+    // status flips this true for delivery-teaching-us too.
+    expect(byId["delivery-teaching-us"]).toBe(true);
   });
 
   // Bundle 2.2 (B2.2-T2) — supportsReferenceDistances gates the

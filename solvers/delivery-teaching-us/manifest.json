@@ -8,9 +8,9 @@
   "capabilities": {
     "supportsP": true,
     "capacityModes": [],
-    "demandEditable": false,
+    "demandEditable": true,
     "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"],
-    "supportsFacilityStatus": false,
+    "supportsFacilityStatus": true,
     "supportsReferenceDistances": false,
     "supportsReferenceCosts": true,
     "supportsAddedCustomerExclusion": false
