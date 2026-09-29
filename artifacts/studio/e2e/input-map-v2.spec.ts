@@ -17,6 +17,13 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 const HEADER_TIMEOUT = 10_000;
+// Real CBC solve, not seeded — this test's whole point is the estimated-
+// distance -> Run Optimizer -> real-solve money path. 30s (this file's
+// original margin) genuinely flaked under a full-gate 4-worker parallel run
+// on a loaded machine; 90s matches the established convention elsewhere in
+// this suite for a real-solve wait (workspace-fixups.spec.ts's own
+// SOLVE_TIMEOUT).
+const SOLVE_TIMEOUT = 90_000;
 
 async function registerAndGoHome(page: Page): Promise<void> {
   const email = `e2e-inputmapv2-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
@@ -100,13 +107,40 @@ test.describe("Input Map v2 — money path (p-median-us)", () => {
       await expect(warehouseMarkers(page)).toHaveCount(baseMarkerCount + 1, { timeout: HEADER_TIMEOUT });
 
       // Save -> toast names the newly-created warehouse's displayCode.
+      // Radix's Toast primitive renders TWO elements per toast, BOTH
+      // carrying the same text content: a visually-hidden `role="status"`
+      // announce duplicate (screen-reader-only — a bare `<span>` sibling of
+      // the real `<ol>` viewport, NO action button — see @radix-ui/
+      // react-toast's ToastAnnounce) and the real visible toast `<li>`,
+      // portaled into a `role="region"` Viewport's `<ol>`.
+      // `page.getByText(...)` alone matches BOTH (confirmed via a real
+      // parallel-worker gate run — strict-mode violation, "resolved to 2
+      // elements") — timing-dependent under load, since the announce
+      // duplicate's own text only populates on a later render than the
+      // visible toast's. Scope to the real toast `<li>` (inside the
+      // region's `<ol>`, never the bare announce `<span>`) for BOTH the
+      // visibility check and the button click, so this can't resolve to two
+      // elements regardless of worker contention. (`role="region"` itself
+      // is not what to assert `.toBeVisible()` on either — it's a plain
+      // non-positioned div whose only child, the `<ol>`, is `position:
+      // fixed`/out of flow, so the wrapper's own layout box collapses to
+      // zero height even while the toast inside it is genuinely on-screen.)
       await expect(page.getByTestId("button-save")).toBeEnabled();
       await page.getByTestId("button-save").click();
-      await expect(page.getByText(new RegExp(`distances? estimated for ${displayCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const escapedCode = displayCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const toastItem = page.getByRole("region").locator("li").filter({
+        hasText: new RegExp(`distances? estimated for ${escapedCode}`),
+      });
+      await expect(toastItem).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("button-save")).toBeDisabled();
 
-      // Distances grid: at least one row is flagged Estimated.
-      await page.getByTestId("sidebar-input-distances").click();
+      // Distances grid: navigate via the toast's own "Distances" action
+      // (not the sidebar directly) — this is what sets `focusEntityId` and
+      // jumps to the new warehouse's own page/row (Workspace.tsx's
+      // reportEstimatedDistanceWatches); with ~200 customer rows in this
+      // dataset, the sidebar-only path lands on page 1, which the newly
+      // added warehouse's rows are not guaranteed to be on.
+      await toastItem.getByRole("button", { name: "Distances" }).click();
       await expect(page.getByTestId("distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const estimatedBadge = page.locator('[data-testid^="badge-distance-estimated-"]').first();
       await expect(estimatedBadge).toBeVisible();
@@ -126,7 +160,7 @@ test.describe("Input Map v2 — money path (p-median-us)", () => {
       await page.getByTestId("button-run-optimizer").click();
       await expect(page.getByTestId("solve-dialog")).toBeVisible();
       await page.getByTestId("solve-dialog-solve").click();
-      await expect(page.getByTestId("sidebar-output-output-map")).toBeEnabled({ timeout: 30_000 });
+      await expect(page.getByTestId("sidebar-output-output-map")).toBeEnabled({ timeout: SOLVE_TIMEOUT });
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }
@@ -244,12 +278,17 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await firstMarker.click({ button: "right" });
       await page.getByTestId("map-action-copy").click();
       await expect(page.getByTestId("armed-status-bar")).toBeVisible();
-      // Top-right corner (same safe zone as emptyMapOffset): clear of the
-      // dense marker field, the bottom-right Leaflet attribution control, AND
-      // the bottom-left MapLegend overlay. (MapLegend is now pointer-events:none
-      // too, but keep the drop in the established empty zone regardless.)
-      const dropPoint = { x: box.x + box.width * 0.94, y: box.y + box.height * 0.06 };
-      await page.mouse.click(dropPoint.x, dropPoint.y);
+      // The toolbar row (`pmedian-map-toolbar`) is `flex-wrap`: the
+      // armed-status-bar banner it renders while a Move/Copy is armed can
+      // push it onto a second line, which pushes the map canvas DOWN —
+      // `box` was captured before anything was armed, so its absolute y no
+      // longer matches. Use a canvas-RELATIVE click (Playwright re-resolves
+      // the element's real bounding box at click time) instead of computing
+      // an absolute page point off the stale `box`, so this survives that
+      // layout shift. Top-right corner (same safe zone as emptyMapOffset):
+      // clear of the dense marker field, the bottom-right Leaflet
+      // attribution control, AND the bottom-left MapLegend overlay.
+      await canvas.click({ position: emptyMapOffset(box) });
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
       const lat = Number(await page.getByTestId("create-entity-lat").textContent());
       const lng = Number(await page.getByTestId("create-entity-lng").textContent());
