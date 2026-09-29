@@ -122,6 +122,35 @@ export interface ScenarioSteps {
 
 const EMPTY_STEP: ScenarioStepState = { solved: false, stale: false, jobId: null, summary: null };
 
+// Shared by both loadScenarioSteps and loadScenarioStepsBatch — the SQL
+// projection is identical (see loadScenarioSteps's own comment for why each
+// jsonb path is read where it is); only the WHERE/DISTINCT ON scoping
+// differs between "one scenario" and "many scenarios in one query".
+function summaryFromRawRow(raw: Record<string, unknown>, distanceUnit: string): ScenarioStepSummary {
+  return {
+    objective: raw.objective as "coverage" | "min_distance",
+    status: String(raw.status ?? ""),
+    solutionStatus: raw.solution_status == null ? null : String(raw.solution_status),
+    quality: raw.quality == null ? null : String(raw.quality),
+    coveragePct: raw.coverage_pct == null ? null : Number(raw.coverage_pct),
+    coveredDemand: raw.covered_demand == null ? null : Number(raw.covered_demand),
+    weightedAvgDistance: raw.weighted_avg_distance == null ? null : Number(raw.weighted_avg_distance),
+    distanceUnit,
+    runTimeSec: raw.run_time_sec == null ? null : Number(raw.run_time_sec),
+  };
+}
+
+// R2 (see loadScenarioSteps's own header comment for the full rationale) —
+// the CURRENT effective Step 2 settings: `step2` overrides when present,
+// else Step 1's own values are inherited.
+function effectiveStep2Settings(inputs: Record<string, unknown>): { gap: number | null; timeLimitSec: number | null } {
+  const step2Bag = (inputs.step2 ?? null) as { gap?: number; timeLimitSec?: number } | null;
+  return {
+    gap: step2Bag?.gap ?? (inputs.gap as number | undefined) ?? null,
+    timeLimitSec: step2Bag?.timeLimitSec ?? (inputs.timeLimitSec as number | undefined) ?? null,
+  };
+}
+
 // A3 — the two snapshot shapes are NOT symmetric, and that asymmetry is what
 // produced the R2 defect. A Step 1 snapshot is `validation.data`, so it
 // RETAINS both `step2` and `stepEpoch`. A Step 2 snapshot comes from
@@ -189,25 +218,11 @@ export async function loadScenarioSteps(
   // synthesizeStep2Inputs derives them: `step2` overrides when present, else
   // Step 1's own values are inherited. Comparing effective-to-effective is
   // what makes "I never touched Step 2's settings" read as fresh.
-  const step2Bag = (inputs.step2 ?? null) as { gap?: number; timeLimitSec?: number } | null;
-  const effectiveStep2 = {
-    gap: step2Bag?.gap ?? (inputs.gap as number | undefined) ?? null,
-    timeLimitSec: step2Bag?.timeLimitSec ?? (inputs.timeLimitSec as number | undefined) ?? null,
-  };
+  const effectiveStep2 = effectiveStep2Settings(inputs);
 
   for (const raw of result.rows as Record<string, unknown>[]) {
     const objective = raw.objective as "coverage" | "min_distance";
-    const summary: ScenarioStepSummary = {
-      objective,
-      status: String(raw.status ?? ""),
-      solutionStatus: raw.solution_status == null ? null : String(raw.solution_status),
-      quality: raw.quality == null ? null : String(raw.quality),
-      coveragePct: raw.coverage_pct == null ? null : Number(raw.coverage_pct),
-      coveredDemand: raw.covered_demand == null ? null : Number(raw.covered_demand),
-      weightedAvgDistance: raw.weighted_avg_distance == null ? null : Number(raw.weighted_avg_distance),
-      distanceUnit,
-      runTimeSec: raw.run_time_sec == null ? null : Number(raw.run_time_sec),
-    };
+    const summary = summaryFromRawRow(raw, distanceUnit);
 
     if (objective === "coverage") {
       // CH4-3 — Step 1 can never be stale: the only thing that can change it
@@ -226,6 +241,121 @@ export async function loadScenarioSteps(
         effectiveStep2.gap !== snapshotGap ||
         effectiveStep2.timeLimitSec !== snapshotTimeLimit;
       steps.step2 = { solved: true, stale, jobId: Number(raw.job_id), summary };
+    }
+  }
+
+  return steps;
+}
+
+export interface ScenarioStepsBatchRow {
+  id: number;
+  inputs: Record<string, unknown>;
+}
+
+// CMP-1 — the compare-list step-awareness gap. `GET /scenarios` cannot call
+// loadScenarioSteps per row without an N+1 (one query per scenario). This is
+// the same projection widened across many scenarios in ONE query — the
+// caller filters to max-coverage-us rows and passes them here.
+//
+// The epoch problem: each scenario carries its OWN stepEpoch, so the
+// single-scenario query's `WHERE ... stepEpoch = ${epoch}` cannot be reused
+// as one shared filter value across many scenarios. The fix is to NOT filter
+// epoch in SQL at all: select the snapshot's epoch as a COLUMN
+// (`snapshot_epoch`), use `DISTINCT ON (scenario_id, objective) ... ORDER BY
+// scenario_id, objective, id DESC` to get the newest succeeded job per
+// scenario-and-objective across the whole batch, and compare that row's
+// epoch against the scenario's CURRENT epoch in Node.
+//
+// This is safe for the same reason loadScenarioSteps's own epoch filter is
+// safe: jobs are created at the then-current epoch (CH4-23), and the epoch
+// only ever increases — it never resets or decreases. So the newest job for
+// a given (scenario, objective) necessarily carries the HIGHEST epoch that
+// exists for that pair. Two cases:
+//   - if that highest epoch equals the scenario's current epoch, it is the
+//     same row loadScenarioSteps's own `WHERE stepEpoch = ${epoch}` filter
+//     would have selected (filtering first, then taking DISTINCT ON id DESC,
+//     yields the same row as taking DISTINCT ON id DESC first and finding it
+//     already matches);
+//   - if it is LOWER than the current epoch, then every job for that pair is
+//     superseded (none can exceed the newest), so loadScenarioSteps's SQL
+//     filter would have matched zero rows for that objective too — which is
+//     exactly what "reject on epoch mismatch in Node" reproduces here.
+// The two orderings are therefore observationally identical; DISTINCT ON
+// never needs to consider any row older than the newest for a given
+// (scenario, objective), so nothing is lost by resolving the epoch check in
+// Node instead of in the WHERE clause.
+export async function loadScenarioStepsBatch(
+  userId: string,
+  scenarios: ScenarioStepsBatchRow[],
+): Promise<Map<number, ScenarioSteps>> {
+  const steps = new Map<number, ScenarioSteps>();
+  if (scenarios.length === 0) return steps;
+
+  const distanceUnit = getManifest(MAX_COVERAGE_MODEL_ID)?.distanceUnit ?? "mi";
+  const epochByScenario = new Map<number, number>();
+  const inputsByScenario = new Map<number, Record<string, unknown>>();
+  for (const scenario of scenarios) {
+    steps.set(scenario.id, { step1: { ...EMPTY_STEP }, step2: { ...EMPTY_STEP } });
+    epochByScenario.set(scenario.id, readStepEpoch(scenario.inputs));
+    inputsByScenario.set(scenario.id, scenario.inputs);
+  }
+
+  const ids = scenarios.map(s => s.id);
+  const result = await db.execute(sql`
+    SELECT DISTINCT ON (j.scenario_id, j.input_snapshot -> 'inputs' ->> 'objective')
+      j.scenario_id                                                         AS scenario_id,
+      j.id                                                                  AS job_id,
+      j.input_snapshot -> 'inputs' ->> 'objective'                          AS objective,
+      -- The epoch the JOB was solved at, read as a plain column rather than
+      -- filtered in the WHERE clause — see this function's own header
+      -- comment for why that is safe to compare in Node instead.
+      COALESCE((j.input_snapshot -> 'inputs' ->> 'stepEpoch')::int, 1)      AS snapshot_epoch,
+      (j.input_snapshot -> 'inputs' ->> 'gap')::double precision            AS snapshot_gap,
+      (j.input_snapshot -> 'inputs' ->> 'timeLimitSec')::int                AS snapshot_time_limit,
+      j.result ->> 'status'                                                 AS status,
+      j.result ->> 'solutionStatus'                                        AS solution_status,
+      j.result ->> 'quality'                                                AS quality,
+      (j.result ->> 'runTimeSec')::double precision                        AS run_time_sec,
+      (j.result -> 'details' ->> 'coveragePct')::double precision           AS coverage_pct,
+      (j.result -> 'details' ->> 'coveredDemand')::bigint                   AS covered_demand,
+      (j.result -> 'metrics' ->> 'weightedAvgDistance')::double precision   AS weighted_avg_distance
+    FROM solve_jobs j
+    -- Ownership scoping: this query must not let one user's jobs leak into
+    -- another's rows, so j.user_id is filtered here rather than trusted from
+    -- the caller's own already-scoped scenario list.
+    WHERE j.user_id = ${userId}
+      AND j.scenario_id IN ${ids}
+      AND j.status = 'succeeded'
+    ORDER BY j.scenario_id, j.input_snapshot -> 'inputs' ->> 'objective', j.id DESC
+  `);
+
+  for (const raw of result.rows as Record<string, unknown>[]) {
+    const scenarioId = Number(raw.scenario_id);
+    const currentEpoch = epochByScenario.get(scenarioId);
+    // Defensive only — every scenario_id in the result set came from the IN
+    // list built above, so this is never expected to miss.
+    if (currentEpoch === undefined) continue;
+
+    const snapshotEpoch = raw.snapshot_epoch == null ? 1 : Number(raw.snapshot_epoch);
+    // The epoch check loadScenarioSteps's WHERE clause performs in SQL,
+    // performed here in Node instead — see the header comment for why the
+    // two are equivalent.
+    if (snapshotEpoch !== currentEpoch) continue;
+
+    const objective = raw.objective as "coverage" | "min_distance";
+    const summary = summaryFromRawRow(raw, distanceUnit);
+    const scenarioSteps = steps.get(scenarioId)!;
+
+    if (objective === "coverage") {
+      scenarioSteps.step1 = { solved: true, stale: false, jobId: Number(raw.job_id), summary };
+    } else {
+      const effectiveStep2 = effectiveStep2Settings(inputsByScenario.get(scenarioId)!);
+      const snapshotGap = raw.snapshot_gap == null ? null : Number(raw.snapshot_gap);
+      const snapshotTimeLimit = raw.snapshot_time_limit == null ? null : Number(raw.snapshot_time_limit);
+      const stale =
+        effectiveStep2.gap !== snapshotGap ||
+        effectiveStep2.timeLimitSec !== snapshotTimeLimit;
+      scenarioSteps.step2 = { solved: true, stale, jobId: Number(raw.job_id), summary };
     }
   }
 

@@ -162,6 +162,53 @@ describe("cross-model contract — `steps` presence on GET /scenarios/:id", () =
   }
 });
 
+// cmp-1 — the compare-list step-awareness gap. Same contract as the
+// single-scenario GET above (`steps` present only for max-coverage-us),
+// extended to the LIST route, which the Compare feature actually reads.
+describe("cross-model contract — `steps` presence on GET /scenarios (list)", () => {
+  it("is present (step1 + step2) on the max-coverage-us row", async () => {
+    const cookie = await registerAndGetCookie("list-steps-ch4");
+    const id = await createScenario(cookie, "max-coverage-us", MAX_COVERAGE_INPUTS);
+
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+    const row = res.body.find((s: { id: number }) => s.id === id);
+    expect(row).toBeDefined();
+    expect(row.steps).toBeDefined();
+    expect(row.steps).not.toBeNull();
+    expect(row.steps.step1).toBeDefined();
+    expect(row.steps.step2).toBeDefined();
+  });
+
+  for (const { modelId, inputs } of NON_STEP_MODELS) {
+    it(`is ABSENT (key never appears, not null/empty) on the ${modelId} row`, async () => {
+      const cookie = await registerAndGetCookie(`list-steps-${modelId}`);
+      const id = await createScenario(cookie, modelId, inputs);
+
+      const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+      const row = res.body.find((s: { id: number }) => s.id === id);
+      expect(row).toBeDefined();
+      expect("steps" in row).toBe(false);
+      expect(row.steps).toBeUndefined();
+    });
+  }
+
+  it("a mixed list carries steps only on the max-coverage-us row, absent on the rest", async () => {
+    const cookie = await registerAndGetCookie("list-steps-mixed");
+    const ch4Id = await createScenario(cookie, "max-coverage-us", MAX_COVERAGE_INPUTS);
+    const otherIds = await Promise.all(
+      NON_STEP_MODELS.map(({ modelId, inputs }) => createScenario(cookie, modelId, inputs)),
+    );
+
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+    const byId = new Map<number, Record<string, unknown>>(res.body.map((s: { id: number }) => [s.id, s]));
+
+    expect("steps" in byId.get(ch4Id)!).toBe(true);
+    for (const id of otherIds) {
+      expect("steps" in byId.get(id)!).toBe(false);
+    }
+  });
+});
+
 describe("cross-model contract — POST /scenarios/:id/solve route-boundary solve-target", () => {
   for (const { modelId, inputs } of NON_STEP_MODELS) {
     it(`${modelId}: two back-to-back solves never 409, and the success body is exactly { jobId }`, async () => {
