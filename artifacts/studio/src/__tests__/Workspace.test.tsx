@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { UnitProvider } from "@/contexts/UnitContext";
@@ -1221,12 +1221,28 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
 // test that supplies its own `onInputsChange` directly (as
 // InputMapTab.deliveryFixedGeography.test.tsx does) can never observe a
 // regression in which handler Workspace.tsx actually wires up — only
-// rendering the real page can. Editing via the map, then switching to the
-// Warehouses tab (which shares the same `localInputs.warehouseOverrides`
-// slice) and clicking the shared toolbar Save, is the real end-to-end path
-// a student has: the map's own Layers-row Save stays hidden for this model
-// (§14.5 keeps that gated on `fixedGeography`).
-describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6, §14.5)", () => {
+// rendering the real page can. This same reasoning is why ch5-edit-6b's own
+// Save-button test lives here too, rather than in
+// deliveryEditableInputs.test.tsx (Task 5's persistence-test home): that
+// file mocks react-leaflet's `Marker` down to `null` (it exists to test the
+// Warehouses/Customers TABLE editors, which don't need a real map), so there
+// is no `.leaflet-marker-icon` DOM node there to right-click — only this
+// file renders react-leaflet for real and already has the
+// `contextmenu` → `map-action-edit` → `EditWarehouseDialog` interaction
+// working (proven by the pre-existing tests below).
+//
+// ch5-edit-6b — the human's explicit decision closing concern 4 from
+// ch5-edit-6's report: delivery-teaching-us was the only one of seven
+// models with an editable Input Map and no Save affordance visible on that
+// tab (isEditableInputTab's "input-map" row didn't include it). §14.5's
+// "keep the map Save path hidden" governs InputMapTab.tsx's OWN
+// Layers-row Save only (still true — see the second test below); it never
+// said the SHARED toolbar Save should stay hidden too. Fixed by joining
+// delivery-teaching-us into isEditableInputTab's existing p-median/
+// max-coverage "input-map" disjunct (it renders through the same "pmedian"
+// arm with the same PMedianMapInputs shape) while leaving `saveInLayersRow`
+// untouched.
+describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6/6b, §14.5)", () => {
   const deliveryInputs = {
     p: 3,
     distanceBands: [400, 800, 1200, 1600],
@@ -1259,9 +1275,16 @@ describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6, �
     mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
   });
 
-  it("editing a warehouse's status via the Input Map and Saving from the Warehouses tab PATCHes warehouseOverrides", () => {
+  // ch5-edit-6b — the round trip this whole fix exists for: the shared
+  // toolbar Save is DISABLED before any edit, becomes ENABLED the instant a
+  // status edit is made on the map — no tab switch required — and Saving
+  // PATCHes the real warehouseOverrides payload via useUpdateScenario.
+  it("a warehouse status edit on the Input Map enables the shared toolbar Save without switching tabs, and Save PATCHes warehouseOverrides", () => {
     renderDeliveryWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
 
     // `dataset` fixture (top of file) has exactly one warehouse, id "CHI".
     const marker = document.querySelector(".leaflet-marker-icon")!;
@@ -1270,8 +1293,11 @@ describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6, �
     fireEvent.click(screen.getByTestId("edit-warehouse-status-inactive"));
     fireEvent.click(screen.getByTestId("edit-warehouse-save"));
 
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    // Still on the Input Map tab — no sidebar click in between.
+    expect(screen.getByTestId("sidebar-input-input-map")).toBeInTheDocument();
     expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByTestId("button-save"));
 
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
@@ -1288,11 +1314,22 @@ describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6, �
     });
   });
 
-  it("the Input Map's own Layers-row Save stays hidden for this model even though status/demand edits are live", () => {
+  // §14.5 still requires the map's OWN inline Save (InputMapTab.tsx's
+  // Layers-row `onSave`, gated on `fixedGeography`) to stay hidden — only
+  // the SHARED toolbar gained one in ch5-edit-6b. Scoping the query to
+  // `pmedian-map-toolbar` (the Layers row's own container) is what makes
+  // this assertion actually test that, rather than just re-testing that
+  // some "button-save" exists somewhere on the page.
+  it("the Input Map's own Layers-row Save stays hidden — only the shared toolbar Save renders", () => {
     renderDeliveryWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
-    expect(screen.getByTestId("pmedian-map-toolbar")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+
+    const layersRow = screen.getByTestId("pmedian-map-toolbar");
+    expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
+
+    // Exactly one Save button on the whole page — the shared toolbar's.
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
   });
 });
 

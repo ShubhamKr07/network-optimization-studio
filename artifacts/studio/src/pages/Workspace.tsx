@@ -2321,7 +2321,20 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // exact field names/shape; only capacity is dropped, already suppressed
       // by capacityMode="none"), so it reuses the same "pmedian" mode editor
       // (renderTabContent's fallback branch) and needs the same Save gate.
-      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us")) ||
+      // ch5-edit-6b — delivery-teaching-us joins too: §14 made warehouse
+      // status and customer demand/exclusion editable via the map (Task 6's
+      // `fixedGeography` prop, which keeps ADD/MOVE/COPY/DELETE and this
+      // tab's own Layers-row Save refused, but not the status/demand edit
+      // path). It renders through this same "pmedian" arm with the exact
+      // same PMedianMapInputs shape (pmedianMapInputsSlice/
+      // handlePMedianMapInputsChange, unconditional since ch5-edit-6), so
+      // without this row a map edit writes into localInputs correctly but
+      // has no visible Save affordance on this tab at all — the shared
+      // toolbar was the only Save this model's Input Map was missing.
+      // `saveInLayersRow` below is deliberately NOT extended the same way:
+      // §14.5 keeps this tab's own inline Save hidden for delivery-
+      // teaching-us — only the shared toolbar gains one.
+      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
       // folded into the pmedian check above: TransportLpInputs isn't
@@ -2406,6 +2419,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // InputMapTab (renderTabContent's fallback branch) with its own relocated
   // Save in the Layers row, so the shared toolbar Save must be suppressed for
   // it too, exactly as for p-median-us/brazil.
+  // ch5-edit-6b — delivery-teaching-us deliberately does NOT join this list,
+  // even though it joined isEditableInputTab's "input-map" row above: §14.5
+  // keeps this tab's own inline Layers-row Save hidden for this model (only
+  // add/move/copy/delete/coordinates were ever routed through it, and those
+  // stay refused — InputMapTab.tsx's `fixedGeography` gate on `onSave`), so
+  // the SHARED toolbar is the only Save affordance this model's Input Map
+  // tab gets.
   const saveInLayersRow =
     activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
