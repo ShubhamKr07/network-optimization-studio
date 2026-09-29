@@ -130,10 +130,24 @@ test.describe("Bundle 6.1 — Map legend (Input size ramp, Output states, layer-
         await assertSwatchContained(page, `legend-status-${status}`);
       }
 
+      // "Size customers by demand" now defaults OFF for every model (human
+      // instruction, ch5-edit-8) — the demand ramp is absent until the
+      // layer is turned on. Assert the off-by-default state explicitly
+      // (this used to be true "for free" via a since-flipped ON default;
+      // stating it directly is strictly stronger coverage than silently
+      // depending on a default the spec never named).
+      const bucketCells = page.locator('[data-testid^="legend-demand-bucket-"]');
+      await expect(bucketCells).toHaveCount(0);
+
       // Demand size ramp — a `legend-demand-bucket-*` per bucket the real
       // customer population actually occupies, each an SVG circle (not a
-      // variable-sized wrapper div), each contained by its cell.
-      const bucketCells = page.locator('[data-testid^="legend-demand-bucket-"]');
+      // variable-sized wrapper div), each contained by its cell. Only
+      // renders once "Size customers by demand" is turned on.
+      const sizeByDemandToggle = page.getByTestId("toggle-layer-size-by-demand");
+      await expect(sizeByDemandToggle).toHaveAttribute("aria-checked", "false");
+      await sizeByDemandToggle.click();
+      await expect(sizeByDemandToggle).toHaveAttribute("aria-checked", "true");
+
       const bucketCount = await bucketCells.count();
       expect(bucketCount).toBeGreaterThan(0);
       for (let i = 0; i < bucketCount; i++) {
@@ -175,7 +189,10 @@ test.describe("Bundle 6.1 — Map legend (Input size ramp, Output states, layer-
       await expect(page.getByTestId("legend-output-customer")).toBeVisible();
 
       // Resolution #1 — Output has no demand ramp at all (no "size by
-      // demand" toggle to show a scale for).
+      // demand" toggle to show a scale for). Unaffected by ch5-edit-8's
+      // sizeByDemand default flip: MapLegend.tsx's showDemandGroup gates on
+      // `variant === "input"` first, so this stays false for the Output
+      // variant regardless of what the toggle's own default is.
       await expect(legend).not.toContainText("Demand");
       await expect(page.locator('[data-testid^="legend-demand-bucket-"]')).toHaveCount(0);
 
