@@ -153,9 +153,23 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     await page.getByTestId("sidebar-input-optimization-parameters").click();
     await expect(page.getByTestId("button-remove-band-1200")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-    // R5's displayedInputs principle: draft-edit the bands AGAIN (add 2000)
-    // WITHOUT saving/re-solving — the currently-displayed solve's OUTPUT
-    // surfaces must not react to this.
+    // [e2e-rot repair] R5's original "unsaved draft never reaches an OUTPUT
+    // surface" principle was deliberately superseded for ServiceStats by a
+    // LATER bundle (SSC-T1, `docs/superpowers/specs/2026-09-18-nonjade-
+    // servicestats-live-coverage-design.md`): post-solve band edits WITHOUT
+    // re-solving now LIVE re-bucket the ServiceStats coverage bars (matching
+    // the Output Map's already-live band lens) for every distance-band model
+    // except max-coverage-us. Confirmed via ServiceStatsTab.tsx's own
+    // `presentationBands` prop comment and the dedicated
+    // nonjade-servicestats-live-coverage.spec.ts coverage — not a product
+    // bug, a real intentional feature this test predates. What R5 DID still
+    // establish and remains true: this is a pure client-side recompute, not
+    // a re-solve — tracked via zero `/solve` network calls below.
+    const solveCallsBeforeDraftEdit: string[] = [];
+    page.on("request", req => {
+      const url = req.url();
+      if (/\/scenarios\/\d+\/solve(-jobs)?(\/|$|\?)/.test(url)) solveCallsBeforeDraftEdit.push(url);
+    });
     await page.getByTestId("button-bands-plus").click();
     await page.getByTestId("input-new-band").fill("2000");
     await page.getByTestId("button-add-band-confirm").click();
@@ -163,7 +177,11 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
 
     await page.getByTestId("sidebar-output-service-stats").click();
     await expect(page.getByTestId("service-stats-band-1200")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("service-stats-band-2000")).toHaveCount(0); // the UNSAVED draft never reached this OUTPUT surface
+    // Live re-bucket: the unsaved draft band DOES reach this OUTPUT surface
+    // now (the intentional SSC-T1 behavior).
+    await expect(page.getByTestId("service-stats-band-2000")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    // ...but it's a pure recompute — no solve was triggered by this edit.
+    expect(solveCallsBeforeDraftEdit).toHaveLength(0);
 
     // ── R9 — corrected demand-weighted label + real unit ───────────────────
     await expect(page.getByText("Percent of demand served within the selected distance bands")).toBeVisible();
@@ -199,9 +217,16 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     await expect(page.getByTestId("cost-summary-compare-table")).toBeVisible();
     await expect(page.getByTestId(`cost-summary-compare-column-${id}`)).toBeVisible();
     await expect(page.getByTestId(`cost-summary-compare-column-${id2}`)).toBeVisible();
-    await expect(page.getByTestId(`cost-summary-compare-open-facilities-${id}`)).toBeVisible();
-    await expect(page.getByTestId(`cost-summary-compare-open-facilities-${id2}`)).toBeVisible();
-    await expect(page.getByTestId(`cost-summary-compare-utilization-${id}`)).toBeVisible();
+    // Open-facilities row testid is `...-open-facilities-cities-<id>`
+    // (CostSummaryTab.tsx T5/B5) — the plain `...-open-facilities-<id>`
+    // this test used to assert never existed under that exact name.
+    await expect(page.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`)).toBeVisible();
+    await expect(page.getByTestId(`cost-summary-compare-open-facilities-cities-${id2}`)).toBeVisible();
+    // There is no separate "utilization" row in compare mode at all — assert
+    // another real per-scenario row (Weighted avg. distance) instead, to
+    // keep proving more than just the header renders.
+    await expect(page.getByTestId(`cost-summary-compare-distance-${id}`)).toBeVisible();
+    await expect(page.getByTestId(`cost-summary-compare-distance-${id2}`)).toBeVisible();
 
     await page.request.delete(`/api/scenarios/${id}`);
     await page.request.delete(`/api/scenarios/${id2}`);
@@ -237,9 +262,9 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
       await expect(page.getByTestId(`cost-summary-compare-objective-${idB}`)).toBeVisible();
       // Facility-location rows are OMITTED ENTIRELY (not "N/A" cells) for
       // transport-coal — every mine is always "open", so there's no real
-      // facility-location concept to report on.
-      await expect(page.getByTestId(`cost-summary-compare-open-facilities-${idA}`)).toHaveCount(0);
-      await expect(page.getByTestId(`cost-summary-compare-utilization-${idA}`)).toHaveCount(0);
+      // facility-location concept to report on (gated on
+      // supportsFacilityStatus — false for transport-coal).
+      await expect(page.getByTestId(`cost-summary-compare-open-facilities-cities-${idA}`)).toHaveCount(0);
     } finally {
       await page.request.delete(`/api/scenarios/${idA}`);
       await page.request.delete(`/api/scenarios/${idB}`);

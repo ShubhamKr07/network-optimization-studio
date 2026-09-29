@@ -62,23 +62,43 @@ async function createScenario(
   return id;
 }
 
-/** Clicks a point roughly in the middle of the Input Map's Leaflet canvas
- * and clicks Confirm, landing on the target Tab with the add-row form
- * prefilled. Doesn't try to read back the exact lat/lng from the draft
- * panel's own text — that's a `.toFixed(4)`-rounded PREVIEW (InputMapTab.tsx
- * renders `draft.lat.toFixed(4)`), whereas the prefilled `<input>` field
- * carries the full-precision value `onPlacePoint` actually received; the
- * caller should read the real value back from the input field itself once
- * this returns. */
-async function clickMapAndConfirm(page: Page): Promise<void> {
+/** Input Map v2 (replaced the old click→draft-panel→Confirm flow, which no
+ * longer exists — `input-map-draft-panel` has 0 src refs): right-clicks an
+ * empty spot on the Leaflet canvas, opens the "Add ... here" menu, picks the
+ * "wh"-kind entity (warehouse/mine/refinery depending on the model — the
+ * menu item testid is generic `map-add-menu-wh` across all of them, see
+ * InputMapTab.tsx's `AddEntityMenu`), fills City/State on the
+ * CreateEntityDialog that opens (id/display-code are server-shaped and
+ * auto-generated — not user-editable in this flow, unlike the old draft
+ * panel), and submits. Returns the dialog's own displayed lat/lng (full
+ * precision — matches what `onSubmit` actually receives) and the
+ * auto-generated display code, so the caller can assert the resulting
+ * "Added ..." row without needing to guess the entity's server-generated id. */
+async function clickMapAddAndFillCity(
+  page: Page,
+  city: string,
+  state: string,
+): Promise<{ lat: string; lng: string; displayCode: string }> {
   await page.getByTestId("sidebar-input-input-map").click();
   await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   const mapCanvas = page.locator('[data-testid="input-map-tab"] .leaflet-container');
   await expect(mapCanvas).toBeVisible({ timeout: HEADER_TIMEOUT });
-  await mapCanvas.click({ position: { x: 200, y: 200 } });
+  const box = (await mapCanvas.boundingBox())!;
+  // Top-right corner — clear of the dense base-marker field (established
+  // empty-space zone, same as input-map-v2.spec.ts/workspace-fixups.spec.ts).
+  await mapCanvas.click({ position: { x: box.width * 0.94, y: box.height * 0.06 }, button: "right" });
+  await expect(page.getByTestId("map-add-menu")).toBeVisible({ timeout: HEADER_TIMEOUT });
+  await page.getByTestId("map-add-menu-wh").click();
+  await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-  await expect(page.getByTestId("input-map-draft-panel")).toBeVisible({ timeout: HEADER_TIMEOUT });
-  await page.getByTestId("button-input-map-confirm").click();
+  const lat = (await page.getByTestId("create-entity-lat").textContent())!.trim();
+  const lng = (await page.getByTestId("create-entity-lng").textContent())!.trim();
+  await page.getByTestId("create-entity-city").fill(city);
+  await page.getByTestId("create-entity-state").fill(state);
+  const displayCode = (await page.getByTestId("create-entity-display-code").textContent())!.trim();
+  await page.getByTestId("create-entity-submit").click();
+  await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible();
+  return { lat, lng, displayCode };
 }
 
 test.describe("Tab coverage (Phase 3.2, Task 5)", () => {
@@ -123,26 +143,20 @@ test.describe("Tab coverage (Phase 3.2, Task 5)", () => {
       const alnRow = page.locator("tr", { hasText: "ALN" });
       await expect(alnRow).toContainText("18101");
 
-      // Click a point on the Input Map, Confirm, and land back on
-      // Warehouses with Lat/Lng pre-filled.
-      await clickMapAndConfirm(page);
-
-      const latInput = page.getByTestId("input-new-warehouse-lat");
-      const lngInput = page.getByTestId("input-new-warehouse-lng");
-      await expect(latInput).not.toHaveValue("", { timeout: HEADER_TIMEOUT });
-      const lat = await latInput.inputValue();
-      const lng = await lngInput.inputValue();
-
-      await page.getByTestId("input-new-warehouse-id").fill("E2ENEWWH");
-      await page.getByTestId("input-new-warehouse-city").fill("Testburg");
-      await page.getByTestId("input-new-warehouse-state").fill("ZZ");
-      await page.getByTestId("button-add-warehouse-confirm").click();
+      // Right-click the Input Map (empty space), add a warehouse via the
+      // CreateEntityDialog, City/State filled in-dialog.
+      const { lat, lng, displayCode } = await clickMapAddAndFillCity(page, "Testburg", "ZZ");
 
       // The new row lands in "Added warehouses" — City/State/Lat/Lng
       // present, matching what was clicked; that table has NO Zip column at
       // all (added rows are never geocoded, DD-1).
-      const addedRow = page.getByTestId("row-added-warehouse-E2ENEWWH");
-      await expect(addedRow).toBeVisible();
+      await page.getByTestId("sidebar-input-warehouses").click();
+      await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const addedSection = page.getByTestId("added-warehouses-section");
+      await expect(addedSection).toBeVisible();
+      const addedRow = addedSection.locator('[data-testid^="row-added-warehouse-"]');
+      await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      await expect(addedRow).toContainText(displayCode);
       await expect(addedRow).toContainText("Testburg");
       await expect(addedRow).toContainText("ZZ");
       await expect(addedRow).toContainText(Number(lat).toFixed(4));
@@ -181,23 +195,18 @@ test.describe("Tab coverage (Phase 3.2, Task 5)", () => {
       const kyRow = page.locator("tr", { hasText: "KY" }).first();
       await expect(kyRow).toContainText("41655");
 
-      // Input Map's default placement for this model is "Mine" (first entry
-      // in placementOptionsForModel) — no toggle needed.
-      await clickMapAndConfirm(page);
+      // Input Map's "wh"-kind add menu item resolves to Mine for this model
+      // (InputMapTab.tsx passes `role={MINE_ROLE}` for the transport-coal
+      // variant's CreateEntityDialog) — no separate toggle needed.
+      const { lat, lng, displayCode } = await clickMapAddAndFillCity(page, "Testburg", "ZZ");
 
-      const latInput = page.getByTestId("input-new-mine-lat");
-      const lngInput = page.getByTestId("input-new-mine-lng");
-      await expect(latInput).not.toHaveValue("", { timeout: HEADER_TIMEOUT });
-      const lat = await latInput.inputValue();
-      const lng = await lngInput.inputValue();
-
-      await page.getByTestId("input-new-mine-id").fill("E2ENEWMINE");
-      await page.getByTestId("input-new-mine-city").fill("Testburg");
-      await page.getByTestId("input-new-mine-state").fill("ZZ");
-      await page.getByTestId("button-add-mine-confirm").click();
-
-      const addedRow = page.getByTestId("row-added-mine-E2ENEWMINE");
-      await expect(addedRow).toBeVisible();
+      await page.getByTestId("sidebar-input-mines").click();
+      await expect(page.getByTestId("mines-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const addedSection = page.getByTestId("added-mines-section");
+      await expect(addedSection).toBeVisible();
+      const addedRow = addedSection.locator('[data-testid^="row-added-mine-"]');
+      await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      await expect(addedRow).toContainText(displayCode);
       await expect(addedRow).toContainText("Testburg");
       await expect(addedRow).toContainText("ZZ");
       await expect(addedRow).toContainText(Number(lat).toFixed(4));
@@ -236,23 +245,22 @@ test.describe("Tab coverage (Phase 3.2, Task 5)", () => {
       const refRow = page.locator("tr", { hasText: "daggar-hills" });
       await expect(refRow).toContainText("6638");
 
-      // Input Map's default placement for this model is "Refinery" (first
-      // entry in placementOptionsForModel) — no toggle needed.
-      await clickMapAndConfirm(page);
+      // Input Map's "wh"-kind add menu item resolves to Refinery for this
+      // model (InputMapTab.tsx passes `role={REFINERY_ROLE}` for the
+      // two-echelon-gold-au variant's CreateEntityDialog) — no separate
+      // toggle needed. Refineries reuse WarehousesTab (entity="refineries")
+      // — the "Added" section stays "added-warehouses-section"/
+      // "row-added-warehouse-*" by design (WarehousesTab.tsx's own comment:
+      // it doesn't thread `entity` into that section's testids).
+      const { lat, lng, displayCode } = await clickMapAddAndFillCity(page, "Testburg", "ZZ");
 
-      const latInput = page.getByTestId("input-new-warehouse-lat");
-      const lngInput = page.getByTestId("input-new-warehouse-lng");
-      await expect(latInput).not.toHaveValue("", { timeout: HEADER_TIMEOUT });
-      const lat = await latInput.inputValue();
-      const lng = await lngInput.inputValue();
-
-      await page.getByTestId("input-new-warehouse-id").fill("e2e-newref");
-      await page.getByTestId("input-new-warehouse-city").fill("Testburg");
-      await page.getByTestId("input-new-warehouse-state").fill("ZZ");
-      await page.getByTestId("button-add-warehouse-confirm").click();
-
-      const addedRow = page.getByTestId("row-added-warehouse-e2e-newref");
-      await expect(addedRow).toBeVisible();
+      await page.getByTestId("sidebar-input-refineries").click();
+      await expect(page.getByTestId("refineries-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const addedSection = page.getByTestId("added-warehouses-section");
+      await expect(addedSection).toBeVisible();
+      const addedRow = addedSection.locator('[data-testid^="row-added-warehouse-"]');
+      await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      await expect(addedRow).toContainText(displayCode);
       await expect(addedRow).toContainText("Testburg");
       await expect(addedRow).toContainText("ZZ");
       await expect(addedRow).toContainText(Number(lat).toFixed(4));
