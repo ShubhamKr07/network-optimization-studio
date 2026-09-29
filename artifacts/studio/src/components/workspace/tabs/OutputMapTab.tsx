@@ -10,6 +10,7 @@ import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import type { CountryBounds } from "@/lib/mapBounds";
 import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } from "@/lib/copyMapToClipboard";
 import { toast } from "@/hooks/use-toast";
+import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
 // timing. Optional/no default — when the caller (eventually INT) has no
@@ -206,6 +207,18 @@ export function OutputMapTab({
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
 
+  // ch5-edit-12 — infeasible/no_solution/unbounded/error all carry a
+  // meaningless `objective: 0`/`weightedAvgDistance: 0` sentinel from
+  // solve.py (see resultOutcome.ts's own comment); rendering those as a
+  // real "Objective: 0" reads as a $0-cost success to a student. Gated on
+  // the shared classification, never on `result.objective === 0` (a
+  // genuinely zero objective on a real incumbent must still render
+  // normally) and never on modelId (every model shares this overlay).
+  // resultQualityText is reused verbatim so this overlay and Solution
+  // Summary's "Quality" row never disagree on wording.
+  const outcome = result ? classifyResultOutcome(result) : null;
+  const showIncumbent = result != null && outcome != null && hasIncumbent(outcome);
+
   async function handleCopy() {
     if (!mapRef.current) return;
     try {
@@ -368,39 +381,52 @@ export function OutputMapTab({
             data-testid="output-map-metric-overlay"
             className="absolute top-2 right-2 z-[1000] pointer-events-none bg-background/80 backdrop-blur rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
           >
-            <div>
-              <span className="text-muted-foreground">Objective: </span>
-              <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
-            </div>
-            {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
-                two-echelon result (>=2 avgDistanceByLeg entries) shows one
-                labelled line per leg PLUS an overall line; every other
-                (single-leg/no-leg) model keeps the single existing line.
-                Labels derive from the leg string itself via the same
-                legLabel() this file already uses for the leg-toggle
-                checkboxes above — never a hardcoded "Plant"/"Warehouse"
-                allowlist, so this generalizes to any two-echelon model. */}
-            {result.metrics.avgDistanceByLeg && result.metrics.avgDistanceByLeg.length >= 2 ? (
+            {showIncumbent ? (
               <>
-                {result.metrics.avgDistanceByLeg.map(l => (
-                  <div key={l.leg} data-testid={`output-map-leg-avg-${l.leg}`}>
-                    <span className="text-muted-foreground">{legLabel(l.leg)} avg distance: </span>
-                    <span className="font-medium font-mono">{showDistance(l.avgDistance)}</span>
-                  </div>
-                ))}
-                <div data-testid="output-map-overall-avg">
-                  <span className="text-muted-foreground">Overall avg distance: </span>
-                  <span className="font-medium font-mono">
-                    {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
-                  </span>
+                <div>
+                  <span className="text-muted-foreground">Objective: </span>
+                  <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
                 </div>
+                {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
+                    two-echelon result (>=2 avgDistanceByLeg entries) shows one
+                    labelled line per leg PLUS an overall line; every other
+                    (single-leg/no-leg) model keeps the single existing line.
+                    Labels derive from the leg string itself via the same
+                    legLabel() this file already uses for the leg-toggle
+                    checkboxes above — never a hardcoded "Plant"/"Warehouse"
+                    allowlist, so this generalizes to any two-echelon model. */}
+                {result.metrics.avgDistanceByLeg && result.metrics.avgDistanceByLeg.length >= 2 ? (
+                  <>
+                    {result.metrics.avgDistanceByLeg.map(l => (
+                      <div key={l.leg} data-testid={`output-map-leg-avg-${l.leg}`}>
+                        <span className="text-muted-foreground">{legLabel(l.leg)} avg distance: </span>
+                        <span className="font-medium font-mono">{showDistance(l.avgDistance)}</span>
+                      </div>
+                    ))}
+                    <div data-testid="output-map-overall-avg">
+                      <span className="text-muted-foreground">Overall avg distance: </span>
+                      <span className="font-medium font-mono">
+                        {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <span className="text-muted-foreground">Weighted avg distance: </span>
+                    <span className="font-medium font-mono">
+                      {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
-              <div>
-                <span className="text-muted-foreground">Weighted avg distance: </span>
-                <span className="font-medium font-mono">
-                  {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
-                </span>
+              // ch5-edit-12 — no incumbent to report (infeasible/no_solution/
+              // unbounded/error). Truthful text, not a 0/— number that reads
+              // as a real result — matches resultQualityText's own wording
+              // (CostSummaryTab's "Quality" row) so the two surfaces agree.
+              <div data-testid="output-map-no-incumbent">
+                <span className="text-muted-foreground">Objective: </span>
+                <span className="font-medium text-amber-700">{resultQualityText(result!)}</span>
               </div>
             )}
             {/* jade-B1 (#8 timing overlay, spec §9) — suppressed entirely

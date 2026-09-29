@@ -49,6 +49,7 @@ const mockUseListModels = vi.fn(() => ({
   data: [
     { id: "p-median-us", distanceUnit: "mi" },
     { id: "two-echelon-fake-km", distanceUnit: "km" },
+    { id: "delivery-teaching-us", distanceUnit: "mi" },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -527,6 +528,112 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
   it("is absent when result is null (pre-solve / inactive tab)", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[250, 500, 750]} />);
     expect(screen.queryByTestId("output-map-metric-overlay")).not.toBeInTheDocument();
+  });
+});
+
+// ── ch5-edit-12 — infeasible/no-incumbent overlay must not read as a $0
+// success. Shared component: gated on the classified OUTCOME, never on
+// modelId or on `objective === 0` (a real zero-objective incumbent must
+// still render as a real result). Exercised for delivery-teaching-us (the
+// model that made infeasibility newly reachable in this branch) and
+// p-median-us (a second, unrelated model), plus an explicit real-
+// `solutionStatus: "optimal"` feasible-path proof that the gate leaves the
+// existing rendering byte-identical rather than merely happening to pass via
+// the legacy-unverified fallback the rest of this file's fixtures use.
+describe("OutputMapTab — no-incumbent overlay (ch5-edit-12)", () => {
+  const infeasibleResult = {
+    ...result,
+    status: "infeasible" as const,
+    solutionStatus: "infeasible" as const,
+    objective: 0,
+    edges: [],
+    metrics: { weightedAvgDistance: 0, bandCoverage: [], utilizationByNode: [] },
+    infeasibilityReason: "No feasible assignment exists for p=2 with 1 forced-open warehouse marked inactive.",
+  };
+
+  it("delivery-teaching-us: does not render Objective:0/Weighted avg 0.0 for an infeasible result — shows 'No incumbent' instead", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={infeasibleResult}
+        bands={[250, 500, 750]}
+        modelId="delivery-teaching-us"
+      />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(screen.getByTestId("output-map-no-incumbent")).toBeInTheDocument();
+    expect(overlay).toHaveTextContent("No incumbent");
+    // The meaningless sentinel numbers must not appear at all.
+    expect(overlay.textContent).not.toContain("Weighted avg distance:");
+    expect(overlay.textContent).not.toContain("0.0 mi");
+  });
+
+  it("p-median-us: same no-incumbent treatment for a second, unrelated model — proves the gate is capability-based, not modelId-keyed", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={infeasibleResult}
+        bands={[250, 500, 750]}
+        modelId="p-median-us"
+      />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(screen.getByTestId("output-map-no-incumbent")).toBeInTheDocument();
+    expect(overlay).toHaveTextContent("No incumbent");
+    expect(overlay.textContent).not.toContain("Weighted avg distance:");
+    expect(overlay.textContent).not.toContain("0.0 mi");
+  });
+
+  it("no_solution and unbounded outcomes get the same truthful 'No incumbent' treatment (not just infeasible)", () => {
+    const noSolutionResult = { ...infeasibleResult, status: "error" as const, solutionStatus: "no_solution" as const };
+    const { rerender } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={noSolutionResult} bands={[250, 500, 750]} modelId="p-median-us" />,
+    );
+    expect(screen.getByTestId("output-map-no-incumbent")).toHaveTextContent("No incumbent");
+
+    const unboundedResult = { ...infeasibleResult, status: "error" as const, solutionStatus: "unbounded" as const };
+    rerender(
+      <UnitProvider>
+        <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={unboundedResult} bands={[250, 500, 750]} modelId="p-median-us" />
+      </UnitProvider>,
+    );
+    expect(screen.getByTestId("output-map-no-incumbent")).toHaveTextContent("No incumbent");
+  });
+
+  it("a genuinely feasible result with a real solutionStatus still renders the normal Objective/Weighted-avg numbers — the gate does not suppress the overlay for a real incumbent", () => {
+    const feasibleResult = { ...result, solutionStatus: "optimal" as const };
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={feasibleResult}
+        bands={[250, 500, 750]}
+        modelId="p-median-us"
+      />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(screen.queryByTestId("output-map-no-incumbent")).not.toBeInTheDocument();
+    expect(overlay).toHaveTextContent("Objective:");
+    expect(overlay).toHaveTextContent("1");
+    expect(overlay).toHaveTextContent("Weighted avg distance:");
+    expect(overlay).toHaveTextContent("500.0 mi");
+  });
+
+  it("a real feasible (gap-limited, non-optimal) solutionStatus also renders the normal overlay, not the no-incumbent text", () => {
+    const feasibleResult = { ...result, solutionStatus: "feasible" as const };
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={feasibleResult}
+        bands={[250, 500, 750]}
+        modelId="p-median-us"
+      />,
+    );
+    expect(screen.queryByTestId("output-map-no-incumbent")).not.toBeInTheDocument();
+    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("Objective:");
   });
 });
 
