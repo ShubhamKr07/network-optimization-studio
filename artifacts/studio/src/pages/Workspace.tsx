@@ -48,7 +48,11 @@ import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab, type AddedMine } from "@/components/workspace/tabs/MinesTab";
 import { StationsTab, type AddedStation } from "@/components/workspace/tabs/StationsTab";
-import { OptimizationParametersTab, type OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
+import {
+  OptimizationParametersTab,
+  type OptimizationParametersField,
+  type OptimizationParametersTabProps,
+} from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
@@ -3135,6 +3139,72 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     );
   }
 
+  // CH4UX-4 — ONE base prop object, consumed by two renders: the
+  // Optimization Parameters tab itself and the Solve dialog's embedded copy.
+  // Every expression below is moved verbatim from the tab's former inline
+  // call site; none was rewritten. `step` is deliberately NOT here — it is
+  // the one prop that legitimately differs between the two renders (see
+  // below). `showBandEditor` is deliberately absent because the tab's call
+  // site does not pass it either; adding it would be a behaviour change
+  // smuggled in under a verbatim move.
+  const optimizationParamsBaseProps = localInputs && {
+    modelId,
+    p: pFromInputs(localInputs),
+    gap: gapFromInputs(localInputs),
+    timeLimitSec: timeLimitSecFromInputs(localInputs),
+    distanceBands: activeBandLens,
+    capacityFactor: capacityFactorFromInputs(localInputs),
+    singleSource: singleSourceFromInputs(localInputs),
+    capacityInactive: capacityInactiveFromInputs(localInputs),
+    bomRatio: bomRatioFromInputs(localInputs),
+    canonicalUnit,
+    // CH4UX-4 — kept on ONE line (not wrapped as brief-drafted): the
+    // MIG-8 regression test greps this exact source text for the
+    // max-coverage-us cap and would otherwise stop matching this
+    // occurrence if it were split across lines.
+    pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : undefined,
+    objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
+    highServiceDistKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined,
+    maxDistKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined,
+    avgServiceDistCapKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined,
+    onServiceDistanceChange: updateChenServiceDistance,
+    stepEditable: stepState.isMaxCoverage ? stepState.step1Frozen : undefined,
+    step2Gap: stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined,
+    step2TimeLimitSec: stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined,
+    coverageFloorFromStep1: stepState.isMaxCoverage
+      ? (stepState.steps?.step1.summary?.coveredDemand ?? null)
+      : undefined,
+    onChange: handleOptimizationParamsChange,
+  } satisfies OptimizationParametersTabProps | null;
+
+  // The tab follows what the student is LOOKING AT.
+  const optimizationTabProps: OptimizationParametersTabProps | null =
+    optimizationParamsBaseProps && {
+      ...optimizationParamsBaseProps,
+      step: stepState.isMaxCoverage ? selectedStep : undefined,
+    };
+
+  // CH4UX-4 — the dialog follows what will actually RUN. `selectedStep` and
+  // `stepState.targetStep` are different concepts and conflating them is the
+  // defect this task fixes: at 0 of 2 a student can view the locked Step 2 and
+  // press "Solve Step 1"; at 1 of 2 they can inspect Step 1 and press
+  // "Solve Step 2". The dialog must show the target in both cases.
+  //
+  // This also makes a frozen Step 1 unrenderable here, by construction:
+  // useMaxCoverageSteps derives `targetStep = steps.step1.solved ? 2 : 1` and
+  // `step1Frozen = steps.step1.solved` from the SAME boolean, so
+  // `targetStep === 1` implies `step1Frozen === false`.
+  const solveDialogParamsProps: OptimizationParametersTabProps | null =
+    optimizationParamsBaseProps && {
+      ...optimizationParamsBaseProps,
+      step: stepState.isMaxCoverage ? stepState.targetStep : undefined,
+      idPrefix: "solve-dialog-",
+      testIdPrefix: "solve-dialog-",
+    };
+
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
@@ -3511,66 +3581,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
 
     if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
-      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
-      return (
-        <OptimizationParametersTab
-          modelId={modelId}
-          p={pFromInputs(localInputs)}
-          gap={gapFromInputs(localInputs)}
-          timeLimitSec={timeLimitSecFromInputs(localInputs)}
-          // chen-bands-units, Part A/G, Task 14 Step 2b — the DEDICATED
-          // band lens, not `localInputs.distanceBands` (decision 1f). This
-          // is the ONE remaining read of the lens by this tab; `onChange`
-          // below special-cases writes to it too (`handleOptimizationParamsChange`).
-          distanceBands={activeBandLens}
-          capacityFactor={capacityFactorFromInputs(localInputs)}
-          singleSource={singleSourceFromInputs(localInputs)}
-          capacityInactive={capacityInactiveFromInputs(localInputs)}
-          bomRatio={bomRatioFromInputs(localInputs)}
-          // chen-bands-units, Task 14 Step 6a — `canonicalUnit` supersedes
-          // `distanceUnit` for any caller that supplies it (this one now
-          // does); no `?? "mi"` fallback anywhere on this call site.
-          canonicalUnit={canonicalUnit}
-          // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
-          // p-median-us/brazil's schema-level cap of 50): the real bound is
-          // the effective active-warehouse count, which genuinely differs
-          // per model (this is NOT a case of "forgot to extend a shared
-          // capability" — no other model's schema has this trait), so a
-          // direct modelId check is deliberate here, not a gate to
-          // generalize. undefined for every other model — OptimizationParametersTab
-          // falls back to its own static default (50) unchanged.
-          // C4.12/D27 — max-coverage-us caps P at 26 (a static
-          // schema-level max, unlike JADE's dynamic active-warehouse count).
-          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : undefined}
-          // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
-          // never receives these; the tab's own Chen block is gated on
-          // `objective != null`).
-          // chen-bands-units, Part A (amendment table: D13/D19 superseded) —
-          // Chen now gets the SAME free-edit band chip editor as every
-          // other model (`showBandEditor` omitted below, defaulting true) —
-          // its bands are no longer derived [high, max]; see
-          // `updateChenServiceDistance`'s own comment for the conditional
-          // high-link retarget that replaces that old coupling.
-          objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
-          highServiceDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
-          maxDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
-          avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-          onServiceDistanceChange={updateChenServiceDistance}
-          // ch4-2s-7 — the two-step workflow's Step 2 panel wiring, Chapter 4
-          // only (undefined for every other model, so `(step ?? 1) === 1`
-          // keeps their view exactly as it rendered before this task).
-          step={stepState.isMaxCoverage ? selectedStep : undefined}
-          // R6 — reuses `step1Frozen` (== `steps.step1.solved`) directly:
-          // Step 2's own fields become editable at EXACTLY the moment Step 1
-          // is frozen, by construction — the same boolean, not a parallel one
-          // that could drift from it.
-          stepEditable={stepState.isMaxCoverage ? stepState.step1Frozen : undefined}
-          step2Gap={stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined}
-          step2TimeLimitSec={stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined}
-          coverageFloorFromStep1={stepState.isMaxCoverage ? (stepState.steps?.step1.summary?.coveredDemand ?? null) : undefined}
-          onChange={handleOptimizationParamsChange}
-        />
-      );
+      if (!optimizationTabProps) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return <OptimizationParametersTab {...optimizationTabProps} />;
     }
 
     // B5.1/T5 — Distances grid tab, p-median-us AND p-median-brazil (T5,
@@ -4328,7 +4340,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       </div>
 
       <SolveDialog
-        open={solveDialogOpen}
+        // CH4UX-4 — defense-in-depth ONLY, not the mechanism. A frozen Step 1
+        // is already unrenderable in this dialog (targetStep === 1 implies
+        // not-frozen), so `guardStep1Edit` always takes its bypass branch for
+        // edits originating here. If a future caller changes that, this keeps
+        // two Radix modals from stacking — a race this repo has already
+        // reproduced once. No reopen bookkeeping: `pendingStep1Inputs` is set
+        // only by `guardStep1Edit` and cleared by BOTH confirm and cancel, so
+        // the dialog returns by itself either way.
+        open={solveDialogOpen && pendingStep1Inputs == null}
         onOpenChange={setSolveDialogOpen}
         modelId={modelId}
         // jade-INT (#8, spec §9) — live solve clock, sourced from
@@ -4347,19 +4367,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
         pMax={modelId === "max-coverage-us" ? 26 : undefined}
-        // CH4-17/R5 — Chapter 4's dialog is confirmation-only: no client can
-        // author `objective`/`coverageFloorDemand` any more (the server
-        // derives both from Step 1's achieved coverage), so this dialog no
-        // longer renders the toggle or the floor input. `readOnlyParams`
-        // additionally hides every OTHER editable control (P slider,
-        // avg-service cap, gap/time-limit, band editor) for this model only
-        // — `p`/the service-distance fields are inherited and frozen once
-        // Step 1 is solved, and editing top-level gap/timeLimitSec here
-        // would silently edit Step 1's limits while a Step-2-targeting
-        // student believes they're tuning the run about to happen.
-        readOnlyParams={modelId === "max-coverage-us"}
-        objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
-        avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
+        // CH4UX-4 — Chapter 4 renders the REAL parameter tab, for
+        // `stepState.targetStep`. Every other model passes nothing and keeps
+        // SolveDialog's built-in controls verbatim.
+        paramsSlot={
+          modelId === "max-coverage-us" && solveDialogParamsProps
+            ? <OptimizationParametersTab {...solveDialogParamsProps} />
+            : undefined
+        }
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // chen-bands-units, Part A/G — the DEDICATED band lens (decision

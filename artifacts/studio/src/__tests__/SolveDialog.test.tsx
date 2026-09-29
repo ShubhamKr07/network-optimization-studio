@@ -179,43 +179,18 @@ describe("SolveDialog — Chen objective display (CH4-17: no toggle)", () => {
 // objective is being displayed, replacing them with a read-only summary.
 // The other five models never pass this prop, so their dialogs are
 // unaffected (asserted below via p-median-us's own render).
+//
+// CH4UX-4 — the two Chapter-4 cases this block used to cover (Step 1
+// coverage display, Step 2 min-distance display) are deleted: no real
+// caller passes `readOnlyParams` any more (Workspace.tsx's SolveDialog call
+// site now always supplies `paramsSlot` for max-coverage-us instead, which
+// replaces this entire built-in region regardless of `readOnlyParams`).
+// `readOnlyParams` itself is still a prop on SolveDialogProps at this point
+// (Task 6 deletes it) — these two cases described behaviour no live caller
+// exercises any more, so they're removed here rather than re-touching this
+// file again in Task 6. The p-median-us case stays: it proves the other
+// five models' dialogs are untouched by this task.
 describe("SolveDialog — R5 readOnlyParams (max-coverage-us confirmation-only)", () => {
-  const INPUT_TESTID_PREFIX = "solve-dialog-input-";
-
-  function queryAllInputControls() {
-    return document.querySelectorAll(`[data-testid^="${INPUT_TESTID_PREFIX}"]`);
-  }
-
-  it("exposes no editable parameter control in Step 1's display (objective=coverage)", () => {
-    renderDialog({
-      readOnlyParams: true,
-      p: 3,
-      objective: "coverage",
-      avgServiceDistCapKm: 1000,
-      distanceUnit: "km",
-      distanceBands: [700, 1400, 2800, 5500],
-    });
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
-    expect(queryAllInputControls().length).toBe(0);
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-readonly-objective")).toHaveTextContent("Coverage");
-  });
-
-  it("exposes no editable parameter control in Step 2's display (objective=min_distance)", () => {
-    renderDialog({
-      readOnlyParams: true,
-      p: 3,
-      objective: "min_distance",
-      distanceUnit: "km",
-    });
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
-    expect(queryAllInputControls().length).toBe(0);
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
-  });
-
   it("p-median-us's dialog (readOnlyParams omitted) is unchanged — every editable control still renders", () => {
     renderDialog({ p: 3, distanceBands: [200, 400, 800] });
     expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
@@ -498,12 +473,21 @@ describe("CH4UX-3 — paramsSlot", () => {
   });
 
   it("replaces every built-in control with the slot's content when supplied", () => {
-    renderDialog({ p: 5, paramsSlot: <div data-testid="slotted-params">slotted</div> });
+    // CH4UX-4 — `readOnlyParams: true` added alongside the slot so the
+    // `solve-dialog-readonly-summary` assertion below is actually
+    // meaningful (without it, that block never renders regardless of the
+    // slot, and the assertion would pass vacuously).
+    renderDialog({ p: 5, readOnlyParams: true, paramsSlot: <div data-testid="slotted-params">slotted</div> });
     expect(screen.getByTestId("slotted-params")).toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-slider-p")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-input-gap")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-input-time-limit")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-band-200")).toBeNull();
+    // CH4UX-4 — the two Chapter-4-specific built-in blocks, precisely the
+    // ones a Chapter 4 paramsSlot must displace. The original test asserted
+    // absence for only 3 of the 5 built-in blocks; these were missing.
+    expect(screen.queryByTestId("solve-dialog-chen-objective-section")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-readonly-summary")).toBeNull();
   });
 
   it("keeps Solve and Close interactive with a slot supplied", () => {

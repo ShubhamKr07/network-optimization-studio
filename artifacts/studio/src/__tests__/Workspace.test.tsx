@@ -2439,11 +2439,12 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
-  // CH4-17/R5 — the Solve dialog no longer has a P slider for
-  // max-coverage-us at all (readOnlyParams=true replaces it with a
-  // read-only summary); the tab's slider is the only place P is still
-  // editable, and it still caps at 26 (D27 unaffected).
-  it("caps P at 26 in the Optimization Parameters tab; the Solve dialog shows P read-only instead of a slider (27 unreachable via either surface, D27)", () => {
+  // CH4UX-4 — supersedes CH4-17/R5's "read-only summary" behavior: the
+  // Solve dialog now embeds the REAL OptimizationParametersTab (namespaced
+  // "solve-dialog-") instead of a read-only summary, so P is editable from
+  // BOTH surfaces and both caps must agree (D27's 26 is now enforced twice,
+  // not once).
+  it("caps P at 26 in both the Optimization Parameters tab and the Solve dialog's embedded copy (27 unreachable via either surface, D27)", () => {
     renderChen();
 
     // Tab slider.
@@ -2451,19 +2452,20 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(tabThumb).toHaveAttribute("aria-valuemax", "26");
 
-    // Solve dialog: no slider, read-only summary instead.
+    // Solve dialog's embedded copy — no more read-only summary.
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-readonly-summary")).not.toBeInTheDocument();
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p-value").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "26");
   });
 
   // chen-bands-units — superseded (was "hides the distance-band editor ...
   // D13/D19"): Chen's bands are no longer derived/hidden in the tab — Part A
-  // re-enabled the free add/remove chip editor there. CH4-17/R5 supersedes
-  // this again for the Solve dialog specifically: that dialog is now
-  // confirmation-only for max-coverage-us, so its band editor is hidden too
-  // (edited only via the tab now).
-  it("shows the free-edit band chip editor for Chen in the tab; the Solve dialog hides it (confirmation-only, R5)", () => {
+  // re-enabled the free add/remove chip editor there. CH4UX-4 supersedes
+  // CH4-17/R5's "Solve dialog hides the band editor" behavior too: the
+  // dialog now embeds the SAME tab (namespaced "solve-dialog-"), so the
+  // identical editable band chip editor is visible there as well.
+  it("shows the free-edit band chip editor for Chen in BOTH the tab and the Solve dialog's embedded copy", () => {
     renderChen();
 
     openParamsTab();
@@ -2472,7 +2474,9 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.getByTestId("button-remove-band-5000")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-600")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-5000")).toBeInTheDocument();
   });
 });
 
