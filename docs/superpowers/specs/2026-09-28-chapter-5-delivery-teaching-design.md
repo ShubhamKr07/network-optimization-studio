@@ -1703,3 +1703,187 @@ blank export city column, and the `e2e_accuracy.py` rule violation. Five fail
 silently — no exception, no failing test, just wrong behaviour or a wrong number.
 That ratio is the argument for the §9 registry set-equality test: a checklist of
 eighteen hand-maintained lists is not a control, it is a hope.
+
+---
+
+# 14. Amendment — editable Warehouses and Customers (2026-09-29)
+
+**This amendment supersedes decision 11 and parts of §5.8, §6.1, §7.4 and §7.6.** The
+original text above is left intact; where it and this section disagree, this section
+governs. Recorded as an amendment rather than a rewrite because the original decisions were
+deliberate and their reversal is a product choice worth being able to see.
+
+## 14.1 What changes
+
+The model's input surface grows from three tabs to five: **Input Map, Warehouses, Customers,
+Delivery Costs, Optimization Parameters**. Warehouses and Customers become editable, and the
+Input Map — made read-only by Task 9 — becomes partially editable again.
+
+| # | Original | Now | Why |
+|---|---|---|---|
+| 11 | The cost table is the only editable input; demand and geography fixed | Customer **demand** and **exclusion**, and warehouse **status**, are editable too | A facility-location lab where nothing about the facilities or the demand can vary answers only one question |
+| — | `supportsFacilityStatus: false` | **`true`** | Open/close needs it; it also brings status paint, hide-closed, `MapLegend` status entries, and the Solution Summary's Open-facilities row |
+| — | `demandEditable: false` | **`true`** | |
+| §5.8 | "with no capacity and `P >= 1` the model is always feasible, so there is no infeasibility story to write" | **False now.** See §14.4 | Closing warehouses and excluding customers both reach infeasibility |
+| §7.4 | Three input tabs, enforced by an explicit `inputEntriesForModel` case | Five | |
+| §7.6 | "The 'Open facilities' row is absent by §6.1's `supportsFacilityStatus: false`" | The row **appears** | Task 12's test asserting its absence inverts |
+| Task 9 | Input Map read-only, every mutation affordance asserted absent | Status and demand editable on the map | |
+
+**Unchanged and still binding:** no added entities. `add`, `copy`, `move` and `delete` stay
+hidden, `supportsAddedCustomerExclusion` stays `false`, and `capacityModes` stays `[]` — this
+model has no capacity, so the Warehouses table shows no capacity column.
+
+**Why no added entities, stated so it is not revisited by accident.** Every other model keeps
+one lane table. This one keeps two — `distances.json` and `costs.json`. A single added
+warehouse needs 313 new distances *and* 313 new costs; `services/autoDistance.ts` produces
+only distances, so the billable-miles cost of every synthetic lane would have to be invented
+by a rule nobody has chosen. That, plus a `merge_inputs` bridge this model deliberately does
+not have, makes added entities larger than the whole of this amendment. If they are ever
+wanted, they get their own spec.
+
+## 14.2 Contract
+
+`deliveryInputsSchema` gains two array fields, reusing p-median's shapes
+(`validation/inputs/pMedian.ts:3` and `:9`) so the shared tab components, the status enum and
+the solver's bound logic all transfer unchanged:
+
+```ts
+warehouseOverrides: z.array(z.object({
+  id: z.string(),
+  status: z.enum(["active", "forced_open", "inactive"]),
+})).default([]),
+
+customerOverrides: z.array(z.object({
+  id: z.string(),
+  demand: z.number().nonnegative().nullable().optional(),
+  status: z.enum(["active", "excluded"]),
+})).default([]),
+```
+
+**`capacity` is deliberately omitted** from the warehouse override. p-median's shape carries
+it; this model has no capacity, and accepting a field the solver ignores is the
+persisted-but-ignored trap this amendment exists to avoid.
+
+`demand` is `nonnegative`, not `positive`: **zero is a legal demand** (§14.3).
+
+`buildPayload` derives the wire fields exactly as its p-median branch does:
+
+```
+customerDemands      from customerOverrides where demand != null
+excludedCustomerIds  from customerOverrides where status === "excluded"
+warehouseStatuses    from warehouseOverrides where status !== "active"
+```
+
+## 14.3 Solver
+
+Approach A of three: the override machinery is added **inside `solve_delivery`**, mirroring
+`solve_pmedian`'s helpers (`solve.py:381` `get_bounds`, `:398` `get_demand`, `:431-432` the
+`lb_{w}` / `ub_{w}` rows). No other solver is touched and no shared core is extracted — the
+alternative, factoring the logic out of `solve_pmedian`, would edit Chapter 3, the most-used
+lab in the app, to serve Chapter 5, and the duplication avoided is about twenty lines of
+bound-setting.
+
+```python
+customers_list = [c for c in customers if c not in excluded_ids]
+
+def get_demand(c):
+    return customer_demands.get(c, DELIV_CUSTOMERS[c]['demand'])
+
+def get_bounds(w):
+    s = wh_statuses.get(w)
+    if s == "forced_open": return (1, 1)
+    if s == "inactive":    return (0, 0)
+    return (0, 1)
+```
+
+plus `lb_{w}` / `ub_{w}` rows on `Open[w]`, and every existing sum re-expressed over
+`customers_list` rather than all customers.
+
+**Excluded customers leave the denominator; zero-demand customers do not.** `total_demand`
+sums `get_demand(c)` over `customers_list`. Excluding a city removes it from
+`weightedAvgDistance` and from every band percentage. Setting its demand to zero keeps it
+assigned and served, contributing nothing. The two produce genuinely different metrics — that
+is the point of allowing both, and the UI must distinguish them in words or it reads as a bug.
+
+**Everything §5 established still holds and is easy to break here:** `weightedAvgDistance`
+stays its own accumulator over the distance table, never derived from the objective;
+`edges[].distance` stays the real distance; `dist` stays read-only so overrides still land on
+`cost` only; the facility count stays `LpConstraintLE`; band overflow stays the shared `-1`
+sentinel.
+
+## 14.4 Infeasibility — the part §5.8 got wrong
+
+Three configurations a student can reach through ordinary use:
+
+1. **Every warehouse `inactive`** — all upper bounds 0, no customer can be served.
+2. **More than `P` warehouses `forced_open`** — the lower bounds force `Σ Open > P`, which
+   contradicts `Σ Open <= P`. Subtle, and the most likely to be hit by accident.
+3. **Every customer excluded** — not infeasible but *degenerate*: `customers_list` is empty
+   and `total_demand` is 0. Needs p-median's `active_demand if > 0 else 1` guard, or the
+   weighted average divides by zero.
+
+Cases 1 and 2 return a genuine CBC infeasible, surfaced through the envelope's existing
+`infeasible` status and reason, exactly as `p-median-brazil` does when capacity cannot meet
+demand. No precheck rule encodes feasibility — the model decides; precheck stays about
+malformed input.
+
+**This makes `solve_delivery`'s non-optimal branches required test coverage.** Task 3's review
+recorded that nothing covers them and rated it ship-as-is *on the explicit grounds that
+infeasibility was unreachable*. That justification expires here.
+
+## 14.5 UI
+
+**Tabs.** `inputEntriesForModel`'s explicit case (`Workspace.tsx:1255`) grows to five entries.
+It stays explicit: the switch's tail is `case "p-median-brazil": case "p-median-us": default:`,
+so a model that merely falls through inherits p-median's list. That default now happens to be
+closer to what this model wants, which makes writing the case out *more* important, not less —
+an accidental match is not a decision.
+
+**Warehouses and Customers tabs** are the existing shared components, gated by prop presence as
+they already are. `WarehousesTab` receives `onWarehouseOverridesChange`; `CustomersTab` receives
+`onCustomerOverridesChange` and `demandEditable`. Neither receives `onAddedWarehousesChange` /
+`onAddedCustomersChange` — those props being absent is exactly what keeps the added-entity
+sections hidden.
+
+**Input Map.** Task 9's `readOnly` prop stays but narrows: it continues to hide add, copy, move,
+delete and the map Save path, and no longer hides status or demand editing. The prop is then no
+longer "read-only" and should be renamed to what it now means — **`fixedGeography`** — so the
+next reader is not misled by a boolean whose name stopped being true. `MapDetailsCard`'s footer
+hint, hidden by the M-8 fix, returns in a narrowed form naming only the actions that exist.
+
+**Solution Summary** gains the Open-facilities row automatically from
+`CostSummaryTab.tsx:492`'s `supportsFacilityStatus` gate. That component needs no change; Task
+12's absence assertion inverts to a presence assertion.
+
+**Separate, unrelated change bundled here by request:** the Input Map's *"Size customers by
+demand"* layer toggle defaults to **unchecked for every model**. Four call sites, one per model
+family — `InputMapTab.tsx:859`, `:1363`, `:1856`, `:2436` — each currently
+`toggles.sizeByDemand ?? true`. The toggle keeps working; only its initial state changes. This
+is the only part of this amendment that touches the other six models.
+
+## 14.6 Testing
+
+- The frozen §8.1 goldens are unchanged and become the **no-override regression fence**: if
+  override plumbing moves `88,240,913,478.10` / `{W1, W2, W60}` / `422.5511`, it leaked into
+  the no-override path.
+- New solver tests: a demand override changes the objective and the weighted average; an
+  excluded customer leaves the denominator while a zero-demand customer stays in it (the pair
+  that proves §14.3's distinction); `forced_open` pins a warehouse into the open set;
+  `inactive` keeps one out; more-than-`P` forced-open returns infeasible; all-inactive returns
+  infeasible; all-excluded does not divide by zero.
+- The non-optimal branch coverage §14.4 makes necessary.
+- Studio: the five-tab set; the Warehouses/Customers tabs render with **no** added-entity
+  section; the map still refuses add/copy/move/delete while allowing status and demand.
+- `Workspace.TabCoverage.test.tsx`'s delivery block moves from three input entries to five.
+- Task 12's Open-facilities absence assertion inverts.
+- `sizeByDemand`: one test per model family asserting the toggle starts unchecked and still
+  toggles on.
+
+## 14.7 Registration points touched
+
+Of the nineteen in §9 this re-opens **3** (Zod schema), **6** (payload builder), **12**
+(`inputEntriesForModel`), and the manifest. **11** (`objectiveDimension`) and **16**
+(`buildEffectiveFacilityCityLookup`) are unaffected but worth re-verifying, since the
+capability change alters what the UI renders. It adds no new registration point.
+`crossModelStepContract.test.ts`'s `NON_STEP_MODELS` is unaffected — this model still has no
+step workflow and still must never 409.
