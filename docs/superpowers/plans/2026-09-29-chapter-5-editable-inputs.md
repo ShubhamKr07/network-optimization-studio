@@ -112,16 +112,19 @@ If override plumbing moves these, it leaked into the no-override path. `150,194,
 
 **Why first.** §16.4 #4: §14–§16 exist only on `ch5-delivery`, `main` has §1–§13 without them, and the `ch4-ux-fixes` working tree is pre-amendment. Any edit to another copy guarantees an add/add conflict on a 2,148-line document. Merging first costs one command; not merging costs a hand-resolved conflict in the file that defines the work.
 
-- [ ] **Step 1: Merge the spec to `main` before anything else**
+- [ ] **Step 1: Merge the spec to local `main` before anything else — after asking**
+
+**Ask first.** Show the commit list and `--stat`, then merge only on approval. **Local `main` only — do not push to `origin`**; that happens only for an approved deploy.
 
 ```bash
-git log --oneline -3
+git log --oneline main..HEAD
+git diff --stat main..HEAD
+# on approval:
 git push . HEAD:main
-git push origin HEAD:main
-git rev-parse --short main origin/main HEAD
+git rev-parse --short main HEAD
 ```
 
-Expected: all three SHAs identical. `main` is not checked out in any worktree (`git worktree list` shows the shared checkout on `ch4-ux-fixes`), so this fast-forward is unblocked.
+Expected: both SHAs identical. `main` is not checked out in any worktree (`git worktree list` shows the shared checkout on `ch4-ux-fixes`), so this fast-forward is unblocked.
 
 - [ ] **Step 2: Record the base and confirm a clean tree**
 
