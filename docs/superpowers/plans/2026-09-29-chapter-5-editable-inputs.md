@@ -176,6 +176,18 @@ grep -rn "supportsFacilityStatus\|demandEditable" artifacts lib --include=*.ts -
 
 `supportsFacilityStatus` gates Input-Map status paint (R3), hide-closed (R7), `MapLegend` status entries and `CostSummaryTab`'s Open-facilities row. **Account for every hit before implementing.** A test gated on either flag whose coverage silently shifts is the trap this sweep exists to catch — it will not fail, it will just stop testing what it claims to.
 
+**Sweep result at `aa86451` — four test sites hardcode this model's current `false` values and the plan did not name three of them.** Each must be flipped in the task that flips the manifest, or its suite goes red for a correct implementation:
+
+| Site | Asserts today | Flip in |
+|---|---|---|
+| `lib/dataset-schema/src/manifest.test.ts:391-392` | `demandEditable === false` **and** `supportsFacilityStatus === false` | Task 2 (already named) |
+| `artifacts/api-server/src/__tests__/registry.test.ts:66-68` | a per-model `supportsFacilityStatus` map built from `listModels()` | **Task 2 — not previously named** |
+| `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx:46` | the model fixture hardcodes `supportsFacilityStatus: false` for delivery | Task 7 (already named) |
+| `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx:558` | *"the Open facilities row is absent in compare mode (supportsFacilityStatus: false, locked)"* | **Task 7 — a second case, not previously named** |
+| `artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx:826-828` | the delivery block's capability fixture carries both flags `false` | **Task 5 — not previously named** |
+
+`CostSummaryTab.test.tsx:38-46` and `:530-540` carry comments calling this model's `supportsFacilityStatus: false` *locked* and citing §6.1. §14 supersedes that; update the comments with the assertions rather than leaving prose that contradicts the code.
+
 - [ ] **Step 5: Baseline the gate**
 
 ```bash
@@ -1031,13 +1043,24 @@ git commit -m "[ch5-edit-7] invert the Open-facilities assertion for delivery"
 
 | File | Lines | Shape | Effect |
 |---|---|---|---|
+**Measured at `aa86451` by Task 0's census — this is the fourth count for this one symbol, so it is given as exact lines and exact literals, not a total to be re-derived.**
+
+| File | Lines | Shape | Effect |
+|---|---|---|---|
 | `InputMapTab.tsx` | 634, 1160, 1655, 2218 | `useState({… sizeByDemand: true })` | **the actual default — the only sites that change app behaviour** |
-| `InputMapTab.tsx` | 859, 1363, 1856, 2436 | `checked={toggles.sizeByDemand ?? true}` + the `onToggle` negation | dead fallback while the initializer sets the field |
+| `InputMapTab.tsx` | 859, 1363, 1856, 2436 | `checked={… ?? true}` **and** the `onToggle` negation — **two literals per line** | dead fallback while the initializer sets the field |
 | `InputMapTab.tsx` | 952, 1432, 1953, 2504 | `sizeByDemand={toggles.sizeByDemand ?? true}` passed down | dead fallback, same reason |
 | `EntityMarkers.tsx` | 193 | `const sizeByDemand = toggles.sizeByDemand ?? true` | live for any caller passing a `toggles` literal that omits the field |
 | `MapLegend.tsx` | 170 | `sizeByDemand = true` default parameter | live for any caller omitting the prop |
 
-**15 sites.** Flip all of them so the fallback and the initializer agree; a `?? true` left behind a `false` initializer is a contradiction waiting for the first caller that omits the field. `EntityMarkers.tsx:39`'s doc comment states the `?? true` default explicitly and must be updated with it.
+**14 lines across 3 files, carrying 18 `true` literals** — the four `LayerCheckbox` lines each hold two. Earlier revisions said 4, then 9, then 15; the discrepancy is exactly this line-vs-literal conflation plus the missed initializers. Verify with:
+
+```bash
+grep -rn "sizeByDemand: true\|sizeByDemand ?? true\|sizeByDemand = true" artifacts/studio/src \
+  | grep -v node_modules | grep -v __tests__ | wc -l    # must be 14
+```
+
+Flip all of them so the fallback and the initializer agree; a `?? true` left behind a `false` initializer is a contradiction waiting for the first caller that omits the field. `EntityMarkers.tsx:39`'s doc comment states the `?? true` default explicitly and must be updated with it.
 
 - [ ] **Step 1: Write the failing tests — assert the marker, not only the checkbox**
 
