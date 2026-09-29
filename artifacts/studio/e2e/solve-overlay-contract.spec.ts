@@ -257,42 +257,26 @@ test.describe("solve progress overlay — contract (CH4UX-5/6)", () => {
   });
 
   /**
-   * KNOWN GAP, measured on this branch — deliberately recorded as
-   * `test.fail()` rather than weakened, deleted, or rewritten to assert the
-   * broken behaviour.
+   * FIXED (CH4UX-7). Previously recorded as a `test.fail()` KNOWN GAP:
+   * dismissing the overlay's error card left `document.activeElement ===
+   * document.body`, so the next Tab jumped to the FIRST focusable element on
+   * the page (`button-page-back`) instead of back to where the student was.
    *
-   * Dismissing the overlay's error card leaves `document.activeElement ===
-   * document.body`: the next Tab jumps to the FIRST focusable element on the
-   * page (`button-page-back`), not back to where the student was. Measured
-   * directly with a throwaway probe against a real browser on this branch —
-   * focus is on `solve-progress-adjust` immediately before the Close click
-   * and on `<body>` ~1.2s after it.
+   * Mechanism: Radix's FocusScope restores focus, on close, to whatever was
+   * focused when the scope MOUNTED. The overlay mounts in the same commit
+   * that unmounts the Solve dialog (CH4UX-6's handoff), so that remembered
+   * element was `solve-dialog-solve` — already detached by the time the
+   * scope unmounted, making the restore a no-op.
    *
-   * Mechanism: Radix's FocusScope restores focus to whatever was focused when
-   * the scope MOUNTED. The overlay mounts in the same commit that unmounts
-   * the Solve dialog (CH4UX-6's handoff), so that remembered element is
-   * `solve-dialog-solve` — already detached by the time the scope unmounts,
-   * making the restore a no-op.
-   *
-   * This is the mirror image of the OPEN-side hole CH4UX-6 already found and
+   * This was the mirror image of the OPEN-side hole CH4UX-6 already found and
    * fixed with `onOpenAutoFocus` (where Radix's restore target,
    * `button-run-optimizer`, was disabled and focus likewise fell to <body>).
-   * Only the close direction is still open. It is a regression introduced by
-   * this branch: before CH4UX-6 the dialog stayed open through a failure and
-   * its own Close restored focus to `button-run-optimizer`, which was still
-   * mounted.
-   *
-   * Severity is lower than the open-side hole — nothing is trapped, the page
-   * stays fully usable, and Tab still works — so this is filed, not fixed
-   * here: CH4UX-7 is an e2e-only task and the fix is a `src/` change
-   * (an `onCloseAutoFocus` redirect on `AlertDialogContent`, pointing at
-   * `button-run-optimizer`, which `resetSolveState` has just re-enabled).
-   *
-   * `test.fail()` and not `test.fixme()` on purpose: this RUNS, so the day
-   * the app is fixed it goes red as an "unexpected pass" and forces this
-   * marker to be removed, instead of quietly rotting as a skip.
+   * Fixed the same way, on the close side: `SolveProgressOverlay` now carries
+   * an `onCloseAutoFocus` redirect on `AlertDialogContent`, pointing at
+   * `button-run-optimizer`, which `resetSolveState` has already re-enabled by
+   * the time Close is clickable.
    */
-  test.fail("KNOWN GAP (CH4UX-7): Close should restore focus to the trigger, but leaves it on <body>", async ({ page }) => {
+  test("on failure: Close restores focus to the Run Optimizer trigger", async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page);
     const id = await createScenario(page);

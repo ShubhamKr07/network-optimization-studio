@@ -154,6 +154,19 @@ export function SolveProgressOverlay({
           e.preventDefault();
           contentRef.current?.focus();
         }}
+        // Radix restores focus, on close, to whatever was focused when this
+        // FocusScope MOUNTED — here that is `solve-dialog-solve`, which
+        // CH4UX-6's handoff has already unmounted (SolveDialog closes in the
+        // same commit this overlay opens). Restoring to a detached node is a
+        // no-op, so without this handler Close/Adjust leave focus on <body> —
+        // the exact mirror of the open-side hole `onOpenAutoFocus` above
+        // fixes. Redirect to the Run Optimizer trigger instead: by the time
+        // Close is clickable the phase is terminal and `resetSolveState()`
+        // has already re-enabled it (see `Workspace.tsx`'s `onClose`).
+        onCloseAutoFocus={e => {
+          e.preventDefault();
+          document.querySelector<HTMLElement>('[data-testid="button-run-optimizer"]')?.focus();
+        }}
         // Radix fires this before any close attempt. Prevented while running
         // so Escape cannot dismiss a surface with no cancel behind it.
         onEscapeKeyDown={e => {

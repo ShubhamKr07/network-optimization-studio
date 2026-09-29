@@ -43,6 +43,18 @@ describe("SolveProgressOverlay — no escape while running", () => {
   });
 });
 
+describe("SolveProgressOverlay — reduced motion", () => {
+  it("marks the spinner motion-reduce:animate-none", () => {
+    renderOverlay({ phase: "solving" });
+    // Radix's AlertDialogContent renders through a Portal onto
+    // `document.body`, not into RTL's own `container` — query from
+    // `document` instead. SVG `className` is also an `SVGAnimatedString`
+    // in the DOM, not a plain string — read the attribute directly rather
+    // than the JS property.
+    expect(document.querySelector("svg")?.getAttribute("class")).toMatch(/motion-reduce:animate-none/);
+  });
+});
+
 describe("SolveProgressOverlay — quips", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
