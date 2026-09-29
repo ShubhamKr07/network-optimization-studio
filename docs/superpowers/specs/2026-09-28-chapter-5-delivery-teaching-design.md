@@ -1,9 +1,15 @@
 # Chapter 5 — Delivery Company Teaching Example — Design
 
-**Date:** 2026-09-28
-**Branch:** `ch5-ux`
+**Date:** 2026-09-28 · amended 2026-09-29
+**Branch:** `ch5-delivery` (§1–§13 merged to `main`; §14 is spec-only, unimplemented)
 **Model id:** `delivery-teaching-us` (the 7th model)
-**Status:** Rev 1, awaiting review
+**Status:** §1–§13 **SHIPPED AND LIVE** in production. §14 amendment **approved, not yet
+implemented**. §15 is an independent spec-quality review of §14; §16 is the response to it.
+
+> **Read §14 before acting on §1–§13.** The amendment reverses decision 11 and parts of
+> §5.8, §6.1, §7.4, §7.6, §9, §10 and §11. Every superseded passage below carries an inline
+> `→ superseded by §14` marker, but the markers are a courtesy, not a substitute for reading
+> §14 first.
 
 ---
 
@@ -1201,8 +1207,13 @@ Stated so that their absence reads as a decision rather than an omission:
   precision, and Overflow rows; and `buildEffectiveFacilityCityLookup` must gain
   this model (checklist point 16) or the Open Warehouses export ships blank
   cities.
-- **Editing demand, adding warehouses or customers, excluding customers,
-  facility open/close status** — decision 11.
+- ~~**Editing demand, adding warehouses or customers, excluding customers,
+  facility open/close status** — decision 11.~~ **→ SUPERSEDED BY §14.** Demand
+  editing, customer exclusion and warehouse open/close status are now **in
+  scope**. Only **adding** warehouses or customers remains out of scope, and
+  §14.1 records why: this model keeps two lane tables, so one added warehouse
+  needs 313 distances *and* 313 costs while `autoDistance.ts` produces only
+  distances.
 - **Any capacity constraint** — decision 12.
 - **Changes to `transport-coal` or `p-median-brazil`**, including their Landing
   visibility — decision 4.
@@ -1223,6 +1234,7 @@ Stated so that their absence reads as a decision rather than an omission:
 | `reference-costs` payload size | ~10,329 pairs, ETag-cached with `must-revalidate`; paid once per dataset version. Acceptable, and identical in shape to what `p-median-us` already serves. |
 | Three "Chapter 5" cards, two hidden | Cosmetic. Landing shows one; the label is only visibly duplicated if the other two are ever unhidden. |
 | Dataset transcription error | Mitigated by a committed, re-runnable extraction script (§4.3) and `test_datasets.py`'s shape assertions, plus the §8.1 goldens which were computed from the xlsx directly and would not reproduce from a corrupted transcription. |
+| **Reachable infeasibility (§14 only)** | **Added by §14 — see §14.4.** Three student-reachable configurations: every warehouse `inactive`; **more than `P` warehouses `forced_open`**; every customer excluded. The middle one is the likeliest trap and the least obvious — the lower bounds force `Σ Open > P` against a `<= P` constraint, so pinning four favourite cities with `P = 3` is infeasible for a reason the UI does not explain. Expected behaviour: cases 1–2 return CBC `infeasible` through the existing envelope status and reason; case 3 is degenerate, not infeasible, and needs the zero-denominator guard. This risk did not exist pre-§14, which is why §5.8 claimed the model was always feasible. |
 
 ---
 
@@ -1881,12 +1893,70 @@ is the only part of this amendment that touches the other six models.
 
 ## 14.7 Registration points touched
 
-Of the nineteen in §9 this re-opens **3** (Zod schema), **6** (payload builder), **12**
-(`inputEntriesForModel`), and the manifest. **11** (`objectiveDimension`) and **16**
+§9 lists **eighteen** numbered points plus four unnumbered extras (`chapters.ts`'s
+`StudioModelType` union and `CHAPTERS` entry, `defaultInputsForModel`, and
+`routes/dataset.ts`). Of those eighteen this re-opens **3** (Zod schema), **6** (payload
+builder), **12** (`inputEntriesForModel`), and the manifest. **11** (`objectiveDimension`) and **16**
 (`buildEffectiveFacilityCityLookup`) are unaffected but worth re-verifying, since the
 capability change alters what the UI renders. It adds no new registration point.
 `crossModelStepContract.test.ts`'s `NON_STEP_MODELS` is unaffected — this model still has no
 step workflow and still must never 409.
+
+## 14.8 Requirements added by the §15 review
+
+Folded in from §15's gap findings. These are part of §14's contract, not commentary on it.
+
+**Override ids are role-prefixed, exactly as §4.2 defines them** (G6). `warehouseOverrides[].id`
+is a `W`-prefixed warehouse id (`W8`); `customerOverrides[].id` is a `C`-prefixed customer id
+(`C269`). `buildPayload` passes them through unchanged — `warehouseStatuses[].warehouseId` and
+`excludedCustomerIds[]` carry the same prefixed form, and `solve_delivery` looks them up
+directly against `DELIV_WAREHOUSES` / `DELIV_CUSTOMERS` keys with no translation step.
+
+**Precheck extends to the new override ids** (G2). §6.2.1's `precheckDeliveryInputs` validates
+only `laneCostOverrides` today. Zod's `z.string()` checks shape and the status enum, **not
+existence** — so an override naming `W999` is caught nowhere before the solver and surfaces as
+a generic `internal_error`. That is the exact failure §6.2.1 exists to prevent, and it is the
+same class as the whole-branch review's I-1, already fixed once for lane costs. Extend the
+precheck to assert every `warehouseOverrides[].id` is in the warehouse set and every
+`customerOverrides[].id` is in the customer set, returning `reference_integrity` with the
+offending id in the message. This is **not** a feasibility rule — §14.4 keeps feasibility in
+the model.
+
+**The `readOnly → fixedGeography` rename needs a completeness check** (G3). A missed consumer
+keeps the old prop and silently keeps hiding status and demand editing, which loses the rename's
+entire purpose with no error. Enumerate the call sites first —
+`rg -n 'readOnly|fixedGeography' artifacts/studio/src` — rename all of them in one commit, and
+add a test asserting the delivery map renders the status and demand affordances while still
+refusing add/copy/move/delete. A grep that returns zero `readOnly` hits in `InputMapTab` and its
+map subcomponents is the completeness evidence.
+
+**The shipped e2e spec must be rewritten, not just extended** (G4). `e2e/delivery-teaching.spec.ts`
+was written for the three-tab, read-only-map world and is in `e2e:gate` now.
+`:168-170` asserts exactly `sidebar-input-input-map`, `-deliveryCosts` and
+`-optimization-parameters` — that breaks at five tabs. `:178`'s
+`button-input-map-place-wh` count-0 assertion stays valid (no added entities) and must be kept.
+This is the documented prior-bundle-spec-breakage class; naming it here is what stops it
+surfacing as an unexplained red gate.
+
+**Sweep every consumer of the flipped capabilities** (G5). `supportsFacilityStatus` false → true
+and `demandEditable` false → true on a **live, shipped** manifest. §14.5 names the one inverted
+assertion (Task 12's Open-facilities row), but any test gated on either flag silently changes
+what it covers. Run `rg -n 'supportsFacilityStatus|demandEditable' artifacts lib` and account for
+every hit before implementation — a test whose coverage shifts without failing is the
+locked-model coverage-shift trap generalised.
+
+**§14 needs its own pinned goldens** (G1). §14.6's tests as written assert `≠`, not correctness:
+"a demand override changes the objective" passes against any wrong number. Extend the committed
+prototype (`docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py`) with four cases —
+one demand override, one exclusion, more-than-`P` forced-open, and all-inactive — and pin the
+resulting objective, open set, weighted average distance (4 dp) and band percentages (2 dp) into
+a §14.6 golden table, in the same form as §8.1. Until those numbers exist, §14 has no acceptance
+criteria for the paths it adds.
+
+**Test exclusion combined with an overflow lane** (G7). The overflow remainder (§5.6) must be
+computed against post-exclusion `total_demand`. §14.3's sums are over `customers_list`, which is
+correct, but nothing in §14.6 exercises both at once — and the two interact precisely in the
+denominator.
 
 ---
 
@@ -2005,3 +2075,74 @@ document — worth building regardless of §14.
 **Line-reference audit method.** For each `file:NNN` in the doc, `git blame -L NNN,NNN <file>`
 on `main` and confirm the named symbol still lives there. The body↔§14 `:1184` vs `:1255` drift
 proves the references are already stale.
+
+---
+
+# 16. Response to the §15 review — 2026-09-29
+
+**All thirteen findings accepted. Every checkable claim was verified against the file before
+folding; none was accepted on the report alone.** Nine are closed in text above; four are
+recorded as work the implementation plan must carry. §15 is kept verbatim as the audit trail.
+
+## 16.1 Verdicts
+
+| Id | Verdict | Verified how | Closed where |
+|---|---|---|---|
+| **C1** — §10 still lists the reversed items as out of scope | **Accept** | Confirmed at the line itself; the passage read *"Editing demand, adding warehouses or customers, excluding customers, facility open/close status — decision 11"* with no marker | §10, struck through with `→ SUPERSEDED BY §14` and the surviving exclusion (adding entities) restated |
+| **C2** — "nineteen in §9" vs eighteen numbered points | **Accept** | Counted the numbered rows in §9: exactly **18**, plus four unnumbered extras | §14.7 now says eighteen and names the four extras |
+| **C3** — no §11 risk row for reachable infeasibility | **Accept** | §11 had no such row | §11 gained a row naming all three configurations and the expected status for each |
+| **C4** — golden shown as `…098.60` and `…098.6002` | **Accept** | Both forms present in the document | §16.2 states the rule once |
+| **C5** — stale header | **Accept** | Header read `Branch: ch5-ux` / `Status: Rev 1, awaiting review` while the model is merged and live | Header rewritten, with a read-§14-first warning |
+| **G1** — no pinned goldens for the editable paths | **Accept** | §14.6's tests assert `≠`, not values | §14.8 requires four prototype cases with objective, open set, WAD 4 dp and bands 2 dp pinned |
+| **G2** — precheck does not cover the new override ids | **Accept** | §14's only mention of precheck says it *"stays about malformed input"*; §6.2.1 validates `laneCostOverrides` alone | §14.8 extends precheck to both override id sets via `reference_integrity` |
+| **G3** — `fixedGeography` rename uncovered | **Accept** | No call-site enumeration or completeness test in §14.5 | §14.8 specifies the enumeration, the one-commit rename and the zero-hit grep as evidence |
+| **G4** — merged sibling e2e spec written pre-§14 | **Accept** | `delivery-teaching.spec.ts:168-170` asserts exactly the three sidebar entries; `:178`'s place-warehouse count-0 stays valid | §14.8 names the rewrite and what to keep |
+| **G5** — capability flip on a shipped manifest needs a sweep | **Accept** | §14.5 named only Task 12's inversion | §14.8 requires accounting for every `supportsFacilityStatus` / `demandEditable` consumer |
+| **G6** — override id form unspecified | **Accept** | §14.2 said `id: z.string()` with no prefix rule | §14.8 pins `W###` / `C###` end to end, no translation step |
+| **G7** — exclusion × overflow untested | **Accept** | §14.6 exercised neither together | §14.8 requires the combined case |
+| **G8** — §14 never got an adversarial pass | **Accept, and partly self-answering** | See §16.3 | Plan carries the source-verification half |
+
+## 16.2 C4 — the golden, stated once
+
+The stored contract is **2 dp** (§5.7). Scenario 2's objective is therefore
+**`150,194,534,098.60`** everywhere it is asserted. `150,194,534,098.6002` is the raw CBC value
+the prototype prints before rounding; it appears in §12.2 only as measurement provenance and is
+not an assertion target. Where the two disagree, the 2 dp form governs.
+
+## 16.3 G8 — the missing adversarial pass, and what remains of it
+
+§15 asked for an independent readiness pass on §14, because §1–§13 got one and §14 did not.
+**§15 is that pass.** It was written by a different reader against the committed text, produced
+a verdict table, and found two High gaps (G1, G2) that a single-author edit had missed — G2
+being the same silent-`internal_error` class the whole-branch review already caught once.
+
+What §15 could not do, and the plan must: **verify §14's claims against current `main`
+source.** §15 explicitly scoped itself to "the design text itself, not the shipped code." So the
+remaining work is narrower than a second full review — re-anchor every `file:NNN` in §14 against
+`main` HEAD, and confirm each claimed mechanism still behaves as described. §15.4 step 6 and
+§15.5's line-reference audit method are the procedure; the plan's Task 0 runs them.
+
+The finding's underlying point stands regardless: an amendment that voids a justification an
+earlier review relied on — Task 3 accepted untested non-optimal branches *because* infeasibility
+was unreachable, which §14.4 voids — is exactly where the next real defect lives.
+
+## 16.4 Carried to the implementation plan, not closable in text
+
+1. **§14 goldens (G1).** Four prototype runs and a pinned table. Numbers do not exist yet; §14
+   has no acceptance criteria for its new paths until they do. **First task in the plan**, for
+   the same reason the original §8.1 goldens came before any integration work.
+2. **Line-reference re-anchoring (§15.4 step 6).** The body's `Workspace.tsx:1184` against
+   §14.5's `:1255` already proves drift, and both predate the Chapter 4 merge.
+3. **The registry set-equality test (§15.5 Layer 3).** Proposed in §9, still unbuilt. Converts
+   eighteen hand-maintained lists into one assertion. Worth building regardless of §14 — and the
+   one item here that reduces future work rather than adding to it.
+4. **Canonical-copy reconciliation (§15.4 step 8).** §14–§16 exist only on `ch5-delivery`; the
+   `ch4-ux-fixes` working tree is pre-amendment; `main` merged §1–§13 without them. Any edit to
+   another copy guarantees an add/add conflict. **Merge this document to `main` before further
+   editing** — flagged by §15, and the fix is one merge, not a policy.
+
+## 16.5 One correction to §15
+
+§15.0 says *"`git log main..ch5-delivery` is a single commit — `f37f728`"*. True when written;
+`51011d1` (§15 itself) and this section make three. Stated because §15's own value rested on
+measuring branch state rather than assuming it, and the measurement has a timestamp.
