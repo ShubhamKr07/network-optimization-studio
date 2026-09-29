@@ -2881,6 +2881,44 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     reopenSolveDialog();
   }
 
+  // CH4UX-6 review (Finding 2) — THE enqueue path. Both callers route
+  // through here (`handleSolve`'s runSolve, and `handleSaveAsScenario`'s
+  // solve-the-clone step), so there is exactly ONE place that raises the
+  // in-flight lock, the visible phase, and the failure surface.
+  //
+  // Before this, `handleSaveAsScenario` called `solveScenario.mutate` +
+  // `setPollingJobId` directly, touching neither `solveInFlightRef` nor
+  // `solvePhase`. Two consequences, the first NEW with CH4UX-6: that solve
+  // ran with no overlay at all, yet if the job failed the poll effect still
+  // set phase "failed" — so a modal error card appeared with no preceding
+  // running state, and its "Adjust & re-solve" opened the Solve dialog for a
+  // scenario the student had never opened a dialog for. Second (pre-existing):
+  // the header Run button stayed enabled for the duration, so a second
+  // enqueue could orphan the first job's poll.
+  function enqueueSolve(scenarioId: number) {
+    solveInFlightRef.current = true;
+    setSolveError(null);
+    setSolvePhase("solving");
+    solveScenario.mutate(
+      { scenarioId },
+      {
+        onSuccess: job => setPollingJobId(job.jobId),
+        onError: err => {
+          const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+          // Lock deliberately still held — the failure card is up, and
+          // Close/Adjust (`resetSolveState`) own that release.
+          setSolvePhase("failed");
+          setSolveError(message);
+          toast({
+            title: "Solve failed to start",
+            description: message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  }
+
   // CRITICAL — save-before-solve (CLAUDE.md's documented Round-2 bug):
   // POST /scenarios/:id/solve carries no body — it solves whatever is
   // ALREADY PERSISTED on the scenario row ("DB row is the source of truth").
@@ -2897,11 +2935,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `handleSolve` ALSO rejects a historical position defensively, so
     // neither this save-before-solve branch nor the direct-solve branch can
     // ever run there even if invoked programmatically.
-    // CH4UX-6 — the enqueue path itself is guarded, not just the one button
-    // that calls it: the header button's `disabled`, `openSolveDialog`'s own
-    // guard, and the modal overlay are the other three layers, and each alone
-    // has a hole. `solveInFlightRef` is checked FIRST because it is the only
-    // one of the four that holds within a single synchronous tick.
+    // CH4UX-6 — THIS path is guarded in four layers, not just by the one
+    // button that calls it: the header button's `disabled`, `openSolveDialog`'s
+    // own guard, the modal overlay, and the check below — each alone has a
+    // hole. `solveInFlightRef` is checked FIRST because it is the only one of
+    // the four that holds within a single synchronous tick.
+    //
+    // CH4UX-6 review (Finding 2) — scoped to THIS path deliberately: the
+    // shared `enqueueSolve` has a SECOND caller, `handleSaveAsScenario`, which
+    // does not re-run this guard. That caller cannot double-enqueue anyway,
+    // because `enqueueSolve` raises the same modal overlay, which covers the
+    // button that reaches it. Do not read this comment as "the enqueue
+    // helper is single-entry" — it is not; the guard lives here.
     if (
       !currentScenario ||
       isBrowsingHistoryNow ||
@@ -2920,25 +2965,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       track("scenario stale resolved", { scenario_id: currentScenario.id, model_id: modelId });
     }
 
-    const runSolve = () => {
-      setSolvePhase("solving");
-      solveScenario.mutate(
-        { scenarioId },
-        {
-          onSuccess: job => setPollingJobId(job.jobId),
-          onError: err => {
-            const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
-            setSolvePhase("failed");
-            setSolveError(message);
-            toast({
-              title: "Solve failed to start",
-              description: message,
-              variant: "destructive",
-            });
-          },
-        },
-      );
-    };
+    const runSolve = () => enqueueSolve(scenarioId);
 
     if (ordinaryDirty && localInputs) {
       setSolvePhase("saving");
@@ -2980,7 +3007,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
   }
 
-  const { data: jobStatus } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
+  // CH4UX-6 review (Finding 1) — `isError` is NOT optional bookkeeping here.
+  // `refetchInterval` below returns `false` whenever `query.state.data?.status`
+  // is undefined, which is exactly what a failed or 404'd poll produces: the
+  // polling STOPS SILENTLY. Before CH4UX-6 that was a soft annoyance (the
+  // dialog still had a Close button); CH4UX-6 removed both escape hatches —
+  // the dialog's Close, and `openSolveDialog`'s old unconditional phase reset
+  // (now guarded, with the header button disabled) — so an unobserved poll
+  // error would strand the student at phase "solving" behind a modal with no
+  // Close and a prevented Escape. Page reload only. Hence the branch at the
+  // top of the poll effect below.
+  const { data: jobStatus, isError: jobPollFailed } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
     query: {
       enabled: !!currentScenario && !!pollingJobId,
       queryKey: getGetSolveJobQueryKey(currentScenario?.id!, pollingJobId!),
@@ -3003,6 +3040,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   }, [jobStatus]);
 
   useEffect(() => {
+    // CH4UX-6 review (Finding 1) — checked BEFORE the status branches,
+    // because a poll error is precisely the case where `jobStatus` is
+    // undefined and the `!jobStatus` guard below would return early, leaving
+    // the phase pinned at "solving" with polling already stopped. Routed onto
+    // the overlay's EXISTING failure surface rather than a new one: the error
+    // card's Close and Adjust are the two release sites for
+    // `solveInFlightRef`, so this turns an unrecoverable modal lock into a
+    // dismissible failure. Clearing `pollingJobId` also changes the query key,
+    // so `jobPollFailed` reads false on the next render — no re-entry.
+    if (jobPollFailed) {
+      setSolvePhase("failed");
+      setSolveError("Lost contact with the solve job. Try again.");
+      setPollingJobId(null);
+      return;
+    }
     if (!jobStatus || !currentScenario) return;
     if (jobStatus.status === "succeeded") {
       // jade-INT (#8, spec §9 R-plan-3) — retain this job's derived
@@ -3063,7 +3115,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         variant: "destructive",
       });
     }
-  }, [jobStatus, currentScenario?.id, queryClient]);
+  }, [jobStatus, jobPollFailed, currentScenario?.id, queryClient]);
 
   // Task 7 (C5.1) — "Save as scenario" from a history entry (DD-7). Creates a
   // NEW scenario from the CURRENTLY-VIEWED history entry's inputs (not
@@ -3075,8 +3127,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // mutateAsync (this codebase's established style is .mutate + onSuccess/
   // onError callbacks, see handleCreateConfirm and handleSolve's runSolve).
   // A freshly-created scenario's inputs are exactly the entry's inputs, so
-  // it's never dirty — safe to call solveScenario directly without
-  // handleSolve's save-before-solve branch.
+  // it's never dirty — safe to go straight to `enqueueSolve` without
+  // handleSolve's save-before-solve branch (which is the only thing this
+  // path skips; the solve lifecycle itself is shared — see Finding 2).
   function handleSaveAsScenario() {
     const entry = resultHistoryState.items[resultHistoryState.index];
     if (!entry) return;
@@ -3097,20 +3150,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           navigate(`?scenario=${created.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          solveScenario.mutate(
-            { scenarioId: created.id },
-            {
-              onSuccess: job => setPollingJobId(job.jobId),
-              onError: err => {
-                const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
-                toast({
-                  title: "Solve failed to start",
-                  description: message,
-                  variant: "destructive",
-                });
-              },
-            },
-          );
+          // CH4UX-6 review (Finding 2) — routed through the shared
+          // `enqueueSolve` instead of calling `solveScenario.mutate` +
+          // `setPollingJobId` inline, so this solve gets the SAME lifecycle
+          // as the dialog's: the overlay shows "Solving…" while it runs, the
+          // header Run button is disabled for the duration, and a failure
+          // lands on an error card the student has actually seen a running
+          // state precede.
+          enqueueSolve(created.id);
         },
       },
     );

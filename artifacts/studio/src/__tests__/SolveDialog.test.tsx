@@ -113,12 +113,19 @@ describe("SolveDialog — R5 distance-band editor", () => {
   });
 });
 
-// C4.12 — max-coverage-us: the Solve dialog caps P at a model-specific
-// maximum (D27, generically exercised here via the `pMax` prop) and hides
-// the band editor (D13/D19 — bands are derived [high, max]). Both are
-// opt-in props (default 50 / true), so every other model's Solve dialog is
-// unchanged.
-describe("SolveDialog — max-coverage-us pMax + no band editor (C4.12)", () => {
+// The dialog's two built-in opt-out seams, `pMax` (default 50) and
+// `showBandEditor` (default true). Both are exercised here GENERICALLY, on
+// arbitrary prop values — deliberately not tied to a model.
+//
+// CH4UX-6 review (Finding 4) — retitled: the old title claimed
+// "max-coverage-us pMax + no band editor (C4.12)" and is now false on both
+// counts. max-coverage-us passes no `pMax` at all (its cap lives in the
+// single `optimizationParamsBaseProps` declaration that MIG-8 guards, and it
+// renders its parameters through `paramsSlot`, so the built-in slider below
+// never mounts for it), and its band editor is NOT hidden any more
+// (chen-bands-units re-enabled it). No live caller passes either prop; these
+// cases keep the seams honest for a future one.
+describe("SolveDialog — built-in P slider cap (pMax) and band-editor seam", () => {
   it("defaults the P slider max to 50 when pMax is omitted (every existing model unaffected)", () => {
     renderDialog({ p: 3 });
     const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');

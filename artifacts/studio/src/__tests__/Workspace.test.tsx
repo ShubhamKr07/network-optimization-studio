@@ -2504,6 +2504,12 @@ it("caps p at 26 in the single pMax declaration for max-coverage-us (MIG-8)", ()
   // via paramsSlot, so the dialog's own P slider never mounts for it).
   // NOTE: this regex needs `modelId === "max-coverage-us" ? <n>` unbroken on
   // ONE line — reformatting the ternary across lines silently drops a match.
+  // CH4UX-6 review (Finding 6) — the symmetric trap, cross-referenced here
+  // because its primary warning lives at the `Workspace.tsx` call site and
+  // the pair should be findable from either end: this reads the file as
+  // SOURCE TEXT, so a COMMENT that quotes the ternary counts as a match too.
+  // Explaining why an arm was deleted by quoting it verbatim re-breaks this
+  // test, for a comment. Describe the deleted arm; never quote it.
   // The REAL two-surface cap guard is the D27 test's pair of DOM assertions
   // (tab thumb + solve-dialog-slider-p-value thumb, both aria-valuemax=26),
   // which is behavioural evidence rather than a source grep.
@@ -3021,6 +3027,98 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     fireEvent.click(screen.getByTestId("solve-progress-close"));
     expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
     expect(screen.queryByTestId("solve-dialog")).toBeNull();
+    // CH4UX-6 review (Finding 5) — Close and Adjust call the SAME
+    // `resetSolveState()`, but only Adjust's release was covered (by the
+    // clean-clock test). Without this line, Close's wiring to the lock
+    // release is unasserted, and a Close that dismissed the overlay while
+    // leaving `solveInFlightRef` raised would pass: Solve would then be
+    // permanently inert with nothing on screen to explain it.
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+    // Honesty about the line above: it is IMPLIED by the overlay being gone
+    // — the button's `disabled` and the overlay's `open` both derive from
+    // `solvePhase === "idle"` — so it documents the contract rather than
+    // adding coverage, and no mutation fails it alone. This next part is the
+    // discriminating half, and it is the one that matters: `solveInFlightRef`
+    // is a REF, so a stuck `true` renders nothing differently — the button
+    // would look perfectly enabled while `handleSolve` silently returned
+    // early on every click, with no visible cause.
+    mockSolveScenario.mutate.mockClear();
+    openAndSolve();
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  // CH4UX-6 review (Finding 3) — the dialog→overlay handoff is a
+  // `react-remove-scroll` / body-`pointer-events` transition. Radix's
+  // DismissableLayer writes `document.body.style.pointerEvents = "none"` in
+  // jsdom too, so both halves are checkable here rather than only in a
+  // browser.
+  //
+  // This one caught a REAL defect rather than confirming an assumption.
+  // Before `SolveProgressOverlay` grew its `onOpenAutoFocus` handler,
+  // `document.activeElement` was <body> at this point and STAYED there
+  // across a macrotask and an animation frame (all three measured): the
+  // Dialog restores focus to `button-run-optimizer`, which `solvePhase !==
+  // "idle"` has just disabled, and the running branch has no focusable child
+  // to catch the fallback. A keyboard user was stranded outside a modal that
+  // had already inerted the page.
+  it("moves focus into the overlay when Solve is pressed, and inerts the page behind it", () => {
+    enqueueSucceeds();
+    renderWorkspace();
+    openAndSolve();
+
+    const overlay = screen.getByTestId("solve-progress-overlay");
+    expect(overlay).toContainElement(document.activeElement as HTMLElement);
+    // MEASURED deviation from the review's drafted `not.toBe("none")` for
+    // this moment: with the overlay OPEN the body is legitimately "none" —
+    // that is the modality working, not a stuck body. Asserting the
+    // opposite here would assert the modal is broken. The `not.toBe("none")`
+    // check is the meaningful one after close; see the next test.
+    expect(document.body.style.pointerEvents).toBe("none");
+  });
+
+  it("releases the page's pointer events once the overlay is closed", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    expect(document.body.style.pointerEvents).toBe("none");
+
+    fireEvent.click(screen.getByTestId("solve-progress-close"));
+    // Asserted BEFORE the unmount check deliberately, so this line is the
+    // one a "body never got restored" mutation fails — behind the unmount
+    // check it would be unreachable and its failability unprovable.
+    // A stuck "none" here is the classic two-modals-handing-off failure: the
+    // page stays permanently uninteractive with nothing on screen to explain
+    // why. Every other test in this block drives the overlay with
+    // `fireEvent`, which bypasses pointer-events entirely and would never
+    // notice.
+    expect(document.body.style.pointerEvents).not.toBe("none");
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+  });
+
+  // CH4UX-6 review (Finding 1) — the poll's own error state. `refetchInterval`
+  // returns false whenever `query.state.data?.status` is undefined, so a
+  // failed or 404'd poll stops polling SILENTLY. Without the `isError`
+  // branch the phase stays "solving" behind a modal that has no Close and
+  // prevents Escape — page reload only. This asserts the way OUT exists.
+  it("turns a failed poll into a dismissible error rather than an unrecoverable modal lock", () => {
+    enqueueSucceeds();
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: undefined, isError: true }
+        : { data: undefined, isError: false }) as unknown as ReturnType<typeof useGetSolveJob>,
+    );
+    renderWorkspace();
+    openAndSolve();
+
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Lost contact with the solve job.");
+    expect(screen.getByTestId("solve-progress-close")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
+
+    // And the escape actually works — including releasing the in-flight lock.
+    fireEvent.click(screen.getByTestId("solve-progress-close"));
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
   });
 
   it("removes the overlay and opens Output Map on success", () => {
@@ -3030,6 +3128,48 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     openAndSolve();
     expect(screen.getByTestId("tab-output:output-map")).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+  });
+
+  // CH4UX-6 review (Finding 2) — "Save as scenario" is the SECOND enqueue
+  // path. It used to call `solveScenario.mutate` + `setPollingJobId`
+  // directly, touching neither the phase nor the in-flight lock: the solve
+  // ran with no overlay, the header Run button stayed live beside it, and a
+  // failure of THAT job still raised the modal error card — whose "Adjust &
+  // re-solve" would open the Solve dialog for a scenario the student had
+  // never opened a dialog for. Both callers now share `enqueueSolve`.
+  it("shows the same overlay lifecycle when the solve is enqueued by Save as scenario", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+
+    enqueueSucceeds();
+    jobSnapshot({ status: "succeeded" });
+    const view = renderWorkspace();
+
+    // Build one history entry so the Save-as-scenario button exists.
+    openAndSolve();
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // The first solve finished, so nothing is in flight at this point.
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+
+    // Now the clone's solve — with its poll deliberately not yet returning,
+    // so the in-flight state is observable.
+    mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
+    mockCreateScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (s: unknown) => void }) =>
+        opts.onSuccess({ ...scenarioWithA, id: 42, name: "3 Warehouses (saved run)", result: null }),
+    );
+    fireEvent.click(screen.getByTestId("button-save-as-scenario"));
+
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 42 }, expect.anything());
+    expect(screen.getByTestId("solve-progress-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-phase")).toHaveTextContent("Solving…");
+    expect(screen.getByTestId("button-run-optimizer")).toBeDisabled();
   });
 
   // The ref-lock regression. A double-CLICK test cannot cover this: the button

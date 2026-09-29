@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   AlertDialog,
@@ -73,6 +73,29 @@ export function SolveProgressOverlay({
 
   const elapsed = useElapsed({ queuedAt, startedAt, finishedAt, status: jobStatus });
 
+  // CH4UX-6 review (Finding 3) — claim focus explicitly when the overlay
+  // opens. MEASURED in jsdom, not assumed: without this, pressing Solve
+  // leaves `document.activeElement === document.body`, and it STAYS there
+  // across a macrotask and an animation frame.
+  //
+  // The mechanism is specific to the handoff CH4UX-6 introduced. SolveDialog
+  // closes in the SAME commit this overlay opens, and Radix's Dialog restores
+  // focus to its trigger on close — that trigger is `button-run-optimizer`,
+  // which `solvePhase !== "idle"` has just DISABLED, so `.focus()` on it is a
+  // no-op and focus falls to <body>. The running branch below deliberately
+  // has no focusable child (there is nothing to cancel — the API has no
+  // cancel endpoint), so nothing pulls focus back in.
+  //
+  // Net effect without the `onOpenAutoFocus` handler below: a keyboard user
+  // sits on <body>, OUTSIDE a modal that has set `body { pointer-events:
+  // none }`, with Escape prevented while running — no tab stop, no way back.
+  //
+  // Done via `onOpenAutoFocus` rather than a `useEffect` keyed on `open`,
+  // also measured: Radix mounts this content through `Presence`, so on the
+  // commit where `open` flips true the ref is still null in a parent effect
+  // (`hasRef=false`) and the focus call is a silent no-op. `onOpenAutoFocus`
+  // fires once the content and its FocusScope actually exist.
+  const contentRef = useRef<HTMLDivElement>(null);
   const [quipIndex, setQuipIndex] = useState(0);
   useEffect(() => {
     if (!running) {
@@ -88,8 +111,17 @@ export function SolveProgressOverlay({
   return (
     <AlertDialog open={open}>
       <AlertDialogContent
+        ref={contentRef}
         data-testid="solve-progress-overlay"
         className="max-w-sm"
+        // See the focus note above. Radix's default hunts for the first
+        // focusable child; the running branch has none, and the fallback
+        // lands on <body> — outside the modal. Point it at the container,
+        // which carries Radix's own `tabIndex={-1}`.
+        onOpenAutoFocus={e => {
+          e.preventDefault();
+          contentRef.current?.focus();
+        }}
         // Radix fires this before any close attempt. Prevented while running
         // so Escape cannot dismiss a surface with no cancel behind it.
         onEscapeKeyDown={e => {
