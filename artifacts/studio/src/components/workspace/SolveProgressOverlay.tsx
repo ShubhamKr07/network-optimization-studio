@@ -20,8 +20,10 @@ import { SOLVE_QUIPS, QUIP_INTERVAL_MS } from "@/lib/solveQuips";
  * `"solving"` — the job has been enqueued and/or is being polled.
  * `"failed"` — the save, the enqueue, or the job itself ended in an error.
  *
- * Moved out of SolveDialog (where it was `SolveDialogPhase`): the dialog no
- * longer has a progress concept at all, and two consumers now read this.
+ * CH4UX-6 made this true: moved out of SolveDialog, whose own phase type is
+ * now deleted. That dialog no longer has a progress concept at all, and this
+ * type has exactly two consumers — this component and `Workspace.tsx`'s
+ * `solvePhase` state.
  */
 export type SolvePhase = "idle" | "saving" | "solving" | "failed";
 

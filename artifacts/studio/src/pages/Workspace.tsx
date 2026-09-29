@@ -27,7 +27,6 @@ import {
   type SolveResult,
   type Plant,
   type SolveJob,
-  type SolveJobErrorCode,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +42,8 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
-import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
+import { SolveDialog } from "@/components/workspace/SolveDialog";
+import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab, type AddedMine } from "@/components/workspace/tabs/MinesTab";
@@ -2830,32 +2830,55 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // reinvented.
   const solveScenario = useSolveScenario();
   const [solveDialogOpen, setSolveDialogOpen] = useState(false);
-  const [solvePhase, setSolvePhase] = useState<SolveDialogPhase>("idle");
+  const [solvePhase, setSolvePhase] = useState<SolvePhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
-  // A9 (SCND correctness, §2.11/A-R47) — the polled job's permanent public
-  // errorCode, tracked alongside `solveError`'s message so SolveDialog can
-  // derive its Retry affordance from errorCode ALONE. Null for a
-  // synchronous save/enqueue rejection (never had a job, so never had an
-  // errorCode) — SolveDialog's own default still renders Retry for that case
-  // via `isRetryableFailureCode`'s documented null/undefined handling.
-  const [solveErrorCode, setSolveErrorCode] = useState<SolveJobErrorCode | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
 
+  // CH4UX-6 — synchronous single-entry lock. `solvePhase` is the user-visible
+  // guard; this ref is the one that actually holds within a single tick.
+  // Cleared in exactly two places: `resetSolveState()` (which every dismissal
+  // and reopen routes through) and the solve-success branch of the poll
+  // effect, which sets the phase to "idle" directly rather than calling the
+  // reset helper. Deliberately NOT cleared when the job fails — the failure
+  // card is still up and Close/Adjust own that transition.
+  const solveInFlightRef = useRef(false);
+
   // jade-INT (#8, spec §9) — a persisted mirror of the last polled solve-job
-  // snapshot, threaded into SolveDialog's live clock. Needed because
-  // useGetSolveJob's cached `data` disappears the instant `pollingJobId`
-  // resets to null (a DIFFERENT queryKey, never fetched) — which happens on
-  // BOTH success and failure, including the failure case where the dialog
-  // is required to keep showing the frozen total (spec §9's "on failed the
-  // dialog stays open ... shows the frozen total in-dialog").
+  // snapshot, threaded into the live solve clock — which CH4UX-6 moved from
+  // the dialog onto SolveProgressOverlay. Needed because useGetSolveJob's
+  // cached `data` disappears the instant `pollingJobId` resets to null (a
+  // DIFFERENT queryKey, never fetched) — which happens on BOTH success and
+  // failure, including the failure case where the surface is required to
+  // keep showing the frozen total (spec §9; that surface is now the
+  // overlay's error card).
   const [lastJobSnapshot, setLastJobSnapshot] = useState<SolveJob | null>(null);
 
-  function openSolveDialog() {
+  // CH4UX-6 — ONE reset list. `openSolveDialog` used to own it inline; the
+  // overlay's two callbacks now reuse it, so a failed job's terminal
+  // `lastJobSnapshot` can never leak into the next run's clock (which would
+  // show the PREVIOUS job's frozen total until the first poll landed).
+  function resetSolveState() {
     setSolveError(null);
-    setSolveErrorCode(null);
     setSolvePhase("idle");
     setLastJobSnapshot(null);
+    setPollingJobId(null);
+    solveInFlightRef.current = false;
+  }
+
+  // Used by the overlay's "Adjust & re-solve": deliberately UNGUARDED,
+  // because it is invoked from `phase === "failed"` and a guard on
+  // `phase !== "idle"` would block exactly the case it exists for.
+  function reopenSolveDialog() {
+    resetSolveState();
     setSolveDialogOpen(true);
+  }
+
+  function openSolveDialog() {
+    // Guarded: reopening the dialog resets the phase to "idle", so a keyboard
+    // Enter reaching the header Run button mid-job would otherwise cancel the
+    // in-flight guard and permit a second enqueue.
+    if (solvePhase !== "idle") return;
+    reopenSolveDialog();
   }
 
   // CRITICAL — save-before-solve (CLAUDE.md's documented Round-2 bug):
@@ -2874,12 +2897,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `handleSolve` ALSO rejects a historical position defensively, so
     // neither this save-before-solve branch nor the direct-solve branch can
     // ever run there even if invoked programmatically.
-    if (!currentScenario || isBrowsingHistoryNow) return;
+    // CH4UX-6 — the enqueue path itself is guarded, not just the one button
+    // that calls it: the header button's `disabled`, `openSolveDialog`'s own
+    // guard, and the modal overlay are the other three layers, and each alone
+    // has a hole. `solveInFlightRef` is checked FIRST because it is the only
+    // one of the four that holds within a single synchronous tick.
+    if (
+      !currentScenario ||
+      isBrowsingHistoryNow ||
+      solveInFlightRef.current ||
+      solvePhase !== "idle"
+    ) return;
+    solveInFlightRef.current = true;
     setSolveError(null);
-    // A9 — a synchronous save/enqueue rejection below never has a job, so it
-    // never has an errorCode; clearing it here (rather than per-branch) is
-    // sufficient since neither onError branch below sets it.
-    setSolveErrorCode(null);
+    // CH4UX-6 — the dialog hands off to SolveProgressOverlay immediately;
+    // every progress/error surface now lives there.
+    setSolveDialogOpen(false);
     const scenarioId = currentScenario.id;
 
     track("solve triggered", { scenario_id: currentScenario.id, model_id: modelId });
@@ -2999,6 +3032,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         }
       }
       setSolvePhase("idle");
+      // CH4UX-6 — the one release site the reset helper does not cover: this
+      // branch sets the phase directly (it also opens the Output Map tab and
+      // invalidates queries) rather than routing through resetSolveState().
+      solveInFlightRef.current = false;
       setPollingJobId(null);
       setSolveDialogOpen(false);
       openTab("output", OUTPUT_MAP_ENTRY);
@@ -3013,12 +3050,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // server-owned safe messages (never a raw diagnostic), so falling back
       // to `error` when `errorMessage` is absent (older API builds, or a
       // pre-A5 historical row) is safe and keeps this reading correctly
-      // either way. `errorCode` is tracked separately for SolveDialog's
-      // errorCode-derived Retry action — never parsed out of the message.
+      // either way. CH4UX-6 — `errorCode` is no longer tracked in state: the
+      // overlay's Adjust/Close actions are unconditional, so nothing derives
+      // UI from the code any more (and the message was never parsed).
       const message = jobStatus.errorMessage ?? jobStatus.error ?? "The solver did not complete. Try again.";
       setSolvePhase("failed");
       setSolveError(message);
-      setSolveErrorCode(jobStatus.errorCode ?? null);
       setPollingJobId(null);
       toast({
         title: "Solve failed",
@@ -4219,9 +4256,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 historical inputs on screen, so running from history would
                 be misleading. `handleSolve` itself also refuses this
                 defensively (see its own guard). */}
+            {/* CH4UX-6 — also disabled while a solve is in flight: the
+                overlay is modal, but this header button is the one control
+                a keyboard user could still reach mid-run. */}
             <Button
               size="sm"
-              disabled={!currentScenario || isBrowsingHistoryNow}
+              disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle"}
               onClick={openSolveDialog}
               data-testid="button-run-optimizer"
             >
@@ -4351,22 +4391,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         open={solveDialogOpen && pendingStep1Inputs == null}
         onOpenChange={setSolveDialogOpen}
         modelId={modelId}
-        // jade-INT (#8, spec §9) — live solve clock, sourced from
-        // `lastJobSnapshot` (survives `pollingJobId` resetting to null on
-        // both success and failure — see that state's own comment).
-        queuedAt={lastJobSnapshot?.queuedAt ?? null}
-        startedAt={lastJobSnapshot?.startedAt ?? null}
-        finishedAt={lastJobSnapshot?.finishedAt ?? null}
-        jobStatus={lastJobSnapshot?.status}
         p={pFromInputs(localInputs)}
-        // C4.12/D27 — max-coverage-us caps P at 26 in the Solve dialog too
-        // (27 can't be authored from either surface).
+        // CH4UX-6 — the max-coverage-us `pMax` arm that used to sit here is
+        // DELETED as provably dead (and is deliberately NOT quoted verbatim
+        // in this comment: MIG-8 greps this file as SOURCE TEXT, so a
+        // quotation would count as a second declaration). Reason: this
+        // dialog's whole built-in region is `{paramsSlot ?? (…)}`,
+        // max-coverage-us is the only model that supplies a `paramsSlot`, so
+        // the built-in `max={pMax}` slider never mounts for it. The one
+        // fallback path (no `solveDialogParamsProps`, i.e. `localInputs ==
+        // null`) can't render it either — that block is gated `p != null`
+        // and `pFromInputs(null)` is undefined. Chapter 4's cap now lives in
+        // exactly one place, the hoisted `optimizationParamsBaseProps`.
         // chen-bands-units, Part A (plan-review HIGH #5) — Chen's band
         // editor is re-enabled here too (`showBandEditor` omitted, defaults
         // true), edited through the SAME `activeBandLens`/
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
-        pMax={modelId === "max-coverage-us" ? 26 : undefined}
         // CH4UX-4 — Chapter 4 renders the REAL parameter tab, for
         // `stepState.targetStep`. Every other model passes nothing and keeps
         // SolveDialog's built-in controls verbatim.
@@ -4386,13 +4427,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // `canonicalUnit` supersedes the legacy `distanceUnit` label prop.
         canonicalUnit={canonicalUnit}
         onChange={handleOptimizationParamsChange}
-        phase={solvePhase}
-        errorMessage={solveError}
-        // A9 (SCND correctness, §2.11/A-R47) — drives SolveDialog's
-        // errorCode-derived Retry action. Null for a synchronous
-        // save/enqueue rejection (no job ever existed).
-        errorCode={solveErrorCode}
         onSolve={handleSolve}
+      />
+
+      {/* CH4UX-6 — mounted UNCONDITIONALLY from this component's single main
+          return and self-gated on `phase`, per this repo's documented
+          dialog-in-an-unreachable-branch gotcha. The timing props come from
+          `lastJobSnapshot`, which survives `pollingJobId` resetting to null
+          on both success and failure (see that state's own comment), so a
+          failed job's frozen total stays visible on the error card. */}
+      <SolveProgressOverlay
+        phase={solvePhase}
+        queuedAt={lastJobSnapshot?.queuedAt ?? null}
+        startedAt={lastJobSnapshot?.startedAt ?? null}
+        finishedAt={lastJobSnapshot?.finishedAt ?? null}
+        jobStatus={lastJobSnapshot?.status}
+        errorMessage={solveError}
+        onAdjust={reopenSolveDialog}
+        onClose={resetSolveState}
       />
 
       {/* chen-bands-units, Part A (decision 1i), Task 14 Step 5 — rendered

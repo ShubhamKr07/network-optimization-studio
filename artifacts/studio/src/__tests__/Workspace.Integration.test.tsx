@@ -662,7 +662,10 @@ describe("Workspace — JADE uses the shared chip band editor, no validity gate 
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("solve-dialog-error")).not.toBeInTheDocument();
+    // CH4UX-6 — the error surface is the overlay's card now; the dialog has
+    // none. With the job unpolled the overlay sits in its running branch,
+    // so no error card exists.
+    expect(screen.queryByTestId("solve-progress-error")).not.toBeInTheDocument();
   });
 });
 
@@ -815,10 +818,13 @@ describe("CH4UX-4 — the Solve dialog renders the step that will RUN, not the s
     expect(screen.queryByTestId("solve-dialog-slider-p-value")).toBeNull();
   });
 
-  it("no longer renders the CH4-17 read-only summary", () => {
-    openDialogAt({ step1: { solved: false }, step2: { solved: false } }, 1);
-    expect(screen.queryByTestId("solve-dialog-readonly-summary")).toBeNull();
-  });
+  // CH4UX-6 — "no longer renders the CH4-17 read-only summary" is deleted,
+  // not re-pointed: the confirmation-only prop and the summary element it
+  // gated no longer exist in SolveDialog at all, so that assertion could
+  // never fail again. The positive half of the contract — Chapter 4's
+  // dialog renders the REAL parameter panel — is covered by the 0-of-2 and
+  // 1-of-2 cases above (`solve-dialog-slider-p-value` /
+  // `solve-dialog-step2-parameters` present).
 
   // Both namespaces, two assertions — see Task 2's note on why they are split.
   it("emits no duplicate DOM id or data-testid with the parameters tab open behind the dialog", () => {
