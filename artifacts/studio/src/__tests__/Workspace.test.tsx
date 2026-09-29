@@ -184,9 +184,13 @@ vi.mock("@workspace/api-client-react", () => ({
       },
       // Task 11 (Chapter 5) — delivery-teaching-us. Capabilities copied
       // verbatim from solvers/delivery-teaching-us/manifest.json: no
-      // capacity modes, demand fixed (not editable), the Delivery Costs
-      // tab's own base matrix (supportsReferenceCosts), no reference
-      // distances, no flows output grid.
+      // capacity modes, the Delivery Costs tab's own base matrix
+      // (supportsReferenceCosts), no reference distances, no flows output
+      // grid. ch5-edit-5 (§14) — demandEditable and supportsFacilityStatus
+      // are both true now (customer demand/exclusion and warehouse status
+      // are editable via their own Warehouses/Customers tabs); this fixture
+      // previously had both false, silently testing the pre-§14 world
+      // (found by audit, not the brief).
       {
         id: "delivery-teaching-us",
         distanceUnit: "mi",
@@ -194,9 +198,9 @@ vi.mock("@workspace/api-client-react", () => ({
         capabilities: {
           supportsP: true,
           capacityModes: [],
-          demandEditable: false,
+          demandEditable: true,
           outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
-          supportsFacilityStatus: false,
+          supportsFacilityStatus: true,
           supportsReferenceDistances: false,
           supportsReferenceCosts: true,
           supportsAddedCustomerExclusion: false,
@@ -1157,11 +1161,17 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
     mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
   });
 
-  it("sidebar shows a 'Delivery Costs' entry and no Warehouses/Customers/Distances entries", () => {
+  // ch5-edit-5 (§14) — Warehouses/Customers joined the sidebar (demand,
+  // exclusion and facility status are now editable); this test previously
+  // asserted the pre-§14 three-tab surface and would otherwise now be a
+  // false negative on the very tabs Task 5 adds. Distances stays absent —
+  // this model still has no editable distance surface (Delivery Costs is
+  // its analogous editable-cost surface instead).
+  it("sidebar shows 'Delivery Costs', 'Warehouses' and 'Customers' entries but no Distances entry", () => {
     renderDeliveryWorkspace();
     expect(screen.getByTestId("sidebar-input-deliveryCosts")).toHaveTextContent("Delivery Costs");
-    expect(screen.queryByTestId("sidebar-input-warehouses")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("sidebar-input-customers")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-input-warehouses")).toHaveTextContent("Warehouses");
+    expect(screen.getByTestId("sidebar-input-customers")).toHaveTextContent("Customers");
     expect(screen.queryByTestId("sidebar-input-distances")).not.toBeInTheDocument();
   });
 

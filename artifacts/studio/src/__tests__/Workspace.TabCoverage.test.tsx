@@ -759,14 +759,15 @@ describe("Workspace tab coverage — max-coverage-us", () => {
   });
 });
 
-// ── delivery-teaching-us (Chapter 5, Task 11) ───────────────────────────
-// This model's sidebar has only three Inputs entries (Input Map, Delivery
-// Costs, Optimization Parameters — inputEntriesForModel's own "the cost
-// table is the ONLY editable dataset surface" comment) and no "flows" output
-// (outputGrids has four entries, no "flows" — transport-only). This sweep
-// proves every one of those declared tabs opens real content (decision 10's
-// "three outputs, placed", spec §6.1's four output grids) and that no
-// fourth input tab leaks in.
+// ── delivery-teaching-us (Chapter 5, Task 11; §14 editable inputs, ch5-edit-5) ──
+// This model's sidebar has five Inputs entries (Input Map, Warehouses,
+// Customers, Delivery Costs, Optimization Parameters — §14 made customer
+// demand/exclusion and warehouse status editable, joining the previously-only
+// editable Delivery Costs surface) and no "flows" output (outputGrids has
+// four entries, no "flows" — transport-only). This sweep proves every one of
+// those declared tabs opens real content (decision 10's "three outputs,
+// placed", spec §6.1's four output grids) and that no sixth input tab leaks
+// in.
 describe("Workspace tab coverage — delivery-teaching-us", () => {
   const deliveryInputs = {
     p: 3,
@@ -778,6 +779,8 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
     costPerMile: 1,
     costPerMileOver: 10,
     laneCostOverrides: [],
+    warehouseOverrides: [],
+    customerOverrides: [],
   };
 
   const solvedScenario = {
@@ -823,9 +826,12 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
           capabilities: {
             supportsP: true,
             capacityModes: [],
-            demandEditable: false,
+            // ch5-edit-5 (§14) — the manifest now declares both true; a
+            // stale `false` fixture here would silently keep testing the
+            // pre-§14 world (found by audit, not the brief).
+            demandEditable: true,
             outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
-            supportsFacilityStatus: false,
+            supportsFacilityStatus: true,
             supportsReferenceDistances: false,
             supportsReferenceCosts: true,
             supportsAddedCustomerExclusion: false,
@@ -835,12 +841,14 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
     } as unknown as ReturnType<typeof useListModels>);
   });
 
-  it("every Inputs entry (incl. Input Map and Delivery Costs) and every allowed Outputs entry opens its real content, not a placeholder — and no Flows tab exists", () => {
+  it("every Inputs entry (incl. Input Map, Warehouses, Customers and Delivery Costs) and every allowed Outputs entry opens its real content, not a placeholder — and no Flows tab exists", () => {
     render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
 
     runTabCoverage(
       [
         INPUT_MAP,
+        { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
+        { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "deliveryCosts", tabTestId: "delivery-costs-tab" },
         OPTIMIZATION_PARAMETERS,
       ],

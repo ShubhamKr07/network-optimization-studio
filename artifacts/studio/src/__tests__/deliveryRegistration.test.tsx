@@ -68,21 +68,28 @@ describe("delivery-teaching-us — objective units", () => {
   });
 });
 
-describe("delivery-teaching-us — the input surface is fixed", () => {
+// ch5-edit-5 (§14) — this describe block used to be titled "the input
+// surface is fixed" and pinned the pre-§14 three-tab surface (spec decision
+// 11's original form). §14 makes customer demand, customer exclusion and
+// warehouse open/close status editable, adding Warehouses/Customers as their
+// own tabs; Distances stays withheld (this model still has no editable
+// distance surface — Delivery Costs is its analogous editable-cost surface).
+// Updated in place rather than deleted: the "omission grants the editable
+// surface" risk this block exists to catch is still real and still worth a
+// pinned regression test, just against the new five-tab baseline.
+describe("delivery-teaching-us — the input surface (post-§14)", () => {
   // The silent failure: inputEntriesForModel's tail is
   //   case "p-median-brazil": case "p-median-us": default:
   // so a model that is merely ABSENT inherits Customers, Warehouses and
   // Distances editors. Omission grants the editable surface; only an explicit
-  // case withholds it.
-  it("offers exactly Input Map, Delivery Costs and Optimization Parameters", () => {
+  // case controls it.
+  it("offers exactly Input Map, Warehouses, Customers, Delivery Costs and Optimization Parameters", () => {
     expect(inputEntriesForModel("delivery-teaching-us").map(e => e.id))
-      .toEqual(["input-map", "deliveryCosts", "optimization-parameters"]);
+      .toEqual(["input-map", "warehouses", "customers", "deliveryCosts", "optimization-parameters"]);
   });
 
-  it("offers no customers, warehouses or distances editor", () => {
+  it("offers no distances editor (Delivery Costs is this model's own editable-cost surface)", () => {
     const ids = inputEntriesForModel("delivery-teaching-us").map(e => e.id);
-    expect(ids).not.toContain("customers");
-    expect(ids).not.toContain("warehouses");
     expect(ids).not.toContain("distances");
   });
 

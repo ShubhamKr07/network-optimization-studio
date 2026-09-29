@@ -1246,15 +1246,22 @@ function warehouseStatusesFromInputs(
 // every one of them to real content.
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
-    // Chapter 5 (delivery-teaching-us) - the cost table is the ONLY editable
-    // dataset surface (spec decision 11). This case is load-bearing, not
-    // tidiness: the switch's tail is `case "p-median-brazil": case
+    // Chapter 5 (delivery-teaching-us) - §14 makes customer demand, customer
+    // exclusion and warehouse open/close status editable via their own
+    // Warehouses/Customers tabs (manifest capabilities demandEditable and
+    // supportsFacilityStatus are both true now); Delivery Costs remains this
+    // model's only editable DATASET-COST surface. This case stays explicit,
+    // not tidiness: the switch's tail is `case "p-median-brazil": case
     // "p-median-us": default:`, so a model that is merely absent INHERITS
-    // the Customers, Warehouses and Distances editors. Omission grants the
-    // editable surface.
+    // p-median's list — which now happens to be close to what this model
+    // wants, making writing the case out MORE important, not less. No
+    // "distances" entry: this model has no editable distance surface (its
+    // Delivery Costs tab is the analogous editable-cost surface instead).
     case "delivery-teaching-us":
       return [
         { id: "input-map", label: "Input Map" },
+        { id: "warehouses", label: "Warehouses" },
+        { id: "customers", label: "Customers" },
         { id: "deliveryCosts", label: "Delivery Costs" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
@@ -2352,13 +2359,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // C4.13 — max-coverage-us joins: its warehouseOverride shape is
       // {id,status} exactly (no capacity — capacityMode="none" suppresses that
       // column, same as JADE), so it reuses the same WarehousesTab.
-      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
+      // ch5-edit-5 — delivery-teaching-us joins too (§14): its
+      // warehouseOverrideSchema is {id,status} exactly (no capacity —
+      // capacityModes:[], same as JADE/max-coverage-us), so it reuses the
+      // same WarehousesTab. Without this row the shared toolbar Save never
+      // appears and the dirty state is never tracked for this tab.
+      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       // jade-T15.5 — two-echelon-jade-us's Customers tab reuses
       // CustomersTab too, in its per-product mode (products/productOverrides
       // wired at the render-content branch below).
       // C4.13 — max-coverage-us joins: same CustomerOverride {id,status,
       // demand} shape p-median-us uses (integer demand), same CustomersTab.
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
+      // ch5-edit-5 — delivery-teaching-us joins too (§14): same
+      // CustomerOverride {id,status,demand} shape (demandEditable is now
+      // true), so it reuses the same CustomersTab. Without this row the
+      // shared toolbar Save never appears and the dirty state is never
+      // tracked for this tab.
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
@@ -3302,7 +3319,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // C4.13 — max-coverage-us reuses the same WarehousesTab (its
     // warehouseOverrides is {id,status}; capacityMode="none" already
     // suppresses the Capacity column via capacityModeFromInputs).
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) {
+    // ch5-edit-5 — delivery-teaching-us joins too (§14): its
+    // warehouseOverrideSchema is {id,status} exactly (no capacity field —
+    // capacityModes:[], capacityModeFromInputs's default already resolves
+    // to "none"). UNLIKE every other model on this branch, it has no
+    // addedWarehouses concept at all (no such field in deliveryInputsSchema,
+    // no supportsAddedCustomerExclusion) — the spread below deliberately
+    // omits addedWarehouses/onAddedWarehousesChange/onDeleteWarehouse for
+    // it, since NOT wiring onAddedWarehousesChange is what hides
+    // WarehousesTab's own "Added warehouses" section (see that component's
+    // addedSection gate), rather than giving it an inert no-op.
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -3320,14 +3347,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
-          addedWarehouses={addedWarehousesFromInputs(localInputs)}
-          onAddedWarehousesChange={next => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next)}
-          onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
+          {...(modelId !== "delivery-teaching-us"
+            ? {
+                addedWarehouses: addedWarehousesFromInputs(localInputs),
+                onAddedWarehousesChange: (next: AddedWarehouse[]) => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next),
+                onDeleteWarehouse: (id: string) => deleteAddedEntityAndOverrides("addedWarehouses", id),
+              }
+            : {})}
           precheckErrors={precheck?.errors}
           hasStateColumn={hasStateColumn}
           // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
           // true only on the JADE path; every other model sharing this
-          // branch (p-median-us/brazil/Chen) keeps the default `false`.
+          // branch (p-median-us/brazil/Chen/delivery-teaching-us) keeps the
+          // default `false`.
           enableFilters={modelId === "two-echelon-jade-us"}
           // chen-bands-units follow-up (QA defect) — decision 1h's "ordinary
           // editors are disabled while browsing history" was only enforced
@@ -3433,10 +3465,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // C4.13 — max-coverage-us reuses CustomersTab: scalar CustomerOverride
     // {id,status,demand} shape (not JADE's per-product), so it takes the
     // non-JADE props path below.
+    // ch5-edit-5 — delivery-teaching-us joins too (§14): same scalar
+    // CustomerOverride {id,status,demand} shape p-median-us uses
+    // (demandEditable is now true). It has no addedCustomers concept (no
+    // such field in deliveryInputsSchema) — deliberately left OUT of the
+    // "addedCustomers" spread ternary below (alongside isJade), so
+    // onAddedCustomersChange stays unwired for it and CustomersTab's own
+    // "Added customers" section stays hidden, same reasoning as the
+    // Warehouses tab call site above.
     if (
       activeTab.kind === "input" &&
       activeTab.entity === "customers" &&
-      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")
+      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")
     ) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       const isJade = modelId === "two-echelon-jade-us";
