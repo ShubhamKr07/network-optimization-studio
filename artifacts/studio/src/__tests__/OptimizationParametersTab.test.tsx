@@ -588,6 +588,110 @@ describe("OptimizationParametersTab — Step 2 panel (ch4-2s-7, CH4-6)", () => {
   });
 });
 
+// CH4UX-2 — instance namespace so CH4UX-4's Solve dialog can embed a SECOND
+// copy of this component while the Optimization Parameters tab may still be
+// mounted behind it, with no DOM id or data-testid collision between them.
+describe("CH4UX-2 — instance namespacing", () => {
+  const chenProps = {
+    modelId: "max-coverage-us",
+    p: 5,
+    pMax: 26,
+    gap: 0,
+    timeLimitSec: 120,
+    distanceBands: [200, 400],
+    canonicalUnit: "km" as const,
+    objective: "coverage" as const,
+    highServiceDistKm: 200,
+    maxDistKm: 400,
+    avgServiceDistCapKm: 300,
+    onServiceDistanceChange: vi.fn(),
+    onChange: vi.fn(),
+    // whole-branch review, M2 — the merge (16021ec) namespaced Chapter 5's
+    // cost-adjust block (cost-adjust-section, button-adjust-cost-table,
+    // input-distance-threshold, input-cost-per-mile,
+    // input-cost-per-mile-over) by hand, but that block only renders its
+    // three numeric fields when `costAdjustEnabled` is true — the
+    // duplicate-id/duplicate-testid tests below (`renderTwoInstances`) never
+    // exercised them without these props, so the hand-applied namespacing
+    // had zero coverage.
+    costAdjustEnabled: true,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
+  };
+
+  it("emits today's bare ids when no prefix is supplied", () => {
+    render(<OptimizationParametersTab {...chenProps} />, { wrapper: UnitProvider });
+    expect(screen.getByTestId("optimization-parameters-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("input-gap")).toHaveAttribute("id", "input-gap");
+    expect(screen.getByTestId("input-high-service-dist")).toBeInTheDocument();
+    expect(screen.getByTestId("band-200")).toBeInTheDocument();
+  });
+
+  it("prefixes every emitted id and test id when both prefixes are supplied", () => {
+    render(
+      <OptimizationParametersTab {...chenProps} idPrefix="solve-dialog-" testIdPrefix="solve-dialog-" />,
+      { wrapper: UnitProvider },
+    );
+    expect(screen.getByTestId("solve-dialog-optimization-parameters-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).toHaveAttribute("id", "solve-dialog-input-gap");
+    expect(screen.getByTestId("solve-dialog-input-high-service-dist")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-band-200")).toBeInTheDocument();
+    expect(screen.queryByTestId("optimization-parameters-tab")).toBeNull();
+    expect(screen.queryByTestId("input-gap")).toBeNull();
+  });
+
+  it("prefixes the Step 2 panel too", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenProps}
+        step={2}
+        stepEditable
+        step2Gap={1}
+        step2TimeLimitSec={60}
+        coverageFloorFromStep1={12345}
+        idPrefix="solve-dialog-"
+        testIdPrefix="solve-dialog-"
+      />,
+      { wrapper: UnitProvider },
+    );
+    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-step2-inherited")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-step2-floor-value")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-step2-gap")).toHaveAttribute("id", "solve-dialog-input-step2-gap");
+  });
+
+  // Two SEPARATE assertions, deliberately: the requirement covers both
+  // namespaces (DOM `id` drives <label htmlFor>; `data-testid` drives every
+  // RTL and Playwright locator), and one combined assertion would not say
+  // which namespace regressed.
+  it("mounting two instances with different prefixes produces no duplicate DOM id", () => {
+    const { container } = renderTwoInstances();
+    const ids = Array.from(container.querySelectorAll<HTMLElement>("[id]"), el => el.id).filter(Boolean);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("mounting two instances with different prefixes produces no duplicate data-testid", () => {
+    const { container } = renderTwoInstances();
+    const testIds = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-testid]"),
+      el => el.dataset.testid!,
+    );
+    expect(testIds.length).toBeGreaterThan(0);
+    expect(new Set(testIds).size).toBe(testIds.length);
+  });
+
+  function renderTwoInstances() {
+    return render(
+      <>
+        <OptimizationParametersTab {...chenProps} />
+        <OptimizationParametersTab {...chenProps} idPrefix="solve-dialog-" testIdPrefix="solve-dialog-" />
+      </>,
+      { wrapper: UnitProvider },
+    );
+  }
+});
 // ch5-del-10 — delivery-teaching-us's "Adjust Cost Table" control. Gated on
 // prop presence like every other model-specific field in this component
 // (never on modelId), and deliberately placed outside all four `step`

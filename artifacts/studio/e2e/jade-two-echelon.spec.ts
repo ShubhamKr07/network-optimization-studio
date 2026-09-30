@@ -67,14 +67,45 @@ async function createJadeScenario(page: Page): Promise<string> {
   return id;
 }
 
-/** Opens the Run Optimizer dialog, triggers Solve, and waits for the
- * async job to succeed — the dialog auto-closes and the Output Map tab
- * auto-opens on success (Workspace.tsx's jobStatus effect). */
-async function solveAndWait(page: Page): Promise<void> {
+/** CH4UX-7 — the one durable per-run signal this file's solve wait anchors
+ * on. Read from the server, not the DOM: `solvedAt` is written exactly once
+ * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
+ * different from the one captured before the submit can only have been
+ * produced by THIS run. */
+async function readSolvedAt(page: Page, id: string): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
+/**
+ * Opens the Run Optimizer dialog, triggers Solve, and waits for the async
+ * job to succeed.
+ *
+ * CH4UX-7 — the old wait was `output-map-tab` becoming visible. This test
+ * calls this helper TWICE against the SAME scenario, and the Output Map tab
+ * stays open between runs, so on the second call that assertion passed
+ * instantly against the FIRST run's UI and every downstream objective read
+ * raced the real result. Capture `solvedAt` before the submit and require it
+ * to change — re-read here on every call, so re-capturing per run is
+ * structural rather than something a caller has to remember.
+ *
+ * Deliberately does NOT wait for `solve-progress-overlay` to become visible:
+ * that state is transient and a fast job outruns Playwright's sampler. The
+ * overlay's own contract is covered deterministically by
+ * `solve-overlay-contract.spec.ts`.
+ */
+async function solveAndWait(page: Page, id: string): Promise<void> {
+  const before = await readSolvedAt(page, id);
   await page.getByTestId("button-run-optimizer").click();
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await page.getByTestId("solve-dialog-solve").click();
-  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: SOLVE_TIMEOUT });
+  await expect
+    .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+    .not.toBe(before);
+  // The overlay unmounts on success and PERSISTS (error card) on failure.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await expect(page.getByTestId("sidebar-output-cost-summary")).toBeEnabled({ timeout: HEADER_TIMEOUT });
 }
 
@@ -100,7 +131,7 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await expect(summary).not.toContainText(/AL's Athletics/i);
 
       // ── 1. Solve at the ground-truth config → objective matches ─────────
-      await solveAndWait(page);
+      await solveAndWait(page, id);
       const baselineObjective = await readObjective(page);
       expect(Math.abs(baselineObjective - GROUND_TRUTH_OBJECTIVE)).toBeLessThan(1);
 
@@ -186,7 +217,7 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("button-save").click();
       await expect(page.getByTestId("button-save")).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
-      await solveAndWait(page);
+      await solveAndWait(page, id);
       const toggledObjective = await readObjective(page);
       expect(toggledObjective).toBeLessThan(baselineObjective);
 

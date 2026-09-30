@@ -7,3 +7,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-09-21T18:59:45.756Z,chen-bands-units,825,60,0,2,Read,97,13,"gate: 13 risky grant(s) — human review required; recurring denial: ""Read"" denied again (also flagged in a prior audit)"
 2026-09-24T12:47:24.650Z,scnd-measurement,0,0,0,0,,0,0,
 2026-09-28T23:20:34.681Z,ch5-delivery,0,0,0,0,,0,0,"INVALID — audited from worktree .worktrees/ch5-delivery which has no .claude/settings.local.json; the real file (81762 bytes) lives in the shared checkout. All counts here are zeros against an empty allow-list, NOT a clean audit. Re-run from the shared checkout to get a real reading."
+2026-09-29T22:37:06.999Z,CH4UX,889,64,0,0,,101,13,gate: 13 risky grant(s) — human review required

@@ -148,6 +148,13 @@ async function solveViaUi(page: Page, id: string): Promise<ScenarioResult> {
       return false;
     }, { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
     .toBe(true);
+  // CH4UX-7 — the durable `solvedAt` poll above is unchanged (it was already
+  // correct). This adds the failure-surface half: `solve-progress-overlay`
+  // unmounts on success and PERSISTS as an error card on failure, so a solve
+  // that ends in a failed job can no longer slip past as "some result
+  // landed". It is the successor to the Solve dialog's deleted
+  // `solve-dialog-error`.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
   expect(fresh).not.toBeNull();
   return fresh!;
 }

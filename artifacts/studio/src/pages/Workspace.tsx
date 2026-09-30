@@ -27,7 +27,6 @@ import {
   type SolveResult,
   type Plant,
   type SolveJob,
-  type SolveJobErrorCode,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,12 +42,17 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
-import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
+import { SolveDialog } from "@/components/workspace/SolveDialog";
+import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab, type AddedMine } from "@/components/workspace/tabs/MinesTab";
 import { StationsTab, type AddedStation } from "@/components/workspace/tabs/StationsTab";
-import { OptimizationParametersTab, type OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
+import {
+  OptimizationParametersTab,
+  type OptimizationParametersField,
+  type OptimizationParametersTabProps,
+} from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { DeliveryCostsTab } from "@/components/workspace/tabs/DeliveryCostsTab";
@@ -1523,6 +1527,38 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // modelId comparison — see the hook's own comment.
   const stepState = useMaxCoverageSteps(currentScenario);
   const [selectedStep, setSelectedStep] = useState<1 | 2>(1);
+  // CH4UX-1 — `selectedStep` previously had one writer (the solve-success
+  // effect), so it survived a scenario switch: switching from a 1-of-2
+  // scenario viewing Step 2 to a 0-of-2 scenario left an already-open output
+  // tab saying "Solve Step 2" when Step 1 was the unmet prerequisite. Snap the
+  // view to the new scenario's own target instead.
+  //
+  // Render-phase adjustment rather than an effect (same pattern as
+  // BandChipEditor's prevUnitRef): it keys on scenario IDENTITY, not on
+  // `targetStep`, so it cannot fight the solve-success `setSelectedStep`, and
+  // it needs no exhaustive-deps suppression.
+  //
+  // CH4UX-8 — the subtle part: `currentScenario` is ASYNCHRONOUSLY resolved,
+  // so the very first render of a cold mount has none at all. Seeding the ref
+  // from `currentScenario?.id` (its original form) therefore seeded
+  // `undefined`, and the query resolving a moment later read as "the scenario
+  // changed" — snapping a freshly-loaded 1-of-2 scenario to Step 2, i.e. to
+  // "Not solved yet — Solve Step 2" instead of the Step 1 result the user had
+  // just solved. Worse, it was non-deterministic: whether it fired at all
+  // depended on whether the scenario data happened to resolve before or after
+  // the first render. First RESOLUTION is not a switch, so the ref seeds from
+  // a fixed `undefined` sentinel (never from data), a null id is skipped
+  // outright rather than recorded (a transient "no scenario" between A and B
+  // must not make B look like a first resolution), and only a
+  // previously-recorded id transitioning to a different one re-points the
+  // view. Scenario ids are `number` (api.schemas.ts `Scenario.id`), so
+  // `undefined` is an unambiguous "nothing seen yet".
+  const prevScenarioIdRef = useRef<number | undefined>(undefined);
+  if (currentScenario?.id != null && currentScenario.id !== prevScenarioIdRef.current) {
+    const isFirstResolution = prevScenarioIdRef.current === undefined;
+    prevScenarioIdRef.current = currentScenario.id;
+    if (!isFirstResolution && stepState.isMaxCoverage) setSelectedStep(stepState.targetStep);
+  }
   // Holds the fully-computed next `inputs` blob, NOT a callback. Computing
   // the blob at intercept time means confirm has nothing left to derive —
   // an earlier draft stored a closure and needed an invented helper to turn
@@ -2893,32 +2929,99 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // reinvented.
   const solveScenario = useSolveScenario();
   const [solveDialogOpen, setSolveDialogOpen] = useState(false);
-  const [solvePhase, setSolvePhase] = useState<SolveDialogPhase>("idle");
+  const [solvePhase, setSolvePhase] = useState<SolvePhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
-  // A9 (SCND correctness, §2.11/A-R47) — the polled job's permanent public
-  // errorCode, tracked alongside `solveError`'s message so SolveDialog can
-  // derive its Retry affordance from errorCode ALONE. Null for a
-  // synchronous save/enqueue rejection (never had a job, so never had an
-  // errorCode) — SolveDialog's own default still renders Retry for that case
-  // via `isRetryableFailureCode`'s documented null/undefined handling.
-  const [solveErrorCode, setSolveErrorCode] = useState<SolveJobErrorCode | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
 
+  // CH4UX-6 — synchronous single-entry lock. `solvePhase` is the user-visible
+  // guard; this ref is the one that actually holds within a single tick.
+  // Cleared in exactly two places: `resetSolveState()` (which every dismissal
+  // and reopen routes through) and the solve-success branch of the poll
+  // effect, which sets the phase to "idle" directly rather than calling the
+  // reset helper. Deliberately NOT cleared when the job fails — the failure
+  // card is still up and Close/Adjust own that transition.
+  const solveInFlightRef = useRef(false);
+
   // jade-INT (#8, spec §9) — a persisted mirror of the last polled solve-job
-  // snapshot, threaded into SolveDialog's live clock. Needed because
-  // useGetSolveJob's cached `data` disappears the instant `pollingJobId`
-  // resets to null (a DIFFERENT queryKey, never fetched) — which happens on
-  // BOTH success and failure, including the failure case where the dialog
-  // is required to keep showing the frozen total (spec §9's "on failed the
-  // dialog stays open ... shows the frozen total in-dialog").
+  // snapshot, threaded into the live solve clock — which CH4UX-6 moved from
+  // the dialog onto SolveProgressOverlay. Needed because useGetSolveJob's
+  // cached `data` disappears the instant `pollingJobId` resets to null (a
+  // DIFFERENT queryKey, never fetched) — which happens on BOTH success and
+  // failure, including the failure case where the surface is required to
+  // keep showing the frozen total (spec §9; that surface is now the
+  // overlay's error card).
   const [lastJobSnapshot, setLastJobSnapshot] = useState<SolveJob | null>(null);
 
-  function openSolveDialog() {
+  // CH4UX-6 — ONE reset list. `openSolveDialog` used to own it inline; the
+  // overlay's two callbacks now reuse it, so a failed job's terminal
+  // `lastJobSnapshot` can never leak into the next run's clock (which would
+  // show the PREVIOUS job's frozen total until the first poll landed).
+  function resetSolveState() {
     setSolveError(null);
-    setSolveErrorCode(null);
     setSolvePhase("idle");
     setLastJobSnapshot(null);
+    setPollingJobId(null);
+    solveInFlightRef.current = false;
+  }
+
+  // Used by the overlay's "Adjust & re-solve": deliberately UNGUARDED,
+  // because it is invoked from `phase === "failed"` and a guard on
+  // `phase !== "idle"` would block exactly the case it exists for.
+  function reopenSolveDialog() {
+    resetSolveState();
     setSolveDialogOpen(true);
+  }
+
+  function openSolveDialog() {
+    // Guarded: reopening the dialog resets the phase to "idle", so a keyboard
+    // Enter reaching the header Run button mid-job would otherwise cancel the
+    // in-flight guard and permit a second enqueue.
+    if (solvePhase !== "idle") return;
+    reopenSolveDialog();
+  }
+
+  // CH4UX-6 review (Finding 2) — THE enqueue path. Both callers route
+  // through here (`handleSolve`'s runSolve, and `handleSaveAsScenario`'s
+  // solve-the-clone step), so there is exactly ONE place that raises the
+  // in-flight lock, the visible phase, and the failure surface.
+  //
+  // Before this, `handleSaveAsScenario` called `solveScenario.mutate` +
+  // `setPollingJobId` directly, touching neither `solveInFlightRef` nor
+  // `solvePhase`. Two consequences, the first NEW with CH4UX-6: that solve
+  // ran with no overlay at all, yet if the job failed the poll effect still
+  // set phase "failed" — so a modal error card appeared with no preceding
+  // running state, and its "Adjust & re-solve" opened the Solve dialog for a
+  // scenario the student had never opened a dialog for. Second (pre-existing):
+  // the header Run button stayed enabled for the duration, so a second
+  // enqueue could orphan the first job's poll.
+  function enqueueSolve(scenarioId: number) {
+    solveInFlightRef.current = true;
+    setSolveError(null);
+    // whole-branch review, M3 — `handleSaveAsScenario` calls this function
+    // directly, bypassing `resetSolveState()`. Without clearing the previous
+    // job's frozen snapshot here too, the overlay's clock shows the PRIOR
+    // job's terminal elapsed time under "Solving…" for about one poll
+    // round-trip, until the first poll for the NEW job overwrites it.
+    setLastJobSnapshot(null);
+    setSolvePhase("solving");
+    solveScenario.mutate(
+      { scenarioId },
+      {
+        onSuccess: job => setPollingJobId(job.jobId),
+        onError: err => {
+          const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+          // Lock deliberately still held — the failure card is up, and
+          // Close/Adjust (`resetSolveState`) own that release.
+          setSolvePhase("failed");
+          setSolveError(message);
+          toast({
+            title: "Solve failed to start",
+            description: message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
   }
 
   // CRITICAL — save-before-solve (CLAUDE.md's documented Round-2 bug):
@@ -2937,12 +3040,34 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `handleSolve` ALSO rejects a historical position defensively, so
     // neither this save-before-solve branch nor the direct-solve branch can
     // ever run there even if invoked programmatically.
-    if (!currentScenario || isBrowsingHistoryNow) return;
+    // CH4UX-6 — THIS path is guarded in four layers, not just by the one
+    // button that calls it: the header button's `disabled`, `openSolveDialog`'s
+    // own guard, the modal overlay, and the check below — each alone has a
+    // hole. `solveInFlightRef` is checked FIRST because it is the only one of
+    // the four that holds within a single synchronous tick.
+    //
+    // CH4UX-6 review (Finding 2) — scoped to THIS path deliberately: the
+    // shared `enqueueSolve` has a SECOND caller, `handleSaveAsScenario`, which
+    // does not re-run this guard. That caller cannot RE-ENTER `enqueueSolve`
+    // while one of its own calls is in flight, because `enqueueSolve` raises
+    // the same modal overlay, which covers the button that reaches it — but
+    // that overlay only appears after `createScenario`'s `onSuccess`, so two
+    // rapid clicks on the save-as-scenario button still produce two `create`
+    // calls and therefore two `enqueueSolve` calls, the second overwriting
+    // `pollingJobId`. That double-submit hole is pre-existing and out of
+    // scope here. Do not read this comment as "the enqueue helper is
+    // single-entry" — it is not; the guard lives here.
+    if (
+      !currentScenario ||
+      isBrowsingHistoryNow ||
+      solveInFlightRef.current ||
+      solvePhase !== "idle"
+    ) return;
+    solveInFlightRef.current = true;
     setSolveError(null);
-    // A9 — a synchronous save/enqueue rejection below never has a job, so it
-    // never has an errorCode; clearing it here (rather than per-branch) is
-    // sufficient since neither onError branch below sets it.
-    setSolveErrorCode(null);
+    // CH4UX-6 — the dialog hands off to SolveProgressOverlay immediately;
+    // every progress/error surface now lives there.
+    setSolveDialogOpen(false);
     const scenarioId = currentScenario.id;
 
     track("solve triggered", { scenario_id: currentScenario.id, model_id: modelId });
@@ -2950,25 +3075,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       track("scenario stale resolved", { scenario_id: currentScenario.id, model_id: modelId });
     }
 
-    const runSolve = () => {
-      setSolvePhase("solving");
-      solveScenario.mutate(
-        { scenarioId },
-        {
-          onSuccess: job => setPollingJobId(job.jobId),
-          onError: err => {
-            const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
-            setSolvePhase("failed");
-            setSolveError(message);
-            toast({
-              title: "Solve failed to start",
-              description: message,
-              variant: "destructive",
-            });
-          },
-        },
-      );
-    };
+    const runSolve = () => enqueueSolve(scenarioId);
 
     if (ordinaryDirty && localInputs) {
       setSolvePhase("saving");
@@ -3010,7 +3117,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
   }
 
-  const { data: jobStatus } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
+  // CH4UX-6 review (Finding 1) — `isError` is NOT optional bookkeeping here.
+  // `refetchInterval` below returns `false` whenever `query.state.data?.status`
+  // is undefined, which is exactly what a failed or 404'd poll produces: the
+  // polling STOPS SILENTLY. Before CH4UX-6 that was a soft annoyance (the
+  // dialog still had a Close button); CH4UX-6 removed both escape hatches —
+  // the dialog's Close, and `openSolveDialog`'s old unconditional phase reset
+  // (now guarded, with the header button disabled) — so an unobserved poll
+  // error would strand the student at phase "solving" behind a modal with no
+  // Close and a prevented Escape. Page reload only. Hence the branch at the
+  // top of the poll effect below.
+  const { data: jobStatus, isError: jobPollFailed } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
     query: {
       enabled: !!currentScenario && !!pollingJobId,
       queryKey: getGetSolveJobQueryKey(currentScenario?.id!, pollingJobId!),
@@ -3033,6 +3150,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   }, [jobStatus]);
 
   useEffect(() => {
+    // CH4UX-6 review (Finding 1) — checked BEFORE the status branches,
+    // because a poll error is precisely the case where `jobStatus` is
+    // undefined and the `!jobStatus` guard below would return early, leaving
+    // the phase pinned at "solving" with polling already stopped. Routed onto
+    // the overlay's EXISTING failure surface rather than a new one: the error
+    // card's Close and Adjust are the two release sites for
+    // `solveInFlightRef`, so this turns an unrecoverable modal lock into a
+    // dismissible failure. Clearing `pollingJobId` also changes the query key,
+    // so `jobPollFailed` reads false on the next render — no re-entry.
+    if (jobPollFailed) {
+      setSolvePhase("failed");
+      setSolveError("Lost contact with the solve job. Reload to see whether it finished.");
+      setPollingJobId(null);
+      return;
+    }
     if (!jobStatus || !currentScenario) return;
     if (jobStatus.status === "succeeded") {
       // jade-INT (#8, spec §9 R-plan-3) — retain this job's derived
@@ -3062,6 +3194,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         }
       }
       setSolvePhase("idle");
+      // CH4UX-6 — the one release site the reset helper does not cover: this
+      // branch sets the phase directly (it also opens the Output Map tab and
+      // invalidates queries) rather than routing through resetSolveState().
+      solveInFlightRef.current = false;
       setPollingJobId(null);
       setSolveDialogOpen(false);
       openTab("output", OUTPUT_MAP_ENTRY);
@@ -3076,12 +3212,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // server-owned safe messages (never a raw diagnostic), so falling back
       // to `error` when `errorMessage` is absent (older API builds, or a
       // pre-A5 historical row) is safe and keeps this reading correctly
-      // either way. `errorCode` is tracked separately for SolveDialog's
-      // errorCode-derived Retry action — never parsed out of the message.
+      // either way. CH4UX-6 — `errorCode` is no longer tracked in state: the
+      // overlay's Adjust/Close actions are unconditional, so nothing derives
+      // UI from the code any more (and the message was never parsed).
       const message = jobStatus.errorMessage ?? jobStatus.error ?? "The solver did not complete. Try again.";
       setSolvePhase("failed");
       setSolveError(message);
-      setSolveErrorCode(jobStatus.errorCode ?? null);
       setPollingJobId(null);
       toast({
         title: "Solve failed",
@@ -3089,7 +3225,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         variant: "destructive",
       });
     }
-  }, [jobStatus, currentScenario?.id, queryClient]);
+  }, [jobStatus, jobPollFailed, currentScenario?.id, queryClient]);
 
   // Task 7 (C5.1) — "Save as scenario" from a history entry (DD-7). Creates a
   // NEW scenario from the CURRENTLY-VIEWED history entry's inputs (not
@@ -3101,8 +3237,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // mutateAsync (this codebase's established style is .mutate + onSuccess/
   // onError callbacks, see handleCreateConfirm and handleSolve's runSolve).
   // A freshly-created scenario's inputs are exactly the entry's inputs, so
-  // it's never dirty — safe to call solveScenario directly without
-  // handleSolve's save-before-solve branch.
+  // it's never dirty — safe to go straight to `enqueueSolve` without
+  // handleSolve's save-before-solve branch (which is the only thing this
+  // path skips; the solve lifecycle itself is shared — see Finding 2).
   function handleSaveAsScenario() {
     const entry = resultHistoryState.items[resultHistoryState.index];
     if (!entry) return;
@@ -3123,20 +3260,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           navigate(`?scenario=${created.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          solveScenario.mutate(
-            { scenarioId: created.id },
-            {
-              onSuccess: job => setPollingJobId(job.jobId),
-              onError: err => {
-                const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
-                toast({
-                  title: "Solve failed to start",
-                  description: message,
-                  variant: "destructive",
-                });
-              },
-            },
-          );
+          // CH4UX-6 review (Finding 2) — routed through the shared
+          // `enqueueSolve` instead of calling `solveScenario.mutate` +
+          // `setPollingJobId` inline, so this solve gets the SAME lifecycle
+          // as the dialog's: the overlay shows "Solving…" while it runs, the
+          // header Run button is disabled for the duration, and a failure
+          // lands on an error card the student has actually seen a running
+          // state precede.
+          enqueueSolve(created.id);
         },
       },
     );
@@ -3201,6 +3332,81 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       </div>
     );
   }
+
+  // CH4UX-4 — ONE base prop object, consumed by two renders: the
+  // Optimization Parameters tab itself and the Solve dialog's embedded copy.
+  // Every expression below is moved verbatim from the tab's former inline
+  // call site; none was rewritten. `step` is deliberately NOT here — it is
+  // the one prop that legitimately differs between the two renders (see
+  // below). `showBandEditor` is deliberately absent because the tab's call
+  // site does not pass it either; adding it would be a behaviour change
+  // smuggled in under a verbatim move.
+  const optimizationParamsBaseProps = localInputs && {
+    modelId,
+    p: pFromInputs(localInputs),
+    gap: gapFromInputs(localInputs),
+    timeLimitSec: timeLimitSecFromInputs(localInputs),
+    distanceBands: activeBandLens,
+    capacityFactor: capacityFactorFromInputs(localInputs),
+    singleSource: singleSourceFromInputs(localInputs),
+    capacityInactive: capacityInactiveFromInputs(localInputs),
+    bomRatio: bomRatioFromInputs(localInputs),
+    canonicalUnit,
+    // CH4UX-4 — kept on ONE line (not wrapped as brief-drafted): the
+    // MIG-8 regression test greps this exact source text for the
+    // max-coverage-us cap and would otherwise stop matching this
+    // occurrence if it were split across lines.
+    pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
+    objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
+    highServiceDistKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined,
+    maxDistKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined,
+    avgServiceDistCapKm:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined,
+    onServiceDistanceChange: updateChenServiceDistance,
+    // ch5-del-10 (carried through the CH4UX merge) — delivery-teaching-us's
+    // Adjust Cost Table fields. These live in the SHARED base object, so both
+    // the tab mount and the Solve dialog's embedded mount get them; dropping
+    // them during conflict resolution would delete delivery's cost controls
+    // with no test failure.
+    costAdjustEnabled: modelId === "delivery-teaching-us" ? costAdjustEnabledFromInputs(localInputs) : undefined,
+    distanceThreshold: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "distanceThreshold") : undefined,
+    costPerMile: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined,
+    costPerMileOver: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined,
+    stepEditable: stepState.isMaxCoverage ? stepState.step1Frozen : undefined,
+    step2Gap: stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined,
+    step2TimeLimitSec: stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined,
+    coverageFloorFromStep1: stepState.isMaxCoverage
+      ? (stepState.steps?.step1.summary?.coveredDemand ?? null)
+      : undefined,
+    onChange: handleOptimizationParamsChange,
+  } satisfies OptimizationParametersTabProps | null;
+
+  // The tab follows what the student is LOOKING AT.
+  const optimizationTabProps: OptimizationParametersTabProps | null =
+    optimizationParamsBaseProps && {
+      ...optimizationParamsBaseProps,
+      step: stepState.isMaxCoverage ? selectedStep : undefined,
+    };
+
+  // CH4UX-4 — the dialog follows what will actually RUN. `selectedStep` and
+  // `stepState.targetStep` are different concepts and conflating them is the
+  // defect this task fixes: at 0 of 2 a student can view the locked Step 2 and
+  // press "Solve Step 1"; at 1 of 2 they can inspect Step 1 and press
+  // "Solve Step 2". The dialog must show the target in both cases.
+  //
+  // This also makes a frozen Step 1 unrenderable here, by construction:
+  // useMaxCoverageSteps derives `targetStep = steps.step1.solved ? 2 : 1` and
+  // `step1Frozen = steps.step1.solved` from the SAME boolean, so
+  // `targetStep === 1` implies `step1Frozen === false`.
+  const solveDialogParamsProps: OptimizationParametersTabProps | null =
+    optimizationParamsBaseProps && {
+      ...optimizationParamsBaseProps,
+      step: stepState.isMaxCoverage ? stepState.targetStep : undefined,
+      idPrefix: "solve-dialog-",
+      testIdPrefix: "solve-dialog-",
+    };
 
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
@@ -3618,77 +3824,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
 
     if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
-      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
-      return (
-        <OptimizationParametersTab
-          modelId={modelId}
-          p={pFromInputs(localInputs)}
-          gap={gapFromInputs(localInputs)}
-          timeLimitSec={timeLimitSecFromInputs(localInputs)}
-          // chen-bands-units, Part A/G, Task 14 Step 2b — the DEDICATED
-          // band lens, not `localInputs.distanceBands` (decision 1f). This
-          // is the ONE remaining read of the lens by this tab; `onChange`
-          // below special-cases writes to it too (`handleOptimizationParamsChange`).
-          distanceBands={activeBandLens}
-          capacityFactor={capacityFactorFromInputs(localInputs)}
-          singleSource={singleSourceFromInputs(localInputs)}
-          capacityInactive={capacityInactiveFromInputs(localInputs)}
-          bomRatio={bomRatioFromInputs(localInputs)}
-          // chen-bands-units, Task 14 Step 6a — `canonicalUnit` supersedes
-          // `distanceUnit` for any caller that supplies it (this one now
-          // does); no `?? "mi"` fallback anywhere on this call site.
-          canonicalUnit={canonicalUnit}
-          // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
-          // p-median-us/brazil's schema-level cap of 50): the real bound is
-          // the effective active-warehouse count, which genuinely differs
-          // per model (this is NOT a case of "forgot to extend a shared
-          // capability" — no other model's schema has this trait), so a
-          // direct modelId check is deliberate here, not a gate to
-          // generalize. undefined for every other model — OptimizationParametersTab
-          // falls back to its own static default (50) unchanged.
-          // C4.12/D27 — max-coverage-us caps P at 26 (a static
-          // schema-level max, unlike JADE's dynamic active-warehouse count).
-          // ch5-del-10 — delivery-teaching-us caps P at 33 (schema `.max(33)`,
-          // Task 4). A bound enforced at only one of this component's two
-          // mounts (here and the SolveDialog mount below) is not a bound —
-          // both must carry the same literal.
-          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined}
-          // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
-          // never receives these; the tab's own Chen block is gated on
-          // `objective != null`).
-          // chen-bands-units, Part A (amendment table: D13/D19 superseded) —
-          // Chen now gets the SAME free-edit band chip editor as every
-          // other model (`showBandEditor` omitted below, defaulting true) —
-          // its bands are no longer derived [high, max]; see
-          // `updateChenServiceDistance`'s own comment for the conditional
-          // high-link retarget that replaces that old coupling.
-          objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
-          highServiceDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
-          maxDistKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
-          avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
-          onServiceDistanceChange={updateChenServiceDistance}
-          // ch4-2s-7 — the two-step workflow's Step 2 panel wiring, Chapter 4
-          // only (undefined for every other model, so `(step ?? 1) === 1`
-          // keeps their view exactly as it rendered before this task).
-          step={stepState.isMaxCoverage ? selectedStep : undefined}
-          // R6 — reuses `step1Frozen` (== `steps.step1.solved`) directly:
-          // Step 2's own fields become editable at EXACTLY the moment Step 1
-          // is frozen, by construction — the same boolean, not a parallel one
-          // that could drift from it.
-          stepEditable={stepState.isMaxCoverage ? stepState.step1Frozen : undefined}
-          step2Gap={stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined}
-          step2TimeLimitSec={stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined}
-          coverageFloorFromStep1={stepState.isMaxCoverage ? (stepState.steps?.step1.summary?.coveredDemand ?? null) : undefined}
-          // ch5-del-10 — delivery-teaching-us's Adjust Cost Table fields, all
-          // gated on modelId so no sibling model ever receives them (the
-          // tab's own block is gated on `costAdjustEnabled != null`).
-          costAdjustEnabled={modelId === "delivery-teaching-us" ? costAdjustEnabledFromInputs(localInputs) : undefined}
-          distanceThreshold={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "distanceThreshold") : undefined}
-          costPerMile={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined}
-          costPerMileOver={modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined}
-          onChange={handleOptimizationParamsChange}
-        />
-      );
+      if (!optimizationTabProps) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return <OptimizationParametersTab {...optimizationTabProps} />;
     }
 
     // B5.1/T5 — Distances grid tab, p-median-us AND p-median-brazil (T5,
@@ -4351,9 +4488,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 historical inputs on screen, so running from history would
                 be misleading. `handleSolve` itself also refuses this
                 defensively (see its own guard). */}
+            {/* CH4UX-6 — also disabled while a solve is in flight: the
+                overlay is modal, but this header button is the one control
+                a keyboard user could still reach mid-run. */}
             <Button
               size="sm"
-              disabled={!currentScenario || isBrowsingHistoryNow}
+              disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle"}
               onClick={openSolveDialog}
               data-testid="button-run-optimizer"
             >
@@ -4386,10 +4526,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
           )}
           hasSolvedRun={hasFreshSolvedRun}
-          // CH4-18 — Chapter 4's output entries stay clickable before the
-          // selected step is solved; the tab renders its own empty state
-          // (chapter4OutputGate above) instead of a disabled sidebar row.
-          keepOutputsClickable={stepState.isMaxCoverage}
+          // CH4UX-1 (supersedes CH4-18's pre-Step-1 half) — Chapter 4's output
+          // entries are hard-locked until Step 1 has solved: before any run
+          // exists there is nothing to preview, so this matches every other
+          // model. CH4-18's real value is kept for the post-Step-1 case — once
+          // Step 1 has solved, the rows stay clickable even when Step 2 is
+          // selected-but-unsolved, and `chapter4OutputGate` renders the
+          // "Not solved yet — Solve Step 2" empty state.
+          keepOutputsClickable={stepState.isMaxCoverage && stepState.steps?.step1.solved === true}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
@@ -4468,41 +4612,51 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       </div>
 
       <SolveDialog
-        open={solveDialogOpen}
+        // CH4UX-4 — defense-in-depth ONLY, not the mechanism. A frozen Step 1
+        // is already unrenderable in this dialog (targetStep === 1 implies
+        // not-frozen), so `guardStep1Edit` always takes its bypass branch for
+        // edits originating here. If a future caller changes that, this keeps
+        // two Radix modals from stacking — a race this repo has already
+        // reproduced once. No reopen bookkeeping: `pendingStep1Inputs` is set
+        // only by `guardStep1Edit` and cleared by BOTH confirm and cancel, so
+        // the dialog returns by itself either way.
+        open={solveDialogOpen && pendingStep1Inputs == null}
         onOpenChange={setSolveDialogOpen}
         modelId={modelId}
-        // jade-INT (#8, spec §9) — live solve clock, sourced from
-        // `lastJobSnapshot` (survives `pollingJobId` resetting to null on
-        // both success and failure — see that state's own comment).
-        queuedAt={lastJobSnapshot?.queuedAt ?? null}
-        startedAt={lastJobSnapshot?.startedAt ?? null}
-        finishedAt={lastJobSnapshot?.finishedAt ?? null}
-        jobStatus={lastJobSnapshot?.status}
         p={pFromInputs(localInputs)}
-        // C4.12/D27 — max-coverage-us caps P at 26 in the Solve dialog too
-        // (27 can't be authored from either surface).
+        // CH4UX-6 — the max-coverage-us `pMax` arm that used to sit here is
+        // DELETED as provably dead (and is deliberately NOT quoted verbatim
+        // in this comment: MIG-8 greps this file as SOURCE TEXT, so a
+        // quotation would count as a second declaration). Reason: this
+        // dialog's whole built-in region is `{paramsSlot ?? (…)}`,
+        // max-coverage-us is the only model that supplies a `paramsSlot`, so
+        // the built-in `max={pMax}` slider never mounts for it. The one
+        // fallback path (no `solveDialogParamsProps`, i.e. `localInputs ==
+        // null`) can't render it either — that block is gated `p != null`
+        // and `pFromInputs(null)` is undefined. Chapter 4's cap now lives in
+        // exactly one place, the hoisted `optimizationParamsBaseProps`.
         // chen-bands-units, Part A (plan-review HIGH #5) — Chen's band
         // editor is re-enabled here too (`showBandEditor` omitted, defaults
         // true), edited through the SAME `activeBandLens`/
         // `handleOptimizationParamsChange` as OptimizationParametersTab, so
         // the two surfaces can never drift onto two different states.
-        // ch5-del-10 — delivery-teaching-us caps P at 33 in the Solve dialog
-        // too (34 can't be authored from either surface); must move in
-        // lockstep with the OptimizationParametersTab mount's pMax above.
-        pMax={modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined}
-        // CH4-17/R5 — Chapter 4's dialog is confirmation-only: no client can
-        // author `objective`/`coverageFloorDemand` any more (the server
-        // derives both from Step 1's achieved coverage), so this dialog no
-        // longer renders the toggle or the floor input. `readOnlyParams`
-        // additionally hides every OTHER editable control (P slider,
-        // avg-service cap, gap/time-limit, band editor) for this model only
-        // — `p`/the service-distance fields are inherited and frozen once
-        // Step 1 is solved, and editing top-level gap/timeLimitSec here
-        // would silently edit Step 1's limits while a Step-2-targeting
-        // student believes they're tuning the run about to happen.
-        readOnlyParams={modelId === "max-coverage-us"}
-        objective={modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined}
-        avgServiceDistCapKm={modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
+        // CH4UX-4 — Chapter 4 renders the REAL parameter tab, for
+        // `stepState.targetStep`. Every other model passes nothing and keeps
+        // SolveDialog's built-in controls verbatim.
+        paramsSlot={
+          modelId === "max-coverage-us" && solveDialogParamsProps
+            ? <OptimizationParametersTab {...solveDialogParamsProps} />
+            : undefined
+        }
+        // MERGE (CH4UX x ch5-del-10) — CH4UX-6 deleted this prop as dead
+        // because max-coverage-us, its only consumer at the time, now renders
+        // the embedded tab via `paramsSlot` and never mounts the built-in P
+        // slider. Chapter 5 then added delivery-teaching-us as a SECOND
+        // consumer, and delivery gets NO paramsSlot — so its built-in slider
+        // does mount and does need the cap. Restored for delivery only.
+        // Deliberately not `max-coverage-us ? 26` here: that would re-add the
+        // dead arm AND give MIG-8's source grep a second match.
+        pMax={modelId === "delivery-teaching-us" ? 33 : undefined}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // chen-bands-units, Part A/G — the DEDICATED band lens (decision
@@ -4514,13 +4668,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // `canonicalUnit` supersedes the legacy `distanceUnit` label prop.
         canonicalUnit={canonicalUnit}
         onChange={handleOptimizationParamsChange}
-        phase={solvePhase}
-        errorMessage={solveError}
-        // A9 (SCND correctness, §2.11/A-R47) — drives SolveDialog's
-        // errorCode-derived Retry action. Null for a synchronous
-        // save/enqueue rejection (no job ever existed).
-        errorCode={solveErrorCode}
         onSolve={handleSolve}
+      />
+
+      {/* CH4UX-6 — mounted UNCONDITIONALLY from this component's single main
+          return and self-gated on `phase`, per this repo's documented
+          dialog-in-an-unreachable-branch gotcha. The timing props come from
+          `lastJobSnapshot`, which survives `pollingJobId` resetting to null
+          on both success and failure (see that state's own comment), so a
+          failed job's frozen total stays visible on the error card. */}
+      <SolveProgressOverlay
+        phase={solvePhase}
+        queuedAt={lastJobSnapshot?.queuedAt ?? null}
+        startedAt={lastJobSnapshot?.startedAt ?? null}
+        finishedAt={lastJobSnapshot?.finishedAt ?? null}
+        jobStatus={lastJobSnapshot?.status}
+        errorMessage={solveError}
+        onAdjust={reopenSolveDialog}
+        onClose={resetSolveState}
       />
 
       {/* chen-bands-units, Part A (decision 1i), Task 14 Step 5 — rendered

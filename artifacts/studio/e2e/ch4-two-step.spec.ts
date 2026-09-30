@@ -44,6 +44,13 @@ const HEADER_TIMEOUT = 10_000;
 // spec that already uses 120_000.
 const SOLVE_TIMEOUT = 240_000;
 
+// Bounds every locator action (click/fill/etc.) in this file. Without it, a
+// click on a step-toggle or the header solve trigger that never becomes
+// actionable (e.g. a lock/unlock transition that didn't land) inherits the
+// entire 900_000ms test budget set below, and the failure surfaces at some
+// unrelated later line instead of at the real stuck action.
+test.use({ actionTimeout: 10_000 });
+
 interface MaxCoverageResult {
   status: string;
   objective: number;
@@ -123,6 +130,13 @@ async function solveViaUi(page: Page, id: string): Promise<MaxCoverageResult> {
       return false;
     }, { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
     .toBe(true);
+  // CH4UX-7 — the durable `solvedAt` poll above is unchanged (it was already
+  // correct). This adds the failure-surface half: `solve-progress-overlay`
+  // unmounts on success and PERSISTS as an error card on failure, so a solve
+  // that ends in a failed job can no longer slip past as "some result
+  // landed". It is the successor to the Solve dialog's deleted
+  // `solve-dialog-error`.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
   expect(fresh).not.toBeNull();
   expect(fresh!.status).toBe("optimal");
   return fresh!;
@@ -141,6 +155,40 @@ test.describe("Chapter 4 — two-step workflow (ch4-2s-9)", () => {
       // ── 1. Fresh scenario: 0 of 2, Solve Step 1 ─────────────────────────
       await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("0 of 2 solved");
       await expect(page.getByTestId("button-run-optimizer")).toHaveText("Solve Step 1");
+
+      // ── 1a (CH4UX-1). Output rows are HARD-LOCKED before Step 1 solves ──
+      // Chapter 4 used to keep them clickable at 0 of 2 (CH4-18), rendering
+      // an in-tab empty state instead. There is nothing to preview before
+      // any run exists, so they are now disabled like every other model's.
+      // Asserted as `toBeDisabled`, never as a `.click()` that "does
+      // nothing": a `.click()` on a disabled element inherits the whole
+      // remaining test budget rather than failing fast.
+      for (const entity of ["output-map", "cost-summary", "open-warehouses"]) {
+        await expect(page.getByTestId(`sidebar-output-${entity}`)).toBeDisabled();
+      }
+
+      // ── 1b (CH4UX-4). The Solve dialog follows the step that will RUN,
+      //      not the step being VIEWED. At 0 of 2 the student can view the
+      //      locked Step 2 (StepToggle keeps it selectable) while the only
+      //      runnable target is Step 1 — so the dialog must show Step 1's
+      //      parameters. `selectedStep` and `targetStep` are different
+      //      concepts and conflating them is the defect CH4UX-4 fixed.
+      await page.getByTestId("step-toggle-2").click();
+      await expect(page.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByTestId("step-toggle-2-lock")).toBeVisible();
+      await page.getByTestId("button-run-optimizer").click();
+      await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // The real Optimization Parameters tab, namespaced — CH4UX-3/CH4UX-4
+      // replaced the old read-only `solve-dialog-readonly-summary` block
+      // with the actual editor, so dialog and tab cannot drift apart.
+      await expect(page.getByTestId("solve-dialog-optimization-parameters-tab")).toBeVisible();
+      await expect(page.getByTestId("solve-dialog-slider-p-value")).toBeVisible();
+      await expect(page.getByTestId("solve-dialog-step2-parameters")).toHaveCount(0);
+      await page.getByTestId("solve-dialog-cancel").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("solve-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Back to viewing Step 1 for the solve below.
+      await page.getByTestId("step-toggle-1").click();
+      await expect(page.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
 
       // ── 2. Solve Step 1 → 1 of 2; Step 2's floor is locked at the golden
       //      covered demand ──────────────────────────────────────────────
@@ -163,6 +211,25 @@ test.describe("Chapter 4 — two-step workflow (ch4-2s-9)", () => {
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("text-steps-solved-counter")).toHaveText("1 of 2 solved", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-run-optimizer")).toHaveText("Solve Step 2");
+
+      // ── 3a (CH4UX-4). The mirror of 1b, and the case the plan calls out
+      //      explicitly: at 1 of 2 the student can INSPECT Step 1 while the
+      //      only runnable target is Step 2, so the dialog must show Step
+      //      2's parameters even though the header toggle points at Step 1.
+      //      This direction is the one that fails if the dialog is wired to
+      //      `selectedStep`; 1b alone would pass either way at 0 of 2 when
+      //      Step 1 also happens to be selected.
+      await page.getByTestId("step-toggle-1").click();
+      await expect(page.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
+      await page.getByTestId("button-run-optimizer").click();
+      await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("solve-dialog-optimization-parameters-tab")).toBeVisible();
+      await expect(page.getByTestId("solve-dialog-step2-parameters")).toBeVisible();
+      await expect(page.getByTestId("solve-dialog-slider-p-value")).toHaveCount(0);
+      await page.getByTestId("solve-dialog-cancel").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("solve-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Viewing Step 1 does NOT change what runs — still Solve Step 2.
       await expect(page.getByTestId("button-run-optimizer")).toHaveText("Solve Step 2");
 
       // ── 4. Solve Step 2 → 2 of 2; comparison table renders ──────────────

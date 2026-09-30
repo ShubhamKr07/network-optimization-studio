@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import { SolveDialog } from "@/components/workspace/SolveDialog";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // T4/R5 — standalone SolveDialog unit tests for the new distance-band
 // editor: prefill, add/remove writes through the shared `onChange` (the
-// exact same field/value shape p/gap/timeLimitSec already use), unit label
-// sourced from `distanceUnit`, and disabled while busy. Workspace.test.tsx
+// exact same field/value shape p/gap/timeLimitSec already use) and unit
+// label sourced from `distanceUnit`. Workspace.test.tsx
 // covers the end-to-end "solve uses the edited bands" integration case; this
 // file is the component's own contract in isolation.
 //
@@ -33,7 +33,6 @@ function renderDialog(over: Partial<Parameters<typeof SolveDialog>[0]> = {}) {
       gap={0}
       timeLimitSec={120}
       distanceBands={[200, 400, 800]}
-      phase="idle"
       onChange={onChange}
       onSolve={onSolve}
       {...over}
@@ -94,11 +93,10 @@ describe("SolveDialog — R5 distance-band editor", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("disables the add/remove band controls while busy (saving/solving)", () => {
-    renderDialog({ distanceBands: [200, 400], phase: "solving" });
-    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeDisabled();
-    expect(screen.getByTestId("solve-dialog-button-remove-band-200")).toBeDisabled();
-  });
+  // CH4UX-6 — "disables the add/remove band controls while busy
+  // (saving/solving)" was deleted here: this dialog has no `phase`/`busy`
+  // concept any more. It closes the instant Solve is pressed, so there is no
+  // state in which these controls are mounted AND a solve is running.
 
   // item 7 (Codex plan-review P1) — the zero-band guard is shared across
   // every free-chip model (schema is `.min(1)`), not JADE-specific: disable
@@ -115,12 +113,19 @@ describe("SolveDialog — R5 distance-band editor", () => {
   });
 });
 
-// C4.12 — max-coverage-us: the Solve dialog caps P at a model-specific
-// maximum (D27, generically exercised here via the `pMax` prop) and hides
-// the band editor (D13/D19 — bands are derived [high, max]). Both are
-// opt-in props (default 50 / true), so every other model's Solve dialog is
-// unchanged.
-describe("SolveDialog — max-coverage-us pMax + no band editor (C4.12)", () => {
+// The dialog's two built-in opt-out seams, `pMax` (default 50) and
+// `showBandEditor` (default true). Both are exercised here GENERICALLY, on
+// arbitrary prop values — deliberately not tied to a model.
+//
+// CH4UX-6 review (Finding 4) — retitled: the old title claimed
+// "max-coverage-us pMax + no band editor (C4.12)" and is now false on both
+// counts. max-coverage-us passes no `pMax` at all (its cap lives in the
+// single `optimizationParamsBaseProps` declaration that MIG-8 guards, and it
+// renders its parameters through `paramsSlot`, so the built-in slider below
+// never mounts for it), and its band editor is NOT hidden any more
+// (chen-bands-units re-enabled it). No live caller passes either prop; these
+// cases keep the seams honest for a future one.
+describe("SolveDialog — built-in P slider cap (pMax) and band-editor seam", () => {
   it("defaults the P slider max to 50 when pMax is omitted (every existing model unaffected)", () => {
     renderDialog({ p: 3 });
     const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
@@ -181,56 +186,18 @@ describe("SolveDialog — Chen objective display (CH4-17: no toggle)", () => {
   });
 });
 
-// R5 — for max-coverage-us the dialog becomes confirmation-only:
-// `readOnlyParams=true` hides every editable parameter control (P slider,
-// avg-service-cap, gap/time-limit, band editor) regardless of which step's
-// objective is being displayed, replacing them with a read-only summary.
-// The other five models never pass this prop, so their dialogs are
-// unaffected (asserted below via p-median-us's own render).
-describe("SolveDialog — R5 readOnlyParams (max-coverage-us confirmation-only)", () => {
-  const INPUT_TESTID_PREFIX = "solve-dialog-input-";
-
-  function queryAllInputControls() {
-    return document.querySelectorAll(`[data-testid^="${INPUT_TESTID_PREFIX}"]`);
-  }
-
-  it("exposes no editable parameter control in Step 1's display (objective=coverage)", () => {
-    renderDialog({
-      readOnlyParams: true,
-      p: 3,
-      objective: "coverage",
-      avgServiceDistCapKm: 1000,
-      distanceUnit: "km",
-      distanceBands: [700, 1400, 2800, 5500],
-    });
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
-    expect(queryAllInputControls().length).toBe(0);
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-readonly-objective")).toHaveTextContent("Coverage");
-  });
-
-  it("exposes no editable parameter control in Step 2's display (objective=min_distance)", () => {
-    renderDialog({
-      readOnlyParams: true,
-      p: 3,
-      objective: "min_distance",
-      distanceUnit: "km",
-    });
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
-    expect(queryAllInputControls().length).toBe(0);
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
-  });
-
-  it("p-median-us's dialog (readOnlyParams omitted) is unchanged — every editable control still renders", () => {
+// CH4UX-6 (was the R5 confirmation-only block) — that read-only parameter
+// mode is gone entirely: CH4UX-4 replaced it for max-coverage-us with a real
+// `paramsSlot`, and CH4UX-6 deleted the prop. What survives here is the
+// regression guard that matters for the OTHER five models — a caller that
+// supplies no slot still gets every built-in editable control, unchanged.
+describe("SolveDialog — built-in controls for non-slot callers", () => {
+  it("p-median-us's dialog (no paramsSlot) is unchanged — every editable control still renders", () => {
     renderDialog({ p: 3, distanceBands: [200, 400, 800] });
     expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-input-gap")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-input-time-limit")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-readonly-summary")).not.toBeInTheDocument();
   });
 });
 
@@ -274,151 +241,17 @@ describe("SolveDialog — JADE uses the shared chip editor (item 7)", () => {
   });
 });
 
-// jade B9 — running solve clock (spec §9). Fake timers so `Date.now()` and
-// the underlying `useElapsed` 1s tick are both under test control.
-describe("SolveDialog — running solve clock (B9)", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("renders nothing timing-related when no timing props are supplied (every existing caller unaffected)", () => {
-    renderDialog({ phase: "solving" });
-    expect(screen.queryByTestId("solve-dialog-elapsed")).not.toBeInTheDocument();
-  });
-
-  it("queued-only shows 'Queued Xs'", () => {
-    const t0 = Date.now();
-    renderDialog({ phase: "solving", queuedAt: t0, jobStatus: "queued" });
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 0s");
-
-    act(() => vi.advanceTimersByTime(4000));
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 4s");
-  });
-
-  it("shows the 'Queued Xs · Solving Ys' split once startedAt is present", () => {
-    const t0 = Date.now();
-    const startedAt = t0 + 2000;
-    renderDialog({ phase: "solving", queuedAt: t0, startedAt, jobStatus: "running" });
-
-    act(() => vi.advanceTimersByTime(5000));
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 2s · Solving 3s");
-  });
-
-  it("freezes on a terminal status (succeeded) — further time does not change the displayed total", () => {
-    const t0 = Date.now();
-    const startedAt = t0 + 1000;
-    const { rerender } = renderDialog({
-      phase: "solving",
-      queuedAt: t0,
-      startedAt,
-      jobStatus: "running",
-    });
-
-    act(() => vi.advanceTimersByTime(5000));
-    const finishedAt = Date.now();
-    rerender(
-      <SolveDialog
-        open
-        onOpenChange={vi.fn()}
-        gap={0}
-        timeLimitSec={120}
-        distanceBands={[200, 400, 800]}
-        phase="idle"
-        onChange={vi.fn()}
-        onSolve={vi.fn()}
-        queuedAt={t0}
-        startedAt={startedAt}
-        finishedAt={finishedAt}
-        jobStatus="succeeded"
-      />,
-    );
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 1s · Solving 4s");
-
-    act(() => vi.advanceTimersByTime(10000));
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 1s · Solving 4s");
-  });
-
-  it("failed shows the frozen total, alongside the error message", () => {
-    const t0 = Date.now();
-    const startedAt = t0 + 1000;
-    const { rerender } = renderDialog({
-      phase: "solving",
-      queuedAt: t0,
-      startedAt,
-      jobStatus: "running",
-    });
-
-    act(() => vi.advanceTimersByTime(3000));
-    const finishedAt = Date.now();
-    rerender(
-      <SolveDialog
-        open
-        onOpenChange={vi.fn()}
-        gap={0}
-        timeLimitSec={120}
-        distanceBands={[200, 400, 800]}
-        phase="failed"
-        errorMessage="Solver crashed"
-        onChange={vi.fn()}
-        onSolve={vi.fn()}
-        queuedAt={t0}
-        startedAt={startedAt}
-        finishedAt={finishedAt}
-        jobStatus="failed"
-      />,
-    );
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 1s · Solving 2s");
-    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solver crashed");
-
-    // Frozen — further time passing must not change it.
-    act(() => vi.advanceTimersByTime(6000));
-    expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 1s · Solving 2s");
-  });
-});
-
-// A9 (SCND correctness, §2.11/A-R47) — every terminal async solve failure
-// (SOLVE_FAILED and TIMEOUT alike) renders an explicit Retry action, decided
-// from `errorCode` ALONE — never by parsing `errorMessage` text.
-describe("SolveDialog — A9 errorCode-derived Retry action", () => {
-  it("shows Retry for a SOLVE_FAILED job and clicking it calls onSolve again", () => {
-    const { onSolve } = renderDialog({
-      phase: "failed",
-      errorMessage: "Solve failed",
-      errorCode: "SOLVE_FAILED",
-    });
-    const retry = screen.getByTestId("solve-dialog-retry");
-    expect(retry).toBeInTheDocument();
-    fireEvent.click(retry);
-    expect(onSolve).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows Retry for a TIMEOUT job too (both known errorCode values are retryable)", () => {
-    renderDialog({ phase: "failed", errorMessage: "Solve timed out", errorCode: "TIMEOUT" });
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
-  });
-
-  it("still shows Retry for a synchronous (pre-job) failure with no errorCode at all", () => {
-    renderDialog({ phase: "failed", errorMessage: "Could not enqueue the solve. Try again.", errorCode: undefined });
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
-  });
-
-  it("does not show Retry outside the failed phase", () => {
-    renderDialog({ phase: "solving", errorCode: "SOLVE_FAILED" });
-    expect(screen.queryByTestId("solve-dialog-retry")).not.toBeInTheDocument();
-  });
-
-  // The load-bearing invariant: Retry's presence tracks errorCode, NOT the
-  // co-located errorMessage text. Same errorCode, a deliberately misleading
-  // errorMessage that reads like a dead end — Retry still renders, because
-  // the errorMessage is never inspected to decide this.
-  it("renders Retry even when errorMessage's TEXT reads as non-retryable — only errorCode decides this", () => {
-    renderDialog({
-      phase: "failed",
-      errorMessage: "This failure is permanent and cannot be retried.",
-      errorCode: "SOLVE_FAILED",
-    });
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
-  });
-});
+// CH4UX-6 — the "running solve clock (B9)" and "A9 errorCode-derived Retry
+// action" describe blocks that used to sit here are DELETED, not moved:
+//   - the live/frozen clock now belongs to SolveProgressOverlay, and
+//     `SolveProgressOverlay.test.tsx` owns those cases;
+//   - the two contracts the Retry block was really protecting (the permanent
+//     `errorMessage` beats the deprecated `error` alias, and both known
+//     errorCode values still yield a truthful safe message) moved to
+//     `Workspace.test.tsx`'s CH4UX-6 block, where the failure now surfaces.
+//     Nothing derives UI actions from `errorCode` any more — the overlay's
+//     Adjust/Close are unconditional — so there is no errorCode-gated
+//     affordance left to test anywhere.
 
 // chen-bands-units, T13, Part D — SolveDialog's own band editor + avg-cap
 // field adopt the identical `useDistanceDraft` contract OptimizationParametersTab
@@ -495,5 +328,51 @@ describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", 
     renderDialog({ distanceUnit: "mi", distanceBands: [200, 400] });
     expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-band-200")).toHaveTextContent("200");
+  });
+});
+
+describe("CH4UX-3 — paramsSlot", () => {
+  it("renders the built-in controls when no slot is supplied", () => {
+    renderDialog({ p: 5 });
+    expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).toBeInTheDocument();
+  });
+
+  it("replaces every built-in control with the slot's content when supplied", () => {
+    // CH4UX-4 review Finding 1, still load-bearing after CH4UX-6 removed
+    // the read-only-mode half of every gate: each assertion below
+    // must name a block whose OWN remaining gate this render satisfies, or
+    // it passes whether or not `paramsSlot` is supplied. Hence `p: 5` (the
+    // slider block is gated `p != null`) and `objective: "coverage"` (the
+    // chen-objective section is gated `objective != null`, and
+    // `renderDialog`'s defaults never pass it). The gap/time-limit grid and
+    // the band editor are now unconditional inside the fallback, so those
+    // two are real by construction.
+    renderDialog({
+      p: 5,
+      objective: "coverage",
+      paramsSlot: <div data-testid="slotted-params">slotted</div>,
+    });
+    expect(screen.getByTestId("slotted-params")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-slider-p")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-input-gap")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-input-time-limit")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog-band-200")).toBeNull();
+    // The Chapter-4-specific built-in block, precisely the one a Chapter 4
+    // paramsSlot must displace. The original test asserted absence for only
+    // 3 of the built-in blocks; this was missing.
+    expect(screen.queryByTestId("solve-dialog-chen-objective-section")).toBeNull();
+  });
+
+  // CH4UX-6 — the sibling case "hides the read-only summary too when a slot
+  // is supplied in the read-only branch" (added by CH4UX-4's review fix) is
+  // deleted along with the confirmation-only prop itself: there is no
+  // read-only summary left in this component to hide.
+
+  it("keeps Solve and Close interactive with a slot supplied", () => {
+    const { onSolve } = renderDialog({ paramsSlot: <div data-testid="slotted-params" /> });
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    expect(onSolve).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("solve-dialog-cancel")).toBeInTheDocument();
   });
 });

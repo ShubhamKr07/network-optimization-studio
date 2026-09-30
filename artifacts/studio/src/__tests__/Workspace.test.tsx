@@ -229,6 +229,7 @@ vi.mock("@workspace/api-client-react", () => ({
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
+import { ch4Scenario } from "./helpers/ch4";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListModels = vi.mocked(useListModels);
@@ -239,6 +240,22 @@ const mockUseSearch = vi.mocked(useSearch);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+}
+
+// CH4UX-1 — Chapter 4 needs a different modelId and a server-derived `steps`
+// projection, neither of which the existing parameterless renderWorkspace()
+// can express. A sibling helper, so no existing call site changes. Kept in
+// this file (not helpers/ch4.tsx) because it closes over this file's own
+// module mocks (mockUseListScenarios/mockUseGetScenario/mockUseSearch).
+function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeId = scenarios[0].id) {
+  mockUseListScenarios.mockReturnValue({ data: scenarios } as never);
+  mockUseGetScenario.mockReturnValue({
+    data: scenarios.find(s => s.id === activeId),
+    isLoading: false,
+    isError: false,
+  } as never);
+  mockUseSearch.mockReturnValue(`?scenario=${activeId}`);
+  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 }
 
 beforeEach(() => {
@@ -1212,6 +1229,25 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
       },
     });
   });
+
+  // whole-branch review, Important 2 — the merge (16021ec) hand-resolved a
+  // delete-hunk-vs-modify-hunk conflict onto exactly this line
+  // (`pMax={modelId === "delivery-teaching-us" ? 33 : undefined}` at the
+  // <SolveDialog> call site) with NO test on either branch protecting it:
+  // the Chen D27 pair only asserts max-coverage-us's cap, and MIG-8's source
+  // grep only matches `"max-coverage-us"`. Dropping this prop fails silent —
+  // no type error, no other red test — and a delivery student could drag P
+  // to the default max of 50 and get a server-side 400 from
+  // artifacts/api-server/src/validation/inputs/delivery.ts's `.max(33)`.
+  // Mutation-proven: deleting the `pMax` prop from the call site turns this
+  // red (aria-valuemax reverts to the unbounded-slider default) before being
+  // restored.
+  it("caps P at 33 in the Solve dialog's built-in slider for delivery-teaching-us (no paramsSlot, so the built-in slider mounts)", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "33");
+  });
 });
 
 // Task 6 (ch5-edit-6, §14.5) — a full-Workspace integration test, not just
@@ -1693,13 +1729,18 @@ describe("Workspace — Solve dialog", () => {
     expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
   });
 
-  it("shows a progress state while the solve is in flight, and disables the Solve button", () => {
+  // CH4UX-6 — the in-flight progress state moved out of the dialog onto
+  // SolveProgressOverlay, so this no longer asserts a disabled Solve button
+  // (that button is unmounted with the dialog). What it still uniquely
+  // covers, and the CH4UX-6 block at the end of this file does not, is that
+  // the overlay names the right PHASE: a clean draft goes straight to
+  // "Solving…", never through "Saving changes…".
+  it("shows the solving phase on the overlay while the solve is in flight", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
-    expect(screen.getByTestId("solve-dialog-progress")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+    expect(screen.getByTestId("solve-progress-phase")).toHaveTextContent("Solving…");
   });
 
   it("shows a destructive toast and an inline error, and does not proceed to solve, when the pre-solve save is rejected", () => {
@@ -1718,8 +1759,11 @@ describe("Workspace — Solve dialog", () => {
       variant: "destructive",
     }));
     expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
-    expect(screen.getByTestId("solve-dialog-error")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-solve")).not.toBeDisabled();
+    // CH4UX-6 — the inline dialog error became the overlay's error card, and
+    // "the Solve button is re-enabled" became "the overlay offers a way
+    // back": Adjust & re-solve reopens the dialog with the draft intact.
+    expect(screen.getByTestId("solve-progress-error")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
   });
 
   it("shows a destructive toast when enqueuing the solve itself fails", () => {
@@ -1777,9 +1821,10 @@ describe("Workspace — Solve dialog", () => {
 
   // A9 (SCND correctness, §2.11/A5) — a job carrying the permanent
   // errorCode/errorMessage prefers errorMessage over the DEPRECATED
-  // transitional `error` alias, and passes errorCode through to SolveDialog
-  // so its Retry action renders — for BOTH known errorCode values.
-  it("prefers errorMessage over the deprecated error alias, and renders an errorCode-derived Retry action (SOLVE_FAILED)", () => {
+  // transitional `error` alias. CH4UX-6 — the surface is the overlay's
+  // error card, and the way back is "Adjust & re-solve" (unconditional; no
+  // longer errorCode-derived).
+  it("prefers errorMessage over the deprecated error alias, and offers Adjust & re-solve (SOLVE_FAILED)", () => {
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
       opts.onSuccess({ jobId: 7 });
     });
@@ -1796,11 +1841,11 @@ describe("Workspace — Solve dialog", () => {
       title: "Solve failed",
       description: "Solve failed — please try again",
     }));
-    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solve failed — please try again");
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Solve failed — please try again");
+    expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
   });
 
-  it("renders an errorCode-derived Retry action for a TIMEOUT failure too", () => {
+  it("offers Adjust & re-solve for a TIMEOUT failure too", () => {
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
       opts.onSuccess({ jobId: 7 });
     });
@@ -1813,8 +1858,8 @@ describe("Workspace — Solve dialog", () => {
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
-    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solve timed out");
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Solve timed out");
+    expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
   });
 
   it("falls back to the deprecated error alias when errorMessage is absent (an older API build or historical row)", () => {
@@ -1830,10 +1875,7 @@ describe("Workspace — Solve dialog", () => {
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
-    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solver timed out");
-    // No errorCode on this historical-shaped job — still retryable per
-    // isRetryableFailureCode's documented null/undefined default.
-    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Solver timed out");
   });
 });
 
@@ -2692,11 +2734,12 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
-  // CH4-17/R5 — the Solve dialog no longer has a P slider for
-  // max-coverage-us at all (readOnlyParams=true replaces it with a
-  // read-only summary); the tab's slider is the only place P is still
-  // editable, and it still caps at 26 (D27 unaffected).
-  it("caps P at 26 in the Optimization Parameters tab; the Solve dialog shows P read-only instead of a slider (27 unreachable via either surface, D27)", () => {
+  // CH4UX-4 — supersedes CH4-17/R5's "read-only summary" behavior: the
+  // Solve dialog now embeds the REAL OptimizationParametersTab (namespaced
+  // "solve-dialog-") instead of a read-only summary, so P is editable from
+  // BOTH surfaces and both caps must agree (D27's 26 is now enforced twice,
+  // not once).
+  it("caps P at 26 in both the Optimization Parameters tab and the Solve dialog's embedded copy (27 unreachable via either surface, D27)", () => {
     renderChen();
 
     // Tab slider.
@@ -2704,19 +2747,23 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(tabThumb).toHaveAttribute("aria-valuemax", "26");
 
-    // Solve dialog: no slider, read-only summary instead.
+    // Solve dialog's embedded copy of the same tab. CH4UX-6 — this is now
+    // the ONLY guard on Chapter 4's 26 cap at the dialog surface (MIG-8's
+    // source grep dropped to a single declaration when the dead `pMax` prop
+    // on <SolveDialog> was deleted), so it is behavioural evidence rather
+    // than a text match and must not be weakened.
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-readonly-summary")).toBeInTheDocument();
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p-value").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "26");
   });
 
   // chen-bands-units — superseded (was "hides the distance-band editor ...
   // D13/D19"): Chen's bands are no longer derived/hidden in the tab — Part A
-  // re-enabled the free add/remove chip editor there. CH4-17/R5 supersedes
-  // this again for the Solve dialog specifically: that dialog is now
-  // confirmation-only for max-coverage-us, so its band editor is hidden too
-  // (edited only via the tab now).
-  it("shows the free-edit band chip editor for Chen in the tab; the Solve dialog hides it (confirmation-only, R5)", () => {
+  // re-enabled the free add/remove chip editor there. CH4UX-4 supersedes
+  // CH4-17/R5's "Solve dialog hides the band editor" behavior too: the
+  // dialog now embeds the SAME tab (namespaced "solve-dialog-"), so the
+  // identical editable band chip editor is visible there as well.
+  it("shows the free-edit band chip editor for Chen in BOTH the tab and the Solve dialog's embedded copy", () => {
     renderChen();
 
     openParamsTab();
@@ -2725,23 +2772,37 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.getByTestId("button-remove-band-5000")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-600")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-5000")).toBeInTheDocument();
   });
 });
 
-// ch4-mig-8 — the p cap is declared in four places (manifest, Zod schema,
-// and TWO independent pMax renders in Workspace.tsx: Optimization
-// Parameters and SolveDialog); this asserts both UI sites read the same
-// value the manifest/schema now cap at, because changing three of four
-// leaves a surface where p=26 is rejected with no server involvement and
-// no error naming the real cause.
-it("caps p at 26 in BOTH pMax declarations for max-coverage-us (MIG-8)", () => {
+// ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and
+// Workspace.tsx; this asserts the UI site reads the same value the
+// manifest/schema cap at, because changing some-but-not-all of them leaves a
+// surface where p=26 is rejected with no server involvement and no error
+// naming the real cause.
+it("caps p at 26 in the single pMax declaration for max-coverage-us (MIG-8)", () => {
   const src = readFileSync(
     path.resolve(__dirname, "../pages/Workspace.tsx"), "utf8",
   );
   const caps = [...src.matchAll(/modelId === "max-coverage-us" \? (\d+)/g)].map(m => m[1]);
-  // Optimization Parameters tab AND SolveDialog render pMax independently.
-  expect(caps).toEqual(["26", "26"]);
+  // CH4UX-6 — ONE pMax declaration now: the hoisted base prop object. The
+  // SolveDialog arm was deleted as dead (Chapter 4 renders the embedded tab
+  // via paramsSlot, so the dialog's own P slider never mounts for it).
+  // NOTE: this regex needs `modelId === "max-coverage-us" ? <n>` unbroken on
+  // ONE line — reformatting the ternary across lines silently drops a match.
+  // CH4UX-6 review (Finding 6) — the symmetric trap, cross-referenced here
+  // because its primary warning lives at the `Workspace.tsx` call site and
+  // the pair should be findable from either end: this reads the file as
+  // SOURCE TEXT, so a COMMENT that quotes the ternary counts as a match too.
+  // Explaining why an arm was deleted by quoting it verbatim re-breaks this
+  // test, for a comment. Describe the deleted arm; never quote it.
+  // The REAL two-surface cap guard is the D27 test's pair of DOM assertions
+  // (tab thumb + solve-dialog-slider-p-value thumb, both aria-valuemax=26),
+  // which is behavioural evidence rather than a source grep.
+  expect(caps).toEqual(["26"]);
 });
 
 // C4.13 — Chen (max-coverage-us) full Input-Map parity: it's single-echelon
@@ -3054,5 +3115,408 @@ describe("CH4-17 — no client-side floor authoring survives", () => {
     const patched = await saveMaxCoverageScenarioAndCaptureBody();
     expect("coverageFloorDemand" in patched.inputs).toBe(false);
     expect(patched.inputs.objective).toBe("coverage");
+  });
+});
+
+describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
+  it("disables every sidebar Output row when Step 1 is unsolved", () => {
+    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
+    const outputMap = screen.getByTestId("sidebar-output-output-map");
+    expect(outputMap).toBeDisabled();
+    expect(outputMap).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("enables the sidebar Output rows once Step 1 has solved, even with Step 2 unsolved", () => {
+    renderCh4Workspace([
+      ch4Scenario({
+        steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+      }),
+    ]);
+    expect(screen.getByTestId("sidebar-output-output-map")).not.toBeDisabled();
+  });
+
+  it("leaves a non-Chapter-4 model gated by hasFreshSolvedRun alone", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-output-output-map")).toBeDisabled();
+  });
+
+  // CH4UX-1 — reproduce the ACTUAL defect, not a proxy for it. An output tab
+  // must already be open, because the user-visible symptom is that tab naming
+  // the wrong unmet prerequisite. Asserting only the header toggle would pass
+  // against a fix that left the gate copy wrong.
+  it("switching to a 0-of-2 scenario with an output tab open re-targets the view to Step 1", () => {
+    const a = ch4Scenario({
+      id: 1,
+      name: "A",
+      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+    });
+    const b = ch4Scenario({ id: 2, name: "B", steps: { step1: { solved: false }, step2: { solved: false } } });
+
+    const view = renderCh4Workspace([a, b], 1);
+
+    // Scenario A is 1-of-2, so its outputs are unlocked. Open one, and view Step 2.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    fireEvent.click(screen.getByTestId("step-toggle-2"));
+    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
+
+    // Switch to the 0-of-2 scenario. Re-point the query mocks the way a real
+    // scenario switch would, then let the component re-render.
+    mockUseGetScenario.mockReturnValue({ data: b, isLoading: false, isError: false } as never);
+    fireEvent.click(screen.getByTestId("sidebar-scenario-2"));
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // The header toggle snapped back...
+    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
+    // ...and the still-open output tab now names the RIGHT prerequisite.
+    expect(screen.getByTestId("tab-content-region")).toHaveTextContent("Solve Step 1");
+  });
+
+  // CH4UX-8 — the case CH4UX-1's warm A→B test could not reach. The scenario
+  // queries resolve ASYNCHRONOUSLY, so a cold mount (page reload) renders once
+  // with no scenario at all and only then gets one. That first resolution is
+  // not a scenario switch, and must not re-point the view: reloading a 1-of-2
+  // scenario has to keep showing Step 1's result, not snap to "Solve Step 2".
+  //
+  // Sequence-faithful on purpose — `render()` with the queries unresolved,
+  // THEN re-point the mocks and `rerender()`. Rendering the resolved state
+  // directly would seed the ref from real data in the same render that reads
+  // it, which is exactly the ordering the real app does NOT have, and is why
+  // the defect survived a green unit gate.
+  it("resolving the initial scenario on a cold mount does not re-point the view off Step 1", () => {
+    const solvedStep1 = ch4Scenario({
+      id: 5,
+      name: "Chen reload",
+      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
+    });
+
+    // First render: the URL already names the scenario, but neither query has
+    // resolved — precisely a browser reload's first paint.
+    mockUseSearch.mockReturnValue("?scenario=5");
+    mockUseListScenarios.mockReturnValue({ data: undefined } as never);
+    mockUseGetScenario.mockReturnValue({ data: undefined, isLoading: true, isError: false } as never);
+    const view = render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // The queries resolve.
+    mockUseListScenarios.mockReturnValue({ data: [solvedStep1] } as never);
+    mockUseGetScenario.mockReturnValue({ data: solvedStep1, isLoading: false, isError: false } as never);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    // `targetStep` here is 2 (Step 1 is solved), so a guard that mistakes
+    // first resolution for a switch lands on Step 2.
+    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "false");
+
+    // And the user-visible symptom: opening an output tab must not greet a
+    // just-reloaded, already-solved scenario with Step 2's unmet prerequisite.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(screen.getByTestId("tab-content-region")).not.toHaveTextContent("Solve Step 2");
+  });
+});
+
+// ── CH4UX-6 — the solve overlay owns running + failed ────────────────────────
+describe("CH4UX-6 — the solve overlay owns the running and failed phases", () => {
+  // Enqueue succeeds and hands back a job id.
+  function enqueueSucceeds(jobId = 77) {
+    mockSolveScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess?: (r: { jobId: number }) => void }) => opts?.onSuccess?.({ jobId }),
+    );
+  }
+  // Deviation from the brief's draft, deliberate: the poll mock is gated on
+  // `jobId` (this file's established pattern), NOT an unconditional
+  // `mockReturnValue`. An unconditional one returns a terminal job on the
+  // very FIRST render — before any click — so the poll effect would set
+  // phase "failed" at mount, the header Run button would already be
+  // disabled, and `openAndSolve()` could never open the dialog. Gating on
+  // `jobId` means `data` is undefined until `pollingJobId` is set by the
+  // enqueue's onSuccess, which is what makes these assertions about the
+  // click rather than about mount.
+  function jobSnapshot(over: Record<string, unknown>) {
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? {
+            data: {
+              id: 77,
+              queuedAt: "2026-01-01T00:00:00Z",
+              startedAt: "2026-01-01T00:00:01Z",
+              finishedAt: "2026-01-01T00:00:04Z",
+              ...over,
+            },
+          }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>,
+    );
+  }
+  function openAndSolve() {
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+  }
+
+  it("closes the Solve dialog and shows the overlay the moment Solve is pressed", () => {
+    enqueueSucceeds();
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.queryByTestId("solve-dialog")).toBeNull();
+    expect(screen.getByTestId("solve-progress-overlay")).toBeInTheDocument();
+  });
+
+  it("disables the header Run button while a solve is in flight", () => {
+    enqueueSucceeds();
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("button-run-optimizer")).toBeDisabled();
+  });
+
+  it("surfaces an async job failure on the overlay's error card", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Solver ran out of time.");
+  });
+
+  // A5's contract: the permanent `errorMessage` wins over the DEPRECATED
+  // `error` alias. This assertion moves here from the old dialog tests.
+  it("prefers errorMessage over the deprecated error alias", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Permanent message.", error: "legacy alias" });
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Permanent message.");
+  });
+
+  // Both known codes still produce a truthful safe message; NEITHER controls
+  // which actions render any more (Adjust/Close are unconditional).
+  it.each(["SOLVE_FAILED", "TIMEOUT"] as const)(
+    "shows the same Adjust/Close contract for errorCode %s",
+    code => {
+      enqueueSucceeds();
+      jobSnapshot({ status: "failed", errorMessage: `failed: ${code}`, errorCode: code });
+      renderWorkspace();
+      openAndSolve();
+      expect(screen.getByTestId("solve-progress-error")).toHaveTextContent(`failed: ${code}`);
+      expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
+      expect(screen.getByTestId("solve-progress-close")).toBeInTheDocument();
+    },
+  );
+
+  it("surfaces a save rejection on the same overlay error card", () => {
+    mockUpdateScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onError?: (err: unknown) => void }) =>
+        opts?.onError?.(new Error("P must be at least 1.")),
+    );
+    renderWorkspace();
+    // Make the draft ordinarily dirty so handleSolve takes its
+    // save-before-solve branch (this file's existing dirty-edit moves).
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    openAndSolve();
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("P must be at least 1.");
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  it("Adjust & re-solve reopens the dialog and clears the failed job's clock", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("solve-progress-elapsed")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("solve-progress-adjust"));
+    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    // NOTE (honesty about what this last line proves): the overlay is
+    // unmounted at phase "idle", so this passes for that reason alone — it
+    // does NOT by itself prove the retained job snapshot was cleared. The
+    // next test is the one that discriminates that.
+    expect(screen.queryByTestId("solve-progress-elapsed")).toBeNull();
+  });
+
+  // The actual reason `resetSolveState()` clears `lastJobSnapshot`: without
+  // it, the NEXT run's overlay opens showing the PREVIOUS job's frozen
+  // total until the first poll lands. Verified discriminating — dropping
+  // `setLastJobSnapshot(null)` from the helper fails this and nothing else.
+  it("a re-solve after a failure starts with a clean clock, not the previous job's frozen total", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("solve-progress-elapsed")).toHaveTextContent("Queued 1s · Solving 3s");
+
+    fireEvent.click(screen.getByTestId("solve-progress-adjust"));
+    // Second run, poll not yet returned: nothing timing-related is known.
+    mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(screen.getByTestId("solve-progress-overlay")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-progress-elapsed")).toBeNull();
+  });
+
+  it("Close dismisses the overlay without reopening the dialog", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    fireEvent.click(screen.getByTestId("solve-progress-close"));
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    expect(screen.queryByTestId("solve-dialog")).toBeNull();
+    // CH4UX-6 review (Finding 5) — Close and Adjust call the SAME
+    // `resetSolveState()`, but only Adjust's release was covered (by the
+    // clean-clock test). Without this line, Close's wiring to the lock
+    // release is unasserted, and a Close that dismissed the overlay while
+    // leaving `solveInFlightRef` raised would pass: Solve would then be
+    // permanently inert with nothing on screen to explain it.
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+    // Honesty about the line above: it is IMPLIED by the overlay being gone
+    // — the button's `disabled` and the overlay's `open` both derive from
+    // `solvePhase === "idle"` — so it documents the contract rather than
+    // adding coverage, and no mutation fails it alone. This next part is the
+    // discriminating half, and it is the one that matters: `solveInFlightRef`
+    // is a REF, so a stuck `true` renders nothing differently — the button
+    // would look perfectly enabled while `handleSolve` silently returned
+    // early on every click, with no visible cause.
+    mockSolveScenario.mutate.mockClear();
+    openAndSolve();
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  // CH4UX-6 review (Finding 3) — the dialog→overlay handoff is a
+  // `react-remove-scroll` / body-`pointer-events` transition. Radix's
+  // DismissableLayer writes `document.body.style.pointerEvents = "none"` in
+  // jsdom too, so both halves are checkable here rather than only in a
+  // browser.
+  //
+  // This one caught a REAL defect rather than confirming an assumption.
+  // Before `SolveProgressOverlay` grew its `onOpenAutoFocus` handler,
+  // `document.activeElement` was <body> at this point and STAYED there
+  // across a macrotask and an animation frame (all three measured): the
+  // Dialog restores focus to `button-run-optimizer`, which `solvePhase !==
+  // "idle"` has just disabled, and the running branch has no focusable child
+  // to catch the fallback. A keyboard user was stranded outside a modal that
+  // had already inerted the page.
+  it("moves focus into the overlay when Solve is pressed, and inerts the page behind it", () => {
+    enqueueSucceeds();
+    renderWorkspace();
+    openAndSolve();
+
+    const overlay = screen.getByTestId("solve-progress-overlay");
+    expect(overlay).toContainElement(document.activeElement as HTMLElement);
+    // MEASURED deviation from the review's drafted `not.toBe("none")` for
+    // this moment: with the overlay OPEN the body is legitimately "none" —
+    // that is the modality working, not a stuck body. Asserting the
+    // opposite here would assert the modal is broken. The `not.toBe("none")`
+    // check is the meaningful one after close; see the next test.
+    expect(document.body.style.pointerEvents).toBe("none");
+  });
+
+  it("releases the page's pointer events once the overlay is closed", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "failed", errorMessage: "Solver ran out of time.", errorCode: "TIMEOUT" });
+    renderWorkspace();
+    openAndSolve();
+    expect(document.body.style.pointerEvents).toBe("none");
+
+    fireEvent.click(screen.getByTestId("solve-progress-close"));
+    // Asserted BEFORE the unmount check deliberately, so this line is the
+    // one a "body never got restored" mutation fails — behind the unmount
+    // check it would be unreachable and its failability unprovable.
+    // A stuck "none" here is the classic two-modals-handing-off failure: the
+    // page stays permanently uninteractive with nothing on screen to explain
+    // why. Every other test in this block drives the overlay with
+    // `fireEvent`, which bypasses pointer-events entirely and would never
+    // notice.
+    expect(document.body.style.pointerEvents).not.toBe("none");
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+  });
+
+  // CH4UX-6 review (Finding 1) — the poll's own error state. `refetchInterval`
+  // returns false whenever `query.state.data?.status` is undefined, so a
+  // failed or 404'd poll stops polling SILENTLY. Without the `isError`
+  // branch the phase stays "solving" behind a modal that has no Close and
+  // prevents Escape — page reload only. This asserts the way OUT exists.
+  it("turns a failed poll into a dismissible error rather than an unrecoverable modal lock", () => {
+    enqueueSucceeds();
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: undefined, isError: true }
+        : { data: undefined, isError: false }) as unknown as ReturnType<typeof useGetSolveJob>,
+    );
+    renderWorkspace();
+    openAndSolve();
+
+    expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("Lost contact with the solve job.");
+    expect(screen.getByTestId("solve-progress-close")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-adjust")).toBeInTheDocument();
+
+    // And the escape actually works — including releasing the in-flight lock.
+    fireEvent.click(screen.getByTestId("solve-progress-close"));
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+  });
+
+  it("removes the overlay and opens Output Map on success", () => {
+    enqueueSucceeds();
+    jobSnapshot({ status: "succeeded" });
+    renderWorkspace();
+    openAndSolve();
+    expect(screen.getByTestId("tab-output:output-map")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+  });
+
+  // CH4UX-6 review (Finding 2) — "Save as scenario" is the SECOND enqueue
+  // path. It used to call `solveScenario.mutate` + `setPollingJobId`
+  // directly, touching neither the phase nor the in-flight lock: the solve
+  // ran with no overlay, the header Run button stayed live beside it, and a
+  // failure of THAT job still raised the modal error card — whose "Adjust &
+  // re-solve" would open the Solve dialog for a scenario the student had
+  // never opened a dialog for. Both callers now share `enqueueSolve`.
+  it("shows the same overlay lifecycle when the solve is enqueued by Save as scenario", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+
+    enqueueSucceeds();
+    jobSnapshot({ status: "succeeded" });
+    const view = renderWorkspace();
+
+    // Build one history entry so the Save-as-scenario button exists.
+    openAndSolve();
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // The first solve finished, so nothing is in flight at this point.
+    expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+
+    // Now the clone's solve — with its poll deliberately not yet returning,
+    // so the in-flight state is observable.
+    mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
+    mockCreateScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (s: unknown) => void }) =>
+        opts.onSuccess({ ...scenarioWithA, id: 42, name: "3 Warehouses (saved run)", result: null }),
+    );
+    fireEvent.click(screen.getByTestId("button-save-as-scenario"));
+
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 42 }, expect.anything());
+    expect(screen.getByTestId("solve-progress-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-progress-phase")).toHaveTextContent("Solving…");
+    expect(screen.getByTestId("button-run-optimizer")).toBeDisabled();
+  });
+
+  // The ref-lock regression. A double-CLICK test cannot cover this: the button
+  // unmounts after the first event, so the second click never lands. Invoke the
+  // dialog's own onSolve twice inside one synchronous tick instead — inside
+  // `act()` React queues the first click's state updates rather than
+  // committing them, so the second call runs through the SAME render closure
+  // and observes `solvePhase === "idle"`. Only `solveInFlightRef` can stop it.
+  it("two synchronous solve invocations enqueue exactly one job", () => {
+    enqueueSucceeds();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    const solveBtn = screen.getByTestId("solve-dialog-solve");
+    act(() => {
+      solveBtn.click();
+      solveBtn.click(); // same tick — phase state has not committed yet
+    });
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
   });
 });

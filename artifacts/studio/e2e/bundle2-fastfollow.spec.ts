@@ -71,11 +71,40 @@ async function saveAndWait(page: Page): Promise<void> {
   await expect(page.getByTestId("button-save")).toBeDisabled({ timeout: HEADER_TIMEOUT });
 }
 
-async function runOptimizerAndWait(page: Page): Promise<void> {
+/** CH4UX-7 — the one durable per-run signal this file's solve wait anchors
+ * on. Read from the server, not the DOM: `solvedAt` is written exactly once
+ * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
+ * different from the one captured before the submit can only have been
+ * produced by THIS run. */
+async function readSolvedAt(page: Page, id: string): Promise<string | null> {
+  const resp = await page.request.get(`/api/scenarios/${id}`);
+  expect(resp.status()).toBe(200);
+  return (await resp.json()).solvedAt ?? null;
+}
+
+/**
+ * CH4UX-7 — the old wait was `sidebar-output-output-map` becoming enabled.
+ * That row ungates on the FIRST solved result and never re-disables, so it
+ * is a one-shot signal: correct on a scenario's first solve, a false
+ * positive on every later one. Capture `solvedAt` before the submit and
+ * require it to change instead.
+ *
+ * Deliberately does NOT wait for `solve-progress-overlay` to become visible:
+ * that state is transient and a fast job outruns Playwright's sampler. The
+ * overlay's own contract is covered deterministically by
+ * `solve-overlay-contract.spec.ts`.
+ */
+async function runOptimizerAndWait(page: Page, id: string): Promise<void> {
+  const before = await readSolvedAt(page, id);
   await page.getByTestId("button-run-optimizer").click();
-  await expect(page.getByTestId("solve-dialog")).toBeVisible();
+  await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
   await page.getByTestId("solve-dialog-solve").click();
-  await expect(page.getByTestId("sidebar-output-output-map")).toBeEnabled({ timeout: SOLVE_TIMEOUT });
+  await expect
+    .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
+    .not.toBe(before);
+  // The overlay unmounts on success and PERSISTS (error card) on failure.
+  await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("sidebar-output-output-map")).toBeEnabled({ timeout: HEADER_TIMEOUT });
 }
 
 test.describe("Bundle 2 — p-median-brazil", () => {
@@ -142,7 +171,7 @@ test.describe("Bundle 2 — p-median-brazil", () => {
       await saveAndWait(page);
 
       // Solve.
-      await runOptimizerAndWait(page);
+      await runOptimizerAndWait(page, id);
 
       // Output Map: real NetworkMap content, not BrazilMap's count-only
       // rendering — a leaflet-container should be present with markers.
@@ -210,7 +239,7 @@ test.describe("Bundle 2 — transport-coal", () => {
       expect(fillAttr).toContain("--map-customer");
 
       await saveAndWait(page);
-      await runOptimizerAndWait(page);
+      await runOptimizerAndWait(page, id);
 
       // Generated lane costs: the newly-added mine/station should have real
       // lane-cost rows in the Lane costs grid after Save's estimator ran.
@@ -277,7 +306,7 @@ test.describe("Bundle 2 — two-echelon-gold-au", () => {
       const csCode = await addEntityViaRightClick(page, "cs", 1);
 
       await saveAndWait(page);
-      await runOptimizerAndWait(page);
+      await runOptimizerAndWait(page, id);
 
       // Distances tab (LegDistancesTab) — generated mine->refinery AND
       // refinery->customer rows should exist post-Save.

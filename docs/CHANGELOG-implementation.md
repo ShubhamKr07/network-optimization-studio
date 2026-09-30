@@ -44,8 +44,9 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes | L459 |
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
 | Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
-| Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L946 |
-| Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1067 |
+| Chapter 4 UX fixes — output lock, editable solve dialog, solve overlay (`CH4UX-1`–`CH4UX-8`) | L1007 |
+| Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L1257 |
+| Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1374 |
 
 ---
 
@@ -1003,6 +1004,255 @@ conflicts, aborted rather than resolved, and that branch reset to its exact tip 
 been pushed and no remote carried it. Redone in a dedicated `main` worktree with an explicit
 `HEAD == main` guard before each merge, where **both merges applied with zero conflicts** — the
 conflict had been entirely an artifact of the wrong target.
+## Chapter 4 UX fixes — output lock, editable solve dialog, blocking solve overlay (`CH4UX-1`–`CH4UX-8`, 2026-09-30)
+
+Branch `ch4-ux-fixes`, cut from `9a598db` (the then-tip of both local `main` and `origin/main`).
+Implements `docs/superpowers/specs/2026-09-29-ch4-ux-fixes-design.md` and its
+`docs/superpowers/plans/2026-09-29-ch4-ux-fixes.md` twin. Frontend only — the diff touches zero
+files under `artifacts/api-server/`, `lib/`, or `solvers/`, and no OpenAPI/DB/solver change.
+
+**Merged to `main` via `16021ec` (Chapter 5 integration merge).** Task 8's QA found a real,
+branch-introduced regression in CH4UX-1 — a non-deterministic cold-mount step re-target — which was
+fixed in `fa70517` before merge (see "Cold-mount regression, found and fixed" below). The gate,
+harness-retro rows (`1ab4214`), and the merge itself (`16021ec`) are recorded in the per-task table.
+
+### What each task landed
+
+| Task | Commit(s) | Summary |
+|---|---|---|
+| CH4UX-1 | `d4bc931` | Chapter 4's sidebar Output rows are locked until Step 1 has solved (`keepOutputsClickable={isMaxCoverage && steps.step1.solved}`); `selectedStep` re-targets on scenario change via a render-phase `prevScenarioIdRef` adjustment. |
+| CH4UX-2 | `09b8587` | `OptimizationParametersTab` ids/testids namespaced (`idPrefix`/`testIdPrefix`) so the component can be double-mounted. |
+| CH4UX-3 | `d4a928f` | `SolveDialog` gains `paramsSlot` plus a scroll contract. |
+| CH4UX-4 | `377b462`, `de4931c` | Chapter 4's Run Optimizer dialog renders the real `OptimizationParametersTab`, keyed on `stepState.targetStep` (what will RUN), not `selectedStep` (what is being VIEWED). `readOnlyParams` deleted. |
+| CH4UX-5 | `09faa22` | New `SolveProgressOverlay` — a Radix `AlertDialog` (not `Dialog`, not a bare `fixed inset-0` div) owning `SolvePhase = idle\|saving\|solving\|failed`, with rotating quips (`lib/solveQuips.ts`) and the `useElapsed` clock. No cancel affordance: the API has no cancel endpoint, so offering one would be a lie. |
+| CH4UX-6 | `9def8b6`, `69b2d91`, `7030b51` | The lifecycle moved out of `SolveDialog` into the overlay for **every** registered model (enumerated from the manifests, never a hardcoded count); the dialog closes on submit; `solveInFlightRef` is the real single-entry lock (the spec's three-guard list does not hold within one synchronous tick); `onOpenAutoFocus`/`onCloseAutoFocus` pin focus on both edges. |
+| CH4UX-7 | `4619871`, `e8c55f1`, `795f8f8` | Seven e2e solve-completion waits re-pointed off the dialog's disappearance onto a durable per-run signal; new `e2e/solve-overlay-contract.spec.ts` (4 tests) makes modality, focus transitions and reduced motion deterministic by controlling the job response rather than racing CBC. |
+| CH4UX-8 | `6c33024`, `fa70517`, `1ab4214`, `16021ec` | Gate, parent-baseline e2e comparison, real-browser QA, this entry (`6c33024`); the cold-mount regression fix (`fa70517`); harness-retro metrics/permissions rows (`1ab4214`); the merge of `origin/main`'s Chapter 5 (`ch5-delivery`) work into this branch, hand-resolving the delete-hunk-vs-modify-hunk conflict over `OptimizationParametersTab` (`16021ec`). |
+
+Plan/spec-only commits on the branch: `f4dc9b8`, `6f1099c`, `edb9cfd`, `b2117a2`, `ef723de`,
+`06b10f8`, `0c4c58c`, `8f9a657`, `e66121f`, `694a3a9`. `694a3a9` and `ef723de` also lifted the
+governing merge-to-main pipeline into `CLAUDE.md`'s Branch-discipline section as standing operating
+rules (not history — hard rule #9 respected).
+
+### Verification gate — numbers observed on 2026-09-30, not copied from the plan
+
+Run in a dedicated worktree against a dedicated throwaway Postgres (`nos_ch4ux8_unit`), because
+several sibling worktrees' api-servers share `nos_dev` and steal each other's `solve_jobs`.
+
+- `pnpm run typecheck` — **clean**, all four projects (`api-server`, `studio`, `mockup-sandbox`, `scripts`).
+- `pnpm --filter api-server test` — **52 files / 1541 tests passed, 0 failed, 0 timeouts**, 55.3s.
+  (A first run without `DATABASE_URL` set produced 14 suite-level `DATABASE_URL must be set`
+  collection failures plus load-induced timeouts — an environment artifact, not a branch signal.)
+- `pnpm --filter studio test` — **116 files / 2134 tests passed, 0 failed**, 83.8s, and
+  **zero `Test timed out in 5000ms`**. Run exactly once, serially, with nothing else on the machine,
+  per the known flake profile.
+- `python3 -m pytest tests/ -x` (solver) — **282 passed**, 178.6s.
+- `python3 e2e_accuracy.py`, run directly and unmodified (hard rule #2; it is not pytest-discovered)
+  — **99/99 ✓ ALL PASS**. The solver is untouched by this branch; this run exists only to prove no
+  accidental coupling, and it proves it.
+
+### e2e — measured against a real parent baseline, not against CI's red-but-non-blocking job (pre-merge snapshot)
+
+**This comparison is a pre-merge baseline, taken before `fa70517` (the cold-mount fix), the
+`e2e-test-rot-repair` merge (`63713ba`), and the Chapter 5 merge (`16021ec`).** It is preserved
+below for the record of what CH4UX-7/8 actually measured at the time; it does not describe the
+branch's current state. In particular, `e2e/two-echelon.spec.ts` — one of the 13 "identical"
+hard failures counted here — was repaired on `main` by `c25112c` and merged in via `16021ec`; see
+"Known, not fixed by this branch" below for the corrected status.
+
+The CI e2e job carries `continue-on-error: true` over a documented red baseline, so a green required
+CI job proves nothing about browser acceptance. Both sides were therefore run as fully isolated
+stacks: a `mktemp -d` locked worktree at `9a598db` with its own `pnpm install --frozen-lockfile`,
+its own api-server (`:3011`) and vite dev server (`:5211`) and its own `nos_e2e_parent` database,
+versus the branch on `:3001`/`:5199` against `nos_e2e_branch`. Both databases were truncated to an
+empty schema first and both stacks health-checked (`/api/healthz` → `{"status":"ok","db":"ok"}`)
+before Playwright started. Reports archived to `.harness/e2e-report-{parent,branch}` (gitignored)
+before the next run could overwrite `e2e/report/`.
+
+| | parent `9a598db` | branch `795f8f8` |
+|---|---|---|
+| passed | 41 | 45 |
+| failed (`unexpected`) | 13 | 13 |
+| flaky (passed on retry) | 1 | 1 |
+| skipped | 4 | 4 |
+| total | 59 | 63 |
+| wall clock | 5.8m | 8.0m |
+
+Compared by **stable identity** (project + file + title + terminal outcome) out of each run's
+`results.json`, not by aggregate counts. The 13 hard-failure identities are a **byte-identical set**
+on both sides — `bundle2-fastfollow` (transport-coal marker fill), `design-system` ×2, `import`,
+`input-map-v2` ×2, `posthog-analytics`, `sentry-capture`, `tab-coverage` ×3, `two-echelon`,
+`workspace-ux-r1-r9`. (`posthog-analytics`/`sentry-capture` are the two that need
+`VITE_POSTHOG_KEY`/`VITE_SENTRY_DSN`, already documented as absent locally and in CI.) The 4
+`skipped` on both sides are the JADE specs that cannot execute while `two-echelon-jade-us` is
+`locked: true` in the committed manifest. The 4 branch-only tests are
+`solve-overlay-contract.spec.ts`, all **passing**.
+
+So the gate comparison says **zero new failures**. That conclusion is true of the gate and
+insufficient as an acceptance signal — see below.
+
+### Cold-mount regression — CH4UX-1 re-targeted `selectedStep` on cold load, non-deterministically — found and fixed
+
+**Found by Task 8's QA, not by any suite. Fixed in `fa70517`, before merge.**
+
+`Workspace.tsx`'s new render-phase adjustment read
+
+```
+const prevScenarioIdRef = useRef(currentScenario?.id);
+if (currentScenario?.id !== prevScenarioIdRef.current) { …; if (stepState.isMaxCoverage) setSelectedStep(stepState.targetStep); }
+```
+
+On a **cold mount** `currentScenario` is still `undefined` (the query has not resolved), so the ref
+initialises to `undefined`. When the query resolves, `id !== undefined` is true and the
+"scenario changed" branch fires on FIRST LOAD, snapping `selectedStep` to `stepState.targetStep` —
+which is **2** for a Chapter-4 scenario whose Step 1 is solved and Step 2 is not. Whether it fires
+depends on whether the `useMaxCoverageSteps` projection has populated at that same commit, so the
+outcome is a coin flip.
+
+Measured A/B, same scenario, same action, 8 reloads each against the two isolated stacks:
+
+- branch: selected step after reload = `[2,2,1,2,2,1,2,1]` — **5/8 landed on the unsolved Step 2**
+- parent: `[1,1,1,1,1,1,1,1]` — **0/8**
+
+User-visible effect on the ~60% of loads that land on Step 2: a student who solves Step 1 and
+reloads sees `Not solved yet — Solve Step 2` in the open output tab instead of the Step 1 results
+they just produced. The non-determinism is a defect independently of which step is the "right"
+landing target.
+
+Why nothing caught it: CH4UX-1's unit test
+(`Workspace.test.tsx`, "switching to a 0-of-2 scenario with an output tab open re-targets the view
+to Step 1") only exercises a **warm** A→B switch, where the ref already holds A's id. The cold-mount
+path — ref `undefined` → first resolved id — has no coverage. And in the full 4-worker gate the
+slower query ordering happened to land on Step 1, so the gate stayed green: `chen-bands-units-qa`'s
+"unit toggle converts every distance surface…" test PASSED in the branch gate run but fails **10 of
+16** isolated repeats on the branch against **0 of 7** on the parent, with a captured ARIA snapshot
+showing `2. Min Distance [pressed]` and `Not solved yet — Solve Step 2`.
+
+**The fix.** The code quoted above is superseded; the current guard
+(`Workspace.tsx`, around the `prevScenarioIdRef` block) seeds the ref from a fixed `undefined`
+sentinel rather than from `currentScenario?.id` (an asynchronously-resolved value), skips a `null`
+id outright instead of recording it, and only re-points the view when a *previously-recorded* id
+transitions to a different one — so first resolution of the initial scenario is never mistaken for
+a switch. Mutation-proven both ways (reverting the fix fails the new cold-mount unit test); a
+throwaway browser probe recorded `[2,2,2,2,2,1,2,2]` reverted vs `[1,1,1,1,1,1,1,1]` fixed across 8
+reloads, and `chen-bands-units-qa.spec.ts` went from 4/4 failing its post-reload read reverted to
+8/8 clean fixed. Full detail in `fa70517`'s commit message.
+
+**Durable lesson (new bug class), kept because it generalizes beyond this one fix:** a green e2e
+gate can hide a real regression when the regression is a *race* — gate conditions (4 parallel
+workers, loaded machine) can systematically favour the passing branch of the race. An
+identity-level parent-vs-branch comparison is necessary but not sufficient; any test that newly
+becomes order/timing sensitive needs an isolated repeat count, not one gate run. Corollary for this
+specific shape: a `useRef(someAsyncValue)` "did it change?" guard fires spuriously on the first
+resolution, because the ref was seeded with the pre-resolution `undefined`. Seed such a ref with a
+sentinel and skip the first transition explicitly, or key the guard on a value that is stable from
+the first render.
+
+### Real-browser QA (Step 4) — 47/51 checks pass
+
+Driven through real Chromium against the live branch stack (not jsdom, not a repo spec — a
+standalone driver, so nothing was left behind in `e2e/`). Both a Chapter-4 and a non-Chapter-4
+model, with the job responses controlled for the modality/failure checks and a real CBC solve for
+the success journey.
+
+Settled, each of which had been verified only by construction or only in jsdom before:
+
+1. **The dialog→overlay handoff in a real browser.** Confirmed: the dialog detaches within Radix's
+   exit animation, `body { pointer-events: none }` and `data-scroll-locked` are both applied, the
+   workspace carries `aria-hidden="true"`, and a real mouse click on the workspace behind the
+   overlay is inert (tab count unchanged, overlay still up). After Close the body returns to
+   `pointer-events: auto` with the scroll lock released — no stuck-modal state.
+2. **Where focus actually goes.** On overlay open, `document.activeElement` is the overlay container
+   itself (`role=alertdialog`, `tabindex=-1`) — not `<body>`, on all three runs. 12 consecutive Tab
+   presses never leave it. On failure, focus lands on `solve-progress-adjust`; Adjust reopens the
+   dialog with focus inside it; Close returns focus to `button-run-optimizer` with the trigger
+   already re-enabled. Both edges hold in a real browser.
+3. **Screen-reader announcement from the focused container** — verified at the accessibility-tree
+   level, **not** with an actual AT. The focused node *is* the overlay container, the only
+   `aria-live="polite"` region (`solve-progress-phase`) is a descendant of it, the clock is
+   deliberately *not* live, the quip is `aria-hidden="true"`, and the computed ARIA snapshot is
+   `alertdialog "Running the optimizer" › heading › paragraph "Solving…"`. Whether VoiceOver/NVDA
+   actually speaks it is recorded as **`unknown`** — no AT was driven.
+4. **The overlay on a non-Chapter-4 model.** Run end to end on `p-median-us` (`/chapter-3`),
+   including the failure card, Adjust, Close and reduced motion. Identical behaviour to Chapter 4.
+
+Rest of the checklist: Chapter-4 fresh scenario shows all five Output rows `disabled` +
+`aria-disabled` + `cursor: not-allowed`, and a `force: true` click opens nothing; the Run Optimizer
+dialog renders the editable Step-1 controls (`solve-dialog-slider-p-value`, high-service, max
+distance, avg cap, gap, time limit, band chips), not a read-only summary; on success the overlay
+clears, Output Map opens and all five Output rows are enabled; viewing Step 1, the dialog shows the
+**Step 2** panel (`P (inherited)`, `Coverage floor (demand)`, no avg-cap control, no P slider);
+opening the dialog on top of the Optimization Parameters tab renders both with **zero** duplicate
+DOM ids and no console warning; Escape and a backdrop click are both inert while running; the quip
+rotates and the clock ticks; under `prefers-reduced-motion: reduce` the spinner's computed
+`animation-name` is `none` while the quip keeps rotating.
+
+The 1 failing QA check is a harness artifact, not a product finding: the stubbed job route returned
+a freshly-computed `startedAt` on every poll, so the clock appeared not to advance in one of three
+runs; the other two runs of the same check passed, and the real-solver run's clock advanced
+normally.
+
+Two QA observations, neither a defect, both worth knowing:
+
+- Escape on the **failed** card does not dismiss the overlay (only Close/Adjust do). The
+  `onEscapeKeyDown` guard is scoped to `running`, but `AlertDialog`'s `open` is derived from
+  `phase` with no `onOpenChange`, so Radix's own close is a no-op. Intentional in effect, but the
+  code comment implies Escape would work there.
+- The overlay sets `role="alertdialog"` but no `aria-modal`. Background inertness is achieved via
+  `aria-hidden` on siblings instead, which is what Radix does; noted because the component's own
+  header comment cites "exposes no `aria-modal`" as a reason for choosing `AlertDialog`.
+- At a 700×300 viewport (≈200% zoom at 600px tall) both footer buttons and the deepest parameter
+  (`solve-dialog-input-step2-time-limit`) are reachable and the body scrolls, but a workspace
+  result tooltip paints **over** the dialog footer. Cosmetic, present at that viewport only.
+
+### The two prior decisions this branch unwinds
+
+Per the spec's §0, recorded here so the reversal is findable from either end:
+
+- **CH4-18** — only the **pre-Step-1** half is reverted. Chapter 4's Output rows are no longer
+  clickable before Step 1 has solved. The **post-Step-1** half is deliberately kept: with Step 1
+  solved and Step 2 selected-but-unsolved the rows stay clickable and the existing
+  `chapter4OutputGate` empty state does the talking.
+- **CH4-17 / R5** — fully reverted. Chapter 4's Solve dialog is no longer confirmation-only, and
+  `readOnlyParams` is **deleted** rather than left dormant (`max-coverage-us` was its only caller).
+  The hazard R5 named — a Step-2-targeting student silently editing Step 1's `gap`/`timeLimitSec` —
+  is removed by correctness instead of by removal: the dialog renders the step that will actually
+  run, so a Step-2 run shows Step 2's own limits and Step 1's are unreachable from it.
+
+### Durable lessons
+
+- **A source-grepping test counts comments.** `Workspace.test.tsx`'s MIG-8 test reads
+  `Workspace.tsx` as text and matches `/modelId === "max-coverage-us" \? (\d+)/g`. When CH4UX-6
+  deleted the dialog's `pMax` arm, an explanatory comment that quoted the deleted line verbatim
+  became the second match and kept the test green **for the wrong reason** — the assertion still
+  saw two caps while the code had one. Describe a deleted arm; never quote it. The same regex also
+  requires the ternary unbroken on ONE line, so reformatting silently drops a match. A source grep
+  is not behavioural evidence; the real two-surface guard is the pair of DOM `aria-valuemax`
+  assertions.
+- **Radix modal focus must be pinned on BOTH edges.** The open side stranded focus on `<body>`:
+  `SolveDialog` closes in the same commit the overlay opens, Radix restores focus to its trigger
+  (`button-run-optimizer`) which `solvePhase !== "idle"` has just disabled, so `.focus()` no-ops and
+  focus falls to `<body>` — outside a modal that has set `pointer-events: none` with Escape
+  prevented. Fixed with `onOpenAutoFocus` (the documented Radix hook, fired after the content and
+  its `FocusScope` exist; a `useEffect` keyed on `open` is a silent no-op because `Presence` has not
+  mounted the content yet). The close side then reproduced it exactly: Radix restores to whatever
+  was focused when the `FocusScope` MOUNTED — `solve-dialog-solve`, already detached by the same
+  handoff — and restoring to a detached node is a no-op. Fixed with `onCloseAutoFocus`. Whenever one
+  modal hands off to another in a single commit, assume both edges are broken until measured.
+
+### Known, not fixed by this branch
+
+- ~~`e2e/two-echelon.spec.ts` is dead against its own route~~ — **repaired.** It was one of the 13
+  identical pre-merge failures measured above (Studio-only ids against a `workspace: true` route),
+  but `main`'s `e2e-test-rot-repair` (`c25112c`) rewrote it onto the Workspace UI and it was pulled
+  into this branch by the `16021ec` merge. `rg -n 'status-badge|button-solve'
+  artifacts/studio/e2e/two-echelon.spec.ts` now returns nothing.
+- **`readSolvedAt` is copy-pasted into 7 spec files** (`bundle2-fastfollow`,
+  `jade-ch9-workspace-bundle`, `jade-two-echelon`, `posthog-analytics`, `workspace-fixups`,
+  `workspace-fixups-2`, `workspace-ux-r1-r9`). CH4UX-7 had to edit the same helper seven times.
+  `e2e/helpers/` exists and holds exactly one module (`modelLock.ts`); this belongs beside it.
+- **Nothing typechecks `e2e/`.** `artifacts/studio/tsconfig.json` is `"include": ["src/**/*"]` and
+  there is no linter over the directory, so every spec is reviewed rather than compiler-checked.
 
 ## Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)
 

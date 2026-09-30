@@ -119,12 +119,22 @@ vi.mock("@workspace/api-client-react", () => ({
 
 import { Workspace } from "@/pages/Workspace";
 import { useGetScenario, useListScenarios, useGetDataset, useListModels, useGetSolveJob } from "@workspace/api-client-react";
+import { useSearch } from "wouter";
+// CH4UX-4 — `ch4Scenario`/`maxCoverageInputs`/`Ch4Steps` are Task 1's shared
+// fixtures (already imported by Workspace.test.tsx from the same module, no
+// second copy). `renderCh4Workspace` itself is NOT lifted alongside them —
+// mirrors Workspace.test.tsx's own documented reason for keeping its copy
+// local: it closes over THIS file's own module mocks (mockUseListScenarios/
+// mockUseGetScenario/mockUseGetDataset/mockUseListModels/mockUseSearch),
+// which helpers/ch4.tsx has no access to.
+import { ch4Scenario, type Ch4Steps } from "./helpers/ch4";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUseGetDataset = vi.mocked(useGetDataset);
 const mockUseListModels = vi.mocked(useListModels);
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
+const mockUseSearch = vi.mocked(useSearch);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -132,6 +142,43 @@ beforeEach(() => {
   mockSolveScenario.mutate.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
 });
+
+// CH4UX-4 — dataset/manifest fixtures for max-coverage-us, mirroring
+// Workspace.test.tsx's own ch4 manifest verbatim (C4.13's real capabilities).
+const ch4Dataset = {
+  warehouses: [{ id: "CHI", city: "Chicago", state: "IL", lat: 41.88, lng: -87.62 }],
+  customers: [{ id: "C1", city: "New York", state: "NY", lat: 40.71, lng: -74.0, demand: 100 }],
+};
+
+function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeId = scenarios[0].id) {
+  mockUseListScenarios.mockReturnValue({ data: scenarios } as unknown as ReturnType<typeof useListScenarios>);
+  mockUseGetScenario.mockReturnValue({
+    data: scenarios.find(s => s.id === activeId),
+    isLoading: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useGetScenario>);
+  mockUseGetDataset.mockReturnValue({ data: ch4Dataset } as unknown as ReturnType<typeof useGetDataset>);
+  mockUseListModels.mockReturnValue({
+    data: [
+      {
+        id: "max-coverage-us",
+        distanceUnit: "km",
+        countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["none"],
+          demandEditable: true,
+          supportsFacilityStatus: true,
+          supportsAddedCustomerExclusion: true,
+          supportsReferenceDistances: true,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
+    ],
+  } as unknown as ReturnType<typeof useListModels>);
+  mockUseSearch.mockReturnValue(`?scenario=${activeId}`);
+  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+}
 
 // ── #1 live recolor (multi-model) + history-entry sync ─────────────────────
 describe("Workspace — #1 live band recolor + history-entry sync (all models)", () => {
@@ -615,7 +662,10 @@ describe("Workspace — JADE uses the shared chip band editor, no validity gate 
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("solve-dialog-error")).not.toBeInTheDocument();
+    // CH4UX-6 — the error surface is the overlay's card now; the dialog has
+    // none. With the job unpolled the overlay sits in its running branch,
+    // so no error card exists.
+    expect(screen.queryByTestId("solve-progress-error")).not.toBeInTheDocument();
   });
 });
 
@@ -722,5 +772,83 @@ describe("Workspace — #8 solve timing survives the job-success-then-refetch-ap
     fireEvent.click(screen.getByTestId("button-result-back"));
     const olderCall = outputMapTabSpy.mock.calls.at(-1)?.[0] as { timing?: unknown };
     expect(olderCall.timing).toBeUndefined();
+  });
+});
+
+// ── CH4UX-4 — the Solve dialog follows the solve TARGET ─────────────────────
+// `stepState.targetStep` (`steps.step1.solved ? 2 : 1`) is what will RUN;
+// `selectedStep` is what the student is currently VIEWING. They diverge in
+// both directions (0 of 2 viewing Step 2; 1 of 2 viewing Step 1), and the
+// dialog must always follow the target, never the view.
+describe("CH4UX-4 — the Solve dialog renders the step that will RUN, not the step being viewed", () => {
+  function openDialogAt(steps: Ch4Steps, viewStep: 1 | 2) {
+    const view = renderCh4Workspace([ch4Scenario({ steps })]);
+    fireEvent.click(screen.getByTestId(`step-toggle-${viewStep}`));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+    return view;
+  }
+
+  it("0 of 2, viewing Step 1 → dialog shows editable Step 1", () => {
+    openDialogAt({ step1: { solved: false }, step2: { solved: false } }, 1);
+    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).not.toBeDisabled();
+    expect(screen.queryByTestId("solve-dialog-step2-parameters")).toBeNull();
+  });
+
+  it("0 of 2, viewing Step 2 → dialog STILL shows Step 1 (Solve Step 1 is what will run)", () => {
+    openDialogAt({ step1: { solved: false }, step2: { solved: false } }, 2);
+    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Solve Step 1");
+    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-step2-parameters")).toBeNull();
+  });
+
+  it("1 of 2, viewing Step 2 → dialog shows the editable Step 2 panel", () => {
+    openDialogAt({ step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } }, 2);
+    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-step2-inherited")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-step2-gap")).not.toBeDisabled();
+    expect(screen.queryByTestId("solve-dialog-slider-p-value")).toBeNull();
+  });
+
+  it("1 of 2, viewing Step 1 → dialog STILL shows Step 2 (Solve Step 2 is what will run)", () => {
+    openDialogAt({ step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } }, 1);
+    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Solve Step 2");
+    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-slider-p-value")).toBeNull();
+  });
+
+  // CH4UX-6 — "no longer renders the CH4-17 read-only summary" is deleted,
+  // not re-pointed: the confirmation-only prop and the summary element it
+  // gated no longer exist in SolveDialog at all, so that assertion could
+  // never fail again. The positive half of the contract — Chapter 4's
+  // dialog renders the REAL parameter panel — is covered by the 0-of-2 and
+  // 1-of-2 cases above (`solve-dialog-slider-p-value` /
+  // `solve-dialog-step2-parameters` present).
+
+  // Both namespaces, two assertions — see Task 2's note on why they are split.
+  it("emits no duplicate DOM id or data-testid with the parameters tab open behind the dialog", () => {
+    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("optimization-parameters-tab")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+
+    // document, not container: the dialog renders through a Radix portal.
+    const ids = Array.from(document.querySelectorAll<HTMLElement>("[id]"), el => el.id).filter(Boolean);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const testIds = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-testid]"),
+      el => el.dataset.testid!,
+    );
+    expect(new Set(testIds).size).toBe(testIds.length);
+  });
+
+  it("a non-Chapter-4 model keeps the built-in dialog controls", () => {
+    render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-optimization-parameters-tab")).toBeNull();
   });
 });
