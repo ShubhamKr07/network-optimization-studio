@@ -29,10 +29,13 @@ Legend: **[BLOCKER]** stop and fix · **[VERIFY]** confirm before proceeding · 
 
 ---
 
-## Gate 1 — The ten registration points
+## Gate 1 — The registration points
 
-Adding a model is **ten** registrations across five packages. Each omission fails differently.
-Tick every row.
+Adding a model is **nineteen** registrations across five packages, not ten — the delivery-teaching-us
+(Chapter 5, modified) integration found nine more that the original ten missed. Each omission fails
+differently; roughly half fail **silently** (the app looks fine, the new model just gets someone
+else's behavior — never an error, never a red test, until someone notices the wrong number on
+screen). Tick every row.
 
 - [ ] **1. Manifest** — `solvers/<model-id>/manifest.json`
       *Miss:* model absent from `GET /api/models`; invisible in UI.
@@ -81,9 +84,72 @@ Tick every row.
       Gate 2) and exclude it from the multi-select toggle handler in `NetworkMap.tsx`, not just from
       the override UI.
 
-- [ ] **[BLOCKER]** Run the registration consistency test (`registration.test.ts`). If it doesn't
-      exist yet, write it — it makes this entire gate automatic for every future model. (Points 9–10
-      have no automated equivalent yet — cover them with route/component tests instead, see Gate 7.)
+- [ ] **11. Objective dimension** — `objectiveDimension(modelId, objectiveMode)` in
+      `lib/units/src/objective.ts:20`
+      *Miss:* **silent** — falls through to the `"opaque"` default. `formatObjective`/`ObjectiveBar`
+      keep rendering, just under the wrong dimension (a dollar objective reads as demand-distance,
+      or vice versa) — no error, no red test unless the new model has its own row in
+      `objective.test.ts`.
+- [ ] **12. `inputEntriesForModel` explicit case** — the model→sidebar-tabs switch in
+      `artifacts/studio/src/pages/Workspace.tsx:1247`, whose tail is
+      `case "p-median-brazil": case "p-median-us": default:` (`:1298-1300`)
+      *Miss:* **silent** — a model with no case of its own INHERITS p-median-us's Warehouses/
+      Customers/Distances tab set instead of its own input surface. This is load-bearing, not
+      tidiness: omission *grants* an editable dataset surface a model may not actually support.
+- [ ] **13. Precheck dispatcher** — `runNetworkEditsPrecheckForModel` in
+      `artifacts/api-server/src/services/precheck.ts:1407`, whose fallthrough is
+      `return { ok: true, errors: [] };` (`:1429`)
+      *Miss:* **silent** — pre-approves every input for the unregistered model. The one gate whose
+      entire job is to catch bad student input before it reaches the solver instead waves it
+      straight through; a route-level integration test (not a mocked-job-runner unit test — see
+      `deliveryPrecheckIntegration.test.ts`) is the only thing that actually exercises the real
+      422 path.
+- [ ] **14. Router mount** — `artifacts/api-server/src/routes/index.ts:19-27` (each model-scoped
+      router needs its own `router.use(...)` line)
+      *Miss:* **silent** — every request to that router 404s; nothing in the manifest, schema, or
+      dispatcher registration would have caught it, because none of them touch Express routing.
+- [ ] **15. `buildEffectiveFacilityCityLookup`** — `artifacts/api-server/src/services/templates.ts:1389-1413`,
+      a per-model base-facility-id→city `Map` the Open Warehouses export needs to label a zero-flow
+      forced-open facility
+      *Miss:* **silent** — the export ships with a blank city column for the new model. (Its return
+      type is a `Map`, not a plain object — `lookup["W1"]` is always `undefined` even against a
+      *correct* implementation; index with `.get("W1")`, not bracket notation, or a review comment
+      here can pass while the code it describes is broken.)
+- [ ] **16. `pMax` at BOTH Workspace mounts** — two independent `modelId === X ? N : ...` ternaries:
+      the Optimization Parameters tab's P slider (`Workspace.tsx:3589`) and the Solve dialog's own
+      copy (`Workspace.tsx:4426`)
+      *Miss:* **silent** — the slider/quick-picks keep offering up to the shared default (`50`), and
+      the API 422s the instant a student picks anything past the model's real cap. Missing only one
+      of the two mounts is the more likely failure — they are not the same file location and nothing
+      keeps them in sync but a human remembering both.
+- [ ] **17. `registration.test.ts`'s per-model source-text gates** — beyond the `SOLVABLE`/stub-inputs/
+      model-count assertions, this file also `readFileSync`s three source files per model to assert
+      the Zod-schema branch, `solve.py`'s `model_type == '<id>'` string, and the openapi enum entry
+      exist in text
+      *Miss:* **loud, but only once the block is written** — an OMITTED per-model block is itself
+      silent: the suite stays green with one fewer model covered, indistinguishable from "everything
+      passed." Treat "did I add this model's block" as its own checklist item, not an assumption the
+      existing suite will catch it.
+- [ ] **18. `crossModelStepContract.test.ts`'s `NON_STEP_MODELS`** —
+      `artifacts/api-server/src/__tests__/crossModelStepContract.test.ts:108`
+      *Miss:* **loud** (red suite) — every model that is NOT `max-coverage-us` (the only model with a
+      Step 1/Step 2 workflow) must appear here with its own stub inputs; a new model absent from this
+      array fails the suite immediately. The one point on this list that fails loud by design — a
+      deliberate drift guard, not an oversight to route around.
+- [ ] **19. `MODEL_IDS`** — a second, separate export from `PACKAGE_SPECS` in the same file,
+      `lib/dataset-schema/src/index.ts:284`
+      *Miss:* **loud** — `manifest.test.ts`'s loop over `MODEL_IDS` throws if the new model's id is
+      missing from this array, even though `PACKAGE_SPECS` (point 5) is a completely separate
+      registration a few lines away in the same file — adding one does not add the other.
+
+- [ ] **[BLOCKER]** Run the registration consistency test (`registration.test.ts`, point 17) and
+      `crossModelStepContract.test.ts` (point 18). If `registration.test.ts` doesn't have a block for
+      your model yet, write one — it makes points 3/4/6/7/8 automatic for every future model. Points
+      9–10 and 12–16 have no automated equivalent yet — cover them with route/component tests
+      instead (see Gate 7). `modelIdSetEquality.test.ts` is the one automated guard that covers the
+      **id registries as a set** (`MODEL_IDS == keys(KNOWN_SCHEMAS) == VALID_MODEL_IDS == PACKAGE_SPECS`
+      `ids == openapi enum == CHAPTERS modelIds`) — it turns "registered in four of six places" into
+      one red test instead of four separate silent gaps.
 
 ---
 

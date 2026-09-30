@@ -4,6 +4,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
+import { DELIVERY_WAREHOUSES } from "../data/deliveryDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
@@ -1399,6 +1400,11 @@ export function buildEffectiveFacilityCityLookup(
     : modelId === "max-coverage-us" ? MAX_COVERAGE_WAREHOUSES
     : modelId === "two-echelon-jade-us" ? JADE_WAREHOUSES
     : modelId === "two-echelon-gold-au" ? GOLD_REFINERIES
+    // Task 12 (Chapter 5) — delivery-teaching-us's 33 warehouses are its
+    // only "open facility" set (no added-warehouse concept for this model —
+    // it has no addedWarehouses input at all — so `inputs.addedWarehouses`
+    // below is always empty for it, harmlessly).
+    : modelId === "delivery-teaching-us" ? DELIVERY_WAREHOUSES
     : [];
   for (const w of base) lookup.set(w.id, w.city);
   for (const w of inputs.addedWarehouses ?? []) lookup.set(w.id, w.city);
@@ -1617,14 +1623,25 @@ export interface ServiceStatsTemplateRow {
 // matters until routes/scenarios.ts is updated to thread the scenario's real
 // `inputs.distanceBands` through, a routing concern out of this task's
 // scope; no currently-passing test asserts specific serviceStats row values).
+// Task 12 (Chapter 5, delivery-teaching-us) — gained an OPTIONAL 5th
+// `modelId` param, defaulting to `null` (every existing call site without it
+// keeps compiling and behaving identically). Routes `{ decimals: 2 }` into
+// `computeCumulativeBandCoverage` only for delivery-teaching-us (spec §5.7 —
+// the other five models keep their integer percentages, same opt-in
+// contract `@workspace/units`' own default preserves).
 export function buildServiceStatsRows(
   result: ResultEnvelope,
   canonicalUnit: CanonicalUnit,
   requestedUnit: CanonicalUnit = canonicalUnit,
   savedBands: number[] = [],
+  modelId: string | null = null,
 ): ServiceStatsTemplateRow[] {
   const edges = serviceEdgesFor(result.edges);
-  const coverage = computeCumulativeBandCoverage(edges, savedBands);
+  const coverage = computeCumulativeBandCoverage(
+    edges,
+    savedBands,
+    modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
+  );
   return coverage.map(c => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
     // Classify (computeCumulativeBandCoverage already worked in canonical

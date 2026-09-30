@@ -3,12 +3,14 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
+import { DELIVERY_WAREHOUSES, DELIVERY_CUSTOMERS, DELIVERY_LANE_KEYS } from "../data/deliveryDataset.js";
 import { getReferenceDistances } from "../data/referenceDistances.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
+import type { DeliveryInputs } from "../validation/inputs/delivery.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 /**
@@ -1357,6 +1359,43 @@ export function precheckJadeInputs(
   return { ok: errors.length === 0, errors };
 }
 
+// Chapter 5 (modified) - lane-cost override validation. The solver keeps its
+// own UnresolvableIdError and fails closed; this exists so invalid USER input
+// is a 422 the student can act on rather than a generic worker internal_error.
+// Every code below is from the closed PrecheckErrorCode union (:76) - the
+// offending id lives in the message, as the other prechecks do it.
+export function precheckDeliveryInputs(inputs: DeliveryInputs): PrecheckResult {
+  const errors: PrecheckError[] = [];
+  const warehouses = new Set(DELIVERY_WAREHOUSES.map((w) => w.id));
+  const customers = new Set(DELIVERY_CUSTOMERS.map((c) => c.id));
+  const seen = new Set<string>();
+
+  for (const ov of inputs.laneCostOverrides ?? []) {
+    const pair = `${ov.fromId},${ov.toId}`;
+    if (seen.has(pair)) {
+      errors.push({ code: "id_collision", message: `Duplicate lane cost override for ${pair}` });
+      continue;
+    }
+    seen.add(pair);
+    if (!Number.isFinite(ov.cost) || ov.cost < 0) {
+      errors.push({ code: "completeness", message: `Lane ${pair} has a non-finite or negative cost (${ov.cost})` });
+      continue;
+    }
+    if (!warehouses.has(ov.fromId)) {
+      errors.push({ code: "reference_integrity", message: `Unknown warehouse id ${ov.fromId}` });
+      continue;
+    }
+    if (!customers.has(ov.toId)) {
+      errors.push({ code: "reference_integrity", message: `Unknown customer id ${ov.toId}` });
+      continue;
+    }
+    if (!DELIVERY_LANE_KEYS.has(pair)) {
+      errors.push({ code: "reference_integrity", message: `No lane ${ov.fromId} to ${ov.toId}` });
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 // A1 (SCND Correctness) — extracted from routes/scenarios.ts's own
 // `runNetworkEditsPrecheck` (unchanged dispatch logic, moved verbatim) so
 // BOTH the route (its GET .../precheck endpoint and, historically, its
@@ -1383,6 +1422,9 @@ export function runNetworkEditsPrecheckForModel(modelId: string, inputs: Record<
   }
   if (modelId === "max-coverage-us") {
     return precheckMaxCoverageInputs(inputs as unknown as MaxCoverageInputs);
+  }
+  if (modelId === "delivery-teaching-us") {
+    return precheckDeliveryInputs(inputs as unknown as DeliveryInputs);
   }
   return { ok: true, errors: [] };
 }

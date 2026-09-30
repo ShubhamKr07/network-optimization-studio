@@ -3,6 +3,7 @@ import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
+import type { DeliveryInputs } from "../validation/inputs/delivery.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
@@ -10,7 +11,8 @@ export type SolveInput =
   | { modelId: "transport-coal"; inputs: TransportLpInputs }
   | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs }
   | { modelId: "two-echelon-jade-us"; inputs: JadeInputs }
-  | { modelId: "max-coverage-us"; inputs: MaxCoverageInputs };
+  | { modelId: "max-coverage-us"; inputs: MaxCoverageInputs }
+  | { modelId: "delivery-teaching-us"; inputs: DeliveryInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -167,6 +169,27 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       addedWarehouses: i.addedWarehouses,
       addedCustomers: i.addedCustomers,
       distanceOverrides: i.distanceOverrides,
+    };
+  }
+
+  if (input.modelId === "delivery-teaching-us") {
+    const i = input.inputs;
+    // Chapter 5 (ch5-del-4) — dispatch on modelType "delivery" (matches
+    // solve.py's `if model_type == 'delivery':` landed in ch5-del-3). This
+    // branch MUST sit before the unguarded p-median fallthrough below (its
+    // "whatever is left" else), or this model silently dispatches as
+    // p_median and returns a plausible wrong answer with no error anywhere.
+    return {
+      modelType: "delivery",
+      pValue: i.p,
+      distanceBands: i.distanceBands,
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      costAdjustEnabled: i.costAdjustEnabled,
+      distanceThreshold: i.distanceThreshold,
+      costPerMile: i.costPerMile,
+      costPerMileOver: i.costPerMileOver,
+      laneCostOverrides: i.laneCostOverrides,
     };
   }
 

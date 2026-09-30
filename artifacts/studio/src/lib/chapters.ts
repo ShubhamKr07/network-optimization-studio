@@ -1,4 +1,4 @@
-export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us" | "max-coverage-us";
+export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us" | "max-coverage-us" | "delivery-teaching-us";
 
 export interface Chapter {
   path: string;
@@ -79,6 +79,16 @@ export const CHAPTERS: Chapter[] = [
     workspace: true,
     labHeaderTitle: "Brazil Capacity · Model Lab",
     labHeaderSubtitle: "Ch 5 · capacitated p-median · Brazil",
+  },
+  {
+    path: "/chapter-5/delivery",
+    modelId: "delivery-teaching-us",
+    chapter: "Chapter 5",
+    title: "Delivery Company Teaching Example",
+    description: "Facility location driven by a cost table: open three DCs to minimise delivery cost, then watch the network change when long lanes are repriced.",
+    workspace: true,
+    labHeaderTitle: "Delivery Company · Model Lab",
+    labHeaderSubtitle: "Ch 5 · p-median · cost table vs distance table",
   },
   {
     path: "/chapter-10/gold-refinery",

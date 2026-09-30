@@ -1,0 +1,266 @@
+{
+  "W1": {
+    "id": "W1",
+    "city": "Los Angeles",
+    "state": "CA",
+    "lat": 33.974044,
+    "lng": -118.248849,
+    "zip": "90001"
+  },
+  "W2": {
+    "id": "W2",
+    "city": "New York City",
+    "state": "NY",
+    "lat": 40.75012,
+    "lng": -73.997846,
+    "zip": "10001"
+  },
+  "W3": {
+    "id": "W3",
+    "city": "Chicago",
+    "state": "IL",
+    "lat": 41.88331,
+    "lng": -87.624713,
+    "zip": "60602"
+  },
+  "W4": {
+    "id": "W4",
+    "city": "Boston",
+    "state": "MA",
+    "lat": 42.36097,
+    "lng": -71.05344,
+    "zip": "02101"
+  },
+  "W6": {
+    "id": "W6",
+    "city": "Detroit",
+    "state": "MI",
+    "lat": 42.346577,
+    "lng": -83.059731,
+    "zip": "48201"
+  },
+  "W7": {
+    "id": "W7",
+    "city": "Houston",
+    "state": "TX",
+    "lat": 29.757317,
+    "lng": -95.365005,
+    "zip": "77001"
+  },
+  "W8": {
+    "id": "W8",
+    "city": "Atlanta",
+    "state": "GA",
+    "lat": 33.753693,
+    "lng": -84.389544,
+    "zip": "30301"
+  },
+  "W9": {
+    "id": "W9",
+    "city": "Dallas",
+    "state": "TX",
+    "lat": 32.787642,
+    "lng": -96.799525,
+    "zip": "75201"
+  },
+  "W11": {
+    "id": "W11",
+    "city": "Phoenix",
+    "state": "AZ",
+    "lat": 33.451015,
+    "lng": -112.068554,
+    "zip": "85001"
+  },
+  "W12": {
+    "id": "W12",
+    "city": "Minneapolis",
+    "state": "MN",
+    "lat": 44.985775,
+    "lng": -93.270165,
+    "zip": "55401"
+  },
+  "W14": {
+    "id": "W14",
+    "city": "Nassau-Suffolk",
+    "state": "NY",
+    "lat": 42.526891,
+    "lng": -73.609283,
+    "zip": "12123"
+  },
+  "W15": {
+    "id": "W15",
+    "city": "St. Louis",
+    "state": "MO",
+    "lat": 38.631358,
+    "lng": -90.192246,
+    "zip": "63101"
+  },
+  "W16": {
+    "id": "W16",
+    "city": "Baltimore",
+    "state": "MD",
+    "lat": 39.294398,
+    "lng": -76.622747,
+    "zip": "21201"
+  },
+  "W17": {
+    "id": "W17",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "lat": 40.474802,
+    "lng": -79.95449,
+    "zip": "15201"
+  },
+  "W19": {
+    "id": "W19",
+    "city": "Seattle",
+    "state": "WA",
+    "lat": 47.611601,
+    "lng": -122.333038,
+    "zip": "98101"
+  },
+  "W22": {
+    "id": "W22",
+    "city": "Cleveland",
+    "state": "OH",
+    "lat": 41.491407,
+    "lng": -81.671411,
+    "zip": "44101"
+  },
+  "W25": {
+    "id": "W25",
+    "city": "Denver",
+    "state": "CO",
+    "lat": 39.75071,
+    "lng": -104.996225,
+    "zip": "80201"
+  },
+  "W27": {
+    "id": "W27",
+    "city": "Kansas City",
+    "state": "MO",
+    "lat": 39.103883,
+    "lng": -94.600613,
+    "zip": "64101"
+  },
+  "W28": {
+    "id": "W28",
+    "city": "San Francisco",
+    "state": "CA",
+    "lat": 37.779887,
+    "lng": -122.418066,
+    "zip": "94102"
+  },
+  "W35": {
+    "id": "W35",
+    "city": "Indianapolis",
+    "state": "IN",
+    "lat": 39.77422,
+    "lng": -86.109309,
+    "zip": "46201"
+  },
+  "W38": {
+    "id": "W38",
+    "city": "Orlando",
+    "state": "FL",
+    "lat": 28.541627,
+    "lng": -81.37397,
+    "zip": "32801"
+  },
+  "W39": {
+    "id": "W39",
+    "city": "Columbus",
+    "state": "OH",
+    "lat": 40.099395,
+    "lng": -83.016823,
+    "zip": "43085"
+  },
+  "W43": {
+    "id": "W43",
+    "city": "New Orleans",
+    "state": "LA",
+    "lat": 29.956664,
+    "lng": -90.077506,
+    "zip": "70112"
+  },
+  "W44": {
+    "id": "W44",
+    "city": "Las Vegas",
+    "state": "NV",
+    "lat": 36.17269,
+    "lng": -115.121117,
+    "zip": "89101"
+  },
+  "W45": {
+    "id": "W45",
+    "city": "Salt Lake City",
+    "state": "UT",
+    "lat": 40.755074,
+    "lng": -111.89849,
+    "zip": "84101"
+  },
+  "W52": {
+    "id": "W52",
+    "city": "Memphis",
+    "state": "TN",
+    "lat": 35.033731,
+    "lng": -89.934319,
+    "zip": "37501"
+  },
+  "W55": {
+    "id": "W55",
+    "city": "Raleigh",
+    "state": "NC",
+    "lat": 35.773856,
+    "lng": -78.634051,
+    "zip": "27601"
+  },
+  "W57": {
+    "id": "W57",
+    "city": "Oklahoma City",
+    "state": "OK",
+    "lat": 35.467763,
+    "lng": -97.520977,
+    "zip": "73101"
+  },
+  "W60": {
+    "id": "W60",
+    "city": "Louisville",
+    "state": "KY",
+    "lat": 38.253601,
+    "lng": -85.768124,
+    "zip": "40201"
+  },
+  "W66": {
+    "id": "W66",
+    "city": "Birmingham",
+    "state": "AL",
+    "lat": 33.518634,
+    "lng": -86.808862,
+    "zip": "35201"
+  },
+  "W99": {
+    "id": "W99",
+    "city": "Columbia",
+    "state": "SC",
+    "lat": 33.984705,
+    "lng": -81.028435,
+    "zip": "29201"
+  },
+  "W116": {
+    "id": "W116",
+    "city": "Jackson",
+    "state": "MS",
+    "lat": 32.289153,
+    "lng": -90.184021,
+    "zip": "39201"
+  },
+  "W152": {
+    "id": "W152",
+    "city": "Reno",
+    "state": "NV",
+    "lat": 39.526866,
+    "lng": -119.811392,
+    "zip": "89501"
+  }
+}

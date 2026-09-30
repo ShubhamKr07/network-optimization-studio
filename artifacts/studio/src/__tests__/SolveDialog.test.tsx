@@ -149,6 +149,14 @@ describe("SolveDialog — built-in P slider cap (pMax) and band-editor seam", ()
     expect(screen.queryByTestId("solve-dialog-band-600")).not.toBeInTheDocument();
     expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
   });
+
+  // ch5-del-10 — delivery-teaching-us caps P at 33 (schema `.max(33)`) from
+  // the Solve dialog too, exactly like max-coverage-us's 25/26 pair above.
+  it("caps the P slider at 33 when pMax=33 (delivery-teaching-us; 34 is unreachable from the Solve dialog)", () => {
+    renderDialog({ p: 3, pMax: 33 });
+    const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "33");
+  });
 });
 
 // CH4-17 — the free objective toggle (and its coverage-floor input) are

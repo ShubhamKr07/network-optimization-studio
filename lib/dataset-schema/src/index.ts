@@ -165,6 +165,15 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
       "distances.json": DistanceMap,
     },
   },
+  {
+    modelId: "delivery-teaching-us",
+    files: {
+      "warehouses.json": z.record(z.string(), WarehouseEntry),
+      "customers.json": z.record(z.string(), CustomerEntry),
+      "distances.json": DistanceMap,
+      "costs.json": DistanceMap,
+    },
+  },
 ];
 
 function packageDir(modelId: string): string {
@@ -255,6 +264,12 @@ export const ManifestSchema = z.object({
     // for T11's Capability Matrix tab. Optional+defaulted so pre-existing
     // manifests still parse; only two-echelon-jade-us sets this true.
     supportsPlantProductCapability: z.boolean().optional().default(false),
+    // Chapter 5 delivery — the cost table is the only editable input, and it
+    // is a SPARSE override list, so a student who has overridden nothing would
+    // see an empty table. This capability gates GET /models/:id/reference-costs,
+    // the cost-side mirror of supportsReferenceDistances. Defaults false so no
+    // existing model's behaviour changes.
+    supportsReferenceCosts: z.boolean().optional().default(false),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
   // R5 (Workspace UX bundle) — the unit distances/bands are reported in for
@@ -273,6 +288,7 @@ export const MODEL_IDS = [
   "two-echelon-gold-au",
   "two-echelon-jade-us",
   "max-coverage-us",
+  "delivery-teaching-us",
 ] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */

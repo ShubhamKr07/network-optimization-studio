@@ -146,6 +146,23 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** ch5-del-9 — delivery-teaching-us's only editable dataset surface is
+       * the cost table (Task 8's fixed three-tab surface); Input Map is
+       * pure geography context there. A capability-style boolean, not a
+       * `modelId` check inside this shared component — this codebase's
+       * documented recurring bug is a shared component gated for one model
+       * and not its sibling (a `modelId ===` check can silently miss
+       * p-median-brazil/max-coverage-us, which also render this "pmedian"
+       * arm); a boolean prop can't drift that way. When true: markers,
+       * legend and the details card still render, but every mutation
+       * affordance (arming chips, armed bar, right-click add menu, the
+       * action menu, Layers-row Save) is suppressed at this arm's own
+       * render sites below, never inside the shared AddEntityMenu/
+       * MapActionMenu components (those are reused by transport/
+       * twoEchelon/jade too). Defaults false — every existing caller
+       * (InputMapTabV2.test.tsx etc.) keeps today's fully-editable
+       * behavior unchanged. */
+      readOnly?: boolean;
       /** T5 (Bundle 2, Step 1b) — the active model's `capabilities.demandEditable`.
        * Defaults true when absent (p-median-us's own behavior, unchanged).
        * false (p-median-brazil — textbook-fixed region demand) suppresses
@@ -611,6 +628,7 @@ function PMedianInputMap({
   saving,
   demandEditable = true,
   modelId,
+  readOnly = false,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
@@ -645,12 +663,20 @@ function PMedianInputMap({
   // commits a move silently) — the "one explicit state machine" the brief
   // requires, with native drag as a second entry point into it rather than
   // a second, competing code path.
+  //
+  // ch5-del-9-fix — also gated on `!readOnly` directly, not just left to
+  // follow from `isAdded` being unreachable while read-only (every OTHER
+  // mutation affordance in this component is gated on `readOnly`
+  // explicitly; this is a shared component used by other models where
+  // dragging an added entity IS a live path, so `readOnly`, not `isAdded`
+  // alone, is what must gate it here).
   const draggableIds = useMemo(() => {
     const ids = new Set<string>();
+    if (readOnly) return ids;
     warehouses.forEach(w => { if (w.isAdded) ids.add(w.id); });
     customers.forEach(c => { if (c.isAdded) ids.add(c.id); });
     return ids;
-  }, [warehouses, customers]);
+  }, [warehouses, customers, readOnly]);
 
   // Live-preview bubble resize while EditCustomerDialog is open — rendering
   // concern only, rolled back on Cancel (nothing is written to `inputs`
@@ -747,6 +773,10 @@ function PMedianInputMap({
   }
 
   function handleMapContextMenu(e: L.LeafletMouseEvent) {
+    // ch5-del-9 — read-only: never mount the add menu (belt-and-suspenders
+    // alongside the `!readOnly &&` guard at the addMenu mount site below —
+    // this also skips the state churn on every right-click).
+    if (readOnly) return;
     if (armed) {
       setArmed(null);
       return;
@@ -829,14 +859,22 @@ function PMedianInputMap({
         <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
           Size customers by demand
         </LayerCheckbox>
-        <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
-        <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
-          + Warehouse
-        </ToggleChip>
-        <ToggleChip testId="button-input-map-place-cs" active={pinMode?.key === "cs"} onClick={() => setPinMode(p => (p?.key === "cs" ? null : { key: "cs" }))}>
-          + Customer
-        </ToggleChip>
-        {armed && (
+        {/* ch5-del-9 — read-only: no "Add on map" affordance at all (arming
+            chips, and the armed-status-bar they can produce) for
+            delivery-teaching-us. Gated here at this arm's own render site,
+            not inside a shared component. */}
+        {!readOnly && (
+          <>
+            <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
+            <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
+              + Warehouse
+            </ToggleChip>
+            <ToggleChip testId="button-input-map-place-cs" active={pinMode?.key === "cs"} onClick={() => setPinMode(p => (p?.key === "cs" ? null : { key: "cs" }))}>
+              + Customer
+            </ToggleChip>
+          </>
+        )}
+        {!readOnly && armed && (
           <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
@@ -852,8 +890,12 @@ function PMedianInputMap({
             used so no existing assertion needs to know WHERE Save lives,
             only that it's present and behaves the same. `ml-auto` pins it to
             the row's right edge regardless of how many layer/placement chips
-            precede it. */}
-        {onSave && (
+            precede it. ch5-del-9 — also gated on `!readOnly`: delivery-
+            teaching-us's Input Map has nothing to save (Workspace.tsx's
+            isEditableInputTab deliberately has no "input-map" row for that
+            model), so even if a future caller mistakenly wired an `onSave`
+            for it, no dirty-state Save renders here. */}
+        {!readOnly && onSave && (
           <div className="flex items-center gap-2 ml-auto">
             {isDirty && (
               <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
@@ -915,9 +957,17 @@ function PMedianInputMap({
             containerPoint={selected.containerPoint}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
+            readOnly={readOnly}
           />
         )}
-        {actionMenu && (
+        {/* ch5-del-9 — read-only: never mount the action menu, even though
+            handleEntityRightClick still sets `actionMenu` state (that
+            handler is shared with left-click's `selected` state machine and
+            isn't itself gated) — gated here at this arm's own render site
+            instead, matching the "gate on the render site, not the shared
+            component" instruction (MapActionMenu is shared by all four map
+            modes). */}
+        {!readOnly && actionMenu && (
           <MapActionMenu
             // Forces a full unmount/remount on every open (even a re-open
             // for the very same entity+position) so its mount effect always
@@ -939,7 +989,11 @@ function PMedianInputMap({
             onClose={() => setActionMenu(null)}
           />
         )}
-        {addMenu && (
+        {/* ch5-del-9 — belt-and-suspenders: handleMapContextMenu already
+            returns early on `readOnly` so `addMenu` state is never set, but
+            gating the mount too keeps this render site self-evidently safe
+            without relying on that handler's early return. */}
+        {!readOnly && addMenu && (
           <AddEntityMenu
             containerPoint={addMenu.containerPoint}
             containerSize={addMenu.containerSize}

@@ -140,6 +140,21 @@ describe("MapDetailsCard", () => {
     expect(left).toBeLessThan(780);
   });
 
+  // M-8 (whole-branch review) — the read-only delivery-teaching-us map must
+  // not tell the student "Right-click for Edit · Move · Copy · Delete" when
+  // right-click does nothing (InputMapTab's own `readOnly` gate never mounts
+  // the action menu). Gated by a prop on this shared component, not a
+  // modelId check — Task 9's established pattern.
+  it("hides the right-click hint footer when readOnly", () => {
+    render(<MapDetailsCard entity={wh} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("map-details-footer")).not.toBeInTheDocument();
+  });
+
+  it("shows the right-click hint footer by default (not readOnly)", () => {
+    render(<MapDetailsCard entity={wh} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
+    expect(screen.getByTestId("map-details-footer")).toHaveTextContent("Right-click for Edit · Move · Copy · Delete");
+  });
+
   it("does not flip when there is room to the right", () => {
     render(
       <MapDetailsCard

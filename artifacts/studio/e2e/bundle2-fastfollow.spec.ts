@@ -227,12 +227,16 @@ test.describe("Bundle 2 — transport-coal", () => {
       const mineCode = await addEntityViaRightClick(page, "wh", 0);
       const stationCode = await addEntityViaRightClick(page, "cs", 1);
 
-      // R1 green station bubbles: check the demand-tone SVG fill token on a
-      // station marker uses the green demand token, not the blue accent one.
+      // R1 green station bubbles: check the demand bubble's SVG fill token.
+      // Bundle 3 (book-cover) retired the old --demand-*/--accent-* tone
+      // split (EntityMarkers.tsx's customerBubbleSvg comment) — every demand
+      // bubble (station/customer alike) always fills `var(--map-customer)`
+      // now, regardless of `tone`, so the old --demand-300 token this test
+      // asserted is never emitted by this code path at all anymore.
       const stationMarker = page.locator('[data-testid="input-map-tab"] .leaflet-marker-icon.cs-marker').first();
       await expect(stationMarker).toBeVisible();
       const fillAttr = await stationMarker.locator("svg circle").first().getAttribute("fill");
-      expect(fillAttr).toContain("--demand-300");
+      expect(fillAttr).toContain("--map-customer");
 
       await saveAndWait(page);
       await runOptimizerAndWait(page, id);

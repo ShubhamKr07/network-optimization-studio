@@ -42,26 +42,26 @@ export function objectiveModeOfDetails(details: unknown): string | null {
 // the `result.details` path otherwise — byte-identical to before for every
 // non-Chapter-4 caller (whose `steps` is always undefined).
 //
-// KNOWN GAP (documented, not silently swallowed): `GET /scenarios` — the
-// list route `CostSummaryTab`'s compare-toggle list is built from — does NOT
-// merge `steps` onto each row (Task 5's own deliberate N+1-avoidance
-// decision; only the single-scenario `GET /scenarios/:id` does). So for a
-// scenario sourced from that list, `steps` is always undefined here today,
-// and this function falls back to the `result.details` path for it too. In
-// practice this fallback still correctly discriminates for max-coverage-us:
-// a scenario that has solved only Step 1 always carries
-// `result.details.objective === "coverage"`, and one that has solved Step 2
-// always carries `"min_distance"` — the two-step workflow never produces any
-// other combination on a real scenario row. Making the list route carry
-// `steps` too (closing this gap for real) is a backend/contract change out
-// of this (frontend-only) task's scope — see Task 8's own report.
+// cmp-1b — `GET /scenarios` now merges `steps` onto every max-coverage-us row
+// (batched via `loadScenarioStepsBatch`; see maxCoverageSteps.ts), closing
+// the gap the comment above used to document. `steps` is therefore
+// AUTHORITATIVE whenever present: it is never mixed with a `result.details`
+// fallback. Both steps unsolved -> null, full stop — `scenario.result` is
+// deliberately left untouched (stale, not cleared) across a Step 1 edit that
+// bumps the epoch (see CLAUDE.md's staleness-guard gotcha), so falling
+// through to `result.details` in that state would report the mode of a
+// solve that no longer counts, wrongly locking/mismatching the compare
+// selection (CostSummaryTab.tsx) against a discarded result. The
+// `result.details` path below is reached ONLY when `steps` itself is absent
+// (every non-Chapter-4 model, and any caller that hasn't resolved `steps`
+// yet) — unchanged for them.
 export function scenarioObjectiveModeCh4Aware(
   input: { steps?: ScenarioSteps | null; result?: { details?: unknown } | null } | null | undefined,
 ): string | null {
   if (!input) return null;
   if (input.steps) {
     const summary = input.steps.step2.solved ? input.steps.step2.summary : input.steps.step1.summary;
-    if (summary) return summary.objective;
+    return summary ? summary.objective : null;
   }
   return objectiveModeOfDetails(input.result?.details);
 }

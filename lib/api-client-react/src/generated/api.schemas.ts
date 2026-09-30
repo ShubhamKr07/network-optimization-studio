@@ -203,6 +203,8 @@ export type ModelInfoCapabilities = {
   supportsAddedCustomerExclusion: boolean;
   /** Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId. */
   supportsPlantProductCapability?: boolean;
+  /** Chapter 5 (delivery-teaching-us) only — true when this model exposes its immutable base×base reference lane-cost matrix. The registry always emits this field (defaulting false for pre-existing manifests). Gate the reference-costs UI on this, never on modelId. */
+  supportsReferenceCosts: boolean;
 };
 
 /**
@@ -274,6 +276,33 @@ export const ReferenceDistancesDistanceUnit = {
 export interface ReferenceDistances {
   pairs: ReferenceDistancePair[];
   distanceUnit: ReferenceDistancesDistanceUnit;
+}
+
+/**
+ * One base-warehouse×base-customer lane cost. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "W8"/"C269") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
+ */
+export interface ReferenceCostPair {
+  fromId: string;
+  fromCode: string;
+  toId: string;
+  toCode: string;
+  cost: number;
+}
+
+export type ReferenceCostsDistanceUnit = typeof ReferenceCostsDistanceUnit[keyof typeof ReferenceCostsDistanceUnit];
+
+
+export const ReferenceCostsDistanceUnit = {
+  mi: 'mi',
+  km: 'km',
+} as const;
+
+/**
+ * Immutable base×base reference lane-cost matrix for a supportsReferenceCosts-capable model (Chapter 5, delivery-teaching-us). Never merged with a scenario's own laneCostOverrides (DD-1).
+ */
+export interface ReferenceCosts {
+  pairs: ReferenceCostPair[];
+  distanceUnit: ReferenceCostsDistanceUnit;
 }
 
 export interface TransportAssignment {
@@ -592,6 +621,7 @@ export const ScenarioModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 /**
@@ -782,6 +812,7 @@ export const ScenarioInputModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type ScenarioInputInputs = { [key: string]: unknown };
@@ -1217,6 +1248,7 @@ export const GetDatasetModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type GetSolveHistoryParams = {
@@ -1243,6 +1275,7 @@ export const ListScenariosModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
 
 export type GetScenarioStepResult200 = {

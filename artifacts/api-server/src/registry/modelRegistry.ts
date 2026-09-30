@@ -7,6 +7,7 @@ import { transportLpInputsSchema } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
+import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -29,6 +30,11 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   // commit) is what flips max-coverage-us from "listable" (C4.2 manifest)
   // to "solvable" — OBS-5's registration-points gate needs all three at once.
   "max-coverage-us": maxCoverageInputsSchema,
+  // Chapter 5 (ch5-del-4): registering here (alongside VALID_MODEL_IDS +
+  // buildPayload, same commit) is what flips delivery-teaching-us from
+  // "listable" (ch5-del-2 manifest) to "solvable" — OBS-5's registration-
+  // points gate needs all three at once.
+  "delivery-teaching-us": deliveryInputsSchema,
 };
 
 // The model ids that are fully implemented (have a Zod input validator here). This is the
@@ -79,6 +85,7 @@ export interface PublicModelInfo {
     // boundary should never trust an upstream default alone.
     supportsReferenceDistances: boolean;
     supportsAddedCustomerExclusion: boolean;
+    supportsReferenceCosts: boolean;
   };
   inputsSchema: Manifest["inputsSchema"];
   // R5 (Workspace UX bundle) — the unit this model's distances/bands are
@@ -102,6 +109,7 @@ function toPublic(manifest: Manifest): PublicModelInfo {
       supportsFacilityStatus: manifest.capabilities?.supportsFacilityStatus ?? false,
       supportsReferenceDistances: manifest.capabilities?.supportsReferenceDistances ?? false,
       supportsAddedCustomerExclusion: manifest.capabilities?.supportsAddedCustomerExclusion ?? false,
+      supportsReferenceCosts: manifest.capabilities?.supportsReferenceCosts ?? false,
     },
     inputsSchema: manifest.inputsSchema,
     distanceUnit: manifest.distanceUnit ?? "mi",

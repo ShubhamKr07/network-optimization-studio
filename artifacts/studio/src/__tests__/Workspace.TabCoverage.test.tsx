@@ -93,6 +93,10 @@ vi.mock("@workspace/api-client-react", () => ({
   // p-median-us, which now calls useGetReferenceDistances unconditionally.
   useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
   getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
+  // Task 11 — DeliveryCostsTab now calls useGetReferenceCosts unconditionally
+  // (Rules of Hooks), mirroring useGetReferenceDistances's own mock above.
+  useGetReferenceCosts: vi.fn(() => ({ data: undefined })),
+  getGetReferenceCostsQueryKey: vi.fn((id: string) => ["reference-costs", id]),
   useListModels: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
@@ -752,5 +756,103 @@ describe("Workspace tab coverage — max-coverage-us", () => {
         SERVICE_STATS,
       ],
     );
+  });
+});
+
+// ── delivery-teaching-us (Chapter 5, Task 11) ───────────────────────────
+// This model's sidebar has only three Inputs entries (Input Map, Delivery
+// Costs, Optimization Parameters — inputEntriesForModel's own "the cost
+// table is the ONLY editable dataset surface" comment) and no "flows" output
+// (outputGrids has four entries, no "flows" — transport-only). This sweep
+// proves every one of those declared tabs opens real content (decision 10's
+// "three outputs, placed", spec §6.1's four output grids) and that no
+// fourth input tab leaks in.
+describe("Workspace tab coverage — delivery-teaching-us", () => {
+  const deliveryInputs = {
+    p: 3,
+    distanceBands: [400, 800, 1200, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    costAdjustEnabled: false,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
+    laneCostOverrides: [],
+  };
+
+  const solvedScenario = {
+    id: 50,
+    name: "Delivery base case",
+    modelId: "delivery-teaching-us",
+    inputs: deliveryInputs,
+    result: {
+      status: "optimal" as const,
+      objective: 12345.6,
+      runTimeSec: 0.2,
+      quality: "Proven optimal",
+      edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 42.1, band: 0 }],
+      metrics: {
+        weightedAvgDistance: 42.1,
+        utilizationByNode: [{ warehouseId: "W1", city: "Springfield", utilization: 0.5 }],
+        bandCoverage: [{ band: 400, percent: 100 }],
+      },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-05T00:00:00Z",
+    updatedAt: "2026-01-05T00:00:00Z",
+  };
+
+  const dataset = {
+    warehouses: [{ id: "W1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.64 }],
+    customers: [{ id: "C1", city: "Chicago", state: "IL", lat: 41.88, lng: -87.63, demand: 100 }],
+  };
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseListModels.mockReturnValue({
+      data: [
+        {
+          id: "delivery-teaching-us",
+          distanceUnit: "mi",
+          countryBounds: { sw: [24, -125], ne: [50, -66] },
+          capabilities: {
+            supportsP: true,
+            capacityModes: [],
+            demandEditable: false,
+            outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+            supportsFacilityStatus: false,
+            supportsReferenceDistances: false,
+            supportsReferenceCosts: true,
+            supportsAddedCustomerExclusion: false,
+          },
+        },
+      ],
+    } as unknown as ReturnType<typeof useListModels>);
+  });
+
+  it("every Inputs entry (incl. Input Map and Delivery Costs) and every allowed Outputs entry opens its real content, not a placeholder — and no Flows tab exists", () => {
+    render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+
+    runTabCoverage(
+      [
+        INPUT_MAP,
+        { sidebarId: "deliveryCosts", tabTestId: "delivery-costs-tab" },
+        OPTIMIZATION_PARAMETERS,
+      ],
+      [
+        OUTPUT_MAP,
+        OPEN_WAREHOUSES,
+        CUSTOMER_ASSIGNMENTS,
+        COST_SUMMARY,
+        SERVICE_STATS,
+      ],
+    );
+
+    expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
   });
 });

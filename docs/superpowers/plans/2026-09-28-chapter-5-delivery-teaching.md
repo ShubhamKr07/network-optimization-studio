@@ -1148,19 +1148,22 @@ def test_overflow_band_is_emitted():
     assert -1 in b
     assert b[-1] == pytest.approx(100.0 - b[200], abs=5e-3)
     assert 0 < b[-1] < 100
-    # edges beyond every band carry the overflow index len(bands), never a clamp
-    assert any(e["band"] == 2 for e in env["edges"])
-    assert all(e["band"] in (0, 1, 2) for e in env["edges"])
+    # edges beyond every band carry the -1 overflow sentinel, never a clamp
+    assert any(e["band"] == -1 for e in env["edges"])
+    assert all(e["band"] in (0, 1, -1) for e in env["edges"])
 
 
 def test_assign_band_or_overflow_never_clamps():
     """The three older solvers clamp an over-band lane into the LAST band
     (solve.py:470, 642, 835 - documented at :1004-1006 as a misreporting
-    fallback). This helper must return len(bands) instead."""
+    fallback). This helper must return OVERFLOW_BAND (-1) instead - the SAME
+    sentinel lib/units' assignBandOrOverflow returns and the same one the
+    bandCoverage overflow row already carries, so one envelope never ships two
+    different overflow conventions."""
     assert _assign_band_or_overflow(50, [100, 200]) == 0
     assert _assign_band_or_overflow(100, [100, 200]) == 0     # inclusive upper edge
     assert _assign_band_or_overflow(150, [100, 200]) == 1
-    assert _assign_band_or_overflow(201, [100, 200]) == 2     # overflow, not 1
+    assert _assign_band_or_overflow(201, [100, 200]) == -1    # overflow, not 1
 
 
 def test_single_source():
@@ -1269,14 +1272,18 @@ DELIV_COSTS     = {tuple(k.split(',')): v for k, v in _DELIV_COST_RAW.items()}
 Append to `solve.py`, before the dispatcher. No module-level overflow-aware band helper exists today: `solve_two_echelon` has a nested `_band` returning `None` on overflow (`:1003`), `solve_jade` a nested `_band_exclusive` returning `-1` (`:1254`), and the three older solvers clamp into the last band inline (`:470, 642, 835`). This one is module-level so the test can import it.
 
 ```python
+OVERFLOW_BAND = -1
+
+
 def _assign_band_or_overflow(d, bands):
-    """Index of the smallest band >= d, or len(bands) when d exceeds every
-    band. Mirrors lib/units' assignBandOrOverflow. Never clamps into the last
-    band - that is how an over-1,600 lane gets miscounted as covered."""
+    """Index of the smallest band >= d, or OVERFLOW_BAND (-1) when d exceeds
+    every band. Mirrors lib/units' assignBandOrOverflow, which returns the same
+    -1 sentinel. Never clamps into the last band - that is how an over-1,600
+    lane gets miscounted as covered."""
     for i, b in enumerate(bands):
         if d <= b:
             return i
-    return len(bands)
+    return OVERFLOW_BAND
 
 
 def _effective_delivery_costs(cost, dist, inp):
@@ -1480,7 +1487,7 @@ git commit -m "[ch5-del-3] add solve_delivery with the cost/distance separation 
 - Modify: `artifacts/api-server/src/routes/scenarios.ts` (`VALID_MODEL_IDS` `:92-106`)
 - Modify: `artifacts/api-server/src/solver/pmedian.ts` (`SolveInput` `:8-13`, `buildPayload` branches `:20/:45/:86/:137`, fallthrough `:173`)
 - Modify: `lib/api-spec/openapi.yaml` (4 `modelId` enums at `:47`, `:166-172`, `:1417-1424`, `:1618-1625`; inline `ModelInfo.capabilities` at `:932-958`)
-- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (`SOLVABLE` `:25`, count `:98`, `STUB_INPUTS` `:118`, source gates `:222-238`)
+- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (`SOLVABLE` `:25`, `STUB_INPUTS` `:118`, source gates `:222-238`; the count at `:98` was already taken to `7` by Task 2 — verify only)
 - Create: `artifacts/api-server/src/__tests__/deliveryContract.test.ts`
 - Create: `artifacts/api-server/src/__tests__/modelIdSetEquality.test.ts`
 
@@ -1684,7 +1691,7 @@ There is no barrel to re-export from: `validation/inputs/index.ts` exports only 
 
 1. `SOLVABLE` (`:25`) — add `"delivery-teaching-us"`.
 2. `STUB_INPUTS` (`:118`) — add a minimal delivery object: `{ p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 60, costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10, laneCostOverrides: [] }`.
-3. `expect(res.body).toHaveLength(6)` (`:98`, `GET /api/models`) → **7**.
+3. `expect(res.body).toHaveLength(6)` (`:98`, `GET /api/models`) — **already `7`; verify, do not change.** Task 2 made this edit in commit `c4ecfb5`, because registering the 7th manifest breaks the assertion the instant it lands, and leaving it red across Tasks 3 and 4 would have masked any genuinely new api-server breakage in that window. Human-approved plan deviation, recorded in the progress ledger. Confirm the value reads `7` and move on; if it reads `6`, something reverted it and that is a real finding.
 4. The three `readFileSync` source-text gates at `:222-238` are written per model for the newest one (`max-coverage-us`). Add the delivery equivalents beside them: `pmedian.ts` contains `'input.modelId === "delivery-teaching-us"'` and `'modelType: "delivery"'`; `solve.py` contains `"if model_type == 'delivery':"`; the openapi enum loop over `KNOWN_MODEL_IDS` already covers the yaml once `KNOWN_SCHEMAS` has the key.
 
 - [ ] **Step 5: Add the set-equality test**
@@ -2854,9 +2861,36 @@ Expected: FAIL — no such testids; `pMax` 33 not yet honoured by a delivery arm
 
 - [ ] **Step 4: Add the JSX block**
 
-Insert **immediately after the closing `)}` of the `{bomRatio != null && (` block** (the block *opens* at `:438` on `main` and runs ~17 lines; find it by the `slider-bom-ratio` testid, not by line) — with the `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` family, after the ungated gap and time-limit inputs, and **outside** both the Chen `{objective != null && (` block and Chapter 4's `{(step ?? 1) === 1 && (` step wrapper.
+Insert **immediately after the closing `)}` of the `{bomRatio != null && (` block** — find it by the `slider-bom-ratio` testid, never by line number — so the new block joins the `capacityFactor` / `singleSource` / `capacityInactive` / `bomRatio` family.
 
-That placement is load-bearing. Chapter 4's Task 7 wraps its own block in the step wrapper so Steps 1 and 2 render exclusively; anything gated only on prop presence *inside* that wrapper silently stops rendering on Step 2. This model has no step concept and its control must render whenever its props are present. After inserting, confirm with `rg -n 'cost-adjust-section|step ?? 1|slider-bom-ratio' OptimizationParametersTab.tsx` that the new testid sits below `slider-bom-ratio` and is not enclosed by the step wrapper's range.
+**There is no single "step wrapper", and any instruction phrased as "after the wrapper closes" is not well-formed against this file.** Measured on the merged Chapter 4 tree (`070bf48`) by that workstream:
+
+```
+135  step?: 1 | 2;                                 <- optional, NO default
+226  {p != null && (step ?? 1) === 1 && (          <- P slider
+272  {(step ?? 1) === 1 && objective != null && (  <- objective section
+356  {step === 2 && (                              <- Step 2 panel
+411  {(step ?? 1) === 1 && (                       <- gap / timeLimitSec
+440  {capacityFactor != null && (                  <- the family this block joins
+```
+
+**Three independent `(step ?? 1) === 1` guards (226, 272, 411) plus a `step === 2` panel (356)** — four sibling conditionals interleaved with unguarded blocks, not one enclosing region. A rebase written to "place it past the wrapper" can land the block inside guard 411 while believing it is clear of everything. Locate by the `slider-bom-ratio` anchor and verify enclosure explicitly.
+
+Why this matters: anything gated only on prop presence *inside* one of those guards silently stops rendering on Step 2. This model has no step concept and its control must render whenever its props are present.
+
+**Two facts already established from source by the Chapter 4 workstream — verify, do not re-derive:**
+
+- `step` is declared `step?: 1 | 2` with **no default**, so it is genuinely `undefined` for any caller that omits it. `(undefined ?? 1) === 1` is `true`, so for `delivery-teaching-us` the P slider (226) and the gap/time-limit block (411) both render and `pMax={33}` reaches the slider. `??` is nullish coalescing, so this holds for `undefined` and `null` alike.
+- The `capacityFactor` block (440) sits **outside all four conditionals**, so the placement itself is unaffected by any of them.
+
+After inserting, confirm enclosure rather than assuming it:
+
+```bash
+rg -n 'cost-adjust-section|step \?\? 1|step === 2|slider-bom-ratio' \
+  artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx
+```
+
+The new `cost-adjust-section` testid must sit below `slider-bom-ratio` and must not fall between any `(step ?? 1) === 1` / `step === 2` opener and its matching close. Line numbers above are for orientation only and **will have moved** — re-capture them against the merged tree first.
 
 ```tsx
 {costAdjustEnabled != null && (
@@ -3090,7 +3124,9 @@ In `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, a delivery case: r
 
 In `artifacts/studio/src/__tests__/Workspace.test.tsx`, a delivery case for the Demand Served column. No Workspace-level test covers it for any model today (the only coverage is component-level, `OpenWarehousesTab.test.tsx:169-171`), so build it from `Workspace.test.tsx:425`'s "renders Open Warehouses for a solved two-echelon-gold-au scenario" setup: a solved delivery scenario, a `useListModels` mock whose capabilities carry `capacityModes: []`, open Open Warehouses, then the three assertions from `OpenWarehousesTab.test.tsx:169-171` — `"Demand Served"` present, `"Total Flow"` and `"Utilization"` absent, and the `open-warehouse-row-W1` cell contains no `%`. Today `Workspace.tsx:3681` passes `capacityModes` to `facilityDisplayedInputs` **only for `two-echelon-jade-us`** (an explicit guard so gold-au, whose manifest also declares `[]`, keeps its historical rendering); for every other model it is `undefined`, and `OpenWarehousesTab.tsx:158-160` then falls to `showUtilization = capacityMode !== "none"` — this model has no `capacityMode` input, so the utilization column would render with nothing to compute.
 
-In `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, a delivery case per spec §7.6 / decision 10, copied from `:111-112` (`"CostSummaryTab — single-scenario view (unchanged)" › "renders objective, weighted avg distance, runtime, quality, and solver"`): the single-scenario table shows the Objective row rendered through `formatObjective` — `$…` for `details.objective: "cost_adjusted"`, `… demand-mi` for `"base"` — and the `"Weighted avg. distance"` row (`CostSummaryTab.tsx:350`) as `422.6 mi` (1 dp, see the note above). The single-scenario view has **no** "Open facilities" row for any model (that row is compare-mode only, `:490`); assert its absence in the single view and, in the compare view with two delivery scenarios, assert the row lists `W1`, `W2`, `W60` chips for Scenario 1 — the row is model-agnostic and this pins that it stays so.
+In `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, a delivery case per spec §7.6 / decision 10, copied from `:111-112` (`"CostSummaryTab — single-scenario view (unchanged)" › "renders objective, weighted avg distance, runtime, quality, and solver"`): the single-scenario table shows the Objective row rendered through `formatObjective` — `$…` for `details.objective: "cost_adjusted"`, `… demand-mi` for `"base"` — and the `"Weighted avg. distance"` row (`CostSummaryTab.tsx:350`) as `422.6 mi` (1 dp, see the note above). The single-scenario view has **no** "Open facilities" row for any model (that row is compare-mode only, `:490`); assert its absence in the single view **and also in the compare view**.
+
+**Corrected during execution — this line previously asked for the opposite.** It said to assert that the compare-mode row lists `W1`, `W2`, `W60` chips, on the reasoning that the row is model-agnostic. It is not: `CostSummaryTab.tsx:488` gates that row entirely on `capabilities.supportsFacilityStatus`, which is **`false`** for this model by decision 11, pinned in `lib/dataset-schema/src/manifest.test.ts:392`, and stated twice in the spec (§6.1 and §7.6: *"The 'Open facilities' row is absent by §6.1's `supportsFacilityStatus: false`"*). Writing the test as originally drafted would have required flipping either the capability or the gate — reversing a locked decision to satisfy a plan sentence. The Task 12 implementer correctly refused, asserted the row's absence in both views, and cited both sources. The spec governs; this line was the error.
 
 In `artifacts/api-server/src/__tests__/routes.test.ts`, the output-export path (`GET /scenarios/:scenarioId/export?entity=…&format=…`, `scenarios.ts:623`, query params `entity` `:625` / `format` `:626`; gated by the manifest's `outputGrids` at `:693-701`, rows assembled at `:840-846`, city column via `buildEffectiveFacilityCityLookup`). This suite mocks the DB: copy the existing `openWarehouses` export case at `:1936` (`mockDb.select.mockReturnValue(makeChain([{ ...row, result, solvedAt: new Date() }]))`), with a delivery row whose `result` is the Scenario 1 golden envelope (no live CBC), then assert `openWarehouses` CSV has a populated city column for `W1` (`Los Angeles`), `costSummary` JSON carries `objectiveMode: "base"` and `weightedAvgDistance: 422.5511` (the 4 dp envelope value — this is where 4 dp is proven), `serviceStats` JSON keeps `81.45` (2 dp) and includes a `band: -1` row when the mocked envelope has one, and `flows` returns **422** with `"flows export is not supported for this model"` (`:699`).
 
@@ -3185,6 +3221,18 @@ Add a `journey_delivery()` to `e2e_journey.py` following its existing style (no 
 - [ ] **Step 3: Fix the already-stale lab-count specs**
 
 `bundle4-auth-landing.spec.ts:120,153-154,183-184,212-213` and `bundle6-ui-tweaks.spec.ts:270-271` assert `"2 labs"` when the true figure has been 3 since Chapter 4 was unlocked (`docs/CHANGELOG-implementation.md:412`). Set them to the correct post-change value of **4**. Their `auth-labs-strip` assertions disagree with each other today (`bundle4:50,55` `"Chapter 3Chapter 9"`; `bundle6:313-314` `"Chapter 3Chapter 10"`) and neither matches the live non-hidden set — set both to `"Chapter 3Chapter 4Chapter 5Chapter 9"`, the string Task 8 Step 3's insertion position yields (and `Login.test.tsx` pins at unit level). Do not increment their current wrong values. (`labs.spec.ts:95-103` also enumerates three stale lab names but is excluded from `e2e:gate` and stays untouched.)
+
+**Three additions from the Chapter 4 workstream's e2e investigation — the line numbers below are from THIS branch pre-merge and will shift:**
+
+1. **An assertion that INVERTS, not merely changes.** `bundle6-ui-tweaks.spec.ts:278` asserts `await expect(page.getByText(/Chapter 5 ·/)).toHaveCount(0)` — an explicit "Chapter 5 is not visible on Landing" check dating from when both Chapter 5 models were hidden. The moment this chapter ships, that assertion must become a **presence** check, not a count-0 one. Changing the lab counts while leaving this alone produces a red spec in a file this bundle otherwise looks unrelated to.
+2. **Prose that becomes false.** `bundle4:129` ("Chapter 5 remain hidden entirely"), `bundle4:151` ("Chapter 10 + Chapter 5 stay hidden"), `bundle4:52,115` and `bundle6:22` all state Chapter 5 is hidden. Correct them — a comment asserting the opposite of the code beside it is how the next reader gets misled, and this plan has already been bitten by exactly that.
+3. **Re-grep; do not trust any enumerated list, including this one.** The counts appear in both single-line and multi-line `toHaveText` forms, and a strict grep misses the multi-line ones (the Chapter 4 workstream's own list was incomplete for this reason and they said so). Run `rg -n 'labs ·|labs`·|Chapter 5|auth-labs-strip' artifacts/studio/e2e/` and work from the result, not from the file:line references above.
+
+**On the baseline value:** at the time this plan was written these specs read `"2 labs"`. The Chapter 4 workstream's e2e repair (now merged at `0a300f8`) corrects them to `"3 labs"`. The instruction is unchanged — **set to 4, never increment** — but expect to find 3, and treat finding 2 as a sign something reverted.
+
+**The e2e baseline this step's gate diffs against is `42 passed / 13 failed / 4 skipped`**, measured at the merged tree. Not the `32/59` recorded at `22be7e8`, and not the `42/18` that was relayed but never measured. The 13 are 11 test-rot plus 2 environment-gap (`VITE_POSTHOG_KEY`, `VITE_SENTRY_DSN`), which pass where those vars are set. The 4 JADE locked-model cases are now **skipped, not failed**, gated on a runtime read of `GET /api/models` — so they resume by themselves if that model ever unlocks, with no spec edit.
+
+**Do not touch the 11 test-rot specs.** They are the user's own separate bundle, not this one's to fix: `tab-coverage` ×3, `input-map-v2` ×2, `design-system` ×2, `workspace-ux-r1-r9`, `two-echelon`, `import`, `bundle2-fastfollow`. Editing any of them collides with that bundle. This step touches only `bundle4-auth-landing.spec.ts` and `bundle6-ui-tweaks.spec.ts`, neither of which is on that list — confirm that is still true before editing anything beyond those two files.
 
 - [ ] **Step 4: Run the full gate**
 
@@ -3359,6 +3407,15 @@ Overkill check: no new tooling. Fold in place, re-verify with the same probe. Th
 | 16 | `buildEffectiveFacilityCityLookup` | `templates.ts:1388-1402` | 12 | **silent** (blank city column) | `templates.test.ts` (B8) |
 | 17 | `pMax` both mounts | `Workspace.tsx:3320`, `:4037` | 10 | **silent** (slider offers 50, API 422s) | `OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx` |
 | 18 | `registration.test.ts` SOLVABLE/stubs/count/source gates | `:25, :98, :118, :222-238` | 4 | loud | itself |
+| **34** | **`crossModelStepContract.test.ts`'s `NON_STEP_MODELS`** | `artifacts/api-server/src/__tests__/crossModelStepContract.test.ts:97-98` | **12** | loud (red suite) | itself |
+
+**Row 34 arrived with the Chapter 4 merge (`0a300f8`) and did not exist when this plan was
+written.** That test asserts two things about every model that is *not* `max-coverage-us`:
+`GET /scenarios/:id` returns no `steps` field, and a back-to-back second solve never 409s.
+`delivery-teaching-us` belongs in `NON_STEP_MODELS` as a sixth entry — it has no step
+workflow and no one-active-job index — and the suite goes **red until it is added**, which is
+the drift guard working as intended. Add it in the task that first makes this model solvable
+end to end, alongside its `PMEDIAN_INPUTS`-style stub inputs.
 | 19 | `routes/dataset.ts` branch | `:14-59` | 5 | loud (400) | `deliveryContract.test.ts` |
 | 20 | `isEditableInputTab` allow-list | `Workspace.tsx:2125-2200` | 11 (Step 4) | **silent** (no Save) | `Workspace.test.tsx` Save-path case (Task 11 Step 1) |
 | 21 | Save-suppression rows | `Workspace.tsx:2211-2226` | 9 (Step 4, deliberate no-op) | n/a — read-only map has nothing to save | `InputMapTab.deliveryReadOnly.test.tsx` (no `button-save`) |

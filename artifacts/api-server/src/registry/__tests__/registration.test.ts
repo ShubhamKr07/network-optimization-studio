@@ -32,6 +32,10 @@ const SOLVABLE = [
   // commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
   // buildPayload branch simultaneously (OBS-5 needs all three at once).
   "max-coverage-us",
+  // ch5-del-4: Chapter 5 Delivery Company Teaching Example joins here in the
+  // atomic commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
+  // buildPayload branch simultaneously (OBS-5 needs all three at once).
+  "delivery-teaching-us",
 ];
 
 describe("model registration consistency", () => {
@@ -88,14 +92,19 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
   });
 
-  it("GET /api/models returns 6 models, including two-echelon-jade-us", async () => {
+  // M-4 (whole-branch review) — title corrected to match the actual
+  // `toHaveLength(7)` assertion below (delivery-teaching-us, ch5-del-2,
+  // brought the manifest count to 7; the title was never updated).
+  it("GET /api/models returns 7 models, including two-echelon-jade-us", async () => {
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);
     // C4.4 — count is a model-registry fact (max-coverage-us is the 6th
     // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — this
     // model's KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
-    expect(res.body).toHaveLength(6);
+    // Chapter 5 (ch5-del-2) — delivery-teaching-us is the 7th manifest,
+    // listable-only (same pattern max-coverage-us went through pre-C4.6).
+    expect(res.body).toHaveLength(7);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
   });
@@ -135,6 +144,11 @@ const STUB_INPUTS: Record<string, unknown> = {
     objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
     avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
     warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+  },
+  "delivery-teaching-us": {
+    p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 60,
+    costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10,
+    laneCostOverrides: [],
   },
 };
 
@@ -230,6 +244,17 @@ describe("model registration consistency", () => {
     const src = readSrc("artifacts/api-server/src/solver/solve.py");
     expect(src).toContain("if model_type == 'max_coverage_us':");
     expect(src).not.toContain("'chens'");
+  });
+
+  it("buildPayload has a branch for delivery-teaching-us emitting the declared wire value (ch5-del-4)", () => {
+    const src = readSrc("artifacts/api-server/src/solver/pmedian.ts");
+    expect(src).toContain('input.modelId === "delivery-teaching-us"');
+    expect(src).toContain('modelType: "delivery"');
+  });
+
+  it("solve.py dispatches the delivery-teaching-us wire value", () => {
+    const src = readSrc("artifacts/api-server/src/solver/solve.py");
+    expect(src).toContain("if model_type == 'delivery':");
   });
 
   it("no source file still references the retired model id", () => {

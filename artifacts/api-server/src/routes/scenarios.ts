@@ -80,7 +80,7 @@ import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
 import { applyScenarioInputWrite, initialInputsForInsert, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
-import { loadScenarioSteps } from "../services/maxCoverageSteps.js";
+import { loadScenarioSteps, loadScenarioStepsBatch, MAX_COVERAGE_MODEL_ID } from "../services/maxCoverageSteps.js";
 
 const router = Router();
 
@@ -101,6 +101,9 @@ export const VALID_MODEL_IDS = new Set([
   // MIG-22: the dead "max_coverage", "p_center", "set_cover" placeholders
   // (never had a manifest, schema, or dispatcher branch) are removed.
   "max-coverage-us",
+  // Chapter 5 (ch5-del-4) — delivery-teaching-us — registered here alongside
+  // KNOWN_SCHEMAS + buildPayload (same atomic commit) per OBS-5 Gate 1.4.
+  "delivery-teaching-us",
 ]);
 
 // Derived, never stored — true when inputs changed after the last solve.
@@ -188,7 +191,24 @@ router.get("/scenarios", async (req, res) => {
   const rows = await db.select().from(scenariosTable)
     .where(where)
     .orderBy(scenariosTable.createdAt);
-  res.json(rows.filter(row => !isModelLocked(row.modelId)).map(toApiScenario));
+  const visibleRows = rows.filter(row => !isModelLocked(row.modelId));
+
+  // cmp-1 — the compare-list step-awareness gap. Batched (ONE extra query
+  // for the whole list, not one per Chapter 4 row) rather than looping
+  // loadScenarioSteps: see loadScenarioStepsBatch's own header comment for
+  // the epoch-per-scenario handling this requires. `steps` stays absent
+  // (never null) for every other model, same contract as the single-scenario
+  // GET below.
+  const ch4Rows = visibleRows.filter(row => row.modelId === MAX_COVERAGE_MODEL_ID);
+  const stepsByScenario = await loadScenarioStepsBatch(
+    req.userId!,
+    ch4Rows.map(row => ({ id: row.id, inputs: (row.inputs ?? {}) as Record<string, unknown> })),
+  );
+
+  res.json(visibleRows.map(row => {
+    const steps = stepsByScenario.get(row.id);
+    return steps ? { ...toApiScenario(row), steps } : toApiScenario(row);
+  }));
 });
 
 router.post("/scenarios", async (req, res) => {
@@ -850,7 +870,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       entity === "assignments" ? buildAssignmentRows(result, canonicalUnit, requestedUnit, savedBands)
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
       : entity === "costSummary" ? buildCostSummaryRows(result, canonicalUnit, requestedUnit, scenario.modelId)
-      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands)
+      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands, scenario.modelId)
       : buildFlowRows(result, canonicalUnit, requestedUnit, savedBands);
 
     if (format === "csv") {

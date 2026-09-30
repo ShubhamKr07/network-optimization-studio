@@ -103,6 +103,10 @@ vi.mock("@workspace/api-client-react", () => ({
   // scenarios here have referenceCapable disabled and never actually fire it.
   useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
   getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
+  // Task 11 — DeliveryCostsTab now calls useGetReferenceCosts unconditionally
+  // (Rules of Hooks), mirroring useGetReferenceDistances's own mock above.
+  useGetReferenceCosts: vi.fn(() => ({ data: undefined })),
+  getGetReferenceCostsQueryKey: vi.fn((id: string) => ["reference-costs", id]),
   // C6.1, Task 4 — capabilities.outputGrids is now read by Workspace.tsx's
   // output-grid gating (activeModelManifest?.capabilities.outputGrids), so
   // every model this test file exercises needs a real capabilities object,
@@ -176,6 +180,26 @@ vi.mock("@workspace/api-client-react", () => ({
           supportsAddedCustomerExclusion: true,
           supportsReferenceDistances: true,
           outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
+      // Task 11 (Chapter 5) — delivery-teaching-us. Capabilities copied
+      // verbatim from solvers/delivery-teaching-us/manifest.json: no
+      // capacity modes, demand fixed (not editable), the Delivery Costs
+      // tab's own base matrix (supportsReferenceCosts), no reference
+      // distances, no flows output grid.
+      {
+        id: "delivery-teaching-us",
+        distanceUnit: "mi",
+        countryBounds: { sw: [24, -125], ne: [50, -66] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: [],
+          demandEditable: false,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+          supportsFacilityStatus: false,
+          supportsReferenceDistances: false,
+          supportsReferenceCosts: true,
+          supportsAddedCustomerExclusion: false,
         },
       },
     ],
@@ -459,6 +483,35 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
     render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
     expect(await screen.findByTestId("open-warehouse-row-daggar-hills")).toBeInTheDocument();
+  });
+
+  // Task 12 (Chapter 5, delivery-teaching-us) — this model has no capacity
+  // concept (manifest capabilities.capacityModes: []). OpenWarehousesTab.tsx
+  // keys "Demand Served" vs "Total Flow"/"Utilization" on `capacityModes`
+  // being an EMPTY ARRAY, not merely absent (built from the OpenWarehousesTab
+  // component-level guard at OpenWarehousesTab.test.tsx:169-171 — no
+  // Workspace-level test covered this for any model before). Workspace.tsx's
+  // own jade-only gate (`facilityDisplayedInputs`'s capacityModes
+  // pass-through) is widened to include delivery-teaching-us alongside
+  // two-echelon-jade-us; gold-au stays excluded by name, unaffected.
+  it("shows a 'Demand Served' column (not Total Flow/Utilization) for a solved delivery-teaching-us scenario", async () => {
+    const deliveryScenario = {
+      ...solvedScenario,
+      modelId: "delivery-teaching-us",
+      result: {
+        ...solvedScenario.result,
+        edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 42.1 }],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [deliveryScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(await screen.findByTestId("open-warehouse-row-W1")).toBeInTheDocument();
+    expect(screen.getByText("Demand Served")).toBeInTheDocument();
+    expect(screen.queryByText("Total Flow")).not.toBeInTheDocument();
+    expect(screen.queryByText("Utilization")).not.toBeInTheDocument();
+    expect(screen.getByTestId("open-warehouse-row-W1")).not.toHaveTextContent("%");
   });
 
   it("renders the Flows tab for a solved transport-coal scenario", async () => {
@@ -1074,6 +1127,94 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       data: {
         inputs: expect.objectContaining({
           laneCostOverrides: [{ fromId: "CHI", toId: "C1", cost: 250 }],
+        }),
+      },
+    });
+  });
+});
+
+// Task 11 — delivery-teaching-us's Delivery Costs tab. Mirrors the
+// transport-coal "Lane costs" Save-path block immediately above (the
+// isEditableInputTab guard for R7 row 20): without the
+// `(activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us")`
+// row in Workspace.tsx's own isEditableInputTab chain, the shared toolbar
+// Save button never renders for this tab and the dirty state is never
+// tracked — the "shows a Save toolbar" case below fails on the missing
+// button if that wiring regresses.
+describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () => {
+  const deliveryInputs = {
+    p: 3,
+    distanceBands: [400, 800, 1200, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    costAdjustEnabled: false,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
+    laneCostOverrides: [],
+  };
+
+  const deliveryScenario = {
+    id: 9,
+    name: "Delivery base case",
+    modelId: "delivery-teaching-us",
+    inputs: deliveryInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-05T00:00:00Z",
+    updatedAt: "2026-01-05T00:00:00Z",
+  };
+
+  function renderDeliveryWorkspace() {
+    return render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+  }
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [deliveryScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: deliveryScenario } as unknown as ReturnType<typeof useGetScenario>);
+  });
+
+  it("sidebar shows a 'Delivery Costs' entry and no Warehouses/Customers/Distances entries", () => {
+    renderDeliveryWorkspace();
+    expect(screen.getByTestId("sidebar-input-deliveryCosts")).toHaveTextContent("Delivery Costs");
+    expect(screen.queryByTestId("sidebar-input-warehouses")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-input-customers")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-input-distances")).not.toBeInTheDocument();
+  });
+
+  it("opening the Delivery Costs sidebar entry renders the real grid, not a placeholder", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("delivery-costs-tab")).toBeInTheDocument();
+  });
+
+  it("shows a Save toolbar for the Delivery Costs tab (isEditableInputTab includes it)", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("adding a delivery cost override and saving PATCHes the new entry into inputs.laneCostOverrides", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+    fireEvent.click(screen.getByTestId("button-add-deliverycost-row"));
+    fireEvent.change(screen.getByTestId("input-new-deliverycost-from"), { target: { value: "W1" } });
+    fireEvent.change(screen.getByTestId("input-new-deliverycost-to"), { target: { value: "C1" } });
+    fireEvent.change(screen.getByTestId("input-new-deliverycost-value"), { target: { value: "250" } });
+    fireEvent.click(screen.getByTestId("button-add-deliverycost-confirm"));
+
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 9,
+      data: {
+        inputs: expect.objectContaining({
+          laneCostOverrides: [{ fromId: "W1", toId: "C1", cost: 250 }],
         }),
       },
     });

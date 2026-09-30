@@ -88,8 +88,19 @@ const MAX_COVERAGE_INPUTS = {
   distanceBands: [700, 1400, 2800, 5500], warehouseOverrides: [], customerOverrides: [],
   addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
 };
+// Registration point 18 (Chapter 5, delivery-teaching-us) — this file
+// arrived with the Chapter 4 two-step merge, before this 7th model existed.
+// It has no step workflow and no one-active-job index (that guard is scoped
+// to max-coverage-us alone — see NON_STEP_MODELS' own comment), so it
+// belongs in the negative half of both assertions below, same as the other
+// five. Shape matches deliveryContract.test.ts's own baseInputs().
+const DELIVERY_INPUTS = {
+  p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 120,
+  costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1,
+  costPerMileOver: 10, laneCostOverrides: [],
+};
 
-// The five models with NO step concept — the negative half of assertion 1
+// The six models with NO step concept — the negative half of assertion 1
 // and the whole of assertion 2. two-echelon-jade-us is locked
 // (capabilities.locked) — unlocked for this file's duration below, same
 // posture as routes.test.ts's own ch4-lock comment, so "locked" doesn't
@@ -100,6 +111,7 @@ const NON_STEP_MODELS: Array<{ modelId: string; inputs: Record<string, unknown> 
   { modelId: "transport-coal", inputs: TRANSPORT_COAL_INPUTS },
   { modelId: "two-echelon-gold-au", inputs: TWO_ECHELON_GOLD_INPUTS },
   { modelId: "two-echelon-jade-us", inputs: JADE_INPUTS },
+  { modelId: "delivery-teaching-us", inputs: DELIVERY_INPUTS },
 ];
 
 beforeEach(() => {
@@ -148,6 +160,53 @@ describe("cross-model contract — `steps` presence on GET /scenarios/:id", () =
       expect(res.body.steps).toBeUndefined();
     });
   }
+});
+
+// cmp-1 — the compare-list step-awareness gap. Same contract as the
+// single-scenario GET above (`steps` present only for max-coverage-us),
+// extended to the LIST route, which the Compare feature actually reads.
+describe("cross-model contract — `steps` presence on GET /scenarios (list)", () => {
+  it("is present (step1 + step2) on the max-coverage-us row", async () => {
+    const cookie = await registerAndGetCookie("list-steps-ch4");
+    const id = await createScenario(cookie, "max-coverage-us", MAX_COVERAGE_INPUTS);
+
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+    const row = res.body.find((s: { id: number }) => s.id === id);
+    expect(row).toBeDefined();
+    expect(row.steps).toBeDefined();
+    expect(row.steps).not.toBeNull();
+    expect(row.steps.step1).toBeDefined();
+    expect(row.steps.step2).toBeDefined();
+  });
+
+  for (const { modelId, inputs } of NON_STEP_MODELS) {
+    it(`is ABSENT (key never appears, not null/empty) on the ${modelId} row`, async () => {
+      const cookie = await registerAndGetCookie(`list-steps-${modelId}`);
+      const id = await createScenario(cookie, modelId, inputs);
+
+      const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+      const row = res.body.find((s: { id: number }) => s.id === id);
+      expect(row).toBeDefined();
+      expect("steps" in row).toBe(false);
+      expect(row.steps).toBeUndefined();
+    });
+  }
+
+  it("a mixed list carries steps only on the max-coverage-us row, absent on the rest", async () => {
+    const cookie = await registerAndGetCookie("list-steps-mixed");
+    const ch4Id = await createScenario(cookie, "max-coverage-us", MAX_COVERAGE_INPUTS);
+    const otherIds = await Promise.all(
+      NON_STEP_MODELS.map(({ modelId, inputs }) => createScenario(cookie, modelId, inputs)),
+    );
+
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie).expect(200);
+    const byId = new Map<number, Record<string, unknown>>(res.body.map((s: { id: number }) => [s.id, s]));
+
+    expect("steps" in byId.get(ch4Id)!).toBe(true);
+    for (const id of otherIds) {
+      expect("steps" in byId.get(id)!).toBe(false);
+    }
+  });
 });
 
 describe("cross-model contract — POST /scenarios/:id/solve route-boundary solve-target", () => {

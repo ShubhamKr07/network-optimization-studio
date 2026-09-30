@@ -16,4 +16,5 @@ export const ScenarioModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
+  'delivery-teaching-us': 'delivery-teaching-us',
 } as const;

@@ -30,6 +30,12 @@ export function objectiveDimension(modelId: string, objectiveMode: string | null
       return "monetary";
     case "max-coverage-us":
       return objectiveMode === "coverage" ? "percent" : "demand-distance";
+    case "delivery-teaching-us":
+      // A cost value is billable miles. With the adjustment OFF the objective
+      // is billable-miles x demand; with it ON the rate turns it into dollars.
+      // Missing this case renders the objective through `default: "opaque"` as
+      // a bare unit-less number - no error, no failing test.
+      return objectiveMode === "cost_adjusted" ? "monetary" : "demand-distance";
     default:
       return "opaque";
   }

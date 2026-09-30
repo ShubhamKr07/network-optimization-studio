@@ -5,6 +5,7 @@ import { GOLD_WAREHOUSES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANTS, JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
+import { DELIVERY_WAREHOUSES, DELIVERY_CUSTOMERS } from "../data/deliveryDataset.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 const router = Router();
@@ -54,6 +55,13 @@ router.get("/dataset", (req, res) => {
       response.plantProductCapabilities = JADE_PLANT_PRODUCT_CAPABILITIES;
     }
     res.json(response);
+    return;
+  }
+  if (modelId === "delivery-teaching-us") {
+    // Chapter 5 (modified) - entities only. The two 10,329-lane tables are
+    // served separately and lazily by GET /models/:id/reference-costs; this
+    // route has never returned lane data for any model.
+    res.json({ warehouses: DELIVERY_WAREHOUSES, customers: DELIVERY_CUSTOMERS });
     return;
   }
   res.status(400).json({ error: `Unknown modelId: ${modelId}` });

@@ -285,8 +285,17 @@ export function ServiceStatsTab({
   // Workspace.tsx wires it) is unaffected: `useLiveCoverage` is false and
   // this falls through to the frozen `result.metrics.bandCoverage` exactly
   // as before.
+  // Task 12 (Chapter 5, delivery-teaching-us) — spec §5.7 pins 2 dp for this
+  // model only; the other five models' tests are pinned to integers, so
+  // `decimals` stays a single explicit modelId comparison here rather than a
+  // new manifest capability (no capability-shaped seam for "band precision"
+  // exists yet, and one model doesn't warrant inventing one).
   const bandCoverage = useLiveCoverage
-    ? computeCumulativeBandCoverage(serviceEdges, presentationBands as number[])
+    ? computeCumulativeBandCoverage(
+        serviceEdges,
+        presentationBands as number[],
+        modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
+      )
     : (result.metrics.bandCoverage ?? []);
   const avgServiceDistance = result.metrics.weightedAvgDistance;
 

@@ -55,6 +55,7 @@ import {
 } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
+import { DeliveryCostsTab } from "@/components/workspace/tabs/DeliveryCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs, type JadeMapInputs } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab, type SolveTiming } from "@/components/workspace/tabs/OutputMapTab";
@@ -139,6 +140,15 @@ import { track } from "@/lib/analytics";
 // (`setChenObjectiveMode`) but kept the constant declaration itself, which
 // left it dead (verified zero remaining references in artifacts/studio/src).
 
+// ch5-del-9 — delivery-teaching-us's Input Map render (below, the pmedian
+// mode fallback) passes this instead of handlePMedianMapInputsChange.
+// `onInputsChange` is a required prop on InputMapTab's "pmedian" arm, so a
+// deliberate no-op (not an omitted prop) is what keeps the component from
+// ever writing scenario state for this model, even if `readOnly` itself
+// were ever bypassed. Module-level so it's a stable reference across
+// renders rather than a new closure every time.
+const PMEDIAN_MAP_READONLY_NOOP = (_next: PMedianMapInputs) => {};
+
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
     // C4.11 — Al's Athletics — Max Coverage (Chapter 4). Coverage mode by
@@ -201,6 +211,18 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         addedWarehouses: [],
         addedCustomers: [],
         distanceOverrides: [],
+      };
+    case "delivery-teaching-us":
+      return {
+        p: 3,
+        distanceBands: [400, 800, 1200, 1600],
+        gap: 0,
+        timeLimitSec: 120,
+        costAdjustEnabled: false,
+        distanceThreshold: 800,
+        costPerMile: 1,
+        costPerMileOver: 10,
+        laneCostOverrides: [],
       };
     case "p-median-us":
     default:
@@ -349,6 +371,14 @@ function capacityInactiveFromInputs(inputs: Record<string, unknown> | null): boo
 function bomRatioFromInputs(inputs: Record<string, unknown> | null): number | undefined {
   const raw = inputs?.bomRatio;
   return typeof raw === "number" ? raw : undefined;
+}
+
+// ch5-del-10 — delivery-teaching-us's Adjust Cost Table toggle. There is no
+// generic boolean reader in this file; the convention is one named reader
+// per field, same as singleSourceFromInputs/capacityInactiveFromInputs above.
+function costAdjustEnabledFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.costAdjustEnabled;
+  return typeof raw === "boolean" ? raw : undefined;
 }
 
 // B5.1 — Distances tab. `distanceOverrides` (B1.1) has no fixed baseline to
@@ -1218,8 +1248,20 @@ function warehouseStatusesFromInputs(
 // p-median-brazil shares this array with p-median-us (the switch's default
 // case) so it gets the exact same sidebar entries — T5 (Bundle 2) wired
 // every one of them to real content.
-function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
+export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
+    // Chapter 5 (delivery-teaching-us) - the cost table is the ONLY editable
+    // dataset surface (spec decision 11). This case is load-bearing, not
+    // tidiness: the switch's tail is `case "p-median-brazil": case
+    // "p-median-us": default:`, so a model that is merely absent INHERITS
+    // the Customers, Warehouses and Distances editors. Omission grants the
+    // editable surface.
+    case "delivery-teaching-us":
+      return [
+        { id: "input-map", label: "Input Map" },
+        { id: "deliveryCosts", label: "Delivery Costs" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
     case "transport-coal":
       return [
         { id: "input-map", label: "Input Map" },
@@ -2377,7 +2419,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // below, extended in the same task).
       (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
-      (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
+      (activeTab.entity === "laneCosts" && modelId === "transport-coal") ||
+      // Task 11 (Chapter 5) — Delivery Costs grid, delivery-teaching-us only
+      // (its ONLY editable dataset surface, spec decision 11). Without this
+      // row the shared toolbar Save never appears and the dirty state is
+      // never tracked for this tab (flagged by a previous review).
+      (activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us"));
 
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
@@ -3268,7 +3315,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // MIG-8 regression test greps this exact source text for the
     // max-coverage-us cap and would otherwise stop matching this
     // occurrence if it were split across lines.
-    pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : undefined,
+    pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
     objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
     highServiceDistKm:
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined,
@@ -3277,6 +3324,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     avgServiceDistCapKm:
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined,
     onServiceDistanceChange: updateChenServiceDistance,
+    // ch5-del-10 (carried through the CH4UX merge) — delivery-teaching-us's
+    // Adjust Cost Table fields. These live in the SHARED base object, so both
+    // the tab mount and the Solve dialog's embedded mount get them; dropping
+    // them during conflict resolution would delete delivery's cost controls
+    // with no test failure.
+    costAdjustEnabled: modelId === "delivery-teaching-us" ? costAdjustEnabledFromInputs(localInputs) : undefined,
+    distanceThreshold: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "distanceThreshold") : undefined,
+    costPerMile: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined,
+    costPerMileOver: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined,
     stepEditable: stepState.isMaxCoverage ? stepState.step1Frozen : undefined,
     step2Gap: stepState.isMaxCoverage ? step2GapFromInputs(localInputs) : undefined,
     step2TimeLimitSec: stepState.isMaxCoverage ? step2TimeLimitSecFromInputs(localInputs) : undefined,
@@ -3401,7 +3457,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouses={pmedianMapWarehouses(dataset, localInputs)}
           customers={pmedianMapCustomers(dataset, localInputs)}
           inputs={pmedianMapInputsSlice(localInputs)}
-          onInputsChange={handlePMedianMapInputsChange}
+          // ch5-del-9 — delivery-teaching-us's Input Map is read-only (Task
+          // 8's fixed three-tab surface: the cost table is the only
+          // editable dataset). `readOnly` already suppresses every
+          // mutation affordance inside InputMapTab.tsx's pmedian arm, but
+          // `onInputsChange` is a required prop on that arm's type, so this
+          // model gets an explicit no-op rather than the real handler — the
+          // component can never write scenario state even if a future edit
+          // reintroduces an affordance InputMapTab.tsx forgets to gate.
+          onInputsChange={modelId === "delivery-teaching-us" ? PMEDIAN_MAP_READONLY_NOOP : handlePMedianMapInputsChange}
+          readOnly={modelId === "delivery-teaching-us"}
           // R4 — Save moves into this tab's own Layers row for p-median-us/
           // p-median-brazil; saveInLayersRow (below) suppresses the toolbar
           // Save exactly when this prop is wired, so there is never a
@@ -3833,6 +3898,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
+    // Task 11 (Chapter 5) — Delivery Costs grid tab, delivery-teaching-us
+    // only — this model's ONLY editable dataset surface (spec decision 11).
+    // `laneCostOverrides` is the exact same field name/shape transport-coal's
+    // LaneCostsTab uses (a stage-1-style deliberate naming choice, per
+    // defaultInputsForModel's own delivery-teaching-us case), so the same
+    // `laneCostOverridesFromInputs` reader applies unchanged. Unlike
+    // LaneCostsTab, this tab reads its base matrix from Task 7's
+    // GET /models/:id/reference-costs (via DeliveryCostsTab's own internal
+    // useGetReferenceCosts call, modelId-gated) — a cost here is billable
+    // miles, not a distance, so no canonicalUnit/Upload/Download wiring.
+    if (activeTab.kind === "input" && activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <DeliveryCostsTab
+          laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("laneCostOverrides", next)}
+          modelId={modelId}
+        />
+      );
+    }
+
     // A3.1 — Output Map tab. `result` is passed only while this tab is
     // actually the active one (mirrors Studio.tsx's `activeTab === "output"
     // ? result : null` guard, Studio.tsx:1544/1554) even though
@@ -4051,9 +4137,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // capacityModes array generically would silently flip
             // two-echelon-gold-au's rendering too, since its manifest ALSO
             // declares capacityModes:[] but has never shown "Demand Served").
+            // Task 12 (Chapter 5) — delivery-teaching-us widens this same
+            // gate (it also has no capacity concept, manifest
+            // capacityModes:[]); gold-au stays excluded by name, unaffected.
             displayedInputs={facilityDisplayedInputs(
               activeOutputInputs,
-              modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
+              modelId === "two-echelon-jade-us" || modelId === "delivery-teaching-us"
+                ? activeModelManifest?.capabilities?.capacityModes
+                : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
             // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
@@ -4485,6 +4576,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             ? <OptimizationParametersTab {...solveDialogParamsProps} />
             : undefined
         }
+        // MERGE (CH4UX x ch5-del-10) — CH4UX-6 deleted this prop as dead
+        // because max-coverage-us, its only consumer at the time, now renders
+        // the embedded tab via `paramsSlot` and never mounts the built-in P
+        // slider. Chapter 5 then added delivery-teaching-us as a SECOND
+        // consumer, and delivery gets NO paramsSlot — so its built-in slider
+        // does mount and does need the cap. Restored for delivery only.
+        // Deliberately not `max-coverage-us ? 26` here: that would re-add the
+        // dead arm AND give MIG-8's source grep a second match.
+        pMax={modelId === "delivery-teaching-us" ? 33 : undefined}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // chen-bands-units, Part A/G — the DEDICATED band lens (decision

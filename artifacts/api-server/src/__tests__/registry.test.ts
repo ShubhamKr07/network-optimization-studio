@@ -14,9 +14,9 @@ const testApp = express();
 testApp.use("/api", modelsRouter);
 
 describe("modelRegistry", () => {
-  it("listModels() returns the six known models", () => {
+  it("listModels() returns the seven known models", () => {
     const ids = listModels().map(m => m.id).sort();
-    expect(ids).toEqual(["max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   it("omits datasetDir (server-internal) from the public listing", () => {
@@ -37,11 +37,11 @@ describe("modelRegistry", () => {
 });
 
 describe("GET /api/models", () => {
-  it("returns 200 with the six known models, unauthenticated", async () => {
+  it("returns 200 with the seven known models, unauthenticated", async () => {
     const res = await request(testApp).get("/api/models");
     expect(res.status).toBe(200);
     const ids = res.body.map((m: { id: string }) => m.id).sort();
-    expect(ids).toEqual(["max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   // R5 (Workspace UX bundle) — every model must always report a
@@ -86,6 +86,21 @@ describe("GET /api/models", () => {
     expect(byId["transport-coal"]).toBe(false);
     // C4.4 — max-coverage-us registers its own direct-id reference-distance builder.
     expect(byId["max-coverage-us"]).toBe(true);
+  });
+
+  // Chapter 5 (delivery-teaching-us) — supportsReferenceCosts gates
+  // GET /models/:id/reference-costs, the cost-side mirror of
+  // supportsReferenceDistances. Only delivery-teaching-us today.
+  it("returns the correct supportsReferenceCosts per model", () => {
+    const byId: Record<string, boolean> = Object.fromEntries(
+      listModels().map(m => [m.id, m.capabilities.supportsReferenceCosts]),
+    );
+    expect(byId["delivery-teaching-us"]).toBe(true);
+    expect(byId["p-median-us"]).toBe(false);
+    expect(byId["p-median-brazil"]).toBe(false);
+    expect(byId["two-echelon-gold-au"]).toBe(false);
+    expect(byId["transport-coal"]).toBe(false);
+    expect(byId["max-coverage-us"]).toBe(false);
   });
 
   // Bundle 2.2 (B2.2-T2) — supportsAddedCustomerExclusion gates A3's

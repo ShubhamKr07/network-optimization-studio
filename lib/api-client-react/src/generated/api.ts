@@ -40,6 +40,7 @@ import type {
   LogoutSuccess,
   ModelInfo,
   PrecheckResult,
+  ReferenceCosts,
   ReferenceDistances,
   RegisterRequest,
   Scenario,
@@ -370,6 +371,84 @@ export function useGetReferenceDistances<TData = Awaited<ReturnType<typeof getRe
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetReferenceDistancesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetReferenceCostsUrl = (id: string,) => {
+
+
+
+
+  return `/api/models/${id}/reference-costs`
+}
+
+/**
+ * Unauthenticated, model-scoped, ownerless (matches /dataset and /models — no user_id, no 404-vs-403 concern). Returns the complete, unfiltered base×base lane-cost matrix for the model — never includes a scenario's own laneCostOverrides (DD-1, base dataset files are read-only). The API disables Express's automatic ETags globally, so this route sets an explicit ETag derived from the dataset package's version/hash and supports If-None-Match revalidation.
+ * @summary Get a model's immutable base×base reference lane-cost matrix (Chapter 5, delivery-teaching-us)
+ */
+export const getReferenceCosts = async (id: string, options?: RequestInit): Promise<ReferenceCosts> => {
+
+  return customFetch<ReferenceCosts>(getGetReferenceCostsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReferenceCostsQueryKey = (id: string,) => {
+    return [
+    `/api/models/${id}/reference-costs`
+    ] as const;
+    }
+
+
+export const getGetReferenceCostsQueryOptions = <TData = Awaited<ReturnType<typeof getReferenceCosts>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferenceCosts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReferenceCostsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReferenceCosts>>> = ({ signal }) => getReferenceCosts(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReferenceCosts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReferenceCostsQueryResult = NonNullable<Awaited<ReturnType<typeof getReferenceCosts>>>
+export type GetReferenceCostsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a model's immutable base×base reference lane-cost matrix (Chapter 5, delivery-teaching-us)
+ */
+
+export function useGetReferenceCosts<TData = Awaited<ReturnType<typeof getReferenceCosts>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferenceCosts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReferenceCostsQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

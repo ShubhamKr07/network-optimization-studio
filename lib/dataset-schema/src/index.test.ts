@@ -80,6 +80,23 @@ describe("max-coverage-us registration (Chapter 4, C4.2)", () => {
   });
 });
 
+describe("delivery-teaching-us registration (Chapter 5, modified)", () => {
+  it("validates the delivery-teaching-us package against its schema", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "delivery-teaching-us");
+    expect(spec).toBeDefined();
+    const result = validatePackage(spec!);
+    expect(Object.keys(result["warehouses.json"] as object)).toHaveLength(33);
+    expect(Object.keys(result["customers.json"] as object)).toHaveLength(313);
+    expect(Object.keys(result["distances.json"] as object)).toHaveLength(10329);
+    expect(Object.keys(result["costs.json"] as object)).toHaveLength(10329);
+  });
+
+  it("computeSha256 matches the version.json sha256 for delivery-teaching-us", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "delivery-teaching-us")!;
+    expect(computeSha256(spec)).toBe(readVersion("delivery-teaching-us").sha256);
+  });
+});
+
 describe("WarehouseEntry zip field (Phase 3.2, Task 3)", () => {
   it("keeps zip when present", () => {
     const parsed = WarehouseEntry.parse({ id: "ALN", city: "Allentown", state: "PA", lat: 40.6028, lng: -75.4704, zip: "18101" });

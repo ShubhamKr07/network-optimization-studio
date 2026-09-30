@@ -1,4 +1,5 @@
 import { Lock } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -33,7 +34,13 @@ export type OptimizationParametersField =
   // onto `localInputs.step2.{gap,timeLimitSec}` — never the top-level
   // `gap`/`timeLimitSec` fields above, which are Step 1's.
   | "step2Gap"
-  | "step2TimeLimitSec";
+  | "step2TimeLimitSec"
+  // ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature. Gated on
+  // presence like every other model-specific field above, never on modelId.
+  | "costAdjustEnabled"
+  | "distanceThreshold"
+  | "costPerMile"
+  | "costPerMileOver";
 
 // CH4UX-2 — exported because Workspace.tsx now builds ONE base prop object
 // consumed by two renders (the tab itself and the Solve dialog's embedded
@@ -152,6 +159,14 @@ export interface OptimizationParametersTabProps {
    *  solve against. `null` until Step 1 has solved (renders a placeholder);
    *  never client-authored — this is display-only, produced by the server. */
   coverageFloorFromStep1?: number | null;
+  // ── ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature ──────
+  /** Chapter 5 (modified) - present only for delivery-teaching-us. Gated on
+   * presence like every other model-specific parameter in this component,
+   * never on modelId. */
+  costAdjustEnabled?: boolean;
+  distanceThreshold?: number;
+  costPerMile?: number;
+  costPerMileOver?: number;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
@@ -208,6 +223,10 @@ export function OptimizationParametersTab({
   step2Gap,
   step2TimeLimitSec,
   coverageFloorFromStep1,
+  costAdjustEnabled,
+  distanceThreshold,
+  costPerMile,
+  costPerMileOver,
   onChange,
   idPrefix = "",
   testIdPrefix = "",
@@ -524,6 +543,62 @@ export function OptimizationParametersTab({
             className="my-1"
           />
           <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
+        </div>
+      )}
+
+      {/* ch5-del-10 — delivery-teaching-us's Adjust Cost Table control.
+          Gated on `costAdjustEnabled != null` like every other
+          model-specific field above (never on modelId), and deliberately
+          placed OUTSIDE all four `step` guards above (this model has no
+          step concept — Chapter 4 selecting Step 2 must never hide this
+          control). Joins the capacityFactor/singleSource/capacityInactive/
+          bomRatio family of unguarded, presence-gated sections. */}
+      {costAdjustEnabled != null && (
+        <div className="space-y-2" data-testid={tid("cost-adjust-section")}>
+          <Button
+            variant={costAdjustEnabled ? "secondary" : "outline"}
+            className="h-8 w-full text-sm"
+            data-testid={tid("button-adjust-cost-table")}
+            onClick={() => onChange("costAdjustEnabled", !costAdjustEnabled)}
+          >
+            Adjust Cost Table
+          </Button>
+          {costAdjustEnabled && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Each lane is repriced from its distance: at or under the threshold it
+                bills at the first rate, beyond it at the second. Distances are never
+                changed.
+              </p>
+              <div>
+                <Label htmlFor={pid("input-distance-threshold")} className="text-xs text-muted-foreground">
+                  Distance threshold (mi)
+                </Label>
+                <Input id={pid("input-distance-threshold")} type="number" value={distanceThreshold}
+                       data-testid={tid("input-distance-threshold")}
+                       className="h-8 text-sm mt-1 font-mono"
+                       onChange={e => onChange("distanceThreshold", parseFloat(e.target.value) || 0)} />
+              </div>
+              <div>
+                <Label htmlFor={pid("input-cost-per-mile")} className="text-xs text-muted-foreground">
+                  Cost per mile
+                </Label>
+                <Input id={pid("input-cost-per-mile")} type="number" value={costPerMile}
+                       data-testid={tid("input-cost-per-mile")}
+                       className="h-8 text-sm mt-1 font-mono"
+                       onChange={e => onChange("costPerMile", parseFloat(e.target.value) || 0)} />
+              </div>
+              <div>
+                <Label htmlFor={pid("input-cost-per-mile-over")} className="text-xs text-muted-foreground">
+                  Cost per mile over the threshold
+                </Label>
+                <Input id={pid("input-cost-per-mile-over")} type="number" value={costPerMileOver}
+                       data-testid={tid("input-cost-per-mile-over")}
+                       className="h-8 text-sm mt-1 font-mono"
+                       onChange={e => onChange("costPerMileOver", parseFloat(e.target.value) || 0)} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -43,6 +43,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | ch4-fixes | L231 |
 | Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes | L459 |
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
+| Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
 | Chapter 4 UX fixes — output lock, editable solve dialog, solve overlay (`CH4UX-1`–`CH4UX-8`) | L802 |
 
 ---
@@ -452,6 +453,14 @@ not reproducible offline, and `solvers/chens-cosmetics-cn/dataset/*.json` remain
 the machine (searched `~/Downloads`, `~/Desktop`, `~/Documents`, home tree), and neither model has an
 `extract-*` script. How their datasets were produced is unrecorded.
 
+**Amended (Chapter 5 delivery-teaching-us, 2026-09-29, `ch5-del-1`):** the above is narrower than it
+reads — it was true only for `transport-coal`/`p-median-brazil`, the two models that existed under
+"Chapter 5" at the time this note was written. It does not describe Chapter 5 as a whole any more.
+A THIRD Chapter 5 model, `delivery-teaching-us` ("Chapter 5, modified" — a distinct teaching example,
+not a rename of either retired model), was added in Task 1 of the `ch5-delivery` branch with a real
+source workbook (a `~/Downloads` xlsx, 33 plants/313 customers/10,329 lanes) and its own extractor
+script — see that entry below.
+
 **Gate:** none run — no source, test, or config file is touched. The only executable path near this
 change is the Chen extractor, which was run once to verify reproducibility and whose output was
 reverted.
@@ -799,6 +808,200 @@ process steps alongside the plan's own tasks, before the first dispatch. Read
 predecessor bundle's shape was four lines from the cursor that appended this
 one.
 
+---
+
+## Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`)
+
+Branch `ch5-delivery`, 13 tasks executed sequentially against a 13-task plan
+(`docs/superpowers/sdd/` — see the plan's own two review rounds, R1/Rev2/Rev2.1, for the design
+history). A **seventh** model — not a rename of `transport-coal`/`p-median-brazil` (the two other,
+still-hidden Chapter 5 models) but a genuinely distinct teaching example built from the COG
+(Center-of-Gravity) case study's own dataset: 33 candidate distribution centers, 313 customers,
+10,329 warehouse×customer lanes. `p_i \le P` facility-location on a **cost table**, not a distance
+table — the interesting pedagogical point this chapter teaches — with an opt-in toggle
+(`costAdjustEnabled`) that reprices every lane from its distance (a flat rate under a threshold, a
+steeper rate beyond it) so students can watch the optimal network change when long lanes get more
+expensive, without ever touching the underlying distances.
+
+**Tasks 1–7 (solver + data + API registration):** `scripts/extract-cog-dataset.py` transcribes the
+source xlsx (`~/Downloads/COG_CaseStudy_v2/COG-Model-Data-3DC-3WH.xlsx`) into
+`solvers/delivery-teaching-us/dataset/{warehouses,customers,distances,costs}.json` — keyed by column
+letter (not position) so a blank `<c>` cell can't silently shift every later column, ZIPs preserved
+as zero-padded strings. `solve_delivery` (`solve.py`) mirrors `solve_pmedian`'s shape
+(`{customerId, warehouseId, distanceMi, band}` assignments, single-source, `FacilityCount <= p`) but
+separates **cost** (what the objective sums) from **distance** (what bands/WAD/edges report) — the
+`_effective_delivery_costs` function is the one place a lane's billed cost is computed, and toggling
+`costAdjustEnabled` changes ONLY that function's output, never `edges[].distance`. Two measured
+goldens, verified against an independent oracle PuLP/CBC script that shares no code with `solve.py`
+(`docs/superpowers/specs/assets/2026-09-28-cog-prototype-solve.py`): Scenario 1 (toggle off — costs
+seeded equal to distances, i.e. the case study's flat $1/mile) opens `{W1, W2, W60}`, objective
+`88,240,913,478.10`, weighted avg distance `422.5511` mi; Scenario 2 (toggle on,
+`distanceThreshold=800`/`costPerMile=1`/`costPerMileOver=10`) opens `{W6, W43, W45}`, objective
+`150,194,534,098.60`, WAD `508.6534` mi. Registered across all ten of the pre-existing "ten
+registration points" (manifest, `KNOWN_SCHEMAS`, `VALID_MODEL_IDS`, `PACKAGE_SPECS`, `buildPayload`,
+openapi enums, `solve.py` dispatcher, precheck dispatcher, router mount, `GET /dataset` branch) plus
+nine more this integration discovered were never on that list at all (`objectiveDimension`,
+`MODEL_IDS`, `inputEntriesForModel`'s permissive default, `buildEffectiveFacilityCityLookup`, `pMax`
+at both Workspace mounts, `registration.test.ts`'s per-model source gates, and
+`crossModelStepContract.test.ts`'s `NON_STEP_MODELS`) — see `model-integration-precheck.md` Gate 1,
+folded in Task 13.
+
+**Tasks 8–12 (Studio):** the sidebar tab rail for this model is exactly three entries — **Input
+Map** (read-only: no add/move/delete/status/demand/Save affordance, Task 9's dedicated `readOnly`
+InputMapTab variant), **Delivery Costs** (Task 11's paginated base×override cost grid, the model's
+ONLY editable dataset surface — no Warehouses/Customers/Distances tabs at all), and **Optimization
+Parameters** (P capped at 33 at both the slider and `SolveDialog`, plus Task 10's **Adjust Cost
+Table** control exposing the three rate fields only once the toggle is on). Outputs: Open Warehouses
+shows **Demand Served** (not Utilization — this model has no capacity concept, `capacityModes: []`),
+Solution Summary/Service Stats gained an opt-in `{ decimals: 2 }` precision path
+(`computeCumulativeBandCoverage`) so `81.45%`/`97.19%` render exactly rather than rounding to the
+nearest whole percent the way every pre-existing model does.
+
+**Task 13 — e2e journey + documentation closeout:**
+- `artifacts/studio/e2e/delivery-teaching.spec.ts` (new): Landing card presence (+ the two retired
+  Chapter 5 models' continued absence) → tab-rail shape → read-only Input Map → a real CBC solve
+  reproducing Scenario 1 → Adjust Cost Table toggle + re-solve reproducing Scenario 2 → toggle back
+  off + a lane-cost override reproducing the invariance proof `test_delivery.py` already owns at the
+  pytest layer (override the W60→C3 lane — Scenario 1's first positive-distance assignment — to cost
+  `0`; open set unchanged, objective drops by EXACTLY that lane's base cost × demand) → CSV/JSON
+  exports. Four real solves (not one) — a deliberate, disclosed deviation from "carry at most one
+  real-CBC journey": this model solves in ~2–4s (measured), nothing like `max-coverage-us`'s ~170s,
+  so the discipline that matters for that model doesn't transfer here, and the four solves are each
+  load-bearing to the literal journey the plan describes.
+- `e2e_journey.py` gained `journey_delivery()` (create → real solve → Scenario 1 bounds `[400, 450]`
+  mi → toggle on → re-solve → Scenario 2 bounds `[490, 530]` mi) and a `"delivery"` entry in the
+  `JOURNEYS` dispatch dict — without the dict entry the function exists but
+  `python3 e2e_journey.py <url> delivery` still exits 1 with `Unknown section`.
+- `bundle4-auth-landing.spec.ts` / `bundle6-ui-tweaks.spec.ts` — the lab-count assertions (already
+  corrected from the plan's recorded `"2 labs"` to `"3 labs"` by the Chapter 4 e2e repair merged
+  ahead of this branch) moved to **`"4 labs"`**, and `auth-labs-strip` to
+  `"Chapter 3Chapter 4Chapter 5Chapter 9"`. One assertion **inverted**, not merely changed:
+  `bundle6-ui-tweaks.spec.ts` asserted `getByText(/Chapter 5 ·/)` had count **0** (dating from when
+  both Chapter 5 models were hidden) — now a presence check, backed by an actual solved
+  `delivery-teaching-us` scenario in that test so the assertion has something real to find. Stale
+  prose claiming Chapter 5 is hidden was corrected in both files.
+- Documentation: `README.md` "six models" → seven (×2) plus the `solvers/` directory-tree line;
+  `CLAUDE.md`'s "Six models live under `solvers/`" line → seven, and its `e2e_journey.py` "fully
+  non-runnable" claim (accurate history through Bundle 2.2, stale since A13a's 2026-09-24 repair)
+  corrected — independently confirmed runnable three times this task; `model-integration-precheck.md`
+  Gate 1 grew from 10 to 19 numbered registration points (11–19 are the ones this integration found);
+  the `docs/CHANGELOG-implementation.md` "Chapter 5 — nothing to commit" line (2026-09-26, above) was
+  amended in place rather than rewritten — it was only ever true for the two retired models, not for
+  this one; `attached_assets/NOTEBOOKS.md`'s Task-1-recorded sha256 hashes were independently
+  re-verified against the committed files (`shasum -a 256`) and match exactly.
+
+**Dependency audit re-run (Task 0 Steps 3/4, per Task 13 Step 5):** the `"delivery-teaching-us"`
+literal-string probe sweep (48 hits, excluding tests/generated/e2e) maps cleanly onto the plan's R7
+registration inventory with no unaccounted hit; a parallel `"max-coverage-us"` sweep differs from it
+only where R7 predicts N/A (`referenceDistances.ts`/`autoDistance.ts` — this model supports
+reference COSTS, not reference distances, and has no add/move Input-Map entities to estimate
+distances for; `services/import.ts` — no importable entities; `services/Steps.ts` and the
+`ch4-two-step`/`chen-bands-units-qa` specs — the two-step workflow is `max-coverage-us`-exclusive,
+and `delivery-teaching-us` is correctly a `NON_STEP_MODELS` entry instead) plus each model's own
+model-specific test/build-script files, which differ by name as expected.
+
+**Full gate, run 2026-09-29:** `git diff --check` clean · `pnpm run typecheck` clean · api-server
+**1594/1594** (3 files — `cors`, `jobRunnerDispatcher`, `resultEnvelope` — flaked under concurrent
+dev-server/e2e load in the full run and passed 27/27 in isolation immediately after, matching
+CLAUDE.md's own documented load-induced-flake list) · studio **2145/2145** (118 files) · `@workspace/units`
+**30/30** · `@workspace/dataset-schema` **50/50** · solver pytest **301/301** · `e2e_accuracy.py`
+**99/99**, run directly, unmodified · `e2e_journey.py http://localhost:3011 delivery` **42/42** · `pnpm e2e:gate`
+**43 passed / 13 failed / 4 skipped**, run twice: once under concurrent dev-server/pytest load
+(**41 passed / 14 failed / 1 flaky / 4 skipped**, with 2 of those — `chen-bands-units-qa`'s already-
+flaky case and `workspace-fixups-2.spec.ts` — reproducing clean in isolation), then again against
+freshly-started, uncontended dev servers, which landed exactly on **43/13/4** with the failed set
+matching the 11-test-rot + 2-env-gap list byte for byte. Delta against the merged-tree baseline
+(`42 passed / 13 failed / 4 skipped`): **+1 passed** (this task's new spec), **0 change** to the 13
+known failures, **0 change** to skipped.
+
+**One commit, per the dispatching agent's explicit instruction for this task:**
+`[ch5-del-13] add the delivery e2e journey and complete the documentation closeout`.
+
+**Amended (Chapter 5 delivery-teaching-us, whole-branch review fix pass, 2026-09-29):** two corrections
+to the Task 13 entry above, per the branch's whole-branch review (M-7). Append-only per hard rule #9 —
+the original text above is left as-is; this note supersedes it on these two points only.
+
+1. **The "ten pre-existing registration points" list was wrong.** The entry above names them as
+   "manifest, KNOWN_SCHEMAS, VALID_MODEL_IDS, PACKAGE_SPECS, buildPayload, openapi enums, solve.py
+   dispatcher, precheck dispatcher, router mount, GET /dataset branch" — but `model-integration-
+   precheck.md` Gate 1 numbers precheck dispatcher as point **13** and router mount as point **14**
+   (both among the NINE points this integration discovered, not the original ten), and "GET /dataset
+   branch" isn't a numbered Gate 1 point at all. The actual original ten (Gate 1 points 1–10) are
+   points 1–8 as listed (manifest, dataset version, Zod schema, route allowlist, package spec, payload
+   builder, openapi enum, solve.py dispatcher) plus **point 9 (override entity registration —
+   import/export)** and **point 10 (map multi-select allowlist)**, neither of which this model ever
+   registered — and neither was ever recorded as intentionally skipped. Recording that now: both are
+   **N/A by design** for `delivery-teaching-us`. Point 9 (import/export entity registration) is N/A
+   because this model's Delivery Costs tab is deliberately its only editable surface with no
+   Upload/Download/Import toolbar at all (decision 11, Task 11 — see `DeliveryCostsTab.tsx`'s own
+   header comment); there is no override entity to register into `services/templates.ts`/
+   `services/import.ts`. Point 10 (map multi-select allowlist) is N/A because Task 9's Input Map for
+   this model is read-only end-to-end (no add/move/delete/status/demand/Save affordance at all), so
+   there is no selection/bulk-edit UI for a multi-select allowlist to gate in the first place.
+2. **The api-server gate figure was rounded away from what was actually measured.** The entry above
+   states "api-server **1594/1594**"; the number actually measured in that gate run was **1591/1594
+   passed cleanly, plus 3 documented flakes** (`cors`, `jobRunnerDispatcher`, `resultEnvelope` — the
+   same three files the entry already names as flaking under concurrent dev-server/e2e load), which
+   were then independently confirmed passing 27/27 in isolation. "1594/1594" implies every test passed
+   in that one run; the correct claim is 1591 passed outright with the remaining 3 accounted for by
+   documented, reproduced-in-isolation flakes, not a clean 1594/1594.
+
+### CI green for the first time, the 11 rotted e2e specs repaired, Compare made step-aware (2026-09-30)
+
+Merged as `63713ba` (e2e repairs), `e7c06c6` (batch step loader), `7bab4f3` (its consumer fix).
+Four tracked items, plus two review findings folded before push.
+
+**CI had been red since at least `4cf3bc1` (2026-09-26) for one missing step.** The workflow
+provisions Postgres 16 and sets `DATABASE_URL`, but never applied the schema — this repo has no
+migration files — so the service started empty and every DB-touching suite died on
+`relation "users" does not exist`. Attribution by failing-file count: **47** distinct failing test
+files at `1761260` (pre-two-step), **51** at `0a300f8` (post) — a delta of exactly 4, matching the 4
+DB-touching test files that bundle added. The bundle added files to an already-broken run; it never
+introduced a failure mode. Fixed with a `pnpm --filter @workspace/db run push-force` step, verified
+non-interactive against a fresh empty DB with stdin closed before being claimed safe.
+
+**e2e now has real CI infrastructure** — Chromium, app boot, schema seeding — closing the
+infrastructure half of the SKIP decision recorded 2026-09-12. Deliberately `continue-on-error: true`;
+see `docs/ops/e2e-stale-specs.md` for what must happen before it can block.
+
+**All 11 catalogued test-rot specs repaired**, 34/26 → **53 passed / 2 failed / 4 skipped**, a number
+CI reproduced identically (so the gate is deterministic, not environment-sensitive). Two findings
+beyond the catalogue: `import.spec.ts` had a second uncatalogued drift (exported CSV column order
+changed; the spec hardcoded index 4 for `demand`, actually 7 — now located by header name), and
+`transport-coal`'s negative assertions in `workspace-ux-r1-r9` were **vacuously passing** on testids
+that never existed under those names. One is now a real testid, so that check bites for the first time.
+
+`workspace-ux-r1-r9`'s band-draft assertion was testing **retired** behaviour, not a bug: SSC-T1
+deliberately made ServiceStats bars live-recompute off unsaved `localInputs`. Verified in product
+code before changing, and replaced with a positive assertion plus a zero-solve-network guard.
+
+**Compare-list step-awareness** closed the gap deferred during the two-step bundle. That deferral's
+N+1 reasoning did not survive measurement — production holds 83 scenarios, 0 Chapter 4, busiest user
+10 — so one batched query replaces the feared per-row lookups. Each scenario carries its own
+`stepEpoch`, so the snapshot epoch is selected as a column and compared per scenario in Node; the
+whole-branch review traced monotonicity across all four `scenarios.inputs` writers and both
+`jobRunner` scenario updates and confirmed the reasoning holds.
+
+**Two review findings folded before push, both corrections to claims made in this work:**
+
+1. The first merge commit's message states that real-CBC waits were "replaced with seeded results."
+   **That is false** and is corrected here: no seeding was done in any spec, and the repair moved the
+   other way (30s → 90s; `setTimeout(180_000)` with two real solves). No seeding helper exists in the
+   repo, so honouring that half needs new infrastructure. Recorded as open in the ops doc.
+2. The batch loader initially had **no observable effect**. The consumer chain existed —
+   `CostSummaryTab` list rows reach `scenarioObjectiveModeCh4Aware`, which branches on `steps` — but
+   the helper picked `step2.solved ? step2 : step1`, which *is* the last-solved step, the same answer
+   `result.details` already gave. Worse, with `steps` present and both steps unsolved (the state after
+   an epoch bump) both summaries are null and it fell through to `scenarios.result`, deliberately left
+   stale, reporting a mode from a **discarded** solve — which can wrongly lock the compare selection.
+   `7bab4f3` makes `steps` authoritative: present means authoritative, both-unsolved returns null.
+
+**Process note.** The first attempt to merge this work landed on `ch4-ux-fixes` — another session's
+branch — because `git rev-parse main` was read as if it were `HEAD`. Caught at the second merge's
+conflicts, aborted rather than resolved, and that branch reset to its exact tip `6c33024`; nothing had
+been pushed and no remote carried it. Redone in a dedicated `main` worktree with an explicit
+`HEAD == main` guard before each merge, where **both merges applied with zero conflicts** — the
+conflict had been entirely an artifact of the wrong target.
 ## Chapter 4 UX fixes — output lock, editable solve dialog, blocking solve overlay (`CH4UX-1`–`CH4UX-8`, 2026-09-30)
 
 Branch `ch4-ux-fixes`, cut from `9a598db` (the then-tip of both local `main` and `origin/main`).
