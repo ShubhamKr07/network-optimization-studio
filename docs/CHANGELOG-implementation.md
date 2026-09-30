@@ -1659,3 +1659,45 @@ controller then omitted from the plan.
 Commits: `dbf3418`…`fda2ee7`. Merged `fda2ee7`; `nos-api` `dep-dau7efdg1s2s73bosk4g`, `nos-studio`
 `dep-dau7ege0tbcc739tpc30`, both live, both manually triggered — **autoDeploy did not fire** despite
 `autoDeployTrigger: commit`, 75s after the push.
+
+---
+
+## Amendment to the `ch5-editable` retro — permissions audit closed out (2026-09-30)
+
+Completes the one item the retro entry above recorded as deliberately absent.
+
+**`permissions.csv` now has a real `ch5-editable` row**, run from the shared checkout as required:
+`allow_total 882, allow_new 0, denials_in_window 6 (top: AskUserQuestion), broad 101, risky 13`.
+Contrast the `ch5-delivery` row, written from a worktree against an empty allow-list, which reads
+all zeros and is annotated INVALID.
+
+**The gate fired — 13 risky grants — and was adjudicated by the human rather than by an agent.**
+Per `harness-retro`'s rule, no grant was narrowed or removed by this session. The 13, by rule:
+
+| rule | grants |
+|---|---|
+| `arbitrary_sql` | `psql *`, `PGPASSWORD="" psql *`, `DATABASE_URL="…nos_dev" psql *` |
+| `push_remote` | `git push *` |
+| `secret_exposure` | `env`, `gh secret *`, and six auth `curl` grants (five `localhost:5099`, **one against production `nos-api-uwf8.onrender.com/api/auth/register`**) |
+| `whole_tool_grant` | `WebSearch` |
+
+**Human decision:** `whole_tool_grant` (`WebSearch`) **passed**. The remaining **12 are held** — still
+granted, still flagged, not yet ruled on. Two carry more risk than their siblings: the production
+`curl` is the only one pointed at the live API rather than localhost, and `psql *`'s unbounded
+trailing wildcard is unscoped database access, made more live by the recent Postgres credential
+rotation.
+
+**`ch5-delivery`'s row is closed won't-fix, not deferred.** Re-running refuses as a duplicate, and
+forcing it would write `allow_new: 0` — because that branch's window (Sep 28–29) closed *before* the
+`CH4UX` audit at `2026-09-29T22:37`, which absorbed its grants into its own `allow_new: 64`. The
+baseline needed to reconstruct the true number no longer exists. An INVALID annotation is the
+accurate record; a forced row would be a fabricated metric, which the harness invariants forbid.
+
+**Method note worth keeping.** The 13 were enumerated by re-applying the audit's own six
+classification rules (`scripts/src/harness/lib/permissions.ts`) to `settings.local.json` in a
+separate read-only pass, rather than re-running the audit — a second run appends a duplicate row and
+rebaselines. The independent count came to exactly 13, matching the audit, which is what makes the
+list above trustworthy rather than merely plausible.
+
+Task 10 complete: QA, whole-branch review, three fix waves, merge, push, deploy of both services,
+metrics row, three failures rows, retro entry, and a valid permissions row.
