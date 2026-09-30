@@ -104,6 +104,9 @@ So a push to `main` may ship the frontend while leaving the API on the previous 
 
 Never reorder these. Reviewing before the merge reviews code that does not exist yet; pushing before the review publishes unreviewed code. A branch that is merged locally but not yet reviewed is recoverable; a pushed one is not.
 
+**Each step is authorised separately. "Merge" does NOT authorise a push; "push" does NOT authorise a deploy.** Approval for one step is approval for exactly that step — carry out that step, then stop and ask for the next. Do not read a single instruction as consent for the remainder of the pipeline, and do not batch steps together because they seem like one obvious unit of work.
+(Recorded 2026-09-30 after the reverse: asked to "merge", I merged **and** pushed in the same action. Nothing broke — no deploy was triggered — but the push was not authorised and, unlike the merge, is not locally recoverable. The user granting step 4 is precisely when step 6 is closest and most tempting to assume.)
+
 - Do not commit directly to `main` for routine bundle work or ad hoc fixes. Every feature or remediation change must land on a descriptive branch first.
 - Keep a branch for each bundle or repair, and set an upstream remote at the first stable checkpoint so the work is recoverable outside the local machine.
 - Protect the active worktree and branch from cleanup or deletion until its branch has been reviewed, backed up remotely, and explicitly approved for retirement.
