@@ -48,6 +48,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L1314 |
 | Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1431 |
 | Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`) | L1554 |
+| ch9-unlock — Chapter 9 (JADE) reopened; no chapter is locked any more | L1708 |
 
 ---
 
@@ -1701,3 +1702,81 @@ list above trustworthy rather than merely plausible.
 
 Task 10 complete: QA, whole-branch review, three fix waves, merge, push, deploy of both services,
 metrics row, three failures rows, retro entry, and a valid permissions row.
+
+---
+
+## ch9-unlock — Chapter 9 (JADE) reopened to students; no chapter is locked any more (2026-09-30)
+
+Branch `unlock-ch9` off `main` (`cd2bb9b`). Reverses the Chapter 9 half of ch4-lock (2026-09-22),
+mirroring ch4-unlock (2026-09-26). JADE was the last locked chapter, so **the locked set is now
+empty** — and that, not the unlock itself, is what made this more than a two-line change.
+
+**The product change is two lines** — `"locked": true` deleted from
+`solvers/two-echelon-jade-us/manifest.json`, and `locked: true` deleted from `chapters.ts`'s Chapter
+9 entry. Nothing in the lock machinery moved: `middlewares/lockedModel.ts`, the per-handler guards,
+`App.tsx`'s route guard and Landing's card/history rendering are all data-driven off those two
+declarations. Both edits were made with `perl` on the single line, so the diffs are one deletion
+each and not a whole-file reformat.
+
+**The lock machinery is deliberately RETAINED with nothing locked.** Deleting it was the alternative
+and was rejected: ch4-lock's Stage A quiesce (lock → drain jobs → delete rows → cut over) is the
+documented pattern for any future dataset migration, and it is the server-side half that actually
+holds. Retaining unused enforcement has a cost, though — the tests that covered it would go quiet —
+so each one was repointed at a synthetic lock rather than deleted.
+
+**Tests that had encoded "Chapter 9 is locked" as fact**, each rewritten to the new truth:
+- `lockedChapterDrift.test.ts` — the tripwire fired exactly as designed. Its "not vacuously empty"
+  guard existed so that deleting `locked` from both sides could not pass on two empty sets, which is
+  precisely what a legitimate full unlock now does. Rewritten to assert the **scan** works (manifests
+  found, parsed, each carrying a `capabilities` object) instead of asserting the **result** is
+  non-empty, so an honest unlock passes while a dead scanner still fails. The set assertion now
+  expects `[]` on both sides, and is the standing statement of what ships.
+- `routes.test.ts` — the 11-assertion server-side lock suite keeps running, now against a
+  **synthetic** lock applied through `setLockedModelsForTests`. That is what the seam is for and the
+  only remaining way to reach those paths. The previous comment warned against asserting the lock
+  through a model the manifests do not lock; that warning is answered, not ignored, by the three
+  manifest-truth tests beside it, which clear the override and pin the real set as empty. Added a
+  fourth, `isModelLocked("two-echelon-jade-us") === false`, so a half-applied unlock fails **by
+  name** rather than only by a list shrinking.
+- `Landing.test.tsx` — Chapter 9 moved out of the locked table and into the unlocked case (now Ch3,
+  Ch4, Ch9), pinned **positively**: real `href`, no inert wrapper, no badge, no `data-locked`, no
+  `opacity-60`. The Recent-solves pair flipped the same way — a JADE history row now carries
+  `href="/chapter-9/jade?scenario=7"`.
+- **New: `Landing.lockedRendering.test.tsx`** — Landing's locked-card and locked-history-row
+  rendering, kept alive against a synthetic locked chapter (`vi.mock` of `@/lib/chapters`). Its own
+  file because `vi.mock` is file-wide and mocking `CHAPTERS` inside `Landing.test.tsx` would falsify
+  every other case there. The fixture's `modelId` is deliberately **outside** the `StudioModelType`
+  union (hence `as unknown as Chapter`): a fixture borrowing a real id would typecheck and would then
+  read as a claim that a shipped chapter is locked. Mutation-checked — flipping the fixture's
+  `locked` to `false` fails 3 of its 5 tests, so it is not vacuous.
+- `lockedChapterDrift.test.ts`'s "every locked chapter is still a registered route" case is now
+  **vacuous** (no iterations) and was kept with a comment saying so: it is a standing invariant that
+  re-arms by itself at the next lock, and the empty-set assertion above is what guards the unlock
+  claim, so its emptiness cannot hide anything.
+
+**Playwright siblings rewritten BEFORE merge**, per the standing `spec_gap` rule (this bundle changes
+a visible contract two prior bundles hard-code): `bundle4-auth-landing.spec.ts` (link present, inert
+wrapper and Locked badge absent) and `bundle6-ui-tweaks.spec.ts` (Chapter 9 is a visible link). Not
+executed — `pnpm e2e:gate` needs local servers and is not part of this gate. Separately, the ch4-lock
+entry's list of **8 specs broken because their subject was locked** is now fully unblocked: the
+JADE-focused ones (`jade-two-echelon`, `jade-ch9-workspace-bundle`, `workspace-fixups`,
+`workspace-fixups-2`, `nonjade-servicestats-live-coverage`) can run again, and
+`e2e/helpers/modelLock.ts` self-adjusts (it reads the live manifest). Whether they still pass against
+current HEAD is untested here.
+
+**Gate:** typecheck clean · api-server **1638/1640** · studio **2218/2221** · solver pytest
+**312/312**. The 5 failures are all on the documented load-flake list and all in files this branch
+does not touch: api-server `cors` + `jobRunnerDispatcher` (14/14 isolated), studio
+`InputMapTabV2.customerStatus` / `Workspace.Transport` / `Workspace` (170/170 isolated). Concurrent
+vitest process count verified 0 before both suites. `e2e_accuracy.py` **not run**: no
+solver/dataset/`solve.py` change — the only manifest edit is the `locked` capability, which the
+solver never reads.
+
+**Environment note worth keeping:** a bare `pnpm --filter api-server test` with no `DATABASE_URL` in
+the environment fails **21 files at collection** with `DATABASE_URL must be set` (thrown by
+`lib/db/src/index.ts` at import time, via `routes/scenarios.ts`). That is an environment gap, not a
+regression, and it looks alarming — pass `DATABASE_URL` inline as CLAUDE.md's local-dev note says.
+
+**Product state after this branch:** every chapter registered in `CHAPTERS` is open. Chapters 5
+(transport, brazil) and 10 (gold-refinery) remain `hiddenFromLanding`, which is a different thing
+from locked — they are reachable by direct route, just not advertised on the grid.
