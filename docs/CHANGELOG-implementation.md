@@ -49,6 +49,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1431 |
 | Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`) | L1554 |
 | ch9-unlock — Chapter 9 (JADE) reopened; no chapter is locked any more | L1708 |
+| ch9-e2e-repair — the two JADE specs the lock had frozen; CI e2e made blocking | L1822 |
 
 ---
 
@@ -1815,3 +1816,88 @@ figure was carried forward uncorrected from the ch4-lock/ch4-unlock era and is c
 than in those entries (append-only, hard rule #9). The remaining Minor — the drift test's
 now-vacuous "every locked chapter is still a registered route" case — is disclosed in the test's own
 comment as intentional and was left as is.
+
+---
+
+## ch9-e2e-repair — the two JADE specs the lock had frozen, and CI e2e made blocking (2026-09-30)
+
+Branch `e2e-jade-specs` off `main` (`fa5068e`). Direct follow-up to ch9-unlock: reopening Chapter 9
+stopped `e2e/helpers/modelLock.ts` skipping the JADE specs, which unfroze two that had gone stale
+during the months the chapter was withheld. **No source file is touched — specs and CI only.**
+
+**`jade-two-echelon.spec.ts` — four independent drifts, each from a bundle that shipped while the
+spec was skipped:**
+- `readObjective` parsed the Objective cell with `Number(text.replace(/,/g, ""))`. chen-bands-units
+  Part D decision 6 routed every model's objective through `formatObjective`, and JADE's dimension
+  is `monetary` (`lib/units/src/objective.ts`), so the cell now reads `$254,060,828.62` — the `$`
+  made the parse `NaN`, and `expect(NaN).toBeLessThan(1)` **failed looking exactly like a
+  ground-truth accuracy regression on a sacred value**. It never compared a number at all. The `$`
+  and the 2-decimal shape are now ASSERTED, not stripped: a silent strip would keep passing if the
+  dimension regressed to `opaque`, which is the mislabelling `formatObjective`'s own comment calls
+  worse than a wrong number.
+- `assignment-row-*` → the Ch.9 bundle replaced the shared grid with a product-level, PAGINATED
+  `JadeAssignmentsTab` (`row-jadeassignment-*`). `count() === 100` could never pass again — it
+  counted a page. Now reads the tab's own "<filtered> of <total>" counter and asserts the invariant
+  (total >= the 100 customers) rather than pinning a product mix the test itself later changes.
+- `flow-row-*` → `JadeFlowsTab`'s two inner tabs (`jade-flow-pw-row-*` / `jade-flow-wc-row-*`), and
+  the P→W grid is AGGREGATED per (plant, warehouse), so the old `flow-row-plant-4-wh-11-product-1`
+  carried a product segment that no longer exists. The claim under test is unchanged.
+- The From/To filter inputs moved INSIDE the shared `FilterMenu` popover (B7). Their testids were
+  deliberately preserved, so `input-filter-to` looked like a live selector while the element was
+  simply not in the DOM until the popover opens.
+
+**That last one is the instructive failure.** The `.fill()` had no explicit timeout, so it sat
+unactionable and consumed the **entire remaining 240s test budget**, then surfaced as
+`apiRequestContext.delete: Test timeout` on the `finally` block's cleanup — pointing at teardown,
+200s away from the real line. First read of that was "the test is slow, raise the budget"; that was
+wrong, and the fix that proved it wrong was adding explicit timeouts to all 8 unbounded
+interactions, after which it failed **at the real line in 22s**. `test.setTimeout` stays at 240s
+(the whole spec runs in ~15s). Exactly CLAUDE.md's documented Playwright trap, now with a worked
+example.
+
+**`workspace-fixups-2.spec.ts` (JADE case) — asserted a contract that is false.** It required a 5th
+distance band added in the Solve dialog to be PERSISTED by solving. `Workspace.tsx`'s `handleSolve`
+documents the opposite: bands are a reporting LENS, and "a lens-only-dirty Run does NOT reach this
+branch at all (`ordinaryDirty` is false) … deliberately leaving the lens dirty". Rewritten to assert
+the real contract in BOTH directions — solving must not persist the lens edit, and the bands-only
+Save (`handleSaveBandsOnly`'s field-scoped PATCH) must — which is strictly more coverage than the
+one wrong assertion it replaces.
+
+**Open product bug found while doing that, NOT fixed here.** On the **Input Map** tab a bands-only
+edit has no reachable Save at all: that tab's Layers-row Save is wired `isDirty={isDirty}` (i.e.
+`ordinaryDirty`) with `onSave={handleSaveInputs}`, which early-returns unless `ordinaryDirty`
+(`Workspace.tsx:3487`), while `Workspace.tsx:4552` suppresses the SHARED toolbar Save on exactly
+that tab — so `saveEnabled` (`ordinaryDirty || lensDirty`, label "Save bands") never reaches it. The
+student's edit is not lost (switching to any other input tab shows a working Save), but on that one
+tab the affordance is dead. It is **not JADE-specific** — the same wiring covers every model whose
+Save moved into the Layers row (`saveInLayersRow`, `…Transport`, `…TwoEchelon`, `…Jade`). Out of
+scope for a spec repair; the spec routes around it via the Optimization Parameters tab and says so
+in place, so the bug is not silently re-encoded as expected behaviour.
+
+**CI e2e is now BLOCKING** (`continue-on-error: false`), at the user's instruction. This is the gate
+`docs/superpowers/gates/spec_gap.md` proposed, for a cause that has now recurred four times
+(bundle6.1, the OBS-3-audit block, workspace-fixups-2, ch5-editable) — always the same way: a UI
+contract changes, the unit suites stay green because Playwright specs are not in
+`pnpm --filter studio test`, and a sibling spec nobody looked at goes red. The job comment now also
+records the rule that a genuinely environment-blocked spec must be skipped CONDITIONALLY on its
+missing env var, never by reintroducing `continue-on-error`, which un-gates every other spec at the
+same time.
+
+`VITE_POSTHOG_KEY` / `VITE_SENTRY_DSN` are wired into the e2e job's **studio** env (Vite inlines
+`VITE_*` at BUILD time — setting them on the Playwright step would do nothing). **Product-owner
+decision: supply them as repository secrets** rather than conditionally skipping those two specs.
+Until they exist the e2e job is red, and that was chosen knowingly. Point them at a TEST PostHog
+project and a TEST Sentry DSN — this fires on every push, and CI traffic in a production analytics
+project is indistinguishable from real user traffic after the fact.
+
+**Gate:** typecheck clean. Both repaired specs pass (`jade-two-echelon` 2/2 in 14.2s,
+`workspace-fixups-2` JADE case 2/2 in 15.3s). Full local `e2e:gate`: **54 passed / 4 unexpected / 6
+flaky / 0 skipped** in 44.3 min. The 0 skipped is itself the unlock's confirmation — those were the
+JADE skips. Of the 4: `posthog-analytics` + `sentry-capture` are the secrets above;
+`chen-bands-units-qa` + `delivery-teaching` both passed **9/9 in 58s re-run alone**, so both are the
+documented load-flake class and `delivery-teaching.spec.ts` is now named in CLAUDE.md's flake list.
+
+**Worth knowing for every future gate reading:** the console summary prints only "N failed" and
+folds the 6 retried-and-passed tests away entirely. `e2e/report/results.json`'s
+`stats.unexpected` / `stats.flaky` is the honest source — 4 vs 10 is the difference between "two
+noisy specs" and "a suite where 16% of tests are load-sensitive".
