@@ -45,8 +45,8 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`) | L583 |
 | Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`) | L770 |
 | Chapter 4 UX fixes — output lock, editable solve dialog, solve overlay (`CH4UX-1`–`CH4UX-8`) | L1007 |
-| Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L1257 |
-| Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1374 |
+| Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L1314 |
+| Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1431 |
 
 ---
 
@@ -1254,6 +1254,63 @@ Per the spec's §0, recorded here so the reversal is findable from either end:
 - **Nothing typechecks `e2e/`.** `artifacts/studio/tsconfig.json` is `"include": ["src/**/*"]` and
   there is no linter over the directory, so every spec is reviewed rather than compiler-checked.
 
+---
+
+## 2026-09-30 — Postgres role investigation: Path A done, Path B closed won't-do
+
+Triggered by the CH4UX harness-retro permission audit, which fired its gate on 13 risky
+grants. Seven embedded a **live production Postgres password** for `nos_postgres_user`
+in `.claude/settings.local.json`. Verified never committed (`git log --all -S` empty; the
+file is gitignored and untracked) but confirmed still valid against production.
+
+**Path A — executed, user-approved.** `ALTER ROLE nos_postgres_user WITH PASSWORD '<new
+random 40-char>'`, the new password deliberately not retained. Verified three ways: the
+leaked credential now fails auth, the new one succeeds, and `/api/healthz` stayed
+`{"status":"ok","db":"ok"}` throughout — no redeploy needed, because `nos-api`
+authenticates as `nos_postgres_user2`. The seven credential-bearing grants were then
+removed (backup taken first).
+
+**Path B — investigated, closed won't-do. The premise was wrong.** It was filed to migrate
+object ownership to `nos_postgres_user2` and retire the old role, on the reading that "old
+role owns everything, new role owns nothing" was leftover drift. It is not drift. Render
+provisions a **login-shim pair**:
+
+```
+pg_db_role_setting:  nos_postgres_user2 | ALL DBS | {role=nos_postgres_user}
+observed:            session_user=nos_postgres_user2   current_user=nos_postgres_user
+```
+
+`user2` is the credential Render hands out; it assumes the owner role on connect, so
+everything it creates is owned by `nos_postgres_user` **by design**. That single fact
+explains all three "symptoms": the old role owning all 21 public objects plus the `public`
+schema, the tables' `<no explicit ACL>`, and `user2`'s membership in the old role.
+
+Retiring the old role is therefore wrong rather than merely risky. `DROP ROLE` breaks every
+`user2` connection (its `role=` default points at the dropped role), and `REASSIGN OWNED`
+*creates* the ownership split it appears to fix, because new objects keep landing on the old
+role via that same default. The distilled rule is now in `CLAUDE.md`'s Gotchas.
+
+No structural change was made: Path A altered a password and nothing else. A pre-flight
+`pg_dump` snapshot was taken before any Path B attempt and no `REASSIGN`/`REVOKE`/`DROP`
+ever ran — a rolled-back dry run was prepared and then cancelled once the `role=` finding
+landed.
+
+**Process note.** An earlier turn in this investigation reported "Render's External URL
+connects as the old role" after reading only `current_user`. `session_user` had been
+selected in the same query and dropped from the output. The user corrected it; the two
+differ precisely because of the shim. Read both role identities before concluding anything
+about which principal a connection is using.
+
+**Left open, deliberately:** the `DEFAULT PRIVILEGES` granting future objects to
+`nos_postgres_user` are owned by the `postgres` superuser and changeable by neither role.
+Under the shim model that is correct, not a defect. Worth one confirming question to Render
+support rather than any action.
+
+**One loose end created:** rotating a Render-managed role's password out-of-band desyncs
+anything Render may store for it. Every signal says Render's canonical credential is `user2`
+(external URL, `databaseUser`, the `fromDatabase` `connectionString`, and a healthy
+`nos-api`), so nothing appears to depend on the old role's password — and a Dashboard reset
+recovers it if something does.
 ## Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)
 
 The `ch5-del-1`–`ch5-del-13` entry above (and its whole-branch-review amendment) covers the FIRST
