@@ -101,10 +101,15 @@ const DELIVERY_INPUTS = {
 };
 
 // The six models with NO step concept — the negative half of assertion 1
-// and the whole of assertion 2. two-echelon-jade-us is locked
-// (capabilities.locked) — unlocked for this file's duration below, same
-// posture as routes.test.ts's own ch4-lock comment, so "locked" doesn't
-// silently turn this into vacuous coverage.
+// and the whole of assertion 2. The `setLockedModelsForTests([])` below is
+// now belt-and-braces: as of ch9-unlock (2026-09-30) NO model carries
+// `capabilities.locked`, so nothing here would 403 even without it. It is
+// kept anyway — this file's whole point is that a model cannot silently drop
+// out of the negative half, and a future migration quiesce (ch4-lock's Stage
+// A is the pattern) locking one of these six would do exactly that, turning
+// real coverage into a 403 nobody reads. `lockedChapterDrift.test.ts` is
+// what pins the "nothing is locked today" claim; this line makes that claim
+// irrelevant to this file either way.
 const NON_STEP_MODELS: Array<{ modelId: string; inputs: Record<string, unknown> }> = [
   { modelId: "p-median-us", inputs: PMEDIAN_INPUTS },
   { modelId: "p-median-brazil", inputs: PMEDIAN_INPUTS },

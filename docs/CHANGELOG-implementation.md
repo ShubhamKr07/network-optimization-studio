@@ -1758,11 +1758,12 @@ so each one was repointed at a synthetic lock rather than deleted.
 a visible contract two prior bundles hard-code): `bundle4-auth-landing.spec.ts` (link present, inert
 wrapper and Locked badge absent) and `bundle6-ui-tweaks.spec.ts` (Chapter 9 is a visible link). Not
 executed — `pnpm e2e:gate` needs local servers and is not part of this gate. Separately, the ch4-lock
-entry's list of **8 specs broken because their subject was locked** is now fully unblocked: the
+entry's list of specs broken *because their subject was locked* is now fully unblocked: the
 JADE-focused ones (`jade-two-echelon`, `jade-ch9-workspace-bundle`, `workspace-fixups`,
 `workspace-fixups-2`, `nonjade-servicestats-live-coverage`) can run again, and
 `e2e/helpers/modelLock.ts` self-adjusts (it reads the live manifest). Whether they still pass against
-current HEAD is untested here.
+current HEAD is untested here. That entry calls it "8 specs"; the real count of spec FILES is **7** —
+see the review note at the end of this entry, `chens-cosmetics` is not a file that exists.
 
 **Gate:** typecheck clean · api-server **1638/1640** · studio **2218/2221** · solver pytest
 **312/312**. The 5 failures are all on the documented load-flake list and all in files this branch
@@ -1780,3 +1781,37 @@ regression, and it looks alarming — pass `DATABASE_URL` inline as CLAUDE.md's 
 **Product state after this branch:** every chapter registered in `CHAPTERS` is open. Chapters 5
 (transport, brazil) and 10 (gold-refinery) remain `hiddenFromLanding`, which is a different thing
 from locked — they are reachable by direct route, just not advertised on the grid.
+
+**Whole-branch review (independent model, adversarial brief): Ready to merge, 0 Critical.** It
+re-derived every claim above from the diff rather than accepting it, empirically reproduced the
+`Landing.lockedRendering.test.tsx` mutation check (3 of 5 fail on `locked: false`), ran the
+`routes.test.ts` lock describe (22/22) and the drift test (4/4), and confirmed by direct search that
+no `.py` file under `artifacts/api-server/src/solver/**` or `solvers/**` reads `capabilities.locked`
+— which is what makes the `e2e_accuracy.py` skip legitimate rather than merely convenient. Both
+Important findings were stale *premises left elsewhere in the repo*, not defects in the change; both
+are folded into this same branch (second commit):
+
+- `crossModelStepContract.test.ts` asserted in a comment that JADE "is locked (`capabilities.locked`)"
+  and cited `routes.test.ts`'s comment — which this branch had just rewritten to say the opposite.
+  Reworded: its `setLockedModelsForTests([])` is now belt-and-braces (nothing is locked), kept
+  deliberately so a future quiesce locking one of those six models cannot silently turn real coverage
+  into an unread 403.
+- **`scripts/measurement/{seed-cohort,prepare-cache,load-driver}.mjs` excluded JADE on the stated
+  grounds that it is a locked chapter (403) and therefore "correctly out of the student-facing HTTP
+  load cohort." That premise died with this branch** — and the scripts are in no `pnpm` gate, so
+  nothing would ever have gone red. The cohort itself was **deliberately NOT changed**: editing it
+  silently would change what the capacity model measures, and that is the MP-1 run-setup decision the
+  measurement plan already reserves (its "Locked-model measurement" step), not a mechanical follow-on
+  from an unlock. The comments now say so explicitly, so the standing tail-under-weighting caveat is
+  no longer misread as prod-parity. **Open follow-up for MP-1: re-decide the cohort now that students
+  can actually submit jade's ~13s tail.**
+
+Two Minor items also folded: `docs/ops/e2e-stale-specs.md` described the `modelLock.ts` self-healing
+skip in the present tense as guarding "the locked JADE chapter" (the helper now resolves *unlocked*
+and the specs it guards run); and the "8 specs" accounting inherited from the ch4-lock entry names a
+`chens-cosmetics` spec that **does not exist in the tree** — the Chen-focused spec is
+`chen-bands-units-qa.spec.ts`. The count of genuinely unblocked spec FILES is therefore 7, not 8; the
+figure was carried forward uncorrected from the ch4-lock/ch4-unlock era and is corrected here rather
+than in those entries (append-only, hard rule #9). The remaining Minor — the drift test's
+now-vacuous "every locked chapter is still a registered route" case — is disclosed in the test's own
+comment as intentional and was left as is.

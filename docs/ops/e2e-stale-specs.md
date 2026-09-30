@@ -78,7 +78,9 @@ not "fix" them in a spec, and do not tag them `@flaky`: they fail deterministica
 
 Flipping `continue-on-error` to `false` requires one of: adding those two secrets; a `test.skip()`
 conditioned on the env var being absent (the self-healing pattern
-`artifacts/studio/e2e/helpers/modelLock.ts` already uses for the locked JADE chapter); or a decision
+`artifacts/studio/e2e/helpers/modelLock.ts` already uses — it was written for the then-locked JADE
+chapter, which reopened at ch9-unlock on 2026-09-30, so the helper now resolves "unlocked" and the
+specs it guards run; the pattern itself is unchanged and re-arms if a chapter is locked again); or a decision
 to accept them as permanently red.
 
 ### One half of the repair mandate was NOT done — recorded, not hidden
