@@ -47,6 +47,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 UX fixes — output lock, editable solve dialog, solve overlay (`CH4UX-1`–`CH4UX-8`) | L1007 |
 | Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test | L1314 |
 | Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1431 |
+| Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`) | L1554 |
 
 ---
 
@@ -1547,3 +1548,114 @@ DB schema change was needed (zero-migration guarantee intact). `validation/input
 touched, per the brief's explicit instruction (a concurrent dispatch owns it this same branch).
 
 Commit: `[ch5-edit-11] support warehouse and customer CSV export/import for delivery`.
+
+---
+
+## Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`, 2026-09-30)
+
+Closeout for the `ch5-edit-0`–`ch5-edit-12` line, merged to `origin/main` as `fda2ee7` and live on
+both Render services. Metrics: `tasks.csv` row `ch5-editable` (18 dispatch cycles, 882 wallclock
+min, 4 e2e runs); three `failures.csv` rows (`flaky_test`, `spec_gap`, `merge_conflict`), each
+pointing at an already-drafted gate. **The permissions row is deliberately absent, not zero** — see
+the last section.
+
+This entry exists because the execution ledger (`.superpowers/sdd/progress.md`, 953 lines) is
+gitignored scratch and dies with its worktree. The outcomes are already recorded above; what
+follows is the part that would otherwise be lost.
+
+### The single recurring defect: assertions that could not fail
+
+**Ten of this branch's findings were tests, checks or claims that no possible implementation could
+have made red.** Not a coincidence — a pattern worth naming, because every implementation on this
+branch was sound on first or second pass while the things *verifying* them repeatedly were not.
+
+1. **A golden numerically identical to its baseline.** The §14 demand-override golden targeted `C1`.
+   Every one of the 33 warehouses sits at distance `0.0` from some customer, and `C1` is co-located
+   with `W1` (both Los Angeles) — so scaling `C1`'s demand leaves the objective unchanged to the last
+   digit. A test asserting that objective passes with demand overrides **ignored entirely**. Re-pinned
+   on `C10` (nearest warehouse 59.2 mi): objective +1,003,105,680.90, weighted average −27.2568 mi.
+   `C1` kept as `G1b`, labelled non-discriminating.
+2. **A metric claim that was arithmetically impossible.** The spec and plan both said exclusion and
+   zero demand "produce genuinely different metrics". Measured, they are **identical to the digit** on
+   objective, open set, weighted average and all four band percentages — for a co-located customer and
+   a non-co-located one alike, because a zero-demand customer contributes `0` to the numerator *and*
+   the denominator exactly as an absent one does. The planned test asserting the averages differ would
+   have **failed against a correct solver**. The real distinction is membership: 313 assignments
+   versus 312. Corrected in §14.3, §14.6, the plan's Global Constraints, and the solver tests.
+3. **A band-sum assertion that cannot hold.** Band rows are cumulative (`if d <= b`) and the overflow
+   row is exclusive, so for bands `[100, 200]` they sum to `100 + P≤100`, never 100. The plan asserted
+   100.
+4. **A parity test comparing only `required`.** `deliveryContract.test.ts` checked the manifest's
+   `inputsSchema` against the Zod schema by comparing `required` keys — and both new override arrays
+   are optional on both sides, so the manifest shipped without them while the test passed. Now compares
+   the full property key set; **mutation-verified** by deleting a key and watching 2 tests go red.
+5. **A map handler wired to an empty function.** `PMEDIAN_MAP_READONLY_NOOP` received every status and
+   demand edit. The decisive detail: when the noop wiring was restored as a mutation, the
+   component-level suite stayed **13/13 green** — it supplies its own `onInputsChange` and never renders
+   `Workspace.tsx`, so it is *structurally incapable* of catching this class. Only a Workspace-level
+   integration test caught it.
+6. **A test title naming a symbol it never imported.** `modelIdSetEquality.test.ts`'s title claimed
+   `KNOWN_SCHEMAS`; the body asserted `KNOWN_MODEL_IDS`. Then the "fix" asserted
+   `Object.keys(KNOWN_SCHEMAS)` — which `modelRegistry.ts:48` *defines* `KNOWN_MODEL_IDS` as, making
+   the new assertion tautological too. Removed; the `solve.py` dispatcher half was kept as genuine
+   coverage (mutation-verified both ways).
+7. **An e2e spec depending on a default it never asserted** (`bundle6.1-legend-distances`,
+   `workspace-ux-r1-r9`) — see the `spec_gap` row.
+8. **A `ps` count that always included its own wrapper.** The "require 0 concurrent vitest" rule this
+   branch added to CLAUDE.md used a command matching the agent's own `zsh -c` wrapper, reporting 2 when
+   the answer was 0 — an unsatisfiable gate, authored by the controller.
+9. **A server check that proved only that a port answered.** `curl /api/health → 401` was reported as
+   "both servers verified up". They belonged to a *different worktree's* session;
+   `/api/dataset?modelId=delivery-teaching-us` returned `400 Unknown modelId`. Found by an implementer
+   via `lsof`, not by the controller.
+10. **A gate criterion comparing failure NAMES, not reasons** — see the `spec_gap` row.
+
+**Standing remedy, adopted mid-branch and worth keeping:** every task brief from Task 4 onward told
+the implementer that the controller mutation-tests the tests, and asked them to break their own work
+deliberately and report which tests caught it. Tasks 1 and 2 each needed a fix round; Tasks 3, 4, 5,
+7, 8 came back clean on first review. Mutation results also revealed *shared-code blast radius* that
+a pass/fail count hides — dropping `status` on CSV import reddened a pre-existing max-coverage test;
+accepting an unknown id reddened 8 pre-existing tests across other models.
+
+### Counting a shared symbol is harder than it looks
+
+`sizeByDemand`'s site count was stated **four times before it was right**: 4 (plan), 9 (review), 15
+(fold), and finally **14 lines carrying 18 literals** across three files. Two distinct errors
+compounded: the four `useState` initializers hardcode `sizeByDemand: true`, so no `?? true` fallback
+ever evaluates in a mounted component — the review's proposed fix of flipping only the fallbacks
+would have changed **nothing at all**, not the checkbox and not the markers; and the four
+`LayerCheckbox` lines carry two literals each, which is the line-vs-literal conflation behind the
+9-vs-15 gap. Lesson: for a shared symbol, state exact lines plus a verifying command, never a total
+someone must re-derive. Task 0's consumer census (count first, mismatch is a stop-and-report) exists
+for this and found three capability-flag sites the plan had missed.
+
+### Controller errors worth keeping
+
+Recorded because they are the reusable part, and all five were caught by implementers or by measuring
+rather than by review prose: (1) the non-discriminating server check, item 9 above; (2) the
+miscounting `ps` command, item 8; (3) **three agents dispatched into one worktree in parallel** —
+disjoint files but a shared index, where `AGENTS.md` prescribes pre-created locked worktrees per task;
+no damage only because all three staged by explicit path after a mid-flight warning; (4) a changelog
+conflict resolver matching a bare seven-equals prefix, which also matches markdown setext heading
+underlines — it **corrupted the file while reporting success**, and the correct redo revealed two
+conflict regions rather than one; (5) a consumer census whose own output named a stale fixture the
+controller then omitted from the plan.
+
+### Deliberately not done
+
+- **`permissions.csv` has no `ch5-editable` row.** `harness:permissions` resolves
+  `.claude/settings.local.json` against the cwd; run from a worktree it reads an empty allow-list and
+  writes `0 risky`, which is indistinguishable in the CSV from a clean audit. `ch5-delivery`'s earlier
+  row is already annotated INVALID for exactly this. An absent row is honest where a zeroed one is
+  not — "never fabricate a metric". Needs one run from the shared checkout, alongside re-running
+  `ch5-delivery`'s.
+- **`solve_jobs.queuedAt`/`startedAt` are timezone-naive** `timestamp` columns (no `withTimezone`).
+  Locally every displayed solve time was wrong by the session offset (7h). Pre-existing, affects all
+  models, **unverified against the production Postgres**. Found incidentally during QA.
+- **Infeasible reporting is now truthful in the data and on the Output Map** (`ch5-edit-12` gates the
+  overlay on `hasIncumbent`), but `SolveDialog` still treats an infeasible solve as a succeeded job and
+  auto-navigates. Left as-is: pre-existing, all models.
+
+Commits: `dbf3418`…`fda2ee7`. Merged `fda2ee7`; `nos-api` `dep-dau7efdg1s2s73bosk4g`, `nos-studio`
+`dep-dau7ege0tbcc739tpc30`, both live, both manually triggered — **autoDeploy did not fire** despite
+`autoDeployTrigger: commit`, 75s after the push.
