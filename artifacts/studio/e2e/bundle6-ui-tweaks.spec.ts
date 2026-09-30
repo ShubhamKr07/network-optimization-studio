@@ -293,15 +293,16 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
 
       // T5 item 8 — no transport-coal/p-median-brazil (Chapter 5, retired)
       // card; Chapter 3, Chapter 4, and delivery-teaching-us (Chapter 5,
-      // Ch.5 modified) are visible links. Chapter 9 (JADE) is visible but
-      // ch4-lock makes it an inert "locked" wrapper, not a link. Chapter 10
-      // stays hiddenFromLanding entirely (a different thing from locked) —
-      // see bundle4-auth-landing.spec.ts's matching baseline assertions.
+      // Ch.5 modified) are visible links. Chapter 9 (JADE) is a visible link
+      // too as of ch9-unlock (2026-09-30), which reopened the last chapter
+      // ch4-lock had withheld. Chapter 10 stays hiddenFromLanding entirely (a
+      // different thing from locked) — see bundle4-auth-landing.spec.ts's
+      // matching baseline assertions.
       await expect(page.getByTestId("link-/chapter-3")).toBeVisible();
       await expect(page.getByTestId("link-/chapter-4")).toBeVisible();
       await expect(page.getByTestId("link-/chapter-5/delivery")).toBeVisible();
-      await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(0);
-      await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(1);
+      await expect(page.getByTestId("link-/chapter-9/jade")).toBeVisible();
+      await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(0);
       for (const path of ["/chapter-10/gold-refinery", "/chapter-5/transport", "/chapter-5/brazil"]) {
         await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);
       }

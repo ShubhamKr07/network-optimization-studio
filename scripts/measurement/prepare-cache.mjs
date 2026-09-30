@@ -11,8 +11,11 @@
 //   - COLD (distinct, ~20%): unique never-solved inputs → cache miss.
 //   - BURST: N copies of one cold input (one hash), verified absent → the run's
 //     synchronized cold-identical burst.
-// all-JADE cold set (Step 4b) is DEFERRED: jade is a locked chapter (403) — an
-// MP-1 decision (drop the all-JADE profile, or unlock on the isolated env).
+// all-JADE cold set (Step 4b) is DEFERRED. The original reason was that jade was
+// a locked chapter (403); that stopped being true at ch9-unlock (2026-09-30), so
+// the deferral now rests only on the MP-1 decision already taken (Option 1 — drop
+// the all-JADE profile), NOT on any server-side block. Revisit at MP-1 if the
+// heavy tail is to be represented — see seed-cohort.mjs's cohort comment.
 //
 // Verification uses result_cache row counts + by-construction novelty (cold/near
 // inputs are never solved here and are structurally distinct from hits, so their

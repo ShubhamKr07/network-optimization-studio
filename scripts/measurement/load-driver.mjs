@@ -9,8 +9,9 @@
 // (recorded, NOT retried, counted in offered load but not success — M3.3 Step 4).
 //
 // Profiles: representative_sustained (open-loop). ui_faithful / cold_identical_burst
-// / all_jade are separate profiles (ui_faithful is closed-loop; all_jade is locked-
-// chapter-blocked). This build implements representative_sustained + a short
+// / all_jade are separate profiles (ui_faithful is closed-loop; all_jade was
+// locked-chapter-blocked until ch9-unlock (2026-09-30) and is now dropped by the
+// MP-1 Option-1 decision instead). This build implements representative_sustained + a short
 // exploratory (authoritative=false) shakedown; the authoritative 3h run is gated
 // on MP-1 (M3.3b) and must not start before the ratified SLO commit exists.
 //

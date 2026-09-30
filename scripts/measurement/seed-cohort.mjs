@@ -39,13 +39,24 @@ const BANDS = [200, 400, 800, 1600];
 // M3.2/M3.3 vary these into the 20/60/20 cache classes. Fields verified against
 // artifacts/api-server/src/validation/inputs/*.ts.
 function loadFixtures() {
-  // Only the 4 UNLOCKED models — two-echelon-jade-us (Ch9) and chens-cosmetics-cn
-  // (Ch4) are locked chapters (capabilities.locked → 403 on every scenario route),
-  // withheld from students, so they are correctly out of the student-facing HTTP
-  // load cohort. Caveat: jade (the heaviest, ~13s p95) is excluded, so this load
-  // under-weights the tail vs the full-corpus (Phase 1/2) capacity model — noted
-  // for MP-1 (whether to unlock on the isolated env for a fuller load is a run-setup
-  // decision, and would diverge from the pinned app_sha).
+  // 4 of the 7 models. The original rationale was that two-echelon-jade-us (Ch9)
+  // and chens-cosmetics-cn (Ch4) were LOCKED chapters (capabilities.locked → 403
+  // on every scenario route), so they were correctly out of a student-facing HTTP
+  // load cohort.
+  //
+  // THAT PREMISE IS NO LONGER TRUE. Ch4 reopened as max-coverage-us (ch4-unlock,
+  // 2026-09-26) and Ch9 reopened (ch9-unlock, 2026-09-30); no model is locked
+  // today. This list was deliberately left UNCHANGED at ch9-unlock — editing the
+  // cohort silently would change what the capacity model is measuring, and that
+  // is the MP-1 run-setup decision the plan already reserves ("Locked-model
+  // measurement" step in 2026-09-22-scnd-measurement-plan.md), not a mechanical
+  // follow-on from an unlock.
+  //
+  // So the standing caveat now has a DIFFERENT cause and must not be read as
+  // prod-parity any more: jade (the heaviest, ~13s p95) is still excluded, so
+  // this load still under-weights the tail vs the full-corpus (Phase 1/2)
+  // capacity model — but students CAN now submit it. Re-decide at MP-1 before
+  // quoting any tail number from a run using this cohort.
   return [
     { modelId: "p-median-us", inputs: { p: 4, capacityMode: "none", distanceBands: BANDS, gap: 0, timeLimitSec: 60 } },
     { modelId: "p-median-brazil", inputs: { p: 4, capacityMode: "none", distanceBands: BANDS, gap: 0, timeLimitSec: 60 } },

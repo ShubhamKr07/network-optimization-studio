@@ -53,8 +53,10 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     // Chapter 5, but neither contributes to the strip) and two-echelon-gold-au
     // (Chapter 10) stays hiddenFromLanding too. Chapter 4 (max-coverage-us) is
     // unlocked and visible, delivery-teaching-us (Chapter 5, Ch.5 modified) is
-    // visible, and Chapter 9 (JADE) is visible (locked, but still shown), so
-    // the strip shows Chapter 3, Chapter 4, Chapter 5, then Chapter 9.
+    // visible, and Chapter 9 (JADE) is visible and — as of ch9-unlock —
+    // unlocked, so the strip shows Chapter 3, Chapter 4, Chapter 5, then
+    // Chapter 9. (The strip is derived from visibility alone; the lock never
+    // affected it either way.)
     await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9");
 
     const credit = page.getByTestId("auth-credit");
@@ -131,13 +133,13 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     // The delivery-teaching-us card is visible too (not locked, not hidden).
     await expect(page.getByTestId("landing-card-delivery-teaching-us")).toBeVisible();
 
-    // ch4-lock — Chapter 9 (JADE) is still present (unhidden) but LOCKED, so
-    // it is no longer a link: assert the inert wrapper instead. Chapter 10,
-    // transport-coal, and p-median-brazil remain hidden entirely (a
-    // different thing from locked).
-    await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(0);
-    await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(1);
-    await expect(page.getByTestId("landing-card-locked-two-echelon-jade-us")).toHaveCount(1);
+    // ch9-unlock (2026-09-30) — Chapter 9 (JADE) was locked by ch4-lock and
+    // is reopened: it is a real link again, with no inert wrapper and no
+    // Locked badge. Chapter 10, transport-coal, and p-median-brazil remain
+    // hidden entirely (a different thing from locked).
+    await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(1);
+    await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(0);
+    await expect(page.getByTestId("landing-card-locked-two-echelon-jade-us")).toHaveCount(0);
     const hiddenChapterPaths = ["/chapter-10/gold-refinery", "/chapter-5/transport", "/chapter-5/brazil"];
     for (const path of hiddenChapterPaths) {
       await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);

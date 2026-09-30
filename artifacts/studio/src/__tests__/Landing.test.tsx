@@ -56,13 +56,11 @@ describe("Landing", () => {
     expect(screen.queryByTestId("locked-/chapter-4")).not.toBeInTheDocument();
     // ch4-mig-8 — the cutover's real US copy, not the retired China title.
     expect(screen.getByText(/Al's Athletics — Max Coverage/)).toBeInTheDocument();
-    // Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still renders, but
-    // it is LOCKED: the card is no longer wrapped in a <Link>, so there is
-    // no href to follow at all. Asserted as the absence of the link plus the
-    // presence of the inert wrapper, so this can't pass by the card having
-    // merely disappeared.
-    expect(screen.queryByTestId("link-/chapter-9/jade")).not.toBeInTheDocument();
-    expect(screen.getByTestId("locked-/chapter-9/jade")).toBeInTheDocument();
+    // ch9-unlock (2026-09-30) — Chapter 9 (JADE) was locked by ch4-lock and
+    // is reopened here. Pinned POSITIVELY (real href, no inert wrapper) so a
+    // half-applied unlock fails rather than merely shrinking a list.
+    expect(screen.getByTestId("link-/chapter-9/jade")).toHaveAttribute("href", "/chapter-9/jade");
+    expect(screen.queryByTestId("locked-/chapter-9/jade")).not.toBeInTheDocument();
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
     // Chapter 10 is now hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
@@ -403,56 +401,38 @@ describe("Landing — live summary (T4)", () => {
   });
 });
 
-// Chapter 9 is greyed out and locked on Landing. These pin the three things
-// that make the lock real rather than cosmetic: the card is inert (no
-// <Link>/href), it is visibly greyed, and it still RENDERS (a lock is not the
-// same as hiding, which `hiddenFromLanding` already does for Chapters 5 and
-// 10).
+// Every visible chapter is unlocked as of ch9-unlock (2026-09-30), so this
+// file pins the OPEN state of each one. Chapter 4 left the locked table on
+// 2026-09-26 (ch4-unlock), was relocked as Stage A of the dataset migration
+// (MIG-16), and reopened as max-coverage-us in that cutover (ch4-mig-4,
+// Step 8b); Chapter 9 (JADE) was the last locked chapter and is reopened
+// here.
 //
-// Chapter 4 was in this table until 2026-09-26, was relocked as Stage A of
-// the dataset migration (MIG-16), and is reopened as max-coverage-us in this
-// cutover (ch4-mig-4, Step 8b) — its new manifest carries no `locked` key.
-// The "leaves unlocked chapters untouched" case below asserts its link is
-// back, so the unlock is pinned positively rather than only by this table
-// shrinking.
-describe("Landing — locked chapters", () => {
-  const LOCKED: Array<[string, string, RegExp]> = [
-    ["two-echelon-jade-us", "/chapter-9/jade", /JADE Network/],
-  ];
-
-  it.each(LOCKED)("%s renders but is not a link", (modelId, path, titleRe) => {
-    renderLanding();
-    expect(screen.getByText(titleRe)).toBeInTheDocument();
-    expect(screen.queryByTestId(`link-${path}`)).not.toBeInTheDocument();
-    expect(screen.getByTestId(`locked-${path}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`landing-card-${modelId}`)).toHaveAttribute("data-locked", "true");
-  });
-
-  it.each(LOCKED)("%s is visibly greyed and shows a Locked badge", (modelId) => {
-    renderLanding();
-    expect(screen.getByTestId(`landing-card-${modelId}`).className).toContain("opacity-60");
-    expect(screen.getByTestId(`landing-card-locked-${modelId}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`landing-card-footer-${modelId}`)).toHaveTextContent("locked");
-  });
-
+// Landing's locked-card RENDERING is still real code and still tested — see
+// `Landing.lockedRendering.test.tsx`, which mocks `@/lib/chapters` to supply
+// a synthetic locked chapter. It lives in its own file because `vi.mock` is
+// file-wide: mocking CHAPTERS here would falsify every other case above.
+describe("Landing — every chapter is unlocked", () => {
   it.each([
     ["p-median-us", "/chapter-3"],
     ["max-coverage-us", "/chapter-4"],
+    ["two-echelon-jade-us", "/chapter-9/jade"],
   ])("leaves %s unlocked — it keeps its link and shows no lock badge", (modelId, path) => {
     renderLanding();
     expect(screen.getByTestId(`link-${path}`)).toHaveAttribute("href", path);
     expect(screen.queryByTestId(`locked-${path}`)).not.toBeInTheDocument();
     expect(screen.queryByTestId(`landing-card-locked-${modelId}`)).not.toBeInTheDocument();
     expect(screen.getByTestId(`landing-card-${modelId}`)).not.toHaveAttribute("data-locked");
+    expect(screen.getByTestId(`landing-card-${modelId}`).className).not.toContain("opacity-60");
   });
 });
 
-describe("Landing — locked chapters in Recent solves (ch4-lock)", () => {
-  // The lock must hold on BOTH entry points. A locked card beside a clickable
-  // history row into the same chapter would make the rule look arbitrary
-  // rather than absent. The row still renders — it is the student's own
-  // solve history, and hiding it would misreport what they did.
-  it("renders a locked chapter's solve row but strips its link", () => {
+describe("Landing — Recent solves links into every chapter (ch9-unlock)", () => {
+  // The unlock must hold on BOTH entry points — card AND history row. A
+  // greyed card beside a clickable history row (or the reverse) is how the
+  // ch4-lock pair was written to fail loudly, so the unlock is asserted on
+  // both here too.
+  it("links a JADE solve row now that Chapter 9 is unlocked", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 20, scenarioId: 7, scenarioName: "JADE Base", modelId: "two-echelon-jade-us",
@@ -462,8 +442,8 @@ describe("Landing — locked chapters in Recent solves (ch4-lock)", () => {
     });
     renderLanding();
     expect(screen.getByText("JADE Base")).toBeInTheDocument();
-    expect(screen.queryByTestId("link-solve-history-20")).not.toBeInTheDocument();
-    expect(screen.getByTestId("locked-solve-history-20")).toBeInTheDocument();
+    expect(screen.getByTestId("link-solve-history-20")).toHaveAttribute("href", "/chapter-9/jade?scenario=7");
+    expect(screen.queryByTestId("locked-solve-history-20")).not.toBeInTheDocument();
   });
 
   it("still links an unlocked chapter's solve row (no collateral damage)", () => {

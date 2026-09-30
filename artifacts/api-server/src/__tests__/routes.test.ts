@@ -4000,14 +4000,24 @@ describe("transport scenario — field serialization", () => {
 // holds: no client, however crafted, can reach a locked model's data.
 // ---------------------------------------------------------------------------
 describe("locked models (ch4-lock)", () => {
-  // Chapter 4 (chens-cosmetics-cn, later renamed max-coverage-us in this
-  // migration) was the original subject here, was unlocked on 2026-09-26,
-  // then relocked during Stage A of the dataset migration, and is reopened
-  // (no `locked` key) as of this cutover (Step 8b). The stand-in deliberately
-  // moved to JADE rather than staying on this model via the test override:
-  // exercising the lock through a model that is NOT actually locked in the
-  // manifests would keep passing while reading as a claim about shipped
-  // behaviour that is false.
+  // ch9-unlock (2026-09-30) — NO model ships locked any more. Chapter 4
+  // (chens-cosmetics-cn, later max-coverage-us) was the original subject
+  // here, was unlocked on 2026-09-26, relocked for Stage A of the dataset
+  // migration, and reopened at that cutover (Step 8b); JADE took its place
+  // and is reopened here.
+  //
+  // So the subject below is now a SYNTHETIC lock, applied through
+  // `setLockedModelsForTests` — which is exactly what that seam exists for,
+  // and the only remaining way to exercise these paths at all. The previous
+  // revision of this comment warned against precisely that (a lock asserted
+  // through a model the manifests do not lock "reads as a claim about
+  // shipped behaviour that is false"); that warning is answered, not
+  // ignored, by the three manifest-truth tests immediately below, which
+  // clear the override and pin the real shipped set as EMPTY. The behaviour
+  // suite proves the guards work; those three prove nobody is behind them.
+  //
+  // JADE is kept as the stand-in only because its fixture row already exists
+  // here. Any model id would do — nothing about the lock is JADE-specific.
   const LOCKED_MODEL = "two-echelon-jade-us";
   const OPEN_MODEL = "p-median-us";
   // Every path below is built from this row's id rather than a literal, so
@@ -4025,14 +4035,25 @@ describe("locked models (ch4-lock)", () => {
     // what ships — not what a test happened to set.
     it("reports exactly the locked chapters, from the manifests", () => {
       setLockedModelsForTests(null);
-      // MIG-4/Step 8b: Stage D reopens Chapter 4 — max-coverage-us's manifest
-      // carries no `locked` key, so only JADE remains locked.
-      expect(lockedModelIds().sort()).toEqual(["two-echelon-jade-us"]);
+      // ch9-unlock: Chapter 9 (two-echelon-jade-us) was the last locked
+      // chapter and is now reopened, so no manifest carries `locked` and
+      // nothing is withheld from students. This is the server-side half of
+      // the same tripwire `lockedChapterDrift.test.ts` holds on the frontend
+      // — relocking a chapter has to be stated in both places.
+      expect(lockedModelIds().sort()).toEqual([]);
     });
 
     it("Stage D reopens Chapter 4 — max-coverage-us is not locked", () => {
       setLockedModelsForTests(null);
       expect(isModelLocked("max-coverage-us")).toBe(false);
+    });
+
+    it("ch9-unlock reopens Chapter 9 — two-echelon-jade-us is not locked", () => {
+      setLockedModelsForTests(null);
+      // Pinned POSITIVELY and by name, so a half-applied unlock (manifest
+      // edited, `chapters.ts` forgotten, or the reverse) fails here rather
+      // than only shrinking the list above.
+      expect(isModelLocked(LOCKED_MODEL)).toBe(false);
     });
 
     it("does not lock an open or unknown model", () => {
