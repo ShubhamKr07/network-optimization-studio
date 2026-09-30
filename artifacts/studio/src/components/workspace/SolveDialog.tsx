@@ -36,9 +36,13 @@ interface SolveDialogProps {
    * (p-median-us/brazil's static max). CH4UX-6: max-coverage-us used to pass
    * 26 here, but its Solve dialog renders the real parameter tab through
    * `paramsSlot`, so the built-in slider below never mounts for it and that
-   * arm was deleted at the call site. Like `showBandEditor`, this is now an
-   * opt-out seam no live caller exercises — Chapter 4's cap is declared once,
-   * on `OptimizationParametersTab`'s own `pMax`. */
+   * arm was deleted at the call site — max-coverage-us's cap is declared once,
+   * on `OptimizationParametersTab`'s own `pMax`, and is the `paramsSlot`
+   * exception that never reaches this prop. The merge with Chapter 5
+   * (`16021ec`) gave this prop a live caller again: `delivery-teaching-us`
+   * supplies no `paramsSlot`, so its built-in slider below DOES mount, and
+   * `Workspace.tsx` passes `33` here (validated server-side by
+   * `delivery.ts`'s `.max(33)`) to keep the two surfaces in agreement. */
   pMax?: number;
   gap: number;
   timeLimitSec: number;

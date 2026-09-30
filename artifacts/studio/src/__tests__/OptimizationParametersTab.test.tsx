@@ -606,6 +606,18 @@ describe("CH4UX-2 — instance namespacing", () => {
     avgServiceDistCapKm: 300,
     onServiceDistanceChange: vi.fn(),
     onChange: vi.fn(),
+    // whole-branch review, M2 — the merge (16021ec) namespaced Chapter 5's
+    // cost-adjust block (cost-adjust-section, button-adjust-cost-table,
+    // input-distance-threshold, input-cost-per-mile,
+    // input-cost-per-mile-over) by hand, but that block only renders its
+    // three numeric fields when `costAdjustEnabled` is true — the
+    // duplicate-id/duplicate-testid tests below (`renderTwoInstances`) never
+    // exercised them without these props, so the hand-applied namespacing
+    // had zero coverage.
+    costAdjustEnabled: true,
+    distanceThreshold: 800,
+    costPerMile: 1,
+    costPerMileOver: 10,
   };
 
   it("emits today's bare ids when no prefix is supplied", () => {

@@ -1219,6 +1219,25 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
       },
     });
   });
+
+  // whole-branch review, Important 2 — the merge (16021ec) hand-resolved a
+  // delete-hunk-vs-modify-hunk conflict onto exactly this line
+  // (`pMax={modelId === "delivery-teaching-us" ? 33 : undefined}` at the
+  // <SolveDialog> call site) with NO test on either branch protecting it:
+  // the Chen D27 pair only asserts max-coverage-us's cap, and MIG-8's source
+  // grep only matches `"max-coverage-us"`. Dropping this prop fails silent —
+  // no type error, no other red test — and a delivery student could drag P
+  // to the default max of 50 and get a server-side 400 from
+  // artifacts/api-server/src/validation/inputs/delivery.ts's `.max(33)`.
+  // Mutation-proven: deleting the `pMax` prop from the call site turns this
+  // red (aria-valuemax reverts to the unbounded-slider default) before being
+  // restored.
+  it("caps P at 33 in the Solve dialog's built-in slider for delivery-teaching-us (no paramsSlot, so the built-in slider mounts)", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "33");
+  });
 });
 
 describe("Workspace — Optimization Parameters tab", () => {

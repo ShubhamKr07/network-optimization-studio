@@ -1009,9 +1009,10 @@ Implements `docs/superpowers/specs/2026-09-29-ch4-ux-fixes-design.md` and its
 `docs/superpowers/plans/2026-09-29-ch4-ux-fixes.md` twin. Frontend only — the diff touches zero
 files under `artifacts/api-server/`, `lib/`, or `solvers/`, and no OpenAPI/DB/solver change.
 
-**NOT MERGED. This entry records the branch's verification state, and it is red:** Task 8's QA
-found a real, branch-introduced regression in CH4UX-1 (see "Open regression" below). The branch is
-not shippable as it stands.
+**Merged to `main` via `16021ec` (Chapter 5 integration merge).** Task 8's QA found a real,
+branch-introduced regression in CH4UX-1 — a non-deterministic cold-mount step re-target — which was
+fixed in `fa70517` before merge (see "Cold-mount regression, found and fixed" below). The gate,
+harness-retro rows (`1ab4214`), and the merge itself (`16021ec`) are recorded in the per-task table.
 
 ### What each task landed
 
@@ -1024,7 +1025,7 @@ not shippable as it stands.
 | CH4UX-5 | `09faa22` | New `SolveProgressOverlay` — a Radix `AlertDialog` (not `Dialog`, not a bare `fixed inset-0` div) owning `SolvePhase = idle\|saving\|solving\|failed`, with rotating quips (`lib/solveQuips.ts`) and the `useElapsed` clock. No cancel affordance: the API has no cancel endpoint, so offering one would be a lie. |
 | CH4UX-6 | `9def8b6`, `69b2d91`, `7030b51` | The lifecycle moved out of `SolveDialog` into the overlay for **every** registered model (enumerated from the manifests, never a hardcoded count); the dialog closes on submit; `solveInFlightRef` is the real single-entry lock (the spec's three-guard list does not hold within one synchronous tick); `onOpenAutoFocus`/`onCloseAutoFocus` pin focus on both edges. |
 | CH4UX-7 | `4619871`, `e8c55f1`, `795f8f8` | Seven e2e solve-completion waits re-pointed off the dialog's disappearance onto a durable per-run signal; new `e2e/solve-overlay-contract.spec.ts` (4 tests) makes modality, focus transitions and reduced motion deterministic by controlling the job response rather than racing CBC. |
-| CH4UX-8 | this commit | Gate, parent-baseline e2e comparison, real-browser QA, this entry. |
+| CH4UX-8 | `6c33024`, `fa70517`, `1ab4214`, `16021ec` | Gate, parent-baseline e2e comparison, real-browser QA, this entry (`6c33024`); the cold-mount regression fix (`fa70517`); harness-retro metrics/permissions rows (`1ab4214`); the merge of `origin/main`'s Chapter 5 (`ch5-delivery`) work into this branch, hand-resolving the delete-hunk-vs-modify-hunk conflict over `OptimizationParametersTab` (`16021ec`). |
 
 Plan/spec-only commits on the branch: `f4dc9b8`, `6f1099c`, `edb9cfd`, `b2117a2`, `ef723de`,
 `06b10f8`, `0c4c58c`, `8f9a657`, `e66121f`, `694a3a9`. `694a3a9` and `ef723de` also lifted the
@@ -1048,7 +1049,14 @@ several sibling worktrees' api-servers share `nos_dev` and steal each other's `s
   — **99/99 ✓ ALL PASS**. The solver is untouched by this branch; this run exists only to prove no
   accidental coupling, and it proves it.
 
-### e2e — measured against a real parent baseline, not against CI's red-but-non-blocking job
+### e2e — measured against a real parent baseline, not against CI's red-but-non-blocking job (pre-merge snapshot)
+
+**This comparison is a pre-merge baseline, taken before `fa70517` (the cold-mount fix), the
+`e2e-test-rot-repair` merge (`63713ba`), and the Chapter 5 merge (`16021ec`).** It is preserved
+below for the record of what CH4UX-7/8 actually measured at the time; it does not describe the
+branch's current state. In particular, `e2e/two-echelon.spec.ts` — one of the 13 "identical"
+hard failures counted here — was repaired on `main` by `c25112c` and merged in via `16021ec`; see
+"Known, not fixed by this branch" below for the corrected status.
 
 The CI e2e job carries `continue-on-error: true` over a documented red baseline, so a green required
 CI job proves nothing about browser acceptance. Both sides were therefore run as fully isolated
@@ -1081,11 +1089,11 @@ on both sides — `bundle2-fastfollow` (transport-coal marker fill), `design-sys
 So the gate comparison says **zero new failures**. That conclusion is true of the gate and
 insufficient as an acceptance signal — see below.
 
-### Open regression — CH4UX-1 re-targets `selectedStep` on cold load, non-deterministically
+### Cold-mount regression — CH4UX-1 re-targeted `selectedStep` on cold load, non-deterministically — found and fixed
 
-**Found by Task 8's QA, not by any suite. Not fixed. Blocking.**
+**Found by Task 8's QA, not by any suite. Fixed in `fa70517`, before merge.**
 
-`Workspace.tsx`'s new render-phase adjustment reads
+`Workspace.tsx`'s new render-phase adjustment read
 
 ```
 const prevScenarioIdRef = useRef(currentScenario?.id);
@@ -1118,14 +1126,25 @@ slower query ordering happened to land on Step 1, so the gate stayed green: `che
 16** isolated repeats on the branch against **0 of 7** on the parent, with a captured ARIA snapshot
 showing `2. Min Distance [pressed]` and `Not solved yet — Solve Step 2`.
 
-**Durable lesson (new bug class):** a green e2e gate can hide a real regression when the regression
-is a *race* — gate conditions (4 parallel workers, loaded machine) can systematically favour the
-passing branch of the race. An identity-level parent-vs-branch comparison is necessary but not
-sufficient; any test that newly becomes order/timing sensitive needs an isolated repeat count, not
-one gate run. Corollary for this specific shape: a `useRef(someAsyncValue)` "did it change?" guard
-fires spuriously on the first resolution, because the ref was seeded with the pre-resolution
-`undefined`. Seed such a ref with a sentinel and skip the first transition explicitly, or key the
-guard on a value that is stable from the first render.
+**The fix.** The code quoted above is superseded; the current guard
+(`Workspace.tsx`, around the `prevScenarioIdRef` block) seeds the ref from a fixed `undefined`
+sentinel rather than from `currentScenario?.id` (an asynchronously-resolved value), skips a `null`
+id outright instead of recording it, and only re-points the view when a *previously-recorded* id
+transitions to a different one — so first resolution of the initial scenario is never mistaken for
+a switch. Mutation-proven both ways (reverting the fix fails the new cold-mount unit test); a
+throwaway browser probe recorded `[2,2,2,2,2,1,2,2]` reverted vs `[1,1,1,1,1,1,1,1]` fixed across 8
+reloads, and `chen-bands-units-qa.spec.ts` went from 4/4 failing its post-reload read reverted to
+8/8 clean fixed. Full detail in `fa70517`'s commit message.
+
+**Durable lesson (new bug class), kept because it generalizes beyond this one fix:** a green e2e
+gate can hide a real regression when the regression is a *race* — gate conditions (4 parallel
+workers, loaded machine) can systematically favour the passing branch of the race. An
+identity-level parent-vs-branch comparison is necessary but not sufficient; any test that newly
+becomes order/timing sensitive needs an isolated repeat count, not one gate run. Corollary for this
+specific shape: a `useRef(someAsyncValue)` "did it change?" guard fires spuriously on the first
+resolution, because the ref was seeded with the pre-resolution `undefined`. Seed such a ref with a
+sentinel and skip the first transition explicitly, or key the guard on a value that is stable from
+the first render.
 
 ### Real-browser QA (Step 4) — 47/51 checks pass
 
@@ -1221,9 +1240,11 @@ Per the spec's §0, recorded here so the reversal is findable from either end:
 
 ### Known, not fixed by this branch
 
-- **`e2e/two-echelon.spec.ts` is dead against its own route.** `chapter-10` is `workspace: true`,
-  but the spec drives Studio-only ids (`button-solve`, `button-scenario-dropdown`, `status-badge`).
-  Broken long before this branch; it is one of the 13 identical failures on both sides above.
+- ~~`e2e/two-echelon.spec.ts` is dead against its own route~~ — **repaired.** It was one of the 13
+  identical pre-merge failures measured above (Studio-only ids against a `workspace: true` route),
+  but `main`'s `e2e-test-rot-repair` (`c25112c`) rewrote it onto the Workspace UI and it was pulled
+  into this branch by the `16021ec` merge. `rg -n 'status-badge|button-solve'
+  artifacts/studio/e2e/two-echelon.spec.ts` now returns nothing.
 - **`readSolvedAt` is copy-pasted into 7 spec files** (`bundle2-fastfollow`,
   `jade-ch9-workspace-bundle`, `jade-two-echelon`, `posthog-analytics`, `workspace-fixups`,
   `workspace-fixups-2`, `workspace-ux-r1-r9`). CH4UX-7 had to edit the same helper seven times.

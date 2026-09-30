@@ -167,8 +167,15 @@ export function SolveProgressOverlay({
         // re-enables it before this unmount effect runs — so by the time
         // `onCloseAutoFocus` fires, the trigger is already focusable.
         onCloseAutoFocus={e => {
+          // whole-branch review, M5 — only suppress Radix's own restore when
+          // the trigger is actually there to take focus. Unconditionally
+          // calling preventDefault() and then finding no node would strand
+          // focus on <body> with Radix's restore also suppressed — worse
+          // than doing nothing.
+          const trigger = document.querySelector<HTMLElement>('[data-testid="button-run-optimizer"]');
+          if (!trigger) return;
           e.preventDefault();
-          document.querySelector<HTMLElement>('[data-testid="button-run-optimizer"]')?.focus();
+          trigger.focus();
         }}
         // Radix fires this before any close attempt. Prevented while running
         // so Escape cannot dismiss a surface with no cancel behind it.

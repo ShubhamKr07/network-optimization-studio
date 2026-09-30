@@ -2962,6 +2962,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function enqueueSolve(scenarioId: number) {
     solveInFlightRef.current = true;
     setSolveError(null);
+    // whole-branch review, M3 — `handleSaveAsScenario` calls this function
+    // directly, bypassing `resetSolveState()`. Without clearing the previous
+    // job's frozen snapshot here too, the overlay's clock shows the PRIOR
+    // job's terminal elapsed time under "Solving…" for about one poll
+    // round-trip, until the first poll for the NEW job overwrites it.
+    setLastJobSnapshot(null);
     setSolvePhase("solving");
     solveScenario.mutate(
       { scenarioId },
