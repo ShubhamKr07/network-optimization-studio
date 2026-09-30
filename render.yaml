@@ -17,22 +17,36 @@ services:
     # long-running CBC solve has room to finish/interrupt cleanly before
     # SIGKILL. Below the 300s cap.
     maxShutdownDelaySeconds: 120
-    # A11 — suppresses auto-deploy on push while the R3 activation
-    # procedure runs (docs/ops/v2-write-activation.md), so committing the
-    # out-of-band SOLVER_V2_WRITE_ENABLED evidence record to Git cannot
-    # itself trigger a second, uncontrolled deploy. This Blueprint value is
-    # authoritative (the Dashboard is not used for this service), so the
-    # two can never diverge. Restored to the prior state (no line / "on")
-    # once the activation-evidence commit has landed — see the runbook's
-    # suppression procedure, step 5.
-    autoDeployTrigger: off
+    # CORRECTED 2026-09-30. This block previously read `autoDeployTrigger: off`
+    # with a comment asserting "this Blueprint value is authoritative (the
+    # Dashboard is not used for this service), so the two can never diverge."
+    # Both halves were false. The live service reports
+    # `autoDeploy: yes` / `autoDeployTrigger: commit`, i.e. the Dashboard IS
+    # used for this service and HAD diverged — the A11 suppression
+    # (docs/ops/v2-write-activation.md) was never restored here after the
+    # activation-evidence commit landed. Matching reality rather than
+    # re-asserting a claim the API contradicts.
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
+      # CORRECTED 2026-09-30 — was `fromDatabase: { name: nos-postgres,
+      # property: connectionString }`. Render's credential rotation created a
+      # new role (`nos_postgres_user2`, the old password is not retained), and
+      # after it the `fromDatabase` reference resolved to a malformed value:
+      # every new instance boot-aborted with
+      #   TypeError: Invalid URL  at pg-connection-string
+      #   [boot] initDispatcherForBoot failed — boot aborting (fail-closed)
+      # so `nos-api` could not deploy at all while the old instance kept
+      # serving on its warm pool. Fixed by setting DATABASE_URL explicitly in
+      # the Dashboard to the INTERNAL connection string for the rotated user.
+      #
+      # `sync: false` = Dashboard-managed, deliberately not stored here: it is
+      # a live credential, and this file is public. Do NOT restore the
+      # `fromDatabase` form without first confirming it resolves — that is the
+      # exact change that broke deploys.
       - key: DATABASE_URL
-        fromDatabase:
-          name: nos-postgres
-          property: connectionString
+        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: CORS_ALLOWED_ORIGIN
