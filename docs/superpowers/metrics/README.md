@@ -46,12 +46,24 @@ Both columns above are filled by a *later* retro pass, not by the task's own. Tw
 2026-10-01 (`HND-G`) because the column was being filled inconsistently and is therefore not
 currently comparable across rows:
 
-- **`reverted_within_7d` stays `unknown` until seven days have actually elapsed** since
-  `finished_at`. Writing `no` on day 1 is a claim about six days that have not happened yet — which
-  is an estimate, and the harness's governing rule forbids estimates (`CLAUDE.md`: an underivable
-  value is the literal string `unknown`, never an estimate). "Not reverted *so far*" is a different
-  measurement from the one this column names. A row whose window is still open needs a **second
-  pass** after it closes; that is the normal lifecycle of this field, not an omission.
+- **`reverted_within_7d` is a POINT-IN-TIME observation made at retro, not a closed-window verdict.
+  Fill it; do not leave it `unknown` waiting for seven days to pass.** It means: *as of the retro
+  run, `merged_sha` had not been reverted* — derived from `git log --grep=Revert` plus an
+  `--is-ancestor` check. `/harness-retro` step 5 is explicit that this is filled for tasks finished
+  in the **prior** 7 days, i.e. precisely while the window is still open, and it offers `unknown`
+  as an option for `escaped_defects` but deliberately **not** for this field.
+
+  (Recorded 2026-10-01 after getting this wrong in both directions. The first version of this rule
+  said to leave it `unknown` until the window closed, reasoning that `no` on day 1 claims unelapsed
+  time. That reasoning is not wrong about the column's *name* — but it inverted the skill without
+  amending it, so a reader of `SKILL.md` would fill the field and a reader of this file would not;
+  and it made the column **permanently unfillable**, because every retro run only ever sees
+  in-window tasks, so the "second pass" it prescribed had no owner, no step and no trigger. Eleven
+  existing rows were already filled under the point-in-time reading. Matching the skill keeps the
+  column uniform and immediately usable; the honest fix is this definition, not a deferral.)
+
+  What would make it genuinely underivable is a missing `merged_sha` — see the exception criterion
+  below.
 - **`escaped_defects` counts defects traced back to the task *after* it merged.** A defect found
   and fixed **inside** the branch, before merge, is not an escape — it never reached `main`, so
   nothing escaped. Worked example, since this was the ambiguous case that prompted the rule: CH4UX's
@@ -60,12 +72,19 @@ currently comparable across rows:
   automated suite is a **test-coverage** finding (and is recorded as one in `failures.csv`), not an
   escaped defect — don't conflate the two, or the column stops measuring what it says.
 
-**Known inconsistency, not corrected here:** `ch5-delivery` (finished 2026-09-29) and `ch5-editable`
-(2026-09-30) both carry `reverted_within_7d=no` although their windows were equally unelapsed when
-written, while `CH4UX` and `ch9-unlock` (both 2026-09-30) correctly carry `unknown`. Those rows are
-left as their own authors recorded them rather than rewritten by a later task; the discrepancy is
-noted here so nobody reads the column as uniform. **`CH4UX` and `ch9-unlock` both need their second
-pass on or after 2026-10-07.**
+**Exception criterion, stated rather than enumerated:** `reverted_within_7d` is only verifiable if
+the row has a `merged_sha` to check. **Five rows carry `finished_at=unknown`** (`jade-ch9`,
+`chapter-4-chens`, `jade-ch9-workspace`, `nonjade-servicestats-coverage`, `scnd-measurement`), so no
+window can even be computed for them; of those, **`scnd-measurement` also has
+`merged_sha=unknown`** — a revert verdict on a commit nobody recorded, which is the one genuinely
+unsupportable cell in the column. Those rows are left as their own authors wrote them rather than
+rewritten by a later task, which is the right default for an append-only store. Read the column as:
+trustworthy where `merged_sha` is known, unverifiable where it is not.
+
+(An earlier version of this note named only `ch5-delivery` and `ch5-editable` as "inconsistent" and
+concluded "so nobody reads the column as uniform" — a 2-of-7 list that misleads more than silence
+would, and which is moot anyway now that the point-in-time reading above makes those two rows
+correct. Replaced with the criterion.)
 
 ### `failures.csv` — one row per gate failure
 | column | meaning |

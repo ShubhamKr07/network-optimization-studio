@@ -61,22 +61,52 @@ risky/broad/ok + denials attributed to the task window). Weekly report → `repo
 - `pnpm docs:lint` — the proposed `doc_drift` gate (stale_reference only, exit non-zero). Runnable,
   **not** wired to CI yet.
 
-  **`stale_reference` has a large, known false-positive baseline — triage it against these three
-  classes before chasing anything.** Measured 2026-10-01 (`HND-G`, step 6): **84 hits, 0
-  actionable.** This is also the concrete reason the `doc_drift` gate stays deferred "until the
-  stale-ref baseline is clean" — the baseline is not dirty because the docs are wrong.
-  1. **Package-relative paths, resolved from the repo root.** The changelog writes paths as the
+  **`stale_reference` has a large, mostly-false-positive baseline. Triage against the classes
+  below — and quote a count only with the command that produced it.**
+
+  Measured 2026-10-01 on `--since <merge-base> --mechanical-only`: **117 `stale_reference`
+  findings**, across four *evidence kinds* (`referenced path does not exist` 87, `no matching
+  source` 21, `route not in openapi.yaml` 7, `pnpm script not found` 2). Nothing in that set was
+  actionable drift, but note that the total is configuration-dependent — a full scan is ~205, and
+  it drifts upward whenever a doc *quotes* a path, so **re-measure rather than reuse this figure.**
+  (An earlier revision of this section claimed "84 hits". That number came from a two-pattern
+  `grep` over the output, not from the audit's own finding count, and it is not reproducible under
+  any configuration — the same non-discriminating-check mistake this file warns about for
+  `ps aux | grep -c vitest`. Corrected rather than quietly dropped.)
+
+  1. **Glob, brace and placeholder paths the detector cannot expand — the actual bulk (55 of the
+     87 path hits).** `artifacts/api-server/src/{routes,services,validation,registry}/**`,
+     `docs/superpowers/specs/<date>-<feature>-design.md`, `docs/superpowers/gates/<cause>.md`,
+     `docs/superpowers/{specs,plans}/harness-self-monitoring.md`. The referents exist; the literal
+     string is not a path. Fixing the detector to skip tokens containing `*`, `{`, `<` would remove
+     the majority of this baseline at a stroke.
+  2. **Package-relative paths resolved from the repo root (~16).** The changelog writes paths as the
      package sees them (`e2e/labs.spec.ts`, `src/lib/chapters.ts`); the detector resolves from the
-     root and reports them missing. All four spot-checked exist under `artifacts/studio/`. This is
-     the bulk of the 84.
-  2. **`path:line` citations.** `lib/db/src/schema/solve_jobs.ts:134-136` is reported missing
-     because the detector does not strip the `:line-range` suffix — the file exists. Worth fixing in
-     the detector before the gate is enabled, since `path:line` is this repo's house citation style
-     and will keep manufacturing hits.
-  3. **Genuinely-removed routes in historical entries.** `POST /scenarios/:id/reset-to-baseline`,
-     `POST /scenarios/compare` and `POST /solve` really are absent from `openapi.yaml` (0 matches
-     each) — because they were removed or replaced (`POST /solve` → the async job API in G3.1). The
-     changelog is append-only and historically accurate; these are not drift to fix.
+     root. All spot-checked exist under `artifacts/studio/` — except `lib/normalizeEmail.ts`, which
+     is under `artifacts/api-server/src/`.
+  3. **`path:line` citations.** `lib/db/src/schema/solve_jobs.ts:134-136` is reported missing
+     because the detector tests the raw backticked token and the `:line-range` suffix fails its
+     extension check — the file exists. Worth fixing before the gate is enabled, since `path:line`
+     is this repo's house citation style.
+  4. **`no matching source` (21) — the Arcadia/gamification detector over-matching.** Its pattern
+     includes bare `badges?`/`quests?`, so `CLAUDE.md:175` is flagged purely for containing the
+     word *badge* in the staleness-badge gotcha. Not drift.
+  5. **Removed routes (7).** `POST /scenarios/:id/reset-to-baseline`, `POST /scenarios/compare` and
+     `POST /solve` are genuinely absent from `openapi.yaml` (0 matches each) — removed or replaced
+     (`POST /solve` → the async job API in G3.1). Six of the seven are in append-only history or in
+     this file's own examples. **The exception worth a real look: `CLAUDE.md:157` cites
+     `POST /login`, and `CLAUDE.md` is a live document, not an append-only record.**
+  6. **Build/test artifacts and removed directories.** `artifacts/studio/dist/public`, `e2e/.auth`,
+     `e2e/report`, `lib/datasets/`, `solvers/chens-cosmetics-cn/`.
+  7. **`pnpm script not found` (2).** `.claude/agents/devops-engineer.md:3,16` cite `pnpm audit` and
+     `pnpm update` — pnpm built-ins, not package scripts.
+
+  **Documenting examples here grows the baseline**: quoting those paths added 5 findings (full scan
+  200 → 205). That is a real cost of this section, and it is also why the `doc_drift` gate's
+  deferral condition is what `docs/superpowers/gates/doc_drift.md` actually says — *"enable
+  `docs:lint` in CI **after the first docs-audit PR merges** and cleans the real stale
+  references"* — not the looser "once the baseline is clean" paraphrase used elsewhere in this file.
+  Those PRs (#21, #13) are still open and unprocessed.
 
 **Gates:** the registration-points test (`registration.test.ts`, in the fast api-server gate) is
 live. Two proposed gates are **not enabled**: e2e-in-CI (**skipped** — no CI browser/app/seed infra),
