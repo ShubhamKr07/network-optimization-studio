@@ -14,6 +14,7 @@
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 const HEADER_TIMEOUT = 10_000;
 
@@ -55,12 +56,6 @@ async function solveViaApi(page: Page, id: number): Promise<void> {
  * DOM: `solvedAt` is written exactly once per successful publication
  * (`jobRunner.ts`'s scenario CAS), so a value different from the one
  * captured before the submit can only have been produced by THIS run. */
-async function readSolvedAt(page: Page, id: number): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 async function gotoScenario(page: Page, path: string, id: number): Promise<void> {
   await page.goto(`${path}?scenario=${id}`);
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });

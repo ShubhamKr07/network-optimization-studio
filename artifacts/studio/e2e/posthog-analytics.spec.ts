@@ -69,6 +69,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import zlib from "node:zlib";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -151,12 +152,6 @@ async function createPMedianScenario(page: Page): Promise<number> {
  * DOM: `solvedAt` is written exactly once per successful publication
  * (`jobRunner.ts`'s scenario CAS), so a value different from the one
  * captured before the submit can only have been produced by THIS run. */
-async function readSolvedAt(page: Page, id: number): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 test.describe("PostHog analytics — event capture + PII boundary", () => {
   test("fires 'solve triggered' on a real solve, and never leaks PII across any captured payload", async ({ page }) => {
     test.setTimeout(90_000);

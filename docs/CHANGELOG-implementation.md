@@ -52,6 +52,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`) | L1822 |
 | Solve clock showed "Solving 25200s" — `timestamp` → `timestamptz` (`HND-B`) | L1913 |
 | The e2e specs were in no tsc program at all (`HND-D`) | L2043 |
+| e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard (`HND-F`) | L2127 |
 
 ---
 
@@ -2120,3 +2121,57 @@ verified unchanged. **Open decision: whether `typecheck:e2e` joins the workspace
 CI).** It is green today, needs no browser or app infrastructure, and is the only thing standing
 between a re-signatured helper and an undetected break in a spec that cannot run — but enrolling it
 is a CI change, not this task's call.
+
+---
+
+## e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard recorded (`HND-F`)
+
+New `artifacts/studio/e2e/helpers/solvedAt.ts`. Seven byte-identical copies deleted, seven imports
+added, net −21 lines of duplication.
+
+**Measured topology before the change:** exactly 7 declarations — `bundle2-fastfollow`,
+`jade-ch9-workspace-bundle`, `jade-two-echelon`, `posthog-analytics`, `workspace-fixups`,
+`workspace-fixups-2`, `workspace-ux-r1-r9` — with identical four-line bodies differing only in the
+`id` parameter: **`string` in four, `number` in three, for the same route parameter.** That drift is
+the thing worth noticing: it is exactly the shape a shared helper forces into agreement, and it is
+what `CH4UX-7` left behind when it re-signatured these per-file. The helper takes `string | number`
+because both call styles are real and both interpolate identically.
+
+**The handover note said to extract this "next time this area is touched, not worth a dedicated churn
+commit." That condition had just been met** — `HND-D` put these files under a typecheck one commit
+earlier, which is what makes the refactor verifiable rather than hopeful. Demonstrated: deleting one
+of the seven new imports produces `TS2304 Cannot find name 'readSolvedAt'` at both of that file's
+call sites. Before `HND-D`, a missed import in any of these specs would have been invisible until the
+spec ran — and four of them are JADE specs that currently cannot run at all.
+
+Two things the extraction fixes beyond deduplication:
+- The copies read `(await resp.json()).solvedAt` off an implicit `any`, so a rename of that API field
+  would have been silent in all seven. The helper casts to `{ solvedAt?: string | null }` — narrow, so
+  it claims nothing about the rest of the payload. This is one instance of the uncast-`json()` hole
+  `HND-D`'s review catalogued as outside `tsc`'s reach.
+- The completion-signal rationale now lives in one place instead of nowhere: capture before
+  triggering and poll until the value *differs* (polling for non-null is wrong — an already-solved
+  scenario starts non-null), because the solve overlay is transient and `output-map-tab` is a false
+  positive when that tab was already open.
+
+**The hazard, recorded before it can bite rather than after.** `solvedAt` only advances when
+`jobRunner`'s publication CAS matches, and that `.where()` requires **both**
+`latestSolveJobId = jobId` **and** `solveInputRevision = enqueuedSolveInputRevision`
+(`jobRunner.ts:1481-1488`, verified by reading the predicate and the `succeeded-but-superseded` branch
+immediately below it). A solve that succeeds but has been superseded — newer solve enqueued, or
+inputs edited, while it ran — deliberately does not publish, so `solvedAt` is unchanged and a
+`readSolvedAt`-based wait hangs for the full `SOLVE_TIMEOUT` before failing **while looking like a
+solver timeout**. Unreachable today: every spec is sequential with one in-flight solve, and CH4UX-6's
+in-flight lock makes UI-driven overlap impossible. The first spec that drives two solves at once, or
+edits inputs mid-solve, hits it. The correct wait there is the specific job
+(`GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}` — plural segment, confirmed at
+`openapi.yaml:352`, reports a terminal status whether or not its result was published). Recorded in
+the helper's own header and distilled into `CLAUDE.md`'s Gotchas per hard rule #9.
+
+**Verification, and its honest limit:** `typecheck:e2e` clean, 0 declarations remaining, 7 importers,
+all 7 files' call sites resolving, and every file still genuinely using its `Page` import (checked,
+since `noUnusedLocals: false` would not have said). The specs were **not** executed — no local servers
+were running and starting them was not worth it, because the `./helpers/*` import pattern is already
+proven at runtime in this exact directory: `./helpers/modelLock` is imported by **four of these same
+seven specs** and those specs run. So the residual risk is import resolution under Playwright's
+esbuild loader for a pattern already in use beside it. Stated rather than papered over.

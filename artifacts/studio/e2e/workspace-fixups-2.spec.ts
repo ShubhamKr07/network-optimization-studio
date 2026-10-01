@@ -29,6 +29,7 @@
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { skipIfJadeLocked } from "./helpers/modelLock";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 // Same rationale as jade-ch9-workspace-bundle.spec.ts/workspace-fixups.spec.ts:
 // a plain `.click()`/`.hover()` with no explicit action timeout defaults to
@@ -76,12 +77,6 @@ async function expectNoAddedEntitiesTab(page: Page): Promise<void> {
  * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
  * different from the one captured before the submit can only have been
  * produced by THIS run. */
-async function readSolvedAt(page: Page, id: string): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 /**
  * CH4UX-7 — this helper's old completion signal was
  * `expect(solve-dialog).not.toBeVisible()`. The dialog now closes the instant
