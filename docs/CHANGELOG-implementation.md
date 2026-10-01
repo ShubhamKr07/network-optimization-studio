@@ -54,6 +54,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | The e2e specs were in no tsc program at all (`HND-D`) | L2043 |
 | e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard (`HND-F`) | L2128 |
 | harness-retro steps 5–7 for CH4UX (`HND-G`) | L2182 |
+| 2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`) | L2288 |
 
 ---
 
@@ -2281,3 +2282,75 @@ age 17 days. Both carry the `docs-audit` label; no other open PR does.
 **Left `unknown` on purpose:** `ch9-unlock`'s `escaped_defects`. It is in-window, but deciding it
 requires reading that task's own post-merge defect history, which belongs to its retro rather than
 to this one.
+
+---
+
+## 2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`)
+
+Destructive, human-approved, `pg_dump` taken first
+(`/tmp/nos_dev-pre-purge-20261001-234727.sql`, 16 MB, all three tables verified present). Production
+was **not** touched and, per the product owner, does not carry the same accumulation — so the
+prod-check half of this task is closed by decision, not by measurement.
+
+**The handed-over numbers had already moved, which is why the predicate was re-derived rather than
+reused.** The note said 1596 users / 1595 residue, measured 2026-09-30. Actual count on 2026-10-01
+was **2040** — this session's own api-server suites added ~444 while the task sat in the queue. The
+note also specified "six prefixes, not two". Re-deriving from data showed something simpler and
+safer: group by email shape and by domain, and the population is `@test.com` ×2020,
+`@example.test` ×12 (all `journey_test_`, from `e2e_journey.py`), `@example.com` ×7 (all
+`repro-`/`smoke+`/`diag`), and `@local` ×1 — **`seed@local`, the only real account**, holding 5
+scenarios. No prefix list needed for the one-time purge: keep `seed@local`, delete the rest.
+
+FK safety verified before executing, not assumed: exactly two FKs reference `users`
+(`scenarios.user_id`, `solve_jobs.user_id`), **both `NO ACTION`**, so a wrong delete order fails
+loudly rather than cascading. Zero cross-owner `solve_jobs` (a job whose scenario belongs to a
+different user), and all five of `seed`'s scenarios carry `result_run_id`/`latest_solve_job_id` =
+`null`, so no `ON DELETE SET NULL` side effect could reach its rows.
+
+Executed in one transaction, child-before-parent: **160 solve_jobs → 289 scenarios → 2039 users.**
+Verified from a fresh connection afterwards: 1 user (`seed@local`), 5 scenarios, 0 solve_jobs, 0
+orphaned scenarios, 0 orphaned jobs. `result_cache` deliberately untouched (402 rows) — it is keyed
+by inputs hash with no user column, so none of it was residue.
+
+**The leak is now closed, which was the half that mattered.** Specs register a fresh account per
+test for isolation and clean up their scenarios in a `finally`/`afterAll` but never their user,
+because Playwright has no database access and there is no self-delete endpoint. Two new pieces:
+
+- `scripts/src/purge-test-users.ts`, beside the other destructive-cleanup scripts and following
+  `migrate-delete-chens-scenarios.ts`'s shape (exported testable functions, a fresh re-count inside
+  the call so a stale confirmation cannot authorise a delete, FK-ordered transaction, dry-run by
+  default with `--execute` to apply).
+- `artifacts/studio/e2e/global.teardown.ts`, wired as the `chromium` project's `teardown`, so it
+  runs once after the suite **including when specs fail**.
+
+**The automated predicate is deliberately NOT the one-time predicate.** "Keep `seed@local`, delete
+everything else" is right for a known-dirty database with a human watching and wrong for a hook that
+fires unattended — it would delete a developer's own account. The script instead requires **both** a
+known test local-part prefix **and** a known test domain, minus a protected list. Falsified with
+planted decoys: `e2e-fake-…@test.com`, `journey_test_…@example.test` and `diag…@example.com` were
+deleted, while **`alice@test.com`** (test domain, human prefix), **`diagnostics@realcompany.com`**
+(test-ish prefix, real domain) and `seed@local` all survived — so both halves of the conjunction are
+load-bearing, not decoration. A second guard re-reads the protected ids and throws if any appears in
+the match set, so a later bad edit to the predicate fails instead of deleting.
+
+Also carries a hosted-database guard: the script refuses outright if `DATABASE_URL` matches
+`render.com|amazonaws.com|neon.tech|supabase.co`, because an unattended teardown should never be
+pointed at a hosted database however safe its predicate is.
+
+**Two deliberate non-obvious choices.** The teardown *shells out* rather than importing the logic,
+because `artifacts/studio` depends on neither `pg` nor `@workspace/db` and adding a database driver
+to the frontend package to tidy up after tests is the wrong trade. And it is **non-fatal**: a
+teardown that reds the suite because cleanup failed converts a hygiene problem into a broken gate
+and teaches everyone to ignore it, so it warns and returns — the accounts are untidy, not harmful,
+and the next run collects them. It also skips silently with no `DATABASE_URL`, the normal case when
+specs run against a deployed target.
+
+**One real bug, caught by running it rather than by typecheck.** The first version used
+`email LIKE ANY (<js array>)`; drizzle renders a JS array as a parenthesised parameter list — a ROW
+constructor `($1, $2, …)` — which Postgres rejects for `LIKE ANY`, since that wants a genuine array.
+The types are identical either way, so `tsc` was silent. Rewritten with `or(...)`/`like(...)`
+composition. Verified against drizzle-orm@0.45.2.
+
+End-to-end proof of the whole chain, not just the parts: planted `e2e-teardown-proof-1@test.com`,
+ran `playwright test --project=cleanup`, got `[teardown] Purged 1 test user(s)` with `seed@local` the
+sole survivor; and re-ran with `DATABASE_URL` unset to confirm the skip path logs and passes.

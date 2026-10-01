@@ -9,6 +9,7 @@
     "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
     "migrate-solve-input-revision": "tsx ./src/migrate-solve-input-revision.ts",
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
+    "purge-test-users": "tsx ./src/purge-test-users.ts",
     "harness:record": "tsx ./src/harness/record-task.ts",
     "harness:permissions": "tsx ./src/harness/audit-permissions.ts",
     "harness:permissions:capture": "tsx ./src/harness/permissions-capture.ts",
