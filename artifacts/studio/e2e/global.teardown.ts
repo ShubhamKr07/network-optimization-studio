@@ -30,28 +30,53 @@
  * against a deployed target from a machine with no database access.
  */
 import { test as teardown } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
+// The child must always be the thing that gives up first, so the two budgets
+// are ordered deliberately: Playwright 120s > child 45s. The first version had
+// them INVERTED (config's 30s default test timeout < a 60s child timeout) and
+// used `execFileSync`, which blocks the worker's event loop so Playwright's
+// timeout cannot even fire while it runs — the worker would block for the full
+// 60s and Playwright would then report a TIMED-OUT test, i.e. a red suite
+// caused by cleanup failing, which is exactly what "non-fatal" is supposed to
+// prevent, and which the try/catch cannot absorb because the failure is
+// Playwright's rather than the child's. Measured at ~1.0-1.2s against a clean
+// database, so it was latent — and a large residue backlog or a loaded machine
+// (this repo's documented load-flake class) is precisely when it would bite.
+const CHILD_TIMEOUT_MS = 45_000;
+const TEARDOWN_TIMEOUT_MS = 120_000;
+
 teardown("purge the accounts this run created", async () => {
+  teardown.setTimeout(TEARDOWN_TIMEOUT_MS);
+
   if (!process.env.DATABASE_URL) {
     console.log("[teardown] no DATABASE_URL — skipping test-user purge (specs ran against a remote target).");
     return;
   }
 
   try {
-    const out = execFileSync(
+    // One invocation path, via the package script, so the script name and this
+    // call site cannot drift apart.
+    const { stdout } = await execFileAsync(
       "pnpm",
-      ["--filter", "@workspace/scripts", "exec", "tsx", "src/purge-test-users.ts", "--execute"],
-      { cwd: REPO_ROOT, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] },
+      ["--silent", "--filter", "@workspace/scripts", "run", "purge-test-users", "--", "--execute"],
+      { cwd: REPO_ROOT, encoding: "utf8", timeout: CHILD_TIMEOUT_MS },
     );
-    console.log(`[teardown] ${out.trim()}`);
+    console.log(`[teardown] ${stdout.trim()}`);
   } catch (err) {
-    // Deliberately swallowed — see NON-FATAL above.
+    // Deliberately swallowed — see NON-FATAL above. Note the one case this
+    // cannot distinguish: if the child is killed after its COMMIT landed, the
+    // warning overstates the failure. The delete itself is still atomic — a
+    // killed connection rolls back an uncommitted transaction — so the
+    // database is never left half-purged either way.
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[teardown] test-user purge failed (non-fatal, next run will collect them): ${msg}`);
   }
