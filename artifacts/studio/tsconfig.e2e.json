@@ -4,8 +4,16 @@
   // '/e2e/'` returned 0 against 267 src files, this package had exactly one
   // tsconfig, and the workspace has no linter. Playwright's own loader is
   // esbuild transpile-only, so an arity or type error in a spec surfaced
-  // NOWHERE until that spec ran — and four JADE specs cannot currently run at
-  // all, which left their correctness resting on human review alone.
+  // NOWHERE until that spec ran.
+  //
+  // CORRECTED 2026-10-01: an earlier revision of this comment added "and four
+  // JADE specs cannot currently run at all, which left their correctness
+  // resting on human review alone." That was already FALSE when written —
+  // `90b2082` reopened Chapter 9 two merges earlier and no `solvers/*/
+  // manifest.json` carries a `locked` key, so `skipIfJadeLocked` is a no-op
+  // and those specs run. The justification for this config never depended on
+  // it: a spec that DOES run still only reports a type error at the moment it
+  // runs, and only for the paths that run.
   //
   // Separate from tsconfig.json rather than folded into its `include`, because
   // the two need different `types`: the app build must NOT see Playwright's
@@ -33,8 +41,8 @@
     // No `paths` override here on purpose. An earlier revision re-declared
     // `{"@/*": ["./src/*"]}` with a comment claiming specs import from the app
     // under `@/` "in a few places" — that was FALSE (`grep -rn '"@/' e2e/`
-    // returns nothing; the only relative imports are four `./helpers/modelLock`
-    // ones), and it was redundant anyway: `extends` already merges the base's
+    // returns nothing; every relative import under e2e/ resolves to
+    // `./helpers/*`), and it was redundant anyway: `extends` already merges the base's
     // identical `paths`, since both configs sit in this same directory so
     // relative resolution is unchanged. Confirmed via `tsc --showConfig`.
     // If a spec ever does need `@/`, it already resolves.

@@ -104,11 +104,6 @@ async function createJadeScenario(page: Page): Promise<string> {
   return id;
 }
 
-/** CH4UX-7 — the one durable per-run signal every solve helper in this file
- * anchors on. Read from the server, not the DOM: `solvedAt` is written
- * exactly once per successful publication (`jobRunner.ts`'s scenario CAS),
- * so a value different from the one captured before the submit can only
- * have been produced by THIS run. */
 /**
  * CH4UX-7 — the Solve dialog now closes the instant Solve is pressed, so its
  * disappearance is no longer a completion signal (it is true within

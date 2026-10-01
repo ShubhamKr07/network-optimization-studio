@@ -2126,8 +2126,11 @@ is a CI change, not this task's call.
 
 ## e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard recorded (`HND-F`)
 
-New `artifacts/studio/e2e/helpers/solvedAt.ts`. Seven byte-identical copies deleted, seven imports
-added, net −21 lines of duplication.
+New `artifacts/studio/e2e/helpers/solvedAt.ts`. Seven byte-identical declarations deleted (5 lines
+each = 35 removed), seven imports added, plus the seven now-orphaned doc comments the first pass
+left behind (see below). Diffstat for the spec files is **−35 before the comment cleanup**; an
+earlier draft of this entry said "net −21 lines of duplication" without stating its derivation, so
+the figure is replaced with the raw counts.
 
 **Measured topology before the change:** exactly 7 declarations — `bundle2-fastfollow`,
 `jade-ch9-workspace-bundle`, `jade-two-echelon`, `posthog-analytics`, `workspace-fixups`,
@@ -2141,18 +2144,40 @@ because both call styles are real and both interpolate identically.
 commit." That condition had just been met** — `HND-D` put these files under a typecheck one commit
 earlier, which is what makes the refactor verifiable rather than hopeful. Demonstrated: deleting one
 of the seven new imports produces `TS2304 Cannot find name 'readSolvedAt'` at both of that file's
-call sites. Before `HND-D`, a missed import in any of these specs would have been invisible until the
-spec ran — and four of them are JADE specs that currently cannot run at all.
+call sites. The whole-branch review went further and broke the helper's *signature* (adding a
+required third parameter): **all 7 files errored, 16 `TS2554`s**, which is the stronger
+demonstration. Before `HND-D`, a missed import in any of these specs would have been invisible until
+the spec ran.
+
+**Correction to this entry's first draft:** it added "and four of them are JADE specs that currently
+cannot run at all." **That was already false when written.** Chapter 9 was reopened two merges
+earlier (`90b2082`, "no chapter is locked any more"), no `solvers/*/manifest.json` carries a `locked`
+key, so `skipIfJadeLocked` is a no-op and those specs run — `a10acf5`'s own entry cites a 44.3-minute
+gate run with "0 skipped … the unlock's own confirmation". The claim was carried over from
+`HND-D`'s `tsconfig.e2e.json` header, which had the same staleness and is corrected in this commit
+too. The conclusion is unaffected: a spec that *does* run still only reports a type error at the
+moment it runs, and only along the paths that run.
 
 Two things the extraction fixes beyond deduplication:
 - The copies read `(await resp.json()).solvedAt` off an implicit `any`, so a rename of that API field
   would have been silent in all seven. The helper casts to `{ solvedAt?: string | null }` — narrow, so
   it claims nothing about the rest of the payload. This is one instance of the uncast-`json()` hole
   `HND-D`'s review catalogued as outside `tsc`'s reach.
-- The completion-signal rationale now lives in one place instead of nowhere: capture before
-  triggering and poll until the value *differs* (polling for non-null is wrong — an already-solved
-  scenario starts non-null), because the solve overlay is transient and `output-map-tab` is a false
-  positive when that tab was already open.
+- The completion-signal rationale now lives in **one** place: capture before triggering and poll
+  until the value *differs* (polling for non-null is wrong — an already-solved scenario starts
+  non-null), because the solve overlay is transient and `output-map-tab` is a false positive when
+  that tab was already open.
+
+  **The first pass made that claim false, and the review caught it.** The deletion took each
+  function body but **not** the doc comment above it, leaving seven orphaned JSDoc blocks — so the
+  rationale existed in 8 copies, up from 7. Worse, in two files the orphan then attached itself to
+  an unrelated declaration: in `workspace-ux-r1-r9.spec.ts` it documented **`gotoScenario`**, a
+  navigation helper, as "the durable per-run solve signal", and in `posthog-analytics.spec.ts` it
+  attached to a `test.describe`. All seven removed (33 comment lines, zero code lines — verified by
+  filtering the diff for non-comment removals). One nuance worth recording, because it nearly caused
+  an over-deletion: in five of the seven the *adjacent* block documents the file's own surviving
+  `solveAndWait`/`runOptimizerAndWait`/`solveAndObserveClock` and had to be kept; only the
+  `readSolvedAt`-specific block above it was the orphan.
 
 **The hazard, recorded before it can bite rather than after.** `solvedAt` only advances when
 `jobRunner`'s publication CAS matches, and that `.where()` requires **both**
@@ -2161,9 +2186,28 @@ Two things the extraction fixes beyond deduplication:
 immediately below it). A solve that succeeds but has been superseded — newer solve enqueued, or
 inputs edited, while it ran — deliberately does not publish, so `solvedAt` is unchanged and a
 `readSolvedAt`-based wait hangs for the full `SOLVE_TIMEOUT` before failing **while looking like a
-solver timeout**. Unreachable today: every spec is sequential with one in-flight solve, and CH4UX-6's
-in-flight lock makes UI-driven overlap impossible. The first spec that drives two solves at once, or
-edits inputs mid-solve, hits it. The correct wait there is the specific job
+solver timeout**.
+
+**Why it is unreachable today is NOT what the first draft said**, and the review was right to flag
+it, because this text became durable `CLAUDE.md` guidance. The draft said "every spec is sequential
+with one in-flight solve." `playwright.config.ts` sets `fullyParallel: false` but never sets
+`workers`, so Playwright defaults to ~half the cores and `fullyParallel: false` serialises only the
+tests *within* a file — **spec files run in parallel.** The real protection is that the CAS is
+per-scenario and every spec registers its own user and creates its own scenarios, so no two specs
+touch the same row. That distinction matters: a future spec that shares or seeds a fixed scenario id
+would be exposed while still satisfying "sequential". Likewise "CH4UX-6's in-flight lock makes
+UI-driven overlap impossible" was an absolute the source declines to make —
+`src/pages/Workspace.tsx:3050-3059` records that `enqueueSolve` has a second caller
+(`handleSaveAsScenario`) which does not re-run the guard, closing with "Do not read this comment as
+'the enqueue helper is single-entry' — it is not." That path creates *separate* scenarios, so the
+conclusion survives; the reasoning did not. The first spec that drives two solves against **one**
+scenario, or edits inputs mid-solve, hits this.
+
+A second non-publication mode is also recorded in the helper for completeness: `enqueueSolveJob`
+(`jobRunner.ts:342`) passes `enqueuedSolveInputRevision: null`, which the CAS turns into
+`sql`false``, so a job enqueued through that primitive never publishes at all — no concurrency
+needed. Intended and documented at the call site, and reachable only from in-process callers, never
+the HTTP path a spec drives. The correct wait there is the specific job
 (`GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}` — plural segment, confirmed at
 `openapi.yaml:352`, reports a terminal status whether or not its result was published). Recorded in
 the helper's own header and distilled into `CLAUDE.md`'s Gotchas per hard rule #9.

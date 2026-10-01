@@ -148,10 +148,6 @@ async function createPMedianScenario(page: Page): Promise<number> {
   return (await resp.json()).id as number;
 }
 
-/** CH4UX-7 — the durable per-run solve signal. Read from the server, not the
- * DOM: `solvedAt` is written exactly once per successful publication
- * (`jobRunner.ts`'s scenario CAS), so a value different from the one
- * captured before the submit can only have been produced by THIS run. */
 test.describe("PostHog analytics — event capture + PII boundary", () => {
   test("fires 'solve triggered' on a real solve, and never leaks PII across any captured payload", async ({ page }) => {
     test.setTimeout(90_000);

@@ -52,10 +52,6 @@ async function solveViaApi(page: Page, id: number): Promise<void> {
   throw new Error(`solve job ${jobId} did not complete in time`);
 }
 
-/** CH4UX-7 — the durable per-run solve signal. Read from the server, not the
- * DOM: `solvedAt` is written exactly once per successful publication
- * (`jobRunner.ts`'s scenario CAS), so a value different from the one
- * captured before the submit can only have been produced by THIS run. */
 async function gotoScenario(page: Page, path: string, id: number): Promise<void> {
   await page.goto(`${path}?scenario=${id}`);
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
