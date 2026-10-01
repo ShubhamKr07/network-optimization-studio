@@ -2354,3 +2354,71 @@ composition. Verified against drizzle-orm@0.45.2.
 End-to-end proof of the whole chain, not just the parts: planted `e2e-teardown-proof-1@test.com`,
 ran `playwright test --project=cleanup`, got `[teardown] Purged 1 test user(s)` with `seed@local` the
 sole survivor; and re-ran with `DATABASE_URL` unset to confirm the skip path logs and passes.
+
+### `HND-A` whole-branch review — one Critical, folded before push
+
+**CRITICAL: the hosted-database guard did not match this repo's own production connection string.**
+It was a denylist, `/render\.com|amazonaws\.com|neon\.tech|supabase\.co/i`. `render.yaml:41-42`
+records that `nos-api`'s `DATABASE_URL` was set in the Dashboard to Render's **INTERNAL** connection
+string, whose host is the bare instance id with no domain suffix
+(`…@dpg-d9hg4bmpbkes73a0j6l0-a/nos_postgres`). Measured: the regex **refuses** the external URL and
+**proceeds** on the internal one production actually uses. It also missed Supabase's
+`…pooler.supabase.com` (only `.co` was listed) and Neon's `.build` hosts. Exploitability was low —
+the internal host resolves only inside Render's private network, so neither a laptop nor GitHub
+Actions can reach it — but the guard's whole job was to refuse rather than trust the predicate, and
+against the real string it refused nothing.
+
+Replaced with an **allowlist** (`localhost`/`127.0.0.1`/`::1`, plus an opt-in `PURGE_ALLOW_HOST`
+escape hatch), and moved out of the CLI block into `purgeTestUsers()` so an importer cannot bypass
+it. A provider denylist loses this race permanently: it has to enumerate every hostname anyone might
+ever deploy to.
+
+**Cross-ownership pre-flight added.** The review proved two reachable states, both bad in ways the
+delete would not report: a `solve_jobs` row owned by a *surviving* user but attached to a matched
+user's scenario aborts the whole transaction on the FK (correct — nothing orphaned — but the
+teardown swallows it, so every later run silently deletes nothing); and a surviving user's scenario
+pointing at a matched user's job gets its `result_run_id`/`latest_solve_job_id` **silently nulled**
+by the `ON DELETE SET NULL` FK while the log reports only deletions. Production cannot produce
+either (`enqueueScenarioSolve` locks an ownership-filtered scenario and stamps that same user), but
+`enqueueSolveJob` takes the two ids independently and several api-server suites insert jobs with
+hand-chosen ids against this same database. Zero instances existed at the one-time purge. Both are
+now asserted before the transaction and throw with the offending ids.
+
+**Timeout ordering was inverted, which broke the "non-fatal" promise.** The config's 30s default test
+timeout sat *below* the teardown's own 60s child timeout, and `execFileSync` blocks the worker's
+event loop — so Playwright's timeout could not fire, the worker would block the full 60s, and
+Playwright would report a **timed-out test**: a red suite caused by cleanup failing, which the
+`try/catch` cannot absorb because the failure is Playwright's, not the child's. Measured at
+~1.0–1.2s against a clean database, so latent rather than live — and a large backlog or a loaded
+machine is exactly when it would bite. Now `teardown.setTimeout(120_000)` with a 45s child timeout
+and async `execFile`, so the child always gives up first.
+
+**The predicate now has a test** (`scripts/src/__tests__/purgeTestUsers.test.ts`, 10 cases, real
+Postgres, `pt-`-prefixed rows removed in `afterEach`). The commit claimed to follow
+`migrate-delete-chens-scenarios.ts`'s shape, but that script's shape includes a test file and this
+one had none — the decoy falsification was manual and one-off, on code that deletes rows unattended
+after every e2e run. The suite pins the internal-Render regression, both halves of the conjunction,
+the protected list, and the two edge cases the review found: **uppercase addresses were not matched
+at all** (Postgres `LIKE` is case-sensitive, so `E2E-Foo@TEST.COM` would have accumulated forever
+while the script reported success) and **`_` in `journey_test_` was an unescaped single-character
+wildcard** (it also matched `journeyXtestY-1@test.com`). Both fixed by folding `lower()` on both
+sides and escaping `%`/`_`/`\`.
+
+**I reproduced my own documented bug one function away from its own warning.** The new
+under-collection reporter was written as `id <> ALL (${ids})` — the exact drizzle row-constructor
+mistake the comment immediately above it describes. Rewritten with the query builder. That is the
+clearest possible argument for the test file.
+
+Smaller items folded: an empty `PROTECTED_EMAILS` now throws instead of silently disabling both
+guards (`notInArray(col, [])` renders `and true`); the script reports accounts sitting on a test
+domain that match **no** known prefix, so a suite adopting a new shape is visible instead of
+silently uncollected; and the teardown invokes the package script rather than the file path, so the
+two cannot drift.
+
+**Open, and it bears on a decision already taken: `scripts/src/deploy/smoke.ts:141-142` records that
+a production smoke run left `smoke+dercom-90367@example.com` on PRODUCTION on 2026-09-21,
+unnoticed.** That is `smoke+` × `example.com` — both halves of this predicate. Production was
+declared clear of this accumulation by the product owner and that decision stands as recorded, but
+the repo's own code documents at least one leaked account there, and the smoke runner has no
+deletion endpoint to tidy up with. Surfaced rather than acted on; any production cleanup remains a
+separate, explicitly-approved operation.
