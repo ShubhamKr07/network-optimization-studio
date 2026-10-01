@@ -17,6 +17,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { skipIfJadeLocked } from "./helpers/modelLock";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 // Bounds every action (click/fill/hover/etc — NOT `expect()` assertions,
 // which have their own separate default) to a real, diagnosable failure
@@ -105,12 +106,6 @@ async function createJadeScenario(page: Page): Promise<number> {
  * successful publication (`jobRunner.ts`'s scenario CAS), so a value
  * different from the one captured before the submit can only have been
  * produced by THIS run. */
-async function readSolvedAt(page: Page, id: number): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 /**
  * Opens the Run Optimizer dialog, triggers Solve, makes a best-effort
  * attempt to observe the live clock reach the "Queued Xs · Solving Ys" split

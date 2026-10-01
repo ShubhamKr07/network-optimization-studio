@@ -32,6 +32,7 @@
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { skipIfJadeLocked } from "./helpers/modelLock";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 // Same rationale as jade-ch9-workspace-bundle.spec.ts: a plain `.click()`
 // with no explicit action timeout defaults to the whole TEST timeout, so an
@@ -108,12 +109,6 @@ async function createJadeScenario(page: Page): Promise<string> {
  * exactly once per successful publication (`jobRunner.ts`'s scenario CAS),
  * so a value different from the one captured before the submit can only
  * have been produced by THIS run. */
-async function readSolvedAt(page: Page, id: string): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 /**
  * CH4UX-7 — the Solve dialog now closes the instant Solve is pressed, so its
  * disappearance is no longer a completion signal (it is true within

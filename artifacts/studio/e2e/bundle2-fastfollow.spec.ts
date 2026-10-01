@@ -19,6 +19,7 @@
  * — see CLAUDE.md's "labs.spec.ts is stale" gotcha for the run recipe.
  */
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import { readSolvedAt } from "./helpers/solvedAt";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -76,12 +77,6 @@ async function saveAndWait(page: Page): Promise<void> {
  * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
  * different from the one captured before the submit can only have been
  * produced by THIS run. */
-async function readSolvedAt(page: Page, id: string): Promise<string | null> {
-  const resp = await page.request.get(`/api/scenarios/${id}`);
-  expect(resp.status()).toBe(200);
-  return (await resp.json()).solvedAt ?? null;
-}
-
 /**
  * CH4UX-7 — the old wait was `sidebar-output-output-map` becoming enabled.
  * That row ungates on the FIRST solved result and never re-disables, so it
