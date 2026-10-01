@@ -70,7 +70,7 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
       // scenario route (routes/scenarios.ts's PATCH handler). NOT
       // inputsUpdatedAt — that field is what isStale() compares against
       // solvedAt, and a bands-only change must not flip `stale`.
-      updatedAt: new Date(),
+      updatedAt: sql`now()`,
     })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();

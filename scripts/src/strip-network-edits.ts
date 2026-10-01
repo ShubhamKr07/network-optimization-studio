@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, pool, scenariosTable } from "@workspace/db";
 
 // SCN v0.3 Phase B — B7.1: rollback strip script (DD-8's "antidote packaged
@@ -80,7 +80,12 @@ export async function run(options: { dryRun: boolean }): Promise<StripSummary> {
     await db.update(scenariosTable)
       .set({
         inputs: stripNetworkEdits(row.inputs),
-        inputsUpdatedAt: new Date(),
+        // HND-B — DB clock, like every other writer of this column. The intent
+        // here IS to stale the scenario (that is the point of the strip), so
+        // the app clock would have been harmless — but `inputs_updated_at` is
+        // one side of `isStale()`'s no-tolerance comparison, and "both sides
+        // come from now()" is only a usable invariant if it has no exceptions.
+        inputsUpdatedAt: sql`now()`,
       })
       .where(eq(scenariosTable.id, row.id));
   }

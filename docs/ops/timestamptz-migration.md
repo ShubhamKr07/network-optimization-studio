@@ -32,10 +32,13 @@ skew (new Date() − now()) = 25200 s
 only when the database happens to run in UTC — which is exactly why this can
 pass in CI and fail on a developer machine or a Pacific-region database.
 
-**In the data, not just in theory:** of 160 `solve_jobs` rows in `nos_dev`,
-**131 had `finished_at − started_at` = exactly `25200`**, with another 14 within
-a minute of it. Queue waits (`started_at − queued_at`) were a sane 0–2s, because
-*both* of those columns were written DB-side and the error cancelled.
+**In the data, not just in theory:** of 160 `solve_jobs` rows in `nos_dev` with
+both timestamps, **131 had `finished_at − started_at` rounding to `25200` s** and
+**155 were within a minute of it** (min 961.9 s, max 25420.0 s). No row is
+*exactly* 25200 — the real solve duration rides on top of the offset, which is
+why the figure is a rounding, not an equality. Queue waits
+(`started_at − queued_at`) were a sane 0–2 s, because *both* of those columns were
+written DB-side and the error cancelled.
 
 Three consequences, in descending order of how much they mattered:
 
@@ -68,9 +71,15 @@ dangerous rather than merely wrong.
 | `scenarios` | `solved_at`, `inputs_updated_at`, `created_at`, `updated_at` |
 | `result_cache` | `created_at` |
 
-**`session.expire` is deliberately excluded.** That table belongs to
-`connect-pg-simple`, which writes it directly on its own schema assumptions;
-changing its type is a separate decision with its own compatibility question.
+**`sessions.expire` is deliberately excluded — because the table is dead, not
+because anything depends on its type.** `lib/db/src/schema/auth.ts:4` already
+marks it unused; it has zero writers, zero readers and 0 rows. Converting a table
+slated for removal buys nothing. (An earlier revision of this document claimed
+`connect-pg-simple` owns and writes that table. **That was fabricated** —
+neither `connect-pg-simple` nor `express-session` is a dependency of this repo:
+0 occurrences in `pnpm-lock.yaml`, absent from `node_modules`. Auth is a
+stateless signed cookie, `routes/auth.ts:77`.)
+
 `users.created_at`/`updated_at` were already `timestamptz` (`auth.ts:22-23`) —
 the precedent this migration follows.
 
@@ -83,6 +92,57 @@ timestamptz` has no `USING` clause, so Postgres interprets each existing naked
 value in the **session's** time zone. On a Pacific session that shifts every
 stored row by 7 hours — the opposite of the chosen policy below. Run this script
 first; afterwards `push` sees no difference and is safe again.
+
+> ### ⚠️ RUN THIS ONCE. It is NOT idempotent.
+>
+> Running the conversion a second time **silently shifts every value by the
+> session's UTC offset again** — no error, no warning. Measured on a temp table
+> with an `America/Los_Angeles` session:
+>
+> ```
+> start        = 2026-10-01 07:00:00      (naked)
+> after pass 1 = 2026-10-01 00:00:00-07   = 07:00 UTC   ← wall-clock preserved ✓
+> after pass 2 = 2026-10-01 07:00:00-07   = 14:00 UTC   ← shifted 7h ✗
+> ```
+>
+> Cause: on an already-`timestamptz` column, `v AT TIME ZONE 'UTC'` yields a
+> *naked* `timestamp` holding the UTC wall-clock, and the implicit cast back to
+> `timestamptz` re-interprets that in the session zone. The rollback has the
+> same hazard in the opposite direction.
+>
+> This is easy to trigger for real: a doubled paste, a partially-failed run, or
+> a second operator following this same document. And it would be hard to
+> notice, because the no-backfill policy below already says historical values
+> are untrustworthy.
+>
+> **Precondition: the verification query must show all ten columns as
+> `timestamp without time zone`. If any one already reads `with time zone`,
+> STOP — do not run this.** Or use the self-guarding form below, which checks
+> per column and is safe to re-run.
+
+The guarded form. Converts only columns that are still naked, so a second run is
+a no-op:
+
+```sql
+DO $$ DECLARE c record; BEGIN
+  FOR c IN SELECT * FROM (VALUES
+      ('solve_jobs','queued_at'),('solve_jobs','started_at'),('solve_jobs','finished_at'),
+      ('solve_jobs','claimed_at'),('solve_jobs','owner_heartbeat_at'),
+      ('scenarios','solved_at'),('scenarios','inputs_updated_at'),
+      ('scenarios','created_at'),('scenarios','updated_at'),
+      ('result_cache','created_at')) AS t(tbl,col) LOOP
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name=c.tbl AND column_name=c.col)
+       = 'timestamp without time zone' THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE timestamptz USING %I AT TIME ZONE ''UTC''',
+                     c.tbl, c.col, c.col);
+      RAISE NOTICE 'converted %.%', c.tbl, c.col;
+    END IF;
+  END LOOP; END $$;
+```
+
+The plain form, for reference — equivalent on a fully-naked database, and what
+was actually run against `nos_dev`:
 
 ```sql
 BEGIN;
@@ -184,8 +244,33 @@ ALTER TABLE result_cache
 COMMIT;
 ```
 
-`AT TIME ZONE 'UTC'` on the way back too — it is the exact inverse, so the stored
-wall-clock is unchanged in both directions and the conversion is lossless.
+`AT TIME ZONE 'UTC'` on the way back too — it is the exact inverse, so one
+forward pass followed by one rollback pass returns the original value byte for
+byte (verified on a temp table).
+
+**"Lossless" is per pass, not per invocation.** The rollback carries the same
+non-idempotency as the forward migration: run it twice and every value shifts by
+the session offset in the other direction (`07:00` → `07:00` → `00:00`
+on a Pacific session). Same precondition — all ten columns must read
+`timestamp with time zone` before you run this. The guarded equivalent:
+
+```sql
+DO $$ DECLARE c record; BEGIN
+  FOR c IN SELECT * FROM (VALUES
+      ('solve_jobs','queued_at'),('solve_jobs','started_at'),('solve_jobs','finished_at'),
+      ('solve_jobs','claimed_at'),('solve_jobs','owner_heartbeat_at'),
+      ('scenarios','solved_at'),('scenarios','inputs_updated_at'),
+      ('scenarios','created_at'),('scenarios','updated_at'),
+      ('result_cache','created_at')) AS t(tbl,col) LOOP
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name=c.tbl AND column_name=c.col)
+       = 'timestamp with time zone' THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE timestamp USING %I AT TIME ZONE ''UTC''',
+                     c.tbl, c.col, c.col);
+      RAISE NOTICE 'reverted %.%', c.tbl, c.col;
+    END IF;
+  END LOOP; END $$;
+```
 
 **The code rollback is the separate lever**, and this is the ordering that
 matters: the schema change and the application are *not* independent here (unlike
@@ -203,16 +288,29 @@ either column type:
 - `jobRunner.ts` `markFailed`/`markSucceeded` `finished_at` writes changed from
   `new Date()` to `sql`now()``, so `finished_at` has **one** clock. This is what
   makes `max(finished_at)` meaningful.
-- `jobRunner.ts`'s publication update and `scenarioInputWrite.ts` changed
-  `solved_at`/`inputs_updated_at`/`updated_at` to `sql`now()`` — **required, not
-  tidying.** `isStale()` (`routes/scenarios.ts:116`) is a bare
-  `inputsUpdatedAt > solvedAt` with no tolerance, and `inputs_updated_at` can
-  originate from the INSERT's `defaultNow()` (the database's clock). With
-  `solved_at` written from the application host, any clock skew between the two
-  hosts marks a scenario stale the instant it finishes solving. The old naked
-  columns *masked* this (`inputs_updated_at` read back offset into the past, so
-  it could never win the comparison); converting to `timestamptz` removes that
-  accident. Both sides of that comparison must come from `now()`.
+- Every writer of `solved_at`, `inputs_updated_at` and `updated_at` moved to
+  `sql`now()`` — **required for the first two, not tidying.** `isStale()`
+  (`routes/scenarios.ts:116`) is a bare `inputsUpdatedAt > solvedAt` with no
+  tolerance, and `inputs_updated_at` can still be the scenario INSERT's
+  `defaultNow()` at the moment of a first solve — nothing in the solve path
+  writes it. With `solved_at` written from the application host, any clock skew
+  between the two hosts marks a scenario stale the instant it finishes solving.
+
+  The old naked columns were *masking* this, **but only because this database's
+  offset is negative.** `inputs_updated_at` read back into the past, so it could
+  never win the comparison. On a positive-offset database (`Asia/Kolkata`,
+  +05:30) the identical code reads 19800 s into the *future* and `isStale()`
+  returns `true` for every solved scenario, permanently — a far louder bug than
+  the one that was reported. The old behaviour was benign by luck, not by
+  design. Both sides of that comparison must come from `now()`.
+
+  The complete writer set, so "one clock" is checkable rather than asserted:
+  `solved_at` — `jobRunner.ts` publication update. `inputs_updated_at` —
+  `scenarioInputWrite.ts`, plus `scripts/src/strip-network-edits.ts` and the
+  INSERT default. `updated_at` — `jobRunner.ts`, `scenarioInputWrite.ts`,
+  `routes/scenarios.ts` ×2, `routes/distanceBands.ts`, and the INSERT default.
+  `updated_at` is not compared anywhere (it is only projected to the API), so it
+  was converted for consistency rather than correctness.
 
 ---
 

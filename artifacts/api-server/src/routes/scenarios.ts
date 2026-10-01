@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
 import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT, derivePublicFailure } from "../solver/jobRunner.js";
@@ -370,7 +370,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
       // concurrent write).
       if (body.name !== undefined) {
         const [renamed] = await tx.update(scenariosTable)
-          .set({ name: body.name, updatedAt: new Date() })
+          .set({ name: body.name, updatedAt: sql`now()` })
           .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
           .returning();
         return { kind: "ok", row: renamed } as const;
@@ -409,7 +409,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   if (existing && isModelLocked(existing.modelId)) { respondLocked(res); return; }
 
   const [row] = await db.update(scenariosTable)
-    .set({ ...updateObj, updatedAt: new Date() })
+    .set({ ...updateObj, updatedAt: sql`now()` })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }

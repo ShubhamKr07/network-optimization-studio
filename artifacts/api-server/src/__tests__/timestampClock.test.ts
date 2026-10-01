@@ -7,20 +7,29 @@
 // `timestamp`, drizzle writes and reads values as UTC wall-clock, but
 // `defaultNow()`/`sql`now()`` store the DATABASE SESSION's local wall-clock, so
 // every DB-side-written value read back offset by the database's UTC offset
-// (measured: 131 of 160 local solve_jobs rows had `finished_at - started_at`
-// exactly 25200, i.e. 7h, the America/Los_Angeles offset this server reports).
+// (measured: of 160 local solve_jobs rows, 131 had `finished_at - started_at`
+// rounding to 25200 s and 155 were within a minute of it — 7h, the
+// America/Los_Angeles offset this server reports).
 //
-// Two independent checks, because either alone can pass while the bug is live:
+// Four checks, none of which is redundant:
 //
-//   1. A SCHEMA assertion. The round-trip check below passes on a naked
-//      `timestamp` column whenever the database happens to be running in UTC —
-//      which is the likeliest CI configuration, and would make this file a
-//      green test that proves nothing on the machine that actually broke.
-//      Asserting the column type catches `withTimezone` being dropped
-//      regardless of where the suite runs.
-//   2. A ROUND-TRIP assertion. The schema check alone cannot catch a writer
-//      that reintroduces skew some other way, so one row is written through
-//      the real `now()` path and compared against the test process's own clock.
+//   1. A SCHEMA assertion. The round-trip checks pass on a naked `timestamp`
+//      column whenever the database happens to be running in UTC — which is
+//      the likeliest CI configuration, and would make this file a green test
+//      that proves nothing on the machine that actually broke. Asserting the
+//      column type catches `withTimezone` being dropped wherever it runs.
+//   2. A ROUND-TRIP against the client clock. The schema check alone cannot
+//      catch a writer that reintroduces skew some other way.
+//   3. A TWO-CLOCK agreement check — one value written DB-side, one app-side,
+//      in separate statements. This is the axis the original bug sat on.
+//   4. The `isStale()` invariant the writer changes exist to protect.
+//
+// All four were falsified before being trusted: (1)+(2) by reverting
+// `scenarios.created_at` to naked `timestamp` in a live DB, (3) by reverting
+// `solve_jobs.started_at`/`finished_at` (it then failed on an impossible
+// ordering, `started_at` after `finished_at`), and (4) by writing `solved_at`
+// one second behind `now()` to simulate an app host whose clock trails the
+// database's. Each failed only for its own reason.
 import { describe, it, expect, afterAll } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import request from "supertest";
@@ -30,8 +39,11 @@ import app from "../app.js";
 const scenarioIds: number[] = [];
 const registeredUserIds: string[] = [];
 
-// Every column converted by docs/ops/timestamptz-migration.md. `session.expire`
-// is deliberately absent: connect-pg-simple owns and writes that table.
+// Every column converted by docs/ops/timestamptz-migration.md.
+// `sessions.expire` is deliberately absent because that table is DEAD
+// (`auth.ts:4` marks it unused, zero writers, zero readers, 0 rows) — not
+// because anything depends on its type. `connect-pg-simple`/`express-session`
+// are not dependencies of this repo; auth is a stateless signed cookie.
 const EXPECTED_TIMESTAMPTZ: Array<[table: string, column: string]> = [
   ["solve_jobs", "queued_at"],
   ["solve_jobs", "started_at"],
@@ -129,7 +141,7 @@ describe("HND-B — DB-written timestamps round-trip to the right instant", () =
     expect(skewSec).toBeLessThan(120);
   });
 
-  it("queued_at <= started_at <= finished_at for a row written through the now() path", async () => {
+  it("a now()-written and a new Date()-written value in the same column agree", async () => {
     const cookie = await registerAndGetCookie();
     const created = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
       name: "hnd-b ordering fixture",
@@ -141,27 +153,76 @@ describe("HND-B — DB-written timestamps round-trip to the right instant", () =
 
     const [owner] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, created.body.id));
 
-    // queued_at via the column default; started_at/finished_at through the same
-    // `sql`now()`` form every real writer in jobRunner.ts uses. This is the
-    // combination that produced the 25200s rows: a default-written column and
-    // an explicitly-written one landing on two different clocks.
+    // THE axis the real bug sat on: `started_at` was written DB-side
+    // (`sql`now()``) while `finished_at` was written app-side (`new Date()`, in
+    // markFailed/markSucceeded), so the two disagreed by the database's UTC
+    // offset and the displayed solve duration was that offset — 25200s here.
+    //
+    // Note what this test deliberately does NOT do: write both columns with
+    // `sql`now()`` in one INSERT. An earlier version of this test did, and it
+    // was vacuous — a single INSERT gives every `now()` the same
+    // `transaction_timestamp()`, so all the columns are byte-identical, the
+    // difference is exactly 0, and it passes on naked `timestamp` columns in
+    // any time zone whatsoever. It has to be one value per clock, in separate
+    // statements, or it proves nothing.
     const [job] = await db.insert(solveJobsTable).values({
       scenarioId: created.body.id,
       userId: owner!.userId,
-      status: "succeeded",
+      status: "running",
       inputsHash: `hnd-b-${Date.now()}`,
       modelId: "p-median-us",
       startedAt: sql`now()`,
-      finishedAt: sql`now()`,
     }).returning();
 
-    expect(job!.queuedAt.getTime()).toBeLessThanOrEqual(job!.startedAt!.getTime());
-    expect(job!.startedAt!.getTime()).toBeLessThanOrEqual(job!.finishedAt!.getTime());
+    const [done] = await db.update(solveJobsTable)
+      .set({ status: "succeeded", finishedAt: new Date() })
+      .where(eq(solveJobsTable.id, job!.id))
+      .returning();
 
-    // The displayed solve duration. 25200 was the observed bad value; anything
-    // beyond a couple of minutes for an insert with no solver involved at all
-    // means the two columns are on different clocks again.
-    const solveSec = (job!.finishedAt!.getTime() - job!.startedAt!.getTime()) / 1000;
+    expect(done!.queuedAt.getTime()).toBeLessThanOrEqual(done!.startedAt!.getTime());
+    expect(done!.startedAt!.getTime()).toBeLessThanOrEqual(done!.finishedAt!.getTime());
+
+    // The displayed solve duration. 25200 was the observed bad value; this is
+    // an insert plus an update with no solver involved, so anything beyond a
+    // couple of minutes means the two clocks disagree again.
+    const solveSec = (done!.finishedAt!.getTime() - done!.startedAt!.getTime()) / 1000;
     expect(solveSec).toBeLessThan(120);
+  });
+
+  // The invariant the writer changes exist to protect, which otherwise had no
+  // coverage at all. `isStale()` (routes/scenarios.ts:116) is a bare
+  // `inputsUpdatedAt > solvedAt` with NO tolerance. `inputs_updated_at` can
+  // still be the scenario INSERT's `defaultNow()` at the moment of a first
+  // solve (nothing in the solve path writes it), so if `solved_at` is written
+  // from the application host instead of the database, any clock skew between
+  // the two hosts marks a scenario stale the instant it finishes solving.
+  //
+  // The mocked stale tests in routes.test.ts cannot catch this: they
+  // hand-author BOTH timestamps, so they assert the comparison's arithmetic
+  // rather than which clock each side came from.
+  it("a scenario solved without an inputs edit is not stale (same clock both sides)", async () => {
+    const cookie = await registerAndGetCookie();
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "hnd-b stale fixture",
+      modelId: "p-median-us",
+      inputs: pMedianInputs,
+    });
+    expect(created.status).toBe(201);
+    scenarioIds.push(created.body.id);
+
+    // inputs_updated_at is the INSERT default here — deliberately NOT edited,
+    // because an edit would overwrite it and hide the very case under test.
+    // solved_at is written the way jobRunner's publication update writes it.
+    await db.update(scenariosTable)
+      .set({ result: { status: "optimal" }, solvedAt: sql`now()` })
+      .where(eq(scenariosTable.id, created.body.id));
+
+    const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, created.body.id));
+    expect(row!.inputsUpdatedAt.getTime()).toBeLessThanOrEqual(row!.solvedAt!.getTime());
+
+    // And the derived flag the student actually sees.
+    const fetched = await request(app).get(`/api/scenarios/${created.body.id}`).set("Cookie", cookie);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.stale).toBe(false);
   });
 });
