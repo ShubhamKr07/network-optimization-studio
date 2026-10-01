@@ -37,9 +37,19 @@ export const solveJobsTable = pgTable("solve_jobs", {
   inputsHash: varchar("inputs_hash").notNull(),
   resultSummary: jsonb("result_summary").$type<Record<string, unknown> | null>(),
   error: text("error"),
-  queuedAt: timestamp("queued_at").notNull().defaultNow(),
-  startedAt: timestamp("started_at"),
-  finishedAt: timestamp("finished_at"),
+  // HND-B — `withTimezone: true` is LOAD-BEARING, not cosmetic. As a naked
+  // `timestamp`, drizzle writes and reads these as UTC wall-clock, but
+  // `defaultNow()`/`sql`now()`` store the DB session's LOCAL wall-clock — so
+  // every value written DB-side read back wrong by the database's UTC offset,
+  // which is how the solve overlay came to display "Solving 25200s" (exactly
+  // 7h, the America/Los_Angeles offset the server reports). Measured, not
+  // inferred: 131 of 160 local rows had `finished_at - started_at` = exactly
+  // 25200. As `timestamptz` the stored value is an instant, so the DB clock
+  // and a JS `new Date()` agree and no zone setting can reintroduce the skew.
+  // See docs/ops/timestamptz-migration.md. Do NOT drop `withTimezone`.
+  queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
   // Part F — the run's FULL result envelope, so a historical export can be
   // addressed by run id. Deliberately NOT a join to result_cache: that table's
   // contract is a cache, and adding eviction later would silently break
@@ -91,8 +101,15 @@ export const solveJobsTable = pgTable("solve_jobs", {
   // above for claim_generation's authority).
   // ---------------------------------------------------------------------
   claimGeneration: integer("claim_generation"),
-  claimedAt: timestamp("claimed_at"),
-  ownerHeartbeatAt: timestamp("owner_heartbeat_at"),
+  // HND-B — timestamptz, same reason as queued/started/finished above. These
+  // two matter for a second reason: the stale-lease takeover compares
+  // `owner_heartbeat_at < now() - interval '60 seconds'` (jobRunner.ts:617).
+  // That comparison was never WRONG, because both sides were DB-side — but it
+  // is only safe by coincidence while the column is naked, and it would break
+  // outright if a writer ever switched to a JS `new Date()`. As timestamptz it
+  // is correct for either writer.
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  ownerHeartbeatAt: timestamp("owner_heartbeat_at", { withTimezone: true }),
 
   // ---------------------------------------------------------------------
   // A1 — publication authority inputs. `enqueuedSolveInputRevision` captures

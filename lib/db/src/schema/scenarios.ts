@@ -10,10 +10,19 @@ export const scenariosTable = pgTable("scenarios", {
   inputs: jsonb("inputs").notNull().default({}).$type<Record<string, unknown>>(),
   inputsVersion: integer("inputs_version").notNull().default(1),
   result: jsonb("result").$type<Record<string, unknown> | null>(),
-  solvedAt: timestamp("solved_at"),
-  inputsUpdatedAt: timestamp("inputs_updated_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // HND-B — timestamptz, see docs/ops/timestamptz-migration.md and the note on
+  // solve_jobs.queuedAt. These four had a sharper version of the same split
+  // than solve_jobs did: every UPDATE writes a JS `new Date()` (correct as a
+  // naked timestamp, since drizzle round-trips UTC), but the scenario INSERT
+  // (routes/scenarios.ts:235) supplies none of them and falls through to
+  // `defaultNow()` — DB-local wall-clock. So `created_at` was wrong by the
+  // database's offset for the row's whole life while `updated_at` silently
+  // corrected itself on the first edit, in the same table. Do NOT drop
+  // `withTimezone`.
+  solvedAt: timestamp("solved_at", { withTimezone: true }),
+  inputsUpdatedAt: timestamp("inputs_updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // Decision 1g — which solve_jobs row produced this row's current `result`.
   // Written in the SAME transaction as `result` (jobRunner), so the two can
   // never disagree. ON DELETE SET NULL, because scenario deletion removes the

@@ -12,7 +12,12 @@ export const resultCacheTable = pgTable("result_cache", {
   inputsHash: varchar("inputs_hash").primaryKey(),
   modelId: varchar("model_id").notNull(),
   result: jsonb("result").$type<Record<string, unknown>>().notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // HND-B — timestamptz. Only ever written by `defaultNow()` (DB-local
+  // wall-clock), so as a naked timestamp every row here was wrong by the
+  // database's UTC offset. Nothing reads it today, which is exactly why it
+  // would have stayed wrong: a column with no consumer has no symptom. See
+  // docs/ops/timestamptz-migration.md.
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type ResultCache = typeof resultCacheTable.$inferSelect;
