@@ -40,6 +40,33 @@ Any value that cannot be derived is the literal string `unknown` — never an es
 | `reverted_within_7d` | `yes` \| `no` \| `unknown` — was `merged_sha` reverted within 7 days (filled by retro). |
 | `escaped_defects` | integer defects traced back to this task later, or `unknown`. |
 
+#### The two lagging fields — when `unknown` is the CORRECT value, not a gap
+
+Both columns above are filled by a *later* retro pass, not by the task's own. Two rules, recorded
+2026-10-01 (`HND-G`) because the column was being filled inconsistently and is therefore not
+currently comparable across rows:
+
+- **`reverted_within_7d` stays `unknown` until seven days have actually elapsed** since
+  `finished_at`. Writing `no` on day 1 is a claim about six days that have not happened yet — which
+  is an estimate, and the harness's governing rule forbids estimates (`CLAUDE.md`: an underivable
+  value is the literal string `unknown`, never an estimate). "Not reverted *so far*" is a different
+  measurement from the one this column names. A row whose window is still open needs a **second
+  pass** after it closes; that is the normal lifecycle of this field, not an omission.
+- **`escaped_defects` counts defects traced back to the task *after* it merged.** A defect found
+  and fixed **inside** the branch, before merge, is not an escape — it never reached `main`, so
+  nothing escaped. Worked example, since this was the ambiguous case that prompted the rule: CH4UX's
+  cold-mount race was introduced in `CH4UX-1` and fixed in `CH4UX-8`'s `fa70517`, which *is* that
+  task's own `merged_sha`. Counted as `0`. That it was caught by real-browser QA rather than by any
+  automated suite is a **test-coverage** finding (and is recorded as one in `failures.csv`), not an
+  escaped defect — don't conflate the two, or the column stops measuring what it says.
+
+**Known inconsistency, not corrected here:** `ch5-delivery` (finished 2026-09-29) and `ch5-editable`
+(2026-09-30) both carry `reverted_within_7d=no` although their windows were equally unelapsed when
+written, while `CH4UX` and `ch9-unlock` (both 2026-09-30) correctly carry `unknown`. Those rows are
+left as their own authors recorded them rather than rewritten by a later task; the discrepancy is
+noted here so nobody reads the column as uniform. **`CH4UX` and `ch9-unlock` both need their second
+pass on or after 2026-10-07.**
+
 ### `failures.csv` — one row per gate failure
 | column | meaning |
 |--------|---------|
