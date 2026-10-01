@@ -74,6 +74,18 @@ deploy_config | solver_timeout | migration_order | zod_strip | doc_drift | other
    and `escaped_defects` (count of later defects traced to that task, else `0` if genuinely none, or
    `unknown`).
 
+   Two clarifications, added 2026-10-01 (`HND-G`) after both were got wrong — full rationale in
+   `docs/superpowers/metrics/README.md` under "The two lagging fields":
+   - `reverted_within_7d` is a **point-in-time observation at retro**, not a closed-window verdict.
+     Fill it. Do not leave it `unknown` on the grounds that seven days have not elapsed — every
+     retro run only ever sees in-window tasks, so that reading makes the column permanently
+     unfillable. `unknown` is offered above for `escaped_defects` and deliberately not for this
+     field. The one case where it IS unverifiable is a row with no `merged_sha`.
+   - `escaped_defects` counts defects traced to the task **after it merged**. A defect found and
+     fixed *inside* the branch is not an escape — nothing reached `main`. If it was caught by
+     manual/real-browser QA rather than by a suite, that is a test-coverage finding for
+     `failures.csv`, not an escaped defect.
+
 6. **Doc-drift warning (mechanical only — NOT a PR, never blocks).** Run:
    ```bash
    pnpm docs:audit --since $(git merge-base main HEAD) --mechanical-only

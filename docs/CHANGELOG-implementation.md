@@ -52,7 +52,8 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`) | L1822 |
 | Solve clock showed "Solving 25200s" — `timestamp` → `timestamptz` (`HND-B`) | L1913 |
 | The e2e specs were in no tsc program at all (`HND-D`) | L2043 |
-| e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard (`HND-F`) | L2127 |
+| e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard (`HND-F`) | L2128 |
+| harness-retro steps 5–7 for CH4UX (`HND-G`) | L2182 |
 
 ---
 
@@ -2219,3 +2220,64 @@ were running and starting them was not worth it, because the `./helpers/*` impor
 proven at runtime in this exact directory: `./helpers/modelLock` is imported by **four of these same
 seven specs** and those specs run. So the residual risk is import resolution under Playwright's
 esbuild loader for a pattern already in use beside it. Stated rather than papered over.
+
+---
+
+## harness-retro steps 5–7 for CH4UX (`HND-G`)
+
+Steps 1–4 ran during `CH4UX-8`; 5–7 never did. None gates a merge. One `tasks.csv` cell changed,
+two standing docs corrected, one skill clarified.
+
+**Step 5 — `escaped_defects: unknown → 0`, derived from the column's own definition.** "Defects
+traced back to this task *later*" excludes one found and fixed inside the branch: the cold-mount
+race was introduced in `d4bc931` (`CH4UX-1`) and fixed in `fa70517` (`CH4UX-8`), which **is** that
+row's `merged_sha`, so it never reached `main`. That real-browser QA caught it rather than a suite
+is a *test-coverage* finding — already one of the three CH4UX rows in `failures.csv` — not an
+escape. Verified no post-merge CH4UX defect exists; the only adjacent one, `HND-B`'s solve clock,
+is recorded as explicitly **not** introduced by CH4UX.
+
+**`reverted_within_7d: unknown → no`, and this reversed my own first answer.** I initially left it
+`unknown`, reasoning that the window closes 2026-10-07 so `no` claims unelapsed time. The review
+showed that inverts `/harness-retro`'s step 5, which fills this field for tasks finished in the
+**prior** 7 days — i.e. precisely while the window is open — and which offers `unknown` for
+`escaped_defects` but deliberately not for this one. Worse, my reading made the column
+**permanently unfillable**: every retro run only sees in-window tasks, so the "second pass" I
+prescribed had no owner, no step and no trigger, while eleven existing rows were already filled the
+other way. Resolved by defining the field honestly as a **point-in-time observation at retro** (no
+revert commits since 2026-09-23; `fa70517` still an ancestor of `origin/main`) and amending
+`.claude/skills/harness-retro/SKILL.md` so the skill and `metrics/README.md` cannot disagree. The
+genuinely unverifiable case is a row with no `merged_sha` — `scnd-measurement` carries a revert
+verdict on a commit nobody recorded, which `README.md` now states as a criterion rather than as a
+list naming 2 of the 7 affected rows.
+
+**Step 6 — doc-drift warning: 117 findings, none actionable. The first version of this entry's
+number was fabricated by my own measurement method.** It said "84 hits", which came from a
+two-pattern `grep` over the audit's output rather than the audit's own finding count, and is
+reproducible under no configuration (full scan is ~205; the `--since` run is 117). Exactly the
+`ps aux | grep -c vitest` mistake this repo already documents — a count with no visible rows
+behind it. Corrected in `HARNESS.md` with the command and the four evidence kinds recorded
+(`referenced path does not exist` 87, `no matching source` 21, `route not in openapi.yaml` 7,
+`pnpm script not found` 2), plus a warning that the total is configuration-dependent and must be
+re-measured rather than reused.
+
+The classification was also wrong about where the bulk sits. It is **not** package-relative paths
+(~16) but **glob/brace/placeholder tokens the detector cannot expand — 55 of the 87 path hits**
+(`…/{routes,services,validation,registry}/**`, `specs/<date>-<feature>-design.md`). Skipping tokens
+containing `*`, `{` or `<` would remove most of this baseline outright. Three more classes were
+missing entirely: the Arcadia detector over-matching on the bare word *badge* (21), build/test
+artifacts and removed directories, and two `pnpm` built-ins read as missing package scripts. One
+hit deserves a real look rather than dismissal: **`CLAUDE.md:157` cites `POST /login`, and
+`CLAUDE.md` is a live document, not append-only history.**
+
+Also noted: writing those examples into `HARNESS.md` *grew* the baseline by 5 findings (200 → 205),
+so the documentation has a measurable cost against the very condition the deferred `doc_drift` gate
+waits on — and that condition is what `gates/doc_drift.md` actually says, *"after the first
+docs-audit PR merges"*, not the looser "once the baseline is clean" paraphrase.
+
+**Step 7 — printed once, not processed** (that is `/docs-apply`): PR **#21** "Harness weekly
+2026-39", opened 2026-09-21, age 10 days; PR **#13** "Harness weekly 2026-38", opened 2026-09-14,
+age 17 days. Both carry the `docs-audit` label; no other open PR does.
+
+**Left `unknown` on purpose:** `ch9-unlock`'s `escaped_defects`. It is in-window, but deciding it
+requires reading that task's own post-merge defect history, which belongs to its retro rather than
+to this one.
