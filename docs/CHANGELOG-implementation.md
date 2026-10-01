@@ -49,6 +49,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) | L1431 |
 | Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`) | L1554 |
 | ch9-unlock — Chapter 9 (JADE) reopened; no chapter is locked any more | L1708 |
+| Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`) | L1822 |
 
 ---
 
@@ -1815,3 +1816,45 @@ figure was carried forward uncorrected from the ch4-lock/ch4-unlock era and is c
 than in those entries (append-only, hard rule #9). The remaining Minor — the drift test's
 now-vacuous "every locked chapter is still a registered route" case — is disclosed in the test's own
 comment as intentional and was left as is.
+
+---
+
+## Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`)
+
+New `docs/ops/ch4-two-step-rollout.md`. Closes the Task 10 item the two-step bundle
+(`ch4-2s-1`–`ch4-2s-9`, merged `0a300f8`) left open: the bundle shipped and smoke-passed in
+production with no operator record of how to take it back out. Docs-only — zero source
+files touched, so no gate could have caught the gap.
+
+The doc's load-bearing claim, and the reason it exists as its own document rather than a
+paragraph in this entry: **the index drop and the code rollback are independent levers, in
+either order.** One-active-job-per-Chapter-4-scenario is enforced twice — the partial unique
+index `UQ_solve_jobs_active_per_scenario`, and an in-transaction check in
+`enqueueScenarioSolve` (`jobRunner.ts:393-403`) inside the `FOR UPDATE` transaction, gated
+on `MAX_COVERAGE_MODEL_ID`, returning a documented `409` with the in-flight `jobId`. The
+scenario row lock only serialises two concurrent enqueues; it is that check which makes the
+second one refuse. So dropping the index degrades the backstop without un-enforcing the rule.
+The doc names the one verification that proves this on a live build (solve twice fast, expect
+`409`) and says plainly what it means if it returns `201`/`202` instead.
+
+**Measured while writing, not recalled:**
+- `indexdef` read from local `nos_dev` — the `model_id = 'max-coverage-us'` predicate is
+  present, so the constraint is genuinely model-scoped and the other six models keep their
+  existing enqueue semantics.
+- Production `indexdef` is **`unknown`** and recorded as `unknown` (hard rule): `nos-postgres`
+  allowlists external IPs and this session's address is not on it. The doc carries the
+  `pg_indexes` query for an operator who can reach it.
+- `maxCoverageInputsSchema` at `22be7e8` (the pre-bundle commit) has no `.strict()` on its
+  top-level object, read at that commit — so a code rollback leaves the already-persisted
+  `stepEpoch`/`step2` keys inert rather than triggering `422`s on existing scenarios.
+- **The clean code-rollback target has decayed.** `22be7e8` was Chapter-4-only on 2026-09-29;
+  Chapter 5, CH4UX, the Chapter 9 unlock and the CI work have landed on top since, so
+  redeploying it today reverts all of them. The doc says so and points at `git revert` of the
+  nine commits as the smaller change. This is the kind of fact that silently stops being true,
+  which is the argument for writing a rollback doc while the deploy is fresh rather than later.
+
+**One correction to a claim made earlier in this session's own notes:** `nos-api` was reported
+as frozen at `1057a071` with every deploy failing on `DATABASE_URL`. It is not — `list_deploys`
+shows `dep-daujns7lot8c73bdjaj0` **live** at `fa5068e` (2026-09-30 16:43Z). The two
+`update_failed` deploys were on 2026-09-29/30 and were fixed by `06a5b9f`
+("fix(render): match the live nos-api config — explicit DATABASE_URL, real autoDeploy").
