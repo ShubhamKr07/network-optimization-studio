@@ -88,11 +88,18 @@ export async function applyScenarioInputWrite(
   const [row] = await tx.update(scenariosTable)
     .set({
       inputs: inputsToStore,
-      updatedAt: new Date(),
+      // HND-B — DB clock for both, so `isStale()`'s bare
+      // `inputsUpdatedAt > solvedAt` compares two values from ONE clock. The
+      // other side is written by jobRunner's publication update (also
+      // `now()`), and `inputs_updated_at` additionally has the scenario
+      // INSERT's `defaultNow()` as a writer, which is the DB's clock by
+      // definition — so the app process's clock must not be a third party to
+      // this comparison. See the note at jobRunner's `solvedAt`.
+      updatedAt: sql`now()`,
       ...(isBandsOnlyChange
         ? {}
         : {
-            inputsUpdatedAt: new Date(),
+            inputsUpdatedAt: sql`now()`,
             solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1`,
           }),
     })

@@ -50,6 +50,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`) | L1554 |
 | ch9-unlock — Chapter 9 (JADE) reopened; no chapter is locked any more | L1708 |
 | Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`) | L1822 |
+| Solve clock showed "Solving 25200s" — `timestamp` → `timestamptz` (`HND-B`) | L1913 |
 
 ---
 
@@ -1906,3 +1907,95 @@ task's scope: `solve_jobs.ts:118-121` still claims `enqueueScenarioSolve` "inser
 for an existing job… This index does" — true when task 1 wrote it, superseded by task 4. An
 operator grepping the schema to check the doc's central claim would find a comment contradicting it,
 so the doc now carries an explicit warning pointing at `jobRunner.ts:393-403` instead.
+
+---
+
+## Solve clock showed "Solving 25200s" — `timestamp` → `timestamptz` (`HND-B`)
+
+Pre-existing user-visible bug, not introduced by CH4UX — the new `SolveProgressOverlay` only made
+it prominent by moving the clock from a dialog that closed on success into a blocking overlay a
+student watches for a whole solve. Ten columns converted across `solve_jobs`, `scenarios` and
+`result_cache`; `docs/ops/timestamptz-migration.md` carries the SQL, the verification queries, the
+rollback and the production-apply status.
+
+**The handover note's diagnosis was directionally right and mechanically wrong, which mattered.** It
+said `queued_at`/`started_at` are stored as local wall-clock while `finished_at` is UTC. The real
+mechanism, probed through the actual ORM rather than reasoned about:
+
+```
+pg session TimeZone = America/Los_Angeles,  node offset = +05:30,  true now = 13:21:37Z
+stored via sql`now()`  = 06:21:37    read back = 06:21:37Z   ← 7h early
+stored via new Date()  = 13:21:37    read back = 13:21:37Z   ← correct
+stored via timestamptz = 06:21:37-07 read back = 13:21:37Z   ← correct
+```
+
+Drizzle writes **and reads** a naked `timestamp` as UTC wall-clock, but `defaultNow()`/`sql`now()``
+store the DB session's *local* wall-clock. So the `new Date()` writers were already correct and the
+DB-side writers were wrong — the opposite assignment to the one in the note. Worth recording because
+the obvious cheap fix (point every writer at `new Date()`) follows from the note's version and
+**would have broken the stale-lease takeover**: `jobRunner.ts:617` compares
+`owner_heartbeat_at < now() - interval '60 seconds'`, which is correct today precisely because both
+sides are DB-side. An earlier probe using raw `pg` instead of drizzle gave a *different* skew (45000s,
+local-zone serialisation both ways) and would have supported the wrong conclusion — the ORM, not the
+driver, is what decides this.
+
+**Measured, not inferred:** 131 of 160 `solve_jobs` rows in `nos_dev` had `finished_at - started_at`
+= exactly `25200`, 14 more within a minute of it. Queue waits were a sane 0–2s because `queued_at`
+and `started_at` were *both* DB-written and the error cancelled — which is why the bug presented as
+a wrong solve duration rather than as obviously broken timestamps.
+
+**Two consequences found beyond the reported symptom:**
+1. `landingSummary.ts:27` computes `max(finished_at)` over rows written by two different clocks
+   (`sql`now()`` on the failure paths, `new Date()` in `markFailed`/`markSucceeded`) — a wrong
+   value, not a uniformly shifted one. `finished_at` is now single-clock.
+2. `scenarios.created_at` was wrong for every row's entire life: the INSERT
+   (`routes/scenarios.ts:235`) supplies no timestamps and falls through to `defaultNow()`, while
+   every UPDATE writes `new Date()` — so `updated_at` silently self-corrected on a row's first edit
+   and `created_at` never did.
+
+**The fix exposed a latent bug that the fix itself then had to close** — the most interesting part of
+this task. `isStale()` (`routes/scenarios.ts:116`) is a bare `inputsUpdatedAt > solvedAt` with no
+tolerance, and `inputs_updated_at` can originate from the INSERT's `defaultNow()` (the database's
+clock) while `solved_at` was written from the application host. Any clock skew between the two hosts
+marks a scenario stale the instant it finishes solving. The naked columns had been *masking* this:
+`inputs_updated_at` read back offset into the past, so it could never win the comparison.
+Converting to `timestamptz` removes that accident. So `solved_at`, `inputs_updated_at` and
+`updated_at` moved to `sql`now()`` — required for correctness, not tidying.
+
+**Deliberately NOT backfilled** (user decision, 2026-10-01): the migration uses
+`USING col AT TIME ZONE 'UTC'`, which keeps each stored wall-clock unchanged and labels it UTC. New
+rows are correct; historical rows display exactly what they displayed before. The reason is not
+convenience — **`finished_at` is not attributable per row**, having had two writers, so a given
+historical row's zone cannot be recovered from the row. A heuristic (classify by whether
+`finished - started ≈ 25200`) was considered and rejected: inference presented as a record, and it
+would silently mis-convert any genuinely 7-hour solve.
+
+**`drizzle-kit push` must not be used for this migration.** Its generated `ALTER ... TYPE
+timestamptz` has no `USING` clause, so Postgres reinterprets each naked value in the *session's*
+zone — shifting every stored row by 7h on a Pacific session, the exact opposite of the chosen
+policy. The ops doc leads with the explicit SQL and says so.
+
+**`session.expire` excluded** — `connect-pg-simple` owns and writes that table on its own schema
+assumptions. `users.created_at`/`updated_at` were already `timestamptz` (`auth.ts:22-23`), the
+precedent this follows.
+
+**New test, falsified rather than assumed:** `timestampClock.test.ts` asserts the column types **and**
+round-trips a real `now()`-written value against the client clock. Both halves are needed — the
+round-trip alone passes on a naked column whenever the database runs in UTC, which is the likely CI
+configuration, so it would have been green in CI while the bug was live. Proven to bite by reverting
+`scenarios.created_at` to naked `timestamp` in the live DB: both assertions failed and named the
+column, while the third (`solve_jobs`-only) correctly still passed, confirming they are independent.
+Column restored after.
+
+**Gate:** typecheck clean · api-server **1641/1643**, the 2 failures `resultEnvelope.test.ts`
+timeouts on the documented CBC/`spawnSync` contention list, **13/13 in isolation** immediately after,
+and this diff touches no solver code · studio first run reported 6 failed / 2 errors whose file names
+were **not captured before re-running** (an honest gap in the measurement), second run with zero
+concurrent vitest **2221/2221, 121 files, exit 0** · solver pytest run as a no-regression check, zero
+Python touched. `e2e_accuracy.py` not re-run: no solver change, so its 99/99 is unaffected by
+construction.
+
+**Production: NOT applied.** Local `nos_dev` only. `nos-postgres` allow-lists external IPs and this
+session could not reach it, so production's current column types are **unverified** — the ops doc
+says to run the verification query rather than assume. Production DDL is a separate human-approved
+step.

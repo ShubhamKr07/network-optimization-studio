@@ -1190,7 +1190,14 @@ async function markFailed(
   const setValues: Record<string, unknown> = {
     status: "failed",
     error: error.slice(0, 500),
-    finishedAt: new Date(),
+    // HND-B — `sql`now()`` like every other terminal write in this file, not a
+    // JS `new Date()`. Both are correct now that the column is timestamptz, but
+    // one clock per column is the point: while the column was a naked
+    // timestamp, this call site and markSucceeded's wrote UTC wall-clock while
+    // the three other finished_at writers wrote DB-local, leaving two clocks
+    // in one column and making `max(finished_at)` (landingSummary.ts) pick
+    // whichever rows happened to be written by this path.
+    finishedAt: sql`now()`,
   };
   if (taxonomy) {
     setValues.failureReason = taxonomy.failureReason;
@@ -1428,7 +1435,8 @@ export async function markSucceeded(
           distanceUnit,
           runTimeSec: envelope.runTimeSec,
         },
-        finishedAt: new Date(),
+        // HND-B — one clock per column; see markFailed's note above.
+        finishedAt: sql`now()`,
       })
       .where(and(
         eq(solveJobsTable.id, jobId),
@@ -1456,8 +1464,19 @@ export async function markSucceeded(
       .set({
         result: resultJson,
         resultRunId: jobId,
-        solvedAt: new Date(),
-        updatedAt: new Date(),
+        // HND-B — DB clock, not the app process's. `isStale()`
+        // (routes/scenarios.ts:116) is a bare `inputsUpdatedAt > solvedAt`
+        // with no tolerance, and `inputs_updated_at` can come from the
+        // scenario INSERT's `defaultNow()` — i.e. the DATABASE's clock. With
+        // this written from the app host instead, any amount of clock skew
+        // between the two hosts marks a scenario stale the instant it
+        // finishes solving. That was latent-but-masked while these columns
+        // were naked timestamps (inputs_updated_at read back offset into the
+        // past, so it could never win the comparison); converting to
+        // timestamptz removes the accident, so both sides of that comparison
+        // now come from `now()`. Keep them on the same clock.
+        solvedAt: sql`now()`,
+        updatedAt: sql`now()`,
       })
       .where(and(
         eq(scenariosTable.id, scenarioId),
