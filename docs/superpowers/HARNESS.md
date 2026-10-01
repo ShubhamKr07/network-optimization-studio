@@ -61,6 +61,23 @@ risky/broad/ok + denials attributed to the task window). Weekly report → `repo
 - `pnpm docs:lint` — the proposed `doc_drift` gate (stale_reference only, exit non-zero). Runnable,
   **not** wired to CI yet.
 
+  **`stale_reference` has a large, known false-positive baseline — triage it against these three
+  classes before chasing anything.** Measured 2026-10-01 (`HND-G`, step 6): **84 hits, 0
+  actionable.** This is also the concrete reason the `doc_drift` gate stays deferred "until the
+  stale-ref baseline is clean" — the baseline is not dirty because the docs are wrong.
+  1. **Package-relative paths, resolved from the repo root.** The changelog writes paths as the
+     package sees them (`e2e/labs.spec.ts`, `src/lib/chapters.ts`); the detector resolves from the
+     root and reports them missing. All four spot-checked exist under `artifacts/studio/`. This is
+     the bulk of the 84.
+  2. **`path:line` citations.** `lib/db/src/schema/solve_jobs.ts:134-136` is reported missing
+     because the detector does not strip the `:line-range` suffix — the file exists. Worth fixing in
+     the detector before the gate is enabled, since `path:line` is this repo's house citation style
+     and will keep manufacturing hits.
+  3. **Genuinely-removed routes in historical entries.** `POST /scenarios/:id/reset-to-baseline`,
+     `POST /scenarios/compare` and `POST /solve` really are absent from `openapi.yaml` (0 matches
+     each) — because they were removed or replaced (`POST /solve` → the async job API in G3.1). The
+     changelog is append-only and historically accurate; these are not drift to fix.
+
 **Gates:** the registration-points test (`registration.test.ts`, in the fast api-server gate) is
 live. Two proposed gates are **not enabled**: e2e-in-CI (**skipped** — no CI browser/app/seed infra),
 `doc_drift`/`docs:lint` (**deferred** until the stale-ref baseline is clean). See
