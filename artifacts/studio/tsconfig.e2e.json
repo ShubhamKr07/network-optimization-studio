@@ -24,13 +24,25 @@
     // string. The dot-suffixed form is not ignored and gets committed — a
     // 56 KB generated artifact, verified by `git status` before this rename.
     "tsBuildInfoFile": "e2e.tsbuildinfo",
-    // `vite/client` is deliberately dropped (no import.meta.env in a spec);
-    // @playwright/test supplies its own types via its package exports.
-    "types": ["node"],
-    // Specs import from the app under `@/` in a few places (shared testids,
-    // formatters), so the alias has to resolve here too.
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    // `vite/client` is deliberately dropped (no spec uses import.meta.env —
+    // the only `import.meta` under e2e/ is `import.meta.url` in
+    // global.setup.ts, which `types: ["node"]` covers). @playwright/test
+    // supplies its own types via its package exports.
+    "types": ["node"]
+
+    // No `paths` override here on purpose. An earlier revision re-declared
+    // `{"@/*": ["./src/*"]}` with a comment claiming specs import from the app
+    // under `@/` "in a few places" — that was FALSE (`grep -rn '"@/' e2e/`
+    // returns nothing; the only relative imports are four `./helpers/modelLock`
+    // ones), and it was redundant anyway: `extends` already merges the base's
+    // identical `paths`, since both configs sit in this same directory so
+    // relative resolution is unchanged. Confirmed via `tsc --showConfig`.
+    // If a spec ever does need `@/`, it already resolves.
   }
+
+  // NOTE: `exclude` above replaces the base's `**/*.test.ts` rather than adding
+  // to it. Nothing under e2e/ matches that today, but it means a future
+  // `e2e/foo.test.ts` would compile here while staying invisible to the main
+  // `typecheck` — which is the intent (specs are this config's job), recorded
+  // because every other override in this file is deliberate and stated.
 }

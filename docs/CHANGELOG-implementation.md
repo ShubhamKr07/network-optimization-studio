@@ -2045,12 +2045,16 @@ step.
 New `artifacts/studio/tsconfig.e2e.json` + an opt-in `typecheck:e2e` script. 28 of 28 `.ts` files
 under `e2e/` now compile; before this, **zero** did.
 
-**Premise re-proven rather than inherited from the handover note:**
-`tsc -p tsconfig.json --noEmit --listFiles | grep -c '/e2e/'` returned **0** against **267** `src`
-files. `artifacts/studio` had exactly one tsconfig, the workspace has no linter of any kind, and
-Playwright's loader is esbuild transpile-only — so an arity or type error in a spec surfaced
-**nowhere** until that spec ran. Four JADE specs cannot currently run at all (`HND-E`), which left
-their correctness resting on human review alone.
+**Premise re-proven rather than inherited:** `tsc -p tsconfig.json --noEmit --listFiles | grep -c
+'/e2e/'` returned **0**, against **243** files under `artifacts/studio/src/`. (A first draft of this
+entry said "267 src files" — that is `grep -c '/src/'`, which also counts 20
+`node_modules/.pnpm/react-resizable-panels/**/declarations/src/*.d.ts` and 4 `lib/units/src` files.
+243 is studio's own count and the number this comparison is about.) `artifacts/studio` had exactly one
+tsconfig, the workspace has no linter of any kind, and Playwright's loader is esbuild transpile-only —
+so an arity or type error in a spec surfaced **nowhere** until that spec ran. Four JADE specs cannot
+currently run (the model-lock skip in `e2e/helpers/modelLock.ts`), which left their correctness
+resting on human review alone; that is also being addressed independently on the `e2e-jade-specs`
+branch, so this premise will read as stale once that lands.
 
 A separate config rather than widening `tsconfig.json`'s `include`, because the two need different
 `types`: the app build must not see Playwright's globals and the specs must not see `vite/client`.
@@ -2059,11 +2063,48 @@ Strictness is inherited, so the specs are held to exactly the repo's existing ba
 (`strictNullChecks`/`noImplicitAny` on, `strictFunctionTypes` off), not a stricter one that would have
 manufactured work.
 
-**Result: 0 errors — the handover note predicted errors in 13 specs, and there are none.** A clean
-result on 26 never-compiled files is exactly the kind of answer that should not be believed, so it was
-falsified: planting a wrong-arity call and a wrong-type assignment into `ch4-two-step.spec.ts`
-produced `TS2554 Expected 2 arguments, but got 1` and `TS2322`. That first code is precisely the class
-CH4UX-7's re-signaturing of local solve helpers across 11 specs risked. Probe removed, re-verified 0.
+**Result: 0 errors**, where errors in 13 specs had been expected. A clean result on 28 never-compiled
+files is exactly the kind of answer that should not be believed, so it was falsified: planting a
+wrong-arity call and a wrong-type assignment into `ch4-two-step.spec.ts` produced
+`TS2554 Expected 2 arguments, but got 1` and `TS2322`. Probe removed, re-verified 0.
+
+**Scope correction, from the whole-branch review: the solve helpers are per-file duplicates, not
+shared, so the cross-file blast radius originally claimed here does not exist.** Measured topology —
+**14 files each declare their own** solve helper (`solveAndWait` ×5, `solveViaUi` ×5, `solveScenario`
+×2, `runOptimizerAndWait`, `solveAndObserveClock`), and `e2e/helpers/modelLock.ts`'s
+`skipIfJadeLocked` is the **only** cross-file export in the entire directory. So a signature change in
+one spec cannot break another. What the typecheck actually catches, both proven by planting: the
+**within-file** missed call site after a declaration change — the realistic CH4UX-7 regression, since
+that task edited 2–3 call sites per file — and any re-signaturing of `skipIfJadeLocked`, where all
+four callers error at once. Real value, narrower than first worded. Worth noting that CH4UX-7 left
+those duplicates with *inconsistent* signatures (`id: string` in some files, `id: number` in others),
+which is exactly the shape a shared helper would have forced into agreement.
+
+**What this does NOT catch — the asymmetry is the honest explanation for 28 clean files, and matters
+more than the 0.** Verified silent, each by planting:
+- **A floating `expect`** — `expect(loc).toBeVisible();` with no `await`. The highest-value gap by
+  far: a missing `await` makes a web-first assertion completely vacuous, and that is the exact
+  failure mode CH4UX-7's own commit message describes ("those waits were silently vacuous and every
+  downstream assertion raced the real result"). Catching it needs
+  `@typescript-eslint/no-floating-promises`; `tsc` structurally cannot.
+- **A nonexistent or renamed testid string** — `getByTestId("made-up-testid")`. Strings are opaque.
+  This is this repo's documented recurring `spec_gap` class (CLAUDE.md: "a UI-changing bundle
+  silently breaks PRIOR bundles' specs"), and the new typecheck gives it **zero** coverage.
+- **Wrong-type matcher arguments** — `toBe(expected: unknown)` in Playwright's types accepts
+  anything, so a whole family of assertion-value mistakes passes.
+- **Any property chain off an uncast `await resp.json()`** (it is `any`). Specs that declare an
+  interface and cast — e.g. `MaxCoverageResult` in `ch4-two-step.spec.ts` — *are* checked.
+
+The specs' two heaviest surfaces, locator/testid strings and `resp.json()` payloads, are largely
+outside `tsc`'s reach. This change is worth having and it is **not** a safety net for the failure
+class that actually breaks this repo's e2e suite.
+
+For the record, the classes it *does* catch went well beyond the two planted first: misspelled
+Playwright methods (`page.cilck` → `TS2551` with a suggestion), wrong matcher names
+(`toHaveTxt` → `TS2551`), bogus locator/`goto`/`test.use` option keys (`TS2561`), unawaited Promises
+assigned to a concrete type (`TS2322`) **or used as a truthy condition** (`TS2801`), bad relative and
+`@/` import paths (`TS2307`), `page.waitForTimeout("500")` (`TS2345`), and missing required object
+fields (`TS2741`).
 
 **A generated 56 KB artifact was caught before it landed.** `tsBuildInfoFile` was initially
 `.tsbuildinfo.e2e`, which the root `.gitignore`'s `*.tsbuildinfo` pattern does **not** match — that
