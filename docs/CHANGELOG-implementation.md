@@ -1939,10 +1939,14 @@ sides are DB-side. An earlier probe using raw `pg` instead of drizzle gave a *di
 local-zone serialisation both ways) and would have supported the wrong conclusion — the ORM, not the
 driver, is what decides this.
 
-**Measured, not inferred:** 131 of 160 `solve_jobs` rows in `nos_dev` had `finished_at - started_at`
-= exactly `25200`, 14 more within a minute of it. Queue waits were a sane 0–2s because `queued_at`
-and `started_at` were *both* DB-written and the error cancelled — which is why the bug presented as
-a wrong solve duration rather than as obviously broken timestamps.
+**Measured, not inferred:** of 160 `solve_jobs` rows in `nos_dev` with both timestamps, **131 had
+`finished_at - started_at` rounding to `25200` s** and **155 were within a minute of it** (min
+961.9 s, max 25420.0 s). No row is *exactly* 25200 — the real solve duration rides on top of the
+offset — so "rounds to" is the defensible phrasing and the first version of this entry overstated it
+as an equality (and said 14 within a minute, when it is 24 beyond the 131, 155 in total). Queue waits
+were a sane 0–2 s because `queued_at` and `started_at` were *both* DB-written and the error
+cancelled — which is why the bug presented as a wrong solve duration rather than as obviously broken
+timestamps.
 
 **Two consequences found beyond the reported symptom:**
 1. `landingSummary.ts:27` computes `max(finished_at)` over rows written by two different clocks
@@ -1957,10 +1961,24 @@ a wrong solve duration rather than as obviously broken timestamps.
 this task. `isStale()` (`routes/scenarios.ts:116`) is a bare `inputsUpdatedAt > solvedAt` with no
 tolerance, and `inputs_updated_at` can originate from the INSERT's `defaultNow()` (the database's
 clock) while `solved_at` was written from the application host. Any clock skew between the two hosts
-marks a scenario stale the instant it finishes solving. The naked columns had been *masking* this:
-`inputs_updated_at` read back offset into the past, so it could never win the comparison.
-Converting to `timestamptz` removes that accident. So `solved_at`, `inputs_updated_at` and
-`updated_at` moved to `sql`now()`` — required for correctness, not tidying.
+marks a scenario stale the instant it finishes solving. The naked columns had been *masking* this —
+**but only because this database's offset is negative**: `inputs_updated_at` read back into the past,
+so it could never win the comparison. On a positive-offset database (`Asia/Kolkata`, +05:30) the
+identical code reads 19800 s into the *future* and `isStale()` returns `true` for every solved
+scenario, permanently — a louder bug than the one that was reported. Benign by luck, not by design.
+Converting to `timestamptz` removes the accident, so every writer of `solved_at`,
+`inputs_updated_at` and `updated_at` moved to `sql`now()``.
+
+**All five `updated_at` writers moved, not two.** The first version of this entry claimed the column
+had been unified while `routes/scenarios.ts:373`, `:412` and `routes/distanceBands.ts:73` were still
+writing `new Date()` — so in a combined `{name, inputs}` PATCH both forms fired inside one
+transaction and the app clock won. Harmless in itself (nothing compares `updated_at`; it is only
+projected to the API) but it contradicted this change's own "one clock per column" claim, so the
+three were converted rather than the claim narrowed. Two script writers were missed the same way and
+are now fixed: `scripts/src/strip-network-edits.ts` wrote `inputs_updated_at` from the app clock —
+one side of the no-tolerance `isStale` comparison — and `scripts/src/migrate-scenario-inputs.ts`
+would `ADD COLUMN ... timestamp` (naked) on a legacy or rebuilt database, after which the natural
+`drizzle-kit push` follow-up is exactly the `USING`-less ALTER that shifts every row.
 
 **Deliberately NOT backfilled** (user decision, 2026-10-01): the migration uses
 `USING col AT TIME ZONE 'UTC'`, which keeps each stored wall-clock unchanged and labels it UTC. New
@@ -1975,9 +1993,28 @@ timestamptz` has no `USING` clause, so Postgres reinterprets each naked value in
 zone — shifting every stored row by 7h on a Pacific session, the exact opposite of the chosen
 policy. The ops doc leads with the explicit SQL and says so.
 
-**`session.expire` excluded** — `connect-pg-simple` owns and writes that table on its own schema
-assumptions. `users.created_at`/`updated_at` were already `timestamptz` (`auth.ts:22-23`), the
-precedent this follows.
+**`sessions.expire` excluded because the table is DEAD, not for any compatibility reason.**
+`auth.ts:4` already marks it unused; zero writers, zero readers, 0 rows. The first version of this
+entry — and `CLAUDE.md`'s new gotcha, and the ops doc, and the commit body — all stated that
+`connect-pg-simple` owns and writes it. **That was fabricated.** Neither `connect-pg-simple` nor
+`express-session` is a dependency of this repo: 0 occurrences in `pnpm-lock.yaml`, absent from
+`node_modules`; auth is a stateless signed cookie (`routes/auth.ts:77`). The decision to exclude was
+right and the recorded reason was invented — and it had been written into `CLAUDE.md`, the one file
+every future agent treats as ground truth. Caught by the whole-branch review, re-verified
+independently before correcting.
+
+**The migration is NOT idempotent, and the first version of the runbook did not say so.** Running the
+conversion twice shifts every value by the session offset again, silently: on an already-`timestamptz`
+column `v AT TIME ZONE 'UTC'` yields a naked `timestamp` holding the UTC wall-clock, and the implicit
+cast back re-interprets it in the session zone. Measured on a temp table: `07:00` → `07:00` →
+`14:00`. The rollback has the same hazard inverted (`07:00` → `07:00` → `00:00`). Easy to trigger for
+real — a doubled paste, a partially-failed run, a second operator following the same doc — and hard
+to notice, because the no-backfill policy already declares historical values untrustworthy. The
+runbook now leads with the precondition and offers a self-guarding `DO` block that converts only
+columns still reading `timestamp without time zone`.
+
+`users.created_at`/`updated_at` were already `timestamptz` (`auth.ts:22-23`), the precedent this
+follows.
 
 **New test, falsified rather than assumed:** `timestampClock.test.ts` asserts the column types **and**
 round-trips a real `now()`-written value against the client clock. Both halves are needed — the

@@ -35,11 +35,17 @@ async function main() {
   if (!(await columnExists("inputs_version"))) {
     await db.execute(sql`ALTER TABLE scenarios ADD COLUMN inputs_version integer NOT NULL DEFAULT 1`);
   }
+  // HND-B — `timestamptz`, matching the schema. These two were `timestamp` and
+  // are guarded by `columnExists`, so they are a no-op on any current database
+  // — but on a legacy or rebuilt one they would CREATE naked columns, and the
+  // natural follow-up (`drizzle-kit push`) emits a `USING`-less
+  // `ALTER ... SET DATA TYPE timestamptz` that shifts every existing row by the
+  // session's UTC offset. See docs/ops/timestamptz-migration.md.
   if (!(await columnExists("solved_at"))) {
-    await db.execute(sql`ALTER TABLE scenarios ADD COLUMN solved_at timestamp`);
+    await db.execute(sql`ALTER TABLE scenarios ADD COLUMN solved_at timestamptz`);
   }
   if (!(await columnExists("inputs_updated_at"))) {
-    await db.execute(sql`ALTER TABLE scenarios ADD COLUMN inputs_updated_at timestamp NOT NULL DEFAULT now()`);
+    await db.execute(sql`ALTER TABLE scenarios ADD COLUMN inputs_updated_at timestamptz NOT NULL DEFAULT now()`);
   }
 
   await db.execute(sql`
