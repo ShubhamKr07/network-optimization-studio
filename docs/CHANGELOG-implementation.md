@@ -1858,3 +1858,51 @@ as frozen at `1057a071` with every deploy failing on `DATABASE_URL`. It is not �
 shows `dep-daujns7lot8c73bdjaj0` **live** at `fa5068e` (2026-09-30 16:43Z). The two
 `update_failed` deploys were on 2026-09-29/30 and were fixed by `06a5b9f`
 ("fix(render): match the live nos-api config — explicit DATABASE_URL, real autoDeploy").
+
+**Whole-branch review on the merged state: `Fix before push`, 1 Critical + 4 Important + 4 Minor,
+all nine verified independently and all nine folded before the push.** The review confirmed every
+file:line anchor, every SHA, both SQL statements, the `.strict()` claim at `22be7e8`, the `unknown`
+discipline (it re-attempted the production query by a route this session had not tried and hit the
+same allowlist wall), and the central independence claim — which it verified properly, by exhausting
+the insert paths into `solve_jobs` rather than by reading the prose: two production inserts exist,
+one inside the guarded transaction and one (`jobRunner.ts:343`) with zero non-test callers.
+
+The Critical was the document asserting `nos-api` has `autoDeployTrigger: off` and "always needs a
+deliberate trigger". **False, and false in the direction that gets someone hurt** — it tells an
+operator that pushing a revert to `main` cannot ship the API, when `render.yaml:29` is
+`autoDeployTrigger: commit` and the live service reports `autoDeploy: yes` / `branch: main`. The
+irony is instructive: the correcting commit is `06a5b9f`, cited three paragraphs above in this very
+entry. **`CLAUDE.md`'s Branch-discipline section carries the identical stale claim** — almost
+certainly where this one was inherited from. Not fixed here (out of scope for a docs task, and
+`CLAUDE.md` is not something to amend on a review agent's say-so); surfaced for a decision.
+
+The four Important findings were all of one kind — places the doc stopped one step short of the
+operator's actual situation:
+1. The `stepEpoch` strip is inert while rolled back but **not** across a roll-forward. Rollback →
+   user edits → roll-forward leaves the row with no `stepEpoch`, which `readStepEpoch` reads as
+   epoch 1, which re-matches long-superseded epoch-1 jobs that `loadScenarioSteps` then reports
+   `stale: false` — because CH4-3's premise ("the only thing that can change Step 1 bumps the
+   epoch") is exactly what the strip breaks. Now documented with the audit query.
+2. Dropping the index also turns `maxCoverageStepWorkflow.test.ts:282-299` red — a real-Postgres
+   test asserting the raw insert is refused. Matters because the lever is `DATABASE_URL`-
+   parameterised and invites being run against a dev DB.
+3. The `drizzle-kit push` re-create is **checkout-dependent and can do the opposite of the
+   intent**: run from a build rolled back to `22be7e8`, the schema file has no index and push
+   proposes *dropping* it. The hand-written `CREATE UNIQUE INDEX` now leads, and the plan's
+   `--verbose` inspection step — which had not carried into the runbook — is restored.
+4. "Applied the way every schema change in this repo is applied" read as an assertion about
+   production two lines above `indexdef: unknown`. Scoped to local/CI, with the absence of any
+   recorded production apply stated outright.
+
+Minor: the ancestry pre-check now tests `a5335f6` rather than the merge commit `0a300f8` (the merge
+test clears branch tips like `070bf48`/`c547e2d` that carry the entire feature); eight of the nine
+task commits are **merges**, so `git revert` needs `-m 1` or the content SHAs — both forms are now
+given, and task 9 has a real SHA (`070bf48`/`96c1d10`) instead of "(in `0a300f8`)"; `0a300f8`'s
+merged branch was `e2e-inherited-repair`, not the plan branch; and `202` is the solve endpoint's
+only success code, so the doc's own falsification criterion no longer says `201`/`202`.
+
+One finding was recorded in the doc rather than fixed, because it is a source comment and not this
+task's scope: `solve_jobs.ts:118-121` still claims `enqueueScenarioSolve` "inserts WITHOUT checking
+for an existing job… This index does" — true when task 1 wrote it, superseded by task 4. An
+operator grepping the schema to check the doc's central claim would find a comment contradicting it,
+so the doc now carries an explicit warning pointing at `jobRunner.ts:393-403` instead.

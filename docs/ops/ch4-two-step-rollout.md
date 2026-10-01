@@ -19,24 +19,31 @@ object — come apart cleanly. That separation is the point of this document.
 
 ## What shipped
 
-Nine tasks, each its own commit, merged `--no-ff` into
-`ch4-two-step-workflow-plan`, then merged to `main` as **`0a300f8`**
-(2026-09-29 00:54 +0530).
+Nine tasks, each merged `--no-ff` into `ch4-two-step-workflow-plan`. That branch
+was then merged into `e2e-inherited-repair` (which added four test-only commits —
+`f4a231a`, `25a3a6a`, `218fee7`, `c547e2d` — from the e2e investigation that gated
+the bundle), and **that** is what reached `main` as **`0a300f8`**
+(2026-09-29 00:54 +0530). So `0a300f8` is slightly wider than the bundle itself.
 
-| Task | Commit | What it added |
-|---|---|---|
-| `ch4-2s-1` | `a5335f6` | `stepEpoch`/`step2` in the Chapter 4 input schema **+ the one schema change**, `UQ_solve_jobs_active_per_scenario` |
-| `ch4-2s-2` | `0eb54ca` | `applyScenarioInputWrite` — the single epoch-write authority |
-| `ch4-2s-3` | `cdd7a1f` | write routes reject a client-supplied `objective` / coverage floor |
-| `ch4-2s-4` | `3763d21` | target-step derivation inside the enqueue lock; refuses a second active job |
-| `ch4-2s-5` | `6cda42c` | `Scenario.steps` projection + lazy per-step result envelope |
-| `ch4-2s-6` | `63e16d5` | removes the free objective toggle from both mounts |
-| `ch4-2s-7` | `9ea5823` | step toggle, Step 2 parameters, confirm-and-clear |
-| `ch4-2s-8` | `6e75682` | per-step output gating, the 2-of-2 comparison table |
-| `ch4-2s-9` | (in `0a300f8`) | `ch4-two-step.spec.ts`, sibling-spec repair, gate, closeout |
+Both SHAs are given per task because **eight of the nine task commits are merge
+commits** — which changes how you revert them (see Lever 1):
+
+| Task | Merge commit | Content commit | What it added |
+|---|---|---|---|
+| `ch4-2s-1` | — (single parent) | `a5335f6` | `stepEpoch`/`step2` in the Chapter 4 input schema **+ the one schema change**, `UQ_solve_jobs_active_per_scenario` |
+| `ch4-2s-2` | `0eb54ca` | `eb48ba7` | `applyScenarioInputWrite` — the single epoch-write authority |
+| `ch4-2s-3` | `cdd7a1f` | `96e369c` | write routes reject a client-supplied `objective` / coverage floor |
+| `ch4-2s-4` | `3763d21` | `198c9d7` | target-step derivation inside the enqueue lock; refuses a second active job |
+| `ch4-2s-5` | `6cda42c` | `45b0e41` | `Scenario.steps` projection + lazy per-step result envelope |
+| `ch4-2s-6` | `63e16d5` | `ab1ba98` | removes the free objective toggle from both mounts |
+| `ch4-2s-7` | `9ea5823` | `483a0ca` | step toggle, Step 2 parameters, confirm-and-clear |
+| `ch4-2s-8` | `6e75682` | `1cf3a41` | per-step output gating, the 2-of-2 comparison table |
+| `ch4-2s-9` | `070bf48` | `96c1d10` | `ch4-two-step.spec.ts`, sibling-spec repair, gate, closeout |
 
 The commit `main` pointed at immediately before the merge — i.e. the code-rollback
-target **as of 2026-09-29** — is **`22be7e8`** (`0a300f8^1`).
+target **as of 2026-09-29** — is **`22be7e8`** (`0a300f8^1`). Because of the
+`e2e-inherited-repair` detour above, reverting to it also drops those four
+test-only commits; none of them touch product code.
 
 **Read the caveat in "Lever 1" before using `22be7e8` today.** Several unrelated
 bundles have shipped on top of it since, so it is no longer a Chapter-4-only
@@ -58,6 +65,15 @@ uniqueIndex("UQ_solve_jobs_active_per_scenario")
 
 Applied the way every schema change in this repo is applied — `drizzle-kit push`,
 no migration file.
+
+**Scope of that sentence: local/CI databases.** Whether this index was ever
+applied to **production** is *unrecorded*. The plan's own Task 10 had four
+production steps (premise check, duplicate preflight, `--verbose` drift
+inspection, then the apply); nothing in
+[`docs/CHANGELOG-implementation.md`](../CHANGELOG-implementation.md) records any
+of them running against `nos-postgres`, and that entry does explicitly list what
+the bundle skipped. Do not assume the index is there. Run the `pg_indexes` query
+below before relying on it either way.
 
 **Observed `indexdef`, read from the local `nos_dev` database on 2026-10-01:**
 
@@ -133,7 +149,16 @@ The scenario row lock serialises two concurrent enqueues; it is the check at
 `:393` that makes the second one *refuse*. So **dropping the index does not
 un-enforce the rule** — the application keeps refusing a second active Chapter 4
 job without it. The index is the backstop for a writer that bypasses
-`enqueueScenarioSolve` entirely; nothing in the current code does.
+`enqueueScenarioSolve` entirely; nothing in the current code does. (There are only
+two production inserts into `solve_jobs`: one inside that guarded transaction, and
+`enqueueSolveJob` at `jobRunner.ts:343`, which has no non-test callers.)
+
+⚠️ **A stale comment in the schema contradicts the above — the comment is wrong,
+not this document.** `solve_jobs.ts:118-121` still says `enqueueScenarioSolve`
+"inserts WITHOUT checking for an existing job… This index does". That was true
+when task 1 wrote it and was superseded by task 4 (`3763d21`), which added the
+in-transaction check. If you grep the schema to verify this document's central
+claim, read `jobRunner.ts:393-403` rather than the comment.
 
 ### Lever 1 — code rollback (redeploy a previous build)
 
@@ -141,10 +166,15 @@ Reverts the UI, the validation, the step derivation and the `steps` projection.
 Leaves the database exactly as it is.
 
 ```bash
-# find the last live deploy whose commit is NOT a descendant of 0a300f8
+# find the last live deploy whose commit does NOT contain the bundle
 #   mcp__render__list_deploys  srv-d9hglg6pbkes73a1j8b0   (nos-api)
 #   mcp__render__list_deploys  srv-d9hg4gvlk1mc73dtp67g   (nos-studio)
-git merge-base --is-ancestor 0a300f8 <candidate-sha> \
+#
+# Test against a5335f6 (task 1's content commit), NOT 0a300f8. Testing the merge
+# commit clears any candidate that carries all nine tasks without yet having been
+# merged to main — e.g. 070bf48 or c547e2d, the bundle and repair branch tips,
+# which contain the whole feature but are not descendants of 0a300f8.
+git merge-base --is-ancestor a5335f6 <candidate-sha> \
   && echo "TOO NEW — contains the bundle" \
   || echo "ok — predates the bundle"
 ```
@@ -152,24 +182,79 @@ git merge-base --is-ancestor 0a300f8 <candidate-sha> \
 Both services, or neither. The UI's step toggle talks to API shapes this bundle
 added; rolling back only one leaves a frontend asking for `steps` from a server
 that no longer projects it, or a server deriving a target step for a frontend
-with no way to show it. `nos-api` has `autoDeployTrigger: off`, so it always
-needs a deliberate trigger.
+with no way to show it.
+
+**Both services auto-deploy from `main` on commit, so a push can ship either
+one.** Verified 2026-10-01: `render.yaml:29` is `autoDeployTrigger: commit` and
+the live `nos-api` reports `autoDeploy: yes` / `autoDeployTrigger: commit` /
+`branch: main`. An earlier revision of this document said `nos-api` was
+`autoDeployTrigger: off` and "always needs a deliberate trigger" — **that is
+false**, and false in the dangerous direction: it would tell an operator that
+pushing a revert to `main` cannot touch the API. `render.yaml`'s own comment
+block records the same correction (made in `06a5b9f`). Separately, the
+`nos-studio` webhook has historically *not* fired on its own in this repo, so
+check `list_deploys` after any push regardless of what the config promises, and
+trigger manually if the commit is not building.
 
 **Caveat, and it has grown since the bundle shipped.** `22be7e8` was a clean
 Chapter-4-only revert on 2026-09-29. It is not one any more: Chapter 5
 (`delivery-teaching-us`), the CH4UX bundle, the Chapter 9 JADE unlock and the CI
 work have all landed on top. Rolling back to `22be7e8` today reverts all of them
-too. If the goal is specifically to retire the two-step workflow, a forward fix —
-or `git revert` of the nine commits — is the smaller change, and both are smaller
-than they look because this bundle added no columns.
+too. If the goal is specifically to retire the two-step workflow, a forward fix
+or a targeted revert is the smaller change — this bundle added no columns, so
+both are smaller than they look.
+
+**If you revert rather than redeploy, mind the merge commits.** Eight of the nine
+task commits have two parents, so a bare `git revert <sha>` fails with *"is a
+merge but no -m option was given."* Either revert the merges first-parent-wise:
+
+```bash
+git revert -m 1 070bf48 6e75682 9ea5823 63e16d5 6cda42c 3763d21 cdd7a1f 0eb54ca
+git revert a5335f6          # task 1 is the only single-parent commit
+```
+
+…or revert the content commits instead, which need no `-m`:
+
+```bash
+git revert 96c1d10 1cf3a41 483a0ca ab1ba98 45b0e41 198c9d7 96e369c eb48ba7 a5335f6
+```
+
+Newest-first in both cases. Reverting `a5335f6` removes the index from the schema
+file, which matters for Lever 2's re-create step — see the warning there.
 
 **What a code rollback does NOT undo:** `stepEpoch` and `step2` keys already
-persisted inside `scenarios.inputs` for Chapter 4 rows stay there. That is
-harmless. `maxCoverageInputsSchema` at `22be7e8` has no `.strict()` on its
-top-level object (verified by reading the file at that commit), so the
-rolled-back validator ignores the unknown keys rather than rejecting them — no
-`422` storm on existing scenarios. The keys simply stop being read, and are
-rewritten away whenever that scenario's inputs are next written.
+persisted inside `scenarios.inputs` for Chapter 4 rows stay there. No `422`
+storm: `maxCoverageInputsSchema` at `22be7e8` has no `.strict()` on its top-level
+object (verified by reading the file at that commit), so the rolled-back
+validator strips the unknown keys rather than rejecting them, and the bundle
+added no *required* field whose absence could fail validation either.
+
+**But the strip is not inert if you later roll forward.** This is the one
+sequence to plan around, because rollback → users keep editing → roll forward is
+an ordinary incident timeline:
+
+1. A Chapter 4 scenario sits at, say, `stepEpoch: 5`.
+2. Rollback. Any inputs write on that scenario now goes through the old writer,
+   which does not know the field — so the strip persists and `stepEpoch`
+   disappears from the row.
+3. Roll forward. `stepEpoch` is `.default(1)` (`maxCoverage.ts:137`) and
+   `readStepEpoch` falls back to `1` when absent
+   (`maxCoverageSteps.ts:29-32`), so the scenario reads as epoch 1.
+4. `loadScenarioSteps` matches succeeded jobs on
+   `COALESCE((input_snapshot->'inputs'->>'stepEpoch')::int, 1) = <epoch>`
+   (`maxCoverageSteps.ts:211`) and reports Step 1 as `stale: false`
+   unconditionally, on the stated grounds that the only thing which can change it
+   bumps the epoch (`:228-230`). That premise is what step 2 broke.
+
+Net effect: **long-superseded epoch-1 results can be presented as current and
+non-stale, and Step 2's floor derived from them.** If a rollback is going to be
+followed by a roll-forward, audit Chapter 4 scenarios for a missing `stepEpoch`
+first:
+
+```sql
+SELECT id, name FROM scenarios
+WHERE model_id = 'max-coverage-us' AND NOT (inputs ? 'stepEpoch');
+```
 
 ### Lever 2 — drop the index
 
@@ -182,21 +267,52 @@ The quotes are required: the name is mixed-case, so unquoted Postgres folds it t
 idempotent.
 
 Safe to run while the code is still deployed, because of the double enforcement
-above. The only thing lost is defence against a future writer that inserts a
-`solve_jobs` row without going through `enqueueScenarioSolve`.
+above. Two things are lost, not one:
+
+1. Defence against a future writer that inserts a `solve_jobs` row without going
+   through `enqueueScenarioSolve`. (Nothing in the current code does —
+   `enqueueSolveJob` at `jobRunner.ts:343` has no non-test callers.)
+2. **A test goes red.** `maxCoverageStepWorkflow.test.ts:282-299` ("the database
+   itself rejects a second active Chapter 4 job") is a real-Postgres test that
+   asserts the raw `db.insert` is refused. Drop the index on any database the
+   api-server suite runs against and the verification gate fails with a message
+   that looks nothing like its cause. Worth knowing before you run this lever on
+   a dev or CI database rather than production.
 
 **It is production DDL, so it needs explicit human consent before execution**
-(CLAUDE.md standing rule), even though it is trivially reversible — re-create it
-by running `pnpm --filter @workspace/db run push` against the database, or by
-hand from the `indexdef` quoted above.
+(CLAUDE.md standing rule), even though it is reversible.
 
 ### Reversing the index drop
 
-```bash
-DATABASE_URL="<target>" pnpm --filter @workspace/db run push
+**Prefer the hand-written statement.** It is the one form that does exactly this
+and nothing else:
+
+```sql
+CREATE UNIQUE INDEX "UQ_solve_jobs_active_per_scenario"
+  ON public.solve_jobs USING btree (scenario_id)
+  WHERE model_id = 'max-coverage-us' AND status IN ('queued', 'running');
 ```
 
-Re-creating the index will **fail** if the table already holds two
+**Do not reach for `drizzle-kit push` without checking what it will do.**
+
+```bash
+# only from a checkout at or after a5335f6, and read the statements first
+DATABASE_URL="<target>" pnpm --filter @workspace/db exec drizzle-kit push --verbose
+```
+
+`push` reconciles the **entire** schema from whatever checkout it runs in, not
+just this index. Two concrete ways that bites here:
+
+- Run it from a build rolled back to `22be7e8` — precisely the state Lever 1
+  produces — and the schema file contains no index, so `push` will propose
+  **dropping** the thing you are trying to restore.
+- It will also apply any *unrelated* drift between that checkout's schema and the
+  target database, silently, in the same pass.
+
+The plan's own Task 10 required inspecting the planned statements with
+`--verbose` before confirming. Keep that step.
+
+Either way, re-creating the index **fails** if the table already holds two
 `queued`/`running` rows for one Chapter 4 scenario — which can only have happened
 while the index was absent. Check first, and resolve the duplicates before
 re-creating:
@@ -220,8 +336,9 @@ GROUP BY scenario_id HAVING count(*) > 1;
 | Index drop only | the `pg_indexes` query above | zero rows |
 | Index re-created | the duplicates query above | zero rows |
 
-The `409` row is the only non-obvious one, and it is the one worth running. If it
-returns `201`/`202` instead, the in-transaction guard is **not** working and the
-index was load-bearing after all — which would mean this document's central claim
-is wrong for the build in front of you. Stop and re-read
+The `409` row is the only non-obvious one, and it is the one worth running. A
+second `202` ("Solve job queued", the endpoint's only success code —
+`openapi.yaml:322`) instead of the `409` means the in-transaction guard is **not**
+working and the index was load-bearing after all — which would mean this
+document's central claim is wrong for the build in front of you. Stop and re-read
 `jobRunner.ts:393-403` on that build before proceeding.
