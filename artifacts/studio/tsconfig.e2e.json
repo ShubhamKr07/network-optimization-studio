@@ -1,0 +1,36 @@
+{
+  // HND-D — the Playwright specs under e2e/ were in NO tsc program at all.
+  // Proven, not assumed: `tsc -p tsconfig.json --noEmit --listFiles | grep -c
+  // '/e2e/'` returned 0 against 267 src files, this package had exactly one
+  // tsconfig, and the workspace has no linter. Playwright's own loader is
+  // esbuild transpile-only, so an arity or type error in a spec surfaced
+  // NOWHERE until that spec ran — and four JADE specs cannot currently run at
+  // all, which left their correctness resting on human review alone.
+  //
+  // Separate from tsconfig.json rather than folded into its `include`, because
+  // the two need different `types`: the app build must NOT see Playwright's
+  // globals, and the specs must not see `vite/client`.
+  "extends": "./tsconfig.json",
+  "include": ["e2e/**/*"],
+  "exclude": ["node_modules"],
+  "compilerOptions": {
+    "noEmit": true,
+    // Its own buildinfo path. Sharing tsconfig.json's .tsbuildinfo would make
+    // the two configs invalidate each other's incremental cache on every
+    // alternating run.
+    //
+    // Named `e2e.tsbuildinfo`, NOT `.tsbuildinfo.e2e`: the root .gitignore's
+    // pattern is `*.tsbuildinfo`, which matches only names ENDING in that
+    // string. The dot-suffixed form is not ignored and gets committed — a
+    // 56 KB generated artifact, verified by `git status` before this rename.
+    "tsBuildInfoFile": "e2e.tsbuildinfo",
+    // `vite/client` is deliberately dropped (no import.meta.env in a spec);
+    // @playwright/test supplies its own types via its package exports.
+    "types": ["node"],
+    // Specs import from the app under `@/` in a few places (shared testids,
+    // formatters), so the alias has to resolve here too.
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

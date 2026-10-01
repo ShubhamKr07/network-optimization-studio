@@ -51,6 +51,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | ch9-unlock — Chapter 9 (JADE) reopened; no chapter is locked any more | L1708 |
 | Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`) | L1822 |
 | Solve clock showed "Solving 25200s" — `timestamp` → `timestamptz` (`HND-B`) | L1913 |
+| The e2e specs were in no tsc program at all (`HND-D`) | L2043 |
 
 ---
 
@@ -2036,3 +2037,45 @@ construction.
 session could not reach it, so production's current column types are **unverified** — the ops doc
 says to run the verification query rather than assume. Production DDL is a separate human-approved
 step.
+
+---
+
+## The e2e specs were in no tsc program at all (`HND-D`)
+
+New `artifacts/studio/tsconfig.e2e.json` + an opt-in `typecheck:e2e` script. 28 of 28 `.ts` files
+under `e2e/` now compile; before this, **zero** did.
+
+**Premise re-proven rather than inherited from the handover note:**
+`tsc -p tsconfig.json --noEmit --listFiles | grep -c '/e2e/'` returned **0** against **267** `src`
+files. `artifacts/studio` had exactly one tsconfig, the workspace has no linter of any kind, and
+Playwright's loader is esbuild transpile-only — so an arity or type error in a spec surfaced
+**nowhere** until that spec ran. Four JADE specs cannot currently run at all (`HND-E`), which left
+their correctness resting on human review alone.
+
+A separate config rather than widening `tsconfig.json`'s `include`, because the two need different
+`types`: the app build must not see Playwright's globals and the specs must not see `vite/client`.
+Coverage was verified by diffing `--listFiles` against `find`, not assumed — 28/28, nothing orphaned.
+Strictness is inherited, so the specs are held to exactly the repo's existing bar
+(`strictNullChecks`/`noImplicitAny` on, `strictFunctionTypes` off), not a stricter one that would have
+manufactured work.
+
+**Result: 0 errors — the handover note predicted errors in 13 specs, and there are none.** A clean
+result on 26 never-compiled files is exactly the kind of answer that should not be believed, so it was
+falsified: planting a wrong-arity call and a wrong-type assignment into `ch4-two-step.spec.ts`
+produced `TS2554 Expected 2 arguments, but got 1` and `TS2322`. That first code is precisely the class
+CH4UX-7's re-signaturing of local solve helpers across 11 specs risked. Probe removed, re-verified 0.
+
+**A generated 56 KB artifact was caught before it landed.** `tsBuildInfoFile` was initially
+`.tsbuildinfo.e2e`, which the root `.gitignore`'s `*.tsbuildinfo` pattern does **not** match — that
+pattern matches only names *ending* in the string. `git status` showed it untracked and about to be
+committed. Renamed to `e2e.tsbuildinfo` and confirmed ignored with `git check-ignore -v`. It needs its
+own path regardless of the name: sharing `tsconfig.json`'s would make the two configs invalidate each
+other's incremental cache on every alternating run.
+
+**Deliberately opt-in, not folded into studio's `typecheck`.** The root `typecheck` script runs each
+package's own `typecheck`, and CI runs the root script — so folding it in would enrol CI
+automatically, which this task's brief explicitly reserves for devops agreement. `pnpm run typecheck`
+verified unchanged. **Open decision: whether `typecheck:e2e` joins the workspace gate (and therefore
+CI).** It is green today, needs no browser or app infrastructure, and is the only thing standing
+between a re-signatured helper and an undetected break in a spec that cannot run — but enrolling it
+is a CI change, not this task's call.
