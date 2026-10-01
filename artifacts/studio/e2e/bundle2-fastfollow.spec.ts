@@ -72,11 +72,6 @@ async function saveAndWait(page: Page): Promise<void> {
   await expect(page.getByTestId("button-save")).toBeDisabled({ timeout: HEADER_TIMEOUT });
 }
 
-/** CH4UX-7 — the one durable per-run signal this file's solve wait anchors
- * on. Read from the server, not the DOM: `solvedAt` is written exactly once
- * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
- * different from the one captured before the submit can only have been
- * produced by THIS run. */
 /**
  * CH4UX-7 — the old wait was `sidebar-output-output-map` becoming enabled.
  * That row ungates on the FIRST solved result and never re-disables, so it

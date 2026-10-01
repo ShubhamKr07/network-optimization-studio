@@ -68,11 +68,6 @@ async function createJadeScenario(page: Page): Promise<string> {
   return id;
 }
 
-/** CH4UX-7 — the one durable per-run signal this file's solve wait anchors
- * on. Read from the server, not the DOM: `solvedAt` is written exactly once
- * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
- * different from the one captured before the submit can only have been
- * produced by THIS run. */
 /**
  * Opens the Run Optimizer dialog, triggers Solve, and waits for the async
  * job to succeed.

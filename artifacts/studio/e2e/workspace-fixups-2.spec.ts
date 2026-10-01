@@ -72,11 +72,6 @@ async function expectNoAddedEntitiesTab(page: Page): Promise<void> {
   await expect(page.getByTestId("sidebar-input-added-entities")).toHaveCount(0);
 }
 
-/** CH4UX-7 — the one durable per-run signal this file's solve waits anchor
- * on. Read from the server, not the DOM: `solvedAt` is written exactly once
- * per successful publication (`jobRunner.ts`'s scenario CAS), so a value
- * different from the one captured before the submit can only have been
- * produced by THIS run. */
 /**
  * CH4UX-7 — this helper's old completion signal was
  * `expect(solve-dialog).not.toBeVisible()`. The dialog now closes the instant

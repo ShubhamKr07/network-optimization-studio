@@ -42,14 +42,39 @@
  * before failing — and it fails looking like a solver timeout, which is the
  * wrong diagnosis entirely.
  *
- * Why it cannot happen right now: every spec is sequential with exactly one
- * in-flight solve, and CH4UX-6's in-flight lock makes overlapping solves
- * impossible to trigger from the UI. The moment a spec drives two solves at
- * once — or edits inputs mid-solve — this becomes reachable. In that case,
+ * Why it cannot happen right now — and the reason is NOT the obvious one.
+ * `playwright.config.ts` sets `fullyParallel: false` but does not set
+ * `workers`, so Playwright defaults to roughly half the CPU cores and
+ * `fullyParallel: false` serialises only the tests *within* a file: **spec
+ * FILES do run in parallel**. What actually protects this is that the CAS is
+ * per-scenario and every spec registers its own user and creates its own
+ * scenarios, so no two specs ever touch the same `scenarios` row. A future
+ * spec that shares or seeds a fixed scenario id would be exposed while still
+ * looking "sequential".
+ *
+ * CH4UX-6's in-flight lock narrows the UI path but does not close it as an
+ * absolute: `src/pages/Workspace.tsx:3050-3059` documents in its own comment that
+ * `enqueueSolve` has a second caller (`handleSaveAsScenario`) which does not
+ * re-run the guard, and that two rapid clicks there still produce two
+ * `enqueueSolve` calls. That path creates *separate* scenarios, so it cannot
+ * produce same-scenario overlap — but do not restate it as "impossible", which
+ * is an absolute the source declines to make.
+ *
+ * The moment a spec drives two solves against ONE scenario — or edits inputs
+ * mid-solve — this becomes reachable. In that case,
  * wait on the specific job (`GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}`
  * — note the PLURAL path segment, `openapi.yaml:352`; it reports a terminal
  * status regardless of whether its result was published) rather than on the
  * scenario's `solvedAt`.
+ *
+ * One more non-publication mode, for completeness — not reachable from a spec,
+ * so it does not change the advice above. `enqueueSolveJob`
+ * (`jobRunner.ts:342`) passes `enqueuedSolveInputRevision: null`, and the CAS
+ * turns a null into `sql`false``, so a job enqueued through that primitive
+ * NEVER publishes and `solvedAt` never advances — no concurrency required.
+ * That is intended and documented at the call site; the primitive has only
+ * in-process callers (tests and programmatic use), never the HTTP path a
+ * Playwright spec drives.
  */
 import { expect, type Page } from "@playwright/test";
 
