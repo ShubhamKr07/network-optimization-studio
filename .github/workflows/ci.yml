@@ -98,16 +98,24 @@ jobs:
   # ---------------------------------------------------------------------------
   # e2e — Playwright against a real booted stack.
   #
-  # DELIBERATELY NON-BLOCKING (`continue-on-error: true`) for now. 13 specs are
-  # known red at the time this job lands: 11 catalogued test-rot specs
-  # (docs/ops/e2e-stale-specs.md, 2026-09-11 audit) plus 2 that need
-  # VITE_POSTHOG_KEY / VITE_SENTRY_DSN, which are not CI secrets yet. Making
-  # this required today would simply turn CI red again one commit after it
-  # first went green.
+  # BLOCKING as of 2026-09-30 (`continue-on-error: false`). This is the flip the
+  # previous revision of this comment promised: the 11 catalogued test-rot specs
+  # (docs/ops/e2e-stale-specs.md, 2026-09-11 audit) have been repaired, and the
+  # last two stale specs — unfrozen when ch9-unlock reopened Chapter 9 and
+  # `modelLock.ts` stopped skipping them — were rewritten in this same branch.
   #
-  # FLIP `continue-on-error` TO false once those 11 are repaired — that is the
-  # whole point of the follow-up bundle, and the reason this job exists now
-  # rather than after: the repair work needs somewhere to prove itself.
+  # It is also the gate `docs/superpowers/gates/spec_gap.md` proposed. That
+  # cause has now recurred four times (bundle6.1, the OBS-3-audit block,
+  # workspace-fixups-2, ch5-editable), every time the same way: a UI contract
+  # changes, the unit suites stay green because Playwright specs are not in
+  # `pnpm --filter studio test`, and a sibling spec nobody looked at goes red.
+  # A non-blocking job cannot stop that; this one can.
+  #
+  # Keeping it green is now a merge requirement, not a courtesy. If a spec is
+  # genuinely environment-blocked rather than wrong, skip it CONDITIONALLY on
+  # the missing env var (the self-healing pattern in e2e/helpers/modelLock.ts)
+  # so it re-arms by itself — never by reintroducing `continue-on-error`, which
+  # silently un-gates every OTHER spec at the same time.
   #
   # labs.spec.ts stays excluded by playwright.config.ts's own testIgnore
   # (pre-D0, dead). @flaky specs are excluded here and run via e2e:quarantine.
@@ -115,7 +123,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: test
-    continue-on-error: true
+    continue-on-error: false
     services:
       postgres:
         image: postgres:16
@@ -180,6 +188,19 @@ jobs:
           PORT: "5399"
           BASE_PATH: "/"
           API_PROXY_TARGET: "http://localhost:3001"
+          # posthog-analytics.spec.ts and sentry-capture.spec.ts assert on a
+          # real captured payload, so they need these at BUILD time (Vite
+          # inlines VITE_* into the bundle — setting them on the Playwright
+          # step instead would do nothing). They are the last two specs that
+          # were failing for a non-code reason, and with the job now blocking
+          # they have to be supplied rather than tolerated.
+          #
+          # Point these repository secrets at a TEST PostHog project and a
+          # TEST Sentry DSN, not production: this fires on every push, and
+          # CI traffic in a production analytics project is indistinguishable
+          # from real user traffic after the fact.
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
 
       - name: Wait for both servers
         run: |
