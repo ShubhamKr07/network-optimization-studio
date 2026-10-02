@@ -3467,9 +3467,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // two-echelon-gold-au too; saveInLayersRowTwoEchelon (below)
             // suppresses the shared toolbar Save exactly when this prop is
             // wired, so there is never a duplicate.
-            isDirty={isDirty}
-            onSave={handleSaveInputs}
-            saving={updateScenario.isPending}
+            // bands-save — the Layers-row Save is the ONLY Save on this tab
+            // (the shared toolbar one is suppressed exactly when these props
+            // are wired), so it must carry the SAME contract: `saveEnabled`
+            // and `handleSaveClick` cover the lens-only case too, which
+            // `isDirty`/`handleSaveInputs` (ordinaryDirty alone) did not.
+            isDirty={saveEnabled}
+            onSave={handleSaveClick}
+            saving={saveIsPending}
+            saveLabel={saveLabel}
           />
         );
       }
@@ -3487,9 +3493,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // transport-coal too; saveInLayersRowTransport (below)
             // suppresses the shared toolbar Save exactly when this prop is
             // wired, so there is never a duplicate.
-            isDirty={isDirty}
-            onSave={handleSaveInputs}
-            saving={updateScenario.isPending}
+            // bands-save — the Layers-row Save is the ONLY Save on this tab
+            // (the shared toolbar one is suppressed exactly when these props
+            // are wired), so it must carry the SAME contract: `saveEnabled`
+            // and `handleSaveClick` cover the lens-only case too, which
+            // `isDirty`/`handleSaveInputs` (ordinaryDirty alone) did not.
+            isDirty={saveEnabled}
+            onSave={handleSaveClick}
+            saving={saveIsPending}
+            saveLabel={saveLabel}
           />
         );
       }
@@ -3509,9 +3521,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // two-echelon-jade-us too; saveInLayersRowJade (below)
             // suppresses the shared toolbar Save exactly when this prop is
             // wired, so there is never a duplicate.
-            isDirty={isDirty}
-            onSave={handleSaveInputs}
-            saving={updateScenario.isPending}
+            // bands-save — the Layers-row Save is the ONLY Save on this tab
+            // (the shared toolbar one is suppressed exactly when these props
+            // are wired), so it must carry the SAME contract: `saveEnabled`
+            // and `handleSaveClick` cover the lens-only case too, which
+            // `isDirty`/`handleSaveInputs` (ordinaryDirty alone) did not.
+            isDirty={saveEnabled}
+            onSave={handleSaveClick}
+            saving={saveIsPending}
+            saveLabel={saveLabel}
           />
         );
       }
@@ -3545,9 +3563,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // p-median-brazil; saveInLayersRow (below) suppresses the toolbar
           // Save exactly when this prop is wired, so there is never a
           // duplicate.
-          isDirty={isDirty}
-          onSave={handleSaveInputs}
-          saving={updateScenario.isPending}
+          // bands-save — the Layers-row Save is the ONLY Save on this tab
+          // (the shared toolbar one is suppressed exactly when these props
+          // are wired), so it must carry the SAME contract: `saveEnabled`
+          // and `handleSaveClick` cover the lens-only case too, which
+          // `isDirty`/`handleSaveInputs` (ordinaryDirty alone) did not.
+          isDirty={saveEnabled}
+          onSave={handleSaveClick}
+          saving={saveIsPending}
+          saveLabel={saveLabel}
           // T5 (Bundle 2, Step 1b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model on this branch (only p-median-us today) defaults true.

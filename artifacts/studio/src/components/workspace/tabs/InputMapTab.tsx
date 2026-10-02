@@ -146,6 +146,16 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** Label for the Layers-row Save. Omitted -> "Save".
+       *
+       *  Exists so this control can mirror Workspace.tsx's shared toolbar
+       *  Save exactly, which renders "Save bands" when the ONLY pending
+       *  change is the distance-band lens. Without it the two surfaces
+       *  disagree about the same state: the toolbar says "Save bands", this
+       *  one would say "Save" — and on a tab where the toolbar Save is
+       *  suppressed, "Save" is the more misleading of the two, because it
+       *  implies a whole-input write that is not what will happen. */
+      saveLabel?: string;
       /** ch5-del-9 — delivery-teaching-us's only editable dataset surface was
        * the cost table (Task 8's fixed three-tab surface); Input Map was
        * pure geography context there. ch5-edit-6 (§14.5) — narrowed: §14
@@ -207,6 +217,16 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** Label for the Layers-row Save. Omitted -> "Save".
+       *
+       *  Exists so this control can mirror Workspace.tsx's shared toolbar
+       *  Save exactly, which renders "Save bands" when the ONLY pending
+       *  change is the distance-band lens. Without it the two surfaces
+       *  disagree about the same state: the toolbar says "Save bands", this
+       *  one would say "Save" — and on a tab where the toolbar Save is
+       *  suppressed, "Save" is the more misleading of the two, because it
+       *  implies a whole-input write that is not what will happen. */
+      saveLabel?: string;
     }
   | {
       // T7 (Bundle 2) — two-echelon-gold-au's full-v2 editor. Refineries
@@ -241,6 +261,16 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** Label for the Layers-row Save. Omitted -> "Save".
+       *
+       *  Exists so this control can mirror Workspace.tsx's shared toolbar
+       *  Save exactly, which renders "Save bands" when the ONLY pending
+       *  change is the distance-band lens. Without it the two surfaces
+       *  disagree about the same state: the toolbar says "Save bands", this
+       *  one would say "Save" — and on a tab where the toolbar Save is
+       *  suppressed, "Save" is the more misleading of the two, because it
+       *  implies a whole-input write that is not what will happen. */
+      saveLabel?: string;
     }
   | {
       // jade-T12 (Chapter 9 JADE) — two-echelon-jade-us's full-v2 editor,
@@ -274,6 +304,16 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** Label for the Layers-row Save. Omitted -> "Save".
+       *
+       *  Exists so this control can mirror Workspace.tsx's shared toolbar
+       *  Save exactly, which renders "Save bands" when the ONLY pending
+       *  change is the distance-band lens. Without it the two surfaces
+       *  disagree about the same state: the toolbar says "Save bands", this
+       *  one would say "Save" — and on a tab where the toolbar Save is
+       *  suppressed, "Save" is the more misleading of the two, because it
+       *  implies a whole-input write that is not what will happen. */
+      saveLabel?: string;
     };
 
 export function InputMapTab(props: InputMapTabProps): ReactNode {
@@ -710,6 +750,7 @@ function PMedianInputMap({
   isDirty,
   onSave,
   saving,
+  saveLabel,
   demandEditable = true,
   modelId,
   fixedGeography = false,
@@ -1008,7 +1049,7 @@ function PMedianInputMap({
               className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : (saveLabel ?? "Save")}
             </Button>
           </div>
         )}
@@ -1268,6 +1309,7 @@ function TransportInputMap({
   isDirty,
   onSave,
   saving,
+  saveLabel,
 }: Extract<InputMapTabProps, { mode: "transport" }>) {
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
@@ -1510,7 +1552,7 @@ function TransportInputMap({
               className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : (saveLabel ?? "Save")}
             </Button>
           </div>
         )}
@@ -1755,6 +1797,7 @@ function TwoEchelonInputMap({
   isDirty,
   onSave,
   saving,
+  saveLabel,
 }: Extract<InputMapTabProps, { mode: "twoEchelon" }>) {
   // T8 (Bundle 2.2, A3) — unlike "pmedian" mode (shared by p-median-us AND
   // p-median-brazil, needs a caller-supplied `modelId`), this mode
@@ -2004,7 +2047,7 @@ function TwoEchelonInputMap({
               className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : (saveLabel ?? "Save")}
             </Button>
           </div>
         )}
@@ -2316,6 +2359,7 @@ function JadeInputMap({
   isDirty,
   onSave,
   saving,
+  saveLabel,
 }: Extract<InputMapTabProps, { mode: "jade" }>) {
   // jade-T12 — two-echelon-jade-us's manifest sets `supportsAddedCustomerExclusion:
   // true` (spec §5); an unambiguous literal lookup key (registry capability,
@@ -2586,7 +2630,7 @@ function JadeInputMap({
               className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : (saveLabel ?? "Save")}
             </Button>
           </div>
         )}
