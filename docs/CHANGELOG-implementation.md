@@ -2525,7 +2525,18 @@ making e2e blocking — neither exists here. Only `a10acf5`'s stronger `readObje
 `/^\$[\d,]+\.\d{2}$/` before parsing, rather than silently stripping non-numerics) was adopted into
 this branch, by hand. The fate of that branch is a human decision and was deliberately not taken here.
 
-Deferred: the `coefficient_range` precheck sweeps only *active* plants/warehouses/customers, while
-`solve.py` builds objective terms for all of them — so a non-finite coefficient on an inactive lane
-degrades to a failed job rather than a 422. Exotic (needs ~1e308 on an inactive lane) and truthful
-either way.
+Deferred, and the whole-branch review found the gap is wider than first recorded — both halves are
+the same shape, so here is the full outline rather than half of it. The `coefficient_range` precheck
+can pass where `solve.py`'s backstop then raises, in two ways:
+
+1. **Inactive lanes.** The precheck sweeps only *active* plants/warehouses/customers, while
+   `solve.py` builds objective terms for every warehouse (`get_bounds` merely clamps an inactive one
+   to `(0,0)`). A ~1e100 distance override on a lane touching an inactive warehouse passes precheck.
+2. **The demand aggregate.** `solve.py` also guards `total_demand` for finiteness and the precheck
+   has no mirror for it. Reachable with no individual coefficient overflowing at all: set
+   `obTransCost = 0` and `obMinTrans = 0` (both legal), then give two customers `1e307` demand each
+   — every product term is `0 × 1e307 = 0`, finite, while the *sum* overflows.
+
+Both degrade to a `SOLVE_FAILED` job instead of a 422 with a specific message. Truthful either way,
+and both need absurd magnitudes, so they are deferred rather than fixed — but they are one fix
+(sweep the full entity set and check the aggregate), not two.
