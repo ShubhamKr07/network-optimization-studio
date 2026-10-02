@@ -605,9 +605,48 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
+      // ch9-unlock follow-up — this used to assert that solving PERSISTED the
+      // 5th band. That encoded pre-chen-bands-units behaviour and has been
+      // false since: `distanceBands` is a reporting LENS, not a model
+      // constraint, and `Workspace.tsx`'s handleSolve documents the rule
+      // explicitly — "a lens-only-dirty Run does NOT reach this branch at all
+      // (ordinaryDirty is false) ... deliberately leaving the lens dirty
+      // (bands never reach the solver, so nothing needs saving first)".
+      //
+      // The spec was skipped for Chapter 9 the whole time the chapter was
+      // locked, so it never got corrected. Asserting the REAL contract, in
+      // both directions, is strictly more coverage than the old single wrong
+      // assertion: solving must NOT persist a lens edit...
       const persistedAfterFifthBand = await (await page.request.get(`/api/scenarios/${id}`)).json();
-      expect(persistedAfterFifthBand.inputs.distanceBands).toContain(2000);
-      expect((persistedAfterFifthBand.inputs.distanceBands as number[]).length).toBe(5);
+      expect(persistedAfterFifthBand.inputs.distanceBands).toEqual([200, 400, 800, 1600]);
+
+      // ...and the bands-only Save (handleSaveBandsOnly's field-scoped PATCH,
+      // the one path that DOES persist a lens edit) must. The solve left the
+      // Output Map tab active and that side carries no Save, so switch to an
+      // input tab first.
+      //
+      // Deliberately NOT the Input Map. Its Save lives in that tab's own
+      // Layers row (`saveInLayersRowJade`), which is wired `isDirty={isDirty}`
+      // — i.e. `ordinaryDirty` — and `onSave={handleSaveInputs}`, which
+      // early-returns unless `ordinaryDirty`; meanwhile Workspace.tsx:4552
+      // suppresses the SHARED toolbar Save on exactly that tab. So a
+      // bands-only edit has no reachable Save on the Input Map at all: the
+      // in-row button stays disabled and `saveEnabled` (`ordinaryDirty ||
+      // lensDirty`, label "Save bands") never reaches it. That is a real
+      // pre-existing gap, filed separately rather than papered over here —
+      // routing this spec around it keeps it testing the lens contract
+      // instead of silently re-encoding the bug.
+      await page.getByTestId("sidebar-input-optimization-parameters").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("optimization-parameters-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const toolbarSave = page.getByTestId("button-save");
+      await expect(toolbarSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
+      await toolbarSave.click({ timeout: HEADER_TIMEOUT });
+      await expect(toolbarSave).toBeDisabled({ timeout: HEADER_TIMEOUT });
+
+      await expect
+        .poll(async () => (await (await page.request.get(`/api/scenarios/${id}`)).json()).inputs.distanceBands,
+          { timeout: HEADER_TIMEOUT })
+        .toEqual([200, 400, 800, 1600, 2000]);
 
       // ── Item 7 (continued) — remove bands down to one; the last "×" is
       // disabled so the count can never reach zero. ─────────────────────
