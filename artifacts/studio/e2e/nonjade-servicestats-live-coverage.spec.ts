@@ -38,7 +38,7 @@
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe. `labs.spec.ts` is
  * excluded globally by playwright.config.ts.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 90_000;

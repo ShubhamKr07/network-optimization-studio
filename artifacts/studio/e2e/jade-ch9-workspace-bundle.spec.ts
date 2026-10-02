@@ -15,7 +15,7 @@
  * Target: E2E_BASE_URL env var, requires the local dev proxy — see
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 

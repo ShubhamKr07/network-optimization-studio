@@ -32,7 +32,7 @@
  * Target: E2E_BASE_URL env var. Requires the local dev proxy (vite's
  * API_PROXY_TARGET) — see CLAUDE.md's "To run e2e locally" recipe.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 // Bounds every action to a diagnosable failure rather than letting an
 // element that never becomes actionable consume the whole test budget —

@@ -42,7 +42,7 @@
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md and
  * vite.config.ts.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 

@@ -8,7 +8,7 @@
  * Target: E2E_BASE_URL env var (defaults to the Replit deployment).
  * Run locally with: pnpm test:e2e
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 

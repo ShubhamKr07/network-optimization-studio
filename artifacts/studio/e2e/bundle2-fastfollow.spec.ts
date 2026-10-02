@@ -18,7 +18,7 @@
  * Target: E2E_BASE_URL env var + a local dev proxy (vite's API_PROXY_TARGET)
  * — see CLAUDE.md's "labs.spec.ts is stale" gotcha for the run recipe.
  */
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
 
 const HEADER_TIMEOUT = 10_000;

@@ -18,7 +18,7 @@
  * scenario(s) in a `finally` block, matching this repo's established e2e
  * convention (see max-coverage.spec.ts).
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 120_000;

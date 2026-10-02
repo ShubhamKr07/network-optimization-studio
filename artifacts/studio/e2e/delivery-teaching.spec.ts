@@ -66,7 +66,7 @@
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md's
  * "To run e2e locally" recipe and vite.config.ts.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;

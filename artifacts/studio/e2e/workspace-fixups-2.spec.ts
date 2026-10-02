@@ -27,7 +27,7 @@
  * recipe. Each test registers its own disposable account and deletes its
  * own scenario in a `finally` block.
  */
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "./fixtures";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 

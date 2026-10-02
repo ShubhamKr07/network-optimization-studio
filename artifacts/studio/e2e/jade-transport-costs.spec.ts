@@ -19,7 +19,7 @@
  *
  * Target: E2E_BASE_URL, requires the local dev proxy (CLAUDE.md's recipe).
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
