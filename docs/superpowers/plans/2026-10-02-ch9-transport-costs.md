@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 + PuLP/CBC, Express 5 + Drizzle + Zod, OpenAPI + Orval codegen, React + Vite + TanStack Query + Radix, vitest/supertest, vitest/RTL, Playwright, pytest.
 
-**Source spec:** [`docs/superpowers/specs/2026-10-02-ch9-transport-costs-design.md`](../specs/2026-10-02-ch9-transport-costs-design.md) — commits `27cc1ad` (original) and `07e9cac` (review round 1 folded in). §3.2's 12 registration points are the spine of this plan; §9 records which review findings are already dispositioned, so do not reopen them.
+**Source spec:** [`docs/superpowers/specs/2026-10-02-ch9-transport-costs-design.md`](../specs/2026-10-02-ch9-transport-costs-design.md) — commits `27cc1ad` (original) and `07e9cac` (review round 1 folded in). §3.2's 12 registration points remain the spine of this plan. The implementation-review amendments recorded near the end of this document add the missing coefficient-safety dependency and correct several executable steps; they do not edit the source spec.
 
 ---
 
@@ -21,6 +21,8 @@ Every task's requirements implicitly include this section.
 - Inputs key: `transportCosts: { icTransCost, icMinTrans, obTransCost, obMinTrans }`. **The object is optional; when present, ALL FOUR are required.** A partial object is a 422, never a half-merge.
 - Bounds: every field `>= 0` and finite. **Rate `<= 10` $/ton-mile; minimum charge `<= 10,000` $/ton.** `0` is legal for both a rate and a minimum.
 - These maxima are declared in **three** places and pinned equal by tests: the manifest JSON Schema (`maximum`), Zod (`.max(...)`), and the UI.
+- The maxima are pedagogical/product limits, **not** a numerical-safety proof. Existing finite distance and demand overrides can still make `rate × distance × demand` non-finite. The JADE semantic precheck rejects that cross-field condition with `coefficient_range` before enqueue; `solve.py` repeats the finite check before model construction. Do not claim a universal CBC-safe coefficient range without a separate empirical conditioning spike.
+- **The non-finite hazard is PRE-EXISTING, not introduced here.** Measured: `jadeInputs.ts`'s `distanceOverrides[].distance` and `addedCustomers[].demands` are `z.number().nonnegative()` with **no `.finite()`**, so `Infinity` itself is accepted today, and `0.12 × 1e308` already overflows with no `transportCosts` present at all. Two consequences this plan takes on deliberately: add `.finite()` to those two existing JADE fields (Task 3), and prove the coefficient guard fires with `transportCosts` **absent** as well as present — a guard that only triggers on custom rates would be covering the wrong thing.
 - Canonical storage is **always `$/ton-mile`** — the display-unit toggle is a display concern only.
 - `transportCosts` is **absent** on every existing scenario and on every newly created one; absence means the textbook values `0.07 / 10 / 0.12 / 10`.
 
@@ -39,6 +41,7 @@ Every task's requirements implicitly include this section.
 - The `dist.get(..., 9999)` missing-distance sentinel stays exactly as it is (spec §4; a pre-existing wart, explicitly out of scope).
 - `metrics.transportRates` is **optional, never `.default(...)`** on `MetricsSchema` — a pre-change stored envelope lacks the key and must keep validating (the export route `safeParse`s persisted results).
 - The echo is present on **every successfully executed JADE outcome**, including the infeasible early return at `solve.py:1260`. A dataset load failure (`_load_error_envelope` at `solve.py:1105`) is not an executed solve and stays unchanged.
+- Objective arithmetic handed to PuLP must be finite. Test the guard with huge-but-finite override values and spy/stub the CBC runner so the test proves CBC was never invoked; a generic worker failure after dispatch is too late.
 
 **Repo gotchas that apply directly here:**
 
@@ -54,6 +57,7 @@ Every task's requirements implicitly include this section.
 
 ```bash
 pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
+  && pnpm --filter studio typecheck:e2e \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
 
@@ -80,7 +84,9 @@ Per-task steps below run the narrower command that proves that task; Task 11 run
 |---|---|
 | `artifacts/api-server/src/solver/solve.py` | Read the four rates in `solve_jade`; echo them into metrics on both executed outcomes. |
 | `artifacts/api-server/src/solver/tests/test_jade.py` | Back-compat lock, coefficient tests, boundary/crossover tests, echo tests. |
-| `lib/api-spec/openapi.yaml` + regenerated `lib/api-zod`, `lib/api-client-react` | `SolveMetrics.transportRates`. |
+| `artifacts/api-server/src/services/precheck.ts` | Cross-field finite-arithmetic guard for effective JADE distance/demand/rate combinations before enqueue. |
+| `artifacts/api-server/src/__tests__/precheck.test.ts` | `coefficient_range` cases, including huge finite overrides and normal-boundary acceptance. |
+| `lib/api-spec/openapi.yaml` + regenerated `lib/api-zod`, `lib/api-client-react` | `SolveMetrics.transportRates` and `PrecheckError.code: coefficient_range`. |
 | `artifacts/api-server/src/solver/resultEnvelope.ts` | `transportRates` optional on `MetricsSchema`. |
 | `artifacts/api-server/src/validation/inputs/jadeInputs.ts` | `transportCosts` optional object + exported maxima. |
 | `solvers/two-echelon-jade-us/manifest.json` | `inputsSchema.properties.transportCosts`. |
@@ -102,7 +108,7 @@ Per-task steps below run the narrower command that proves that task; Task 11 run
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: solve.py reads `inp["transportCosts"]` as a dict with keys `icTransCost`, `icMinTrans`, `obTransCost`, `obMinTrans` (all floats), and emits `result["metrics"]["transportRates"]` with the same four keys. Task 3's `buildPayload` must send exactly that key name and shape; Task 2's `MetricsSchema` must accept exactly that metrics key.
+- Produces: solve.py reads `inp["transportCosts"]` as a dict with keys `icTransCost`, `icMinTrans`, `obTransCost`, `obMinTrans` (all floats), and emits `result["metrics"]["transportRates"]` with the same four keys. Task 4's `buildPayload` must send exactly that key name and shape; Task 2's `MetricsSchema` must accept exactly that metrics key.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -224,6 +230,35 @@ def test_shared_empty_metrics_constant_is_never_mutated():
         "transportCosts": dict(TEXTBOOK_RATES),
     })
     assert "transportRates" not in solve_mod._EMPTY_METRICS
+
+
+def test_non_finite_objective_coefficient_fails_before_cbc(monkeypatch):
+    # Defense in depth for callers that bypass the API semantic precheck.
+    # Both inputs are finite, but rate * distance * demand overflows.
+    called = False
+
+    def forbidden_cbc(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("CBC must not run with a non-finite coefficient")
+
+    monkeypatch.setattr(solve_mod, "_run_cbc", forbidden_cbc)
+    inputs = _isolated_inputs(
+        addedCustomers=[{
+            "id": "test-cust", "city": "Testville", "state": "ZZ",
+            "lat": 40.0, "lng": -90.0,
+            "demands": {"product-1": 1e308, "product-2": 0.0,
+                        "product-3": 0.0, "product-4": 0.0},
+        }],
+        distanceOverrides=[
+            {"leg": "plant_to_warehouse", "fromId": "plant-1", "toId": "test-wh", "distance": 200.0},
+            {"leg": "warehouse_to_customer", "fromId": "test-wh", "toId": "test-cust", "distance": 1e100},
+        ],
+        transportCosts={**TEXTBOOK_RATES, "obTransCost": 10.0},
+    )
+    with pytest.raises(ValueError, match="non-finite JADE transport coefficient"):
+        solve_jade(inputs)
+    assert called is False
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -260,6 +295,15 @@ In `artifacts/api-server/src/solver/solve.py`, replace the two cost closures (cu
     def ob_cost(w, c):
         return max(ob_rate * dist.get((w, c), 9999), ob_min)
 ```
+
+Before creating PuLP objective terms, validate finite demand aggregates, every inbound per-ton cost,
+every outbound per-ton cost, and each outbound-cost × customer-product-demand coefficient with
+`math.isfinite`. This mirrors the actual objective: inbound `flow_pw` is already a tonnage variable and
+is not multiplied by demand, while outbound `flow_wc` is binary and is. Raise a deterministic
+`ValueError` containing `non-finite JADE transport coefficient` and the leg/entity/product IDs on the
+first failure. This is a defense-in-depth assertion, not the user-facing validation path: Task 3's
+semantic precheck must reject the same input before enqueue. Do not add an arbitrary finite magnitude
+ceiling here; that needs a separate measured CBC-conditioning decision.
 
 - [ ] **Step 4: Echo the rates on both executed outcomes**
 
@@ -311,19 +355,19 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 2: `transportRates` on the result contract (OpenAPI + envelope Zod)
+## Task 2: `transportRates` and `coefficient_range` on the generated API contract
 
-Registration points 3 and 6. Both failure modes here are **silent**: Zod strips unknown result keys, so without this the UI never sees the field no matter what the solver emits.
+Registration points 3 and 6, plus the implementation-review precheck contract. The result failure mode is **silent**: Zod strips unknown result keys, so without this the UI never sees the field no matter what the solver emits. The precheck enum must also describe the new server error code rather than widening an already-stale server/spec mismatch.
 
 **Files:**
-- Modify: `lib/api-spec/openapi.yaml` (`SolveMetrics`, `:1184-1215`)
+- Modify: `lib/api-spec/openapi.yaml` (`SolveMetrics` and `PrecheckError.code`)
 - Modify (generated, via codegen only): `lib/api-zod/src/generated/**`, `lib/api-client-react/src/generated/**`
 - Modify: `artifacts/api-server/src/solver/resultEnvelope.ts` (`MetricsSchema`, `:34-58`)
 - Test: `artifacts/api-server/src/__tests__/resultEnvelope.test.ts`
 
 **Interfaces:**
 - Consumes: Task 1's `metrics.transportRates` shape.
-- Produces: `SolveResult["metrics"]["transportRates"]?: { icTransCost: number; icMinTrans: number; obTransCost: number; obMinTrans: number }` on the generated `@workspace/api-client-react` types — Task 9 reads exactly this.
+- Produces: `SolveResult["metrics"]["transportRates"]?: { icTransCost: number; icMinTrans: number; obTransCost: number; obMinTrans: number }` on the generated `@workspace/api-client-react` types — Task 9 reads exactly this — plus `coefficient_range` in the generated precheck error-code union used by Task 3.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -406,6 +450,14 @@ And add the component schema next to `SolveMetrics` (before the `SolutionStatus`
         - obMinTrans
 ```
 
+Also append `coefficient_range` to `PrecheckError.properties.code.enum` (`openapi.yaml:1804`). Keep
+the server union and OpenAPI enum identical; Task 3 adds the server member and behavior.
+
+Measured correction to the review's wording: that enum **already** contains `p_range` and `capacity`
+(C4.5 added them), so this is a one-member append, not a catch-up. `precheck.ts:49-58`'s comment
+claiming those two codes are "NOT YET reflected in openapi.yaml" is simply stale and is deleted in
+Task 3 — do not use it as evidence that other codes are still missing.
+
 - [ ] **Step 4: Regenerate the client/validators**
 
 ```bash
@@ -413,6 +465,17 @@ pnpm --filter @workspace/api-spec run codegen
 ```
 
 Expected: Orval rewrites `lib/api-zod/src/generated/**` and `lib/api-client-react/src/generated/**`, then the workspace lib typecheck passes. Never hand-edit the output.
+
+Prove generation is deterministic before committing:
+
+```bash
+git add lib/api-spec/openapi.yaml lib/api-zod lib/api-client-react
+pnpm --filter @workspace/api-spec run codegen
+git diff --exit-code -- lib/api-zod lib/api-client-react
+```
+
+Expected: the second run produces no unstaged generated diff. If it does, stop and identify the
+nondeterministic generator input rather than committing churn.
 
 - [ ] **Step 5: Mirror it in the server-owned envelope Zod**
 
@@ -446,25 +509,27 @@ Expected: PASS, typecheck clean.
 
 ```bash
 git add lib/api-spec/openapi.yaml lib/api-zod lib/api-client-react artifacts/api-server/src/solver/resultEnvelope.ts artifacts/api-server/src/__tests__/resultEnvelope.test.ts
-git commit -m "[ch9-tc-2] add SolveMetrics.transportRates to the result contract and regenerate
+git commit -m "[ch9-tc-2] add transport rates and coefficient-range errors to the API contract
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 3: Input validation — Zod, manifest, and the three-way maxima pin
+## Task 3: Input validation — scalar bounds plus the cross-field coefficient gate
 
-Registration points 1 and 2. Point 2's failure mode is **silent**: without the Zod entry the key is stripped on PATCH, the request still succeeds, and the solve quietly uses defaults.
+Registration points 1 and 2, plus the implementation-review coefficient dependency. Point 2's failure mode is **silent**: without the Zod entry the key is stripped on PATCH, the request still succeeds, and the solve quietly uses defaults. The added semantic guard closes the separate case where every individual number is finite and within its own schema, but their product is not finite.
 
 **Files:**
 - Modify: `artifacts/api-server/src/validation/inputs/jadeInputs.ts`
 - Modify: `solvers/two-echelon-jade-us/manifest.json`
+- Modify: `artifacts/api-server/src/services/precheck.ts`
 - Create: `artifacts/api-server/src/__tests__/jadeTransportCosts.test.ts`
+- Test: `artifacts/api-server/src/__tests__/precheck.test.ts`
 
 **Interfaces:**
 - Consumes: Task 1's key names.
-- Produces: `jadeInputsSchema` gains an optional `transportCosts`; `JadeInputs["transportCosts"]` is `{ icTransCost: number; icMinTrans: number; obTransCost: number; obMinTrans: number } | undefined`. Also exports `JADE_RATE_MAX = 10` and `JADE_MIN_CHARGE_MAX = 10_000`, which Task 4's payload test and this task's pin test both import.
+- Produces: `jadeInputsSchema` gains an optional `transportCosts`; `JadeInputs["transportCosts"]` is `{ icTransCost: number; icMinTrans: number; obTransCost: number; obMinTrans: number } | undefined`. Also exports `JADE_RATE_MAX = 10`, `JADE_MIN_CHARGE_MAX = 10_000`, and one `JADE_TEXTBOOK_TRANSPORT_COSTS` object for TypeScript-side default/precheck use. Task 4's payload test and this task's pin test import the bounds; `precheckJadeInputs` gains the `coefficient_range` failure class generated in Task 2.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -561,6 +626,72 @@ describe("ch9-tc — jadeInputsSchema.transportCosts", () => {
 });
 ```
 
+In the same file, parse the four `JADE_*` numeric assignments from `solve.py` (the numeric-regex
+pattern used by Task 6) and assert that they equal `JADE_TEXTBOOK_TRANSPORT_COSTS`. This prevents the
+server precheck's absent-key defaults from drifting from the solver; do not merely compare the export
+to another test-local literal.
+
+Extend the existing JADE precheck tests with both overflow directions and a normal-boundary case:
+
+```ts
+it("rejects huge finite distance × demand arithmetic before solve dispatch", () => {
+  const result = precheckJadeInputs(jadeInputs({
+    transportCosts: { ...RATES, obTransCost: 10 },
+    // Use an otherwise-complete added network fixture from this suite.
+    distanceOverrides: completeDistances({ outboundDistance: 1e100 }),
+    addedCustomers: [addedCustomer({ "product-1": 1e308 })],
+  }));
+  expect(result.ok).toBe(false);
+  expect(result.errors).toEqual(expect.arrayContaining([
+    expect.objectContaining({ code: "coefficient_range" }),
+  ]));
+});
+
+it("accepts the measured baseline and scalar maxima when every derived coefficient is finite", () => {
+  const result = precheckJadeInputs(jadeInputs({ transportCosts: MAX_RATES }));
+  expect(result.errors.filter(e => e.code === "coefficient_range")).toEqual([]);
+});
+```
+
+Add two more cases the review did not specify, both of which fail if the guard is written as a
+rate-specific check instead of a coefficient check:
+
+```ts
+it("fires with NO transportCosts at all — the hazard predates this feature", () => {
+  const result = precheckJadeInputs(jadeInputs({
+    // transportCosts omitted entirely: the textbook 0.12 $/ton-mi still
+    // overflows against these overrides.
+    distanceOverrides: completeDistances({ outboundDistance: 1e100 }),
+    addedCustomers: [addedCustomer({ "product-1": 1e308 })],
+  }));
+  expect(result.errors.some(e => e.code === "coefficient_range")).toBe(true);
+});
+
+it("rejects a literally infinite distance or demand at the SHAPE layer", () => {
+  // These are `z.number().nonnegative()` today with no `.finite()`, so
+  // Infinity currently parses. After Task 3 they must not.
+  expect(jadeInputsSchema.safeParse({
+    ...BASE,
+    distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: Number.POSITIVE_INFINITY }],
+  }).success).toBe(false);
+  expect(jadeInputsSchema.safeParse({
+    ...BASE,
+    addedCustomers: [{
+      id: "c-x", city: "X", state: "ZZ", lat: 0, lng: 0,
+      demands: { "product-1": Number.POSITIVE_INFINITY, "product-2": 0, "product-3": 0, "product-4": 0 },
+    }],
+  }).success).toBe(false);
+});
+```
+
+Also add a solve/enqueue-route test that stubs the worker dispatch boundary, submits a huge-but-finite
+distance/demand combination, expects HTTP 422 with `coefficient_range`, and asserts the dispatch stub
+was not called. A direct unit test of `precheckJadeInputs` alone does not prove the dependency is wired
+into the production solve path. The hook point is real and measured: `jobRunner.ts:410` calls
+`runNetworkEditsPrecheckForModel` inside the locked enqueue transaction and returns
+`{ kind: "precheck_failed" }`, which `routes/scenarios.ts:557-559` maps to `422` with the `errors`
+array — so no new enforcement wiring is needed, only the new code.
+
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
@@ -574,16 +705,20 @@ Expected: FAIL — the import of `JADE_RATE_MAX` does not resolve.
 In `artifacts/api-server/src/validation/inputs/jadeInputs.ts`, above `export const jadeInputsSchema`:
 
 ```ts
-// ch9-tc — upper bounds (spec §3.1). "Finite" alone is insufficient:
-// 1e308 is finite, but 1e308 * 9999 (solve.py's missing-distance sentinel)
-// is infinity, and CBC becomes numerically unreliable long before IEEE-754
-// overflow. Chosen from the real coefficient scale of this dataset (2600
-// lanes, max lane 3219.96 mi, ~22,000 tons per customer-product): at these
-// maxima the worst objective coefficient is ~2.2e9, inside CBC's reliable
-// range. Exported because jadeTransportCosts.test.ts pins these equal to
-// the manifest's `maximum` values and the UI's own constants.
+// ch9-tc — pedagogical/product upper bounds (spec §3.1), exported because
+// jadeTransportCosts.test.ts pins these equal to the manifest's `maximum`
+// values and the UI's own constants. They are NOT the numerical-safety
+// proof: existing distance/demand overrides are independently unbounded
+// finite values. precheckJadeInputs performs the cross-field finite-
+// coefficient check before enqueue; solve.py repeats it defensively.
 export const JADE_RATE_MAX = 10;
 export const JADE_MIN_CHARGE_MAX = 10_000;
+export const JADE_TEXTBOOK_TRANSPORT_COSTS = {
+  icTransCost: 0.07,
+  icMinTrans: 10,
+  obTransCost: 0.12,
+  obMinTrans: 10,
+} as const;
 
 // All-or-nothing: the OBJECT is optional, but when present all four fields
 // are required. A partial object is a 422, never a half-merge — that
@@ -623,19 +758,59 @@ In `solvers/two-echelon-jade-us/manifest.json`, inside `inputsSchema.properties`
     },
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [ ] **Step 5: Add the JADE semantic coefficient guard**
+
+First close the shape-layer half, in `jadeInputs.ts`: `distanceOverrideSchema.distance` and
+`jadeDemandsSchema`'s/`customerOverrideSchema`'s demand numbers are `z.number().nonnegative()` with
+no `.finite()` today, so literal `Infinity` is accepted by the current contract. Add `.finite()` to
+each. This is a pre-existing defect, not one this feature introduces; it is fixed here because the
+coefficient guard below is otherwise checking products of values that were never required to be
+finite in the first place. State that in the commit body.
+
+Then, in `precheck.ts`, add `"coefficient_range"` to `PrecheckErrorCode` and delete the stale
+`:49-58` comment claiming `p_range`/`capacity` are absent from OpenAPI — measured false, they are at
+`openapi.yaml:1804`; Task 2 appends only `coefficient_range`. In
+`precheckJadeInputs`, after reference/completeness checks have established valid effective IDs and
+before the capacity return:
+
+1. Build effective per-product demand using the same base/override/added precedence already used by
+   the capacity check. Require per-product and all-product aggregates to remain finite as values are
+   accumulated; individually finite demand cells can still overflow a sum.
+2. Build effective distances from `getReferenceDistances("two-echelon-jade-us")` plus
+   `distanceOverrides`, with overrides winning. **This is the one genuinely new dependency in the
+   finding:** `precheckJadeInputs` has no distance data today (it checks ids, p-range and
+   per-product capacity only), so it gains a dataset import. `getReferenceDistances` exists at
+   `data/referenceDistances.ts:187` and JADE is registered at `:182`, so this is a reuse, not a new
+   loader — but the 2600-lane sweep is the real cost of this finding and belongs in the task's
+   estimate. Include the solver's `9999` fallback only where the
+   solver itself could reach it; do not silently repair a missing required added-entity edge.
+3. Resolve effective rates from `inputs.transportCosts` or the exported
+   `JADE_TEXTBOOK_TRANSPORT_COSTS`; do not create another TypeScript copy. Task 6's numeric parity
+   test keeps that object aligned with the four authoritative Python constants.
+4. Mirror the actual objective shape: for every active plant→warehouse pair require the inbound
+   per-ton coefficient `max(rate * distance, minimum)` to be finite; for every active
+   warehouse→customer/product term require both the outbound per-ton cost and
+   `outboundCost * effectiveDemand` to be finite. Do not multiply inbound coefficients by demand in
+   the check—the inbound LP variable is a continuous tonnage flow and its coefficient is per ton.
+5. Emit a deterministic `coefficient_range` error naming the leg and relevant IDs/product. De-duplicate
+   equivalent failures so a pathological scenario does not create an unbounded response.
+
+Do **not** reject merely because a coefficient is large but finite. A magnitude threshold requires an
+empirical CBC-conditioning spike and is outside this feature's evidence.
+
+- [ ] **Step 6: Run to verify it passes**
 
 ```bash
-pnpm --filter api-server test -- jadeTransportCosts manifests && pnpm run typecheck
+pnpm --filter api-server test -- jadeTransportCosts precheck routes manifests && pnpm run typecheck
 ```
 
 Expected: PASS for both files; typecheck clean.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add artifacts/api-server/src/validation/inputs/jadeInputs.ts solvers/two-echelon-jade-us/manifest.json artifacts/api-server/src/__tests__/jadeTransportCosts.test.ts
-git commit -m "[ch9-tc-3] validate transportCosts in Zod + manifest with pinned maxima
+git add artifacts/api-server/src/validation/inputs/jadeInputs.ts solvers/two-echelon-jade-us/manifest.json artifacts/api-server/src/services/precheck.ts artifacts/api-server/src/__tests__/precheck.test.ts artifacts/api-server/src/__tests__/jadeTransportCosts.test.ts
+git commit -m "[ch9-tc-3] validate transport costs and reject non-finite JADE coefficients
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -761,6 +936,35 @@ Also add a real-write-path test to `artifacts/api-server/src/__tests__/routes.te
   });
 ```
 
+Two more silent-drop guards, added by the plan's own self-review (neither was in the external review):
+
+```ts
+// artifacts/api-server/src/__tests__/jadeTransportCosts.test.ts
+it("ch9-tc — applyAutoDistances preserves transportCosts", () => {
+  // autoDistance.ts:462 re-parses the whole inputs object through
+  // jadeInputsSchema after normalizing distanceOverrides. An optional field
+  // survives that round trip only because it is declared — this test is the
+  // regression lock for the same Zod-strips-unknown-keys class as point 2.
+  const withRates = jadeInputsSchema.parse({ ...BASE, transportCosts: RATES });
+  const after = applyJadeAutoDistances(withRates /* plus whatever fixture args this helper needs */);
+  expect(after.transportCosts).toEqual(RATES);
+});
+```
+
+```tsx
+// artifacts/studio/src/__tests__/Workspace.test.tsx — next to the existing
+// defaultInputsForModel guard tests.
+it("ch9-tc — a new JADE scenario carries NO transportCosts key", () => {
+  const defaults = defaultInputsForModel("two-echelon-jade-us");
+  expect("transportCosts" in defaults).toBe(false);
+});
+```
+
+The second one protects a property the whole design rests on: absence means textbook, so a reset
+scenario is indistinguishable from a never-edited one and hashes identically. The day someone
+"helpfully" seeds the four defaults into `defaultInputsForModel`, every new scenario silently becomes
+custom and that property is gone with no other test noticing.
+
 Match `routes.test.ts`'s actual helper names (`createScenario`/`agent`/`loginAs` may be spelled differently there) — read the file and reuse its own fixtures rather than inventing new ones. If the clone route has a different path, read `routes/scenarios.ts` and use the real one.
 
 - [ ] **Step 2: Run to verify it fails**
@@ -769,7 +973,10 @@ Match `routes.test.ts`'s actual helper names (`createScenario`/`agent`/`loginAs`
 pnpm --filter api-server test -- jadeTransportCosts routes
 ```
 
-Expected: FAIL — `payload.transportCosts` is `undefined`, both hashes equal, and the PATCH round-trip returns `undefined`.
+Expected: FAIL only where passthrough/write handling is still missing — `payload.transportCosts` is
+`undefined` and the PATCH round-trip may return `undefined`. The v1 and v2 hash assertions should
+already pass after Task 3 because both hash the canonical inputs object; retain them as regression
+locks, but do not cite them as expected-red evidence for Task 4.
 
 - [ ] **Step 3: Add the passthrough**
 
@@ -828,24 +1035,43 @@ Spec §2.4: do **not** write a parallel `useRateDraft`. The hook already provide
 
 Append to `artifacts/studio/src/__tests__/useDistanceDraft.test.ts`, following that file's existing harness (it already renders the hook inside a shared wrapper):
 
+Add `type CanonicalUnit` to the test's `@workspace/units` import; the live reciprocal converter below
+uses it in its public `DraftConversion`-compatible signatures.
+
 ```ts
   describe("ch9-tc — convert override", () => {
-    // A RATE converts reciprocally: $/ton-mile -> $/ton-km is DIVISION by
-    // the length of one mile in km, not multiplication.
-    const reciprocal = {
-      toDisplay: (v: number, canonical: CanonicalUnit) => v / toDisplayFn(1, canonical, "km"),
-      fromDisplay: (v: number, canonical: CanonicalUnit) => v * toDisplayFn(1, canonical, "km"),
-    };
+    // Build the converter INSIDE renderHook from the current UnitApi. This
+    // tracks pref changes; a converter hardcoded to "km" cannot test toggles.
+    function renderRateDraft(initialProps: Omit<UseDistanceDraftOptions, "convert">) {
+      return renderHook(
+        (props: Omit<UseDistanceDraftOptions, "convert">) => {
+          const unit = useDisplayUnit();
+          const convert = {
+            toDisplay: (v: number, canonical: CanonicalUnit) =>
+              v / unit.toDisplay(1, canonical),
+            fromDisplay: (v: number, canonical: CanonicalUnit) =>
+              v * unit.toDisplay(1, canonical),
+          };
+          return {
+            unit,
+            draft: useDistanceDraft({ ...props, convert }),
+          };
+        },
+        { wrapper, initialProps },
+      );
+    }
 
     it("renders the committed value through convert.toDisplay", () => {
       // Pref "km", canonical "mi": 0.07 $/ton-mi -> 0.0435 $/ton-km.
-      const { result } = renderDraft({ canonicalUnit: "mi", value: 0.07, onCommit: vi.fn(), convert: reciprocal }, { pref: "km" });
+      const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit: vi.fn() });
+      act(() => result.current.unit.setPref("km"));
       expect(result.current.draft.text).toBe("0.0435");
     });
 
     it("commits through convert.fromDisplay, not the distance conversion", () => {
       const onCommit = vi.fn();
-      const { result } = renderDraft({ canonicalUnit: "mi", value: 0.07, onCommit, convert: reciprocal }, { pref: "km" });
+      const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
+      act(() => result.current.unit.setPref("km"));
       act(() => result.current.draft.onChange("0.0870"));
       act(() => result.current.draft.commit());
       // 0.0870 $/ton-km * 1.609344 = 0.14001... $/ton-mi (NOT 0.054...).
@@ -854,22 +1080,35 @@ Append to `artifacts/studio/src/__tests__/useDistanceDraft.test.ts`, following t
 
     it("re-projects a complete dirty draft from its canonical anchor on a toggle", () => {
       const onCommit = vi.fn();
-      const { result, setPref } = renderDraft({ canonicalUnit: "mi", value: 0.07, onCommit, convert: reciprocal }, { pref: "mi" });
+      const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
       act(() => result.current.draft.onChange("0.14"));
-      act(() => setPref("km"));
+      act(() => result.current.unit.setPref("km"));
       expect(result.current.draft.text).toBe("0.087");
+      expect(onCommit).not.toHaveBeenCalled();
+    });
+
+    it("discards an incomplete dirty rate draft on a toggle", () => {
+      const onCommit = vi.fn();
+      const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
+      act(() => result.current.draft.onChange("0."));
+      act(() => result.current.unit.setPref("km"));
+      expect(result.current.draft.text).toBe("0.0435");
+      expect(result.current.draft.isDirty).toBe(false);
       expect(onCommit).not.toHaveBeenCalled();
     });
 
     it("leaves every existing caller's behaviour unchanged when convert is omitted", () => {
       // The default must still be the distance (multiplicative) pair.
-      const { result } = renderDraft({ canonicalUnit: "mi", value: 100, onCommit: vi.fn() }, { pref: "km" });
+      const { result } = renderDraft({ canonicalUnit: "mi", value: 100, onCommit: vi.fn() });
+      act(() => result.current.unit.setPref("km"));
       expect(result.current.draft.text).toBe("160.9344");
     });
   });
 ```
 
-Adapt `renderDraft`/`setPref` to whatever the file's existing harness exposes (read it first — it already renders `useDisplayUnit()` and `useDistanceDraft()` inside one shared wrapper and has a way to set the pref). `toDisplayFn` is `toDisplay` imported from `@workspace/units`. Expected displayed values are `roundForFile` (4 dp) outputs: `0.07 / 1.609344 = 0.043495…` → `0.0435`; `0.14 / 1.609344 = 0.086991…` → `0.087`.
+This matches the file's actual one-argument `renderDraft` harness and its real toggle mechanism,
+`result.current.unit.setPref`. Expected displayed values are `roundForFile` (4 dp) outputs:
+`0.07 / 1.609344 = 0.043495…` → `0.0435`; `0.14 / 1.609344 = 0.086991…` → `0.087`.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1024,18 +1263,30 @@ describe("ch9-tc — UI transport-cost bounds match the manifest", () => {
     const solvePy = readFileSync(
       join(findRepoRoot(HERE), "artifacts/api-server/src/solver/solve.py"), "utf8",
     );
-    expect(solvePy).toContain(`JADE_IC_RATE    = ${TEXTBOOK_TRANSPORT_COSTS.icTransCost}`);
-    expect(solvePy).toContain(`JADE_OB_RATE    = ${TEXTBOOK_TRANSPORT_COSTS.obTransCost}`);
+    const readPythonNumber = (name: string): number => {
+      const match = solvePy.match(new RegExp(`^${name}\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)`, "m"));
+      if (!match) throw new Error(`missing numeric Python constant ${name}`);
+      return Number(match[1]);
+    };
+    expect({
+      icTransCost: readPythonNumber("JADE_IC_RATE"),
+      icMinTrans: readPythonNumber("JADE_IC_MIN"),
+      obTransCost: readPythonNumber("JADE_OB_RATE"),
+      obMinTrans: readPythonNumber("JADE_OB_MIN"),
+    }).toEqual(TEXTBOOK_TRANSPORT_COSTS);
   });
 });
 ```
+
+Parse numerically rather than matching source substrings: `10` and `10.0` are contract-equivalent,
+and the parity lock must cover both minimum-charge constants as well as both rates.
 
 Create `artifacts/studio/src/__tests__/TransportCostsTab.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { UnitProvider } from "@/contexts/UnitContext";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { TransportCostsTab } from "@/components/workspace/tabs/TransportCostsTab";
 import { TEXTBOOK_TRANSPORT_COSTS } from "@/lib/transportCosts";
 
@@ -1044,6 +1295,7 @@ function renderTab(overrides: Partial<React.ComponentProps<typeof TransportCosts
   const onReset = vi.fn();
   const utils = render(
     <UnitProvider>
+      <PrefSetter />
       <TransportCostsTab
         canonicalUnit="mi"
         transportCosts={TEXTBOOK_TRANSPORT_COSTS}
@@ -1058,12 +1310,26 @@ function renderTab(overrides: Partial<React.ComponentProps<typeof TransportCosts
   return { ...utils, onChange, onReset };
 }
 
-/** Flip the persisted display preference and re-render — UnitProvider reads
- *  localStorage on mount, so the simplest honest toggle is a fresh mount of
- *  the same tree with the new pref written first. Use the app's own
- *  storage key so this cannot drift from UnitContext. */
+/** Seeds the INITIAL preference only — UnitProvider reads localStorage on
+ *  mount. Use the app's own storage key so this cannot drift from
+ *  UnitContext. Never use this to simulate a toggle on a mounted tree: a
+ *  remount re-derives the field from the stored value and therefore proves
+ *  nothing about draft reprojection, which is the behaviour §2.4 is about. */
 function setPref(pref: "auto" | "km" | "mi") {
   window.localStorage.setItem("nos:display-unit-pref", pref);
+}
+
+/** A LIVE toggle on the mounted tree — the same mechanism
+ *  useDistanceDraft.test.ts uses (`unit.setPref`), reached here through a
+ *  sibling component inside the same UnitProvider. */
+function PrefSetter() {
+  const unit = useDisplayUnit();
+  return (
+    <>
+      <button data-testid="set-km" onClick={() => unit.setPref("km")}>km</button>
+      <button data-testid="set-mi" onClick={() => unit.setPref("mi")}>mi</button>
+    </>
+  );
 }
 
 describe("TransportCostsTab (ch9-tc)", () => {
@@ -1098,23 +1364,35 @@ describe("TransportCostsTab (ch9-tc)", () => {
   });
 
   // THE most important test in this spec (§6).
-  it("km -> mi -> km toggling leaves the stored canonical rate exactly 0.07", () => {
+  it("km -> mi -> km toggling on the MOUNTED tab leaves the stored canonical rate exactly 0.07", () => {
     setPref("km");
-    const { onChange, unmount } = renderTab();
-    expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.0435");
-    unmount();
+    const { onChange } = renderTab();
+    const field = screen.getByTestId("input-transport-ic-rate");
+    expect(field).toHaveValue("0.0435");
 
-    setPref("mi");
-    const second = renderTab();
+    // Live toggles on one mounted instance — a remount would re-derive the
+    // field from the stored value and prove nothing about reprojection.
+    fireEvent.click(screen.getByTestId("set-mi"));
     expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.07");
-    second.unmount();
 
-    setPref("km");
-    const third = renderTab();
+    fireEvent.click(screen.getByTestId("set-km"));
     expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.0435");
-    // No toggle may ever write.
+
+    fireEvent.click(screen.getByTestId("set-mi"));
+    expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.07");
+
+    // No toggle may ever write: the stored canonical value is untouched.
     expect(onChange).not.toHaveBeenCalled();
-    expect(third.onChange).not.toHaveBeenCalled();
+  });
+
+  it("re-projects a complete dirty rate draft across a live toggle without writing", () => {
+    const { onChange } = renderTab();
+    const field = screen.getByTestId("input-transport-ic-rate");
+    fireEvent.change(field, { target: { value: "0.14" } });
+    fireEvent.click(screen.getByTestId("set-km"));
+    // 0.14 / 1.609344 = 0.086991… -> 0.087 at the field's 4 dp.
+    expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.087");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("shows the reciprocal conversion in km mode, not the multiplicative one", () => {
@@ -1178,16 +1456,14 @@ describe("TransportCostsTab (ch9-tc)", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("discards an incomplete draft on a unit toggle rather than committing it", () => {
-    const { onChange, unmount } = renderTab();
+  it("discards an incomplete draft on a live unit toggle rather than committing it", () => {
+    const { onChange } = renderTab();
     const field = screen.getByTestId("input-transport-ic-rate");
     fireEvent.change(field, { target: { value: "0." } });
-    unmount();
-    setPref("km");
-    const second = renderTab();
-    expect(second.getByTestId("input-transport-ic-rate")).toHaveValue("0.0435");
+    fireEvent.click(screen.getByTestId("set-km"));
+    // Visibly discarded: back to the stored value in the new unit.
+    expect(screen.getByTestId("input-transport-ic-rate")).toHaveValue("0.0435");
     expect(onChange).not.toHaveBeenCalled();
-    expect(second.onChange).not.toHaveBeenCalled();
   });
 
   it("rejects a negative value inline and never writes", () => {
@@ -1212,6 +1488,22 @@ describe("TransportCostsTab (ch9-tc)", () => {
     fireEvent.blur(min);
 
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("validates a km-displayed rate against the converted maximum", () => {
+    setPref("km");
+    const { onChange } = renderTab();
+    const rate = screen.getByTestId("input-transport-ob-rate");
+    // Canonical max 10 $/ton-mi = 6.2137 $/ton-km at the field's 4 dp.
+    fireEvent.change(rate, { target: { value: "6.2137" } });
+    expect(screen.queryByTestId("error-transport-ob-rate")).not.toBeInTheDocument();
+    fireEvent.blur(rate);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(rate, { target: { value: "6.2138" } });
+    expect(screen.getByTestId("error-transport-ob-rate")).toHaveTextContent("6.2137");
+    fireEvent.blur(rate);
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("accepts zero for a minimum charge", () => {
@@ -1376,7 +1668,7 @@ export function rateUnitLabel(
 Create `artifacts/studio/src/components/workspace/tabs/TransportCostsTab.tsx`:
 
 ```tsx
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1445,6 +1737,7 @@ function TransportCostField({
   label: string;
 }) {
   const [rejected, setRejected] = useState<string | null>(null);
+  useEffect(() => setRejected(null), [resetKey, value]);
   const draft = useDistanceDraft({
     canonicalUnit,
     value,
@@ -1452,14 +1745,13 @@ function TransportCostField({
     resetKey,
     onCommit: v => {
       // Domain validation lives HERE, not in the hook: the hook commits any
-      // grammar-complete draft, and five other callers share it.
+      // grammar-complete draft, and ten existing call sites share it.
       if (!Number.isFinite(v) || v < 0) {
         setRejected("Must be a number of 0 or more.");
         return;
       }
-      // Bound-check in DISPLAY space against the display-space maximum would
-      // drift with the unit; the stored value is canonical, so bound the
-      // canonical value — the same number the server's Zod will see.
+      // The committed value is canonical, so this is the authoritative
+      // server-equivalent bound check even when the field displays km.
       if (v > max) {
         setRejected(`Must be ${max.toLocaleString()} or less.`);
         return;
@@ -1473,13 +1765,16 @@ function TransportCostField({
   // pattern as JadeDistancesTab's own override cell).
   const trimmed = stripGrouping(draft.text).trim();
   const numeric = trimmed === "" ? null : Number(trimmed);
+  const displayMax = canonicalUnit == null
+    ? null
+    : roundForFile(convert.toDisplay(max, canonicalUnit));
   const liveError =
     trimmed === "" || numeric === null || Number.isNaN(numeric)
       ? trimmed === "" ? null : "Must be a number."
       : numeric < 0
         ? "Must be 0 or more."
-        : numeric > max
-          ? `Must be ${max.toLocaleString()} or less.`
+        : displayMax != null && numeric > displayMax
+          ? `Must be ${displayMax.toLocaleString()} or less.`
           : null;
   const error = liveError ?? rejected;
 
@@ -2044,7 +2339,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Task 2's generated `SolveResult["metrics"]["transportRates"]`, Task 6's `TEXTBOOK_TRANSPORT_COSTS`/`rateConversion`/`rateUnitLabel`.
-- Produces: single-scenario row testids `cost-summary-rate-ic`, `cost-summary-rate-ob`, `cost-summary-min-ic`, `cost-summary-min-ob`; Compare cell testids `cost-summary-compare-rate-ic-<scenarioId>` and `cost-summary-compare-rate-ob-<scenarioId>`; legacy label text `textbook default (legacy result)`.
+- Produces: single-scenario row testids `cost-summary-rate-ic`, `cost-summary-rate-ob`, `cost-summary-min-ic`, `cost-summary-min-ob`; Compare cell testids `cost-summary-compare-rate-ic-<scenarioId>`, `cost-summary-compare-min-ic-<scenarioId>`, `cost-summary-compare-rate-ob-<scenarioId>`, and `cost-summary-compare-min-ob-<scenarioId>`; legacy label text `textbook default (legacy result)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2091,6 +2386,20 @@ describe("ch9-tc — solved-at transportation rates", () => {
     expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
   });
 
+  it("shows a Compare delta caused only by minimum charges", () => {
+    renderCostSummaryCompare({
+      modelId: "two-echelon-jade-us",
+      scenarios: [
+        { id: 1, result: jadeResult({ transportRates: { ...rates, icMinTrans: 10, obMinTrans: 10 } }) },
+        { id: 2, result: jadeResult({ transportRates: { ...rates, icMinTrans: 25, obMinTrans: 0 } }) },
+      ],
+    });
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("10");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-2")).toHaveTextContent("25");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("10");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-2")).toHaveTextContent("0");
+  });
+
   it("labels a legacy column's fallback instead of showing a bare dash", () => {
     renderCostSummaryCompare({
       modelId: "two-echelon-jade-us",
@@ -2100,6 +2409,8 @@ describe("ch9-tc — solved-at transportation rates", () => {
       ],
     });
     expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default (legacy result)");
     expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
   });
 
@@ -2109,6 +2420,16 @@ describe("ch9-tc — solved-at transportation rates", () => {
       scenarios: [{ id: 1, result: jadeResult({}) }, { id: 2, result: jadeResult({}) }],
     });
     expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toBeInTheDocument();
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toBeInTheDocument();
+  });
+
+  it("does not invent a rate unit while the canonical manifest unit is unresolved", () => {
+    renderCostSummary({
+      modelId: "two-echelon-jade-us",
+      canonicalDistanceUnit: null,
+      result: jadeResult({ transportRates: rates }),
+    });
+    expect(screen.queryByText(/\$\/ton-mi|\$\/ton-km/)).not.toBeInTheDocument();
   });
 });
 ```
@@ -2155,7 +2476,7 @@ const LEGACY_LABEL = "textbook default (legacy result)";
 
 /** A rate renders in the active display unit (reciprocal conversion); a
  *  minimum charge is $/ton and never converts. */
-function formatRate(rate: number, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+function formatRate(rate: number, canonical: CanonicalUnit | null | undefined, unit: UnitApi): string {
   if (canonical == null) return "—";
   return rateConversion(unit).toDisplay(rate, canonical).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
@@ -2167,17 +2488,49 @@ Single-scenario view — push four rows after the existing `Outbound cost` row, 
     if (modelId === JADE_MODEL_ID) {
       const { rates, legacy } = solvedAtRates(result);
       const suffix = legacy ? ` ${LEGACY_LABEL}` : "";
-      const rl = rateUnitLabel(canonicalDistanceUnit, unit) ?? "$/ton-mi";
+      const rl = rateUnitLabel(canonicalDistanceUnit, unit);
       rows.push(
-        [`Inbound rate (${rl})`, `${formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}${suffix}`, true],
-        [`Inbound min ($/ton)`, `${rates.icMinTrans.toLocaleString()}${suffix}`, true],
-        [`Outbound rate (${rl})`, `${formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}${suffix}`, true],
-        [`Outbound min ($/ton)`, `${rates.obMinTrans.toLocaleString()}${suffix}`, true],
+        [`Inbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ic"],
+        [`Inbound min ($/ton)`, `${rates.icMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ic"],
+        [`Outbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ob"],
+        [`Outbound min ($/ton)`, `${rates.obMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ob"],
       );
     }
 ```
 
-The row renderer must emit the four testids `cost-summary-rate-ic` / `cost-summary-min-ic` / `cost-summary-rate-ob` / `cost-summary-min-ob`. If the single-scenario table renders rows generically from the `rows` tuple array, extend the tuple with an explicit testid field rather than deriving one from the label string — a label-derived testid breaks the moment the unit label changes.
+**The row renderer must gain an explicit testid slot — this is not optional, and the review did not
+catch it.** Measured: the single-scenario table renders rows generically and derives each testid from
+the label (`CostSummaryTab.tsx:405`):
+
+```tsx
+data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+```
+
+With the review's unit-aware labels that yields `cost-summary-value-inbound-rate-ton-mi-` in miles and
+`...-ton-km-` in km — a testid that **changes with the display toggle**, and that is not the
+`cost-summary-rate-ic` id every test in this task and Task 10 expects. Change the tuple to
+`[label, value, mono, testId?]` and render:
+
+```tsx
+{rows.map(([label, value, mono, testId]) => (
+  <tr key={label}>
+    <td className="p-2 text-muted-foreground">{label}</td>
+    <td
+      className={`p-2${mono ? " font-mono" : ""}`}
+      data-testid={testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+    >
+      {value}
+    </td>
+  </tr>
+))}
+```
+
+The `??` fallback is mandatory, not tidiness: **45 existing references** to `cost-summary-value-*`
+ids live across `artifacts/studio/src/__tests__` and `artifacts/studio/e2e` (`objective`,
+`inbound-cost`, `outbound-cost`, `quality`, `weighted-avg-distance`). Omitting the fallback renames
+all of them at once. Pass the four explicit ids (`cost-summary-rate-ic`, `cost-summary-min-ic`,
+`cost-summary-rate-ob`, `cost-summary-min-ob`) only for the new rows. The declaration at
+`CostSummaryTab.tsx:346` widens with it: `const rows: Array<[string, string, boolean, string?]>`.
 
 Compare view — add after the existing `Outbound cost` compare row:
 
@@ -2186,7 +2539,7 @@ Compare view — add after the existing `Outbound cost` compare row:
               <>
                 <tr>
                   <td className="p-2 text-muted-foreground">
-                    Inbound rate ({rateUnitLabel(canonicalDistanceUnit, unit) ?? "$/ton-mi"})
+                    Inbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
                   </td>
                   {compareScenarios.map(s => {
                     const { rates, legacy } = solvedAtRates(s.result);
@@ -2199,8 +2552,20 @@ Compare view — add after the existing `Outbound cost` compare row:
                   })}
                 </tr>
                 <tr>
+                  <td className="p-2 text-muted-foreground">Inbound min ($/ton)</td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ic-${s.id}`}>
+                        {rates.icMinTrans.toLocaleString()}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
                   <td className="p-2 text-muted-foreground">
-                    Outbound rate ({rateUnitLabel(canonicalDistanceUnit, unit) ?? "$/ton-mi"})
+                    Outbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
                   </td>
                   {compareScenarios.map(s => {
                     const { rates, legacy } = solvedAtRates(s.result);
@@ -2212,11 +2577,25 @@ Compare view — add after the existing `Outbound cost` compare row:
                     );
                   })}
                 </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">Outbound min ($/ton)</td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ob-${s.id}`}>
+                        {rates.obMinTrans.toLocaleString()}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
               </>
             )}
 ```
 
-Minimum charges are not added as Compare rows — the two rate rows are what explain a cost delta, and the single-scenario view carries the full set. Say so in the commit body so a reviewer does not read it as an omission.
+All four values are required in Compare. In particular, do not collapse this to the two rates: a cost
+delta can be caused entirely by minimum charges. If canonical distance units are unresolved, omit the
+rate suffix (and let `formatRate` render its existing em dash) rather than guessing `$/ton-mi`.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -2230,7 +2609,7 @@ Expected: PASS.
 
 ```bash
 git add artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx artifacts/studio/src/__tests__/CostSummaryTab.test.tsx
-git commit -m "[ch9-tc-9] show the rates each JADE result was solved at, single and compare
+git commit -m "[ch9-tc-9] show all four JADE transport values in summary and compare
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -2251,7 +2630,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ```bash
 cd artifacts/studio
-grep -rn "colSpan\|jade-distances-tab\|cost-summary-compare-\|sidebar-input-" e2e/*.spec.ts | grep -i "jade\|cost-summary" 
+grep -rn "colSpan\|jade-distances-tab\|cost-summary-compare-\|sidebar-input-" e2e/*.spec.ts | grep -i "jade\|cost-summary"
 grep -rn "transport" e2e/*.spec.ts
 ```
 
@@ -2345,10 +2724,10 @@ test.describe("Chapter 9 — editable transportation costs", () => {
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
     await solve(page, baseline);
 
-    const objectiveAtDefaults = await page.getByTestId("cost-summary-objective").innerText()
+    const objectiveAtDefaults = await page.getByTestId("cost-summary-value-objective").innerText()
       .catch(async () => {
         await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
-        return page.getByTestId("cost-summary-objective").innerText();
+        return page.getByTestId("cost-summary-value-objective").innerText();
       });
 
     // The tab exists and seeds from the textbook values.
@@ -2374,7 +2753,10 @@ test.describe("Chapter 9 — editable transportation costs", () => {
     await solve(page, baseline);
     await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
     await expect(page.getByTestId("cost-summary-rate-ic")).toContainText("0.14", { timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("cost-summary-objective")).not.toHaveText(objectiveAtDefaults);
+    await expect(page.getByTestId("cost-summary-min-ic")).toContainText("10", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cost-summary-rate-ob")).toContainText("0.12", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cost-summary-min-ob")).toContainText("10", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cost-summary-value-objective")).not.toHaveText(objectiveAtDefaults);
 
     // A second scenario at the defaults, then Compare.
     const sibling = await createScenario(page, "E2E TC sibling");
@@ -2382,17 +2764,26 @@ test.describe("Chapter 9 — editable transportation costs", () => {
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
     await solve(page, sibling);
     await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
-    await page.getByTestId(`cost-summary-compare-toggle-${baseline}`).click({ timeout: HEADER_TIMEOUT });
+    await page.getByTestId(`cost-summary-compare-toggle-${baseline}`).locator("input").check({ timeout: HEADER_TIMEOUT });
 
     await expect(page.getByTestId(`cost-summary-compare-rate-ic-${baseline}`))
       .toContainText("0.14", { timeout: HEADER_TIMEOUT });
     await expect(page.getByTestId(`cost-summary-compare-rate-ic-${sibling}`))
       .toContainText("0.07", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId(`cost-summary-compare-min-ic-${baseline}`))
+      .toContainText("10", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId(`cost-summary-compare-rate-ob-${baseline}`))
+      .toContainText("0.12", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId(`cost-summary-compare-min-ob-${baseline}`))
+      .toContainText("10", { timeout: HEADER_TIMEOUT });
   });
 });
 ```
 
-Fix the two locators this spec guesses at by reading the real components before the first run: the single-scenario objective cell's testid in `CostSummaryTab.tsx`, and the Compare scenario-toggle testid. Replace the guesses with the real ids rather than adding new ones to the components.
+These locators are verified against the current components: the objective value is
+`cost-summary-value-objective`, and each Compare toggle wraps an actual checkbox input under
+`cost-summary-compare-toggle-<id>`. Keep the `.locator("input").check()` form; clicking the wrapper is
+not the established control contract.
 
 - [ ] **Step 4: Run the new spec and the JADE siblings**
 
@@ -2431,6 +2822,7 @@ Expected: no rows. (Use this exact form — `grep -c "[v]itest"` also counts the
 
 ```bash
 pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
+  && pnpm --filter studio typecheck:e2e \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
 
@@ -2462,7 +2854,7 @@ Read `artifacts/studio/e2e/report/results.json` (`stats.unexpected` / `stats.fla
 
 - [ ] **Step 5: Write the changelog entry**
 
-Append at the **bottom** of `docs/CHANGELOG-implementation.md` (most recent last), covering: the four editable rates and their all-or-nothing contract, the `10` / `10,000` maxima and why they were chosen from CBC's reliable coefficient range rather than IEEE-754, the `transportRates` echo on both executed JADE outcomes, the `useDistanceDraft` `convert` option (and that the spec's five-caller list was measured to be six files / ten call sites), the new tab and two derived columns, the gate numbers actually observed (`e2e_accuracy.py` count, suite totals, e2e unexpected/flaky counts — never an estimate; an underivable value is the literal string `unknown`), and the commit SHAs of Tasks 1–10.
+Append at the **bottom** of `docs/CHANGELOG-implementation.md` (most recent last), covering: the four editable rates and their all-or-nothing contract; the `10` / `10,000` pedagogical maxima; the separate cross-field finite-coefficient precheck and Python backstop (without claiming an unmeasured CBC reliability threshold); the `transportRates` echo on both executed JADE outcomes; the `useDistanceDraft` `convert` option (and that the spec's five-caller list was measured to be six files / ten call sites); the new tab and two derived columns; all four solved-at values in Compare; the gate numbers actually observed (`e2e_accuracy.py` count, suite totals, e2e unexpected/flaky counts — never an estimate; an underivable value is the literal string `unknown`); and the commit SHAs of Tasks 1–10.
 
 Per hard rule 9 nothing from this entry is copied into `CLAUDE.md`. The one durable lesson worth lifting, if it survives review: *a rate is per unit distance, so it converts as the reciprocal of a distance — reusing `toDisplay`/`fromDisplay` directly on a rate makes freight change price when the display toggle flips.* That belongs in `## Gotchas` as one line, in this same commit.
 
@@ -2489,18 +2881,142 @@ Do not merge. Per CLAUDE.md's branch discipline: all tasks done → **prompt the
 
 ---
 
+## Implementation review close-out (commit `254ab0e`)
+
+This section records the second implementation-plan review. Its corrections are requirements, not
+optional reviewer suggestions; where an earlier task step conflicts with a row below, this section and
+the amended step win.
+
+| Severity | Finding | Required close-out | Proof |
+|---|---|---|---|
+| P1 | Rate/minimum maxima alone do not guarantee finite objective coefficients. Existing base-demand overrides, added-customer demands, and distance overrides accept arbitrarily large finite values. The prior arithmetic also understated maximum customer-product demand (`32,007.5`, not ~`22,000`), the largest measured real-lane coefficient at rate 10 (`929,682,163.2`), the conservative `9999` coefficient (~`3.20e9`), and the max minimum-charge coefficient (~`3.20e8`). | Keep `10` / `10,000` as product limits, remove all unsupported “CBC reliable range” claims, add `coefficient_range` to JADE semantic precheck before enqueue, and repeat `math.isfinite` checks in Python before PuLP objective construction. A hard finite magnitude ceiling requires a separate empirical CBC spike. | Huge finite distance/demand tests return 422 before worker dispatch; direct solver test proves `_run_cbc` is not called; baseline/maxima tests stay finite. |
+| P1 | Compare rendered only rates, contradicting the four-value solved-at contract and hiding deltas caused only by minimum charges. | Render inbound/outbound minimum rows as well as rate rows, with stable per-scenario testids and legacy labels. | RTL minimum-only-difference test plus Playwright assertions for all four values. |
+| P1 | Task 5's test used a nonexistent two-argument `renderDraft` helper and a converter hardcoded to km, so the planned dirty-toggle test could not exercise a live preference change. | Build the reciprocal converter inside `renderHook` from the current `UnitApi`; toggle with `result.current.unit.setPref`. | Tests cover clean render, commit, complete dirty reprojection, incomplete dirty discard, and omitted-converter compatibility. |
+| P2 | Cost Summary guessed `$/ton-mi` while the canonical unit was unresolved. | Never use a fallback unit label. Omit the suffix or withhold the affected rate value until the manifest unit resolves. | Unresolved-canonical-unit RTL test contains neither `$/ton-mi` nor `$/ton-km`. |
+| P2 | Live km validation compared the displayed number with the canonical maximum (`10`), allowing displayed values above the real km limit until blur. | Derive `displayMax = convert.toDisplay(max, canonicalUnit)` (rounded with the same field precision) for live validation; retain canonical validation on commit. Clear a prior rejection when `resetKey` or stored `value` changes. | km tests at `6.2137` (accepted) and `6.2138` (rejected) for canonical max `10` $/ton-mi; scenario reset clears stale errors. |
+| P2 | Textbook-default parity checked only `JADE_IC_RATE` and `JADE_OB_RATE` with brittle source substrings. | Parse all four Python constants numerically and compare the object to `TEXTBOOK_TRANSPORT_COSTS`. | Test covers both rate and both minimum constants while treating `10` and `10.0` equivalently. |
+| P2 | Final gate omitted TypeScript checking for Playwright sources. | Add `pnpm --filter studio typecheck:e2e` to both the standing and final gates. | Command passes before `pnpm e2e:gate`. |
+| P3 | Task 4 said both hashes should initially be equal, but v1/v2 already hash canonical inputs after Task 3. | Treat hash tests as regression locks; only payload/write-path assertions are expected red before Task 4. | Both hash assertions pass before and after payload passthrough. |
+| P3 | Task 10 guessed locators and contained trailing whitespace. | Use verified `cost-summary-value-objective` and the checkbox input inside `cost-summary-compare-toggle-<id>`; keep the document whitespace-clean. | Focused Playwright case passes; `git diff --check` and `git show --check` report no errors. |
+
+### Author's disposition of the review (all findings verified against the code, not accepted on sight)
+
+Every finding above was checked before folding. All nine are **accepted**; four needed a correction
+or an extension, recorded here rather than silently absorbed.
+
+| Finding | Verification run | Disposition |
+|---|---|---|
+| P1 coefficient arithmetic | Measured the dataset directly: 100 customers, total demand **1,545,308**, max customer total **86,877.5**, **max single customer-product cell 32,007.5**, 2600 lanes, max lane **3,219.9609 mi**. | **Confirmed — the spec's §3.1 table is wrong in all three rows.** The old "~22,000 tons per customer-product" was an average (86,877.5 / 4), not a maximum. Corrected figures: `9999`-sentinel coefficient at rate 10 = **3,200,429,925** (spec said 2.2e9); max minimum-charge coefficient = **320,075,000** (spec said 2.2e8). For the real-lane figure the review quotes `929,682,163.2` (max over actual serving-lane × customer-product pairs); the decoupled upper bound `max distance × max cell × 10` measures **1,030,628,985**. Both are ~1e9 against the spec's 7.1e8. Record whichever is recomputed at execution time, with its definition — do not quote one as the other. |
+| P1 precheck dependency | `jobRunner.ts:410` runs `runNetworkEditsPrecheckForModel` inside the locked enqueue transaction; `routes/scenarios.ts:557-559` maps `precheck_failed` → 422. `openapi.yaml:1804` already lists `p_range`/`capacity`. `getReferenceDistances` at `data/referenceDistances.ts:187`, JADE registered `:182`. | **Accepted, with two corrections.** (1) `precheck.ts:49-58`'s "NOT YET reflected in openapi.yaml" comment is stale — the enum append is one member, not a catch-up. (2) **The hazard is pre-existing**: `distanceOverrides[].distance` and the demand numbers are `z.number().nonnegative()` with **no `.finite()`**, so `Infinity` parses today and `0.12 × 1e308` already overflows with no `transportCosts` at all. Task 3 therefore also adds `.finite()` at the shape layer and must prove the guard fires with `transportCosts` **absent**. A guard that only triggers on custom rates would be covering the wrong thing. |
+| P1 Compare shows only rates | Read `CostSummaryTab.tsx:440-480`. | **Accepted without qualification.** My "the two rate rows are what explain a delta" was wrong: a delta caused purely by minimum charges would render with no visible cause. |
+| P1 Task 5 harness fiction | Read `useDistanceDraft.test.ts:20-28`. | **Confirmed.** `renderDraft` takes ONE argument and the real toggle is `result.current.unit.setPref` — my two-argument `{ pref }` form never existed. |
+| P2 unresolved unit fallback | `CostSummaryTab.tsx:20-44` — every formatter already returns `—` rather than guessing. | **Accepted.** My `?? "$/ton-mi"` violated the file's own no-fallback-unit rule. |
+| P2 live km bound | `roundForFile(10 / 1.609344) = 6.2137`. | **Accepted.** Checking a km-displayed number against the canonical `10` let `6.2138`–`10` look valid until blur. |
+| P2 textbook parity substrings | — | **Accepted.** `10` vs `10.0` is a real false-negative, and only two of four constants were covered. |
+| P2 missing `typecheck:e2e` | `artifacts/studio/package.json` → `"typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"`. | **Accepted** — the script exists and the gate never ran it. |
+| P3 Task 4 expected-red | `jobRunner.ts:228-262` — both hashes digest `canonicalJson(input.inputs)`. | **Accepted.** The hash tests pass as soon as Task 3 lands; they are regression locks, not Task 4 evidence. |
+| P3 Task 10 locators | `CostSummaryTab.tsx:405` (`cost-summary-value-*`), `:299-300` (`<label data-testid="cost-summary-compare-toggle-…"><input type="checkbox">`). | **Accepted** — both verified; `.locator("input").check()` is the right form. |
+
+### Self-review of the sections the review did not cover (Tasks 6 tail, 7, 8, 10 sweep)
+
+Same standard applied to the untouched half of the plan. Four defects found, all folded above.
+
+| # | Defect | Evidence | Fix landed in |
+|---|---|---|---|
+| SR-1 | Task 9's new row testids **would not exist**, and the plan made the fix conditional ("if the table renders rows generically"). It does: `CostSummaryTab.tsx:405` derives the testid from the label, so unit-aware labels produce `cost-summary-value-inbound-rate-ton-mi-` and that id **changes when the display toggle flips**. | Read `:399-410`; `grep -rn "cost-summary-value-"` over tests + e2e returns **45** references. | Task 9 — explicit 4th tuple element with a **mandatory** `??` fallback so all 45 existing ids are byte-identical. |
+| SR-2 | The tab's own "km → mi → km" test — the single most important test in the spec — only remounted the component with a different seeded preference. A remount re-derives the field from the stored value, so it proves nothing about draft reprojection; the test would pass against a component that discarded state on every toggle. | Compared against `useDistanceDraft.test.ts`'s real mechanism (`unit.setPref` on a mounted tree). | Task 6 — a `PrefSetter` sibling inside the same `UnitProvider`; the round-trip, dirty-reprojection and incomplete-discard tests now toggle live. |
+| SR-3 | Nothing pinned `defaultInputsForModel("two-echelon-jade-us")` as **not** carrying `transportCosts`. Seeding the four defaults there would silently make every new scenario "custom", destroying the absence-means-textbook property the reset semantics and cache identity both rest on — with no other test noticing. | `Workspace.tsx:143` + the JADE case; no existing assertion. | Task 4. |
+| SR-4 | `autoDistance.ts:462` re-parses the whole inputs object through `jadeInputsSchema` after normalizing `distanceOverrides`. That is the same Zod-strips-the-key class as registration point 2, on a second code path, and was untested. | Read `services/autoDistance.ts:381,462`. | Task 4. |
+
+Three further checks came back **clean** and are recorded so a later session does not redo them:
+`WorkspaceTab.entity` is `string`, not a closed union (`lib/workspaceTabs.ts:12`), so a new entity id
+needs no type change; `SidebarTree` renders input entries generically with no per-entity map; and the
+export surface is per-tab (each tab renders its own control) rather than centrally dispatched on
+entity, so a tab with no export wiring adds nothing to `ExportEntity` and cannot break the toolbar —
+the derived `$/ton`/`Min?` columns are deliberately **not** in the distances CSV, consistent with §7.
+
+**Documentation dependency:** the source design spec still contains the superseded coefficient-range
+arithmetic/claim and describes only its original 12 registration points. This plan intentionally does
+not modify that file after the user's direction to keep this pass in the implementation document.
+Do not call the documentation set fully reconciled until a separately approved spec update records
+the coefficient precheck and corrected arithmetic; implementation may follow this plan's explicit
+review amendments in the meantime.
+
+### Dependency trace and completion strategy
+
+Trace every field in both directions. A checkbox is complete only when the adjacent evidence exists:
+
+| Dependency seam | What to trace | Failure signature |
+|---|---|---|
+| Input declaration | manifest JSON Schema ↔ `jadeInputsSchema` ↔ UI constants/field maxima | accepted by one layer, rejected or silently stripped by another |
+| Persistence | create ↔ PATCH ↔ GET ↔ reset-by-omission ↔ clone | values disappear, defaults are materialized, or partial objects survive |
+| Pre-dispatch semantics | effective base/added/override distances and demands → `precheckJadeInputs` → solve/enqueue 422 | individually finite values multiply to infinity and still enqueue |
+| Payload | canonical scenario inputs → JADE `buildPayload` branch | solve succeeds using textbook defaults despite custom inputs |
+| Cache identity | v1 and v2 hashes with inputs differing only in one transport field | stale result reused across different costs |
+| Solver | payload → effective rate/min values → both cost closures → objective → infeasible/success envelopes | one leg/minimum ignored, non-finite term reaches PuLP, or echo absent on one return |
+| Result contract | Python `metrics.transportRates` → server `MetricsSchema` → OpenAPI → generated clients | Zod strips the echo or UI types omit it |
+| UI live values | Workspace input reader → tab edit/reset/history guard → `JadeDistancesTab` derived values | stale/hardcoded costs, write while browsing history, or reset writes literals |
+| UI solved values | stored result (not live inputs) → single summary → four Compare rows → legacy fallback | stale result labelled with current inputs or minimum-only delta unexplained |
+| Units | manifest canonical unit → live `UnitApi` → reciprocal rate converter → labels/live max | multiplicative rate conversion, guessed unit, or km bound mismatch |
+| Regression surface | changed testids/row/column counts → sibling RTL/Playwright specs | feature test passes while an older bundle fails |
+
+Run these discovery checks before coding and repeat them before close-out; unexpected new hits are
+dependencies to inspect, not noise to ignore:
+
+```bash
+rg -n "transportCosts|transportRates|coefficient_range" \
+  solvers artifacts/api-server lib/api-spec artifacts/studio/src artifacts/studio/e2e
+rg -n "useDistanceDraft\(" artifacts/studio/src
+rg -n "cost-summary-value-objective|cost-summary-compare-|jade-distances-tab|sidebar-input-" \
+  artifacts/studio/src artifacts/studio/e2e
+rg -n "computeInputsHash|computeInputsHashV2|runNetworkEditsPrecheckForModel|buildPayload" \
+  artifacts/api-server/src
+```
+
+Close in this order so a downstream green test cannot mask an upstream omission:
+
+1. Land schema/precheck and result-contract changes; run codegen twice and prove the second pass is
+   idempotent.
+2. Prove persistence, pre-dispatch rejection, payload passthrough and both cache hashes at API level.
+3. Prove Python arithmetic/back-compat, including “CBC not called” on non-finite derived terms and
+   `99/99` on the sacred accuracy script.
+4. Prove hook/unit behavior, then tab/Workspace, then derived distance columns and Cost Summary.
+5. Sweep sibling E2E specs, run Playwright TS typecheck, focused browser cases, the full gates, and
+   standalone journeys.
+6. Inspect generated and documentation diffs, then run whitespace/commit-integrity checks:
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+git diff --exit-code -- lib/api-zod lib/api-client-react
+pnpm --filter studio typecheck:e2e
+git diff --check
+git status --short
+# After the implementation commits exist:
+git show --check --stat HEAD
+```
+
+The codegen diff command assumes the intended first-pass generated files were staged as directed in
+Task 2; it then proves a second generation pass is clean relative to the index.
+
+---
+
 ## Definition of Done (spec §8)
 
-- [ ] All 12 integration points of spec §3.2 landed; codegen (`SolveMetrics` only) committed with its spec change.
+- [ ] All 12 integration points of spec §3.2 plus the implementation-review coefficient-safety dependency landed; OpenAPI/codegen changes (`SolveMetrics.transportRates` and `PrecheckError.code`) committed together.
 - [ ] Manifest, Zod and UI maxima pinned equal at rate `10` / minimum charge `10,000` — by `jadeTransportCosts.test.ts` (server leg) and `transportCostsBounds.test.ts` (UI leg).
+- [ ] Huge finite overrides are rejected with `coefficient_range` before dispatch, and the Python backstop proves CBC is not called for a non-finite derived coefficient.
 - [ ] `e2e_accuracy.py` passes 99/99 unmodified.
-- [ ] Full verification gate green: `pnpm run typecheck`, api-server vitest, studio vitest, solver pytest.
+- [ ] Full verification gate green: `pnpm run typecheck`, api-server vitest, studio vitest, `pnpm --filter studio typecheck:e2e`, solver pytest.
 - [ ] `pnpm e2e:gate` green, with any JADE sibling specs rewritten.
 - [ ] `e2e_journey.py <BASE_URL> all` green against the running API.
 - [ ] A scenario with no `transportCosts` solves to the same objective it did before the change.
 - [ ] Unit-toggle round-trip leaves a stored rate bit-identical.
-- [ ] Dirty-draft toggle, semantic-no-op commit, scenario-switch reset and history-read-only tests green.
-- [ ] PATCH persistence/reset/clone, cache-key separation, legacy-result validation and infeasible result-rate echo tests green.
+- [ ] Dirty-draft toggle, semantic-no-op commit, display-space km bounds, scenario-switch reset/error clearing and history-read-only tests green.
+- [ ] PATCH persistence/reset/clone, cache-key separation, legacy-result validation, four-row Compare (including minimum-only differences) and infeasible result-rate echo tests green.
+- [ ] `.finite()` added to JADE's existing distance/demand fields, and the coefficient guard proven to fire with `transportCosts` **absent** as well as present.
+- [ ] `defaultInputsForModel("two-echelon-jade-us")` pinned to carry no `transportCosts` key, and `applyAutoDistances` pinned not to drop it.
+- [ ] The Cost Summary row renderer takes an explicit testid with a label-derived fallback; all 45 existing `cost-summary-value-*` references still resolve.
+- [ ] Codegen is idempotent; dependency `rg` sweep has no unexplained hits; `git diff --check` is clean.
 - [ ] Changelog entry in `docs/CHANGELOG-implementation.md` in the same commit as the work.
 - [ ] `/harness-retro ch9-tc` run.
 
