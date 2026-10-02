@@ -1160,11 +1160,59 @@ def solve_jade(inp):
     demands = {c: get_demands(c) for c in customers}
     total_demand = sum(sum(dk.values()) for dk in demands.values())
 
+    # ch9-tc — the four transportation cost parameters are scenario inputs
+    # with the module constants as their named defaults (spec §4). Absence
+    # of `transportCosts` is byte-identical to the pre-change objective,
+    # which is the hard-rule-2 back-compat lock. Pure coefficient
+    # substitution: no business-rule branch (hard rule 6).
+    tc      = inp.get("transportCosts") or {}
+    ic_rate = tc.get("icTransCost", JADE_IC_RATE)
+    ic_min  = tc.get("icMinTrans",  JADE_IC_MIN)
+    ob_rate = tc.get("obTransCost", JADE_OB_RATE)
+    ob_min  = tc.get("obMinTrans",  JADE_OB_MIN)
+    transport_rates = {
+        "icTransCost": ic_rate, "icMinTrans": ic_min,
+        "obTransCost": ob_rate, "obMinTrans": ob_min,
+    }
+
     def ic_cost(pl, w):
-        return max(JADE_IC_RATE * dist.get((pl, w), 9999), JADE_IC_MIN)
+        return max(ic_rate * dist.get((pl, w), 9999), ic_min)
 
     def ob_cost(w, c):
-        return max(JADE_OB_RATE * dist.get((w, c), 9999), JADE_OB_MIN)
+        return max(ob_rate * dist.get((w, c), 9999), ob_min)
+
+    # ch9-tc defense-in-depth: reject non-finite coefficients before CBC ever
+    # runs. This mirrors the actual objective terms -- inbound flow_pw is a
+    # continuous tonnage variable (its per-ton ic_cost coefficient must be
+    # finite), while outbound flow_wc is binary and its term is
+    # ob_cost x demand (that PRODUCT must be finite, not just the per-ton
+    # rate). Not the user-facing validation path (Task 3 owns that) -- this
+    # is purely so a caller that bypasses the API can never hand CBC a NaN/inf
+    # coefficient.
+    if not math.isfinite(total_demand):
+        raise ValueError(f"non-finite JADE transport coefficient: total_demand={total_demand!r}")
+    for pl in plants:
+        for w in warehouses:
+            c_ic = ic_cost(pl, w)
+            if not math.isfinite(c_ic):
+                raise ValueError(
+                    f"non-finite JADE transport coefficient: leg=plant_to_warehouse "
+                    f"fromId={pl!r} toId={w!r} ic_cost={c_ic!r}")
+    for w in warehouses:
+        for c in customers:
+            c_ob = ob_cost(w, c)
+            if not math.isfinite(c_ob):
+                raise ValueError(
+                    f"non-finite JADE transport coefficient: leg=warehouse_to_customer "
+                    f"fromId={w!r} toId={c!r} ob_cost={c_ob!r}")
+            for k in product_ids:
+                dem_k = demands[c].get(k, 0)
+                term = c_ob * dem_k
+                if not math.isfinite(term):
+                    raise ValueError(
+                        f"non-finite JADE transport coefficient: leg=warehouse_to_customer "
+                        f"fromId={w!r} toId={c!r} productId={k!r} ob_cost={c_ob!r} "
+                        f"demand={dem_k!r}")
 
     start = time.time()
     prob = LpProblem("Jade", LpMinimize)
@@ -1257,7 +1305,9 @@ def solve_jade(inp):
         else:
             reason = (f"Model is infeasible with P={p}. Total demand is {total_demand:,.0f} tons; "
                       "check plant-product capability coverage and warehouse force/inactive bounds.")
-        return _envelope("infeasible", status_str, 0, run_time, [], _EMPTY_METRICS, _EMPTY_DETAILS, reason,
+        return _envelope("infeasible", status_str, 0, run_time, [],
+                          {**_EMPTY_METRICS, "transportRates": transport_rates},
+                          _EMPTY_DETAILS, reason,
                           termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
                           solver_incumbent_objective=cbc.solverIncumbentObjective,
                           solver_best_bound=cbc.solverBestBound)
@@ -1368,6 +1418,7 @@ def solve_jade(inp):
             "totalDemand": round(total_demand),
             "inboundCost": round(inbound_cost, 2),
             "outboundCost": round(outbound_cost, 2),
+            "transportRates": transport_rates,
         },
         {"openWarehouseIds": open_ids, "assignments": details_assignments},
         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,

@@ -245,3 +245,149 @@ def test_flow_balance_generalizes():
         "a per-(plant,warehouse,product) balance bug would give ~2x"
     )
     assert total_inbound < 1.5 * total_outbound
+
+
+def _isolated_inputs(**extra):
+    """Single forced-open warehouse + single customer, 100 tons of product-1,
+    inbound 200mi / outbound 10mi. Same fixture as
+    test_min_charge_below_breakpoint_and_above above, parameterised so a
+    transportCosts override can move the arithmetic predictably."""
+    inputs = {
+        "p": 1, "distanceBands": [200, 400, 800, 1600], "gap": 0, "timeLimitSec": 30,
+        "excludedCustomerIds": _all_base_customer_ids(),
+        "addedWarehouses": [{"id": "test-wh", "city": "Testville", "state": "ZZ",
+                             "lat": 40.0, "lng": -90.0, "status": "forced_open"}],
+        "addedCustomers": [{"id": "test-cust", "city": "Testville", "state": "ZZ",
+                            "lat": 40.0, "lng": -90.0,
+                            "demands": {"product-1": 100.0, "product-2": 0.0,
+                                        "product-3": 0.0, "product-4": 0.0}}],
+        "distanceOverrides": [
+            {"leg": "plant_to_warehouse", "fromId": "plant-1", "toId": "test-wh", "distance": 200.0},
+            {"leg": "warehouse_to_customer", "fromId": "test-wh", "toId": "test-cust", "distance": 10.0},
+        ],
+    }
+    inputs.update(extra)
+    return inputs
+
+
+TEXTBOOK_RATES = {"icTransCost": 0.07, "icMinTrans": 10.0,
+                  "obTransCost": 0.12, "obMinTrans": 10.0}
+
+
+def test_transport_costs_absent_is_identical_to_explicit_textbook_values():
+    # The back-compat lock (spec §3.3): absence means the constants.
+    absent = solve_jade(GROUND_TRUTH_INPUTS)
+    explicit = solve_jade({**GROUND_TRUTH_INPUTS, "transportCosts": dict(TEXTBOOK_RATES)})
+    assert absent["status"] == "optimal"
+    assert explicit["status"] == "optimal"
+    assert abs(absent["objective"] - explicit["objective"]) < 1e-6
+    assert set(absent["metrics"]["openFacilityIds"]) == set(explicit["metrics"]["openFacilityIds"])
+
+
+def test_transport_costs_absent_still_hits_ground_truth():
+    result = solve_jade(GROUND_TRUTH_INPUTS)
+    assert abs(result["objective"] - 254060828.6157) / 254060828.6157 < 1e-6
+
+
+def test_inbound_rate_scales_the_inbound_leg_only():
+    # inbound 0.14*200 = 28 (rate governs), outbound unchanged at the $10 min.
+    # 100 tons -> 100*28 + 100*10 = 3800.
+    result = solve_jade(_isolated_inputs(
+        transportCosts={**TEXTBOOK_RATES, "icTransCost": 0.14}))
+    assert result["status"] == "optimal", result.get("infeasibilityReason")
+    assert abs(result["objective"] - 3800.0) < 1e-6
+
+
+def test_outbound_rate_above_the_breakpoint_moves_the_crossover():
+    # outbound 1.5*10 = 15 > the $10 min, so the RATE now governs a lane the
+    # minimum used to govern. 100*14 + 100*15 = 2900.
+    result = solve_jade(_isolated_inputs(
+        transportCosts={**TEXTBOOK_RATES, "obTransCost": 1.5}))
+    assert result["status"] == "optimal", result.get("infeasibilityReason")
+    assert abs(result["objective"] - 2900.0) < 1e-6
+
+
+def test_zero_minimum_charge_disables_the_floor():
+    # outbound max(0.12*10, 0) = 1.2. 100*14 + 100*1.2 = 1520.
+    result = solve_jade(_isolated_inputs(
+        transportCosts={**TEXTBOOK_RATES, "obMinTrans": 0.0}))
+    assert result["status"] == "optimal", result.get("infeasibilityReason")
+    assert abs(result["objective"] - 1520.0) < 1e-6
+
+
+def test_zero_rate_makes_the_minimum_govern_every_lane_on_that_leg():
+    # inbound max(0*200, 10) = 10. 100*10 + 100*10 = 2000.
+    result = solve_jade(_isolated_inputs(
+        transportCosts={**TEXTBOOK_RATES, "icTransCost": 0.0}))
+    assert result["status"] == "optimal", result.get("infeasibilityReason")
+    assert abs(result["objective"] - 2000.0) < 1e-6
+
+
+def test_metrics_echo_the_effective_rates_on_success():
+    rates = {**TEXTBOOK_RATES, "icTransCost": 0.09}
+    result = solve_jade(_isolated_inputs(transportCosts=rates))
+    assert result["metrics"]["transportRates"] == rates
+
+
+def test_metrics_echo_the_textbook_defaults_when_transport_costs_absent():
+    result = solve_jade(_isolated_inputs())
+    assert result["metrics"]["transportRates"] == TEXTBOOK_RATES
+
+
+def test_infeasible_early_return_also_echoes_the_rates():
+    # Two forced-open warehouses with p=1 -> the forced_open > p infeasible
+    # branch, which returns BEFORE the success envelope.
+    rates = {**TEXTBOOK_RATES, "obTransCost": 0.31}
+    result = solve_jade({
+        "p": 1, "distanceBands": [200, 400, 800, 1600], "gap": 0, "timeLimitSec": 30,
+        "warehouseStatuses": [
+            {"warehouseId": "wh-11", "status": "forced_open"},
+            {"warehouseId": "wh-14", "status": "forced_open"},
+        ],
+        "transportCosts": rates,
+    })
+    assert result["status"] == "infeasible"
+    assert result["metrics"]["transportRates"] == rates
+
+
+def test_shared_empty_metrics_constant_is_never_mutated():
+    # _EMPTY_METRICS is shared by every model's error/infeasible path — the
+    # echo must spread into a fresh dict, never assign into the constant.
+    solve_jade({
+        "p": 1, "distanceBands": [200, 400, 800, 1600], "gap": 0, "timeLimitSec": 30,
+        "warehouseStatuses": [
+            {"warehouseId": "wh-11", "status": "forced_open"},
+            {"warehouseId": "wh-14", "status": "forced_open"},
+        ],
+        "transportCosts": dict(TEXTBOOK_RATES),
+    })
+    assert "transportRates" not in solve_mod._EMPTY_METRICS
+
+
+def test_non_finite_objective_coefficient_fails_before_cbc(monkeypatch):
+    # Defense in depth for callers that bypass the API semantic precheck.
+    # Both inputs are finite, but rate * distance * demand overflows.
+    called = False
+
+    def forbidden_cbc(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("CBC must not run with a non-finite coefficient")
+
+    monkeypatch.setattr(solve_mod, "_run_cbc", forbidden_cbc)
+    inputs = _isolated_inputs(
+        addedCustomers=[{
+            "id": "test-cust", "city": "Testville", "state": "ZZ",
+            "lat": 40.0, "lng": -90.0,
+            "demands": {"product-1": 1e308, "product-2": 0.0,
+                        "product-3": 0.0, "product-4": 0.0},
+        }],
+        distanceOverrides=[
+            {"leg": "plant_to_warehouse", "fromId": "plant-1", "toId": "test-wh", "distance": 200.0},
+            {"leg": "warehouse_to_customer", "fromId": "test-wh", "toId": "test-cust", "distance": 1e100},
+        ],
+        transportCosts={**TEXTBOOK_RATES, "obTransCost": 10.0},
+    )
+    with pytest.raises(ValueError, match="non-finite JADE transport coefficient"):
+        solve_jade(inputs)
+    assert called is False
