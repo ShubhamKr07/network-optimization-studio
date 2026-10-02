@@ -87,9 +87,9 @@ async function createJadeScenario(page: Page): Promise<string> {
  */
 async function solveAndWait(page: Page, id: string): Promise<void> {
   const before = await readSolvedAt(page, id);
-  await page.getByTestId("button-run-optimizer").click();
+  await page.getByTestId("button-run-optimizer").click({ timeout: HEADER_TIMEOUT });
   await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
-  await page.getByTestId("solve-dialog-solve").click();
+  await page.getByTestId("solve-dialog-solve").click({ timeout: HEADER_TIMEOUT });
   await expect
     .poll(() => readSolvedAt(page, id), { timeout: SOLVE_TIMEOUT, intervals: [500, 1000, 2000] })
     .not.toBe(before);
@@ -100,9 +100,13 @@ async function solveAndWait(page: Page, id: string): Promise<void> {
 }
 
 async function readObjective(page: Page): Promise<number> {
-  await page.getByTestId("sidebar-output-cost-summary").click();
+  await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
   const text = await page.getByTestId("cost-summary-value-objective").innerText();
-  return Number(text.replace(/,/g, ""));
+  // JADE's objective dimension is "monetary" (lib/units/src/objective.ts),
+  // so formatObjective() renders it with a "$" prefix (e.g. "$254,060,828.62")
+  // — strip everything but digits/sign/decimal point, not just commas, or
+  // Number() silently returns NaN on the leading "$".
+  return Number(text.replace(/[^0-9.-]/g, ""));
 }
 
 test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
@@ -126,27 +130,36 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       expect(Math.abs(baselineObjective - GROUND_TRUTH_OBJECTIVE)).toBeLessThan(1);
 
       // ── 2. All five output grids render real content ────────────────────
-      await page.getByTestId("sidebar-output-open-warehouses").click();
+      await page.getByTestId("sidebar-output-open-warehouses").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="open-warehouse-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       const openRows = await page.locator('[data-testid^="open-warehouse-row-"]').count();
       expect(openRows).toBe(2); // wh-11 + wh-14 forced open, P=2
 
-      await page.getByTestId("sidebar-output-customer-assignments").click();
-      const assignmentRows = page.locator('[data-testid^="assignment-row-"]');
+      // JADE is multi-product (JadeAssignmentsTab, not the generic
+      // AssignmentsTab the shared `assignment-row-` prefix belongs to) — one
+      // row per (customer, product) pair, `row-jadeassignment-${key}`.
+      await page.getByTestId("sidebar-output-customer-assignments").click({ timeout: HEADER_TIMEOUT });
+      const assignmentRows = page.locator('[data-testid^="row-jadeassignment-"]');
       await expect(assignmentRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
-      expect(await assignmentRows.count()).toBe(100); // ground truth serves all 100 customers
+      // Paginated (`pagedRows`) — a DOM row count only reflects the current
+      // page, so assert the total via the tab's own counter instead.
+      await expect(page.getByTestId("text-jadeassignments-count"))
+        .toContainText("of 400", { timeout: HEADER_TIMEOUT }); // 100 customers x 4 product families
 
-      await page.getByTestId("sidebar-output-flows").click();
-      await expect(page.locator('[data-testid^="flow-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // JadeFlowsTab (not the generic FlowsTab the shared `flow-row-` prefix
+      // belongs to) sums flow across productId per (plant,warehouse) pair —
+      // no per-product row — and defaults to the Plant -> Warehouse leg.
+      await page.getByTestId("sidebar-output-flows").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.locator('[data-testid^="jade-flow-pw-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      await page.getByTestId("sidebar-output-cost-summary").click();
+      await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-list")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      await page.getByTestId("sidebar-output-service-stats").click();
+      await page.getByTestId("sidebar-output-service-stats").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="service-stats-band-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       // ── 3. Leg-colored routes + per-leg layer toggles ────────────────────
-      await page.getByTestId("sidebar-output-output-map").click();
+      await page.getByTestId("sidebar-output-output-map").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("checkbox-toggle-lanes")).toBeChecked();
       const legToggles = page.getByTestId("output-map-leg-toggles");
@@ -175,7 +188,7 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
 
       // Hide the warehouse→customer leg — the visible route count must
       // drop (the plant→warehouse routes, far fewer, remain).
-      await warehouseToCustomerToggle.click();
+      await warehouseToCustomerToggle.click({ timeout: HEADER_TIMEOUT });
       await expect(warehouseToCustomerToggle).not.toBeChecked();
       await expect(async () => {
         expect(await routePaths.count()).toBeLessThan(fullRouteCount);
@@ -184,7 +197,7 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       expect(reducedRouteCount).toBeGreaterThan(0); // plant→warehouse routes remain
 
       // Re-show it — count goes back up.
-      await warehouseToCustomerToggle.click();
+      await warehouseToCustomerToggle.click({ timeout: HEADER_TIMEOUT });
       await expect(warehouseToCustomerToggle).toBeChecked();
       await expect(async () => {
         expect(await routePaths.count()).toBe(fullRouteCount);
@@ -195,56 +208,67 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       // baseline's plant-1 (Ashland, KY) supplier for product-1 — enabling
       // it strictly lowers the objective and switches the supplying plant
       // (mirrors test_jade.py's test_capability_toggle_changes_supplying_plant).
-      await page.getByTestId("sidebar-input-capability-matrix").click();
+      await page.getByTestId("sidebar-input-capability-matrix").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const capabilityCell = page.getByTestId("checkbox-capability-plant-4-product-1");
       await expect(capabilityCell).toBeVisible();
       await expect(capabilityCell).not.toBeChecked();
-      await capabilityCell.click();
+      await capabilityCell.click({ timeout: HEADER_TIMEOUT });
       await expect(capabilityCell).toBeChecked();
 
       await expect(page.getByTestId("button-save")).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-save").click();
+      await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("button-save")).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
       await solveAndWait(page, id);
       const toggledObjective = await readObjective(page);
       expect(toggledObjective).toBeLessThan(baselineObjective);
 
-      await page.getByTestId("sidebar-output-flows").click();
-      await expect(page.getByTestId("flow-row-plant-4-wh-11-product-1")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Aggregated (not per-product) plant-warehouse flow row — see the
+      // JadeFlowsTab comment above. plant-4 now shipping to wh-11 at all is
+      // the observable evidence the capability toggle actually switched the
+      // supplying plant for product-1.
+      await page.getByTestId("sidebar-output-flows").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("jade-flow-pw-row-plant-4-wh-11")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       // ── 5. Capability-matrix persistence across save/reload ─────────────
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("sidebar-input-capability-matrix").click();
+      await page.getByTestId("sidebar-input-capability-matrix").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("checkbox-capability-plant-4-product-1")).toBeChecked();
 
       // ── 6. Add a warehouse via the Input Map → estimated distances ──────
-      await page.getByTestId("sidebar-input-input-map").click();
+      await page.getByTestId("sidebar-input-input-map").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-input-map-place-wh").click();
+      await page.getByTestId("button-input-map-place-wh").click({ timeout: HEADER_TIMEOUT });
       const mapCanvas = page.locator('[data-testid="input-map-tab"] .leaflet-container');
       await expect(mapCanvas).toBeVisible({ timeout: HEADER_TIMEOUT });
       await mapCanvas.click({ position: { x: 250, y: 220 } });
 
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const newWhDisplayCode = await page.getByTestId("create-entity-display-code").innerText();
-      await page.getByTestId("create-entity-submit").click();
+      await page.getByTestId("create-entity-submit").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
       // The map's own Layers row carries Save for this mode (saveInLayersRowJade).
       const mapSaveButton = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
       await expect(mapSaveButton).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      await mapSaveButton.click();
+      await mapSaveButton.click({ timeout: HEADER_TIMEOUT });
       await expect(mapSaveButton).toBeDisabled({ timeout: HEADER_TIMEOUT });
 
       // The new warehouse's estimated plant→warehouse distances now appear
       // in the Distances tab, filtered by its display code (raw uids don't
       // appear in the filterable display text, which prefers displayCode).
-      await page.getByTestId("sidebar-input-distances").click();
+      await page.getByTestId("sidebar-input-distances").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("jade-distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // `input-filter-to` lives inside FilterMenu's Popover content, which
+      // doesn't mount until the trigger is clicked — filling it directly
+      // (with no explicit timeout) would otherwise retry against a
+      // never-actionable target for the ENTIRE remaining test budget and
+      // surface as an unrelated failure much later (e.g. the cleanup call).
+      await page.getByTestId("button-filter-menu-trigger").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-filter-to")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("input-filter-to").fill(newWhDisplayCode);
       const estimatedBadges = page.locator('[data-testid^="badge-jadedistance-estimated-"]');
       await expect(estimatedBadges.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -269,16 +293,16 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       firstDataRow[8] = "excluded";
       const editedCsv = [header, firstDataRow.join(","), ...lines.slice(2)].join("\n");
 
-      await page.getByTestId("sidebar-input-customers").click();
+      await page.getByTestId("sidebar-input-customers").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click();
+      await page.getByTestId("button-import-customers").click({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",
         buffer: Buffer.from(editedCsv),
       });
       await expect(page.getByText("Changes (1)")).toBeVisible({ timeout: 8_000 });
-      await page.getByTestId("button-import-confirm").click();
+      await page.getByTestId("button-import-confirm").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-import-file-customers")).not.toBeVisible({ timeout: 8_000 });
 
       // Verify server-side persistence directly (the real round trip this
