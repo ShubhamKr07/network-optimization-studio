@@ -55,6 +55,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard (`HND-F`) | L2128 |
 | harness-retro steps 5–7 for CH4UX (`HND-G`) | L2182 |
 | 2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`) | L2288 |
+| ch9-e2e-findings — the four JADE spec drifts, the unbounded-action trap, the Input Map bands-Save gap | L2547 |
 
 ---
 
@@ -2540,3 +2541,83 @@ can pass where `solve.py`'s backstop then raises, in two ways:
 Both degrade to a `SOLVE_FAILED` job instead of a 422 with a specific message. Truthful either way,
 and both need absurd magnitudes, so they are deferred rather than fixed — but they are one fix
 (sweep the full entity set and check the aggregate), not two.
+
+---
+
+## ch9-e2e-findings — what the ch9-unlock e2e follow-up learned (2026-09-30, recorded 2026-10-02)
+
+Branch `ch9-docs-salvage` off `main`. **This is a findings record, not a shipping record.** Its
+investigation happened on `e2e-jade-specs` (`a10acf5`), whose CODE deliberately does not land under
+this entry — so nothing below claims a change that is not in `main`. Where each piece ended up:
+
+| Piece | Where it actually is |
+|---|---|
+| `jade-two-echelon.spec.ts` four drift repairs | **In `main`**, reached independently by the ch9-jade-fixes line, which adopted `a10acf5`'s stronger `readObjective` shape |
+| `workspace-fixups-2.spec.ts` band-contract rewrite | **In `main`** — landed via `ch9-e2e-salvage` (`c4d448b`), merged as part of `4399625` on 2026-10-02; `main`'s line 621 now asserts `toEqual([200, 400, 800, 1600])` in place of the false `toContain(2000)` |
+| `ci.yml` → `continue-on-error: false` | **Deliberately not taken** — see the secrets finding below |
+| This record + the flake-list line | here |
+
+Writing the original entry verbatim was rejected on hard rule #9 grounds: an entry is tied to the
+commit whose work it describes, and describing an unlanded `ci.yml` flip as done would be a worse
+record than none. The findings themselves are true regardless of which branch carried them, which is
+why they are kept.
+
+**The four drifts, and why each was invisible.** All four accumulated while Chapter 9 was locked and
+`e2e/helpers/modelLock.ts` skipped the spec — a skipped spec rots silently:
+- `readObjective` parsed with `Number(text.replace(/,/g, ""))`. chen-bands-units Part D decision 6
+  routed objectives through `formatObjective`, and JADE's dimension is `monetary`, so the cell reads
+  `$254,060,828.62`. The `$` made the parse `NaN`, and **`expect(NaN).toBeLessThan(1)` fails looking
+  exactly like a ground-truth accuracy regression on a sacred value** — it never compared a number at
+  all. The fix asserts `/^\$[\d,]+\.\d{2}$/` BEFORE parsing rather than stripping non-numerics,
+  because a silent strip keeps passing if the dimension ever regresses to `opaque`.
+- `assignment-row-*` → the product-level, PAGINATED `JadeAssignmentsTab` (`row-jadeassignment-*`), so
+  `count() === 100` was counting a page.
+- `flow-row-plant-4-wh-11-product-1` → the P→W grid is aggregated per (plant, warehouse); that
+  product segment no longer exists.
+- The From/To filter inputs moved INSIDE the `FilterMenu` popover with their testids deliberately
+  preserved — so `input-filter-to` read as a live selector while not being in the DOM.
+
+**The worked example worth keeping (CLAUDE.md's unbounded-action trap, caught in the act).** That
+last `.fill()` had no explicit timeout. It sat unactionable, consumed the **entire remaining 240s
+test budget**, and surfaced as `apiRequestContext.delete: Test timeout` **on the `finally` block's
+cleanup — 200s and ~190 lines away from the real failure**. The first diagnosis was "slow test, raise
+the budget", and that was wrong: bounding all 8 unbounded interactions made it fail **at the real
+line in 22s**, and the budget was then restored to 240s because the whole spec runs in ~15s. The
+lesson is not "add timeouts" but that an unbounded action converts a 10-second bug into a teardown
+mystery, and the instinct it provokes (raise the timeout) is the opposite of the fix.
+
+**A spec asserting a contract that is false.** `workspace-fixups-2.spec.ts` required a 5th distance
+band added in the Solve dialog to be PERSISTED by solving. `Workspace.tsx`'s `handleSolve` documents
+the opposite: bands are a reporting LENS, and "a lens-only-dirty Run does NOT reach this branch at
+all (`ordinaryDirty` is false) … deliberately leaving the lens dirty". The correct assertion is
+two-directional — solving must not persist a lens edit, and the bands-only Save
+(`handleSaveBandsOnly`'s field-scoped PATCH) must.
+
+**OPEN PRODUCT BUG, found while writing that and not fixed.** On the **Input Map** tab a bands-only
+edit has **no reachable Save at all**: that tab's Layers-row Save is wired `isDirty={isDirty}` (i.e.
+`ordinaryDirty`) with `onSave={handleSaveInputs}`, which early-returns unless `ordinaryDirty`
+(`Workspace.tsx:3487`), while `Workspace.tsx:4552` suppresses the SHARED toolbar Save on exactly that
+tab — so `saveEnabled` (`ordinaryDirty || lensDirty`, label "Save bands") never reaches it. The edit
+is not lost (any other input tab shows a working Save), but on that one tab the affordance is dead.
+**Not JADE-specific** — the same wiring covers every model whose Save moved into the Layers row
+(`saveInLayersRow`, `…Transport`, `…TwoEchelon`, `…Jade`).
+
+**The CI-blocking finding, which is why `ci.yml` is untouched here.** Making the e2e job blocking
+requires `posthog-analytics.spec.ts` and `sentry-capture.spec.ts` to stop failing, and they fail
+because `VITE_POSTHOG_KEY` / `VITE_SENTRY_DSN` are absent. Verified against `gh secret list`: the repo
+has `CLAUDE_CODE_OAUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_KEY`, `SENTRY_AUTH_TOKEN`,
+`SENTRY_ORG`, `SENTRY_PROJECT` — **neither `VITE_` name exists**, and an unset secret expands to
+empty, so wiring them changes nothing until they are created. The product owner chose "create the two
+secrets" over conditional skips; until that happens the flip stays unmade, because a blocking job
+reddens `main` on every push. Two traps for whoever does it: `VITE_*` must be set on the **studio**
+step (Vite inlines them at BUILD time — setting them on the Playwright step is a silent no-op), and
+they should point at a **test** PostHog project and Sentry DSN, since CI fires on every push and that
+traffic is indistinguishable from real users afterwards.
+
+**Gate numbers from the 2026-09-30 run, kept because the flake arithmetic is the point.** Full local
+`e2e:gate`: **54 passed / 4 unexpected / 6 flaky / 0 skipped** in 44.3 min. The `0 skipped` is
+ch9-unlock confirming itself — those were the JADE skips. Of the 4 unexpected, two were the missing
+secrets above; `chen-bands-units-qa` and `delivery-teaching` both passed **9/9 in 58s re-run alone**.
+The console printed "4 failed" and silently folded the 6 retried-and-passed away; the honest figure
+is 10 of 64 load-sensitive. That arithmetic is now in CLAUDE.md's flake list, where it bears directly
+on the standing proposal to make the e2e job blocking.
