@@ -954,6 +954,93 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
   });
 });
 
+// ch9-tc-4 — the real production write path (PATCH + clone), not just
+// buildPayload/the Zod schema in isolation. Registration point 4 is silent
+// if missed: an unlisted field in buildPayload never reaches the solver,
+// but a dropped field on the PERSIST side is just as silent — a PATCH that
+// "succeeds" while quietly discarding transportCosts would look identical
+// to a correct one from the client's point of view.
+//
+// Fix round (review rejection): every assertion below reads the argument the
+// ROUTE handed to `chain.set`/`chain.values` (i.e. what
+// applyScenarioInputWrite/initialInputsForInsert actually computed), never
+// the mocked RETURN value a test itself authored — asserting on the mocked
+// return would pass even if the production write path silently stripped the
+// field, since this suite controls that return value directly. The real
+// jsonb round trip this mocked suite structurally cannot prove is covered
+// instead by jadeTransportCostsPersistence.test.ts (real Postgres).
+describe("ch9-tc — transportCosts write path (two-echelon-jade-us)", () => {
+  const RATES = { icTransCost: 0.09, icMinTrans: 5, obTransCost: 0.15, obMinTrans: 0 };
+
+  it("persists all four transportCosts fields through the production write path", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    const chain = makeChain([{ ...jadeRow, inputs: withRates }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: withRates });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { transportCosts?: unknown };
+    };
+    expect(setArgs.inputs.transportCosts).toEqual(RATES);
+  });
+
+  it("a reset (key omitted) persists as absent, not as the textbook literals", async () => {
+    const cookie = await loginAs(OWNER);
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    // Scenario currently has custom rates persisted; the PATCH under test
+    // omits the key entirely (the UI's "reset to textbook" action).
+    mockDb.select.mockReturnValue(makeChain([{ ...jadeRow, inputs: withRates }]));
+    const { transportCosts, ...withoutRates } = withRates;
+    const chain = makeChain([{ ...jadeRow, inputs: withoutRates }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: withoutRates });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    // Not merely "not RATES" -- genuinely absent (key missing, not just
+    // undefined-valued), so a reset scenario stays indistinguishable from
+    // one never edited (ch9-tc's hashing invariant). Checked on the value
+    // the route actually computed and handed to the DB, not the mocked
+    // return this test itself authored.
+    expect("transportCosts" in setArgs.inputs).toBe(false);
+  });
+
+  it("rejects a partial transportCosts object with 422", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, transportCosts: { icTransCost: 0.09 } } });
+    expect(res.status).toBe(422);
+  });
+
+  it("clone preserves absent-vs-present semantics", async () => {
+    const cookie = await loginAs(OWNER);
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    mockDb.select.mockReturnValue(makeChain([{ ...jadeRow, inputs: withRates }]));
+    const chainWithRates = makeChain([{ ...jadeRow, id: 20, inputs: withRates }]);
+    mockDb.insert.mockReturnValue(chainWithRates);
+    const cloneWithRates = await request(app).post("/api/scenarios/12/clone").set("Cookie", cookie);
+    expect(cloneWithRates.status).toBe(201);
+    const insertArgsWithRates = (chainWithRates.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { transportCosts?: unknown };
+    };
+    expect(insertArgsWithRates.inputs.transportCosts).toEqual(RATES);
+
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const chainBare = makeChain([{ ...jadeRow, id: 21 }]);
+    mockDb.insert.mockReturnValue(chainBare);
+    const cloneBare = await request(app).post("/api/scenarios/12/clone").set("Cookie", cookie);
+    expect(cloneBare.status).toBe(201);
+    const insertArgsBare = (chainBare.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    expect("transportCosts" in insertArgsBare.inputs).toBe(false);
+  });
+});
+
 // C4.7 (Chapter 4, max-coverage-us) — auto-estimate normalizer, sixth
 // writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
 // missing added-entity warehouse<->customer distances as RAW-km

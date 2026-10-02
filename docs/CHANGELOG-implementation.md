@@ -2422,3 +2422,110 @@ declared clear of this accumulation by the product owner and that decision stand
 the repo's own code documents at least one leaked account there, and the smoke runner has no
 deletion endpoint to tidy up with. Surfaced rather than acted on; any production cleanup remains a
 separate, explicitly-approved operation.
+
+---
+
+## Chapter 9 (JADE) transportation costs became editable inputs (`ch9-tc-1`…`ch9-tc-10`)
+
+Spec `docs/superpowers/specs/2026-10-02-ch9-transport-costs-design.md` (`27cc1ad`, review round 1
+folded in `07e9cac`), plan `docs/superpowers/plans/2026-10-02-ch9-transport-costs.md` (`254ab0e`,
+implementation review + author self-review folded in `892a52a`). Executed as 10 agent-team tasks per
+`AGENTS.md`: solver-engineer, backend-engineer ×3, frontend-engineer ×5, qa-sdet ×1, the first nine
+reviewed by the lead directly and the qa task by an independent `fable` reviewer.
+
+Chapter 9's four freight parameters — `ic_trans_cost` 0.07 / `ic_min_trans` 10 / `ob_trans_cost` 0.12
+/ `ob_min_trans` 10 — were hardcoded constants with no UI surface at all. A student could edit
+distances, demands, capability and `p`, but not the rates that turn those distances into the dollars
+the objective minimises. They are now an optional, all-or-nothing `inputs.transportCosts` object, and
+**absence still means the textbook values**, so every pre-existing scenario is byte-identical.
+
+Commits: `2b6bcc0` solver + metrics echo · `9e73f6b` result contract + codegen · `1e2f2bc` validation
++ precheck · `8190081`+`76f1026` payload/write-path · `8bd59a3` hook seam · `61a56c4` rate lib + tab ·
+`d4f509f` Workspace registration · `d9ea26e` derived columns · `5a8b3f6` cost summary + Compare ·
+`05e6781`+`0b1772b` e2e.
+
+**The rates enter as coefficients, not a code path** (hard rule 6): `solve_jade` reads them into the
+existing `ic_cost`/`ob_cost` closures with the module constants as named defaults. `transportRates` is
+echoed on *every executed* JADE outcome — including the infeasible early return, which required
+`{**_EMPTY_METRICS, …}` rather than assignment, because `_EMPTY_METRICS` is a module constant shared
+by every model's error path. A test pins that it is never mutated.
+
+**The maxima are product limits, and the review proved they are not a safety proof.** The spec claimed
+rate ≤ 10 / minimum ≤ 10,000 kept coefficients "inside CBC's reliable range", with arithmetic built on
+"~22,000 tons per customer-product". Measured against the real dataset, that figure was an *average*
+(86,877.5 / 4); the true maximum cell is **32,007.5**, and all three rows of the spec's table
+understated: the `9999`-sentinel coefficient is **3,200,429,925** (claimed 2.2e9) and the worst
+minimum-charge coefficient **320,075,000** (claimed 2.2e8). The CBC-reliability claim was removed
+rather than restated — nobody has run that conditioning study.
+
+**What actually makes the solve safe is a cross-field guard, and the hole it closes predates this
+feature.** `distanceOverrides[].distance` and the demand fields were `z.number().nonnegative()` with
+**no `.finite()`**, so literal `Infinity` parsed, and `0.12 × 1e308` already overflowed with no
+`transportCosts` present at all. Now: `.finite()` at the shape layer; a `coefficient_range` precheck
+(`precheckJadeInputs`) that mirrors the objective exactly — inbound per-ton, outbound cost×demand —
+and 422s before a `solve_jobs` row exists; and a `math.isfinite` backstop in `solve.py` for callers
+that bypass the API, proven by a test that fails if CBC is invoked at all. No magnitude ceiling
+anywhere: a large-but-finite coefficient is legal.
+
+**A rate is per unit distance, so it converts as the reciprocal of a distance.** `UnitApi.toDisplay`
+multiplies; using it on a rate would render 0.07 $/ton-mi as 0.1127 $/ton-km — freight getting more
+expensive because someone flipped a display switch. The correct value is 0.0435. Rather than a
+parallel `useRateDraft`, `useDistanceDraft` gained one optional `convert?: DraftConversion` defaulting
+to the distance pair, so all **six files / ten call sites** stayed byte-identical (the spec said five
+callers; measured, `WarehouseTable`/`CustomerTable` only mention the hook in comments). Minimum
+charges pass an identity pair. The semantic no-op guard lives in the tab's `onCommit`, compares in
+display space at `roundForFile`'s 4 dp, and is what stops a cross-unit round trip (`0.070006…`) from
+staling a scenario.
+
+### Review findings worth keeping
+
+- **A test that hand-authors the row the mocked DB returns proves nothing.** T4's first write-path
+  tests set `mockDb.update.mockReturnValue([{…inputs: withRates}])` and then asserted the response
+  contained the rates — a writer that stripped the key would have passed. Rewritten to assert the
+  argument handed to `.set()`/`.values()`, plus a real-Postgres `jadeTransportCostsPersistence` test.
+  The implementer then mutation-tested the fix (commenting out the schema field turns it red).
+- **A contract-enum change broke a hardcoded list two tasks downstream.** `9e73f6b` appended
+  `coefficient_range` to `PrecheckError.code`; `maxCoverageContract.test.ts` asserts set-equality
+  against a hardcoded 8-value array and went red. Root cause was a lead dispatch error — T2's gate was
+  scoped to one test file. Standing correction: a contract/schema-wide change runs the full package
+  suite, never a single `--` filter.
+- **Label-derived testids change when the label does.** `CostSummaryTab` derives each row's testid
+  from its label text; unit-aware labels would have produced `cost-summary-value-inbound-rate-ton-mi-`
+  — an id that moves with the display toggle. The row tuple gained an explicit testid slot with a
+  mandatory label-derived fallback, because **45** existing `cost-summary-value-*` references across
+  the unit tests and e2e specs depend on the old derivation.
+- **Three pre-existing bugs in `jade-two-echelon.spec.ts`**, dormant because `skipIfJadeLocked()`
+  skipped the file while Chapter 9 was locked: `readObjective()` returned NaN once the objective
+  rendered with a `$` prefix; `assignment-row-`/`flow-row-` prefixes never matched JADE's own
+  `JadeAssignmentsTab`/`JadeFlowsTab`; and `input-filter-to` was filled before its Popover trigger was
+  clicked, which consumed the whole test budget and surfaced at an unrelated `finally`. Fixed, plus
+  `actionTimeout` and 23 previously-bare clicks bounded.
+
+### Gates (measured this run, zero concurrent vitest confirmed first)
+
+`pnpm run typecheck` clean · api-server **61 files / 1676 tests** · studio **123 files / 2267 tests** ·
+`typecheck:e2e` clean · solver pytest **323 passed** · `e2e_accuracy.py` **99/99 unmodified** ·
+`e2e_journey.py all` **181/181**. Both vitest suites passed first try with no flakes.
+
+`pnpm e2e:gate`: **62 expected / 3 unexpected / 1 flaky** out of 66, read from
+`e2e/report/results.json` rather than the console tail. None attributable to this bundle — all four
+JADE specs, including the new `jade-transport-costs.spec.ts`, passed without retry. The three:
+`posthog-analytics` and `sentry-capture` need `VITE_POSTHOG_KEY` / `VITE_SENTRY_DSN` on the dev server
+(both document the requirement; neither is set locally), and `workspace-fixups-2` fails on
+`expect(distanceBands).toContain(2000)` — a contract false since chen-bands-units (bands are a
+reporting lens, never persisted by a solve). This branch never touched that file.
+
+### Open, for the merge decision
+
+**`e2e-jade-specs` (tip `a10acf5`) fixes the same four drifts in `jade-two-echelon.spec.ts`
+independently, and is not an ancestor of this branch or of `main`.** 160 lines diverge in that one
+file, so whichever branch merges second conflicts. `a10acf5` additionally carries the
+`workspace-fixups-2` rewrite that would clear the third e2e failure above, and a `ci.yml` change
+making e2e blocking — neither exists here. Only `a10acf5`'s stronger `readObjective` shape (assert
+`/^\$[\d,]+\.\d{2}$/` before parsing, rather than silently stripping non-numerics) was adopted into
+this branch, by hand. The fate of that branch is a human decision and was deliberately not taken here.
+
+Deferred: the `coefficient_range` precheck sweeps only *active* plants/warehouses/customers, while
+`solve.py` builds objective terms for all of them — so a non-finite coefficient on an inactive lane
+degrades to a failed job rather than a 422. Exotic (needs ~1e308 on an inactive lane) and truthful
+either way.

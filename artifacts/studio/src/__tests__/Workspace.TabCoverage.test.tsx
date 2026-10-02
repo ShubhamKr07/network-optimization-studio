@@ -546,6 +546,8 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "distances", tabTestId: "jade-distances-tab" },
+        // ch9-tc-7 — Transportation Costs tab, two-echelon-jade-us only.
+        { sidebarId: "transportCosts", tabTestId: "transport-costs-tab" },
         OPTIMIZATION_PARAMETERS,
       ],
       [

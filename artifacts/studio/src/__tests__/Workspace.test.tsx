@@ -2628,6 +2628,21 @@ describe("defaultInputsForModel — max-coverage-us", () => {
   });
 });
 
+// ch9-tc-7 (reassigned from Task 4) — `defaultInputsForModel`'s
+// two-echelon-jade-us branch must NOT seed a `transportCosts` key. Absence
+// is what `transportCostsFromInputs`/`hasCustomTransportCosts` (lib/
+// transportCosts.ts) read as "the textbook values" everywhere — a new
+// scenario shipping the four literals would make every brand-new JADE
+// scenario read as "custom" from creation, and nothing else in this repo
+// would catch that regression.
+describe("defaultInputsForModel — two-echelon-jade-us (ch9-tc)", () => {
+  it("carries no transportCosts key", () => {
+    const d = defaultInputsForModel("two-echelon-jade-us");
+    expect(d.transportCosts).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(d, "transportCosts")).toBe(false);
+  });
+});
+
 // C4.12 — Chen inputs UI wired end-to-end through Workspace: the objective
 // mode toggle (which seeds the newly-required field AND clears the previous
 // mode's field so only the active field persists), the derived-band resync on

@@ -1213,6 +1213,36 @@ components:
         outboundCost:
           type: number
           description: Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.
+        transportRates:
+          $ref: "#/components/schemas/TransportRates"
+
+    # ch9-tc — Chapter 9 JADE: the four transportation cost parameters this
+    # result was actually solved at, echoed by solve_jade. Canonical units
+    # are $/ton-mile (rates) and $/ton (minimum charges) — the display-unit
+    # toggle converts rates reciprocally at render time, never in storage.
+    # Optional and never defaulted: a result stored before this field
+    # existed simply omits it, and Compare labels that column's values as
+    # the textbook fallback.
+    TransportRates:
+      type: object
+      properties:
+        icTransCost:
+          type: number
+          description: $ per ton-mile, plant -> warehouse.
+        icMinTrans:
+          type: number
+          description: $ per ton minimum charge, plant -> warehouse.
+        obTransCost:
+          type: number
+          description: $ per ton-mile, warehouse -> customer.
+        obMinTrans:
+          type: number
+          description: $ per ton minimum charge, warehouse -> customer.
+      required:
+        - icTransCost
+        - icMinTrans
+        - obTransCost
+        - obMinTrans
 
     # B3 — truthful status (solve.py's B2 already emits these). Mirrors
     # cbc_termination.py's SOLUTION_STATUSES plus the pre-existing "error"
@@ -1801,7 +1831,7 @@ components:
       properties:
         code:
           type: string
-          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible]
+          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible, coefficient_range]
         message:
           type: string
 

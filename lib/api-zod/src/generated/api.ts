@@ -259,7 +259,13 @@ export const ListScenariosResponseItem = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 
@@ -374,7 +380,13 @@ export const GetScenarioResponse = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 
@@ -483,7 +495,13 @@ export const UpdateScenarioResponse = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 
@@ -619,7 +637,13 @@ export const GetScenarioStepResultResponse = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 
@@ -640,7 +664,7 @@ export const PrecheckScenarioParams = zod.object({
 export const PrecheckScenarioResponse = zod.object({
   "ok": zod.boolean(),
   "errors": zod.array(zod.object({
-  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible']),
+  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible', 'coefficient_range']),
   "message": zod.string()
 }).describe('One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. \"WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142\".'))
 }).describe('Result of the semantic precheck against a scenario\'s addedWarehouses\/addedCustomers\/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route\'s 422 when the same precheck fails before enqueue.')
@@ -737,7 +761,13 @@ export const ApplyScenarioImportResponse = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 
@@ -956,7 +986,13 @@ export const UpdateDistanceBandsResponse = zod.object({
   "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
   "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
   "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
 }),
   "details": zod.object({
 

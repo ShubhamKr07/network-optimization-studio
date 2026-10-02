@@ -8,6 +8,7 @@ import { getReferenceDistances } from "../data/referenceDistances.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { JADE_TEXTBOOK_TRANSPORT_COSTS } from "../validation/inputs/jadeInputs.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import type { DeliveryInputs } from "../validation/inputs/delivery.js";
@@ -49,13 +50,12 @@ import { getManifest } from "../registry/modelRegistry.js";
 // jade-T6 adds "p_range" and "capacity" for two-echelon-jade-us — two
 // genuinely new failure categories no prior model's precheck has (p vs.
 // forced-open/active warehouse COUNTS, and per-product enabled-plant-
-// capacity vs. effective demand; see precheckJadeInputs below). These two
-// values are NOT YET reflected in openapi.yaml's PrecheckErrorCode enum
-// (out of this task's scope — precheck responses are never schema-validated
-// against that generated Zod enum on the way out, so this is inert today,
-// not a live contract break) — a follow-up should extend that enum +
-// regenerate codegen once JADE's frontend precheck-display work (T11+)
-// needs to discriminate on these codes specifically.
+// capacity vs. effective demand; see precheckJadeInputs below). ch9-tc adds
+// "coefficient_range" — a cross-field guard that rejects an input whose
+// individual numbers are each finite and within their own schema bounds,
+// but whose objective-coefficient PRODUCT (rate x distance, or
+// cost x demand) is not. All three are in openapi.yaml's PrecheckError.code
+// enum (openapi.yaml:1834).
 // C4.8 (Chapter 4, max-coverage-us) adds three genuinely new semantic
 // failure classes no prior model's precheck has (see precheckMaxCoverageInputs
 // below), all blocking (this model has no warnings channel — the solve path
@@ -83,7 +83,8 @@ export type PrecheckErrorCode =
   | "capacity"
   | "zero_demand"
   | "no_feasible_route"
-  | "coverage_floor_infeasible";
+  | "coverage_floor_infeasible"
+  | "coefficient_range";
 
 export interface PrecheckError {
   code: PrecheckErrorCode;
@@ -1353,6 +1354,97 @@ export function precheckJadeInputs(
         code: "capacity",
         message: `${productDisplay} has effective demand ${totalDemand} but only ${totalCapacity} enabled plant capacity`,
       });
+    }
+  }
+
+  // --- (g) coefficient_range: every individual number can be finite and
+  // within its own schema bounds while the PRODUCT the objective actually
+  // uses (rate x distance, or outbound-cost x demand) is not. Mirrors
+  // solve_jade's own objective shape exactly (solve.py:1178-1230):
+  //   - inbound  flow_pw's coefficient is ic_cost(pl, w) = max(ic_rate *
+  //     dist, ic_min) -- a per-TON rate. The LP variable itself is a
+  //     continuous tonnage flow, so this check never multiplies by demand.
+  //   - outbound flow_wc's coefficient is ob_cost(w, c) * demand[c][k] -- a
+  //     fixed per-(warehouse,customer,product) PRODUCT, since flow_wc is a
+  //     binary single-source selector, not a tonnage variable.
+  // Effective rates: inputs.transportCosts (all-or-nothing per the Zod
+  // schema above) or the exported JADE_TEXTBOOK_TRANSPORT_COSTS -- the same
+  // object solve.py's own four JADE_* module constants mirror, never a
+  // second TypeScript-side copy. Effective distances: the immutable
+  // reference matrix (getReferenceDistances) overlaid by this scenario's
+  // distanceOverrides, with the override winning -- a pair present in
+  // neither falls back to 9999, mirroring solve.py's own dist.get(key, 9999)
+  // exactly (reachable there since `warehouses`/`plants` are never filtered
+  // to "active" before the objective is built), not a different/silent
+  // repair value for a genuinely missing required added-entity edge (that
+  // case is (d) completeness's job, above).
+  const rates = inputs.transportCosts ?? JADE_TEXTBOOK_TRANSPORT_COSTS;
+
+  const referenceDistances = getReferenceDistances("two-echelon-jade-us");
+  const distanceByKey = new Map<string, number>();
+  for (const pair of referenceDistances?.pairs ?? []) {
+    distanceByKey.set(`${pair.fromId}|${pair.toId}`, pair.distance);
+  }
+  for (const o of distanceOverrides) {
+    distanceByKey.set(`${o.fromId}|${o.toId}`, o.distance);
+  }
+  const effectiveDistance = (fromId: string, toId: string): number =>
+    distanceByKey.get(`${fromId}|${toId}`) ?? 9999;
+
+  // Same base/override/added precedence as (f)'s capacity check above, but
+  // PER (customer, product) rather than aggregated -- the outbound
+  // coefficient is a per-cell product, not a per-product total.
+  const effectiveCustomerDemand = (custId: string, productId: string): number => {
+    const added = addedCustomerById.get(custId);
+    if (added) {
+      return (added.demands as Record<string, number> | undefined)?.[productId] ?? 0;
+    }
+    const override = customerOverrideById.get(custId);
+    const overrideDemand = override?.demands?.[productId];
+    return overrideDemand !== undefined
+      ? overrideDemand
+      : customerDemandsById.get(custId)?.[productId] ?? 0;
+  };
+
+  // De-duplicated by construction: each (leg, fromId, toId[, productId]) key
+  // below is visited exactly once, and a non-finite per-ton outbound cost
+  // short-circuits that (warehouse, customer) pair's per-product loop
+  // (continue) rather than also emitting one near-duplicate "x demand"
+  // failure per product on top of the per-ton failure already reported.
+  for (const plantId of activePlantIds) {
+    for (const whId of activeWarehouseIds) {
+      const d = effectiveDistance(plantId, whId);
+      const icCoeff = Math.max(rates.icTransCost * d, rates.icMinTrans);
+      if (!Number.isFinite(icCoeff)) {
+        errors.push({
+          code: "coefficient_range",
+          message: `plant_to_warehouse inbound coefficient from '${plantId}' to '${whId}' is not finite (rate=${rates.icTransCost}, distance=${d}, minimum=${rates.icMinTrans})`,
+        });
+      }
+    }
+  }
+
+  for (const whId of activeWarehouseIds) {
+    for (const custId of activeCustomerIds) {
+      const d = effectiveDistance(whId, custId);
+      const obCoeff = Math.max(rates.obTransCost * d, rates.obMinTrans);
+      if (!Number.isFinite(obCoeff)) {
+        errors.push({
+          code: "coefficient_range",
+          message: `warehouse_to_customer outbound per-ton cost from '${whId}' to '${custId}' is not finite (rate=${rates.obTransCost}, distance=${d}, minimum=${rates.obMinTrans})`,
+        });
+        continue;
+      }
+      for (const productId of dataset.productIds) {
+        const demand = effectiveCustomerDemand(custId, productId);
+        const term = obCoeff * demand;
+        if (!Number.isFinite(term)) {
+          errors.push({
+            code: "coefficient_range",
+            message: `warehouse_to_customer coefficient from '${whId}' to '${custId}' for product '${productId}' is not finite (cost=${obCoeff}, demand=${demand})`,
+          });
+        }
+      }
     }
   }
 

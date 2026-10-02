@@ -133,6 +133,12 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       addedWarehouses: i.addedWarehouses,
       addedCustomers: i.addedCustomers,
       distanceOverrides: i.distanceOverrides,
+      // ch9-tc — the four editable transportation rates (spec §3.2 point 4).
+      // Same key name on both sides, so this is a pure passthrough, not a
+      // translation; `undefined` when the scenario never set them, which
+      // solve_jade reads as "use the textbook constants" (byte-identical to
+      // the pre-change payload for every existing scenario).
+      transportCosts: i.transportCosts,
     };
   }
 

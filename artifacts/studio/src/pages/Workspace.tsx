@@ -69,6 +69,8 @@ import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTab";
 import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
+import { TransportCostsTab } from "@/components/workspace/tabs/TransportCostsTab";
+import { hasCustomTransportCosts, transportCostsFromInputs } from "@/lib/transportCosts";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import { DirtyNavPrompt } from "@/components/workspace/DirtyNavPrompt";
 import { StepToggle } from "@/components/workspace/StepToggle";
@@ -1301,6 +1303,12 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "warehouses", label: "Warehouses" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
+        // ch9-tc — Chapter 9's four transportation cost parameters. Its own
+        // tab rather than four more fields on Optimization Parameters:
+        // these are model cost DATA, not solver controls like gap/
+        // timeLimitSec (spec §2.3, decided with the simpler alternative
+        // costed out).
+        { id: "transportCosts", label: "Transportation Costs" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     case "p-median-brazil":
@@ -2019,6 +2027,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     guardStep1Edit({ ...localInputs, [key]: value }, key);
   }
 
+  // ch9-tc — Reset DELETES the key instead of writing 0.07/0.12/10/10, so a
+  // reset scenario is byte-identical to one that was never edited (and
+  // hashes the same for the solve cache). Routed through `guardStep1Edit`
+  // like `updateInputsField`, with the same history-read-only guard.
+  function clearTransportCosts() {
+    if (isBrowsingHistoryNow) return;
+    if (!localInputs) return;
+    const next = { ...localInputs };
+    delete next.transportCosts;
+    guardStep1Edit(next, "transportCosts");
+  }
+
   // chen-bands-units, Part A/G (plan-review HIGH #5) — the ONE onChange
   // handler passed to BOTH OptimizationParametersTab and SolveDialog, so
   // the two surfaces can never drift onto two different band-editing
@@ -2446,6 +2466,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // base matrix, C4.4), so it renders DistancesTab (see the render branch
       // below, extended in the same task).
       (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
+      // ch9-tc — the Transportation Costs tab writes into `localInputs` via
+      // `updateInputsField` exactly like every other editable tab, so it
+      // needs the same manual-Save toolbar. Without this entry the fields
+      // edit the draft with no way to persist it.
+      activeTab.entity === "transportCosts" ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal") ||
       // Task 11 (Chapter 5) — Delivery Costs grid, delivery-teaching-us only
@@ -3943,6 +3968,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
           excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
           identityById={inputIdentityById}
+          transportCosts={transportCostsFromInputs(localInputs)}
+        />
+      );
+    }
+
+    // ch9-tc — Transportation Costs tab, two-echelon-jade-us only. Four
+    // global scalars under `inputs.transportCosts`; absence means the
+    // textbook values, which is why `transportCostsFromInputs` resolves the
+    // EFFECTIVE values while `hasCustomTransportCosts` separately reports
+    // whether the key is actually there (Reset must clear, not rewrite).
+    if (activeTab.kind === "input" && activeTab.entity === "transportCosts" && modelId === "two-echelon-jade-us") {
+      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <TransportCostsTab
+          canonicalUnit={canonicalUnit}
+          transportCosts={transportCostsFromInputs(localInputs)}
+          isCustom={hasCustomTransportCosts(localInputs)}
+          onChange={next => updateInputsField("transportCosts", next)}
+          onReset={clearTransportCosts}
+          disabled={isBrowsingHistoryNow}
+          scenarioId={currentScenario?.id}
         />
       );
     }

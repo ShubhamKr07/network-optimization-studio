@@ -137,6 +137,7 @@ export * from './solveResultDetails';
 export * from './solveResultStatus';
 export * from './terminationReason';
 export * from './transportAssignment';
+export * from './transportRates';
 export * from './updateDistanceBandsBody';
 export * from './warehouseCandidate';
 export * from './warehouseCandidateKind';

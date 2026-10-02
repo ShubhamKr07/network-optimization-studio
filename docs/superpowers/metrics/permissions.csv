@@ -10,3 +10,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-09-29T22:37:06.999Z,CH4UX,889,64,0,0,,101,13,gate: 13 risky grant(s) — human review required
 2026-09-30T11:22:04.550Z,ch5-editable,882,0,0,6,AskUserQuestion,101,13,gate: 13 risky grant(s) — human review required
 2026-09-30T16:21:36.207Z,ch9-unlock,882,0,0,0,,101,13,gate: 13 risky grant(s) — human review required
+2026-10-02T12:21:32.418Z,ch9-tc,unknown,unknown,unknown,unknown,,unknown,unknown,"NOT MEASURED — worktree blind spot: harness:permissions read .claude/settings.local.json relative to the worktree, found none, and reported a false 0/0/0/0 with exit 0. The real file (main checkout) has 882 allow / 0 deny, matching ch9-unlock's row. Counts recorded as unknown rather than 0 so this run cannot be read as 'grants dropped to zero'. ch9-unlock's 13 risky grants remain open and unreviewed; nothing was granted or narrowed by this task."

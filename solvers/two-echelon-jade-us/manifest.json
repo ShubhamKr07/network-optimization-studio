@@ -27,6 +27,16 @@
       },
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
+      "transportCosts": {
+        "type": "object",
+        "properties": {
+          "icTransCost": { "type": "number", "minimum": 0, "maximum": 10 },
+          "icMinTrans": { "type": "number", "minimum": 0, "maximum": 10000 },
+          "obTransCost": { "type": "number", "minimum": 0, "maximum": 10 },
+          "obMinTrans": { "type": "number", "minimum": 0, "maximum": 10000 }
+        },
+        "required": ["icTransCost", "icMinTrans", "obTransCost", "obMinTrans"]
+      },
       "warehouseOverrides": {
         "type": "array",
         "items": {
