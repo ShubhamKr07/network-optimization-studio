@@ -200,3 +200,42 @@ describe("ResultEnvelopeSchema (B3 additive fields)", () => {
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(false);
   });
 });
+
+// ch9-tc-2 — metrics.transportRates (Task 1's solve_jade echo). This file has
+// no makeEnvelope helper; build envelopes inline from the B3 describe
+// block's existing `base` fixture shape rather than introducing a second
+// fixture idiom.
+describe("ch9-tc — metrics.transportRates", () => {
+  const base = {
+    objective: 100,
+    runTimeSec: 0.1,
+    quality: "Feasible — within gap",
+    edges: [],
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+    status: "optimal" as const,
+    details: {},
+  };
+  const rates = { icTransCost: 0.09, icMinTrans: 10, obTransCost: 0.12, obMinTrans: 0 };
+
+  it("round-trips transportRates through ResultEnvelopeSchema", () => {
+    const envelope = { ...base, metrics: { weightedAvgDistance: 1, transportRates: rates } };
+    const parsed = ResultEnvelopeSchema.parse(envelope);
+    expect(parsed.metrics.transportRates).toEqual(rates);
+  });
+
+  it("still validates a legacy envelope with no transportRates key", () => {
+    const envelope = { ...base, metrics: { weightedAvgDistance: 1 } };
+    const parsed = ResultEnvelopeSchema.parse(envelope);
+    expect(parsed.metrics.transportRates).toBeUndefined();
+    expect("transportRates" in parsed.metrics).toBe(false);
+  });
+
+  it("rejects a partial transportRates object", () => {
+    const envelope = {
+      ...base,
+      metrics: { weightedAvgDistance: 1, transportRates: { icTransCost: 0.09 } },
+    };
+    expect(ResultEnvelopeSchema.safeParse(envelope).success).toBe(false);
+  });
+});

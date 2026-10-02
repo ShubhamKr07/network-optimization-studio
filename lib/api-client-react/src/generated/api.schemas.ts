@@ -365,6 +365,17 @@ export interface LegAverageDistance {
   totalFlow: number;
 }
 
+export interface TransportRates {
+  /** $ per ton-mile, plant -> warehouse. */
+  icTransCost: number;
+  /** $ per ton minimum charge, plant -> warehouse. */
+  icMinTrans: number;
+  /** $ per ton-mile, warehouse -> customer. */
+  obTransCost: number;
+  /** $ per ton minimum charge, warehouse -> customer. */
+  obMinTrans: number;
+}
+
 export interface SolveMetrics {
   utilizationByNode?: WarehouseUtilization[];
   bandCoverage?: BandCoverage[];
@@ -379,6 +390,7 @@ export interface SolveMetrics {
   inboundCost?: number;
   /** Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional. */
   outboundCost?: number;
+  transportRates?: TransportRates;
 }
 
 export type SolutionStatus = typeof SolutionStatus[keyof typeof SolutionStatus];
@@ -842,6 +854,7 @@ export const PrecheckErrorCode = {
   zero_demand: 'zero_demand',
   no_feasible_route: 'no_feasible_route',
   coverage_floor_infeasible: 'coverage_floor_infeasible',
+  coefficient_range: 'coefficient_range',
 } as const;
 
 /**

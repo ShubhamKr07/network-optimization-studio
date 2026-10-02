@@ -55,6 +55,19 @@ export const MetricsSchema = z.object({
   totalDemand: z.number().optional(),
   inboundCost: z.number().optional(),
   outboundCost: z.number().optional(),
+  // ch9-tc — Chapter 9 JADE: the four rates this result was solved at
+  // (spec §2.5). Optional and deliberately NOT `.default(...)` — an
+  // envelope persisted before this field existed must keep validating,
+  // and the export route safeParses stored results. Without this entry
+  // Zod would strip the key silently (precheck failure #1).
+  transportRates: z
+    .object({
+      icTransCost: z.number(),
+      icMinTrans: z.number(),
+      obTransCost: z.number(),
+      obMinTrans: z.number(),
+    })
+    .optional(),
 });
 
 // B3 — truthful status (solve.py's B2). `solutionStatus` is the solver's

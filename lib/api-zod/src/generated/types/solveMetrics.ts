@@ -7,6 +7,7 @@
  */
 import type { BandCoverage } from './bandCoverage';
 import type { LegAverageDistance } from './legAverageDistance';
+import type { TransportRates } from './transportRates';
 import type { WarehouseUtilization } from './warehouseUtilization';
 
 export interface SolveMetrics {
@@ -23,4 +24,5 @@ export interface SolveMetrics {
   inboundCost?: number;
   /** Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional. */
   outboundCost?: number;
+  transportRates?: TransportRates;
 }
