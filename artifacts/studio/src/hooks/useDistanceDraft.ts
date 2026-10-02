@@ -36,6 +36,23 @@ interface DraftState {
   anchor: number;
 }
 
+/**
+ * ch9-tc — how this field's value maps between canonical storage and the
+ * active display unit. Defaults to `useDisplayUnit()`'s own distance pair,
+ * so every pre-existing caller is byte-identical.
+ *
+ * A RATE is per unit distance, so its conversion is the RECIPROCAL of a
+ * distance conversion — using the distance pair on a rate would make km
+ * mode read 0.1127 $/ton-km for a 0.07 $/ton-mi rate, i.e. freight getting
+ * MORE expensive because someone flipped a display switch. A value with no
+ * distance dimension at all (a $/ton minimum charge) passes the identity
+ * pair so the toggle leaves it alone.
+ */
+export interface DraftConversion {
+  toDisplay(canonicalValue: number, canonical: CanonicalUnit): number;
+  fromDisplay(displayValue: number, canonical: CanonicalUnit): number;
+}
+
 export interface UseDistanceDraftOptions {
   /** The active model's canonical unit for this field; `null` while it has
    *  not resolved yet (e.g. manifest still loading) — the hook fully
@@ -68,6 +85,8 @@ export interface UseDistanceDraftOptions {
    * "1,234.5" still parses.
    */
   presentation?: "raw" | "grouped";
+  /** ch9-tc — see `DraftConversion`. Omit for a distance field. */
+  convert?: DraftConversion;
 }
 
 export interface UseDistanceDraftResult {
@@ -102,8 +121,11 @@ export function useDistanceDraft({
   onCommit,
   resetKey,
   presentation = "raw",
+  convert,
 }: UseDistanceDraftOptions): UseDistanceDraftResult {
-  const { effectiveUnit, toDisplay, fromDisplay } = useDisplayUnit();
+  const { effectiveUnit, toDisplay: unitToDisplay, fromDisplay: unitFromDisplay } = useDisplayUnit();
+  const toDisplay = convert?.toDisplay ?? unitToDisplay;
+  const fromDisplay = convert?.fromDisplay ?? unitFromDisplay;
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
 
   const [draft, setDraft] = useState<DraftState | null>(null);

@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import type { CanonicalUnit } from "@workspace/units";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import {
   useDistanceDraft,
@@ -261,5 +262,71 @@ describe("presentation: grouped (ch4-fixes item 4)", () => {
     expect(result.current.draft.text).toBe("1234.5");
     act(() => result.current.draft.commit());
     expect(onCommit).toHaveBeenCalledWith(1234.5);
+  });
+});
+
+describe("ch9-tc — convert override", () => {
+  // Build the converter INSIDE renderHook from the current UnitApi. This
+  // tracks pref changes; a converter hardcoded to "km" cannot test toggles.
+  function renderRateDraft(initialProps: Omit<UseDistanceDraftOptions, "convert">) {
+    return renderHook(
+      (props: Omit<UseDistanceDraftOptions, "convert">) => {
+        const unit = useDisplayUnit();
+        const convert = {
+          toDisplay: (v: number, canonical: CanonicalUnit) =>
+            v / unit.toDisplay(1, canonical),
+          fromDisplay: (v: number, canonical: CanonicalUnit) =>
+            v * unit.toDisplay(1, canonical),
+        };
+        return {
+          unit,
+          draft: useDistanceDraft({ ...props, convert }),
+        };
+      },
+      { wrapper, initialProps },
+    );
+  }
+
+  it("renders the committed value through convert.toDisplay", () => {
+    // Pref "km", canonical "mi": 0.07 $/ton-mi -> 0.0435 $/ton-km.
+    const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit: vi.fn() });
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("0.0435");
+  });
+
+  it("commits through convert.fromDisplay, not the distance conversion", () => {
+    const onCommit = vi.fn();
+    const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
+    act(() => result.current.unit.setPref("km"));
+    act(() => result.current.draft.onChange("0.0870"));
+    act(() => result.current.draft.commit());
+    // 0.0870 $/ton-km * 1.609344 = 0.14001... $/ton-mi (NOT 0.054...).
+    expect(onCommit.mock.calls[0][0]).toBeCloseTo(0.14, 4);
+  });
+
+  it("re-projects a complete dirty draft from its canonical anchor on a toggle", () => {
+    const onCommit = vi.fn();
+    const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
+    act(() => result.current.draft.onChange("0.14"));
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("0.087");
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("discards an incomplete dirty rate draft on a toggle", () => {
+    const onCommit = vi.fn();
+    const { result } = renderRateDraft({ canonicalUnit: "mi", value: 0.07, onCommit });
+    act(() => result.current.draft.onChange("0."));
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("0.0435");
+    expect(result.current.draft.isDirty).toBe(false);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("leaves every existing caller's behaviour unchanged when convert is omitted", () => {
+    // The default must still be the distance (multiplicative) pair.
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 100, onCommit: vi.fn() });
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("160.9344");
   });
 });
