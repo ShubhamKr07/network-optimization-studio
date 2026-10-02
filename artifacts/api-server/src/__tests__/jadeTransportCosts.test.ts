@@ -15,6 +15,9 @@ import {
   JADE_MIN_CHARGE_MAX,
   JADE_TEXTBOOK_TRANSPORT_COSTS,
 } from "../validation/inputs/jadeInputs.js";
+import { buildPayload } from "../solver/pmedian.js";
+import { computeInputsHash, computeInputsHashV2 } from "../solver/jobRunner.js";
+import { fillEstimatedJadeDistances } from "../services/autoDistance.js";
 
 const BASE = {
   p: 2,
@@ -171,5 +174,74 @@ describe("JADE_TEXTBOOK_TRANSPORT_COSTS — numeric parity with solve.py", () =>
       obTransCost: parseSolvePyConstant("JADE_OB_RATE"),
       obMinTrans: parseSolvePyConstant("JADE_OB_MIN"),
     });
+  });
+});
+
+// ch9-tc-4 — registration point 4 (model-integration-precheck.md): buildPayload
+// is a field-by-field translation, so an unlisted field never reaches the
+// solver and the solve quietly uses defaults. transportCosts carries the
+// SAME key name on both sides (no wire-name translation, unlike
+// plantProductCapability -> capabilityOverrides above it in pmedian.ts).
+describe("ch9-tc — buildPayload", () => {
+  const jadeInputs = jadeInputsSchema.parse({ ...BASE, transportCosts: RATES });
+
+  it("passes transportCosts straight through for JADE", () => {
+    const payload = buildPayload({ modelId: "two-echelon-jade-us", inputs: jadeInputs });
+    expect(payload.modelType).toBe("two_echelon_jade");
+    expect(payload.transportCosts).toEqual(RATES);
+  });
+
+  it("omits the key entirely when the scenario has no transportCosts", () => {
+    const bare = jadeInputsSchema.parse({ ...BASE });
+    const payload = buildPayload({ modelId: "two-echelon-jade-us", inputs: bare });
+    expect(payload.transportCosts).toBeUndefined();
+  });
+
+  it("never emits transportCosts for a non-JADE model", () => {
+    const payload = buildPayload({
+      modelId: "transport-coal",
+      inputs: {
+        distanceBands: [500, 1000], gap: 0, timeLimitSec: 60,
+        capacityFactor: 1, singleSource: false, capacityInactive: false,
+        mineCapacities: {}, stationDemands: {},
+        addedMines: [], addedStations: [], laneCostOverrides: [],
+      } as never,
+    });
+    expect("transportCosts" in payload).toBe(false);
+  });
+});
+
+// Both hashes already incorporate transportCosts as of Task 3 — they hash
+// canonicalJson(input.inputs), and Task 3's schema change is what made that
+// object actually carry the key. Kept here as regression locks (NOT as
+// expected-red evidence for this task — they were already green before the
+// buildPayload change below landed).
+describe("ch9-tc — cache key separation", () => {
+  const a = { modelId: "two-echelon-jade-us" as const, inputs: jadeInputsSchema.parse({ ...BASE }) };
+  const b = {
+    modelId: "two-echelon-jade-us" as const,
+    inputs: jadeInputsSchema.parse({ ...BASE, transportCosts: { ...RATES, obTransCost: 0.2 } }),
+  };
+
+  it("gives two scenarios differing only in transportCosts different v1 hashes", () => {
+    expect(computeInputsHash(a)).not.toBe(computeInputsHash(b));
+  });
+
+  it("gives them different v2 hashes too", () => {
+    expect(computeInputsHashV2(a)).not.toBe(computeInputsHashV2(b));
+  });
+});
+
+// Second silent-drop guard from the plan's own self-review: autoDistance.ts's
+// fillEstimatedJadeDistances (the real export; the brief's illustrative name
+// was applyJadeAutoDistances) re-parses the whole inputs object through
+// jadeInputsSchema after filling in estimated distance rows. An optional
+// field survives that round trip only because it is DECLARED on the schema
+// — this is the regression lock for that same Zod-strips-unknown-keys class.
+describe("ch9-tc — applyAutoDistances preserves transportCosts", () => {
+  it("fillEstimatedJadeDistances's reparse does not drop transportCosts", () => {
+    const withRates = jadeInputsSchema.parse({ ...BASE, transportCosts: RATES });
+    const after = fillEstimatedJadeDistances(withRates);
+    expect(after.transportCosts).toEqual(RATES);
   });
 });

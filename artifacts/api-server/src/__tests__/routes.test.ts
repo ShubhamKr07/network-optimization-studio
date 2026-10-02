@@ -954,6 +954,65 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
   });
 });
 
+// ch9-tc-4 — the real production write path (PATCH + clone), not just
+// buildPayload/the Zod schema in isolation. Registration point 4 is silent
+// if missed: an unlisted field in buildPayload never reaches the solver,
+// but a dropped field on the PERSIST side is just as silent — a PATCH that
+// "succeeds" while quietly discarding transportCosts would look identical
+// to a correct one from the client's point of view.
+describe("ch9-tc — transportCosts write path (two-echelon-jade-us)", () => {
+  const RATES = { icTransCost: 0.09, icMinTrans: 5, obTransCost: 0.15, obMinTrans: 0 };
+
+  it("persists all four transportCosts fields through the production write path", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    mockDb.update.mockReturnValue(makeChain([{ ...jadeRow, inputs: withRates }]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: withRates });
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.transportCosts).toEqual(RATES);
+  });
+
+  it("a reset (key omitted) persists as absent, not as the textbook literals", async () => {
+    const cookie = await loginAs(OWNER);
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    // Scenario currently has custom rates persisted; the PATCH under test
+    // omits the key entirely (the UI's "reset to textbook" action).
+    mockDb.select.mockReturnValue(makeChain([{ ...jadeRow, inputs: withRates }]));
+    const { transportCosts, ...withoutRates } = withRates;
+    mockDb.update.mockReturnValue(makeChain([{ ...jadeRow, inputs: withoutRates }]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: withoutRates });
+    expect(res.status).toBe(200);
+    // Not merely "not RATES" -- genuinely absent, so a reset scenario stays
+    // indistinguishable from one never edited (ch9-tc's hashing invariant).
+    expect(res.body.inputs.transportCosts).toBeUndefined();
+  });
+
+  it("rejects a partial transportCosts object with 422", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, transportCosts: { icTransCost: 0.09 } } });
+    expect(res.status).toBe(422);
+  });
+
+  it("clone preserves absent-vs-present semantics", async () => {
+    const cookie = await loginAs(OWNER);
+    const withRates = { ...jadeInputs, transportCosts: RATES };
+    mockDb.select.mockReturnValue(makeChain([{ ...jadeRow, inputs: withRates }]));
+    mockDb.insert.mockReturnValue(makeChain([{ ...jadeRow, id: 20, inputs: withRates }]));
+    const cloneWithRates = await request(app).post("/api/scenarios/12/clone").set("Cookie", cookie);
+    expect(cloneWithRates.status).toBe(201);
+    expect(cloneWithRates.body.inputs.transportCosts).toEqual(RATES);
+
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    mockDb.insert.mockReturnValue(makeChain([{ ...jadeRow, id: 21 }]));
+    const cloneBare = await request(app).post("/api/scenarios/12/clone").set("Cookie", cookie);
+    expect(cloneBare.status).toBe(201);
+    expect(cloneBare.body.inputs.transportCosts).toBeUndefined();
+  });
+});
+
 // C4.7 (Chapter 4, max-coverage-us) — auto-estimate normalizer, sixth
 // writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
 // missing added-entity warehouse<->customer distances as RAW-km
