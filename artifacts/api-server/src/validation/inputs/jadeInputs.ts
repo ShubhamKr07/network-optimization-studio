@@ -62,7 +62,12 @@ const warehouseOverrideSchema = z.object({
 // not this schema.
 const customerOverrideSchema = z.object({
   id: z.string(),
-  demands: z.record(z.string(), z.number().nonnegative()).optional(),
+  // ch9-tc — `.finite()` closes a pre-existing hole (literal Infinity parsed
+  // here before this change): precheckJadeInputs' coefficient_range guard
+  // multiplies this value against a rate/distance, so a demand cell that
+  // was never required to be finite in the first place would make that
+  // guard's own "is the PRODUCT finite" check meaningless.
+  demands: z.record(z.string(), z.number().nonnegative().finite()).optional(),
   status: z.enum(["active", "excluded"]),
 });
 
@@ -114,8 +119,11 @@ const addedWarehouseSchema = z.object({
 // rather than hand-listing four object keys, so the one place this list
 // changes is the constant above.
 const jadeDemandsSchema = z.object(
+  // ch9-tc — `.finite()` closes the same pre-existing hole as
+  // customerOverrideSchema's demands above (literal Infinity parsed here
+  // before this change).
   Object.fromEntries(
-    JADE_PRODUCT_IDS.map((productId) => [productId, z.number().nonnegative()]),
+    JADE_PRODUCT_IDS.map((productId) => [productId, z.number().nonnegative().finite()]),
   ) as Record<(typeof JADE_PRODUCT_IDS)[number], z.ZodNumber>,
 );
 
@@ -139,7 +147,13 @@ const distanceOverrideSchema = z.object({
   leg: z.enum(["plant_to_warehouse", "warehouse_to_customer"]),
   fromId: z.string().min(1),
   toId: z.string().min(1),
-  distance: z.number().nonnegative(),
+  // ch9-tc — `.finite()` closes a pre-existing hole, unrelated to this
+  // feature's own transportCosts addition: literal Infinity parsed here
+  // before this change. Fixed now because precheckJadeInputs' new
+  // coefficient_range guard checks products of rate x distance x demand for
+  // finiteness, which is only a meaningful guarantee if every one of those
+  // inputs was already required to be finite at the shape layer.
+  distance: z.number().nonnegative().finite(),
   // True when this row was auto-filled by the auto-estimate normalizer
   // rather than entered/imported by a student. Purely informational, same
   // precedent as pMedian.ts/twoEchelon.ts's own `estimated` field.
@@ -149,6 +163,32 @@ const distanceOverrideSchema = z.object({
 function distanceOverridePairKey(o: { leg: string; fromId: string; toId: string }): string {
   return o.leg + "|" + o.fromId + "|" + o.toId;
 }
+
+// ch9-tc — pedagogical/product upper bounds (spec §3.1), exported because
+// jadeTransportCosts.test.ts pins these equal to the manifest's `maximum`
+// values and the UI's own constants. They are NOT the numerical-safety
+// proof: existing distance/demand overrides are independently unbounded
+// finite values. precheckJadeInputs performs the cross-field finite-
+// coefficient check before enqueue; solve.py repeats it defensively.
+export const JADE_RATE_MAX = 10;
+export const JADE_MIN_CHARGE_MAX = 10_000;
+export const JADE_TEXTBOOK_TRANSPORT_COSTS = {
+  icTransCost: 0.07,
+  icMinTrans: 10,
+  obTransCost: 0.12,
+  obMinTrans: 10,
+} as const;
+
+// All-or-nothing: the OBJECT is optional, but when present all four fields
+// are required. A partial object is a 422, never a half-merge — that
+// removes the whole "which three fields silently fell back to the constant"
+// bug class. Absence means solve.py's textbook constants (JADE_IC_RATE etc).
+const transportCostsSchema = z.object({
+  icTransCost: z.number().finite().min(0).max(JADE_RATE_MAX),
+  icMinTrans: z.number().finite().min(0).max(JADE_MIN_CHARGE_MAX),
+  obTransCost: z.number().finite().min(0).max(JADE_RATE_MAX),
+  obMinTrans: z.number().finite().min(0).max(JADE_MIN_CHARGE_MAX),
+});
 
 export const jadeInputsSchema = z.object({
   // No static max (unlike pMedian's p.max(50)) — the semantic max (effective
@@ -164,6 +204,10 @@ export const jadeInputsSchema = z.object({
     ),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1), // required -- NaN here kills every solve
+  // ch9-tc — optional with NO `.default(...)`: an absent key must stay
+  // absent through parse, so a reset scenario is indistinguishable from one
+  // never edited (and so two scenarios differing only here hash differently).
+  transportCosts: transportCostsSchema.optional(),
   warehouseOverrides: z.array(warehouseOverrideSchema).default([]),
   customerOverrides: z.array(customerOverrideSchema).default([]),
   plantProductCapability: z.array(plantProductCapabilitySchema)

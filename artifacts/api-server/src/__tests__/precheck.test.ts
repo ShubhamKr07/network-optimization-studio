@@ -24,6 +24,7 @@ import {
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { JADE_RATE_MAX, JADE_MIN_CHARGE_MAX } from "../validation/inputs/jadeInputs.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 
@@ -1311,6 +1312,81 @@ describe("precheckJadeInputs — jade-T6 semantic precheck", () => {
       };
       const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
       expect(result.errors.some((e) => e.code === "capacity")).toBe(false);
+    });
+  });
+
+  // ch9-tc-3 — (g) coefficient_range: every individual number can be finite
+  // and within its own schema bounds while the objective's own PRODUCT
+  // (rate x distance, or outbound-cost x demand) is not. The implementation
+  // review's own finding: a scenario with no transportCosts override at all
+  // can still overflow, because the textbook 0.12 $/ton-mi default times a
+  // huge-but-finite override is itself non-finite.
+  describe("(g) coefficient_range — cross-field finite-product guard", () => {
+    const MAX_RATES = {
+      icTransCost: JADE_RATE_MAX,
+      icMinTrans: JADE_MIN_CHARGE_MAX,
+      obTransCost: JADE_RATE_MAX,
+      obMinTrans: JADE_MIN_CHARGE_MAX,
+    };
+
+    it("rejects huge finite distance x demand arithmetic before solve dispatch", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        transportCosts: { icTransCost: 0.07, icMinTrans: 10, obTransCost: 10, obMinTrans: 10 },
+        addedCustomers: [
+          {
+            id: "C-HUGE", city: "X", state: "NV", lat: 1, lng: 2,
+            demands: { "product-1": 1e308, "product-2": 0, "product-3": 0, "product-4": 0 },
+            status: "active",
+          },
+        ],
+        // Completeness requires a distance from every active (base)
+        // warehouse to this added customer (the "vice versa" direction).
+        distanceOverrides: [
+          { leg: "warehouse_to_customer", fromId: "WH-A", toId: "C-HUGE", distance: 1e100 },
+          { leg: "warehouse_to_customer", fromId: "WH-B", toId: "C-HUGE", distance: 1e100 },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "coefficient_range" }),
+      ]));
+    });
+
+    it("accepts the measured baseline and scalar maxima when every derived coefficient is finite", () => {
+      const inputs: JadeInputs = { ...JADE_BASE, transportCosts: MAX_RATES };
+      // Real two-echelon-jade-us dataset + reference distances, not the
+      // small fake — proves getReferenceDistances wiring doesn't false-
+      // positive against real distances/demands even at the scalar maxima.
+      const result = precheckJadeInputs(inputs, JADE_DATASET);
+      expect(result.errors.filter((e) => e.code === "coefficient_range")).toEqual([]);
+    });
+
+    it("fires with NO transportCosts at all — the hazard predates this feature", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        // transportCosts omitted entirely: the textbook 0.12 $/ton-mi
+        // default still overflows against these overrides.
+        addedCustomers: [
+          {
+            id: "C-HUGE2", city: "X", state: "NV", lat: 1, lng: 2,
+            demands: { "product-1": 1e308, "product-2": 0, "product-3": 0, "product-4": 0 },
+            status: "active",
+          },
+        ],
+        distanceOverrides: [
+          { leg: "warehouse_to_customer", fromId: "WH-A", toId: "C-HUGE2", distance: 1e100 },
+          { leg: "warehouse_to_customer", fromId: "WH-B", toId: "C-HUGE2", distance: 1e100 },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "coefficient_range")).toBe(true);
+    });
+
+    it("does not fire on ordinary finite inputs with no network edits", () => {
+      const result = precheckJadeInputs(JADE_BASE, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "coefficient_range")).toBe(false);
     });
   });
 });
