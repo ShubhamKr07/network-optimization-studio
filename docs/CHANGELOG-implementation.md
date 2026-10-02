@@ -56,6 +56,7 @@ a commit SHA — every entry carries all four. Line numbers below are a convenie
 | harness-retro steps 5–7 for CH4UX (`HND-G`) | L2182 |
 | 2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`) | L2288 |
 | ch9-e2e-findings — the four JADE spec drifts, the unbounded-action trap, the Input Map bands-Save gap | L2547 |
+| bands-save — the Input Map Layers-row Save honours a lens-only change | L2628 |
 
 ---
 
@@ -2621,3 +2622,51 @@ secrets above; `chen-bands-units-qa` and `delivery-teaching` both passed **9/9 i
 The console printed "4 failed" and silently folded the 6 retried-and-passed away; the honest figure
 is 10 of 64 load-sensitive. That arithmetic is now in CLAUDE.md's flake list, where it bears directly
 on the standing proposal to make the e2e job blocking.
+
+---
+
+## bands-save — the Input Map's Layers-row Save now honours a lens-only change (2026-10-03)
+
+Branch `input-map-bands-save` off `main` (`e899216`). Fixes the open product bug recorded in the
+ch9-e2e-findings entry above.
+
+**The bug.** Distance bands are a reporting LENS, tracked by their own `lensDirty` flag and persisted
+by a field-scoped PATCH, separately from `ordinaryDirty` + the whole-input PATCH. The shared toolbar
+Save knows both — `saveEnabled = ordinaryDirty || lensDirty`, relabelling itself "Save bands" and
+dispatching through `handleSaveClick` when only the lens changed. But seven models moved their Save
+off that toolbar into the Input Map's own Layers row, and all four `<InputMapTab>` mounts wired it
+`isDirty={isDirty}` (i.e. `ordinaryDirty`) + `onSave={handleSaveInputs}` (which early-returns unless
+`ordinaryDirty`) — while `Workspace.tsx` suppresses the shared toolbar Save on exactly that tab to
+avoid a duplicate. **Net: on the Input Map, a bands-only edit left the one Save on screen greyed out
+and inert.** The edit was never lost — any other input tab still offered a working "Save bands" — but
+nothing on that tab said so, so the honest reading was "my band edit will not save".
+
+**The fix is the four mounts adopting the contract that already existed**, not a new mechanism:
+`isDirty={saveEnabled}`, `onSave={handleSaveClick}`, `saving={saveIsPending}`, plus a new optional
+`saveLabel` prop on `InputMapTab` so the in-row button can render "Save bands" exactly as the toolbar
+does. Without that label the two surfaces would disagree about one state, and on this tab plain
+"Save" is the more misleading of the two — it implies a whole-input write that is not what happens.
+
+**Why a source-reading test joins the behavioural one.** The bug was present in all four mounts
+identically, and "a per-model gate a sibling model silently misses" is this repo's most-documented
+recurring class. Four near-duplicate behavioural tests would still not cover a fifth mount added
+later, so `inputMapSaveWiring.test.ts` asserts the wiring at the source level — same technique
+`lockedModelGuards.test.ts` uses for the route guards — including a vacuity tripwire (the mounts are
+found at all) and a check that the toolbar-suppression list and the wired-mount set stay the same
+size. Reverting a single mount fails 2 of its 5 cases; verified by mutation, not assumed. The
+behavioural proof that the shared contract does the right thing is the new
+`Workspace.Integration.test.tsx` case, which asserts there is exactly ONE Save on the tab before
+asserting anything about it, so it cannot pass by reading the toolbar control.
+
+**Gate (zero failures, zero flakes — concurrent vitest verified 0 beforehand):** typecheck clean ·
+studio **2273/2273** (124 files) · api-server **1676/1676** (61 files) · solver pytest **323/323**.
+No solver, dataset or API change, so `e2e_accuracy.py` is not implicated.
+
+**Real-browser verification on a DIFFERENT mount than the unit test covers.** The RTL case exercises
+the `two-echelon-jade-us` mount; the browser check used `p-median-us` (the "pmedian" arm, which also
+serves brazil / max-coverage / delivery) against a real stack. Removing band 400 on Optimization
+Parameters then switching to Input Map showed exactly one Save, inside `input-map-tab`, labelled
+"Save bands", enabled, with "Unsaved changes" present — identical to the toolbar's state. Clicking it
+persisted `[200,400,800,1600]` → `[200,800,1600]`, returned Save to disabled, cleared "Unsaved
+changes", and left `solvedAt` **unchanged**, which is the proof it took the field-scoped bands PATCH
+rather than a whole-input write or a re-solve.

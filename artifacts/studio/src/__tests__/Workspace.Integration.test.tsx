@@ -634,6 +634,44 @@ describe("Workspace — JADE uses the shared chip band editor, no validity gate 
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
+  // The same band-only edit, saved from the INPUT MAP tab instead.
+  //
+  // This model's Save lives in the Input Map's own Layers row
+  // (`saveInLayersRowJade`), and Workspace.tsx suppresses the shared toolbar
+  // Save on that tab so there is never a duplicate — so the Layers-row
+  // control is the ONLY Save on screen there, and it must honour the same
+  // contract the toolbar one does. Before this fix it was wired
+  // `isDirty={isDirty}` / `onSave={handleSaveInputs}` — `ordinaryDirty` only
+  // — so a bands-only edit left the one visible Save greyed out and inert.
+  // The edit was not lost (any other input tab still offered "Save bands"),
+  // but on this tab the affordance was dead with nothing on screen saying so.
+  it("a bands-only edit is saveable from the Input Map's own Layers-row Save", () => {
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+
+    fireEvent.click(screen.getByTestId("button-bands-plus"));
+    fireEvent.change(screen.getByTestId("input-new-band"), { target: { value: "3000" } });
+    fireEvent.click(screen.getByTestId("button-add-band-confirm"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
+
+    // Exactly one Save on this tab — the toolbar's is suppressed here, so the
+    // assertions below cannot be passing by reading the wrong control.
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateDistanceBands.mutate.mock.calls[0][0]).toEqual({
+      scenarioId: unsolvedScenario.id,
+      data: { distanceBands: [200, 400, 800, 1600, 3000] },
+    });
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
   it("removing down to one band disables that last band's × control (Optimization Parameters)", () => {
     const oneBandScenario = { ...unsolvedScenario, inputs: { ...jadeInputs, distanceBands: [500] } };
     mockUseGetScenario.mockReturnValue({ data: oneBandScenario } as unknown as ReturnType<typeof useGetScenario>);
