@@ -22,6 +22,15 @@ import { test, expect, type Page } from "@playwright/test";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
+// Both JADE siblings (jade-transport-costs.spec.ts, jade-ch9-workspace-
+// bundle.spec.ts) already set this — without it, an action with no explicit
+// per-call timeout inherits the ENTIRE remaining test budget when its target
+// never becomes actionable (CLAUDE.md's Gotchas), which is exactly what
+// happened here once before (a `.fill()` on a not-yet-mounted popover field
+// ate the full 240s and surfaced as a teardown-call timeout, not a failure
+// at the real line).
+test.use({ actionTimeout: 15_000 });
+
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 90_000;
 const GROUND_TRUTH_OBJECTIVE = 254060828.6157;
@@ -99,14 +108,23 @@ async function solveAndWait(page: Page, id: string): Promise<void> {
   await expect(page.getByTestId("sidebar-output-cost-summary")).toBeEnabled({ timeout: HEADER_TIMEOUT });
 }
 
+/** Reads the Solution Summary's Objective cell as a number.
+ *
+ *  JADE's objective dimension is "monetary" (lib/units/src/objective.ts),
+ *  so formatObjective() renders it as e.g. "$254,060,828.62" — a leading
+ *  "$" a bare-comma strip can't survive (Number() silently returns NaN).
+ *
+ *  The "$" and 2-decimal shape are ASSERTED, not just stripped: a silent
+ *  strip-everything-non-numeric would keep passing even if JADE's dimension
+ *  regressed to "opaque" (a bare, unlabelled number) — exactly the
+ *  dimension-mislabelling class formatObjective's own comment calls worse
+ *  than a wrong value, because it changes what the number MEANS, not just
+ *  what it is. */
 async function readObjective(page: Page): Promise<number> {
   await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
-  const text = await page.getByTestId("cost-summary-value-objective").innerText();
-  // JADE's objective dimension is "monetary" (lib/units/src/objective.ts),
-  // so formatObjective() renders it with a "$" prefix (e.g. "$254,060,828.62")
-  // — strip everything but digits/sign/decimal point, not just commas, or
-  // Number() silently returns NaN on the leading "$".
-  return Number(text.replace(/[^0-9.-]/g, ""));
+  const text = (await page.getByTestId("cost-summary-value-objective").innerText({ timeout: HEADER_TIMEOUT })).trim();
+  expect(text).toMatch(/^\$[\d,]+\.\d{2}$/);
+  return Number(text.replace(/[$,]/g, ""));
 }
 
 test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
@@ -244,10 +262,10 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("button-input-map-place-wh").click({ timeout: HEADER_TIMEOUT });
       const mapCanvas = page.locator('[data-testid="input-map-tab"] .leaflet-container');
       await expect(mapCanvas).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await mapCanvas.click({ position: { x: 250, y: 220 } });
+      await mapCanvas.click({ position: { x: 250, y: 220 }, timeout: HEADER_TIMEOUT });
 
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const newWhDisplayCode = await page.getByTestId("create-entity-display-code").innerText();
+      const newWhDisplayCode = await page.getByTestId("create-entity-display-code").innerText({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("create-entity-submit").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
