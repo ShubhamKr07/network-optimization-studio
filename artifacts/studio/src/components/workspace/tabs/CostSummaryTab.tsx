@@ -7,6 +7,7 @@ import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { resultQualityText } from "@/lib/resultOutcome";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
+import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
 
 // chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
 // `distanceUnitLabel` below are this file's single choke point for turning a
@@ -41,6 +42,38 @@ function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefin
 
 function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): string | null {
   return canonical == null ? null : unit.effectiveUnit(canonical);
+}
+
+// ch9-tc-9 (point 12) — the four rates a result was SOLVED AT. Read from the
+// RESULT ENVELOPE's `metrics.transportRates`, never from the scenario's live
+// `inputs` — for a stale scenario the inputs no longer match what the cached
+// result was solved at, and sourcing from inputs would make this panel lie.
+//
+// Gated on `modelId`, deliberately NOT on presence — presence-only gating
+// cannot render a fallback when EVERY selected envelope is a legacy one.
+const JADE_MODEL_ID = "two-echelon-jade-us";
+
+interface SolvedAtRates {
+  rates: TransportCosts;
+  legacy: boolean;
+}
+
+function solvedAtRates(result: { metrics?: { transportRates?: TransportCosts } } | null | undefined): SolvedAtRates {
+  const stored = result?.metrics?.transportRates;
+  return stored == null
+    ? { rates: TEXTBOOK_TRANSPORT_COSTS, legacy: true }
+    : { rates: stored, legacy: false };
+}
+
+const LEGACY_RATE_LABEL = "textbook default (legacy result)";
+
+/** A rate renders in the active display unit (reciprocal conversion); a
+ *  minimum charge is $/ton and never converts. Follows this file's existing
+ *  no-fallback-unit convention: an unresolved canonical unit renders the
+ *  shared "—" placeholder, never a guessed unit. */
+function formatRate(rate: number, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+  if (canonical == null) return "—";
+  return rateConversion(unit).toDisplay(rate, canonical).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 interface CostSummaryTabProps {
@@ -343,7 +376,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       modelId != null && canonicalDistanceUnit != null
         ? formatObjective(modelId, objectiveMode, result.objective, canonicalDistanceUnit, unit)
         : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString();
-    const rows: Array<[string, string, boolean]> = [["Objective", objectiveText, true]];
+    const rows: Array<[string, string, boolean, string?]> = [["Objective", objectiveText, true]];
     if (result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
     }
@@ -360,6 +393,19 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       ["Quality", resultQualityText(result), false],
       ["Solver", result.solverUsed, false],
     );
+    // ch9-tc-9 (point 12) — the four rates this result was SOLVED AT. Gated
+    // on modelId, not metric presence (see solvedAtRates' own comment).
+    if (modelId === JADE_MODEL_ID) {
+      const { rates, legacy } = solvedAtRates(result);
+      const suffix = legacy ? ` ${LEGACY_RATE_LABEL}` : "";
+      const rl = rateUnitLabel(canonicalDistanceUnit, unit);
+      rows.push(
+        [`Inbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ic"],
+        [`Inbound min ($/ton)`, `${rates.icMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ic"],
+        [`Outbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ob"],
+        [`Outbound min ($/ton)`, `${rates.obMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ob"],
+      );
+    }
 
     // ch4-fixes item 3 — single-scenario now renders the SAME <table> shell
     // compare mode uses (metric column + one column per scenario), so
@@ -397,12 +443,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               </tr>
             </thead>
             <tbody>
-              {rows.map(([label, value, mono]) => (
+              {rows.map(([label, value, mono, testId]) => (
                 <tr key={label}>
                   <td className="p-2 text-muted-foreground">{label}</td>
                   <td
                     className={`p-2${mono ? " font-mono" : ""}`}
-                    data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                    data-testid={testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
                   >
                     {value}
                   </td>
@@ -476,6 +522,68 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                   </td>
                 ))}
               </tr>
+            )}
+            {/* ch9-tc-9 (point 12) — the four rates EACH column's own result
+                was SOLVED AT. All four are required (not just the two rates):
+                a cost delta can be caused entirely by minimum charges, and
+                showing only rates would leave it unexplained. Gated on
+                modelId, not metric presence — an all-legacy selection still
+                renders these rows with a labelled fallback. */}
+            {modelId === JADE_MODEL_ID && (
+              <>
+                <tr>
+                  <td className="p-2 text-muted-foreground">
+                    Inbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
+                  </td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-rate-ic-${s.id}`}>
+                        {formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">Inbound min ($/ton)</td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ic-${s.id}`}>
+                        {rates.icMinTrans.toLocaleString()}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">
+                    Outbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
+                  </td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-rate-ob-${s.id}`}>
+                        {formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">Outbound min ($/ton)</td>
+                  {compareScenarios.map(s => {
+                    const { rates, legacy } = solvedAtRates(s.result);
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ob-${s.id}`}>
+                        {rates.obMinTrans.toLocaleString()}
+                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </>
             )}
             <tr>
               <td className="p-2 text-muted-foreground">Weighted avg. distance{unitLabel ? ` (${unitLabel})` : ""}</td>

@@ -1,5 +1,5 @@
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import type { Scenario, ScenarioSteps } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
@@ -324,9 +324,16 @@ describe("CostSummaryTab — Chapter 9 JADE inbound/outbound cost split", () => 
     // compare mode uses, so the metric labels are the first <td> of each row
     // rather than a <dt>. The ROW ORDER contract this test exists to pin is
     // unchanged.
+    // ch9-tc-9 (point 12) — the four solved-at transportation rows now
+    // always append for modelId === "two-echelon-jade-us" (gated on modelId,
+    // not metric presence), so this fixture's legacy (no transportRates)
+    // envelope still grows the row set by four, labelled fallback rows.
     const list = screen.getByTestId("cost-summary-list");
     const labels = [...list.querySelectorAll("tbody tr")].map(tr => tr.querySelector("td")?.textContent);
-    expect(labels).toEqual(["Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance", "Runtime", "Quality", "Solver"]);
+    expect(labels).toEqual([
+      "Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance", "Runtime", "Quality", "Solver",
+      "Inbound rate ($/ton-mi)", "Inbound min ($/ton)", "Outbound rate ($/ton-mi)", "Outbound min ($/ton)",
+    ]);
   });
 
   it("does not show Inbound/Outbound cost rows for a model whose envelope omits them (no regression)", () => {
@@ -829,5 +836,116 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     );
     expect(screen.getByTestId("cost-summary-compare-toggle-81").querySelector("input")).not.toBeDisabled();
     expect(screen.queryByTestId("cost-summary-compare-mode-hint-81")).not.toBeInTheDocument();
+  });
+});
+
+// ch9-tc-9 (point 12) — the four rates a JADE result was SOLVED AT, read from
+// the stored result envelope's `metrics.transportRates`, NEVER from the
+// scenario's live `inputs` (a stale scenario's inputs no longer match what
+// the cached result was solved at — sourcing from inputs would lie). Gated on
+// `modelId === "two-echelon-jade-us"`, not metric presence, so an all-legacy
+// selection still renders a labelled textbook-default fallback instead of
+// silently omitting the whole block.
+describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
+  const rates = { icTransCost: 0.09, icMinTrans: 10, obTransCost: 0.12, obMinTrans: 0 };
+
+  function jadeResult(transportRates?: typeof rates) {
+    return {
+      status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+      solutionStatus: "optimal" as const, terminationReason: "optimality_proven" as const, achievedGap: null,
+      edges: [],
+      metrics: { weightedAvgDistance: 500, ...(transportRates ? { transportRates } : {}) },
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+  }
+
+  afterEach(() => {
+    // Several tests below flip the persisted display-unit preference;
+    // vitest's jsdom environment (and this suite's localStorage) is NOT
+    // reset between tests in the same file, so a leaked "km" pref would
+    // silently break every test after it that assumes the default "mi".
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  it("shows the rates the result was solved at, in the active display unit", () => {
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult(rates)} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("0.09");
+    expect(screen.getByTestId("cost-summary-min-ob")).toHaveTextContent("0");
+  });
+
+  it("converts rates reciprocally in km mode and leaves minimum charges alone", () => {
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult({ ...rates, icTransCost: 0.07 })} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("0.0435");
+    expect(screen.getByTestId("cost-summary-rate-ic")).not.toHaveTextContent("0.1127");
+    expect(screen.getByTestId("cost-summary-min-ic")).toHaveTextContent("10");
+  });
+
+  it("falls back to the textbook values, labelled, for a legacy JADE result", () => {
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult(/* no transportRates */)} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("0.07");
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("textbook default (legacy result)");
+  });
+
+  it("renders no rate rows at all for a non-JADE model", () => {
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
+    expect(screen.queryByTestId("cost-summary-rate-ic")).not.toBeInTheDocument();
+  });
+
+  it("gives each Compare column its OWN result's rates", () => {
+    const c1 = scenario({ id: 1, name: "C1", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icTransCost: 0.07 }) });
+    const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icTransCost: 0.09 }) });
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("0.07");
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
+  });
+
+  it("shows a Compare delta caused only by minimum charges", () => {
+    const c1 = scenario({ id: 1, name: "C1", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icMinTrans: 10, obMinTrans: 10 }) });
+    const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icMinTrans: 25, obMinTrans: 0 }) });
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("10");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-2")).toHaveTextContent("25");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("10");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-2")).toHaveTextContent("0");
+  });
+
+  it("labels a legacy column's fallback instead of showing a bare dash", () => {
+    const c1 = scenario({ id: 1, name: "C1", modelId: "two-echelon-jade-us", result: jadeResult(/* legacy */) });
+    const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icTransCost: 0.09 }) });
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
+  });
+
+  it("shows the rows for an all-legacy JADE selection (modelId gating, not presence gating)", () => {
+    const c1 = scenario({ id: 1, name: "C1", modelId: "two-echelon-jade-us", result: jadeResult(/* legacy */) });
+    const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult(/* legacy */) });
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toBeInTheDocument();
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toBeInTheDocument();
+  });
+
+  it("does not invent a rate unit while the canonical manifest unit is unresolved", () => {
+    // GET /api/models hasn't resolved (or has no entry for this modelId) —
+    // the JADE row set still renders (gated on modelId, not on the manifest
+    // entry), but the rate value falls back to the shared "—" placeholder and
+    // the unit suffix is omitted rather than guessed.
+    const defaultImpl = mockUseListModels.getMockImplementation();
+    mockUseListModels.mockReturnValue({ data: [] });
+    try {
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult(rates)} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
+      expect(screen.queryByText(/\$\/ton-mi|\$\/ton-km/)).not.toBeInTheDocument();
+      expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("—");
+    } finally {
+      mockUseListModels.mockReset();
+      if (defaultImpl) mockUseListModels.mockImplementation(defaultImpl);
+    }
   });
 });
