@@ -34,7 +34,7 @@
  * Target: E2E_BASE_URL env var. Requires the local dev proxy
  * (vite's API_PROXY_TARGET) — see CLAUDE.md's "To run e2e locally" recipe.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 // max-coverage.spec.ts's own SOLVE_TIMEOUT is 120_000, but a real CBC solve

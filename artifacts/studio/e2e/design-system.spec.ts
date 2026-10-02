@@ -31,7 +31,7 @@
  * the token/utility level rather than faking a UI interaction that doesn't
  * exist.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 

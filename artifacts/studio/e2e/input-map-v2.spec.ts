@@ -14,7 +14,7 @@
  * Target: E2E_BASE_URL env var + a local dev proxy (vite's
  * API_PROXY_TARGET) — see CLAUDE.md.
  */
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 // Real CBC solve, not seeded — this test's whole point is the estimated-

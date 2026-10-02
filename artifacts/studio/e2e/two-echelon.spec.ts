@@ -37,7 +37,7 @@
  * result would prove nothing about whether the UI is wired to the right
  * solve outcome.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;

@@ -17,7 +17,7 @@
  * spec is regression coverage for that structural invariant holding, not
  * just a feature check.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 const HEADER_TIMEOUT = 10_000;
 

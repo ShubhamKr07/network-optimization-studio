@@ -67,7 +67,7 @@
  * Target: E2E_BASE_URL env var. Requires a local dev proxy
  * (`API_PROXY_TARGET`) so the browser sees one origin — see vite.config.ts.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import zlib from "node:zlib";
 import { readSolvedAt } from "./helpers/solvedAt";
 
