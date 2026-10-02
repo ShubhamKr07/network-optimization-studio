@@ -310,3 +310,69 @@ describe("Workspace — two-echelon-jade-us Save reconciliation (Gate 6.5)", () 
     expect(screen.getByTestId(`badge-jadedistance-estimated-plant_to_warehouse-${plantId}-wh-11`)).toBeInTheDocument();
   });
 });
+
+// ch9-tc-7 — registering TransportCostsTab (Task 6) in Workspace: sidebar
+// entry, render branch, Save-gate membership (isEditableInputTab), and the
+// history-browsing disabled wiring. Reuses this file's own renderWorkspace
+// helper/scenario fixture/mock setup rather than introducing a second one.
+describe("ch9-tc — Transportation Costs tab registration", () => {
+  it("shows the Save affordance after a rate edit (isEditableInputTab)", async () => {
+    renderWorkspace();
+    fireEvent.click(await screen.findByTestId("sidebar-input-transportCosts"));
+    const field = await screen.findByTestId("input-transport-ic-rate");
+    fireEvent.change(field, { target: { value: "0.09" } });
+    fireEvent.blur(field);
+    expect(await screen.findByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+  });
+
+  it("Reset removes the key from the draft rather than writing the textbook literals", async () => {
+    const customScenario = {
+      ...scenario,
+      inputs: { ...jadeInputs, transportCosts: { icTransCost: 0.09, icMinTrans: 10, obTransCost: 0.12, obMinTrans: 10 } },
+    };
+    mockUseGetScenario.mockReturnValue({ data: customScenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [customScenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(await screen.findByTestId("sidebar-input-transportCosts"));
+    fireEvent.click(await screen.findByTestId("button-transport-reset"));
+    // Back to the textbook display value, and Reset is no longer offered —
+    // the draft now has no transportCosts key at all.
+    expect(await screen.findByTestId("input-transport-ic-rate")).toHaveValue("0.07");
+    expect(screen.getByTestId("button-transport-reset")).toBeDisabled();
+  });
+
+  // The real Workspace-level `isBrowsingHistoryNow` (derived from
+  // `resultHistoryState`/`canGoForwardResult`), not just the component's own
+  // `disabled` prop: seed a 1-entry history (a solved scenario), rerender
+  // with a SECOND, distinct `.result` reference on the same scenario id (the
+  // history-append effect's own trigger — see Workspace.Integration.test.tsx's
+  // "#1 live band recolor" describe block for the same pattern), then step
+  // back once so the stepper reads "1/2" — `canGoForwardResult` is true,
+  // which is exactly "the stepper is parked on a non-latest entry".
+  it("disables the fields while browsing a non-latest result", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const resultB = { ...resultA, objective: 222 };
+    const scenarioWithA = { ...scenario, result: resultA };
+    const scenarioWithB = { ...scenario, result: resultB };
+
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scenarioWithA] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const view = renderWorkspace();
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof mockUseGetScenario>);
+    view.rerender(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+
+    fireEvent.click(await screen.findByTestId("sidebar-input-transportCosts"));
+    expect(await screen.findByTestId("input-transport-ic-rate")).toBeDisabled();
+    expect(screen.getByTestId("button-transport-reset")).toBeDisabled();
+  });
+});
