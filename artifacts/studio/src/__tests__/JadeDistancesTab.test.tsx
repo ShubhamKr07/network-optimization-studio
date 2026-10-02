@@ -97,6 +97,24 @@ function mockReferenceDistancesFetch() {
   });
 }
 
+// ch9-tc-8 — parameterized sibling of `mockReferenceDistancesFetch` for the
+// derived $/ton column tests below, which each need a small, specific base
+// matrix rather than the fixed 2600-pair one above.
+function mockReferenceDistancesWith(
+  pairs: { fromId: string; toId: string; distance: number; leg: "plant_to_warehouse" | "warehouse_to_customer" }[],
+) {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/reference-distances")) {
+      return jsonResponse({
+        pairs: pairs.map(p => ({ ...p, fromCode: p.fromId, toCode: p.toId })),
+        distanceUnit: "mi",
+      });
+    }
+    throw new Error(`Unhandled fetch in test: ${url}`);
+  });
+}
+
 const fetchMock = vi.fn();
 global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -1322,5 +1340,149 @@ describe("JadeDistancesTab — chen-bands-units Task 12: display-unit draft cont
     fireEvent.change(input, { target: { value: "500" } });
     fireEvent.blur(input);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+// ch9-tc-8 — derived $/ton and Min? columns, a REPORTING LENS over the
+// scenario's live transportCosts (point 11 of the Ch.9 transportation-costs
+// plan). Priced from the live `localInputs` draft (never stored, never
+// re-solved), and deliberately unaffected by the display-unit toggle: the
+// rate's denominator and the stored distance are both canonical miles, so
+// the product is a plain $/ton with no distance unit.
+describe("ch9-tc-8 — derived $/ton and Min? columns", () => {
+  afterEach(() => {
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  const rates = { icTransCost: 0.07, icMinTrans: 10, obTransCost: 0.12, obMinTrans: 10 };
+
+  function renderDerivedColumns(opts: {
+    transportCosts: typeof rates;
+    referencePairs: { leg: "plant_to_warehouse" | "warehouse_to_customer"; fromId: string; toId: string; distance: number }[];
+    distanceOverrides?: { leg: "plant_to_warehouse" | "warehouse_to_customer"; fromId: string; toId: string; distance: number }[];
+  }) {
+    mockReferenceDistancesWith(opts.referencePairs);
+    return renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={opts.distanceOverrides ?? []}
+        savedDistanceOverrides={opts.distanceOverrides ?? []}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        modelId="two-echelon-jade-us"
+        referenceCapable
+        transportCosts={opts.transportCosts}
+        canonicalUnit="mi"
+      />,
+    );
+  }
+
+  it("prices an inbound lane at rate × distance when the rate governs", async () => {
+    // 200 mi inbound at 0.07 = $14.00/ton (> the $10 min).
+    renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: 200 }],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-1-wh-11")).toHaveTextContent(
+        "14.00",
+      ),
+    );
+    expect(
+      screen.queryByTestId("badge-jadedistance-min-plant_to_warehouse-plant-1-wh-11"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks a lane where the minimum charge governs", async () => {
+    // 10 mi outbound at 0.12 = $1.20 < the $10 min.
+    renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [{ leg: "warehouse_to_customer", fromId: "wh-11", toId: "customer-1", distance: 10 }],
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("cell-jadedistance-cost-warehouse_to_customer-wh-11-customer-1"),
+      ).toHaveTextContent("10.00"),
+    );
+    expect(
+      screen.getByTestId("badge-jadedistance-min-warehouse_to_customer-wh-11-customer-1"),
+    ).toBeInTheDocument();
+  });
+
+  it("prices from the OVERRIDE distance, not the base, when one is set", async () => {
+    renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: 200 }],
+      distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: 400 }],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-1-wh-11")).toHaveTextContent(
+        "28.00",
+      ),
+    );
+  });
+
+  it("re-prices immediately when the rates prop changes, with no re-solve", async () => {
+    const result = renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: 200 }],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-1-wh-11")).toHaveTextContent(
+        "14.00",
+      ),
+    );
+    result.rerender(
+      <JadeDistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        modelId="two-echelon-jade-us"
+        referenceCapable
+        transportCosts={{ ...rates, icTransCost: 0.14 }}
+        canonicalUnit="mi"
+      />,
+    );
+    expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-1-wh-11")).toHaveTextContent(
+      "28.00",
+    );
+  });
+
+  it("does not convert the $/ton value when the display unit flips", async () => {
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-11", distance: 200 }],
+    });
+    // The distance column reads 321.9 km; the COST is a dollar amount per
+    // ton and carries no distance unit, so it stays 14.00.
+    await waitFor(() =>
+      expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-1-wh-11")).toHaveTextContent(
+        "14.00",
+      ),
+    );
+  });
+
+  it("shows a dash when a row has no distance at all", async () => {
+    // An override-only row whose base is null and whose override was just
+    // cleared has no effective distance — price nothing rather than
+    // pricing the 9999 sentinel, which is solve.py's internal fallback and
+    // not something to surface as a real lane cost.
+    renderDerivedColumns({
+      transportCosts: rates,
+      referencePairs: [],
+      distanceOverrides: [
+        { leg: "plant_to_warehouse", fromId: "plant-9", toId: "wh-99", distance: undefined as unknown as number },
+      ],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("cell-jadedistance-cost-plant_to_warehouse-plant-9-wh-99")).toHaveTextContent(
+        "—",
+      ),
+    );
   });
 });

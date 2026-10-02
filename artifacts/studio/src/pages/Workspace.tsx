@@ -3968,6 +3968,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
           excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
           identityById={inputIdentityById}
+          transportCosts={transportCostsFromInputs(localInputs)}
         />
       );
     }

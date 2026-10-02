@@ -17,6 +17,7 @@ import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { formatDistanceDisplay, stripGrouping } from "@/lib/formatDistanceDisplay";
+import { laneCostPerTon, minChargeBinds, TEXTBOOK_TRANSPORT_COSTS, type TransportCosts } from "@/lib/transportCosts";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer) in one flat array, keyed
@@ -133,12 +134,27 @@ interface JadeDistancesTabProps {
    * input) until this is authoritative (Part D, "No fallback unit"). Wired
    * by Workspace.tsx (Task 14). */
   canonicalUnit?: CanonicalUnit | null;
+  /** ch9-tc — the scenario's EFFECTIVE transportation rates, used only to
+   *  DERIVE the $/ton and Min? columns. Never stored per lane and never
+   *  editable here — the Transportation Costs tab owns the four values, and
+   *  these columns recompute from the same live draft, so they cannot
+   *  drift. Defaults to the textbook values for a caller that omits it. */
+  transportCosts?: TransportCosts;
 }
 
 const LEG_LABEL: Record<JadeLeg, string> = {
   plant_to_warehouse: "Plant → Warehouse",
   warehouse_to_customer: "Warehouse → Customer",
 };
+
+// ch9-tc — the lane's effective distance is the override when set, else the
+// base; both are CANONICAL (miles for this model), which is also the rate's
+// denominator, so the product is a plain $/ton with no distance unit.
+function laneRates(leg: JadeLeg, tc: TransportCosts): { rate: number; min: number } {
+  return leg === "plant_to_warehouse"
+    ? { rate: tc.icTransCost, min: tc.icMinTrans }
+    : { rate: tc.obTransCost, min: tc.obMinTrans };
+}
 
 // chen-bands-units, Task 12 — one row's Override cell, the triple-keyed
 // analogue of DistancesTab's own `DistanceOverrideCell` (same Rules-of-Hooks
@@ -290,6 +306,7 @@ export function JadeDistancesTab({
   excludedCustomerIds,
   identityById,
   canonicalUnit = null,
+  transportCosts = TEXTBOOK_TRANSPORT_COSTS,
 }: JadeDistancesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const { download, disabledReasonFor } = useExport();
@@ -748,6 +765,8 @@ export function JadeDistancesTab({
                 <TableHead>To</TableHead>
                 <TableHead>{unitSuffix("Base")}</TableHead>
                 <TableHead>{unitSuffix("Override")}</TableHead>
+                <TableHead>$/ton</TableHead>
+                <TableHead>Min?</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -831,6 +850,31 @@ export function JadeDistancesTab({
                         )}
                       </div>
                     </TableCell>
+                    {(() => {
+                      const effective = r.override?.distance ?? r.base;
+                      const { rate, min } = laneRates(r.leg, transportCosts);
+                      return (
+                        <>
+                          <TableCell
+                            className="font-mono text-xs"
+                            data-testid={`cell-jadedistance-cost-${r.leg}-${r.fromId}-${r.toId}`}
+                          >
+                            {effective == null ? "—" : laneCostPerTon(effective, rate, min).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {effective != null && minChargeBinds(effective, rate, min) && (
+                              <span
+                                className="text-[10px] text-slate-700 bg-slate-100 border border-slate-300 rounded px-1"
+                                title="The minimum charge, not the rate, is what this lane pays"
+                                data-testid={`badge-jadedistance-min-${r.leg}-${r.fromId}-${r.toId}`}
+                              >
+                                min
+                              </span>
+                            )}
+                          </TableCell>
+                        </>
+                      );
+                    })()}
                     <TableCell>
                       {(r.override || r.base == null) && (
                         <button
@@ -849,7 +893,7 @@ export function JadeDistancesTab({
               })}
               {mergedRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-xs text-muted-foreground text-center py-3">
+                  <TableCell colSpan={8} className="text-xs text-muted-foreground text-center py-3">
                     No rows match the current filter.
                   </TableCell>
                 </TableRow>
