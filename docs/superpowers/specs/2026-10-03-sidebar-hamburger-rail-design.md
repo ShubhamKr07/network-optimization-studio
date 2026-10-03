@@ -50,6 +50,19 @@ Each of these was an open fork; all are closed. No alternatives remain open.
 | D5 | Hamburger placement | **First row of the rail/panel itself** | Workspace header far-left; both (header button + panel chevron) |
 | D6 | Scenarios flyout vs. in-row editing (review round 1) | Flyout **latches open** via one boolean while a row is renaming or confirming delete; released on commit/cancel | pure CSS with no latch (loses a rename to `onBlur` the moment the cursor leaves — see §7); dropping rename/clone/delete from the flyout (contradicts D3) |
 | D7 | Scenarios rail icon's click (review round 1) | Click **expands the whole sidebar** (it has no tab of its own), giving touch and keyboard a path that does not depend on hover | no click handler; tap-and-hold (unreliable on iOS) |
+| D8 | Collapsed-by-default, **re-decided** once the `cosmetic-ui` bundle made the sidebar the sole navigator | **Keep collapsed-by-default** (user's call, 2026-10-03, made with the sole-navigator fact and both agents' contrary leans on the table) | expanded-by-default on first run (the recommendation from *both* this session and the Cosmetics session); auto-collapse after first solve |
+| D9 | Execution order against `cosmetic-ui` | **Cosmetics merges first; this branch rebases onto the resulting `main`**, then executes | this branch first; parallel execution with a shared integration branch |
+
+### D8 — the adverse facts, recorded because the decision went against them
+
+The user chose collapsed-by-default knowing all of this. Do not quietly reverse it; if it needs revisiting, that is a new user decision.
+
+1. `cosmetic-ui`'s COSM-1 deletes the open-tab strip, so **the sidebar is the only navigator**.
+2. COSM-1 also removes the header's scenario dropdown (`select-scenario-context` is asserted absent at `bundle6-ui-tweaks.spec.ts`), so the sidebar's Scenarios section becomes the **only scenario switcher** — and collapsed, that switcher sits behind a hover flyout. D7's click-to-expand is the mitigation.
+3. Tailwind v4 wraps `hover:`/`group-hover:` in `@media (hover: hover)`, so on touch there are no labels at all and D7's click is the only path.
+4. Both this session and the Cosmetics session independently recommended expanded-by-default for first-run discoverability.
+
+The counter-evidence that supports the user's choice, from the Cosmetics session's own COSM-2 measurement: at a 375px viewport the fixed 224px sidebar leaves ~119px of usable row against a 147px button group, clipping `2. Min Distance`, the Layers chips, the map legend and the Leaflet attribution. That is a pre-existing squeeze, and the rail reclaiming 224px is expected to resolve it without further work. **Verify that during QA** (new QA item) — it is the strongest argument for the collapsed default.
 
 ## 4. Design
 
@@ -341,3 +354,74 @@ rail at **1366×768**, not just Playwright's 1280×720 (§7).
 - Changelog entry in `docs/CHANGELOG-implementation.md`, same commit as the work.
 - Commits use this work's task ids (`[SBR-n] …`), and `/harness-retro SBR` has run — a branch is not
   finished until it has.
+
+## 9. Cross-session coordination with `cosmetic-ui`
+
+Two sessions are changing `artifacts/studio` at the same time: **Cosmetics** (branch `cosmetic-ui`,
+worktree `/Users/shubhamkr/nos-cosmetic`, locked) and this one (branch `sidebar-hamburger-rail`,
+primary checkout). This section is the written contract; the cross-session chat is not.
+
+### 9.1 File ownership — measured on both sides, 2026-10-03
+
+`git diff --name-only main...cosmetic-ui` is 15 files. Of this bundle's five contested paths,
+`cosmetic-ui` touches **zero** — independently confirmed by both sessions:
+
+| Path | Owner |
+|---|---|
+| `src/components/workspace/SidebarTree.tsx` | **this branch, exclusively** |
+| `src/components/workspace/entityIcons.ts`, `.../map/InvalidateOnResize.tsx` (new) | this branch |
+| `src/components/NetworkMap.tsx` | this branch |
+| `e2e/empty-first-run-workspace.spec.ts`, `e2e/two-echelon.spec.ts` | this branch |
+| `src/components/AppShell.tsx` (+ test) | **`cosmetic-ui`** (COSM-4 wraps `<main>`; COSM-5 mounts a canvas behind it) — this branch must not touch it |
+| `src/pages/Workspace.tsx`, `src/components/workspace/StepToggle.tsx`, `src/lib/workspaceView.ts`, `docs/design-system/**` | `cosmetic-ui` |
+| `lib/db`, `lib/api-spec`, `lib/api-zod`, `lib/api-client-react`, `artifacts/api-server/**` | `cosmetic-ui` (COSM-4) |
+
+**The one real conflict: `src/components/workspace/tabs/InputMapTab.tsx`.** COSM-2 changed ~19 lines
+in two places — the `mode: "pmedian"` union variant (added `showInlineSave?: boolean`, ~`:361-370`,
+destructured ~`:392`) and the Save gate at ~`:1051`. None of it is near a `<MapContainer>`, so
+SBR-3's four insertions should merge cleanly — but **every line number in SBR-3 has shifted. Locate
+the four `<MapContainer>`s by content, not by the line numbers in the plan.**
+
+### 9.2 Order of operations (D9)
+
+1. Cosmetics completes COSM-3/4/5, gates, and **stops for the user's merge approval**.
+2. Cosmetics merges to local `main` on approval. It announces that here.
+3. This branch rebases onto the new `main`, then **re-verifies every citation in the spec and plan
+   before executing** — §1's table, `Workspace.tsx:4580`/`:4665-4672`, `Workspace.test.tsx:1189-1191`,
+   and SBR-3's five `<MapContainer>` sites all move. A citation re-derivation pass is the first act
+   of execution, not an afterthought.
+4. This branch executes SBR-1…SBR-5, gates, and stops for its own merge approval.
+5. One combined whole-branch review on the merged state, then **one** push, then **one** deploy
+   cycle: `nos-api` first (COSM-4 ships a DB table, an OpenAPI change and a route), `nos-studio`
+   second, so the endpoint exists before the UI that calls it. Push and deploy are separately
+   approved; neither is implied by a merge approval.
+
+### 9.3 Citation drift already confirmed by Cosmetics
+
+- `Workspace.test.tsx:1189-1191` → **`:1190-1192`, assertions unchanged.** They read
+  `getByTestId("sidebar-input-<id>")).toHaveTextContent(...)` — the button's *own* subtree — so
+  §4.5 constraint 1 (pill is a child of the button) is exactly what keeps them green. Cosmetics
+  flagged these as "broken by design" by a collapsed icon rail; that is **incorrect for this
+  design**, verified by reading the assertions on both branches.
+- `bundle6-ui-tweaks.spec.ts:157-158` (`sidebar-scenario-*` `aria-current` reads) → unchanged.
+- `bundle6-ui-tweaks.spec.ts:160` → rewritten to `:165-166`: now
+  `getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "true")` plus
+  `getByTestId("input-map-tab")).toBeVisible()`. **New hazard:** COSM-1 added a case below it that
+  *clicks* `sidebar-input-warehouses` and asserts a toolbar swap. The rail keeps that testid,
+  keeps it visible and keeps `aria-current`, so it should pass — but it is now a sibling spec this
+  bundle must re-run, and it is not in the plan's SBR-5 list. Add it to SBR-5's verification.
+
+### 9.4 Gate protocol (mandatory, both sessions agreed)
+
+Concurrent suite runs across sessions produce false failures in files neither branch touched — this
+repo's documented flake class. Therefore:
+
+- **Never run `pnpm --filter studio test`, `pnpm --filter api-server test`, pytest, or
+  `pnpm e2e:gate` without announcing it cross-session first, and holding until the other side's
+  run reports done.**
+- **Announce the END of a run as well as the start.** Otherwise the other side blocks indefinitely.
+- `ps aux | grep "[v]itest" | grep -v "zsh -c"` cannot see the other session's pytest or Playwright,
+  so the announcement is the real safeguard and the `ps` check is only a backstop.
+- New flake reported by Cosmetics, not yet in CLAUDE.md's list:
+  `e2e/nonjade-servicestats-live-coverage.spec.ts:279` failed in a 10-spec parallel run and passed
+  4/4 in isolation, on an untouched `two-echelon-gold-au` path. If this bundle sees it, it is load.
