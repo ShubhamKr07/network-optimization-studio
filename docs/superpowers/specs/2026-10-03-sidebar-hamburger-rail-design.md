@@ -437,6 +437,39 @@ Two standing claims are contradicted by that:
   **Not fixed here** — ops/policy lines outside this bundle's scope, and documentation reaches `main`
   only via a reviewed PR. Both sessions independently agreed not to smuggle it into a cosmetic
   bundle's commit. Flagged to the user as its own small task.
+
+### 9.2.2 A third site for that same doc task: the local e2e recipe is incomplete
+
+`CLAUDE.md:168` carries this repo's local-e2e recipe — start api-server, then
+`PORT=<any> BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 pnpm --filter studio run dev`, then
+`E2E_BASE_URL=… npx playwright test`. It **omits `VITE_POSTHOG_KEY` and `VITE_SENTRY_DSN`**, and
+`grep -c "VITE_POSTHOG_KEY\|VITE_SENTRY_DSN" CLAUDE.md` returns **0** — they appear nowhere in the
+file. But `e2e/posthog-analytics.spec.ts:63-65` and `e2e/sentry-capture.spec.ts:80-83` both require
+them and both say *"See CLAUDE.md / the plan's local run recipe."* The pointer points at a recipe
+that cannot run them.
+
+**This is not a cosmetic doc gap; it caused a real misjudgement.** Following the documented recipe,
+the Cosmetics session's gate reported 2 unexpected e2e failures, filed them as environmental, and
+declared the gate clean. Both specs had simply never executed — including PostHog's assertion that
+no captured payload contains PII across every event the SDK actually sent, on a branch that adds a
+route accepting free text a user is invited to write candidly. With dummy values both pass (verified:
+4 passed in 8.5s, genuine 67/67, 0 flaky). "Explained" and "verified" are different states, and an
+incomplete recipe is what let the weaker one be reported as the stronger.
+
+Dummy values are correct rather than a workaround: `analytics.ts:14` is a bare truthiness check
+(`if (!key || initialized) return;`) and both specs intercept and stub every ingest request before it
+leaves the page, so no real key is ever contacted. A syntactically valid DSN suffices — the shape in
+`src/lib/errorTracking.test.ts:18`.
+
+So the doc-fix task the user has been handed is **three sites, two of them one-line**:
+
+| Site | Fix |
+|---|---|
+| `CLAUDE.md:100` | `nos-api` does auto-deploy on push; rewrite both halves |
+| `render.yaml:10` | strike the `(autoDeployTrigger off)` parenthetical, keep the sentence |
+| `CLAUDE.md:168` | add `VITE_POSTHOG_KEY=phc_local_dummy_key` and `VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1` to the local e2e recipe, with the one-line reason |
+
+`render.yaml:29` is already correct and must not be touched.
 - The Cosmetics session's inference — "a push does not deploy `nos-api` but can deploy `nos-studio`,
   so the asymmetry is backwards from the order we want" — reaches a correct worry from a wrong
   premise. Both services are armed to deploy on the same push.
