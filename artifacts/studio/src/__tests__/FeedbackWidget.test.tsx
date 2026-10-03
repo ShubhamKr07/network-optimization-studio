@@ -126,9 +126,25 @@ describe("FeedbackWidget", () => {
     render(<FeedbackWidget />);
     await user.click(screen.getByTestId("feedback-button"));
     const hint = screen.getByTestId("feedback-anonymity-hint");
-    expect(hint).toHaveTextContent(/stored without your account id/i);
-    // "we won't know who you are" is unsupportable — the server authenticates
-    // the caller and infra logs exist. Guard against it regressing in.
-    expect(hint.textContent ?? "").not.toMatch(/won't know who you are/i);
+    const text = hint.textContent ?? "";
+
+    // QF-3 copy. The claim is scoped to what is actually controlled — what
+    // gets STORED — because the request itself is authenticated.
+    expect(hint).toHaveTextContent(/no account details saved/i);
+    expect(hint).toHaveTextContent(/stored anonymously/i);
+    // The guard against typing identifying text into the body survives the
+    // rewording; QF-3 as originally specified dropped it.
+    expect(hint).toHaveTextContent(/avoid personal details/i);
+
+    // Unsupportable claims, guarded explicitly because this copy has already
+    // been rewritten once and the tempting shorter sentences are the false
+    // ones. `custom-fetch` sends credentials and the route is auth-gated, so
+    // the server transiently knows the caller; only the stored row is
+    // identity-free, and infra logs are outside this system's control.
+    expect(text).not.toMatch(/won't know who you are/i);
+    expect(text).not.toMatch(/we don't know who/i);
+    // Bare "your feedback is anonymous" asserts more than "stored
+    // anonymously" — it covers the request, not just the row.
+    expect(text).not.toMatch(/feedback is anonymous/i);
   });
 });

@@ -93,11 +93,15 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
           // wrapper above. Floating it there put it over a chapter card at
           // 768-900px, and because it did not scroll, content passed under it
           // at any width. Anchored to the footer — which is outside the scroll
-          // area and always visible — it cannot overlap content at all. The
-          // footer is `relative` solely to be its positioning context.
-          <footer data-testid="homepage-credit-footer" className="relative flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
-            <DeveloperCredit />
+          // area and always visible — it cannot overlap content at all.
+          // QF-2: it now sits in normal flow ABOVE the credit line rather than
+          // absolutely positioned beside it, so the two never compete for the
+          // same horizontal space at narrow widths. The footer no longer needs
+          // to be a positioning context — the widget supplies its own, for its
+          // panel only.
+          <footer data-testid="homepage-credit-footer" className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
             <FeedbackWidget />
+            <DeveloperCredit />
           </footer>
         : <AppFooter />}
     </div>
