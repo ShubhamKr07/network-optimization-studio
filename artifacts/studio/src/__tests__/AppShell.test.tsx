@@ -150,6 +150,25 @@ describe("AppShell hero variant", () => {
     rerender(<UnitProvider><AppShell userEmail="a@b.c">{<div />}</AppShell></UnitProvider>);
     expect(screen.queryByTestId("network-background")).not.toBeInTheDocument();
   });
+
+  // Regression: the launcher used to float inside the scroll wrapper, where it
+  // sat over a chapter card at 768-900px and over whatever was scrolling past
+  // it at any width. Docking it in the footer is what fixes that, so assert
+  // CONTAINMENT rather than presence — a bare getByTestId would pass just as
+  // happily with the launcher floating back over the content.
+  it("docks the feedback launcher in the footer, never in the scrolling region", () => {
+    renderShell(<AppShell userEmail="a@b.c" hero>{<div>body</div>}</AppShell>);
+
+    const launcher = screen.getByTestId("feedback-button");
+    const footer = screen.getByTestId("homepage-credit-footer");
+    const main = screen.getByText("body").closest("main") as HTMLElement;
+
+    expect(footer).toContainElement(launcher);
+    expect(main).not.toContainElement(launcher);
+    // <main> is the scroll container; its parent is the stacking wrapper that
+    // used to host the launcher. Both must be clear of it.
+    expect(main.parentElement).not.toContainElement(launcher);
+  });
 });
 
 describe("AppShell layout", () => {

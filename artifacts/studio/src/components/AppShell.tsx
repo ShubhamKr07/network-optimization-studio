@@ -82,17 +82,22 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
           </Button>
         </header>
       )}
-      {/* COSM-4/COSM-5 — one relative wrapper owns the scroll area's stacking
-          context. The footer stays outside it, so the feedback launcher cannot
-          overlap the always-visible homepage credit footer. */}
+      {/* COSM-5 — one relative wrapper owns the scroll area's stacking
+          context, so the background canvas (z-0) sits behind <main> (z-10). */}
       <div className="flex-1 min-h-0 relative">
         {hero && <NetworkBackground />}
         <main className="absolute inset-0 overflow-y-auto z-10">{children}</main>
-        {hero && <FeedbackWidget />}
       </div>
       {hero
-        ? <footer data-testid="homepage-credit-footer" className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
+        ? // The feedback launcher is docked in the footer, NOT in the scroll
+          // wrapper above. Floating it there put it over a chapter card at
+          // 768-900px, and because it did not scroll, content passed under it
+          // at any width. Anchored to the footer — which is outside the scroll
+          // area and always visible — it cannot overlap content at all. The
+          // footer is `relative` solely to be its positioning context.
+          <footer data-testid="homepage-credit-footer" className="relative flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
             <DeveloperCredit />
+            <FeedbackWidget />
           </footer>
         : <AppFooter />}
     </div>

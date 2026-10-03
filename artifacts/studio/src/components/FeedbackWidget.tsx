@@ -52,7 +52,17 @@ export function FeedbackWidget() {
   }
 
   return (
-    <div className="absolute bottom-4 right-4 z-20" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    // Docked in the always-visible homepage footer, NOT floating inside the
+    // scroll wrapper. The float overlapped a chapter card at 768-900px
+    // (measured: 0 cards at 375px, 1 at 768px and 900px) because the content
+    // column's side margin shrinks below ~972px and leaves no room beside it.
+    // Padding the content could not fix that: the launcher did not scroll, so
+    // content passed under it mid-scroll at any width. Anchoring to the footer
+    // — which sits outside the scroll area — removes the overlap at every
+    // width instead of tuning a breakpoint.
+    // `bottom`-anchored so the launcher stays put and the panel grows upward
+    // over the content, which is the normal popover direction here.
+    <div className="absolute bottom-1.5 right-4 z-20" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       {open && (
         <div
           id="feedback-panel"
