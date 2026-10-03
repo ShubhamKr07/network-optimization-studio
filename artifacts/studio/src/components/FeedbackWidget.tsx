@@ -60,15 +60,18 @@ export function FeedbackWidget() {
     // content passed under it mid-scroll at any width. Anchoring to the footer
     // — which sits outside the scroll area — removes the overlap at every
     // width instead of tuning a breakpoint.
-    // `bottom`-anchored so the launcher stays put and the panel grows upward
-    // over the content, which is the normal popover direction here.
-    <div className="absolute bottom-1.5 right-4 z-20" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    // QF-2: the launcher sits in NORMAL FLOW, stacked above the credit line,
+    // so it reserves its own height rather than overlaying the footer's
+    // centred text. Only the PANEL is absolute — anchored `bottom-full` to
+    // this wrapper so opening it floats upward over the content instead of
+    // resizing the footer and shifting the page under the user's cursor.
+    <div className="relative flex justify-center mb-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       {open && (
         <div
           id="feedback-panel"
           role="group"
           aria-label="Send feedback"
-          className="mb-2 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background p-3 shadow-lg"
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-20 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background p-3 shadow-lg text-left"
           onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           {status === "sent" ? (
@@ -82,7 +85,7 @@ export function FeedbackWidget() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground" data-testid="feedback-anonymity-hint">
-                Stored without your account ID — we don't save who sent this. Please avoid personal details.
+                No account details saved — your feedback is stored anonymously. Please avoid personal details.
               </p>
               <textarea
                 id="feedback-body"
