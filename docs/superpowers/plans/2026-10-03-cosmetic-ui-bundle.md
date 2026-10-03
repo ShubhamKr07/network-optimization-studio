@@ -34,7 +34,7 @@
 - Modify: `artifacts/studio/src/pages/Workspace.tsx`, `artifacts/studio/src/__tests__/Workspace.test.tsx`, `artifacts/studio/src/__tests__/Workspace.Analytics.test.tsx`, `artifacts/studio/e2e/bundle6-ui-tweaks.spec.ts`, `artifacts/studio/e2e/jade-transport-costs.spec.ts`, `docs/design-system/*`
 
 **Task 2 — step toggle**
-- Modify: `artifacts/studio/src/components/workspace/StepToggle.tsx`, `artifacts/studio/src/pages/Workspace.tsx`, `artifacts/studio/src/components/workspace/InputMapTab.tsx`, `artifacts/studio/src/__tests__/StepToggle.test.tsx`, `artifacts/studio/src/__tests__/Workspace.test.tsx`
+- Modify: `artifacts/studio/src/components/workspace/StepToggle.tsx`, `artifacts/studio/src/pages/Workspace.tsx`, `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` (note the `tabs/` segment), `artifacts/studio/src/__tests__/StepToggle.test.tsx`, `artifacts/studio/src/__tests__/Workspace.test.tsx`, `artifacts/studio/e2e/max-coverage.spec.ts`
 
 **Task 3 — favicon**
 - Add: `artifacts/studio/public/global-network.png` (already present, untracked)
@@ -42,15 +42,15 @@
 
 **Task 4 — feedback**
 - Create: `lib/db/src/schema/feedback.ts`, `artifacts/api-server/src/routes/feedback.ts`, `artifacts/api-server/src/__tests__/feedback.test.ts`, `artifacts/studio/src/components/FeedbackWidget.tsx`, `artifacts/studio/src/__tests__/FeedbackWidget.test.tsx`, `artifacts/studio/e2e/feedback.spec.ts`
-- Modify: `lib/db/src/schema/index.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/index.ts`, `artifacts/api-server/src/__tests__/timestampClock.test.ts`, `artifacts/api-server/src/__tests__/schemaColumns.test.ts`, `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/Landing.test.tsx`, `artifacts/studio/src/__tests__/Landing.lockedRendering.test.tsx`
+- Modify: `lib/db/src/schema/index.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/index.ts`, `artifacts/api-server/src/__tests__/timestampClock.test.ts`, `artifacts/api-server/src/__tests__/schemaColumns.test.ts`, `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/AppShell.test.tsx`
 - Regenerated: `lib/api-zod/src/generated/**`, `lib/api-client-react/src/generated/**`
+- **Not** modified: `Landing.test.tsx` / `Landing.lockedRendering.test.tsx`. Both render `<Landing />` directly, not through `AppShell`, and `Landing.tsx` imports only the two landing hooks — so neither suite ever instantiates the widget. `AppShell.test.tsx` is the suite that does.
 
 **Task 5 — background**
 - Create: `artifacts/studio/src/components/NetworkBackground.tsx`, `artifacts/studio/src/__tests__/NetworkBackground.test.tsx`
-- Modify: `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/AppShell.test.tsx`
-- Reference (already committed): `docs/superpowers/specs/assets/2026-10-03-network-bg.html`
+- Modify: `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/AppShell.test.tsx` (adds one assertion only — Task 4 already repaired this suite)
 
-**Dependency edges:** Task 4 introduces the `relative` wrapper in `AppShell` that Task 5 mounts into; Task 5 must not re-create it. Task 4's order within itself is schema → API → codegen → frontend. Tasks 1, 2, 3 are independent of everything else.
+**Dependency edges:** Task 4 introduces the `relative` wrapper in `AppShell` that Task 5 mounts into; Task 5 must not re-create it, and there is **no reverse-order fallback** — Task 4 patches the exact original `<main>` at `AppShell.tsx:83`, a target Task 5 would destroy if it went first. Run 4 before 5. Task 4's order within itself is schema → API → codegen → frontend. Tasks 1, 2, 3 are independent of everything else.
 
 ---
 
@@ -89,22 +89,29 @@ Install any matching skill, then schema-discover `system.insights` before queryi
 
 Do **not** move the event into `openTab` as a workaround: that silently changes its meaning from "reactivated an already-open tab" to "opened a view from the sidebar" and corrupts historical trends.
 
-- [ ] **Step 2: Determine whether `StaleOutputBanner` keeps a reachable caller**
+- [ ] **Step 2: Confirm `StaleOutputBanner` keeps a reachable caller — it does; this is a confirmation, not an open question**
+
+This was resolved during review. `Workspace.tsx:4071-4076` states the contract in its own comment:
+
+> blank this tab's real content behind the stale banner whenever the scenario's outputs aren't trustworthy (unsolved or stale), **even if the tab was already open+active from before the scenario transitioned to stale**
+
+and `:4084-4085` acts on it:
+
+```tsx
+      if (!stepState.isMaxCoverage && !hasFreshSolvedRun) {
+        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
+      }
+```
+
+The banner **replaces** the output content rather than annotating it. So the spec's "stale outputs are unreachable" is satisfied by two mechanisms that both survive this task: the sidebar refuses navigation *to* a stale output, and this branch refuses to render stale *content* in a view that was already active. No redirect effect, no `useEffect` clearing `activeView`, and no new derived boolean are needed — adding one would be redundant with a guard that already works.
+
+**Therefore: leave `StaleOutputBanner.tsx` and `StaleOutputBanner.test.tsx` completely untouched.** Confirm with the two commands below that the branches still read as quoted, then move on. If they do not, stop and re-open the question.
 
 ```bash
 cd /Users/shubhamkr/nos-cosmetic/artifacts/studio
-grep -n "StaleOutputBanner" src/pages/Workspace.tsx
-sed -n 4078,4090p src/pages/Workspace.tsx
+sed -n 4070,4086p src/pages/Workspace.tsx
 sed -n 4236,4248p src/pages/Workspace.tsx
 ```
-
-Both call sites (`:4085`, `:4244`) are guarded `if (!stepState.isMaxCoverage && !hasFreshSolvedRun)`. After this task the sidebar disables every output row whenever `hasFreshSolvedRun` is false, so reaching those branches requires an output view to render while outputs are un-navigable.
-
-Read both branches and decide:
-- **A reachable caller remains** (e.g. a view already active when the scenario goes stale, which re-renders in place) → leave `StaleOutputBanner` and its test completely untouched.
-- **No reachable caller remains** → delete `src/components/workspace/StaleOutputBanner.tsx` and `src/__tests__/StaleOutputBanner.test.tsx` in this commit rather than leaving dead UI.
-
-Record which you found, and the evidence, in the commit body. **Expected: a caller does remain** — an output view that is already the active view when Save marks the scenario stale re-renders through `renderTabContent()` without any navigation. Verify rather than assume.
 
 ### Implementation
 
@@ -146,15 +153,26 @@ it("renders no tab strip and swaps the content region on sidebar navigation", as
   expect(screen.queryByTestId("tab-bar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("tab-bar-empty")).not.toBeInTheDocument();
 
-  // Input Map is the seeded initial view.
-  expect(await screen.findByTestId("tab-content-region")).toBeInTheDocument();
+  // Input Map is the seeded initial view — assert its OWN content testid,
+  // not the generic region wrapper.
+  expect(await screen.findByTestId("input-map-tab")).toBeInTheDocument();
   expect(screen.getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "true");
 
-  // Clicking another sidebar entry swaps the active view in place.
+  // Clicking another sidebar entry swaps the CONTENT, not just the sidebar
+  // highlight. Asserting aria-current alone would pass even if the content
+  // region never changed, because the highlight derives straight from
+  // activeEntityId (SidebarTree.tsx:104-114) — independently of what renders.
   await user.click(screen.getByTestId("sidebar-input-warehouses"));
+  await waitFor(() => expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument());
   expect(screen.getByTestId("sidebar-input-warehouses")).toHaveAttribute("aria-current", "true");
-  expect(screen.getByTestId("sidebar-input-input-map")).not.toHaveAttribute("aria-current", "true");
 });
+```
+
+Before writing it, confirm the warehouses view's own content testid and use it as a positive assertion too:
+
+```bash
+cd /Users/shubhamkr/nos-cosmetic/artifacts/studio
+grep -rn 'data-testid="warehouse' src/components/workspace/tabs/ | head -5
 ```
 
 - [ ] **Step 5: Run it and confirm it fails**
@@ -212,7 +230,7 @@ Replace `openTab` and `handleActivateTab` (lines 2515-2529) with:
   }
 ```
 
-The six existing `openTab(...)` call sites (`:2542`, `:2745`, `:2783`, `:2827`, `:3228`, `:4608`, `:4609`) need no change — the signature is unchanged.
+The seven existing `openTab(...)` call sites (`:2542`, `:2745`, `:2783`, `:2827`, `:3228`, `:4608`, `:4609`) need no change — the signature is unchanged.
 
 - [ ] **Step 7: Remove the TabBar mount and import**
 
@@ -269,6 +287,18 @@ Also rename `setActiveTab` → `setActiveView` (the `\b` boundary above leaves i
 ```bash
 perl -pi -e 's/\bsetActiveTab\b/setActiveView/g' src/pages/Workspace.tsx
 ```
+
+**Two manual repairs the rename cannot do for itself:**
+
+1. **It corrupts a comment that quotes a *different* file's variable.** `Workspace.tsx:4064-4066` reads `mirrors Studio.tsx's \`activeTab === "output" ? result : null\` guard, Studio.tsx:1544/1554`. That `activeTab` belongs to `Studio.tsx:267`, which this task does not touch, so rewriting it to `activeView` makes the comment describe a symbol that does not exist. Restore that one occurrence by hand after the rename:
+
+```bash
+grep -n 'Studio.tsx' src/pages/Workspace.tsx | grep -i activeview
+```
+
+   Any hit there is a false positive — put `activeTab` back.
+
+2. **`useReducer` becomes an unused import.** Line 1 is `import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";` — drop `useReducer`, keep the rest (`useMemo` still has many consumers). `noUnusedLocals` is `false` in this repo, so neither typecheck nor lint will force this.
 
 - [ ] **Step 10: Typecheck**
 
@@ -386,7 +416,8 @@ Read the staged list before writing the message. Then commit with `[COSM-1] remo
 ## Task 2: Move Chapter 4's step toggle into the toolbar row
 
 **Files:**
-- Modify: `artifacts/studio/src/components/workspace/StepToggle.tsx`, `artifacts/studio/src/pages/Workspace.tsx` (lines ~2498, ~4544-4551, ~4622-4648), `artifacts/studio/src/components/workspace/InputMapTab.tsx`
+- Modify: `artifacts/studio/src/components/workspace/StepToggle.tsx`, `artifacts/studio/src/pages/Workspace.tsx` (lines ~2498, ~4544-4551, ~4622-4648), `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx`
+- Test: also `artifacts/studio/e2e/max-coverage.spec.ts` — `:389` scopes Save by DOM ancestry inside the Layers row and breaks when this task moves it
 - Test: `artifacts/studio/src/__tests__/StepToggle.test.tsx`, `artifacts/studio/src/__tests__/Workspace.test.tsx`
 
 **Interfaces:**
@@ -395,11 +426,18 @@ Read the staged list before writing the message. Then commit with `[COSM-1] remo
 
 - [ ] **Step 1: Write the failing test for light-surface styling**
 
-Add to `artifacts/studio/src/__tests__/StepToggle.test.tsx` (reuse the file's existing render helper and `steps` fixture):
+Add to `artifacts/studio/src/__tests__/StepToggle.test.tsx`. That file has **no render helper** — every case calls `render(<StepToggle .../>)` directly and reuses two module-level fixtures declared at its top:
+
+```tsx
+const unsolved = { solved: false, stale: false, jobId: null, summary: null };
+const solved = { solved: true, stale: false, jobId: 1, summary: null };
+```
+
+Follow that style exactly (`onSelect` and `steps` are both required props):
 
 ```tsx
 it("styles the inactive step for a light surface, not the dark band", () => {
-  renderStepToggle({ selected: 1, solvedCount: 1 });
+  render(<StepToggle selected={1} onSelect={vi.fn()} solvedCount={1} steps={{ step1: solved, step2: unsolved }} />);
   const inactive = screen.getByTestId("step-toggle-2");
   // --ink-300 on --surface-sunken is 2.01:1 — unreadable. The light-surface
   // tokens must be used instead.
@@ -471,13 +509,24 @@ it("shows the Chapter 4 step toggle beside Save on the Input Map view", async ()
   expect(screen.getByTestId("button-save")).toBeInTheDocument();
 });
 
-it("leaves p-median-us Save in the Layers row and shows no step toggle", async () => {
+it("leaves p-median-us Save INSIDE the Layers row and shows no step toggle", async () => {
   renderWorkspace(); // parameterless — this helper is p-median-us
 
-  expect(await screen.findByTestId("button-save")).toBeInTheDocument();
+  // Containment, not mere presence. A bare getByTestId("button-save") would
+  // still pass if p-median's Save accidentally moved into the shared toolbar
+  // — exactly the regression this case exists to catch. Precedent:
+  // Workspace.InputMapV2.test.tsx:153-166.
+  const saveButton = await screen.findByTestId("button-save");
+  expect(screen.getByTestId("pmedian-map-toolbar")).toContainElement(saveButton);
   expect(screen.queryByTestId("step-toggle")).not.toBeInTheDocument();
 });
 ```
+
+- [ ] **Step 5b: Rewrite the existing Chapter 4 inline-Save test, which would otherwise go false-green**
+
+`Workspace.test.tsx:2867-2879` is titled "renders … an inline Save in its Layers row", but it only asserts that `pmedian-map-toolbar` exists and that exactly one global `button-save` is present. After this task relocates Chapter 4's Save, **it still passes while its name and comments have become false** — the worst failure mode for a regression test.
+
+Rewrite it to assert containment explicitly: for `max-coverage-us`, the Save button must be present and **not** contained by `pmedian-map-toolbar`, and must sit in the same row as `step-toggle`.
 
 Read `ch4Scenario`'s own signature in `./helpers/ch4` before writing the `steps` fixture — match its shape rather than the illustrative one above if they differ.
 
@@ -529,19 +578,37 @@ to:
 
 `InputMapTab`'s Layers row is shared with `p-median-us` and `p-median-brazil`, so the inline Save must be suppressed by a prop, never deleted.
 
-Read `artifacts/studio/src/components/workspace/InputMapTab.tsx`, find the Layers-row Save control, and gate it:
+The file is `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` — note the **`tabs/`** segment; `Workspace.tsx:60` imports from `@/components/workspace/tabs/InputMapTab`. Its props are **not** an interface: `InputMapTabProps` is a discriminated union, one variant per model's map surface, declared at `InputMapTab.tsx:122`:
 
 ```tsx
-interface InputMapTabProps {
-  // …existing props unchanged…
-  /** COSM-2 — false for max-coverage-us, whose Save lives in the shared
-      toolbar row beside the step toggle. Defaults true so p-median-us and
-      p-median-brazil are untouched. */
-  showInlineSave?: boolean;
-}
+export type InputMapTabProps =
+  | {
+      mode: "pmedian";
+      …
 ```
 
-Destructure with `showInlineSave = true` and wrap the existing Save control in `{showInlineSave && ( … )}`. At the `<InputMapTab>` call site in `Workspace.tsx`, pass `showInlineSave={modelId !== "max-coverage-us"}`.
+So the new prop goes on the **`"pmedian"` variant only** (the variant `max-coverage-us` routes through), not on a shared interface:
+
+```tsx
+  | {
+      mode: "pmedian";
+      // …existing fields unchanged…
+      /** COSM-2 — false for max-coverage-us, whose Save lives in the shared
+          toolbar row beside the step toggle. Optional and defaulted true, so
+          p-median-us and p-median-brazil are untouched. */
+      showInlineSave?: boolean;
+    }
+```
+
+Then destructure `showInlineSave = true` in the component that renders this variant (`PMedianInputMap`) and wrap the Layers-row Save control in `{showInlineSave && ( … )}`. At the `<InputMapTab mode="pmedian" …>` call site in `Workspace.tsx`, pass `showInlineSave={modelId !== "max-coverage-us"}`.
+
+Confirm the variant and the inner component name before editing:
+
+```bash
+cd /Users/shubhamkr/nos-cosmetic/artifacts/studio
+sed -n 122,145p src/components/workspace/tabs/InputMapTab.tsx
+grep -n "function PMedianInputMap\|button-save" src/components/workspace/tabs/InputMapTab.tsx | head
+```
 
 - [ ] **Step 10: Render the toggle in the toolbar row**
 
@@ -603,6 +670,14 @@ rg -n 'StepToggle|step-toggle|text-steps-solved-counter|button-save|saveInLayers
 
 Classify every `button-save` hit by model and active entity. Chapter 4's Input Map Save has moved from the Layers row to the shared toolbar — any e2e spec that locates it *within* the Layers row, or asserts the header contains the step toggle, must be updated. The testids themselves are unchanged, so specs that only locate by testid keep working.
 
+**One confirmed casualty, already identified:** `e2e/max-coverage.spec.ts:389` scopes Save to the Layers row by DOM ancestry:
+
+```ts
+        const mapSave = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
+```
+
+After this task that descendant selector matches nothing, and the `toBeEnabled` on the next line fails. Rewrite it to locate the Save in the shared toolbar row instead, and update the comment above it (which currently explains the `saveInLayersRow` gate that no longer applies to this model).
+
 - [ ] **Step 13: Run the full studio suite and the Chapter 4 e2e**
 
 ```bash
@@ -611,7 +686,7 @@ pnpm --filter studio test
 cd artifacts/studio && E2E_BASE_URL=http://localhost:5174 npx playwright test max-coverage
 ```
 
-Expected: PASS.
+Expected: PASS. **`E2E_BASE_URL` is not optional.** `playwright.config.ts:3-5` defaults to a remote Replit deployment and the config declares no `webServer`, so omitting it runs the spec against the OLD deployed UI — which still has Chapter 4's Save in the Layers row and would pass while never exercising this task at all.
 
 - [ ] **Step 14: Browser-check at 375 px**
 
@@ -622,9 +697,11 @@ With the dev servers running, open Chapter 4 at a 375 px viewport and confirm: t
 ```bash
 cd /Users/shubhamkr/nos-cosmetic
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add artifacts/studio/src
+git add artifacts/studio/src artifacts/studio/e2e
 git diff --cached --stat
 ```
+
+Stage `artifacts/studio/e2e` too — the `max-coverage.spec.ts` rewrite from Step 12 lives there and would otherwise be left out of the commit that breaks it.
 
 Commit as `[COSM-2] move chapter 4 step toggle into the always-visible toolbar row`, noting in the body that Chapter 4's Input Map Save relocated from the Layers row to the shared row and that p-median-us/p-median-brazil are unaffected.
 
@@ -634,7 +711,7 @@ Commit as `[COSM-2] move chapter 4 step toggle into the always-visible toolbar r
 
 **Files:**
 - Add: `artifacts/studio/public/global-network.png` (present, untracked)
-- Modify: `artifacts/studio/index.html:17`
+- Modify: `artifacts/studio/index.html:15`
 
 **Interfaces:** none — no code imports this asset.
 
@@ -672,9 +749,11 @@ Leave `public/book-cover.png` in place (now unreferenced; removal is out of scop
 
 - [ ] **Step 3: Build and verify the asset ships**
 
+`vite.config.ts:7-27` throws unless **both** `PORT` and `BASE_PATH` are set, so a bare `pnpm --filter studio build` fails before it reads a single file:
+
 ```bash
 cd /Users/shubhamkr/nos-cosmetic
-pnpm --filter studio build
+PORT=5174 BASE_PATH=/ pnpm --filter studio build
 ls -l artifacts/studio/dist/public/global-network.png
 grep -o '/global-network.png' artifacts/studio/dist/public/index.html
 ```
@@ -712,7 +791,7 @@ Commit as `[COSM-3] use the network mark as the browser tab icon`, recording the
 
 **Files:**
 - Create: `lib/db/src/schema/feedback.ts`, `artifacts/api-server/src/routes/feedback.ts`, `artifacts/api-server/src/__tests__/feedback.test.ts`, `artifacts/studio/src/components/FeedbackWidget.tsx`, `artifacts/studio/src/__tests__/FeedbackWidget.test.tsx`, `artifacts/studio/e2e/feedback.spec.ts`
-- Modify: `lib/db/src/schema/index.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/index.ts`, `artifacts/api-server/src/__tests__/timestampClock.test.ts`, `artifacts/api-server/src/__tests__/schemaColumns.test.ts`, `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/Landing.test.tsx`, `artifacts/studio/src/__tests__/Landing.lockedRendering.test.tsx`
+- Modify: `lib/db/src/schema/index.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/index.ts`, `artifacts/api-server/src/__tests__/timestampClock.test.ts` (inventory **and** the SQL table filter), `artifacts/api-server/src/__tests__/schemaColumns.test.ts`, `artifacts/studio/src/components/AppShell.tsx`, `artifacts/studio/src/__tests__/AppShell.test.tsx` (mock the widget + rewrite two footer-topology assertions — without this the task cannot pass its own gate)
 
 **Interfaces:**
 - Produces: `feedbackTable` from `@workspace/db` with fields `id: number`, `body: string`, `createdAt: Date`. OpenAPI `operationId: submitFeedback` → Orval hook `useSubmitFeedback()`. Route `POST /api/feedback`. Test-only export `resetFeedbackRateLimiterForTests(): void` from `routes/feedback.ts`. `AppShell` gains the `relative` wrapper that Task 5 mounts into.
@@ -760,30 +839,52 @@ The `.js` extension is required — every other line in that file uses it.
 
 - [ ] **Step 3: Add the column to the gate's timestamptz inventory**
 
-In `artifacts/api-server/src/__tests__/timestampClock.test.ts`, add to `EXPECTED_TIMESTAMPTZ` (currently ending `["result_cache", "created_at"],`):
+In `artifacts/api-server/src/__tests__/timestampClock.test.ts`, **two** edits are needed — the inventory alone makes the test fail.
+
+Add to `EXPECTED_TIMESTAMPTZ` (currently ending `["result_cache", "created_at"],`):
 
 ```ts
   ["feedback", "created_at"],
 ```
 
+**And** add `feedback` to the query's table filter at `:99`, which is currently a closed list:
+
+```sql
+        AND table_name IN ('solve_jobs', 'scenarios', 'result_cache', 'feedback')
+```
+
+Without the second edit, `feedback.created_at` can never enter the `actual` map, so its lookup returns `undefined`, the `wrong` array is non-empty, and the test fails — the opposite of the proof intended.
+
 This is the proof that actually runs — there is no `lib/db` suite in the gate command, so a test placed there would exist and never execute.
 
 - [ ] **Step 4: Write the failing schema-absence test**
 
-In `artifacts/api-server/src/__tests__/schemaColumns.test.ts`, following the file's existing style:
+Two complementary proofs in two different files, because the two files have different capabilities.
+
+**(a) Declared-schema proof — `artifacts/api-server/src/__tests__/schemaColumns.test.ts`.** This file is pure Drizzle metadata: it imports `{ solveJobsTable, scenariosTable } from "@workspace/db/schema"` and `{ getTableConfig } from "drizzle-orm/pg-core"`, and has **no `db` and no `sql` import**. A raw `db.execute(sql\`…\`)` here would not compile. Match its real style, which also satisfies the spec's "Drizzle metadata assertion" requirement:
 
 ```ts
-it("feedback stores no account, session, or IP column", async () => {
+import { feedbackTable } from "@workspace/db/schema"; // add to the existing import
+
+it("feedback declares no account, session, or IP column", () => {
+  const names = getTableConfig(feedbackTable).columns.map(c => c.name).sort();
+  expect(names).toEqual(["body", "created_at", "id"]);
+  for (const banned of ["user_id", "userid", "session_id", "ip", "ip_address", "email"]) {
+    expect(names).not.toContain(banned);
+  }
+});
+```
+
+**(b) Live-database proof — in `feedback.test.ts` (Step 9), which already has `db`.** The declared schema and the applied database can disagree; only querying the live catalog proves what actually exists:
+
+```ts
+it("the live feedback table has no account, session, or IP column", async () => {
   const rows = await db.execute(sql`
     SELECT column_name FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'feedback'
   `);
-  const columns = rows.rows.map(r => String(r.column_name));
-  expect(columns.sort()).toEqual(["body", "created_at", "id"]);
-  // Explicit, so a future column named something unexpected still trips this.
-  for (const banned of ["user_id", "userid", "session_id", "ip", "ip_address", "email"]) {
-    expect(columns).not.toContain(banned);
-  }
+  const columns = (rows.rows as Array<{ column_name: string }>).map(r => r.column_name).sort();
+  expect(columns).toEqual(["body", "created_at", "id"]);
 });
 ```
 
@@ -867,14 +968,20 @@ And under `components: schemas:` (alongside `LoginRequest`):
 
 - [ ] **Step 7: Run codegen twice and require a stable second pass**
 
+Orval writes **directly into the tracked generated directories** (`orval.config.ts:24-30`, `:50-56`), so a plain `git diff --exit-code` after two passes compares against `HEAD` and reports the intended new endpoint as a difference — it can never exit 0, no matter how deterministic the generator is. Compare the two passes against **each other** instead:
+
 ```bash
 cd /Users/shubhamkr/nos-cosmetic
 pnpm --filter @workspace/api-spec codegen
+cp -R lib/api-zod/src/generated /tmp/cosm4-zod-pass1
+cp -R lib/api-client-react/src/generated /tmp/cosm4-rq-pass1
 pnpm --filter @workspace/api-spec codegen
-git diff --exit-code -- lib/api-zod/src/generated lib/api-client-react/src/generated
+diff -r /tmp/cosm4-zod-pass1 lib/api-zod/src/generated
+diff -r /tmp/cosm4-rq-pass1 lib/api-client-react/src/generated
+rm -rf /tmp/cosm4-zod-pass1 /tmp/cosm4-rq-pass1
 ```
 
-Expected: the first pass produces a diff; the second produces none, so `git diff --exit-code` exits 0 against the post-first-pass state. If the second pass keeps changing files, the generator is non-deterministic — STOP and report.
+Expected: both `diff -r` commands print nothing and exit 0. If the second pass differs from the first, the generator is non-deterministic — STOP and report.
 
 - [ ] **Step 8: Review the generated diff**
 
@@ -978,7 +1085,9 @@ describe("POST /api/feedback", () => {
 });
 ```
 
-Each case registers its own user, so the per-user limiter cannot leak across cases. `resetLoginRateLimiterForTests()` in `beforeEach` is required — this file registers more than ten times and would otherwise start 429ing on registration itself.
+Each case registers its own user, so the per-user limiter cannot leak across cases.
+
+`resetLoginRateLimiterForTests()` is kept as cheap insurance, **not** because registration needs it: the login limiter is 20 attempts (`auth.ts:52`), not 10, and `isRateLimited` is called only from `/auth/login` (`auth.ts:128-142`) — `/auth/register` never consumes it. Harmless to call; the earlier justification for it was simply wrong.
 
 - [ ] **Step 10: Run them and confirm they fail**
 
@@ -997,9 +1106,15 @@ Create `artifacts/api-server/src/routes/feedback.ts`:
 import { Router } from "express";
 import { db, feedbackTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth.js";
+// Generated from openapi.yaml by Orval. Confirm the exact exported symbol
+// name after Step 7's codegen (`rg "submitFeedback" lib/api-zod/src/generated`)
+// and import it the same way routes/auth.ts:5-13 imports its validators.
+import { submitFeedbackBody } from "@workspace/api-zod";
 
 const router = Router();
 
+// Kept only for the human-readable 400 message; the LENGTH RULE itself lives
+// in the generated schema above, not here, so the two cannot disagree.
 const MAX_BODY_CHARS = 4000;
 const FEEDBACK_RATE_LIMIT = 5;
 const FEEDBACK_RATE_WINDOW_MS = 60 * 1000;
@@ -1016,8 +1131,15 @@ const attempts = new Map<string, { count: number; windowStart: number }>();
 
 function isRateLimited(userId: string): boolean {
   const now = Date.now();
+  // Lazy prune: without this, a dormant user id stays in the map until the
+  // process restarts, because the branch below only replaces an expired
+  // entry when THAT SAME user submits again. The spec says entries age out
+  // with the window; this is what makes that literally true.
+  for (const [key, e] of attempts) {
+    if (now - e.windowStart > FEEDBACK_RATE_WINDOW_MS) attempts.delete(key);
+  }
   const entry = attempts.get(userId);
-  if (!entry || now - entry.windowStart > FEEDBACK_RATE_WINDOW_MS) {
+  if (!entry) {
     attempts.set(userId, { count: 1, windowStart: now });
     return false;
   }
@@ -1036,15 +1158,21 @@ router.use(requireAuth);
 // context — doing so would reconstruct exactly the attribution the schema
 // deliberately omits.
 router.post("/feedback", async (req, res) => {
+  // Trim FIRST, then validate against the generated contract schema: the
+  // OpenAPI minLength/maxLength are defined post-trim, so validating the raw
+  // body would accept "   " and reject a 4000-char body with trailing space.
   const raw: unknown = (req.body as { body?: unknown } | undefined)?.body;
-  const body = typeof raw === "string" ? raw.trim() : "";
+  const trimmed = typeof raw === "string" ? raw.trim() : raw;
 
-  // Validation runs BEFORE the limiter so malformed requests cannot consume
-  // an honest user's quota — same ordering as the auth routes.
-  if (body.length === 0 || body.length > MAX_BODY_CHARS) {
+  // Contract-first: the generated Zod validator is the single source of the
+  // length rule, so openapi.yaml and this route cannot drift. Precedent:
+  // routes/auth.ts:5-13 imports generated validators and safeParses at :91-99.
+  const parsed = submitFeedbackBody.safeParse({ body: trimmed });
+  if (!parsed.success) {
     res.status(400).json({ error: `Feedback must be between 1 and ${MAX_BODY_CHARS} characters.` });
     return;
   }
+  const body = parsed.data.body;
 
   if (isRateLimited(req.userId!)) {
     res.setHeader("Retry-After", String(Math.ceil(FEEDBACK_RATE_WINDOW_MS / 1000)));
@@ -1174,6 +1302,35 @@ describe("FeedbackWidget", () => {
     await waitFor(() => expect(screen.queryByTestId("feedback-thanks")).not.toBeInTheDocument());
     await user.click(screen.getByTestId("feedback-button"));
     expect(screen.getByTestId("feedback-input")).toHaveValue("");
+  });
+
+  it("cannot be submitted twice while a request is in flight", async () => {
+    let resolveIt: () => void = () => {};
+    mutateAsync.mockImplementation(() => new Promise<void>(r => { resolveIt = r; }));
+    const user = userEvent.setup();
+    render(<FeedbackWidget />);
+    await user.click(screen.getByTestId("feedback-button"));
+    await user.type(screen.getByTestId("feedback-input"), "once only");
+    await user.click(screen.getByTestId("feedback-send"));
+    // Still pending — the button must be disabled, and a second click a no-op.
+    expect(screen.getByTestId("feedback-send")).toBeDisabled();
+    await user.click(screen.getByTestId("feedback-send"));
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    resolveIt();
+  });
+
+  it("clears the auto-close timer on unmount", async () => {
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    const user = userEvent.setup();
+    const { unmount } = render(<FeedbackWidget />);
+    await user.click(screen.getByTestId("feedback-button"));
+    await user.type(screen.getByTestId("feedback-input"), "pending timer");
+    await user.click(screen.getByTestId("feedback-send"));
+    await screen.findByTestId("feedback-thanks");
+    unmount();
+    expect(clearSpy).toHaveBeenCalled();
+    // No "state update on unmounted component" warning should follow.
+    vi.advanceTimersByTime(5000);
   });
 
   it("states the anonymity guarantee without overclaiming", async () => {
@@ -1353,9 +1510,11 @@ with:
 
 and add the import. Gating on `hero` scopes the widget to the homepage: `App.tsx:62` is the only route that passes `hero`.
 
-- [ ] **Step 19: Mock the widget in both Landing suites**
+- [ ] **Step 19: Repair `AppShell.test.tsx` — this task breaks it two different ways**
 
-`Landing.test.tsx` and `Landing.lockedRendering.test.tsx` both replace `@workspace/api-client-react` wholesale with factories exporting only `useGetSolveHistory` and `useGetLandingSummary`. The new `useSubmitFeedback` would be `undefined` in both and crash on render. Add to **both** files, above the existing mocks:
+**Not** the Landing suites. `Landing.test.tsx` and `Landing.lockedRendering.test.tsx` both render `<Landing />` directly, and `Landing.tsx` imports only `useGetSolveHistory`/`useGetLandingSummary` — neither suite ever mounts `AppShell`, so neither can instantiate the widget. `AppShell.test.tsx` is the one that does, and it is currently absent from this task's file list. Fixing it here is mandatory: Step 21 runs the full studio suite, so leaving it to Task 5 means Task 4 cannot go green.
+
+**Break 1 — missing hook.** `AppShell.test.tsx:16-19` mocks `@workspace/api-client-react` wholesale, exporting only `useLogoutUser` and `getGetCurrentAuthUserQueryKey`. Every hero-mode render (`:97-105`, `:180-188`, `:195-198`) will now mount the real widget and crash on an undefined `useSubmitFeedback`. Add the component mock:
 
 ```tsx
 vi.mock("@/components/FeedbackWidget", () => ({
@@ -1363,7 +1522,24 @@ vi.mock("@/components/FeedbackWidget", () => ({
 }));
 ```
 
-Mocking the component is preferred over extending both module factories — it keeps each Landing suite testing Landing.
+**Break 2 — changed DOM topology.** Two tests assert the footer is a *sibling of `<main>`*:
+
+```tsx
+    const main = screen.getByText("lab content").closest("main") as HTMLElement;
+    expect(footer.parentElement).toBe(main.parentElement);
+```
+
+at `:137-152` and again at 375 px at `:154-174`. The new wrapper nests `<main>` inside it while the footer stays outside, so `main.parentElement` becomes the wrapper and both assertions fail **by design**. Rewrite them to express the invariant that actually matters — the footer is outside the scroll area and reserves its own strip:
+
+```tsx
+    const main = screen.getByText("lab content").closest("main") as HTMLElement;
+    const scrollWrapper = main.parentElement as HTMLElement;
+    // The footer must be a sibling of the WRAPPER, not of <main>: <main> is
+    // now the scrolling element inside it, and nesting the footer in there
+    // would let it scroll out of view.
+    expect(footer.parentElement).toBe(scrollWrapper.parentElement);
+    expect(scrollWrapper).not.toContainElement(footer);
+```
 
 - [ ] **Step 20: Write the intercepted e2e**
 
@@ -1441,7 +1617,7 @@ Confirm the regenerated Orval output is staged **in this same commit** as the sp
 - Reference: `docs/superpowers/specs/assets/2026-10-03-network-bg.html` (committed; SHA `df9efa66c1f18207cbc058b17c714aa8465b8b1c1ee14488214c4f6e3d034e44`)
 
 **Interfaces:**
-- Consumes: the `relative` wrapper added to `AppShell` in Task 4, Step 18. **Do not create a second wrapper.** If Task 4 has not run, add the wrapper here instead and note it.
+- Consumes: the `relative` wrapper added to `AppShell` in Task 4, Step 18, and the `FeedbackWidget` mock plus rewritten footer assertions Task 4 added to `AppShell.test.tsx`. **Do not create a second wrapper, and do not run this task before Task 4.** The earlier draft offered a "if Task 4 hasn't run, create the wrapper here" fallback; it is removed as unsafe — Task 4's Step 18 patches the exact original `<main className="flex-1 min-h-0 overflow-y-auto">` at `AppShell.tsx:83`, and that target no longer exists once this task has wrapped it. If Task 4 has not landed, stop and run it first.
 - Produces: `NetworkBackground` — a no-prop component.
 
 - [ ] **Step 1: Read the committed source**
@@ -1482,6 +1658,13 @@ const ctx = {
 beforeEach(() => {
   observed = [];
   disconnect.mockReset();
+  // MUST clear every ctx mock: `ctx` is module-level and vitest.config.ts
+  // does not enable clearMocks, so without this the reduced-motion case's
+  // `expect(ctx.fill).toHaveBeenCalled()` is satisfied by the PREVIOUS
+  // test's frame and stays green even if this render draws nothing at all.
+  for (const fn of Object.values(ctx)) {
+    if (typeof fn === "function" && "mockClear" in fn) (fn as ReturnType<typeof vi.fn>).mockClear();
+  }
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
   vi.stubGlobal("ResizeObserver", class {
     constructor(cb: () => void) { observed.push(cb); }
@@ -1702,7 +1885,7 @@ Layer order is explicit and must stay that way: background `z-0`, scroll area `z
 
 - [ ] **Step 7: Add the AppShell mount assertions**
 
-In `artifacts/studio/src/__tests__/AppShell.test.tsx`, mock the component (the real one needs canvas APIs this suite does not provide) and assert the gate:
+In `artifacts/studio/src/__tests__/AppShell.test.tsx` — already repaired by Task 4, so this adds only a mock and one case. Mock the component (the real one needs canvas APIs this suite does not provide) and assert the hero gate:
 
 ```tsx
 vi.mock("@/components/NetworkBackground", () => ({
@@ -1718,7 +1901,7 @@ it("renders the network background only on the homepage hero shell", () => {
 });
 ```
 
-Add the same `vi.mock` to `Landing.test.tsx` and `Landing.lockedRendering.test.tsx` if either renders a real `AppShell`.
+Use this file's own `renderShell` helper if the surrounding cases do. No change to `Landing.test.tsx` or `Landing.lockedRendering.test.tsx`: both render `<Landing />` directly and never mount `AppShell`, so neither can reach this component.
 
 - [ ] **Step 8: Run typecheck and the full studio suite**
 
@@ -1772,20 +1955,24 @@ pnpm run typecheck \
   && DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test \
   && pnpm --filter studio test \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
-pnpm --filter studio build
+PORT=5174 BASE_PATH=/ pnpm --filter studio build
 ```
 
-Expected: all PASS. No solver code changed, so a `test_transport.py::TestSingleSource` failure is the known 60-second-timeout flake — re-run that class alone.
+Expected: all PASS. `PORT` and `BASE_PATH` are mandatory — `vite.config.ts:7-27` throws without them. No solver code changed, so a `test_transport.py::TestSingleSource` failure is the known 60-second-timeout flake — re-run that class alone.
 
 - [ ] **Step 3: E2E gate**
 
+With both dev servers running (api-server on 3001, studio on 5174):
+
 ```bash
 cd /Users/shubhamkr/nos-cosmetic
-pnpm e2e:gate
+E2E_BASE_URL=http://localhost:5174 pnpm e2e:gate
 cat artifacts/studio/e2e/report/results.json | python3 -c "import json,sys; s=json.load(sys.stdin)['stats']; print(s['unexpected'], s['flaky'])"
 ```
 
 Require `0 0`. The console tail folds retried failures away — a gate that is green only because retries absorbed failures is not green.
+
+`E2E_BASE_URL` is mandatory here too: `playwright.config.ts:3-5` otherwise targets a remote Replit deployment and the config has no `webServer`, so the gate would grade an unrelated build — failing on changes it does not have, or passing on behavior this branch replaced.
 
 - [ ] **Step 4: Browser QA matrix**
 
@@ -1793,7 +1980,24 @@ Cover: 375 px and desktop; reduced motion on and off; fresh and stale outputs; C
 
 - [ ] **Step 5: Changelog and retro**
 
-Append a `docs/CHANGELOG-implementation.md` entry recording what landed, the five commit SHAs, gate numbers, and the deliberate behavior change (stale outputs unreachable). Commit it. Then run `/harness-retro cosmetic-ui`.
+The changelog belongs **in COSM-5, not a sixth commit** — the spec fixes the bundle at exactly five commits and says the record lands in the final one. So write the entry before committing Task 5, and stage it with that task:
+
+```bash
+cd /Users/shubhamkr/nos-cosmetic
+git add docs/CHANGELOG-implementation.md artifacts/studio/src
+```
+
+The entry records what landed, the commit SHAs available at that point, gate numbers, and the deliberate behavior change (stale outputs unreachable until re-solve). COSM-5's own SHA cannot be in its own message — reference the others and name COSM-5 by title.
+
+If Task 5 is already committed by the time you reach this step, amend it rather than adding a sixth commit:
+
+```bash
+[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
+git add docs/CHANGELOG-implementation.md
+git commit --amend --no-edit
+```
+
+Then run `/harness-retro cosmetic-ui`.
 
 - [ ] **Step 6: Stop for merge approval**
 

@@ -114,12 +114,17 @@ stale signal.
 
 Consequences, all intentional:
 
-- `StaleOutputBanner` becomes unreachable for the **already-open-tab** case. It is
-  still reached on first navigation to an output of a never-solved Chapter 4 step
-  (`:4084`/`:4243` are gated `!stepState.isMaxCoverage`, so the Chapter 4 path is
-  separate) — confirm during implementation whether any reachable caller remains.
-  If none does, delete the component and its test in the same commit rather than
-  leaving dead UI; if one does, leave it untouched.
+- **`StaleOutputBanner` is retained** — resolved 2026-10-03, no longer an
+  implementation-time question. `Workspace.tsx:4071-4076` states its own
+  contract: it blanks the output's real content behind the banner "even if the
+  tab was already open+active from before the scenario transitioned to stale",
+  and `:4084-4085` returns the banner *instead of* the content. So "stale
+  outputs are unreachable" is already satisfied by two surviving mechanisms —
+  the sidebar refuses navigation *to* a stale output, and this branch refuses to
+  render stale *content* in a view that was already active. No redirect effect,
+  no `useEffect` clearing the active view, and no new derived boolean are
+  required; adding one would duplicate a guard that already works. The component
+  and its test are untouched by this bundle.
 - `jade-transport-costs.spec.ts:145–154` loses its strip half. Rewrite it to
   assert the sidebar row is disabled and stop there, and delete the
   `stale-output-banner` assertion with a comment recording that the return path
@@ -484,11 +489,17 @@ trap focus or block the page).
 - `FeedbackWidget.test.tsx` — open/submit/thank-you; Send disabled on
   whitespace-only input; duplicate-submit prevention; keyboard close and focus
   restoration; timer cleanup and reset; `429` messaging; error retains typed text.
-- **`Landing.test.tsx` and `Landing.lockedRendering.test.tsx` both replace
-  `@workspace/api-client-react` wholesale** with factories exporting only
-  `useGetSolveHistory` and `useGetLandingSummary`. The new generated mutation hook
-  would be `undefined` in both. Mock `FeedbackWidget` in both suites (preferred
-  isolation) rather than extending both factories.
+- **`AppShell.test.tsx` is the suite the widget breaks** (corrected 2026-10-03;
+  an earlier draft named the two Landing suites). Those two render `<Landing />`
+  directly and `Landing.tsx` imports only the two landing hooks, so neither ever
+  mounts the widget. `AppShell.test.tsx` renders hero shells at `:97`, `:180`,
+  and `:195`, and its wholesale `@workspace/api-client-react` mock (`:16-19`)
+  exports no `useSubmitFeedback` — so it must mock `FeedbackWidget`. It also has
+  two footer-topology assertions (`:137-152`, `:154-174`) that require the
+  footer to be a sibling of `<main>`; the new wrapper nests `<main>`, so both
+  must be rewritten to assert the footer is a sibling of the *wrapper* and
+  outside the scroll area. All of this lands in the feedback commit, not the
+  background one, or that commit cannot pass its own gate.
 - E2E: the Playwright test **intercepts** `POST /api/feedback` and asserts
   open/submit/thank-you, leaving no durable row. Anonymous rows have no user FK,
   so the global teardown — which purges test users and their FK-owned data —
@@ -594,9 +605,15 @@ loops. Split accordingly:
   `aria-hidden` and non-interactive; reduced motion never calls rAF; reduced
   motion redraws after an observed resize; normal motion starts the loop;
   unmount cancels the frame and disconnects the observer.
-- `AppShell.test.tsx`, `Landing.test.tsx`, and `Landing.lockedRendering.test.tsx`
-  mock `NetworkBackground` to a cheap element and assert only that it mounts for
-  `hero` and does not mount otherwise.
+- `AppShell.test.tsx` mocks `NetworkBackground` to a cheap element and asserts
+  only that it mounts for `hero` and does not mount otherwise. The two Landing
+  suites need no change — they render `<Landing />` directly and never mount
+  `AppShell`.
+- The canvas-mock suite must **clear its `ctx` mocks in `beforeEach`**:
+  `vitest.config.ts` does not set `clearMocks`, so a module-level `ctx` carries
+  calls across cases and the reduced-motion "drew one static frame" assertion
+  would be satisfied by the preceding test's frame — green even if the render
+  draws nothing.
 - Playwright/manual QA proves real drawing, placement, cleanup, and interaction.
 
 ---
