@@ -55,7 +55,14 @@ vi.mock("react-leaflet", async () => {
   const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
   return {
     ...actual,
-    useMap: () => ({ setView: vi.fn(), fitBounds: vi.fn() }),
+    // SBR-3 — InvalidateOnResize observes the map's container and calls
+    // invalidateSize; a two-method stub makes it throw from inside an effect.
+    useMap: () => ({
+      setView: vi.fn(),
+      fitBounds: vi.fn(),
+      getContainer: () => document.createElement("div"),
+      invalidateSize: vi.fn(),
+    }),
     useMapEvents: () => null,
     MapContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="mock-map-container">{children}</div>

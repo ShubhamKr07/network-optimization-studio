@@ -10,6 +10,7 @@ import { getBandColor } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
+import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
 import { useDisplayUnit } from "@/contexts/UnitContext";
@@ -643,6 +644,7 @@ export function NetworkMap({
         boxZoom={false}
       >
         <FitBounds bounds={effectiveBounds} />
+        <InvalidateOnResize />
         <MapClickDeselect onDeselect={handleDeselect} />
 
         {popupInfo && (
