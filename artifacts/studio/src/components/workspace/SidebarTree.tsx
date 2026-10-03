@@ -1,6 +1,6 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Plus, Pencil, Copy, Trash2, Menu } from "lucide-react";
-import { iconForEntity } from "@/components/workspace/entityIcons";
+import { iconForEntity, SCENARIOS_ICON } from "@/components/workspace/entityIcons";
 
 export interface SidebarScenarioItem {
   id: number;
@@ -192,6 +192,31 @@ export function SidebarTree({
     applyCollapsed(!collapsed);
   }
 
+  // D6 — the Scenarios flyout is hover-driven, but ScenarioRow's rename input
+  // commits on blur (see ScenarioRow's own comment). Moving the cursor off a
+  // hover-only flyout mid-rename would therefore unmount the input and commit a
+  // half-typed name — a path that does not exist in the expanded panel. While
+  // any row is renaming or confirming a delete, the flyout is pinned open and
+  // ignores mouse-out. A Set, not a boolean, because `scenarios` is a list and
+  // two rows could in principle be mid-interaction.
+  const [interactingRows, setInteractingRows] = useState<ReadonlySet<number>>(() => new Set());
+  const scenariosFlyoutPinned = interactingRows.size > 0;
+
+  // Stable identity (it touches nothing but the setter), so ScenarioRow can list
+  // it in an effect's deps AND run a cleanup without looping. With an unstable
+  // callback, a cleanup that clears the flag would re-add it on the next render,
+  // forever. The `active === previous.has(id)` bail-out returns the IDENTICAL Set
+  // so React drops the re-render — do not "simplify" it away.
+  const setRowInteracting = useCallback((id: number, active: boolean) => {
+    setInteractingRows(previous => {
+      if (active === previous.has(id)) return previous;
+      const next = new Set(previous);
+      if (active) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
   const createScenarioButton = (
     <button
       type="button"
@@ -215,6 +240,7 @@ export function SidebarTree({
           onRename={name => onRenameScenario(s.id, name)}
           onClone={() => onCloneScenario(s.id)}
           onDelete={() => onDeleteScenario(s.id)}
+          onInteractionStateChange={setRowInteracting}
         />
       ))}
       {scenarios.length === 0 && (
@@ -254,15 +280,63 @@ export function SidebarTree({
         </button>
       </div>
 
-      {/* SBR-4 replaces this with the rail icon + flyout when collapsed. */}
-      <SidebarSection
-        title="Scenarios"
-        testid="sidebar-section-scenarios"
-        collapsed={false}
-        action={createScenarioButton}
-      >
-        {scenarioList}
-      </SidebarSection>
+      {collapsed ? (
+        <SidebarSection
+          title="Scenarios"
+          testid="sidebar-section-scenarios"
+          collapsed
+          className="group/scenarios relative"
+        >
+          <div className="flex flex-col items-center gap-1">
+            <button
+              type="button"
+              data-testid="button-open-scenarios-flyout"
+              aria-label="Scenarios"
+              // D7 — this icon has no tab of its own, so its click expands the
+              // whole sidebar. That is also the touch and keyboard path: Tailwind
+              // v4 wraps group-hover in @media (hover: hover), so on touch the
+              // flyout never appears at all.
+              onClick={() => applyCollapsed(false)}
+              className="text-muted-foreground hover:text-foreground p-1"
+            >
+              <SCENARIOS_ICON className="w-3.5 h-3.5" />
+            </button>
+            {createScenarioButton}
+          </div>
+          <div
+            data-testid="sidebar-scenarios-flyout"
+            data-pinned={scenariosFlyoutPinned}
+            // `pl-1` rather than `ml-1`: a margin would leave a 4px dead gap
+            // between the rail and the flyout that belongs to no element, so
+            // the cursor crossing it would drop :hover and close the flyout
+            // mid-travel. Padding keeps the hover box touching the rail.
+            className={`absolute left-full top-0 z-50 pl-1 w-56 transition-[opacity,transform] duration-150 motion-reduce:transition-none ${
+              scenariosFlyoutPinned
+                ? "opacity-100 translate-x-0"
+                : "opacity-0 pointer-events-none translate-x-1 group-hover/scenarios:opacity-100 group-hover/scenarios:translate-x-0 group-hover/scenarios:pointer-events-auto group-focus-within/scenarios:opacity-100 group-focus-within/scenarios:translate-x-0 group-focus-within/scenarios:pointer-events-auto"
+            }`}
+          >
+            <div className="rounded border bg-popover shadow-md">
+              {/* The flyout itself must never clip what it exists to show, so a
+                  long scenario list scrolls INSIDE it. */}
+              <div
+                data-testid="sidebar-scenarios-flyout-scroll"
+                className="max-h-[calc(100vh-8rem)] overflow-y-auto"
+              >
+                {scenarioList}
+              </div>
+            </div>
+          </div>
+        </SidebarSection>
+      ) : (
+        <SidebarSection
+          title="Scenarios"
+          testid="sidebar-section-scenarios"
+          action={createScenarioButton}
+        >
+          {scenarioList}
+        </SidebarSection>
+      )}
 
       <SidebarSection title="Inputs" testid="sidebar-section-inputs" collapsed={collapsed}>
         <ul>
@@ -320,6 +394,7 @@ function ScenarioRow({
   onRename,
   onClone,
   onDelete,
+  onInteractionStateChange,
 }: {
   scenario: SidebarScenarioItem;
   isActive: boolean;
@@ -327,11 +402,27 @@ function ScenarioRow({
   onRename: (name: string) => void;
   onClone: () => void;
   onDelete: () => void;
+  /** D6 — reports "this row is mid-rename or mid-delete-confirm" upward so the
+   *  collapsed Scenarios flyout can pin itself open. Takes the id, so the row can
+   *  also clear its own flag on unmount without the parent tracking which row
+   *  reported what. */
+  onInteractionStateChange?: (id: number, active: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editingValue, setEditingValue] = useState(scenario.name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const committedRef = useRef(false);
+
+  const interacting = editing || confirmingDelete;
+  useEffect(() => {
+    onInteractionStateChange?.(scenario.id, interacting);
+    // The cleanup matters: a row that unmounts mid-rename or mid-confirm — a
+    // scenario-list refetch drops it — would otherwise leave its id in the
+    // parent's Set and pin the flyout open until something else toggled it.
+    // Safe from looping ONLY because onInteractionStateChange is a stable
+    // useCallback; an inline arrow here would re-add the flag every render.
+    return () => onInteractionStateChange?.(scenario.id, false);
+  }, [scenario.id, interacting, onInteractionStateChange]);
 
   function startRename() {
     committedRef.current = false;

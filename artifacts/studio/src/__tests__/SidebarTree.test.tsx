@@ -308,3 +308,89 @@ describe("SidebarTree — collapsed rail", () => {
     expect(screen.getByTestId("sidebar-tree").className).toContain("overflow-y-auto");
   });
 });
+
+// SBR-4 — the Scenarios rail icon, its flyout, and the rename/confirm latch.
+describe("SidebarTree — collapsed Scenarios flyout", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("renders a Scenarios rail trigger when collapsed and none when expanded", () => {
+    const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    expect(screen.getByTestId("button-open-scenarios-flyout")).toBeInTheDocument();
+    collapsed.unmount();
+
+    render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
+    expect(screen.queryByTestId("button-open-scenarios-flyout")).not.toBeInTheDocument();
+  });
+
+  it("expands the whole sidebar when the Scenarios rail icon is activated (D7)", async () => {
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-open-scenarios-flyout"));
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+    expect(window.localStorage.getItem("nos:sidebar-collapsed")).toBe("false");
+  });
+
+  it("mounts every scenario row exactly once while collapsed", () => {
+    const { container } = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    for (const id of ["sidebar-scenario-1", "sidebar-scenario-2", "button-delete-scenario-1"]) {
+      expect(container.querySelectorAll(`[data-testid="${id}"]`), id).toHaveLength(1);
+    }
+  });
+
+  it("keeps the create button and the empty row inside the scenarios section while collapsed", () => {
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} scenarios={[]} activeScenarioId={null} />);
+    const section = screen.getByTestId("sidebar-section-scenarios");
+    expect(section).toContainElement(screen.getByTestId("button-create-scenario"));
+    // e2e/empty-first-run-workspace.spec.ts:53,95 scope this string to the
+    // section, because the first-run CTA duplicates it.
+    expect(section).toContainElement(screen.getByText(/no scenarios yet/i));
+  });
+
+  it("scenario rows are still interactive inside the collapsed flyout", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-clone-scenario-2"));
+    expect(props.onCloneScenario).toHaveBeenCalledWith(2);
+  });
+
+  it("latches the flyout open while a row is renaming, and releases it on commit (D6)", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    const flyout = screen.getByTestId("sidebar-scenarios-flyout");
+
+    expect(flyout).toHaveAttribute("data-pinned", "false");
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    expect(flyout).toHaveAttribute("data-pinned", "true");
+
+    await userEvent.type(screen.getByTestId("input-rename-scenario-1"), "{Enter}");
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
+  });
+
+  it("latches the flyout open while a delete is awaiting confirmation, and releases it on cancel (D6)", async () => {
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
+
+    await userEvent.click(screen.getByTestId("button-cancel-delete-2"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
+  });
+
+  it("releases the latch when a row unmounts mid-rename (a list refetch dropping it)", async () => {
+    const props = baseProps();
+    const view = render(<SidebarTree {...props} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
+
+    // Scenario 1 disappears from the list while its rename is open.
+    view.rerender(<SidebarTree {...props} defaultCollapsed={true} scenarios={[{ id: 2, name: "Best 3-4 DCs" }]} />);
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
+  });
+
+  it("gives the flyout its own scroll box so a long list cannot clip", () => {
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const scroller = screen.getByTestId("sidebar-scenarios-flyout-scroll");
+    expect(scroller.className).toContain("overflow-y-auto");
+    expect(scroller.className).toContain("max-h-");
+  });
+});
