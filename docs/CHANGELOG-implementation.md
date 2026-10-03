@@ -2670,3 +2670,121 @@ Parameters then switching to Input Map showed exactly one Save, inside `input-ma
 persisted `[200,400,800,1600]` → `[200,800,1600]`, returned Save to disabled, cleared "Unsaved
 changes", and left `solvedAt` **unchanged**, which is the proof it took the field-scoped bands PATCH
 rather than a whole-input write or a re-solve.
+
+---
+
+## 2026-10-03 — Cosmetic UI bundle (`cosmetic-ui`, COSM-1…COSM-5)
+
+Five user-requested cosmetic/UX changes, one commit each. Spec:
+`docs/superpowers/specs/2026-10-03-cosmetic-ui-bundle-design.md`. Plan:
+`docs/superpowers/plans/2026-10-03-cosmetic-ui-bundle.md`.
+
+| Commit | Change |
+|---|---|
+| `46af6e7` | COSM-1 — remove the workspace open-tab strip |
+| `225b23a` | COSM-2 — Chapter 4's step toggle moves into the always-visible toolbar row |
+| `30847fa` | COSM-3 — the green network mark becomes the browser tab icon |
+| `4b3e5ca` | COSM-4 — feedback widget on the homepage, stored unattributed |
+| *(this commit)* | COSM-5 — animated network background behind the homepage, and this record |
+
+**COSM-1 — the strip is gone and the sidebar is the sole navigator.** `TabBar.tsx` and the 66-line
+`lib/workspaceTabs.ts` reducer are both deleted; the active view is one
+`useState<WorkspaceView | null>`. The first draft of the plan argued for *retaining* the reducer on
+the grounds that replacing it meant reworking "every dispatch call site" — review found exactly
+three (`open`, `activate`, `close`), two of which die with the strip, so `useState` was the smaller
+change and the plan's own reasoning had been inverted. **A deliberate behaviour change rides along:
+stale outputs are now unreachable until a re-solve.** `jade-transport-costs.spec.ts:146-154`
+documented the strip as the second half of a two-part stale-output contract — the sidebar disables
+stale outputs, and the strip deliberately did not, so an already-open tab stayed clickable and
+rendered `StaleOutputBanner`. Removing the strip removes that return path. The user chose to accept
+it. `StaleOutputBanner` is retained and untouched: `Workspace.tsx:4071-4085` already blanks output
+content behind it "even if the tab was already open+active", so the banner replaces stale content
+rather than annotating it, and no redirect effect was needed. The PostHog event
+`"scenario tab viewed"` retired with `handleActivateTab` after a live check found no consuming
+insight (23 insights and 0 alerts in project 527945 inspected individually).
+
+**COSM-2 — one mount, restyled for a light surface.** The toggle was `--ink-300` on the dark band,
+which is 2.01:1 on `--surface-sunken`; it now uses `text-muted-foreground`/`hover:bg-muted`. Chapter
+4's Input Map Save moved out of the Layers row into the shared toolbar so the two sit together, via
+a `showInlineSave` prop on `InputMapTab`'s `"pmedian"` union variant — `p-median-us` and
+`p-median-brazil` share that variant and keep their inline Save. The plan's Step 10 was factually
+wrong (the Save `<Button>` had no condition of its own and relied on the row's), which if followed
+literally would have rendered Save on every Chapter 4 output view; resolved by extracting the row's
+original condition verbatim to a named `showToolbarSave`, verified byte-identical so the other six
+models' render set is provably unchanged.
+
+**COSM-4 — the privacy guarantee is the feature, and it is enforced in three places.** The
+`feedback` table has exactly `id`, `body`, `created_at` (`timestamptz`) — no account, session or IP
+column, which is what makes the UI's "Stored without your account ID — we don't save who sent this"
+literally true of what is written. The route authenticates only to use the user id as a transient
+in-memory rate-limit key, never persisted. It keys on the **user id, not `req.ip`**: this app sets
+no Express `trust proxy` and Render terminates TLS at a load balancer, so an IP key would collapse
+into one shared bucket and let a single abuser block everyone. Validation runs before the limiter so
+malformed requests cannot consume an honest user's quota, and the body is trimmed before validation
+because the contract's bounds are post-trim. Column absence is proven twice — `getTableConfig`
+metadata in `schemaColumns.test.ts` and a live `information_schema.columns` query in
+`feedback.test.ts`; an ORM-level "the returned object lacks a user property" check cannot prove it,
+because a missing value and a missing column look identical through the ORM.
+
+**A new bug class, found by review of COSM-4 and worth generalising: an unwrapped drizzle call can
+leak user-authored text into every error sink, and the Sentry scrubber does not stop it.**
+drizzle-orm 0.45.2 builds `DrizzleQueryError`'s message as
+`` `Failed query: ${query}\nparams: ${params}` `` and retains `this.params`. So an insert that fails
+puts the *parameter values* into the thrown error's own message, which `app.ts` then feeds to three
+sinks: PostHog's `setupExpressErrorHandler`, `Sentry.setupExpressErrorHandler`, and
+`logger.error({ err }, …)`. `artifacts/api-server/src/lib/sentry.ts`'s `scrubEvent` deletes `event.request.data`, `cookies`
+and `query_string` — it never touches an exception's message, so a scrubber that looks complete is
+not. For a feedback box this is the one content the feature is careful about everywhere else. Fixed
+with a `try`/`catch` carrying **no error binding**, so the original error cannot be rethrown, logged,
+or passed to `next()`. Verified red first: without the guard the test receives
+`{error:"Internal server error"}` from `app.ts`'s handler instead of the route's own 500, which is
+the proof the escape path was real rather than theoretical. **This applies to every existing
+unwrapped drizzle call that handles user input, not only the one added here** — auditing the
+existing routes was deliberately left out of a cosmetic bundle's scope.
+
+**COSM-5 — ported to React, not mounted as a custom element.** Constants were hand-diffed against
+the committed source at `docs/superpowers/specs/assets/2026-10-03-network-bg.html` (SHA-256
+`df9efa66…`). Sizing uses `ResizeObserver`, not `window.resize`, because Landing's Recent Solves
+section arrives asynchronously and changes the container height, which a window listener never
+observes; and because resetting `canvas.width` clears the bitmap, the reduced-motion path **must**
+redraw on each observed resize or the canvas goes permanently blank. It mounts into the same
+`AppShell` wrapper COSM-4 introduced, gated on `hero` — the only route passing it is `/`.
+
+**Gate.** typecheck clean · studio **2277/2277** (124 files) · solver pytest **323/323** ·
+`PORT=5174 BASE_PATH=/ pnpm --filter studio build` clean · api-server **1678 passed / 6 failed of
+1684**, all six failures inside the single file `src/solver/__tests__/dispatcherRecovery.test.ts`,
+which is already on the documented flake list and passed **27/27 in isolation** on a branch that
+changes **zero** solver/jobRunner files.
+
+Playwright `e2e:gate` read from `results.json`, not the console tail: **65 expected, 0 flaky, 2
+unexpected**. The two were `posthog-analytics.spec.ts` and `sentry-capture.spec.ts`, which capture
+zero payloads unless the studio dev server has the analytics env vars — `analytics.ts:14` is a bare
+truthiness check on `VITE_POSTHOG_KEY`, and `ci.yml:202-203` supplies both secrets in CI.
+
+**Those two were then actually run rather than excused, and both pass — the real gate is 67/67, 0
+flaky.** Filing them as "environmental" would have merged them *unverified*, not merely red, and
+`posthog-analytics.spec.ts` asserts that no captured payload contains PII across every event the
+SDK sent — precisely the assertion a branch adding a free-text submission route should face. Both
+specs stub the ingest host before any request leaves the page (`posthog-analytics.spec.ts:63-65`,
+`sentry-capture.spec.ts:80-83`), so dummy values make them execute for real:
+
+```
+PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 \
+  VITE_POSTHOG_KEY=phc_local_dummy_key \
+  VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 \
+  pnpm --filter studio run dev
+```
+
+`CLAUDE.md`'s local e2e recipe omits both vars while those two specs point *at* that recipe, which
+is why the first run had no way to go green — a doc defect handed to the user as a separate task,
+not patched inside a cosmetic bundle.
+
+**Real-browser verification against the full local stack.** Favicon resolves to
+`/global-network.png` (200 `image/png`). The background canvas is `aria-hidden` with
+`pointer-events: none`, and an `elementFromPoint` at a chapter card returns a `<P>` *inside* that
+card — the canvas intercepts nothing. The feedback launcher is the topmost element at its own
+centre, and its bottom (703px) clears the credit footer's top (719px). A real submit persisted
+exactly one row — `id`, `body`, `created_at` as `timestamp with time zone`, no identity column — and
+the panel auto-closed. **Known residual:** at 768px and 900px the launcher geometrically overlaps
+one chapter card (measured: 0 cards at 375px, 1 at both 768px and 900px), so it intercepts clicks on
+that small corner. No spec runs at those widths today; cosmetic and bounded.

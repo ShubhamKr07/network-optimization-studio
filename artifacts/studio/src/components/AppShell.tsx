@@ -7,6 +7,7 @@ import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
+import { NetworkBackground } from "@/components/NetworkBackground";
 import { resetUser } from "@/lib/analytics";
 import { clearErrorUser } from "@/lib/errorTracking";
 
@@ -85,6 +86,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
           context. The footer stays outside it, so the feedback launcher cannot
           overlap the always-visible homepage credit footer. */}
       <div className="flex-1 min-h-0 relative">
+        {hero && <NetworkBackground />}
         <main className="absolute inset-0 overflow-y-auto z-10">{children}</main>
         {hero && <FeedbackWidget />}
       </div>

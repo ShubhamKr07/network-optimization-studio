@@ -27,6 +27,12 @@ vi.mock("@/components/FeedbackWidget", () => ({
   FeedbackWidget: () => <div data-testid="feedback-button" />,
 }));
 
+// COSM-5 — the real component needs canvas APIs this suite does not provide
+// (no ctx/matchMedia/rAF mocks here); NetworkBackground.test.tsx owns those.
+vi.mock("@/components/NetworkBackground", () => ({
+  NetworkBackground: () => <div data-testid="network-background" />,
+}));
+
 import { AppShell } from "@/components/AppShell";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -133,6 +139,16 @@ describe("AppShell hero variant", () => {
     expect(screen.getByTestId("feedback-button")).toBeInTheDocument();
     rerender(<UnitProvider><AppShell userEmail="a@b.edu"><div>content</div></AppShell></UnitProvider>);
     expect(screen.queryByTestId("feedback-button")).not.toBeInTheDocument();
+  });
+
+  // COSM-5 — same hero gate as the feedback widget scopes the animated
+  // background to the homepage.
+  it("renders the network background only on the homepage hero shell", () => {
+    const { rerender } = renderShell(<AppShell userEmail="a@b.c" hero>{<div />}</AppShell>);
+    expect(screen.getByTestId("network-background")).toBeInTheDocument();
+
+    rerender(<UnitProvider><AppShell userEmail="a@b.c">{<div />}</AppShell></UnitProvider>);
+    expect(screen.queryByTestId("network-background")).not.toBeInTheDocument();
   });
 });
 
