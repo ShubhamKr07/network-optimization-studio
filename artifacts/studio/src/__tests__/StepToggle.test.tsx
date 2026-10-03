@@ -36,6 +36,21 @@ describe("CH4-15 — the step toggle is always selectable", () => {
     expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "false");
   });
 
+  // COSM-2 — the toggle moved out of the dark page header into the light
+  // toolbar row, so the dark-band ink tokens it was styled with are now
+  // rendered on a light surface.
+  it("styles the inactive step for a light surface, not the dark band", () => {
+    render(<StepToggle selected={1} onSelect={vi.fn()} solvedCount={1} steps={{ step1: solved, step2: unsolved }} />);
+    const inactive = screen.getByTestId("step-toggle-2");
+    // --ink-300 on --surface-sunken is 2.01:1 — unreadable. The light-surface
+    // tokens must be used instead.
+    expect(inactive.className).not.toMatch(/ink-300/);
+    expect(inactive.className).not.toMatch(/hover:bg-white\/10/);
+    expect(inactive.className).toMatch(/text-muted-foreground/);
+    expect(inactive.className).toMatch(/hover:bg-muted/);
+    expect(screen.getByTestId("text-steps-solved-counter").className).not.toMatch(/ink-300/);
+  });
+
   it("shows a stale badge only on Step 2", () => {
     render(<StepToggle selected={2} onSelect={vi.fn()} solvedCount={2}
       steps={{ step1: solved, step2: { ...solved, stale: true } }} />);

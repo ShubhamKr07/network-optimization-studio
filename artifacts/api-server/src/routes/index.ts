@@ -14,6 +14,12 @@ import authRouter from "./auth.js";
 // task brief said "mount it in app.ts"; the smallest correct fix per hard
 // rule #8 is to follow the established pattern instead.
 import distanceBandsRouter from "./distanceBands.js";
+// COSM-4 — POST /api/feedback. Registered here, not in app.ts, for the same
+// reason as above. It belongs in the auth-required group (after
+// landingSummary, before scenarios) because it calls `router.use(requireAuth)`
+// exactly like its neighbours, so any router placed after it must already
+// require auth — which, from solveHistory onward, they all do.
+import feedbackRouter from "./feedback.js";
 
 const router: IRouter = Router();
 
@@ -25,6 +31,7 @@ router.use(referenceDistancesRouter);
 router.use(referenceCostsRouter);
 router.use(solveHistoryRouter);
 router.use(landingSummaryRouter);
+router.use(feedbackRouter);
 router.use(distanceBandsRouter);
 router.use(scenariosRouter);
 

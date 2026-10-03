@@ -55,6 +55,9 @@ const EXPECTED_TIMESTAMPTZ: Array<[table: string, column: string]> = [
   ["scenarios", "created_at"],
   ["scenarios", "updated_at"],
   ["result_cache", "created_at"],
+  // COSM-4 — the feedback table's only timestamp. Written solely by
+  // defaultNow(), i.e. the exact DB-side-writer shape the HND-B bug lived in.
+  ["feedback", "created_at"],
 ];
 
 // Minimal valid p-median-us inputs. The model is irrelevant to what this file
@@ -96,7 +99,7 @@ describe("HND-B — timestamp columns are timestamptz", () => {
       SELECT table_name, column_name, data_type
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name IN ('solve_jobs', 'scenarios', 'result_cache')
+        AND table_name IN ('solve_jobs', 'scenarios', 'result_cache', 'feedback')
         AND data_type LIKE 'timestamp%'
     `);
 

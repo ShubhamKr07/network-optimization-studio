@@ -156,6 +156,16 @@ export type InputMapTabProps =
        *  suppressed, "Save" is the more misleading of the two, because it
        *  implies a whole-input write that is not what will happen. */
       saveLabel?: string;
+      /** COSM-2 — false for max-coverage-us, whose Save lives in the shared
+       *  toolbar row beside the step toggle (that row renders on every
+       *  Chapter 4 view, so Save stays reachable). Optional and defaulted
+       *  true, so p-median-us and p-median-brazil — which share this same
+       *  "pmedian" arm and keep their Layers-row Save — are untouched.
+       *  A capability-style boolean rather than a `modelId ===` check inside
+       *  this shared component, matching `fixedGeography`/`demandEditable`:
+       *  a boolean prop cannot silently miss a sibling model the way an
+       *  in-component model check can. */
+      showInlineSave?: boolean;
       /** ch5-del-9 — delivery-teaching-us's only editable dataset surface was
        * the cost table (Task 8's fixed three-tab surface); Input Map was
        * pure geography context there. ch5-edit-6 (§14.5) — narrowed: §14
@@ -751,6 +761,7 @@ function PMedianInputMap({
   onSave,
   saving,
   saveLabel,
+  showInlineSave = true,
   demandEditable = true,
   modelId,
   fixedGeography = false,
@@ -1032,8 +1043,12 @@ function PMedianInputMap({
             `localInputs.warehouseOverrides`/`customerOverrides` a map edit
             writes into), not here, so even if a future caller mistakenly
             wired an `onSave` for it, no dirty-state Save renders in this
-            row. */}
-        {!fixedGeography && onSave && (
+            row. COSM-2 — also gated on `showInlineSave`: max-coverage-us
+            passes false, because its Save moved into the shared toolbar row
+            so it can sit beside the step toggle on every Chapter 4 view.
+            Gated, never deleted — p-median-us/p-median-brazil render this
+            same arm and keep this Save. */}
+        {!fixedGeography && showInlineSave && onSave && (
           <div className="flex items-center gap-2 ml-auto">
             {isDirty && (
               <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">

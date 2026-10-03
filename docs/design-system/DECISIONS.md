@@ -30,6 +30,10 @@ API, or solver changes. Light theme only.
      **visual spec, not drop-in code.**
    - Additionally close-match the 6 brand-carrying, non-Radix studio components to the reference:
      `SidebarTree`, `TabBar`, `ObjectiveBar`, `ConstraintChips`, `StaleOutputBanner`, `MapLegend`.
+     *(Superseded 2026-10-03 by COSM-1: the app's `TabBar` was deleted — the Workspace tab strip is
+     gone and the sidebar is the only navigator, so this is now 5 app components. The design-system
+     package keeps a standalone `components/studio/TabBar.*` specimen as a library artifact with no
+     app consumer.)*
    - Explicitly **rejected:** pixel-matching / rebuilding every shadcn component to the reference JSX
      (high regression + a11y risk for imperceptible pixel gain).
 
@@ -63,6 +67,8 @@ API, or solver changes. Light theme only.
 - Close-match the 6 studio components (Tailwind-only, no behavior change): `SidebarTree` (green
   left-rule active row + mono uppercase section headers), `TabBar`, `ObjectiveBar`, `ConstraintChips`,
   `StaleOutputBanner`, `MapLegend`.
+  *(Superseded 2026-10-03 by COSM-1 — see the note under "Locked decisions" above: the app's
+  `TabBar` no longer exists.)*
 - **Mono-numbers pass:** `font-mono` on numeric/stat displays — ObjectiveBar & map metric overlay
   (`obj 2.38e+6 · 412.7 mi · run 0.24s`), table numeric cells, chips, badges-with-numbers, solve
   stats, kickers. Prose stays sans. (Enumerated concretely in the plan.)

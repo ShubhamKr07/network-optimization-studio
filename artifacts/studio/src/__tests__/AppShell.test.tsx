@@ -18,6 +18,21 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
 }));
 
+// COSM-4 — the wholesale @workspace/api-client-react mock above exports no
+// useSubmitFeedback, so every hero-mode render would mount the real widget
+// and crash on an undefined hook. Stub the component instead of widening the
+// hook mock: AppShell's contract here is "the widget is mounted in hero
+// mode", and the widget's own behaviour is covered by FeedbackWidget.test.tsx.
+vi.mock("@/components/FeedbackWidget", () => ({
+  FeedbackWidget: () => <div data-testid="feedback-button" />,
+}));
+
+// COSM-5 — the real component needs canvas APIs this suite does not provide
+// (no ctx/matchMedia/rAF mocks here); NetworkBackground.test.tsx owns those.
+vi.mock("@/components/NetworkBackground", () => ({
+  NetworkBackground: () => <div data-testid="network-background" />,
+}));
+
 import { AppShell } from "@/components/AppShell";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -113,6 +128,28 @@ describe("AppShell hero variant", () => {
     );
     expect(screen.queryByTestId("hero-tagline")).not.toBeInTheDocument();
   });
+
+  // COSM-4 — the `hero &&` gate is what scopes the feedback widget to the
+  // homepage (App.tsx is the only caller that passes `hero`). Nothing else
+  // covers that gate: FeedbackWidget.test.tsx renders the component directly.
+  it("mounts the feedback widget only in hero mode", () => {
+    const { rerender } = renderShell(
+      <AppShell userEmail="a@b.edu" hero><div>content</div></AppShell>,
+    );
+    expect(screen.getByTestId("feedback-button")).toBeInTheDocument();
+    rerender(<UnitProvider><AppShell userEmail="a@b.edu"><div>content</div></AppShell></UnitProvider>);
+    expect(screen.queryByTestId("feedback-button")).not.toBeInTheDocument();
+  });
+
+  // COSM-5 — same hero gate as the feedback widget scopes the animated
+  // background to the homepage.
+  it("renders the network background only on the homepage hero shell", () => {
+    const { rerender } = renderShell(<AppShell userEmail="a@b.c" hero>{<div />}</AppShell>);
+    expect(screen.getByTestId("network-background")).toBeInTheDocument();
+
+    rerender(<UnitProvider><AppShell userEmail="a@b.c">{<div />}</AppShell></UnitProvider>);
+    expect(screen.queryByTestId("network-background")).not.toBeInTheDocument();
+  });
 });
 
 describe("AppShell layout", () => {
@@ -143,12 +180,15 @@ describe("AppShell layout", () => {
     const footer = screen.getByTestId("app-footer");
     expect(footer).toBeInTheDocument();
     expect(footer.className).toContain("flex-shrink-0");
-    // The footer must be a sibling of <main>, not nested inside it — nesting
-    // it inside the scrollable region would let it scroll out of view /
-    // overlap body content instead of always reserving its own fixed strip
-    // at the bottom of the h-screen column.
     const main = screen.getByText("lab content").closest("main") as HTMLElement;
-    expect(footer.parentElement).toBe(main.parentElement);
+    const scrollWrapper = main.parentElement as HTMLElement;
+    // COSM-4 — the footer must be a sibling of the WRAPPER, not of <main>:
+    // <main> is now the scrolling element inside that wrapper, and nesting
+    // the footer in there would let it scroll out of view / overlap body
+    // content instead of always reserving its own fixed strip at the bottom
+    // of the h-screen column.
+    expect(footer.parentElement).toBe(scrollWrapper.parentElement);
+    expect(scrollWrapper).not.toContainElement(footer);
   });
 
   it("keeps the footer un-clipped and non-overlapping at a narrow (375px) viewport", () => {
@@ -171,7 +211,11 @@ describe("AppShell layout", () => {
       expect(root).toBeInTheDocument();
       expect(footer.className).toContain("flex-shrink-0");
       expect(main.className).toContain("overflow-y-auto");
-      expect(footer.parentElement).toBe(main.parentElement);
+      // COSM-4 — same topology shift as the test above: the footer is a
+      // sibling of the scroll WRAPPER, and must stay outside it.
+      const scrollWrapper = main.parentElement as HTMLElement;
+      expect(footer.parentElement).toBe(scrollWrapper.parentElement);
+      expect(scrollWrapper).not.toContainElement(footer);
     } finally {
       Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
     }

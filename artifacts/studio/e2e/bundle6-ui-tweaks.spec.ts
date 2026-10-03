@@ -139,7 +139,7 @@ async function solveScenario(page: Page, scenarioId: number): Promise<void> {
 }
 
 test.describe("Bundle 6 — Workspace (authenticated)", () => {
-  test("last-solved default + one-shot Input Map seeding + header cleanup + tab-close doesn't reopen", async ({ page }) => {
+  test("last-solved default + one-shot Input Map seeding + header cleanup + sidebar navigation swaps the view", async ({ page }) => {
     test.setTimeout(120_000);
     await registerFreshAccount(page, "bundle6-workspace");
 
@@ -157,13 +157,14 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
       await expect(page.getByTestId(`sidebar-scenario-${scenarioBId}`)).toHaveAttribute("aria-current", "true");
       await expect(page.getByTestId(`sidebar-scenario-${scenarioAId}`)).toHaveAttribute("aria-current", "false");
 
-      // T2 item 1 — Input Map is auto-opened and active on entry.
-      // (raw workspaceTabId, per workspaceTabId("input", "input-map") —
-      // TabBar's own testids are `tab-${id}`/`tab-close-${id}`, built from
-      // this below, not from an already-prefixed value.)
-      const inputMapTabId = "input:input-map";
-      await expect(page.getByTestId(`tab-${inputMapTabId}`)).toHaveAttribute("aria-selected", "true");
+      // T2 item 1 — Input Map is the seeded active view on entry. COSM-1 —
+      // asserted against the sidebar row and the view's own content testid;
+      // the open-tab strip that used to carry `tab-input:input-map` is gone,
+      // and the sidebar is the only navigator now.
+      await expect(page.getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "true");
       await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("tab-bar")).toHaveCount(0);
+      await expect(page.getByTestId("tab-bar-empty")).toHaveCount(0);
 
       // T2 items 2/3 — header no longer has the scenario dropdown, user
       // email, or logout button; the chapter summary sits on the left.
@@ -178,14 +179,16 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
       await expect(page.getByTestId("button-result-back")).toBeVisible();
       await expect(page.getByTestId("button-result-forward")).toBeVisible();
 
-      // T2 item 1 (resolution #3) — closing the last open tab leaves none
-      // open; the auto-seed guard is already tripped for this model, so
-      // Input Map does NOT silently reopen.
-      await page.getByTestId(`tab-close-${inputMapTabId}`).click();
-      await expect(page.getByTestId("tab-bar-empty")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.waitForTimeout(1_000);
-      await expect(page.getByTestId("tab-bar-empty")).toBeVisible();
-      await expect(page.getByTestId(`tab-${inputMapTabId}`)).toHaveCount(0);
+      // COSM-1 — replaces T2 item 1 (resolution #3)'s close-the-last-tab
+      // case, which covered an affordance that no longer exists. What is
+      // still worth asserting is that the sidebar alone can navigate: the
+      // content region swaps off Input Map onto the clicked view, rather
+      // than accumulating both.
+      await page.getByTestId("sidebar-input-warehouses").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("warehouses-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-map-tab")).toHaveCount(0);
+      await expect(page.getByTestId("sidebar-input-warehouses")).toHaveAttribute("aria-current", "true");
+      await expect(page.getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "false");
     } finally {
       await page.request.delete(`/api/scenarios/${scenarioAId}`);
       await page.request.delete(`/api/scenarios/${scenarioBId}`);

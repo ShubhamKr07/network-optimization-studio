@@ -45,6 +45,15 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface FeedbackRequest {
+  /**
+     * Free-text feedback. Trimmed by the server before validation and before storage, so a whitespace-only body is rejected.
+     * @minLength 1
+     * @maxLength 4000
+     */
+  body: string;
+}
+
 export const LogoutSuccessValue = {
   success: true,
 } as const;
