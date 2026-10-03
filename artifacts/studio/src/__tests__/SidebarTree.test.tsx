@@ -387,6 +387,32 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
   });
 
+  it("releases an abandoned delete-confirm when the pointer leaves the flyout (review finding 1)", async () => {
+    // Without this, the flyout stays pinned forever with pointer-events ENABLED
+    // (the pinned branch deliberately drops pointer-events-none), leaving a
+    // 224px interactive panel over the content column swallowing clicks on the
+    // map and grids beneath it. A rename self-heals via the input's onBlur; a
+    // started-then-abandoned delete has no equivalent release.
+    const props = baseProps();
+    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
+
+    await userEvent.unhover(screen.getByTestId("sidebar-section-scenarios"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
+    expect(screen.queryByTestId("button-confirm-delete-2")).not.toBeInTheDocument();
+    expect(props.onDeleteScenario).not.toHaveBeenCalled();
+  });
+
+  it("leaving the flyout does NOT cancel an in-progress rename", async () => {
+    // Renames are deliberately exempt: blur already commits them, and clearing
+    // one on mouse-leave could discard what the user typed.
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    await userEvent.unhover(screen.getByTestId("sidebar-section-scenarios"));
+    expect(screen.getByTestId("input-rename-scenario-1")).toBeInTheDocument();
+  });
+
   it("gives the flyout its own scroll box so a long list cannot clip", () => {
     render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
     const scroller = screen.getByTestId("sidebar-scenarios-flyout-scroll");

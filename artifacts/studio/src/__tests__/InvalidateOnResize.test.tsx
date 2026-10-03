@@ -62,9 +62,15 @@ describe("InvalidateOnResize", () => {
   });
 
   it("coalesces a burst of resizes into ONE call — the rail's width animation fires one per frame", () => {
-    // Regression guard for the SBR-5 QA finding: one invalidateSize per
-    // observer callback saturated the main thread during the nav's 200ms width
-    // transition and left the sidebar stuck at the collapsed width.
+    // Regression guard: the nav's width is animated, so one toggle delivers a
+    // resize callback per frame. Undebounced that is ~60 full Leaflet size
+    // recomputations for a single click.
+    //
+    // Review finding 5 — this comment used to add "...and left the sidebar stuck
+    // at the collapsed width". That symptom was retracted in the same commit
+    // range (see InvalidateOnResize.tsx): it was an artifact of a BACKGROUND tab
+    // freezing CSS transitions, not of this code. Stating it here would re-seed
+    // the wrong diagnosis the module explicitly corrects.
     render(<InvalidateOnResize />);
     for (let frame = 0; frame < 60; frame++) {
       fire!();

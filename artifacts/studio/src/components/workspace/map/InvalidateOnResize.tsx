@@ -34,8 +34,15 @@ export const INVALIDATE_DEBOUNCE_MS = 120;
  * merits — 60 redundant recomputations per click is worth removing — not as a
  * fix for a bug that did not exist.
  *
- * Do not "simplify" this back to a direct call. If you shorten the delay below
- * the nav's 200ms transition, the map will recompute mid-animation again.
+ * Do not "simplify" this back to a direct call. The delay is TRAILING, measured
+ * from the last ResizeObserver callback, so 120ms is deliberately below the
+ * nav's 200ms transition and still lands a single call after it ends (~320ms
+ * from the click): resizes keep arriving throughout the animation and keep
+ * resetting the timer. Review finding 4 — an earlier version of this note said
+ * "if you shorten the delay below the nav's 200ms transition the map will
+ * recompute mid-animation", which describes a LEADING delay and reads as if the
+ * current 120 were a bug. It is not. What would actually break this is making
+ * the delay shorter than the gap between resize callbacks (~16ms at 60fps).
  */
 export function InvalidateOnResize() {
   const map = useMap();

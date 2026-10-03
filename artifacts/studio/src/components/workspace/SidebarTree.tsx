@@ -57,6 +57,29 @@ interface SidebarTreeProps {
   onDeleteScenario: (id: number) => void;
 }
 
+/**
+ * KNOWN LIMIT of the collapsed rail's height (review finding 2).
+ *
+ * The rail deliberately has NO scroll container: `overflow-y-auto` would make
+ * `overflow-x` compute to `auto` too and clip the `left-full` label pills
+ * horizontally. Its height is therefore a hard ceiling, and the parent
+ * (`Workspace.tsx`'s `flex-1 min-h-0 flex overflow-hidden`) clips anything past
+ * it with no way to scroll to it.
+ *
+ * Measured on the longest rail, `two-echelon-jade-us` (8 inputs + 6 outputs):
+ * at 1366x768 the last output icon's bottom sits at ~585px against a 768px
+ * viewport — comfortable. `py-1.5` rather than `py-2` on rail rows (see
+ * entryClass) buys ~56px over the first implementation.
+ *
+ * The residual: a window whose INNER height drops below roughly 530px will
+ * clip the last output icons on that one model. The escape hatch is the
+ * hamburger — the expanded panel keeps `overflow-y-auto` and scrolls normally,
+ * so nothing is permanently unreachable. If this ever needs a real fix, the
+ * only shapes that work are a scroll wrapper with the pills moved to `fixed`
+ * positioning (or a portal) — NOT adding `overflow-y-auto` here, which would
+ * silently eat the pills.
+ */
+
 // SBR-2 — matches the repo's one existing persistence key, UnitContext.tsx:16's
 // "nos:display-unit-pref": colon namespace, kebab name.
 const STORAGE_KEY = "nos:sidebar-collapsed";
@@ -113,7 +136,14 @@ function entryClass({
   // clips the absolutely positioned pill; in expanded mode the truncation lives
   // on the label <span> instead (see EntryRow).
   const base = collapsed
-    ? "w-full flex items-center justify-center py-2 border-l-2"
+    // py-1.5, not py-2 (review finding 2): the collapsed rail has no scroll
+    // container by design — overflow-y-auto would clip the left-full pill
+    // horizontally — so its total height is a hard limit, and the parent
+    // (Workspace.tsx's `flex-1 min-h-0 flex overflow-hidden`) clips anything
+    // past it with no way to scroll. 4px per row x 14 rows on the longest rail
+    // (two-echelon-jade-us) buys ~56px of headroom. See the module note below
+    // for the residual limit that remains.
+    ? "w-full flex items-center justify-center py-1.5 border-l-2"
     : "w-full flex items-center text-left px-3 py-1.5 border-l-2";
   if (disabled) return `${base} border-transparent text-muted-foreground/40 cursor-not-allowed`;
   return active
@@ -217,6 +247,20 @@ export function SidebarTree({
     });
   }, []);
 
+  // SBR-6 (review finding 1) — the latch above has no self-release for a delete
+  // that is STARTED and then abandoned. A rename self-heals, because the input's
+  // onBlur fires commitRename; a delete-confirm has no equivalent. Without this,
+  // clicking a trash icon and then moving the mouse away leaves the flyout
+  // pinned forever — and the pinned branch deliberately drops
+  // `pointer-events-none`, so a 224px-wide interactive panel sits over the
+  // content column swallowing clicks on the map and grids beneath it. There is
+  // no outside-click or Escape path, by design, so nothing else would release
+  // it. Leaving the flyout therefore cancels any pending confirm; renames are
+  // left alone, since blur already handles them and cancelling mid-rename could
+  // discard typing.
+  const [cancelConfirmSignal, setCancelConfirmSignal] = useState(0);
+  const releasePendingConfirms = useCallback(() => setCancelConfirmSignal(n => n + 1), []);
+
   const createScenarioButton = (
     <button
       type="button"
@@ -241,6 +285,7 @@ export function SidebarTree({
           onClone={() => onCloneScenario(s.id)}
           onDelete={() => onDeleteScenario(s.id)}
           onInteractionStateChange={setRowInteracting}
+          cancelConfirmSignal={cancelConfirmSignal}
         />
       ))}
       {scenarios.length === 0 && (
@@ -286,12 +331,21 @@ export function SidebarTree({
           testid="sidebar-section-scenarios"
           collapsed
           className="group/scenarios relative"
+          onMouseLeave={releasePendingConfirms}
         >
           <div className="flex flex-col items-center gap-1">
             <button
               type="button"
               data-testid="button-open-scenarios-flyout"
-              aria-label="Scenarios"
+              // Review finding 6 — this button EXPANDS the sidebar (D7); it does
+              // not open the flyout, which is hover-driven. The testid is kept
+              // despite naming the wrong behaviour because two e2e specs hover
+              // it by that name; the accessible name and state are corrected
+              // here so a screen-reader user is told what actually happens,
+              // matching the hamburger above.
+              aria-label="Expand sidebar to manage scenarios"
+              aria-expanded={false}
+              aria-controls="workspace-sidebar"
               // D7 — this icon has no tab of its own, so its click expands the
               // whole sidebar. That is also the touch and keyboard path: Tailwind
               // v4 wraps group-hover in @media (hover: hover), so on touch the
@@ -395,6 +449,7 @@ function ScenarioRow({
   onClone,
   onDelete,
   onInteractionStateChange,
+  cancelConfirmSignal,
 }: {
   scenario: SidebarScenarioItem;
   isActive: boolean;
@@ -407,6 +462,10 @@ function ScenarioRow({
    *  also clear its own flag on unmount without the parent tracking which row
    *  reported what. */
   onInteractionStateChange?: (id: number, active: boolean) => void;
+  /** SBR-6 — bumped by the parent when the pointer leaves the collapsed
+   *  Scenarios flyout. Clears a started-then-abandoned delete confirm, which
+   *  has no self-release of its own (a rename's blur is its own release). */
+  cancelConfirmSignal?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [editingValue, setEditingValue] = useState(scenario.name);
@@ -423,6 +482,13 @@ function ScenarioRow({
     // useCallback; an inline arrow here would re-add the flag every render.
     return () => onInteractionStateChange?.(scenario.id, false);
   }, [scenario.id, interacting, onInteractionStateChange]);
+
+  // Deliberately keyed on the signal alone: this must fire when the parent
+  // bumps it, not when confirmingDelete changes.
+  useEffect(() => {
+    if (cancelConfirmSignal === undefined) return;
+    setConfirmingDelete(false);
+  }, [cancelConfirmSignal]);
 
   function startRename() {
     committedRef.current = false;
@@ -546,6 +612,7 @@ function SidebarSection({
   action,
   collapsed = false,
   className,
+  onMouseLeave,
   children,
 }: {
   title: string;
@@ -554,10 +621,11 @@ function SidebarSection({
   /** Collapsed hides the title text but KEEPS the wrapper + its testid. */
   collapsed?: boolean;
   className?: string;
+  onMouseLeave?: () => void;
   children: ReactNode;
 }) {
   return (
-    <div data-testid={testid} className={`border-b py-1.5 ${className ?? ""}`}>
+    <div data-testid={testid} className={`border-b py-1.5 ${className ?? ""}`} onMouseLeave={onMouseLeave}>
       {!collapsed && (
         <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
           <span>{title}</span>
