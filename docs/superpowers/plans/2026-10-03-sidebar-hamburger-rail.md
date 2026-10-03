@@ -1304,9 +1304,23 @@ Start the stack (two terminals, or background both):
 ```bash
 cd /Users/shubhamkr/network-optimization-studio
 DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" PORT=3001 pnpm --filter api-server run dev
-# then, separately:
-PORT=5199 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 pnpm --filter studio run dev
+# then, separately — note the two VITE_* vars:
+PORT=5199 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 \
+  VITE_POSTHOG_KEY=phc_local_dummy_key \
+  VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 \
+  pnpm --filter studio run dev
 ```
+
+**Why those two dummy values matter.** Without them, `e2e/posthog-analytics.spec.ts` and
+`e2e/sentry-capture.spec.ts` fail for a purely environmental reason and *look* like real breakage:
+`analytics.ts:14` returns early unless `VITE_POSTHOG_KEY` is truthy, so nothing is ever captured and
+both specs assert against captures. `ci.yml:202-203` supplies them as repository secrets; a local
+shell has neither. **Dummy values are correct, not a workaround** — both specs document it
+themselves (`posthog-analytics.spec.ts:63-64`, `sentry-capture.spec.ts:80-83`): every request to the
+ingest host is intercepted and stubbed before it leaves the page, so no real key is ever contacted.
+The DSN must merely be *syntactically* valid; the shape above matches
+`src/lib/errorTracking.test.ts:18`. The Cosmetics session hit exactly these two as its only
+unexpected e2e failures — with the vars set, they should run for real instead.
 
 Then:
 
@@ -1369,7 +1383,13 @@ Against the same local stack, check each of these and record the result:
 6. Reload: the collapsed/expanded choice survives.
 7. Log in as a brand-new account with zero scenarios: the first-run CTA still reads clearly with the rail collapsed.
 8. Resize to **375px wide** and open a p-median-us model page. The Cosmetics session measured, on `cosmetic-ui`, that the fixed 224px sidebar leaves ~119px of usable row against a 147px button group, clipping `2. Min Distance`, the Layers chips, the map legend and the Leaflet attribution — a pre-existing squeeze. Collapsed, the rail gives 180px of that back. Record whether each of those four actually stops clipping. This is the strongest evidence for the collapsed-by-default decision (spec D8), so it is measured, not assumed.
-9. Resize to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
+9. Check the **feedback launcher's overlap with the chapter-card grid at 768px and 900px**, with the
+   rail both collapsed and expanded. The Cosmetics session measured the launcher intercepting clicks
+   on a small corner of one card in the 768–900px band (0 cards at 375px, 1 at 768px, 1 at 900px) —
+   cosmetic, bounded, and no spec exercises those widths. It is listed here because this bundle
+   changes the content column's width, which can move where that overlap lands. If the rail makes it
+   worse, say so in the QA record; do not fix it here — the launcher is `cosmetic-ui`'s surface.
+10. Resize to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
 
 - [ ] **Step 9: Append the changelog entry**
 
