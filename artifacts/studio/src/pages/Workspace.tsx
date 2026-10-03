@@ -1258,8 +1258,12 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
     case "delivery-teaching-us":
       return [
         { id: "input-map", label: "Input Map" },
-        { id: "warehouses", label: "Warehouses" },
+        // QF-4 — Customers before Warehouses, matching the p-median default
+        // case below. Demand comes first in how this chapter is taught: you
+        // read the customers you must serve, then decide which warehouses
+        // serve them.
         { id: "customers", label: "Customers" },
+        { id: "warehouses", label: "Warehouses" },
         { id: "deliveryCosts", label: "Delivery Costs" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
