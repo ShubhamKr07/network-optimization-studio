@@ -392,9 +392,49 @@ the four `<MapContainer>`s by content, not by the line numbers in the plan.**
    of execution, not an afterthought.
 4. This branch executes SBR-1…SBR-5, gates, and stops for its own merge approval.
 5. One combined whole-branch review on the merged state, then **one** push, then **one** deploy
-   cycle: `nos-api` first (COSM-4 ships a DB table, an OpenAPI change and a route), `nos-studio`
-   second, so the endpoint exists before the UI that calls it. Push and deploy are separately
-   approved; neither is implied by a merge approval.
+   cycle. Push and deploy are separately approved; neither is implied by a merge approval.
+
+### 9.2.1 The deploy-order hazard is real, and both documents describing it are wrong
+
+Measured live via the Render API on 2026-10-03, not read from a doc:
+
+| Service | `autoDeploy` | `autoDeployTrigger` | Branch | Runtime |
+|---|---|---|---|---|
+| `nos-api` (`srv-d9hglg6pbkes73a1j8b0`) | **yes** | **commit** | `main` | Docker |
+| `nos-studio` (`srv-d9hg4gvlk1mc73dtp67g`) | **yes** | **commit** | `main` | static site |
+
+Two standing claims are contradicted by that:
+
+- **`CLAUDE.md:100` is stale.** It states `nos-api` has `autoDeployTrigger: off` and that "a push does
+  **not** deploy it; it needs a deliberate trigger." The live service says `commit`. `render.yaml:20-29`
+  already carries a 2026-09-30 correction recording exactly this (the A11 suppression was never
+  restored), so the repo contradicts itself and `CLAUDE.md` is the wrong half. **Not fixed here** —
+  it is a policy/ops line outside this bundle's scope and documentation reaches `main` only via a
+  reviewed PR. Flagged to the user as its own task.
+- The Cosmetics session's inference — "a push does not deploy `nos-api` but can deploy `nos-studio`,
+  so the asymmetry is backwards from the order we want" — reaches a correct worry from a wrong
+  premise. Both services are armed to deploy on the same push.
+
+**The actual risk, which is worse.** Neither of us can order the deploys by sequencing the push,
+because one push arms both. And the likely race outcome is the bad one: `nos-studio` is a static
+site (install + Vite build) while `nos-api` is a Docker image build, so **the studio probably goes
+live first** — putting COSM-4's feedback widget in front of a `POST /api/feedback` that still 404s.
+`CLAUDE.md:159` records that the studio webhook has historically not fired on its own, which would
+accidentally produce the safe order, but that is observed unreliability and must never be leaned on.
+
+Three mitigations, in preference order. The choice is the user's at the deploy-approval step:
+
+1. **COSM-4's widget degrades gracefully on a non-2xx** (Cosmetics owns this; it is the only fix that
+   removes the window rather than narrowing it).
+2. **Suspend `nos-studio` auto-deploy in the Dashboard before the push**, push, let `nos-api` finish,
+   then deploy the studio deliberately. This is a config change on a live service and needs its own
+   explicit approval.
+3. **Accept a short window** in which the feedback form errors, and verify with `list_deploys`
+   immediately after the push which service actually started building.
+
+Whichever is chosen, verify the live `autoDeployTrigger` with `get_service` at deploy time rather
+than trusting this table, `render.yaml`, or `CLAUDE.md` — all three are snapshots and one is already
+known to have drifted.
 
 ### 9.3 Citation drift already confirmed by Cosmetics
 
