@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-03
 **Surface:** `artifacts/studio/src/components/workspace/SidebarTree.tsx` (all 7 model pages)
-**Status:** design, review round 1 (Fable 5 adversarial pass) incorporated — ready to plan
+**Status:** design, review rounds 1 and 2 (Fable 5 adversarial passes) incorporated — plan written at `docs/superpowers/plans/2026-10-03-sidebar-hamburger-rail.md`
 **Nature:** cosmetic/UX only. No API, no DB, no solver, no generated-code change.
 
 All paths below are relative to `artifacts/studio/` unless stated otherwise.
@@ -133,8 +133,21 @@ with Input Map or Output Map open would leave the map at its old width (blank st
 tiles) until the window itself resized. Input Map is auto-opened on entry
 (`e2e/bundle6-ui-tweaks.spec.ts:160`), so this is the default state, not an edge case.
 
-Fix, in scope: a `ResizeObserver` on the map container calling `map.invalidateSize()` in
-`src/components/NetworkMap.tsx` (which already imports `useMap`, `:2`).
+Fix, in scope: a shared `InvalidateOnResize` component
+(`src/components/workspace/map/InvalidateOnResize.tsx`) that observes `map.getContainer()` and
+calls `map.invalidateSize()`, mounted in **all five** production `<MapContainer>`s.
+
+Five, not one — corrected in review round 2, and the correction matters: `grep -rn "<MapContainer" src`
+gives `NetworkMap.tsx:634` **and `InputMapTab.tsx:1059, :1562, :2057, :2640`**. `InputMapTab` builds
+its own map and has zero references to `NetworkMap`; `NetworkMap`'s only consumers are
+`OutputMapTab.tsx` and the dead `Studio.tsx`. A `NetworkMap`-only fix would therefore have left the
+**auto-opened Input Map** — the one tab this is most visible on — broken, while appearing done.
+
+Two existing react-leaflet mocks stub `useMap` as `{ setView, fitBounds }`
+(`Workspace.TabCoverage.test.tsx:58`, `deliveryEditableInputs.test.tsx:40`); they need
+`getContainer`/`invalidateSize` added, or the new effect throws from inside `useEffect` and those
+suites fail. The production component is deliberately **not** guarded with a
+`typeof map.getContainer === "function"` check — production code does not bend to a mock.
 
 `prefers-reduced-motion: reduce` disables the width transition and the flyout slide (Tailwind
 `motion-reduce:` variants).
@@ -244,7 +257,10 @@ teaching hazard.
 |---|---|
 | `src/components/workspace/SidebarTree.tsx` | the feature: collapsed state, persistence, hamburger, rail, flyouts, icons, rail-mode class changes (`truncate`, `relative z-50`, overflow) |
 | `src/components/workspace/entityIcons.ts` *(new)* | `ENTITY_ICONS` map + `iconForEntity()` fallback accessor |
-| `src/components/NetworkMap.tsx` | `ResizeObserver` → `map.invalidateSize()` (§4.4) |
+| `src/components/workspace/map/InvalidateOnResize.tsx` *(new)* | the `ResizeObserver` → `map.invalidateSize()` component (§4.4) |
+| `src/components/NetworkMap.tsx` | mount `<InvalidateOnResize />` (1 container) |
+| `src/components/workspace/tabs/InputMapTab.tsx` | mount `<InvalidateOnResize />` (4 containers) |
+| `src/__tests__/Workspace.TabCoverage.test.tsx`, `src/__tests__/deliveryEditableInputs.test.tsx` | extend the `useMap` mocks with `getContainer`/`invalidateSize` (§4.4) |
 | `src/pages/Workspace.tsx` | none expected (`SidebarTree`'s existing props are unchanged) |
 | `src/__tests__/SidebarTree.test.tsx` | new cases (§6) + `localStorage.clear()` in `beforeEach`; existing 188 lines expected to pass unmodified |
 | `e2e/empty-first-run-workspace.spec.ts`, `e2e/two-echelon.spec.ts` | hover before collapsed-state scenario operations (§6) |
@@ -297,7 +313,7 @@ New coverage in `SidebarTree.test.tsx`:
 8. the D6 latch: a rename in progress keeps the flyout mounted; commit and cancel both release it.
 
 Plus a real-browser QA pass (repo standing requirement) covering: collapse/expand on a model page;
-a map tab reflowing correctly on toggle (§4.4); hover flyout on an Inputs icon; the Scenarios
+both map tabs reflowing correctly on toggle — Input Map AND Output Map, since they are two different components (§4.4); hover flyout on an Inputs icon; the Scenarios
 flyout's rename/clone/delete; persistence across reload; the first-run empty state (§7); and the
 rail at **1366×768**, not just Playwright's 1280×720 (§7).
 

@@ -4,9 +4,9 @@
 
 **Goal:** Turn the model-page sidebar into a hamburger-toggled icon rail — collapsed by default with the choice persisted, a unique icon per entry, and a hover flyout that reveals one row's label at a time.
 
-**Architecture:** All behaviour lands in one component, `SidebarTree.tsx`, which gains its own `collapsed` state (no new props plumbed through `Workspace.tsx`). Collapsed/expanded is a width change on the existing `<nav>` inside the existing flex row — not an overlay. Label flyouts are pure CSS (`group-hover`), with one exception: the Scenarios flyout latches open via a single boolean while a row is being renamed or confirmed-for-delete. A separate one-component fix in `NetworkMap.tsx` makes Leaflet redraw when the rail changes width.
+**Architecture:** All sidebar behaviour lands in one component, `SidebarTree.tsx`, which gains its own `collapsed` state (no new props plumbed through `Workspace.tsx`). Collapsed/expanded is a width change on the existing `<nav>` inside the existing flex row — not an overlay. Label flyouts are pure CSS (`group-hover`), with one exception: the Scenarios flyout latches open while a row is being renamed or confirmed-for-delete. A separate shared component, mounted in **all five** `<MapContainer>`s, makes Leaflet redraw when the rail changes width.
 
-**Tech Stack:** React 18 + TypeScript, Tailwind, lucide-react 0.545.0, vitest + React Testing Library, Playwright, react-leaflet 4 / leaflet 1.9.4.
+**Tech Stack:** React **19.1.0** + TypeScript, Tailwind **v4.3.0** (CSS-first: `@import "tailwindcss"` in `index.css:3`, `@tailwindcss/vite`, **no `tailwind.config.*`**), lucide-react 0.545.0, vitest + React Testing Library, Playwright, react-leaflet / leaflet 1.9.4.
 
 **Spec:** `docs/superpowers/specs/2026-10-03-sidebar-hamburger-rail-design.md` (read it first; §3's D1–D7 are closed decisions, do not reopen them).
 
@@ -16,7 +16,8 @@ Every task's requirements implicitly include all of these. They come from the sp
 
 - **All paths are relative to `artifacts/studio/`** unless stated otherwise. Run every `pnpm` command from the repo root `/Users/shubhamkr/network-optimization-studio`.
 - **Never commit on `main`.** Before every `git commit`, run: `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }`. The branch for this work is `sidebar-hamburger-rail`.
-- **Commit message format:** `[SBR-<n>] <imperative summary>`, one task per commit. End every message with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
+- **Commit message format:** `[SBR-<n>] <imperative summary>`, one task per commit. End every message with the attribution line **the executing session's own system reminder specifies** — do not copy a model name out of this plan, which was written in a different session.
+- **Tailwind is v4, and v4 wraps `hover:`/`group-hover:` in `@media (hover: hover)`.** On a touch device the label pills and the Scenarios flyout therefore never appear at all. That is consistent with D7 but changes its status: the Scenarios rail icon's click-to-expand is the **only** touch path to scenario management, not a fallback. Do not add a touch-specific hover shim.
 - **The label pill must be a child of the entry `<button>`**, not a sibling. Four existing assertions read the button's own subtree via `toHaveTextContent` (`SidebarTree.test.tsx:66-67`, `Workspace.test.tsx:1189-1191`).
 - **Hidden pills use `opacity-0 pointer-events-none`, never `invisible`/`hidden`/`visibility:hidden`.** `e2e/empty-first-run-workspace.spec.ts:53` calls `.toBeVisible()` on sidebar content and Playwright's visibility check ignores `opacity`; `visibility:hidden` would break it.
 - **The collapsed rail has no scroll container.** Per CSS, if either overflow axis is not `visible` the other computes to `auto`, so *any* `overflow-y-auto` ancestor inside the nav clips a `left-full` child horizontally. `overflow-y-auto` belongs to the expanded panel only.
@@ -129,7 +130,9 @@ import {
   Factory,
   FolderOpen,
   Grid3x3,
-  Map,
+  // Aliased: a bare `Map` import shadows the global Map constructor in a module
+  // that is a natural place to later write `new Map()`.
+  Map as MapIcon,
   MapPinned,
   Pickaxe,
   Route,
@@ -161,7 +164,7 @@ import {
  */
 const ENTITY_ICONS: Record<string, LucideIcon> = {
   // inputs
-  "input-map": Map,
+  "input-map": MapIcon,
   customers: Users,
   warehouses: Warehouse,
   distances: Ruler,
@@ -211,7 +214,7 @@ Expected: PASS, 4 tests.
 - [ ] **Step 5: Typecheck**
 
 Run: `pnpm run typecheck`
-Expected: exit 0, no errors.
+Expected: exit 0, no errors. Note what this does **not** cover: `tsconfig.json` excludes `**/*.test.ts` (but not `*.test.tsx`), so `entityIcons.test.ts` is not typechecked — step 4 passing is the only evidence it is well-typed.
 
 - [ ] **Step 6: Commit**
 
@@ -228,7 +231,7 @@ renders a dot instead of crashing the rail. The test enumerates
 inputEntriesForModel() for every model, so a new entity shipping without an
 icon fails here.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+<ATTRIBUTION — replace with the exact line your session's reminder specifies>
 EOF
 )"
 ```
@@ -238,6 +241,8 @@ EOF
 ### Task SBR-2: collapse state, hamburger, and the rail skeleton
 
 Collapsed/expanded state, persistence, the hamburger, and the icon rail for Inputs/Outputs. Scenarios keeps rendering its **expanded** markup in this task (its rail treatment is SBR-4), so the rail is testable on its own without the flyout machinery.
+
+**This commit is deliberately not a shippable intermediate state, and the commit body says so.** A `collapsed={false}` Scenarios section inside a `w-11 overflow-visible` nav means `px-3` padding, `truncate`d scenario names and a ~60px hover-action strip inside a 44px rail — the `+` and the action icons overflow the nav and paint over the content column. The tests pass because jsdom has no layout. SBR-4 closes it. Do not ship or demo this commit on its own; if you would rather not have a broken commit in the history at all, squash SBR-2 and SBR-4 together (their tests partition cleanly) and say so in the message.
 
 **Files:**
 - Modify: `src/components/workspace/SidebarTree.tsx` (whole file; currently 319 lines)
@@ -341,6 +346,27 @@ describe("SidebarTree — collapsed rail", () => {
     expect(screen.getByTestId("sidebar-input-warehouses").className).not.toContain("truncate");
   });
 
+  it("stacks the nav above the map, which carries an explicit z-index", () => {
+    // .leaflet-container has z-index:0 (index.css:16-18) and the nav precedes the
+    // content column in DOM order, so without this the pills paint under the map.
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const nav = screen.getByTestId("sidebar-tree");
+    expect(nav.className).toContain("relative");
+    expect(nav.className).toContain("z-50");
+  });
+
+  it("hides the collapsed label pill with opacity, never with visibility", () => {
+    // Playwright's visibility check ignores opacity, and
+    // e2e/empty-first-run-workspace.spec.ts:53 calls .toBeVisible() on sidebar
+    // content; `invisible`/`hidden` would break it. pointer-events-none is what
+    // actually stops a click landing on a non-hovered pill.
+    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const pill = screen.getByTestId("sidebar-input-warehouses").querySelector("span");
+    expect(pill?.className).toContain("opacity-0");
+    expect(pill?.className).toContain("pointer-events-none");
+    expect(pill?.className).not.toContain("invisible");
+  });
+
   it("drops the scroll container when collapsed and restores it when expanded", () => {
     const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
     // An overflow-y-auto ancestor also clips horizontally, which would eat the
@@ -361,7 +387,7 @@ Add `beforeEach` to the file's vitest import — change line 1 from
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter studio test src/__tests__/SidebarTree.test.tsx`
-Expected: FAIL — the 11 new tests fail on `Unable to find an element by: [data-testid="button-toggle-sidebar"]` and on the missing `data-collapsed` attribute. The 12 pre-existing tests still pass.
+Expected: **10 of the 13 new tests fail** on `Unable to find an element by: [data-testid="button-toggle-sidebar"]` and on the missing `data-collapsed` attribute. The other 3 already pass against the old component and are regression guards, not drivers — "keeps all three section wrappers", "keeps each entry label in the DOM inside its own button", and "still disables unsolved outputs". The **17** pre-existing tests still pass (measured by running this file at HEAD — not 12; do not expect 12 anywhere in this plan).
 
 - [ ] **Step 3: Rewrite `SidebarTree.tsx`**
 
@@ -490,7 +516,7 @@ function EntryRow({
 }
 ```
 
-Replace the component body (the current `return (` through the closing `</nav>` and `}`, lines 69–147) with:
+Replace **lines 68–147** — that is, the `}: SidebarTreeProps) {` line *and* the body through the closing `</nav>` and `}`. (The replacement block below starts with that same line; replacing only 69–147 leaves two consecutive `}: SidebarTreeProps) {` lines and a syntax error.)
 
 ```tsx
 }: SidebarTreeProps) {
@@ -661,7 +687,7 @@ Leave `rowClass` and `ScenarioRow` exactly as they are — `rowClass` keeps its 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter studio test src/__tests__/SidebarTree.test.tsx`
-Expected: PASS, 23 tests (12 pre-existing + 11 new).
+Expected: PASS, **30** tests (17 pre-existing + 13 new).
 
 Note on why the pre-existing scenario-operation tests still pass: Tailwind's stylesheet is not loaded in jsdom, so `pointer-events-none` has no computed effect there and `userEvent.click` is not blocked. That is also why SBR-4 adds an explicit interaction test for the flyout rather than relying on these.
 
@@ -700,45 +726,80 @@ explicit z-index 0, so pills would otherwise paint under the map).
 
 Scenarios still renders its expanded markup; SBR-4 gives it the rail treatment.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+<ATTRIBUTION — replace with the exact line your session's reminder specifies>
 EOF
 )"
 ```
 
 ---
 
-### Task SBR-3: Leaflet redraws when the rail changes width
+### Task SBR-3: Leaflet redraws when any map container changes width
 
-Independent of the sidebar's own markup, and the reason it is before SBR-4: after SBR-2 the rail already changes width, so from here on every manual check of the sidebar on a map tab would show a stale map.
+Independent of the sidebar's own markup, and the reason it comes before SBR-4: after SBR-2 the rail already changes width, so from here on every manual check of the sidebar on a map tab would show a stale map.
+
+**There are five `<MapContainer>` mount sites in production code, not one.** `grep -rn "<MapContainer" src` gives `NetworkMap.tsx:634` and `InputMapTab.tsx:1059, :1562, :2057, :2640`. `InputMapTab` does **not** use `NetworkMap` (zero references) — it builds its own map. `NetworkMap`'s only consumers are `OutputMapTab.tsx` and the dead `Studio.tsx`. So fixing `NetworkMap` alone would leave the **auto-opened Input Map** — the exact tab the spec and QA item 2 single out — unfixed. Hence a shared component, mounted in all five.
 
 **Files:**
-- Modify: `src/components/NetworkMap.tsx` (add a component next to `FitBounds` at `:225`, mount it next to `<FitBounds />` at `:645`)
-- Test: `src/__tests__/NetworkMapInvalidateOnResize.test.tsx` (new)
+- Create: `src/components/workspace/map/InvalidateOnResize.tsx`
+- Modify: `src/components/NetworkMap.tsx` (mount next to `<FitBounds />` at `:645`)
+- Modify: `src/components/workspace/tabs/InputMapTab.tsx` (mount in all four `<MapContainer>`s: `:1059, :1562, :2057, :2640`)
+- Modify: `src/__tests__/Workspace.TabCoverage.test.tsx:58` (extend the `useMap` mock)
+- Modify: `src/__tests__/deliveryEditableInputs.test.tsx:40` (extend the `useMap` mock)
+- Test: `src/__tests__/InvalidateOnResize.test.tsx` (new)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `InvalidateOnResize` — module-private; the test imports it via a named export so it can be driven in isolation. Export it as `export function InvalidateOnResize()`.
+- Produces: `InvalidateOnResize` — a props-less component, exported from `@/components/workspace/map/InvalidateOnResize`. Must be rendered as a child of a `<MapContainer>` (it calls `useMap()`).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Extend the two react-leaflet mocks that will otherwise crash**
+
+This step comes first because without it the next step's test run is drowned in unrelated failures. Both files mock `useMap` with a two-method stub; the new effect calls `map.getContainer()`, which throws a TypeError from inside a `useEffect` — React surfaces that as an unhandled error and the test fails. `Workspace.TabCoverage.test.tsx` renders the real `OutputMapTab` (its sweep clicks `sidebar-output-output-map` at `:169`), so it hits this immediately; `deliveryEditableInputs.test.tsx` carries the identical mock.
+
+In **both** `src/__tests__/Workspace.TabCoverage.test.tsx` (line 58) and `src/__tests__/deliveryEditableInputs.test.tsx` (line 40), replace:
+
+```ts
+    useMap: () => ({ setView: vi.fn(), fitBounds: vi.fn() }),
+```
+
+with:
+
+```ts
+    // SBR-3 — InvalidateOnResize observes the map's container and calls
+    // invalidateSize; a two-method stub makes it throw from inside an effect.
+    useMap: () => ({
+      setView: vi.fn(),
+      fitBounds: vi.fn(),
+      getContainer: () => document.createElement("div"),
+      invalidateSize: vi.fn(),
+    }),
+```
+
+Do **not** instead guard the production code with `typeof map.getContainer === "function"`. That is production code bending to a test mock.
+
+- [ ] **Step 2: Write the failing test**
 
 `src/__tests__/setup.ts` stubs `ResizeObserver` as a no-op class, so the test must install its own capturing stub and fire the callback by hand.
 
-Create `src/__tests__/NetworkMapInvalidateOnResize.test.tsx`:
+Create `src/__tests__/InvalidateOnResize.test.tsx`:
 
 ```tsx
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
-import { InvalidateOnResize } from "@/components/NetworkMap";
+import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 
 const invalidateSize = vi.fn();
 const container = document.createElement("div");
 
-// react-leaflet's useMap() only works inside a MapContainer, which needs a real
-// Leaflet instance. Mock the hook instead: this test is about the observer
-// wiring, not about Leaflet.
-vi.mock("react-leaflet", () => ({
-  useMap: () => ({ invalidateSize, getContainer: () => container }),
-}));
+// Spread importActual rather than replacing the module wholesale — the pattern
+// every other react-leaflet mock in this repo uses. InvalidateOnResize itself
+// only imports useMap, but the spread keeps this honest if that changes.
+vi.mock("react-leaflet", async () => {
+  const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
+  return {
+    ...actual,
+    useMap: () => ({ invalidateSize, getContainer: () => container }),
+  };
+});
 
 let observed: Element[] = [];
 let fire: (() => void) | null = null;
@@ -751,6 +812,7 @@ beforeEach(() => {
   observed = [];
   fire = null;
   global.ResizeObserver = class {
+    disconnect = disconnect;
     constructor(callback: () => void) {
       fire = callback;
     }
@@ -758,7 +820,6 @@ beforeEach(() => {
       observed.push(element);
     }
     unobserve() {}
-    disconnect = disconnect;
   } as unknown as typeof ResizeObserver;
 });
 
@@ -787,16 +848,19 @@ describe("InvalidateOnResize", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
-Run: `pnpm --filter studio test src/__tests__/NetworkMapInvalidateOnResize.test.tsx`
-Expected: FAIL — `InvalidateOnResize` is not exported from `@/components/NetworkMap`.
+Run: `pnpm --filter studio test src/__tests__/InvalidateOnResize.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/workspace/map/InvalidateOnResize"`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the implementation**
 
-In `src/components/NetworkMap.tsx`, immediately after the `FitBounds` component (which ends at `:231`), add:
+Create `src/components/workspace/map/InvalidateOnResize.tsx`:
 
 ```tsx
+import { useEffect } from "react";
+import { useMap } from "react-leaflet";
+
 /**
  * SBR-3 — leaflet 1.9.4's `trackResize` subscribes to **window** resize only
  * (node_modules/leaflet/src/map/Map.js:1324-1326), so a container that changes
@@ -804,6 +868,11 @@ In `src/components/NetworkMap.tsx`, immediately after the `FitBounds` component 
  * sidebar rail does — leaves the map rendered at its old width: a blank strip or
  * cropped tiles until the window itself is resized. Input Map is auto-opened on
  * entry to a model page, so this is the default state, not an edge case.
+ *
+ * Must be rendered as a child of a <MapContainer> (it calls useMap()). Mounted
+ * in all five production map containers: NetworkMap.tsx and InputMapTab.tsx's
+ * four. InputMapTab does NOT go through NetworkMap, which is why this lives in
+ * its own module rather than inside NetworkMap.
  */
 export function InvalidateOnResize() {
   const map = useMap();
@@ -819,50 +888,72 @@ export function InvalidateOnResize() {
 }
 ```
 
-`useMap` and `useEffect` are already imported (`:2` and `:1`) — add nothing to the imports.
+- [ ] **Step 5: Run the test to verify it passes**
 
-Then mount it inside `<MapContainer>`, immediately after `<FitBounds bounds={effectiveBounds} />` at `:645`:
+Run: `pnpm --filter studio test src/__tests__/InvalidateOnResize.test.tsx`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 6: Mount it in all five map containers**
+
+In `src/components/NetworkMap.tsx`, add the import below the existing `@/components/workspace/map/MapLegend` import:
+
+```tsx
+import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
+```
+
+and mount it immediately after `<FitBounds bounds={effectiveBounds} />` at `:645`:
 
 ```tsx
         <FitBounds bounds={effectiveBounds} />
         <InvalidateOnResize />
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+In `src/components/workspace/tabs/InputMapTab.tsx`, add the same import, then add `<InvalidateOnResize />` as the **first child** of each of the four `<MapContainer>` elements (`:1059, :1562, :2057, :2640`). Find each by its opening tag's closing `>` and insert on the next line. Verify you got all four:
 
-Run: `pnpm --filter studio test src/__tests__/NetworkMapInvalidateOnResize.test.tsx`
-Expected: PASS, 3 tests.
+```bash
+cd /Users/shubhamkr/network-optimization-studio/artifacts/studio
+grep -c "<InvalidateOnResize />" src/components/workspace/tabs/InputMapTab.tsx   # expect 4
+grep -c "<InvalidateOnResize />" src/components/NetworkMap.tsx                    # expect 1
+```
 
-- [ ] **Step 5: Run the full studio suite and typecheck**
+- [ ] **Step 7: Run the full studio suite and typecheck**
 
 Run: `pnpm run typecheck && pnpm --filter studio test`
-Expected: typecheck exit 0; suite green. If map-related suites time out, re-check for a concurrent vitest run (`ps aux | grep "[v]itest" | grep -v "zsh -c"`) before treating it as a regression.
+Expected: typecheck exit 0; suite green — **including `Workspace.TabCoverage.test.tsx` and `deliveryEditableInputs.test.tsx`**, which are green only because of step 1. If either reports `map.getContainer is not a function`, step 1 was skipped or applied to one file. If unrelated map suites time out, re-check for a concurrent vitest run (`ps aux | grep "[v]itest" | grep -v "zsh -c"`) before treating it as a regression.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 cd /Users/shubhamkr/network-optimization-studio
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add artifacts/studio/src/components/NetworkMap.tsx artifacts/studio/src/__tests__/NetworkMapInvalidateOnResize.test.tsx
+git add artifacts/studio/src/components/workspace/map/InvalidateOnResize.tsx \
+        artifacts/studio/src/components/NetworkMap.tsx \
+        artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx \
+        artifacts/studio/src/__tests__/InvalidateOnResize.test.tsx \
+        artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx \
+        artifacts/studio/src/__tests__/deliveryEditableInputs.test.tsx
 git commit -m "$(cat <<'EOF'
-[SBR-3] redraw the map when its container resizes, not just the window
+[SBR-3] redraw every map when its container resizes, not just the window
 
 leaflet's trackResize listens to window resize only, so the sidebar rail
-collapsing or expanding left Input Map / Output Map at their old width — a blank
-strip or cropped tiles until the window itself resized. One ResizeObserver
-inside MapContainer calls invalidateSize instead. The repo had zero
-invalidateSize or ResizeObserver calls in non-test source before this.
+collapsing or expanding left the maps at their old width — a blank strip or
+cropped tiles until the window itself resized. One shared ResizeObserver
+component, mounted in all five production MapContainers.
 
-The test installs its own capturing ResizeObserver because setup.ts's global
-stub is a deliberate no-op.
+Five, not one: InputMapTab builds its own map and does not go through
+NetworkMap, so a NetworkMap-only fix would have missed the auto-opened Input Map
+— the default tab, and the one state this is most visible in.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Two existing react-leaflet mocks stub useMap with setView/fitBounds only; they
+gain getContainer/invalidateSize, because a two-method stub makes the new effect
+throw. The production code is deliberately not guarded against that — a mock
+does not get to shape the real component.
+
 EOF
 )"
 ```
 
----
-
+(Append the attribution line the executing session's reminder specifies before committing.)
 ### Task SBR-4: Scenarios rail icon, flyout, and the rename latch
 
 **Files:**
@@ -945,6 +1036,17 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
   });
 
+  it("releases the latch when a row unmounts mid-rename (a list refetch dropping it)", async () => {
+    const props = baseProps();
+    const view = render(<SidebarTree {...props} defaultCollapsed={true} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
+
+    // Scenario 1 disappears from the list while its rename is open.
+    view.rerender(<SidebarTree {...props} defaultCollapsed={true} scenarios={[{ id: 2, name: "Best 3-4 DCs" }]} />);
+    expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
+  });
+
   it("gives the flyout its own scroll box so a long list cannot clip", () => {
     render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
     const scroller = screen.getByTestId("sidebar-scenarios-flyout-scroll");
@@ -957,7 +1059,7 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm --filter studio test src/__tests__/SidebarTree.test.tsx`
-Expected: FAIL — 8 new failures on the missing `button-open-scenarios-flyout` and `sidebar-scenarios-flyout` testids. The 23 earlier tests still pass.
+Expected: **6 of the 9 new tests fail** on the missing `button-open-scenarios-flyout` and `sidebar-scenarios-flyout` testids. Three already pass against SBR-2's component and are regression guards — "mounts every scenario row exactly once", "keeps the create button and the empty row inside the scenarios section", and "scenario rows are still interactive". The 30 earlier tests still pass.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -980,7 +1082,12 @@ Inside `SidebarTree`, after the `toggleCollapsed` function, add the latch:
   const [interactingRows, setInteractingRows] = useState<ReadonlySet<number>>(() => new Set());
   const scenariosFlyoutPinned = interactingRows.size > 0;
 
-  function setRowInteracting(id: number, active: boolean) {
+  // Stable identity (it touches nothing but the setter), so ScenarioRow can list
+  // it in an effect's deps AND run a cleanup without looping. With an unstable
+  // callback, a cleanup that clears the flag would re-add it on the next render,
+  // forever. The `active === previous.has(id)` bail-out returns the IDENTICAL Set
+  // so React drops the re-render — do not "simplify" it away.
+  const setRowInteracting = useCallback((id: number, active: boolean) => {
     setInteractingRows(previous => {
       if (active === previous.has(id)) return previous;
       const next = new Set(previous);
@@ -988,13 +1095,19 @@ Inside `SidebarTree`, after the `toggleCollapsed` function, add the latch:
       else next.delete(id);
       return next;
     });
-  }
+  }, []);
 ```
 
-Thread it through `scenarioList` — add one prop to the `<ScenarioRow>` call:
+Add `useCallback` to the React import:
 
 ```tsx
-          onInteractionStateChange={active => setRowInteracting(s.id, active)}
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+```
+
+Thread the latch through `scenarioList` by passing the **stable function itself** — not an inline arrow, which would be a new identity every render and defeat the cleanup in `ScenarioRow`:
+
+```tsx
+          onInteractionStateChange={setRowInteracting}
 ```
 
 Replace the SBR-2 placeholder Scenarios section (the `<SidebarSection title="Scenarios" … collapsed={false} …>` block) with:
@@ -1072,8 +1185,10 @@ In `ScenarioRow`, add the prop to its signature and type:
   onClone: () => void;
   onDelete: () => void;
   /** D6 — reports "this row is mid-rename or mid-delete-confirm" upward so the
-   *  collapsed Scenarios flyout can pin itself open. */
-  onInteractionStateChange?: (active: boolean) => void;
+   *  collapsed Scenarios flyout can pin itself open. Takes the id, so the row can
+   *  also clear its own flag on unmount without the parent tracking which row
+   *  reported what. */
+  onInteractionStateChange?: (id: number, active: boolean) => void;
 }) {
 ```
 
@@ -1082,22 +1197,20 @@ and report changes with an effect placed immediately after the row's `useState`/
 ```tsx
   const interacting = editing || confirmingDelete;
   useEffect(() => {
-    onInteractionStateChange?.(interacting);
-  }, [interacting, onInteractionStateChange]);
+    onInteractionStateChange?.(scenario.id, interacting);
+    // The cleanup matters: a row that unmounts mid-rename or mid-confirm — a
+    // scenario-list refetch drops it — would otherwise leave its id in the
+    // parent's Set and pin the flyout open until something else toggled it.
+    // Safe from looping ONLY because onInteractionStateChange is a stable
+    // useCallback; an inline arrow here would re-add the flag every render.
+    return () => onInteractionStateChange?.(scenario.id, false);
+  }, [scenario.id, interacting, onInteractionStateChange]);
 ```
-
-Add `useEffect` to the React import at line 1:
-
-```tsx
-import { useEffect, useRef, useState, type ReactNode } from "react";
-```
-
-Because `onInteractionStateChange` is an inline arrow in `scenarioList`, it is a new function identity on every render; the effect's guard against a pointless state write lives in `setRowInteracting` (`if (active === previous.has(id)) return previous`), which returns the identical Set and so does not re-render. Do not "optimise" that guard away.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm --filter studio test src/__tests__/SidebarTree.test.tsx`
-Expected: PASS, 31 tests (12 pre-existing + 11 from SBR-2 + 8 new).
+Expected: PASS, **39** tests (17 pre-existing + 13 from SBR-2 + 9 new).
 
 - [ ] **Step 5: Run the full studio suite and typecheck**
 
@@ -1126,7 +1239,7 @@ between rail and flyout for the cursor to cross and lose :hover in.
 Clicking the rail icon expands the sidebar (D7) — it has no tab of its own, and
 this is the touch/keyboard path, since iOS emulates :hover unreliably.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+<ATTRIBUTION — replace with the exact line your session's reminder specifies>
 EOF
 )"
 ```
@@ -1207,16 +1320,64 @@ Expected: PASS. If a test fails on a *different* sidebar control, that control i
 
 ```bash
 cd /Users/shubhamkr/network-optimization-studio/artifacts/studio
-grep -rn --include="*.ts" "button-rename-scenario-\|button-clone-scenario-\|button-delete-scenario-\|button-confirm-delete-\|button-cancel-delete-" e2e
+grep -rn --include="*.ts" "button-rename-scenario-\|button-clone-scenario-\|button-delete-scenario-\|button-confirm-delete-\|button-cancel-delete-\|input-rename-scenario-\|sidebar-scenario-" e2e
 ```
-Expected: only the two edited files (plus comment-only lines). Any `.click()`/`.fill()` on one of these in another spec needs the same hover — this is the repo's standing `spec_gap` discipline, and the e2e job is blocking in CI (`.github/workflows/ci.yml:123`).
+Expected: `sidebar-scenario-` appears in `bundle6-ui-tweaks.spec.ts:157-158` as `toHaveAttribute` reads (no hover needed), and the rest only in the two edited files plus comment-only lines. Any `.click()`/`.fill()`/`.hover()`-less interaction with one of these in another spec needs the same hover — the repo's standing `spec_gap` discipline, and the e2e job is blocking in CI (`.github/workflows/ci.yml:123`).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run the repo verification gate**
+
+Confirm nothing else is running first — another session's vitest or pytest makes unrelated files time out, and that is a documented trap, not a regression:
+
+```bash
+ps aux | grep "[v]itest" | grep -v "zsh -c"
+ps aux | grep "[p]ytest" | grep -v "zsh -c"
+```
+Expected: no rows for either.
+
+```bash
+cd /Users/shubhamkr/network-optimization-studio
+pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
+  && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
+```
+Expected: all green. Known load-induced flakes in the api-server suite (`cors`, `jobRunnerDispatcher`, `resultEnvelope`, `routes`, …) and `test_transport.py::TestSingleSource` re-run clean in isolation — this change touches no API or solver code at all, so re-run the named file alone before treating any such failure as a regression.
+
+- [ ] **Step 7: Run the e2e gate against the LOCAL stack**
+
+`playwright.config.ts:3-5` defaults `BASE_URL` to a **dead Replit host** when `E2E_BASE_URL` is unset, and there is no `webServer` block — so a bare `pnpm e2e:gate` runs the whole suite against nothing. Keep both dev servers from step 4 running and pass the base URL explicitly:
+
+```bash
+cd /Users/shubhamkr/network-optimization-studio
+E2E_BASE_URL=http://localhost:5199 pnpm e2e:gate
+```
+Expected: green. **Read `artifacts/studio/e2e/report/results.json` (`stats.unexpected` and `stats.flaky`), not the console tail** — the summary folds retried failures away silently, and this repo has a documented list of load-sensitive specs that pass only on retry.
+
+- [ ] **Step 8: Real-browser QA pass**
+
+Against the same local stack, check each of these and record the result:
+
+1. Collapse and expand on a p-median-us model page; the rail shows an icon per entry.
+2. With **Input Map** open (it auto-opens), collapse then expand: the map redraws at the new width with no blank strip and no cropped tiles. This is the tab that proves SBR-3 was mounted in `InputMapTab`'s four containers and not just `NetworkMap`'s one.
+3. Repeat item 2 with **Output Map** open (that is the `NetworkMap` path).
+4. Hover one Inputs rail icon: only that row's label slides out, over the map, unclipped.
+5. Hover the Scenarios rail icon: rename a scenario, then clone, then delete-with-confirm. The flyout must not close mid-rename when the cursor drifts off it.
+6. Reload: the collapsed/expanded choice survives.
+7. Log in as a brand-new account with zero scenarios: the first-run CTA still reads clearly with the rail collapsed.
+8. Resize to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
+
+- [ ] **Step 9: Append the changelog entry**
+
+Append at the bottom of `docs/CHANGELOG-implementation.md`, following the format of the existing final entry (read it first; match its heading level and field names). Record: the five commits and their SHAs; collapsed-by-default + `nos:sidebar-collapsed`; the four corrected icon choices; the defects the two Fable 5 review rounds caught before they shipped (round 1 on the spec: self-defeating overflow mitigation, flyouts under the map, Leaflet not reflowing at all; round 2 on the plan: the Leaflet fix targeting the wrong component, two react-leaflet mocks that would have crashed, the e2e gate pointed at a dead Replit host); the corrected measurements (227 → 193 sidebar refs, because the first count swept `e2e/report/`; 12 → 17 pre-existing `SidebarTree` tests); the three e2e hover edits; gate numbers from steps 6–7; and the QA results from step 8.
+
+- [ ] **Step 10: Commit the e2e edits and the changelog together**
+
+One commit, so the record ships with the work it describes (CLAUDE.md hard rule 9, and the spec's own §8). This is why the gate and QA run *before* this commit rather than after it.
 
 ```bash
 cd /Users/shubhamkr/network-optimization-studio
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add artifacts/studio/e2e/empty-first-run-workspace.spec.ts artifacts/studio/e2e/two-echelon.spec.ts
+git add artifacts/studio/e2e/empty-first-run-workspace.spec.ts \
+        artifacts/studio/e2e/two-echelon.spec.ts \
+        docs/CHANGELOG-implementation.md
 git commit -m "$(cat <<'EOF'
 [SBR-5] hover the Scenarios rail before the three collapsed-flyout clicks
 
@@ -1230,88 +1391,48 @@ Every other sidebar reference in the suite is untouched: rail buttons keep their
 testids and stay visible, so the 187 e2e and 252 RTL row references resolve
 exactly as before.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Carries the changelog entry for the whole bundle, with the gate and QA numbers,
+per hard rule 9 — the record ships in the same commit as the work.
+
 EOF
 )"
 ```
 
----
-
-### Task SBR-6: full gate, QA pass, changelog
-
-**Files:**
-- Modify: `docs/CHANGELOG-implementation.md` (append at the bottom)
-
-**Interfaces:**
-- Consumes: everything above.
-- Produces: the record. No code.
-
-- [ ] **Step 1: Confirm no concurrent test run, then run the repo verification gate**
-
-```bash
-ps aux | grep "[v]itest" | grep -v "zsh -c"
-ps aux | grep "[p]ytest" | grep -v "zsh -c"
-```
-Expected: no rows for either.
-
-```bash
-cd /Users/shubhamkr/network-optimization-studio
-pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
-  && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
-```
-Expected: all green. Known load-induced flakes in the api-server suite (`cors`, `jobRunnerDispatcher`, `resultEnvelope`, `routes`, …) and `test_transport.py::TestSingleSource` re-run clean in isolation — this change touches no API or solver code, so re-run the named file alone before treating any such failure as a regression.
-
-- [ ] **Step 2: Run the e2e gate**
-
-```bash
-cd /Users/shubhamkr/network-optimization-studio
-pnpm e2e:gate
-```
-Expected: green. **Read `artifacts/studio/e2e/report/results.json` (`stats.unexpected` and `stats.flaky`), not the console tail** — the summary folds retried failures away silently.
-
-- [ ] **Step 3: Real-browser QA pass**
-
-Against the local stack from SBR-5 step 4, check each of these and record the result:
-
-1. Collapse and expand on a p-median-us model page; the rail shows an icon per entry.
-2. With Input Map open, collapse then expand: the map redraws at the new width with no blank strip (SBR-3).
-3. Hover one Inputs rail icon: only that row's label slides out, over the map, unclipped.
-4. Hover the Scenarios rail icon: rename a scenario, then clone, then delete-with-confirm. The flyout must not close mid-rename when the cursor drifts off it.
-5. Reload: the collapsed/expanded choice survives.
-6. Log in as a brand-new account with zero scenarios: the first-run CTA still reads clearly with the rail collapsed.
-7. Resize the browser to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
-
-- [ ] **Step 4: Append the changelog entry**
-
-Append at the bottom of `docs/CHANGELOG-implementation.md`, following the format of the existing final entry (read it first; match its heading level and field names). Content to record: the five commits and their SHAs; collapsed-by-default + `nos:sidebar-collapsed`; the four corrected icon choices; the three review-round-1 defects caught before implementation (self-defeating overflow mitigation, flyouts under the map, Leaflet not reflowing); the corrected measurement (227 → 193, because the first count swept `e2e/report/`); the three e2e hover edits; gate numbers from steps 1–2; and the QA results from step 3.
-
-- [ ] **Step 5: Commit**
-
-```bash
-cd /Users/shubhamkr/network-optimization-studio
-[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add docs/CHANGELOG-implementation.md
-git commit -m "$(cat <<'EOF'
-[SBR-6] record the sidebar rail bundle in the implementation changelog
-
-Gate numbers, QA results, and the three defects review round 1 caught before any
-code was written.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-- [ ] **Step 6: Stop. Do not merge.**
-
-Report to the user: the branch is complete, all gates green, QA recorded. Then **wait for explicit merge approval** — the repo's merge-to-main pipeline is a hard stop at this point, merge approval is not push approval, and push approval is not deploy approval. After an approved merge, run the whole-branch review on the merged state, and `/harness-retro SBR` before the branch is considered finished.
+(Append the attribution line the executing session's reminder specifies before committing.)
 
 ---
+
+### Task SBR-6: stop
+
+No files. No commit. This task exists so the pipeline's hard stop is a tracked step rather than something to remember.
+
+- [ ] **Step 1: Confirm the branch is clean and every task's gate was recorded**
+
+```bash
+cd /Users/shubhamkr/network-optimization-studio
+git status --short            # expect empty
+git log --oneline sidebar-hamburger-rail ^main
+```
+Expected: the three doc commits plus the five task commits, nothing uncommitted.
+
+- [ ] **Step 2: Report to the user and STOP**
+
+Report: branch complete, which gates ran and their numbers, the QA results including items 2, 3 and 8, and anything deferred.
+
+Then **wait for explicit merge approval.** Do not merge, do not push, do not deploy. The repo's pipeline is: all tasks done → **prompt the user** → merge to local `main` → whole-branch review on the merged state → push → (separately approved) deploy. Merge approval is not push approval; push approval is not deploy approval. If the review returns findings, `git switch sidebar-hamburger-rail` **before** fixing them — step 4 leaves HEAD on `main` and the fixes are a new commit.
+
+- [ ] **Step 3: After an approved merge and review, run the retro**
+
+`/harness-retro SBR` — a branch is not finished until it has run. It records the metrics row, logs each gate failure by cause, and fires the second-occurrence gate rule.
 
 ## Self-review
 
-**Spec coverage.** Every spec section maps to a task: §4.1 state/persistence → SBR-2; §4.2 expanded icons → SBR-2; §4.3 rail + section wrappers + single-mount → SBR-2 and SBR-4; §4.4 width transition and the Leaflet fix → SBR-2 (classes) and SBR-3; §4.5 all four pill constraints, stacking, the Scenarios flyout, the `pl-1` gap → SBR-2 and SBR-4; §4.6 icon map → SBR-1; §4.7 accessibility (`aria-expanded`, `aria-controls`, no redundant `aria-label`, focus-within flyout) → SBR-2 and SBR-4; §6 test plan → the test steps of SBR-1/2/4 plus SBR-5; §7 risks → SBR-6 step 3 items 6 and 7, and the D6 latch in SBR-4; §8 DoD → SBR-6.
+**Spec coverage.** §4.1 state/persistence → SBR-2; §4.2 expanded icons → SBR-2; §4.3 rail, section wrappers, single-mount → SBR-2 + SBR-4; §4.4 width transition + the Leaflet fix → SBR-2 (classes) + SBR-3; §4.5's four pill constraints, stacking and the `pl-1` gap → SBR-2 + SBR-4 (every one now has an assertion, including the two that are class-string facts); §4.6 icon map → SBR-1; §4.7 accessibility → SBR-2 + SBR-4; §6 test plan → the test steps of SBR-1/2/4 plus SBR-5 step 5; §7 risks → SBR-5 step 8 items 7 and 8, plus the D6 latch in SBR-4; §8 DoD → SBR-5 steps 6-9 and SBR-6.
 
-**Known deviation from the spec, deliberate:** the spec's §6 test list has 8 numbered RTL cases; this plan writes 19 across SBR-2 and SBR-4, splitting several of the spec's cases (e.g. its case 1 becomes three precedence tests) and adding assertions for the class-level constraints (`truncate`, `overflow-y-auto`) that only a className check can cover. Superset, not a gap.
+**Deliberate deviations from the spec, both supersets:**
+1. The spec's §6 lists 8 RTL cases; this plan writes 22 across SBR-2 (13) and SBR-4 (9), splitting some of the spec's cases and adding className checks for constraints only a class assertion can cover.
+2. **The spec's §4.4 and §5 are wrong about where the Leaflet fix goes** — they name `NetworkMap.tsx` only, but `InputMapTab.tsx` builds its own four `<MapContainer>`s and never goes through `NetworkMap`, so the auto-opened Input Map would have been left unfixed. SBR-3 mounts a shared component in all five. §4.4 and §5 of the spec were corrected in place at the same commit as this plan revision — the spec is the canonical copy and must not stay wrong. Nothing left for the executor to fix there.
 
-**Type consistency.** `iconForEntity(id: string): LucideIcon` and `SCENARIOS_ICON: LucideIcon` are used with those exact names in SBR-2 and SBR-4. `defaultCollapsed?: boolean` is declared in SBR-2 and consumed by SBR-4's tests. `onInteractionStateChange?: (active: boolean) => void` is declared and called with the same signature within SBR-4. `applyCollapsed(value: boolean)` is introduced in SBR-2 as the single writer of the stored preference, and SBR-4's D7 handler calls that same function rather than adding a second persistence path. `InvalidateOnResize()` takes no props and is referenced by that name in both its test and its mount site.
+**Type consistency.** `iconForEntity(id: string): LucideIcon` and `SCENARIOS_ICON: LucideIcon` are used under those exact names in SBR-2 and SBR-4. `defaultCollapsed?: boolean` is declared in SBR-2 and consumed by SBR-4's tests. `onInteractionStateChange?: (id: number, active: boolean) => void` — the id-taking signature — is declared in SBR-4 and called with that signature in both the effect and its cleanup, and the value passed is the stable `useCallback`'d `setRowInteracting`, never an inline arrow. `applyCollapsed(value: boolean)` is introduced in SBR-2 as the single writer of the stored preference; SBR-4's D7 handler calls it rather than adding a second path. `InvalidateOnResize()` takes no props and is referenced by that name in its test, its module path, and all five mount sites.
+
+**Counts, measured not guessed.** `SidebarTree.test.tsx` has **17** tests at HEAD (ran it) → 30 after SBR-2 → 39 after SBR-4. `grep -rn "<MapContainer" src` → **5** production sites. The first draft of this plan said 12 / 23 / 31 and one map site; all four numbers were wrong.
