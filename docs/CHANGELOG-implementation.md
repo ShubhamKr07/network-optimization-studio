@@ -2788,3 +2788,76 @@ exactly one row — `id`, `body`, `created_at` as `timestamp with time zone`, no
 the panel auto-closed. **Known residual:** at 768px and 900px the launcher geometrically overlaps
 one chapter card (measured: 0 cards at 375px, 1 at both 768px and 900px), so it intercepts clicks on
 that small corner. No spec runs at those widths today; cosmetic and bounded.
+
+## 2026-10-03/04 — Sidebar hamburger rail (`sidebar-hamburger-rail`, SBR-1…SBR-5)
+
+Cosmetic/UX only: no API, DB, solver or generated-code surface. The model-page sidebar
+(`SidebarTree`, one component serving all 7 chapters) becomes a hamburger-toggled icon rail —
+collapsed by default with the choice persisted under `nos:sidebar-collapsed`, a unique lucide icon
+per Inputs/Outputs entry, a CSS-only hover label pill, and a Scenarios rail icon whose flyout holds
+the real scenario list. Spec: `docs/superpowers/specs/2026-10-03-sidebar-hamburger-rail-design.md`.
+Plan: `docs/superpowers/plans/2026-10-03-sidebar-hamburger-rail.md`.
+
+| Task | Commit | What |
+|---|---|---|
+| SBR-1 | `4e599c0` | `entityIcons.ts` — entity→icon map, unique across the whole set, `Circle` fallback |
+| SBR-2 | `f27370f` | collapse state + persistence + hamburger + the Inputs/Outputs rail |
+| SBR-3 | `eb89ddb` | `InvalidateOnResize` mounted in **all five** `<MapContainer>`s |
+| SBR-3b | `0721c92` | coalesce `invalidateSize` to one call per settled resize |
+| SBR-5 | *this commit* | the three collapsed-flyout e2e hovers + this entry |
+
+**The design decision worth recording.** Collapsed-by-default was re-decided by the user *after*
+`cosmetic-ui` removed both the tab strip and the header scenario dropdown, which together make the
+sidebar the only navigator **and** the only scenario switcher. Both agent sessions recommended
+expanded-by-default for discoverability; the user chose collapsed with those facts stated. QA then
+produced the evidence that supports the call: at a 375px viewport the Optimization Parameters tab
+has **0 clipped elements with the rail collapsed (331px of content) versus 1 clipped and only 151px
+expanded**. The rail buys back 180px exactly where the content column was starved.
+
+**Why the Leaflet fix touches five files, not one.** `grep -rn "<MapContainer" src` returns
+`NetworkMap.tsx:634` **and `InputMapTab.tsx:1074, :1577, :2072, :2655`** — `InputMapTab` builds its
+own map and has zero references to `NetworkMap`. A `NetworkMap`-only fix would have left the
+**auto-opened Input Map** stale on every toggle while every gate reported green. Two existing
+react-leaflet mocks stub `useMap` as `{setView, fitBounds}`; they needed `getContainer`/
+`invalidateSize` or the new effect throws from inside `useEffect`. That was verified by reverting one
+stub and watching `Workspace.TabCoverage` produce four `map.getContainer is not a function`
+failures, rather than assumed.
+
+**A misdiagnosis, corrected and kept in the source.** Browser QA repeatedly showed the nav stuck at
+the wrong width — `data-collapsed` saying one thing and the measured width the other, in both
+directions. It was diagnosed as a main-thread stall from ~60 `invalidateSize` calls per toggle, and
+the debounce was written as the fix. The symptom was **not real**: it was an artifact of driving the
+page in a background tab, where Chrome freezes CSS transitions (`playState "running"` with
+`currentTime` pinned at 0, `document.hidden` true). With the tab actually rendered the width tracks
+the class every time. The debounce is kept on its own merits — 60 redundant Leaflet recomputations
+per click is worth removing — and `InvalidateOnResize.tsx` says exactly that, so the next reader
+does not inherit the wrong story.
+
+**Test-impact numbers, corrected twice.** The first draft claimed 227 sidebar references across 26
+e2e files; that count swept `e2e/report/`, which holds Playwright run artifacts. Real: **193 across
+23 spec files**, plus 277 occurrences across 15 real RTL files. The pre-existing `SidebarTree.test.tsx`
+count was stated as 12 and is **17** (measured by running it). Both were caught by review, not by
+the author.
+
+**What made ~439 row references survive untouched:** the label pill is a **child of the entry
+`<button>`**, visually hidden with `opacity-0 pointer-events-none` and never unmounted, so
+`toHaveTextContent` still reads it and every `data-testid` resolves in both states. All **17**
+pre-existing `SidebarTree` tests pass **unmodified**. Only 3 interactions needed edits — delete and
+confirm-delete in `empty-first-run-workspace.spec.ts`, clone in `two-echelon.spec.ts` — each gaining
+a `.hover()` on the rail's Scenarios icon with an explicit timeout.
+
+**Gates.** typecheck clean · studio **2307/2307** across 126 files (0 concurrent vitest verified
+first) · api-server **1683/1684**, the one failure being `dispatcherRecovery.test.ts`, a documented
+flake, **27/27 isolated**, on a branch touching zero api-server or solver files · solver pytest
+**323/323** · Playwright `e2e:gate` **67 expected, 0 unexpected, 0 flaky** — nothing retried into
+passing. An earlier gate run showed `design-system.spec.ts:249` failing and did not reproduce on
+re-run; it is already on the documented load-flake list.
+
+**QA (real browser, local stack).** Rail renders one icon per entry with the active row highlighted;
+hovering one rail icon slides out only that row's label, **over** the map (the `relative z-50` on the
+nav is what keeps the pills above `.leaflet-container`'s explicit `z-index: 0`); Input Map and Output
+Map both redraw at the new width with no blank strip; the Scenarios flyout opens with the real list;
+the collapsed/expanded choice survives a reload. JADE at **1366×768** — the longest rail, 14 entry
+rows — ends at 585px against a 768px viewport, fully visible with no overflow, so the spec's §7
+viewport risk does not materialise. The 768–900px feedback-launcher overlap QA item is **moot**: the
+Cosmetics session re-docked the launcher into the footer on its own branch.

@@ -50,7 +50,22 @@ test.describe("Empty-first-run Workspace state", () => {
     // to the sidebar section testid — the new content-area CTA (item 4
     // below) also contains the substring "No scenarios yet", which makes an
     // unscoped getByText a strict-mode ambiguity violation.
-    await expect(page.getByTestId("sidebar-section-scenarios").getByText("No scenarios yet")).toBeVisible();
+    // SBR (review finding 3) — the sidebar now loads COLLAPSED, so this text
+    // lives inside the hover flyout at opacity-0. `toBeVisible()` alone passed
+    // vacuously: Playwright's visibility check ignores opacity, so the
+    // assertion would have held even if the empty state were fully transparent
+    // or off-screen, which is not what item 2 claims to verify. Hover the rail
+    // first and assert the text is actually PAINTED (non-zero opacity), so this
+    // checks something a user can see.
+    const scenariosSection = page.getByTestId("sidebar-section-scenarios");
+    await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
+    const emptyRow = scenariosSection.getByText("No scenarios yet");
+    await expect(emptyRow).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.getByTestId("sidebar-scenarios-flyout").evaluate(el => getComputedStyle(el).opacity),
+      { timeout: HEADER_TIMEOUT })
+      .toBe("1");
     const createBtn = page.getByTestId("button-create-scenario");
     await expect(createBtn).toBeVisible();
     await expect(createBtn).toBeEnabled();
@@ -138,8 +153,14 @@ test.describe("Empty-first-run Workspace state", () => {
     const deleteBtn = page.locator('[data-testid^="button-delete-scenario-"]').first();
     const testId = await deleteBtn.getAttribute("data-testid");
     const id = testId!.replace("button-delete-scenario-", "");
-    await deleteBtn.click();
-    await page.getByTestId(`button-confirm-delete-${id}`).click();
+    // SBR — the sidebar now loads collapsed, so the scenario rows live in the
+    // rail's hover flyout. Hover the rail icon first; the flyout pins itself
+    // open for the confirm step (SidebarTree's D6 latch), so one hover covers
+    // both clicks. Explicit timeouts per CLAUDE.md: an unbounded Playwright
+    // interaction inherits the whole remaining test budget.
+    await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
+    await deleteBtn.click({ timeout: HEADER_TIMEOUT });
+    await page.getByTestId(`button-confirm-delete-${id}`).click({ timeout: HEADER_TIMEOUT });
 
     // Server truly returns [] and the CTA comes back synchronously — no
     // phantom scenario, no stuck loading, no lingering ?scenario= param.

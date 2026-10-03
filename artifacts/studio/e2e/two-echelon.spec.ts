@@ -130,7 +130,10 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       // clone mutation's onSuccess navigate() ever fires — assert the id
       // specifically DIFFERS from originalId, so this genuinely waits for
       // the real navigation.
-      await page.getByTestId(`button-clone-scenario-${originalId}`).click();
+      // SBR — collapsed-by-default sidebar: the clone button is in the rail's
+      // Scenarios flyout now, so hover the rail icon first.
+      await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId(`button-clone-scenario-${originalId}`).click({ timeout: HEADER_TIMEOUT });
       await expect(page).toHaveURL(new RegExp(`[?&]scenario=(?!${originalId}\\b)\\d+`), { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const cloneId = scenarioIdFromUrl(page.url());

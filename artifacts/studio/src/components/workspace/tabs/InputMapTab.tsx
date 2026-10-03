@@ -44,6 +44,7 @@ import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab"
 import type { AddedPlant } from "@/components/workspace/tabs/PlantsTab";
 import type { AddedCustomer, CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
 import type { CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
+import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 
 // T6 (Bundle 2) — the `inputs` slice transport-coal's map mode edits.
 // TransportLpInputs is NOT PMedianMapInputs-shaped: no warehouseOverrides/
@@ -1072,6 +1073,7 @@ function PMedianInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
@@ -1575,6 +1577,7 @@ function TransportInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
@@ -2070,6 +2073,7 @@ function TwoEchelonInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
@@ -2653,6 +2657,7 @@ function JadeInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
