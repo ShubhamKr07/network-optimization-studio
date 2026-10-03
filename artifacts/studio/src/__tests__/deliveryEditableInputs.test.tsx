@@ -188,11 +188,12 @@ beforeEach(() => {
 });
 
 describe("delivery-teaching-us — five input tabs (section 14.5)", () => {
-  it("offers Input Map, Warehouses, Customers, Delivery Costs, Optimization Parameters", () => {
+  it("offers Input Map, Customers, Warehouses, Delivery Costs, Optimization Parameters", () => {
     expect(inputEntriesForModel("delivery-teaching-us").map(e => e.id)).toEqual([
       "input-map",
-      "warehouses",
+      // QF-4 — Customers before Warehouses.
       "customers",
+      "warehouses",
       "deliveryCosts",
       "optimization-parameters",
     ]);

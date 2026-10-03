@@ -87,9 +87,10 @@ describe("delivery-teaching-us — the input surface (post-§14)", () => {
   // so a model that is merely ABSENT inherits Customers, Warehouses and
   // Distances editors. Omission grants the editable surface; only an explicit
   // case controls it.
-  it("offers exactly Input Map, Warehouses, Customers, Delivery Costs and Optimization Parameters", () => {
+  it("offers exactly Input Map, Customers, Warehouses, Delivery Costs and Optimization Parameters", () => {
     expect(inputEntriesForModel("delivery-teaching-us").map(e => e.id))
-      .toEqual(["input-map", "warehouses", "customers", "deliveryCosts", "optimization-parameters"]);
+      // QF-4 — Customers precedes Warehouses, matching the p-median default case.
+      .toEqual(["input-map", "customers", "warehouses", "deliveryCosts", "optimization-parameters"]);
   });
 
   it("offers no distances editor (Delivery Costs is this model's own editable-cost surface)", () => {
