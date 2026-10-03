@@ -1322,7 +1322,13 @@ Expected: PASS. If a test fails on a *different* sidebar control, that control i
 cd /Users/shubhamkr/network-optimization-studio/artifacts/studio
 grep -rn --include="*.ts" "button-rename-scenario-\|button-clone-scenario-\|button-delete-scenario-\|button-confirm-delete-\|button-cancel-delete-\|input-rename-scenario-\|sidebar-scenario-" e2e
 ```
-Expected: `sidebar-scenario-` appears in `bundle6-ui-tweaks.spec.ts:157-158` as `toHaveAttribute` reads (no hover needed), and the rest only in the two edited files plus comment-only lines. Any `.click()`/`.fill()`/`.hover()`-less interaction with one of these in another spec needs the same hover — the repo's standing `spec_gap` discipline, and the e2e job is blocking in CI (`.github/workflows/ci.yml:123`).
+Expected: `sidebar-scenario-` appears in `bundle6-ui-tweaks.spec.ts:157-158` as `toHaveAttribute` reads (no hover needed), and the rest only in the two edited files plus comment-only lines.
+
+**Also re-run `e2e/bundle6-ui-tweaks.spec.ts` specifically, even though this bundle does not edit it.** The `cosmetic-ui` bundle rewrote it: `:165-166` now assert `getByTestId("sidebar-input-input-map")` has `aria-current="true"` and `input-map-tab` is visible, and a case below that **clicks `sidebar-input-warehouses`** and asserts a toolbar swap. The rail keeps that testid, keeps it visible and keeps `aria-current`, so it should pass untouched — but it is a sibling spec that depends on sidebar navigation, and proving it green before merge is this repo's standing `spec_gap` discipline:
+
+```bash
+E2E_BASE_URL=http://localhost:5199 npx playwright test e2e/bundle6-ui-tweaks.spec.ts
+``` Any `.click()`/`.fill()`/`.hover()`-less interaction with one of these in another spec needs the same hover — the repo's standing `spec_gap` discipline, and the e2e job is blocking in CI (`.github/workflows/ci.yml:123`).
 
 - [ ] **Step 6: Run the repo verification gate**
 
@@ -1362,7 +1368,8 @@ Against the same local stack, check each of these and record the result:
 5. Hover the Scenarios rail icon: rename a scenario, then clone, then delete-with-confirm. The flyout must not close mid-rename when the cursor drifts off it.
 6. Reload: the collapsed/expanded choice survives.
 7. Log in as a brand-new account with zero scenarios: the first-run CTA still reads clearly with the rail collapsed.
-8. Resize to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
+8. Resize to **375px wide** and open a p-median-us model page. The Cosmetics session measured, on `cosmetic-ui`, that the fixed 224px sidebar leaves ~119px of usable row against a 147px button group, clipping `2. Min Distance`, the Layers chips, the map legend and the Leaflet attribution — a pre-existing squeeze. Collapsed, the rail gives 180px of that back. Record whether each of those four actually stops clipping. This is the strongest evidence for the collapsed-by-default decision (spec D8), so it is measured, not assumed.
+9. Resize to **1366×768** and open the JADE chapter (`two-echelon-jade-us`, the longest rail: 17 rows + 3 dividers). Confirm the bottom Outputs icons are reachable. Playwright will not catch clipping here — `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so its clicks pass regardless. If rows are cut off, tighten rail row height; do **not** add a scroll container (it would clip the pills).
 
 - [ ] **Step 9: Append the changelog entry**
 
