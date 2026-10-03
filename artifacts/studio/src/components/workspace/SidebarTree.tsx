@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Plus, Pencil, Copy, Trash2 } from "lucide-react";
+import { Plus, Pencil, Copy, Trash2, Menu } from "lucide-react";
+import { iconForEntity } from "@/components/workspace/entityIcons";
 
 export interface SidebarScenarioItem {
   id: number;
@@ -30,6 +31,15 @@ interface SidebarTreeProps {
    *  A student can see what they would get before committing to a solve. Every
    *  other model keeps the existing disabled-until-solved behaviour. */
   keepOutputsClickable?: boolean;
+  /**
+   * SBR-2 — initial collapsed state, for tests and for any future caller that
+   * needs determinism. An explicitly supplied value WINS over the persisted
+   * preference; persistence only fills the `undefined` case. The first draft
+   * of this had the opposite precedence, which made the prop — invented for
+   * determinism — hostage to test order, because jsdom localStorage persists
+   * across tests in a file and src/__tests__/setup.ts never clears it.
+   */
+  defaultCollapsed?: boolean;
   /** Currently-open/active tab's entity id, for highlighting. */
   activeEntityId?: string | null;
   onOpenInput: (entry: SidebarEntry) => void;
@@ -47,9 +57,109 @@ interface SidebarTreeProps {
   onDeleteScenario: (id: number) => void;
 }
 
+// SBR-2 — matches the repo's one existing persistence key, UnitContext.tsx:16's
+// "nos:display-unit-pref": colon namespace, kebab name.
+const STORAGE_KEY = "nos:sidebar-collapsed";
+
+function readStoredCollapsed(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return null;
+  } catch {
+    // localStorage throws in private-mode Safari. Degrade to the default.
+    return null;
+  }
+}
+
+function writeStoredCollapsed(value: boolean): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, String(value));
+  } catch {
+    // Non-fatal: the session keeps working, the choice just doesn't survive.
+  }
+}
+
+/**
+ * The hidden-until-hovered label pill. Four rules here are load-bearing:
+ *  - it is a CHILD of the entry <button>, so toHaveTextContent (which reads the
+ *    button's own subtree) keeps passing for the four pre-existing assertions;
+ *  - `opacity-0`, never `invisible`: Playwright's visibility check ignores
+ *    opacity, and e2e/empty-first-run-workspace.spec.ts:53 calls .toBeVisible()
+ *    on sidebar content;
+ *  - `pointer-events-none` is what actually stops a click landing on a
+ *    non-hovered pill;
+ *  - it is positioned against the <li class="group/row relative">, so `left-full`
+ *    means "just past the rail's right edge".
+ */
+const labelPillClass =
+  "absolute left-full top-0 ml-1 z-50 whitespace-nowrap rounded border bg-popover px-2 py-1.5 " +
+  "text-foreground shadow-md opacity-0 pointer-events-none translate-x-1 " +
+  "transition-[opacity,transform] duration-150 motion-reduce:transition-none " +
+  "group-hover/row:opacity-100 group-hover/row:translate-x-0 " +
+  "group-focus-within/row:opacity-100 group-focus-within/row:translate-x-0";
+
+function entryClass({
+  collapsed,
+  active,
+  disabled,
+}: {
+  collapsed: boolean;
+  active: boolean;
+  disabled: boolean;
+}): string {
+  // NOTE: no `truncate` in either branch. `truncate` is overflow:hidden, which
+  // clips the absolutely positioned pill; in expanded mode the truncation lives
+  // on the label <span> instead (see EntryRow).
+  const base = collapsed
+    ? "w-full flex items-center justify-center py-2 border-l-2"
+    : "w-full flex items-center text-left px-3 py-1.5 border-l-2";
+  if (disabled) return `${base} border-transparent text-muted-foreground/40 cursor-not-allowed`;
+  return active
+    ? `${base} bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--green-500)]`
+    : `${base} border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground`;
+}
+
+/** One Inputs/Outputs row, in either state. */
+function EntryRow({
+  entry,
+  kind,
+  collapsed,
+  active,
+  disabled,
+  onOpen,
+}: {
+  entry: SidebarEntry;
+  kind: "input" | "output";
+  collapsed: boolean;
+  active: boolean;
+  disabled: boolean;
+  onOpen: (entry: SidebarEntry) => void;
+}) {
+  const Icon = iconForEntity(entry.id);
+  return (
+    <li className="group/row relative">
+      <button
+        type="button"
+        data-testid={`sidebar-${kind}-${entry.id}`}
+        disabled={disabled}
+        aria-disabled={disabled}
+        aria-current={active}
+        onClick={() => onOpen(entry)}
+        className={entryClass({ collapsed, active, disabled })}
+      >
+        <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${collapsed ? "" : "mr-2"}`} aria-hidden="true" />
+        <span className={collapsed ? labelPillClass : "truncate"}>{entry.label}</span>
+      </button>
+    </li>
+  );
+}
+
 // A0.1 — left sidebar shell: Scenarios (+ create), Inputs, Outputs
 // (greyed pre-solve). A4.1 adds real per-row scenario operations (rename,
-// clone, delete) — see ScenarioRow below.
+// clone, delete) — see ScenarioRow below. SBR-2 makes the whole thing
+// collapsible to an icon rail behind a hamburger.
 export function SidebarTree({
   scenarios,
   activeScenarioId,
@@ -59,6 +169,7 @@ export function SidebarTree({
   outputs,
   hasSolvedRun,
   keepOutputsClickable = false,
+  defaultCollapsed,
   activeEntityId = null,
   onOpenInput,
   onOpenOutput,
@@ -66,79 +177,121 @@ export function SidebarTree({
   onCloneScenario,
   onDeleteScenario,
 }: SidebarTreeProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => defaultCollapsed ?? readStoredCollapsed() ?? true,
+  );
+
+  // The only writer of the persisted preference. SBR-4's Scenarios rail icon
+  // calls it too, so there is exactly one persistence path.
+  function applyCollapsed(value: boolean) {
+    setCollapsed(value);
+    writeStoredCollapsed(value);
+  }
+
+  function toggleCollapsed() {
+    applyCollapsed(!collapsed);
+  }
+
+  const createScenarioButton = (
+    <button
+      type="button"
+      data-testid="button-create-scenario"
+      aria-label="Create new scenario"
+      onClick={onCreateScenario}
+      className="text-muted-foreground hover:text-foreground"
+    >
+      <Plus className="w-3.5 h-3.5" />
+    </button>
+  );
+
+  const scenarioList = (
+    <ul>
+      {scenarios.map(s => (
+        <ScenarioRow
+          key={s.id}
+          scenario={s}
+          isActive={s.id === activeScenarioId}
+          onSelect={() => onSelectScenario(s.id)}
+          onRename={name => onRenameScenario(s.id, name)}
+          onClone={() => onCloneScenario(s.id)}
+          onDelete={() => onDeleteScenario(s.id)}
+        />
+      ))}
+      {scenarios.length === 0 && (
+        <li className="px-3 py-1.5 text-xs text-muted-foreground">No scenarios yet</li>
+      )}
+    </ul>
+  );
+
   return (
-    <nav className="w-56 border-r flex flex-col overflow-y-auto flex-shrink-0 text-sm bg-background" data-testid="sidebar-tree">
+    <nav
+      id="workspace-sidebar"
+      data-testid="sidebar-tree"
+      data-collapsed={collapsed}
+      // `relative z-50`: .leaflet-container carries an explicit z-index:0
+      // (index.css:16-18) and the nav precedes the content column in DOM order,
+      // so without this the label pills paint UNDER the map on the auto-opened
+      // Input Map tab. Content-column overlays sit at z-40.
+      //
+      // Collapsed has NO scroll container: per CSS, a non-visible overflow axis
+      // forces the other to `auto`, so overflow-y-auto would clip a left-full
+      // pill horizontally. The expanded panel has no pills, so it keeps it.
+      className={`relative z-50 border-r flex flex-col flex-shrink-0 text-sm bg-background transition-[width] duration-200 motion-reduce:transition-none ${
+        collapsed ? "w-11 overflow-visible" : "w-56 overflow-y-auto"
+      }`}
+    >
+      <div className={`border-b py-1.5 flex items-center ${collapsed ? "justify-center" : "px-3"}`}>
+        <button
+          type="button"
+          data-testid="button-toggle-sidebar"
+          aria-expanded={!collapsed}
+          aria-controls="workspace-sidebar"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={toggleCollapsed}
+          className="text-muted-foreground hover:text-foreground p-1"
+        >
+          <Menu className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* SBR-4 replaces this with the rail icon + flyout when collapsed. */}
       <SidebarSection
         title="Scenarios"
         testid="sidebar-section-scenarios"
-        action={
-          <button
-            type="button"
-            data-testid="button-create-scenario"
-            aria-label="Create new scenario"
-            onClick={onCreateScenario}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        }
+        collapsed={false}
+        action={createScenarioButton}
       >
-        <ul>
-          {scenarios.map(s => (
-            <ScenarioRow
-              key={s.id}
-              scenario={s}
-              isActive={s.id === activeScenarioId}
-              onSelect={() => onSelectScenario(s.id)}
-              onRename={name => onRenameScenario(s.id, name)}
-              onClone={() => onCloneScenario(s.id)}
-              onDelete={() => onDeleteScenario(s.id)}
-            />
-          ))}
-          {scenarios.length === 0 && (
-            <li className="px-3 py-1.5 text-xs text-muted-foreground">No scenarios yet</li>
-          )}
-        </ul>
+        {scenarioList}
       </SidebarSection>
 
-      <SidebarSection title="Inputs" testid="sidebar-section-inputs">
+      <SidebarSection title="Inputs" testid="sidebar-section-inputs" collapsed={collapsed}>
         <ul>
           {inputs.map(entry => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                data-testid={`sidebar-input-${entry.id}`}
-                aria-current={entry.id === activeEntityId}
-                onClick={() => onOpenInput(entry)}
-                className={rowClass(entry.id === activeEntityId)}
-              >
-                {entry.label}
-              </button>
-            </li>
+            <EntryRow
+              key={entry.id}
+              entry={entry}
+              kind="input"
+              collapsed={collapsed}
+              active={entry.id === activeEntityId}
+              disabled={false}
+              onOpen={onOpenInput}
+            />
           ))}
         </ul>
       </SidebarSection>
 
-      <SidebarSection title="Outputs" testid="sidebar-section-outputs">
+      <SidebarSection title="Outputs" testid="sidebar-section-outputs" collapsed={collapsed}>
         <ul>
           {outputs.map(entry => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                data-testid={`sidebar-output-${entry.id}`}
-                disabled={!hasSolvedRun && !keepOutputsClickable}
-                aria-disabled={!hasSolvedRun && !keepOutputsClickable}
-                aria-current={entry.id === activeEntityId}
-                onClick={() => onOpenOutput(entry)}
-                className={
-                  !hasSolvedRun && !keepOutputsClickable
-                    ? "w-full text-left px-3 py-1.5 truncate text-muted-foreground/40 cursor-not-allowed"
-                    : rowClass(entry.id === activeEntityId)
-                }
-              >
-                {entry.label}
-              </button>
-            </li>
+            <EntryRow
+              key={entry.id}
+              entry={entry}
+              kind="output"
+              collapsed={collapsed}
+              active={entry.id === activeEntityId}
+              disabled={!hasSolvedRun && !keepOutputsClickable}
+              onOpen={onOpenOutput}
+            />
           ))}
         </ul>
       </SidebarSection>
@@ -300,19 +453,26 @@ function SidebarSection({
   title,
   testid,
   action,
+  collapsed = false,
+  className,
   children,
 }: {
   title: string;
   testid: string;
   action?: ReactNode;
+  /** Collapsed hides the title text but KEEPS the wrapper + its testid. */
+  collapsed?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div data-testid={testid} className="border-b py-1.5">
-      <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
-        <span>{title}</span>
-        {action}
-      </div>
+    <div data-testid={testid} className={`border-b py-1.5 ${className ?? ""}`}>
+      {!collapsed && (
+        <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>{title}</span>
+          {action}
+        </div>
+      )}
       {children}
     </div>
   );
