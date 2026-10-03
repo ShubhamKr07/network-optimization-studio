@@ -88,7 +88,7 @@ Written on toggle only, never from an effect. All access `try`/`catch`ed — `lo
 private-mode Safari; failure degrades to the default, never an exception.
 
 Rationale for local ownership over lifting to `Workspace`: nothing else in `Workspace` reads the
-flag, and `Workspace.tsx` is already 4835 lines.
+flag, and `Workspace.tsx` is already 4862 lines.
 
 One further piece of state, Scenarios-only (D6): `scenariosFlyoutPinned`, set `true` while any
 `ScenarioRow` is renaming or confirming delete, cleared on commit/cancel. The 19 entry pills stay
@@ -151,7 +151,7 @@ Fix, in scope: a shared `InvalidateOnResize` component
 calls `map.invalidateSize()`, mounted in **all five** production `<MapContainer>`s.
 
 Five, not one — corrected in review round 2, and the correction matters: `grep -rn "<MapContainer" src`
-gives `NetworkMap.tsx:634` **and `InputMapTab.tsx:1059, :1562, :2057, :2640`**. `InputMapTab` builds
+gives `NetworkMap.tsx:634` **and `InputMapTab.tsx:1074, :1577, :2072, :2655`**. `InputMapTab` builds
 its own map and has zero references to `NetworkMap`; `NetworkMap`'s only consumers are
 `OutputMapTab.tsx` and the dead `Studio.tsx`. A `NetworkMap`-only fix would therefore have left the
 **auto-opened Input Map** — the one tab this is most visible on — broken, while appearing done.
@@ -336,7 +336,7 @@ rail at **1366×768**, not just Playwright's 1280×720 (§7).
 |---|---|
 | **Rail exceeds viewport height.** JADE's rail is 17 rows + 3 dividers ≈ 612px; at 1280×720 minus the `min-h-14` header there are 664px, so it fits — but a 1366×768 laptop with browser chrome leaves ~640px and the bottom Outputs icons are clipped by the ancestor `overflow-hidden` (`Workspace.tsx:4579`). Playwright will **not** catch it: `scrollIntoViewIfNeeded` can scroll an `overflow:hidden` ancestor, so the clicks still pass | QA explicitly at 1366×768. If clipped, the fix is a shorter row height / tighter dividers in rail mode — **not** adding a scroll container, which breaks §4.5 constraint 3 |
 | **Rename lost to `onBlur`.** `ScenarioRow`'s rename input commits on blur (`SidebarTree.tsx:242`); inside a hover-only flyout, moving the cursor off the flyout mid-rename unmounts it and commits a half-typed name. No such path exists today | the D6 latch — while a row is renaming or confirming delete, the flyout is pinned and cannot close on mouse-out. Covered by new test 8 |
-| Collapsed-by-default changes first-run UX — a new user lands on an icon rail | `create-first-scenario-cta` in the content region (`Workspace.tsx:4665-4672`) is unchanged and remains the primary first-run path; D7 gives the Scenarios icon a click that expands; QA verifies the empty state reads clearly with the rail collapsed |
+| Collapsed-by-default changes first-run UX — a new user lands on an icon rail | `create-first-scenario-cta` in the content region (`Workspace.tsx:4692-4699`) is unchanged and remains the primary first-run path; D7 gives the Scenarios icon a click that expands; QA verifies the empty state reads clearly with the rail collapsed |
 | Hover-only flyouts are touch-hostile — iOS emulates `:hover` unreliably and tap-and-hold triggers selection | D7: tapping the Scenarios icon expands the sidebar to the fully tappable panel. Entry icons open their tab on tap directly, so the label flyout is never on the critical path |
 | `localStorage` unavailable/throwing | all access `try`/`catch`ed; degrades to the default |
 
@@ -398,8 +398,11 @@ the four `<MapContainer>`s by content, not by the line numbers in the plan.**
 
 1. Cosmetics completes COSM-3/4/5, gates, and **stops for the user's merge approval**.
 2. Cosmetics merges to local `main` on approval. It announces that here.
-3. This branch rebases onto the new `main`, then **re-verifies every citation in the spec and plan
-   before executing** — §1's table, `Workspace.tsx:4580`/`:4665-4672`, `Workspace.test.tsx:1189-1191`,
+3. ~~This branch rebases onto the new `main`~~ — **done 2026-10-03: rebased onto `4b08854`, 12
+   commits, zero conflicts (this branch touches only its own two doc files; `comm -12` of the two
+   change sets is empty). Every citation re-derived against the real merged tree and all eight
+   confirmed — see the plan's Appendix A.** The original instruction, kept for the record: re-verify
+   every citation in the spec and plan before executing — §1's table, `Workspace.tsx:4580`/`:4692-4699`, `Workspace.test.tsx:1189-1191`,
    and SBR-3's five `<MapContainer>` sites all move. A citation re-derivation pass is the first act
    of execution, not an afterthought.
 4. This branch executes SBR-1…SBR-5, gates, and stops for its own merge approval.

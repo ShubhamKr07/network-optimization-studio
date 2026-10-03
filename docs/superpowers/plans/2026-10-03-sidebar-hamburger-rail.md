@@ -737,12 +737,12 @@ EOF
 
 Independent of the sidebar's own markup, and the reason it comes before SBR-4: after SBR-2 the rail already changes width, so from here on every manual check of the sidebar on a map tab would show a stale map.
 
-**There are five `<MapContainer>` mount sites in production code, not one.** `grep -rn "<MapContainer" src` gives `NetworkMap.tsx:634` and `InputMapTab.tsx:1059, :1562, :2057, :2640`. `InputMapTab` does **not** use `NetworkMap` (zero references) — it builds its own map. `NetworkMap`'s only consumers are `OutputMapTab.tsx` and the dead `Studio.tsx`. So fixing `NetworkMap` alone would leave the **auto-opened Input Map** — the exact tab the spec and QA item 2 single out — unfixed. Hence a shared component, mounted in all five.
+**There are five `<MapContainer>` mount sites in production code, not one.** `grep -rn "<MapContainer" src` gives `NetworkMap.tsx:634` and `InputMapTab.tsx:1074, :1577, :2072, :2655`. `InputMapTab` does **not** use `NetworkMap` (zero references) — it builds its own map. `NetworkMap`'s only consumers are `OutputMapTab.tsx` and the dead `Studio.tsx`. So fixing `NetworkMap` alone would leave the **auto-opened Input Map** — the exact tab the spec and QA item 2 single out — unfixed. Hence a shared component, mounted in all five.
 
 **Files:**
 - Create: `src/components/workspace/map/InvalidateOnResize.tsx`
 - Modify: `src/components/NetworkMap.tsx` (mount next to `<FitBounds />` at `:645`)
-- Modify: `src/components/workspace/tabs/InputMapTab.tsx` (mount in all four `<MapContainer>`s: `:1059, :1562, :2057, :2640`)
+- Modify: `src/components/workspace/tabs/InputMapTab.tsx` (mount in all four `<MapContainer>`s: `:1074, :1577, :2072, :2655`)
 - Modify: `src/__tests__/Workspace.TabCoverage.test.tsx:58` (extend the `useMap` mock)
 - Modify: `src/__tests__/deliveryEditableInputs.test.tsx:40` (extend the `useMap` mock)
 - Test: `src/__tests__/InvalidateOnResize.test.tsx` (new)
@@ -908,7 +908,7 @@ and mount it immediately after `<FitBounds bounds={effectiveBounds} />` at `:645
         <InvalidateOnResize />
 ```
 
-In `src/components/workspace/tabs/InputMapTab.tsx`, add the same import, then add `<InvalidateOnResize />` as the **first child** of each of the four `<MapContainer>` elements (`:1059, :1562, :2057, :2640`). Find each by its opening tag's closing `>` and insert on the next line. Verify you got all four:
+In `src/components/workspace/tabs/InputMapTab.tsx`, add the same import, then add `<InvalidateOnResize />` as the **first child** of each of the four `<MapContainer>` elements (`:1074, :1577, :2072, :2655` on the merged `main`). Find each by its opening tag's closing `>` and insert on the next line. Verify you got all four:
 
 ```bash
 cd /Users/shubhamkr/network-optimization-studio/artifacts/studio
@@ -1466,14 +1466,23 @@ Then **wait for explicit merge approval.** Do not merge, do not push, do not dep
 
 ---
 
-## Appendix A — citations pre-derived against `cosmetic-ui@18a7d99`
+## Appendix A — citations, CONFIRMED against merged `main@4b08854`
 
-Computed read-only while the gate lock was held by the Cosmetics session, so that the
-citation-re-derivation pass (task #2, the first act of execution) is a confirmation rather than a
-discovery. **Re-verify after the real merge** — `main` may move again before then, and a merge
-commit is not guaranteed to produce the same line numbers as the branch tip.
+Pre-derived read-only against `cosmetic-ui@18a7d99` while the Cosmetics session held the gate lock,
+then **re-derived against the real merged tree after rebasing. All eight values confirmed; nothing
+moved further.** `18a7d99` is now dangling and unreachable — never use it as a base. The branch was
+amended to `0bd1930` plus a sixth retro commit `7b97753` after the pre-derivation, both docs-only,
+which is why this was re-checked rather than trusted.
 
-| Citation | In plan/spec (pre-COSM `main`) | On `cosmetic-ui@18a7d99` | Delta |
+**The single most important confirmation: `git diff 3e34364 main -- SidebarTree.tsx` is ZERO lines.**
+The component this bundle rewrites was not touched by the cosmetic bundle at all, every prop is still
+passed under the same name, and `SidebarTree.tsx` is still 319 lines — so SBR-2 step 3's
+"replace lines 68–147" is still exactly right (`:68` is `}: SidebarTreeProps) {`, `:147` is the
+closing `}`, verified by `sed -n '68p;147p'`). The only caller-side change is
+`activeEntityId={activeView?.entity ?? null}`, formerly `activeTab?.entity` — a rename on their side
+of the prop boundary that this bundle's contract never sees.
+
+| Citation | In plan/spec (pre-COSM `main`) | Confirmed on `main@4b08854` | Delta |
 |---|---|---|---|
 | `Workspace.tsx` — `<SidebarTree` mount | `:4580` | `:4580` | **unchanged** |
 | `Workspace.tsx` — `create-first-scenario-cta` block | `:4665-4672` | `:4692-4699` | **+27** |
