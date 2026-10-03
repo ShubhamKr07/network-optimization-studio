@@ -138,8 +138,14 @@ test.describe("Empty-first-run Workspace state", () => {
     const deleteBtn = page.locator('[data-testid^="button-delete-scenario-"]').first();
     const testId = await deleteBtn.getAttribute("data-testid");
     const id = testId!.replace("button-delete-scenario-", "");
-    await deleteBtn.click();
-    await page.getByTestId(`button-confirm-delete-${id}`).click();
+    // SBR — the sidebar now loads collapsed, so the scenario rows live in the
+    // rail's hover flyout. Hover the rail icon first; the flyout pins itself
+    // open for the confirm step (SidebarTree's D6 latch), so one hover covers
+    // both clicks. Explicit timeouts per CLAUDE.md: an unbounded Playwright
+    // interaction inherits the whole remaining test budget.
+    await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
+    await deleteBtn.click({ timeout: HEADER_TIMEOUT });
+    await page.getByTestId(`button-confirm-delete-${id}`).click({ timeout: HEADER_TIMEOUT });
 
     // Server truly returns [] and the CTA comes back synchronously — no
     // phantom scenario, no stuck loading, no lingering ?scenario= param.
