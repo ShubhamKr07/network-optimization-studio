@@ -382,11 +382,17 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       const mapAddIntercepted = await applyStep1Edit(page, () => page.getByTestId("create-entity-submit").click());
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // Save lives in the Input Map's own Layers row (saveInLayersRow gate)
-      // — only relevant when the edit landed as an ordinary dirty draft
-      // rather than already being PATCHed by the freeze-confirm above.
+      // COSM-2 — this model's Save used to live inside the Input Map's own
+      // Layers row (the old saveInLayersRow gate listed max-coverage-us), and
+      // was located here by DOM ancestry under `input-map-tab`. It now lives
+      // in the SHARED toolbar row (`workspace-toolbar-row`), outside the tab,
+      // beside the step toggle — so the old descendant selector matches
+      // nothing. Scoped to the shared row rather than a bare testid, so this
+      // still fails if the Save ever drifts back into the Layers row.
+      // Only relevant when the edit landed as an ordinary dirty draft rather
+      // than already being PATCHed by the freeze-confirm above.
       if (!mapAddIntercepted) {
-        const mapSave = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
+        const mapSave = page.locator('[data-testid="workspace-toolbar-row"] [data-testid="button-save"]');
         await expect(mapSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
         await mapSave.click();
         await expect(mapSave).toBeDisabled({ timeout: HEADER_TIMEOUT });

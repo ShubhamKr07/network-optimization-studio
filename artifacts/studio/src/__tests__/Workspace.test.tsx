@@ -2890,18 +2890,45 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
   }
 
-  // GATE: isEditableInputTab (input-map branch) + saveInLayersRow + the
-  // InputMapTab "pmedian"-mode render branch (Chen uses the fallback, no
-  // separate mode). The Save lives inside the Input Map's own Layers row
-  // (saveInLayersRow suppresses the shared toolbar), so exactly one button-save.
-  it("input-map gate: renders the pmedian-mode Input Map with an inline Save in its Layers row for a Chen scenario", () => {
-    renderChen();
+  // GATE: isEditableInputTab (input-map branch) + the InputMapTab
+  // "pmedian"-mode render branch (Chen uses the fallback, no separate mode).
+  //
+  // COSM-2 — this test used to be titled "…with an inline Save in its Layers
+  // row" and asserted only that `pmedian-map-toolbar` exists and that exactly
+  // one global `button-save` is present. Both of those stayed TRUE after
+  // COSM-2 relocated Chen's Save into the shared toolbar row, so it would
+  // have gone false-green with its name and comments lying. It now asserts
+  // WHERE the Save is by containment: present, NOT inside the Layers row, and
+  // in the same row as the step toggle. `showInlineSave={false}` (passed only
+  // for max-coverage-us) is what suppresses the Layers-row copy, and
+  // `saveInLayersRow` no longer lists this model so the shared row renders.
+  it("input-map gate: renders the pmedian-mode Input Map with its Save in the shared toolbar row, NOT the Layers row, for a Chen scenario", () => {
+    // The step toggle needs a server-derived `steps` projection, which this
+    // block's base fixture deliberately lacks (every other gate here is
+    // step-agnostic) — add it locally rather than changing the shared fixture.
+    const withSteps = {
+      ...maxCoverageScenario,
+      steps: {
+        step1: { solved: true, stale: false, jobId: 1, summary: null },
+        step2: { solved: false, stale: false, jobId: null, summary: null },
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: withSteps } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [withSteps] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
     // Input Map is one-shot seeded active on mount (didSeedTabRef).
     expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("pmedian-map-toolbar")).toBeInTheDocument();
-    // saveInLayersRow → the map's own Layers-row Save is present and there is
-    // no duplicate shared-toolbar Save.
+    const layersRow = screen.getByTestId("pmedian-map-toolbar");
+    expect(layersRow).toBeInTheDocument();
+
+    // Exactly one Save, and it is the shared toolbar's — not the Layers row's.
     expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+    const save = screen.getByTestId("button-save");
+    expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
+    const toolbarRow = screen.getByTestId("workspace-toolbar-row");
+    expect(toolbarRow).toContainElement(save);
+    expect(toolbarRow).toContainElement(screen.getByTestId("step-toggle"));
   });
 
   // GATE: isEditableInputTab (warehouses branch) + the Warehouses render branch.
@@ -3251,6 +3278,55 @@ describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
     // just-reloaded, already-solved scenario with Step 2's unmet prerequisite.
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
     expect(screen.getByTestId("tab-content-region")).not.toHaveTextContent("Solve Step 2");
+  });
+});
+
+// ── COSM-2 — the step toggle lives in the light toolbar row ──────────────────
+// The toggle used to mount in the dark page header. It now mounts in the
+// shared toolbar row (`workspace-toolbar-row`) beside Save, and that row is
+// forced to render on EVERY Chapter 4 view so the toggle is never missing.
+// Chapter 4's Input Map Save moved out of InputMapTab's own Layers row into
+// that same shared row; p-median-us/p-median-brazil keep their Layers-row
+// Save untouched, which is what the third case below pins down.
+describe("COSM-2 — Chapter 4's step toggle renders in the toolbar row", () => {
+  it("shows the Chapter 4 step toggle on an output view, where Save does not render", async () => {
+    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("sidebar-output-output-map"));
+
+    expect(screen.getByTestId("step-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("text-steps-solved-counter")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+    // The toggle is in the toolbar row, not the header — an output view has no
+    // editable input, so the row exists ONLY because of the max-coverage arm.
+    expect(screen.getByTestId("workspace-toolbar-row")).toContainElement(screen.getByTestId("step-toggle"));
+  });
+
+  it("shows the Chapter 4 step toggle beside Save on the Input Map view", async () => {
+    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
+
+    // Input Map is the seeded initial view; Save moves out of the Layers row
+    // and into the shared toolbar for this model only.
+    expect(await screen.findByTestId("step-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+    const row = screen.getByTestId("workspace-toolbar-row");
+    expect(row).toContainElement(screen.getByTestId("step-toggle"));
+    expect(row).toContainElement(screen.getByTestId("button-save"));
+    // And exactly one Save on the page — the relocation must not duplicate it.
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+  });
+
+  it("leaves p-median-us Save INSIDE the Layers row and shows no step toggle", async () => {
+    renderWorkspace(); // parameterless — this helper is p-median-us
+
+    // Containment, not mere presence. A bare getByTestId("button-save") would
+    // still pass if p-median's Save accidentally moved into the shared toolbar
+    // — exactly the regression this case exists to catch. Precedent:
+    // Workspace.InputMapV2.test.tsx:153-166.
+    const saveButton = await screen.findByTestId("button-save");
+    expect(screen.getByTestId("pmedian-map-toolbar")).toContainElement(saveButton);
+    expect(screen.queryByTestId("step-toggle")).not.toBeInTheDocument();
   });
 });
 

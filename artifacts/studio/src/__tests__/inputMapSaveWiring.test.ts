@@ -88,11 +88,28 @@ describe("Input Map Layers-row Save — wiring", () => {
     // Save is wired, so the two must describe the same set. If a fifth model
     // gains a Layers-row Save and is added to one side only, the student
     // either sees two Save buttons or none — both silent.
+    // COSM-2 — this condition used to BE the row's JSX render condition, so
+    // the terminator matched was `(`. It is now extracted to a named const
+    // (`showToolbarSave`), because the row can also render for Chapter 4's
+    // step toggle on a view with nothing to save, so "render the row" and
+    // "render a Save in it" became two questions. The flag set it must agree
+    // with is unchanged, so only the terminator widens: `;` or `(`.
     const suppression = WORKSPACE_SRC.match(
-      /isEditableInputTab && (![A-Za-z]+(?: && )?)+\(/,
+      /isEditableInputTab && (![A-Za-z]+(?: && )?)+[;(]/,
     );
     expect(suppression, "toolbar-Save suppression condition not found").not.toBeNull();
     const flags = suppression![0].match(/!saveInLayersRow[A-Za-z]*/g) ?? [];
     expect(flags.length).toBe(4);
+  });
+
+  // COSM-2 — the extraction above is only safe if the extracted flag is what
+  // actually gates the toolbar Save. Without this, deleting `showToolbarSave`
+  // from the JSX would leave the suppression test above passing against a
+  // dead const while every model's Input Map showed two Save buttons.
+  it("the extracted suppression flag is the one gating the toolbar Save group", () => {
+    expect(WORKSPACE_SRC).toContain("const showToolbarSave =");
+    expect(WORKSPACE_SRC).toContain("{showToolbarSave && (");
+    // And the row itself renders for the Save group OR Chapter 4's toggle.
+    expect(WORKSPACE_SRC).toContain("|| showToolbarSave) && (");
   });
 });

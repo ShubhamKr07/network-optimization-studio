@@ -2477,10 +2477,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
   // toolbar below; T5 — p-median-brazil joins it (same real editor, same
   // relocated Save).
-  // C4.13 — max-coverage-us joins: it renders the same "pmedian" mode
-  // InputMapTab (renderTabContent's fallback branch) with its own relocated
-  // Save in the Layers row, so the shared toolbar Save must be suppressed for
-  // it too, exactly as for p-median-us/brazil.
+  // COSM-2 — max-coverage-us is deliberately NOT in this list any more (it
+  // was, per C4.13). Its Save moves into the shared toolbar row so it sits
+  // beside the step toggle on every Chapter 4 view, and the Layers-row copy
+  // is suppressed at the call site via `showInlineSave={false}` (not deleted
+  // — that row is shared with p-median-us/p-median-brazil).
+  // p-median-us/p-median-brazil keep their inline Layers-row Save unchanged;
+  // the condition is per-model and they are untouched.
   // ch5-edit-6b — delivery-teaching-us deliberately does NOT join this list,
   // even though it joined isEditableInputTab's "input-map" row above: §14.5
   // keeps this tab's own inline Layers-row Save hidden for this model (only
@@ -2489,7 +2492,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // the SHARED toolbar is the only Save affordance this model's Input Map
   // tab gets.
   const saveInLayersRow =
-    activeView?.kind === "input" && activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us");
+    activeView?.kind === "input" && activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
   // condition from the pmedian one above (same reasoning as
   // isEditableInputTab's own third branch) — its Layers row is a
@@ -2505,6 +2508,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // (InputMapTab.tsx's JadeInputMap is its own structurally-different
   // Layers row).
   const saveInLayersRowJade = activeView?.kind === "input" && activeView.entity === "input-map" && modelId === "two-echelon-jade-us";
+  // COSM-2 — this expression VERBATIM used to be the shared toolbar row's
+  // render condition. The row can now also render for Chapter 4's step toggle
+  // alone (on views with nothing to save), so "should this row exist" and
+  // "should it contain a Save" are no longer the same question and the Save
+  // half needs its own name. Extracted, not changed: every model's Save is as
+  // visible as it was before.
+  const showToolbarSave =
+    isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && !saveInLayersRowJade;
 
   function openTab(kind: WorkspaceView["kind"], entry: SidebarEntry) {
     setActiveView({ id: workspaceViewId(kind, entry.id), kind, entity: entry.id, label: entry.label });
@@ -3557,6 +3568,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onSave={handleSaveClick}
           saving={saveIsPending}
           saveLabel={saveLabel}
+          // COSM-2 — max-coverage-us's Save moved OUT of this tab's Layers
+          // row into the shared toolbar row, so it sits beside the step
+          // toggle on every Chapter 4 view. Suppressed by a prop rather than
+          // by dropping `onSave`, because `onSave`'s presence is also what
+          // `saveInLayersRow` mirrors for p-median-us/p-median-brazil, which
+          // render this same arm and must keep their inline Save.
+          showInlineSave={modelId !== "max-coverage-us"}
           // T5 (Bundle 2, Step 1b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model on this branch (only p-median-us today) defaults true.
@@ -4523,17 +4541,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 </button>
               </div>
             )}
-            {/* ch4-2s-7 — the two-step workflow's header toggle, Chapter 4
-                only. `stepState.steps` is only present for max-coverage-us
-                (Task 5's server-derived projection). */}
-            {stepState.isMaxCoverage && stepState.steps && (
-              <StepToggle
-                selected={selectedStep}
-                onSelect={setSelectedStep}
-                solvedCount={stepState.solvedCount}
-                steps={stepState.steps}
-              />
-            )}
+            {/* COSM-2 — the two-step workflow toggle (ch4-2s-7) used to mount
+                HERE, in the dark page header. It now has exactly ONE mount,
+                in the shared light toolbar row below, beside Save. Do not
+                restore a second copy here: a control declared twice is a
+                drift bug this repo has already paid for, and StepToggle is
+                now styled light-surface-only (it no longer carries the
+                --ink-300/hover:bg-white/10 dark-band tokens this header
+                needs). */}
             {/* chen-bands-units, Task 14 Step 7a — the model-page mount of
                 UnitToggle (AppShell owns the Landing-header mount, T10). */}
             <UnitToggle />
@@ -4598,7 +4613,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && !saveInLayersRowJade && (
+          {/* COSM-2 — on max-coverage-us this row renders on EVERY view so the
+              step toggle is always present; Save still appears only where it
+              is meaningful (`showToolbarSave`, which IS the row's original
+              condition verbatim). Every other model renders this row exactly
+              when it used to, with exactly the same contents. */}
+          {((stepState.isMaxCoverage && stepState.steps) || showToolbarSave) && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
             // (isDirty-gated, useUpdateScenario on click) rather than
@@ -4607,23 +4627,51 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // each render this same Save control inline in their own Layers
             // row instead (see saveInLayersRow/saveInLayersRowTransport/
             // saveInLayersRowTwoEchelon above).
-            <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
-              {(ordinaryDirty || lensDirty) && (
-                <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
-                  Unsaved changes
-                </span>
+            // COSM-2 — `flex-wrap` (was `justify-end`) so the toggle + Save
+            // wrap instead of overflowing at narrow widths; the inner
+            // `ml-auto` wrapper below keeps Save pinned right exactly as
+            // `justify-end` used to.
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10" data-testid="workspace-toolbar-row">
+              {/* COSM-2 — the step toggle's ONE mount (it used to live in the
+                  dark page header). `stepState.steps` is only present for
+                  max-coverage-us (Task 5's server-derived projection), so
+                  every other model renders this row unchanged. */}
+              {stepState.isMaxCoverage && stepState.steps && (
+                <StepToggle
+                  selected={selectedStep}
+                  onSelect={setSelectedStep}
+                  solvedCount={stepState.solvedCount}
+                  steps={stepState.steps}
+                />
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSaveClick}
-                disabled={!saveEnabled || saveIsPending}
-                data-testid="button-save"
-                className={saveEnabled ? "border-primary text-primary hover:bg-primary/10" : ""}
-              >
-                <Save className="w-3.5 h-3.5 mr-1" />
-                {saveIsPending ? "Saving…" : saveLabel}
-              </Button>
+              {/* COSM-2 — `showToolbarSave` used to BE this row's render
+                  condition, so gating the Save group on it keeps every
+                  model's Save exactly as visible as before. It has to be
+                  restated here now that the row can also render for the
+                  toggle alone: on a Chapter 4 output view the row is present
+                  but there is nothing to save, and an "Unsaved changes"
+                  label with no Save button beside it would be worse than
+                  neither. */}
+              {showToolbarSave && (
+              <div className="flex items-center gap-2 ml-auto">
+                {(ordinaryDirty || lensDirty) && (
+                  <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                    Unsaved changes
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveClick}
+                  disabled={!saveEnabled || saveIsPending}
+                  data-testid="button-save"
+                  className={saveEnabled ? "border-primary text-primary hover:bg-primary/10" : ""}
+                >
+                  <Save className="w-3.5 h-3.5 mr-1" />
+                  {saveIsPending ? "Saving…" : saveLabel}
+                </Button>
+              </div>
+              )}
             </div>
           )}
           <div className="flex-1 min-h-0 flex overflow-hidden">

@@ -14,9 +14,15 @@ const LABELS: Record<1 | 2, string> = { 1: "1. Max Coverage", 2: "2. Min Distanc
 // what is locked is its Solve, not the act of looking at it (frame 3a).
 export function StepToggle({ selected, onSelect, solvedCount, steps }: StepToggleProps) {
   return (
-    <div className="flex items-center gap-2">
+    // COSM-2 — `flex-wrap` so the "N of 2 solved" counter drops onto its own
+    // line instead of being pushed off the right edge. This component used to
+    // sit in the full-width page header; it now sits in the toolbar row
+    // INSIDE the content column, which at a 375 px viewport is only ~151 px
+    // wide (the sidebar is a fixed 224 px). A no-op at any width where the
+    // counter already fits beside the group.
+    <div className="flex flex-wrap items-center gap-2">
       <div
-        className="inline-flex rounded border border-[color:var(--ink-500)] overflow-hidden"
+        className="inline-flex rounded border border-border overflow-hidden"
         role="group"
         aria-label="Workflow step"
         data-testid="step-toggle"
@@ -34,7 +40,7 @@ export function StepToggle({ selected, onSelect, solvedCount, steps }: StepToggl
               className={`flex items-center gap-1 text-xs px-3 py-1 transition-colors ${
                 selected === step
                   ? "bg-primary text-white"
-                  : "bg-transparent text-[color:var(--ink-300)] hover:bg-white/10"
+                  : "bg-transparent text-muted-foreground hover:bg-muted"
               }`}
             >
               {LABELS[step]}
@@ -51,7 +57,7 @@ export function StepToggle({ selected, onSelect, solvedCount, steps }: StepToggl
           );
         })}
       </div>
-      <span className="text-xs font-mono text-[color:var(--ink-300)]" data-testid="text-steps-solved-counter">
+      <span className="text-xs font-mono text-muted-foreground" data-testid="text-steps-solved-counter">
         {solvedCount} of 2 solved
       </span>
     </div>
