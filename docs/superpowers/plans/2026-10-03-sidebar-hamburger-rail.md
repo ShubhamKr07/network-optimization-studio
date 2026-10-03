@@ -1443,3 +1443,38 @@ Then **wait for explicit merge approval.** Do not merge, do not push, do not dep
 **Type consistency.** `iconForEntity(id: string): LucideIcon` and `SCENARIOS_ICON: LucideIcon` are used under those exact names in SBR-2 and SBR-4. `defaultCollapsed?: boolean` is declared in SBR-2 and consumed by SBR-4's tests. `onInteractionStateChange?: (id: number, active: boolean) => void` — the id-taking signature — is declared in SBR-4 and called with that signature in both the effect and its cleanup, and the value passed is the stable `useCallback`'d `setRowInteracting`, never an inline arrow. `applyCollapsed(value: boolean)` is introduced in SBR-2 as the single writer of the stored preference; SBR-4's D7 handler calls it rather than adding a second path. `InvalidateOnResize()` takes no props and is referenced by that name in its test, its module path, and all five mount sites.
 
 **Counts, measured not guessed.** `SidebarTree.test.tsx` has **17** tests at HEAD (ran it) → 30 after SBR-2 → 39 after SBR-4. `grep -rn "<MapContainer" src` → **5** production sites. The first draft of this plan said 12 / 23 / 31 and one map site; all four numbers were wrong.
+
+---
+
+## Appendix A — citations pre-derived against `cosmetic-ui@18a7d99`
+
+Computed read-only while the gate lock was held by the Cosmetics session, so that the
+citation-re-derivation pass (task #2, the first act of execution) is a confirmation rather than a
+discovery. **Re-verify after the real merge** — `main` may move again before then, and a merge
+commit is not guaranteed to produce the same line numbers as the branch tip.
+
+| Citation | In plan/spec (pre-COSM `main`) | On `cosmetic-ui@18a7d99` | Delta |
+|---|---|---|---|
+| `Workspace.tsx` — `<SidebarTree` mount | `:4580` | `:4580` | **unchanged** |
+| `Workspace.tsx` — `create-first-scenario-cta` block | `:4665-4672` | `:4692-4699` | **+27** |
+| `Workspace.tsx` — total lines | 4835 | 4862 | +27 |
+| `Workspace.test.tsx` — the three `toHaveTextContent` canaries | `:1189-1191` | `:1190-1192` | **+1**, assertions byte-identical |
+| `InputMapTab.tsx` — the four `<MapContainer>`s | `:1059, :1562, :2057, :2640` | `:1074, :1577, :2072, :2655` | **+15 each** |
+| `NetworkMap.tsx` — `function FitBounds` | `:225` | `:225` | unchanged |
+| `NetworkMap.tsx` — `<FitBounds …/>` mount | `:645` | `:645` | unchanged |
+| `SidebarTree.tsx` — total lines (SBR-2 replaces `68-147`) | 319 | 319 | **untouched — the line range in SBR-2 step 3 is still valid** |
+
+Also confirmed by `git diff --name-only main...18a7d99`: `SidebarTree.tsx`, `NetworkMap.tsx`,
+`empty-first-run-workspace.spec.ts` and `two-echelon.spec.ts` appear **nowhere** in the Cosmetics
+bundle. Every file this plan writes to is either new or exclusively this branch's.
+
+Two things the pre-derivation changes about execution:
+
+1. **SBR-3's `InputMapTab` insertion points are all `+15`.** The instruction to locate them by content
+   stands regardless — the merge could shift them again — but the expected targets are now known, so
+   an unexpected number of `<MapContainer>` hits is a signal to stop rather than to improvise.
+2. **`InputMapTab.tsx`'s four containers are byte-identical to each other**
+   (`<MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>`),
+   so a naive find-and-replace on that string would hit all four — convenient, but it also means a
+   `grep -c` of the opening tag cannot distinguish them. Count `<InvalidateOnResize />` (expect 4),
+   not the container tag, when verifying the edit.
