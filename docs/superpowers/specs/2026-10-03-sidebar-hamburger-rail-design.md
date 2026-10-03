@@ -405,12 +405,26 @@ Measured live via the Render API on 2026-10-03, not read from a doc:
 
 Two standing claims are contradicted by that:
 
-- **`CLAUDE.md:100` is stale.** It states `nos-api` has `autoDeployTrigger: off` and that "a push does
-  **not** deploy it; it needs a deliberate trigger." The live service says `commit`. `render.yaml:20-29`
-  already carries a 2026-09-30 correction recording exactly this (the A11 suppression was never
-  restored), so the repo contradicts itself and `CLAUDE.md` is the wrong half. **Not fixed here** —
-  it is a policy/ops line outside this bundle's scope and documentation reaches `main` only via a
-  reviewed PR. Flagged to the user as its own task.
+- **Two stale sites, and `render.yaml` contradicts itself.** The live service says `commit`.
+  `render.yaml:20-28` already carries a dated 2026-09-30 correction recording exactly that (the A11
+  suppression was never restored) and `:29` holds the correct `autoDeployTrigger: commit`. But two
+  other places still assert the old `off`:
+
+  | Site | Current text | Verdict |
+  |---|---|---|
+  | `CLAUDE.md:100` | "`autoDeployTrigger: off` in `render.yaml` (Blueprint-authoritative for this service). A push does **not** deploy it" | **wrong on both halves**, exactly as `render.yaml:20-28` already says |
+  | `render.yaml:10` | `# NOTE: nos-api is Dashboard-managed (autoDeployTrigger off), so this` | **the parenthetical only** is wrong — nine lines above the correction that refutes it |
+  | `render.yaml:29` | `autoDeployTrigger: commit` | already correct, leave alone |
+
+  Note on `render.yaml:10`, which the Cosmetics session reported as wholly stale: the comment is
+  attached to the `plan:` key, and its substantive point — that the Blueprint's `plan` value is inert
+  under Dashboard management — is *not* refuted (live reports `plan: 1c-2g`, i.e. standard, matching
+  `render.yaml:13`). Only the `(autoDeployTrigger off)` aside is false. So the fix is **two edits**,
+  not three, and `:29` must not be touched.
+
+  **Not fixed here** — ops/policy lines outside this bundle's scope, and documentation reaches `main`
+  only via a reviewed PR. Both sessions independently agreed not to smuggle it into a cosmetic
+  bundle's commit. Flagged to the user as its own small task.
 - The Cosmetics session's inference — "a push does not deploy `nos-api` but can deploy `nos-studio`,
   so the asymmetry is backwards from the order we want" — reaches a correct worry from a wrong
   premise. Both services are armed to deploy on the same push.
@@ -425,7 +439,19 @@ accidentally produce the safe order, but that is observed unreliability and must
 Three mitigations, in preference order. The choice is the user's at the deploy-approval step:
 
 1. **COSM-4's widget degrades gracefully on a non-2xx** (Cosmetics owns this; it is the only fix that
-   removes the window rather than narrowing it).
+   removes the window rather than narrowing it). **Specified as satisfied, pending confirmation from
+   the built code** — per Cosmetics, 2026-10-03: the submit is wrapped so a non-2xx or network
+   failure sets an error state instead of throwing; the panel stays open; an inline `feedback-error`
+   renders; **the typed text is retained verbatim**; `429` gets its own message and everything else,
+   including a skew-window `404`, gets a generic retryable one; and no success state shows unless the
+   request actually succeeded, so a `404` cannot produce a false "Thanks — got it." A spec'd test
+   covers the textarea retaining its value on error. Cosmetics will confirm against the real error
+   path before merge approval is sought, and will fix it inside COSM-4 rather than inventing deploy
+   sequencing if it does not behave as specified.
+
+   **If that confirmation holds, the hazard is cosmetic** and no deploy choreography is needed: the
+   skew window degrades to a form that accepts input and shows a retryable error. The one rough edge
+   is that the retry also fails until `nos-api` is live — annoying, not harmful.
 2. **Suspend `nos-studio` auto-deploy in the Dashboard before the push**, push, let `nos-api` finish,
    then deploy the studio deliberately. This is a config change on a live service and needs its own
    explicit approval.
