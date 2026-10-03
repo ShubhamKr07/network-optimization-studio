@@ -1,6 +1,6 @@
 {
   "id": "max-coverage-us",
-  "name": "Al's Athletics — Max Coverage",
+  "name": "AL's Athletics — Max Coverage",
   "chapter": "Chapter 4",
   "datasetDir": "solvers/max-coverage-us/dataset",
   "distanceUnit": "km",

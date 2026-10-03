@@ -33,7 +33,10 @@ beforeEach(() => {
 describe("Landing", () => {
   it("lists Chapter 3 and Chapter 9 — Ch5 and Ch10 are hidden from the grid", () => {
     renderLanding();
-    expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
+    // QF-1 — Chapter 4 is now "AL's Athletics — Max Coverage", so Chapter 3's
+    // bare "AL's Athletics" is a strict PREFIX of it and a substring regex
+    // matches both cards. Exact-string match pins this to the Ch3 card.
+    expect(screen.getByText("AL's Athletics")).toBeInTheDocument();
     // two-echelon-gold-au (Chapter 10) is hiddenFromLanding — not in the grid,
     // still registered as a route.
     expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
@@ -55,7 +58,7 @@ describe("Landing", () => {
     expect(screen.getByTestId("link-/chapter-4")).toHaveAttribute("href", "/chapter-4");
     expect(screen.queryByTestId("locked-/chapter-4")).not.toBeInTheDocument();
     // ch4-mig-8 — the cutover's real US copy, not the retired China title.
-    expect(screen.getByText(/Al's Athletics — Max Coverage/)).toBeInTheDocument();
+    expect(screen.getByText(/AL's Athletics — Max Coverage/)).toBeInTheDocument();
     // ch9-unlock (2026-09-30) — Chapter 9 (JADE) was locked by ch4-lock and
     // is reopened here. Pinned POSITIVELY (real href, no inert wrapper) so a
     // half-applied unlock fails rather than merely shrinking a list.

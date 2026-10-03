@@ -51,11 +51,11 @@ export const CHAPTERS: Chapter[] = [
     path: "/chapter-4",
     modelId: "max-coverage-us",
     chapter: "Chapter 4",
-    title: "Al's Athletics — Max Coverage",
+    title: "AL's Athletics — Max Coverage",
     description: "Service-level facility location across the United States: open warehouses to maximize the demand served within a target service distance.",
     workspace: true,
     hiddenFromLanding: false,
-    labHeaderTitle: "Al's Athletics · Max Coverage Lab",
+    labHeaderTitle: "AL's Athletics · Max Coverage Lab",
     labHeaderSubtitle: "Ch 4 · service coverage · US warehouses → customers",
   },
   {

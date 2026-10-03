@@ -63,11 +63,11 @@ describe("chapters — max-coverage-us (Chapter 4) registration", () => {
     expect(chapter?.chapter).toBe("Chapter 4");
     expect(chapter?.workspace).toBe(true);
     expect(chapter?.hiddenFromLanding).toBe(false);
-    expect(chapter?.title).toMatch(/Al's Athletics/);
+    expect(chapter?.title).toMatch(/AL's Athletics/);
     // Real one-line lab description, not a placeholder.
     expect(chapter?.description).toBeTruthy();
     expect(chapter?.description.length).toBeGreaterThan(20);
-    expect(chapter?.labHeaderTitle).toMatch(/Al's Athletics/);
+    expect(chapter?.labHeaderTitle).toMatch(/AL's Athletics/);
     expect(chapter?.labHeaderSubtitle).toMatch(/Ch 4/);
   });
 
