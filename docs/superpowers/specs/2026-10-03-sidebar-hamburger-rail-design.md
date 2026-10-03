@@ -372,9 +372,21 @@ primary checkout). This section is the written contract; the cross-session chat 
 | `src/components/workspace/entityIcons.ts`, `.../map/InvalidateOnResize.tsx` (new) | this branch |
 | `src/components/NetworkMap.tsx` | this branch |
 | `e2e/empty-first-run-workspace.spec.ts`, `e2e/two-echelon.spec.ts` | this branch |
-| `src/components/AppShell.tsx` (+ test) | **`cosmetic-ui`** (COSM-4 wraps `<main>`; COSM-5 mounts a canvas behind it) — this branch must not touch it |
+| `src/components/AppShell.tsx` (+ test) | **`cosmetic-ui`** (COSM-4 wraps `<main>` in a `relative` container, landed in `65c7794`; COSM-5 mounts a canvas behind it) — this branch must not touch it, **and is provably unaffected by it**: see below |
 | `src/pages/Workspace.tsx`, `src/components/workspace/StepToggle.tsx`, `src/lib/workspaceView.ts`, `docs/design-system/**` | `cosmetic-ui` |
 | `lib/db`, `lib/api-spec`, `lib/api-zod`, `lib/api-client-react`, `artifacts/api-server/**` | `cosmetic-ui` (COSM-4) |
+
+**COSM-4's `AppShell` topology change cannot reach this bundle, verified rather than assumed.**
+Cosmetics flagged it as the piece of its bundle most likely to touch this work, because wrapping
+`<main>` in a `relative` container is a DOM-topology change on every page that uses the shell, and
+a new `relative` ancestor is a new containing block for absolutely positioned descendants — which is
+exactly what this bundle's `left-full` label pills are. It does not apply here because **model pages
+are deliberately routed outside `AppShell`**: `App.tsx:54-55`'s `authedOnly()` is what wraps a page
+in the shell, and `App.tsx:82` renders `<Workspace …>` directly instead, with a comment recording
+why (Workspace renders its own full header; wrapping it too would stack two headers). Confirmed by
+grep: `AppShell` appears in `Workspace.tsx` only at `:1372`, `:4488` and `:4553`, all three in
+*comments*, and zero times in `SidebarTree.tsx` or `NetworkMap.tsx`. The pills' containing block is
+the rail's own `li.group/row.relative`, inside a nav that no shell wraps.
 
 **The one real conflict: `src/components/workspace/tabs/InputMapTab.tsx`.** COSM-2 changed ~19 lines
 in two places — the `mode: "pmedian"` union variant (added `showInlineSave?: boolean`, ~`:361-370`,
