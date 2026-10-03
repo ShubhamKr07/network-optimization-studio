@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
-import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
+import { InvalidateOnResize, INVALIDATE_DEBOUNCE_MS } from "@/components/workspace/map/InvalidateOnResize";
 
 const invalidateSize = vi.fn();
 const container = document.createElement("div");
@@ -22,6 +22,7 @@ const disconnect = vi.fn();
 const realResizeObserver = global.ResizeObserver;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   invalidateSize.mockClear();
   disconnect.mockClear();
   observed = [];
@@ -42,6 +43,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   global.ResizeObserver = realResizeObserver;
 });
 
@@ -51,16 +53,35 @@ describe("InvalidateOnResize", () => {
     expect(observed).toEqual([container]);
   });
 
-  it("calls map.invalidateSize() when the container resizes", () => {
+  it("calls map.invalidateSize() once the resize has settled", () => {
     render(<InvalidateOnResize />);
-    expect(invalidateSize).not.toHaveBeenCalled();
     fire!();
+    expect(invalidateSize).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(INVALIDATE_DEBOUNCE_MS);
     expect(invalidateSize).toHaveBeenCalledTimes(1);
   });
 
-  it("disconnects the observer on unmount", () => {
+  it("coalesces a burst of resizes into ONE call — the rail's width animation fires one per frame", () => {
+    // Regression guard for the SBR-5 QA finding: one invalidateSize per
+    // observer callback saturated the main thread during the nav's 200ms width
+    // transition and left the sidebar stuck at the collapsed width.
+    render(<InvalidateOnResize />);
+    for (let frame = 0; frame < 60; frame++) {
+      fire!();
+      vi.advanceTimersByTime(16); // ~60fps, each tick well inside the debounce
+    }
+    expect(invalidateSize).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(INVALIDATE_DEBOUNCE_MS);
+    expect(invalidateSize).toHaveBeenCalledTimes(1);
+  });
+
+  it("disconnects the observer and drops a pending call on unmount", () => {
     const view = render(<InvalidateOnResize />);
+    fire!();
     view.unmount();
+    vi.advanceTimersByTime(INVALIDATE_DEBOUNCE_MS * 4);
     expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(invalidateSize).not.toHaveBeenCalled();
   });
 });
