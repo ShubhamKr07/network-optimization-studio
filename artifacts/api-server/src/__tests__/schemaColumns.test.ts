@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 // @workspace/db exports exactly two entry points — "." and "./schema".
 // Deep subpaths like "@workspace/db/schema/solve_jobs" do NOT resolve.
-import { solveJobsTable, scenariosTable } from "@workspace/db/schema";
+import { solveJobsTable, scenariosTable, feedbackTable } from "@workspace/db/schema";
 import { getTableConfig } from "drizzle-orm/pg-core";
 
 describe("Part F schema additions", () => {
@@ -12,6 +12,22 @@ describe("Part F schema additions", () => {
   it("scenarios.result_run_id exists and is nullable", () => {
     expect(scenariosTable.resultRunId).toBeDefined();
     expect(scenariosTable.resultRunId.notNull).toBe(false);
+  });
+});
+
+describe("COSM-4 — feedback rows are anonymous at rest", () => {
+  // Declared-schema half of the proof. The live-catalog half lives in
+  // feedback.test.ts, which has a real `db`: the declared schema and the
+  // applied database can disagree, and only the catalog proves what exists.
+  // Asserting the EXACT column set is the point — "the selected row lacks a
+  // user property" proves nothing, because a missing value and a missing
+  // column look identical through the ORM.
+  it("feedback declares no account, session, or IP column", () => {
+    const names = getTableConfig(feedbackTable).columns.map((c) => c.name).sort();
+    expect(names).toEqual(["body", "created_at", "id"]);
+    for (const banned of ["user_id", "userid", "session_id", "ip", "ip_address", "email"]) {
+      expect(names).not.toContain(banned);
+    }
   });
 });
 

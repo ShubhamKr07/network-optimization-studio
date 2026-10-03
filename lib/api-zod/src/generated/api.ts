@@ -1097,3 +1097,16 @@ export const GetCurrentAuthUserResponse = zod.object({
 })
 
 
+/**
+ * Requires a session, which is used only to rate-limit the caller. No account identifier, session identifier, or client IP is persisted with the row — the stored record is body + timestamp and nothing else.
+ * @summary Submit anonymous product feedback
+ */
+export const submitFeedbackBodyBodyMax = 4000;
+
+
+
+export const SubmitFeedbackBody = zod.object({
+  "body": zod.string().min(1).max(submitFeedbackBodyBodyMax).describe('Free-text feedback. Trimmed by the server before validation and before storage, so a whitespace-only body is rejected.')
+})
+
+

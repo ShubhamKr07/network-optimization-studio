@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
+import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { resetUser } from "@/lib/analytics";
 import { clearErrorUser } from "@/lib/errorTracking";
 
@@ -80,7 +81,13 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
           </Button>
         </header>
       )}
-      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+      {/* COSM-4/COSM-5 — one relative wrapper owns the scroll area's stacking
+          context. The footer stays outside it, so the feedback launcher cannot
+          overlap the always-visible homepage credit footer. */}
+      <div className="flex-1 min-h-0 relative">
+        <main className="absolute inset-0 overflow-y-auto z-10">{children}</main>
+        {hero && <FeedbackWidget />}
+      </div>
       {hero
         ? <footer data-testid="homepage-credit-footer" className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
             <DeveloperCredit />

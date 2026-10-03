@@ -41,6 +41,7 @@ export * from './exportScenarioEntity';
 export * from './exportScenarioFormat';
 export * from './exportScenarioParams';
 export * from './exportScenarioUnit';
+export * from './feedbackRequest';
 export * from './flowExportRow';
 export * from './flowsExportEnvelope';
 export * from './flowsExportEnvelopeEntity';

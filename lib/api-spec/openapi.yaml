@@ -736,6 +736,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+  /feedback:
+    post:
+      tags: [Feedback]
+      operationId: submitFeedback
+      summary: Submit anonymous product feedback
+      description: >-
+        Requires a session, which is used only to rate-limit the caller. No
+        account identifier, session identifier, or client IP is persisted with
+        the row — the stored record is body + timestamp and nothing else.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '204':
+          description: Feedback stored.
+        '400':
+          description: Body missing, empty after trimming, or over 4000 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Rate limit exceeded for this account.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
 components:
   schemas:
@@ -797,6 +838,17 @@ components:
             Same cost guard as registration — an over-length password is
             rejected before argon2 ever runs, and (per the no-enumeration rule)
             is indistinguishable from any other bad credential.
+    FeedbackRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: >-
+            Free-text feedback. Trimmed by the server before validation and
+            before storage, so a whitespace-only body is rejected.
     LogoutSuccess:
       type: object
       required: [success]
