@@ -14,8 +14,9 @@ const render = (
 
 
 // POSTHOG-5 — funnel-event tracking wired into Workspace.tsx at its
-// already-confirmed chokepoints (handleSolve, handleAddedArrayChange, the
-// TabBar onActivate handler). Mocking harness mirrors
+// already-confirmed chokepoints (handleSolve, handleAddedArrayChange; the
+// third, the TabBar onActivate handler, was retired by COSM-1 with the tab
+// strip — see the note further down this file). Mocking harness mirrors
 // Workspace.test.tsx/Workspace.StaleOutputs.test.tsx's established pattern
 // (mock the generated API-client hooks, real component tree).
 // POSTHOG-6 extends this same file with "override edited"/"distance
@@ -230,27 +231,14 @@ describe("Workspace — analytics: map entity added (POSTHOG-5)", () => {
   });
 });
 
-describe("Workspace — analytics: tab activation (POSTHOG-5)", () => {
-  it("tracks 'scenario tab viewed' on tab activation", async () => {
-    renderWorkspace();
-    // Open a second tab (Warehouses) alongside the auto-seeded Input Map tab —
-    // opening via the sidebar activates it directly (not through TabBar's
-    // onActivate), so no track call is expected from this click itself.
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
-    mockTrack.mockClear();
-
-    // Now activate the (now-inactive) Input Map tab from the tab strip —
-    // this goes through TabBar's onActivate -> handleActivateTab.
-    fireEvent.click(screen.getByTestId("tab-input:input-map"));
-
-    await waitFor(() =>
-      expect(mockTrack).toHaveBeenCalledWith(
-        "scenario tab viewed",
-        expect.objectContaining({ tab: "input:input-map", model_id: "p-median-us" }),
-      ),
-    );
-  });
-});
+// COSM-1 — the POSTHOG-5 "scenario tab viewed" case was deleted with the tab
+// strip. That event only ever fired from handleActivateTab, i.e. re-activating
+// an ALREADY-OPEN tab from the strip; with the strip gone there is no such
+// moment left to instrument, and deliberately not re-pointed at sidebar
+// navigation (that is "opened a view", a different meaning, and reusing the
+// name would corrupt the historical trend). Retiring the event was cleared
+// against the live project first: all 23 saved insights in PostHog project
+// 527945 and all 0 alerts were checked, none reference it.
 
 describe("Workspace — analytics: override edits (POSTHOG-6)", () => {
   it("tracks 'override edited' with entity/field when a warehouse status changes", async () => {

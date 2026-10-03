@@ -142,16 +142,11 @@ test.describe("Chapter 9 — editable transportation costs", () => {
     // the scenario goes stale (hasSolvedRun is wired to hasFreshSolvedRun =
     // result != null && !stale, Workspace.tsx:4574/1531) — that disablement
     // itself is one reachable, truthful stale signal from here.
+    // COSM-1 — the sidebar disablement is now the ONLY stale signal. The
+    // open-tab strip that used to offer a second, still-clickable route back
+    // to a stale Cost Summary (and its StaleOutputBanner) was removed by this
+    // bundle; stale outputs are deliberately unreachable until a re-solve.
     await expect(page.getByTestId("sidebar-output-cost-summary")).toBeDisabled({ timeout: HEADER_TIMEOUT });
-    // But TabBar's own open-tab strip has NO such guard (TabBar.tsx — no
-    // `disabled` at all): the Cost Summary tab opened earlier (reading
-    // objectiveAtDefaults) is still sitting in that strip and stays
-    // clickable. Re-activating it is the other, equally real half of the
-    // contract: Workspace.tsx's renderTabContent renders <StaleOutputBanner>
-    // for cost-summary whenever !hasFreshSolvedRun, regardless of whether
-    // the tab was already open before the scenario went stale.
-    await page.getByTestId("tab-output:cost-summary").click({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("stale-output-banner")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
     await solve(page, baseline);
     await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });

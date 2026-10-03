@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CanonicalUnit } from "@workspace/units";
@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/dialog";
 import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
-import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog } from "@/components/workspace/SolveDialog";
 import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
@@ -97,12 +96,7 @@ import type {
   AddedCustomerInput,
 } from "@/components/workspace/map/types";
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
-import {
-  workspaceTabsReducer,
-  workspaceTabId,
-  initialWorkspaceTabState,
-  type WorkspaceTab,
-} from "@/lib/workspaceTabs";
+import { workspaceViewId, type WorkspaceView } from "@/lib/workspaceView";
 import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
@@ -1337,9 +1331,10 @@ function missingCountFor(kind: string, errors: PrecheckErrorLike[], id: string):
   return 0;
 }
 
-// A3.1 builds this tab's real content (re-homed NetworkMap + layer toggles)
-// — A2.1 only needs the sidebar/tab-bar entry to exist so a successful solve
-// has something real to open+activate.
+// A3.1 builds this view's real content (re-homed NetworkMap + layer toggles)
+// — A2.1 only needs the sidebar entry to exist so a successful solve has
+// something real to navigate to. (COSM-1: "sidebar/tab-bar entry" was the
+// original wording; the tab strip is gone, so the sidebar is the only one.)
 const OUTPUT_MAP_ENTRY: SidebarEntry = { id: "output-map", label: "Output Map" };
 
 // T9 (B4) — Solution Summary immediately follows Output Map, matching the
@@ -2361,17 +2356,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(updated.id) });
   }
 
-  const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
-  const activeTab = useMemo(
-    () => tabState.tabs.find(t => t.id === tabState.activeTabId) ?? null,
-    [tabState.tabs, tabState.activeTabId],
-  );
+  // COSM-1 — one active view at a time. The tab strip is gone, so there is no
+  // multi-view state to reconcile: the sidebar is the only navigator and
+  // openTab() below simply replaces what is on screen.
+  const [activeView, setActiveView] = useState<WorkspaceView | null>(null);
 
   // A1.1/A5.1-A5.3 — the Save toolbar (below) shows for any input tab that's
   // actually wired to `localInputs` today.
   const isEditableInputTab =
-    activeTab?.kind === "input" &&
-    (activeTab.entity === "optimization-parameters" ||
+    activeView?.kind === "input" &&
+    (activeView.entity === "optimization-parameters" ||
       // T8 (Input Map v2) — the map tab's own edits (add/move/copy/delete,
       // in-place override edits) write into localInputs exactly like every
       // other editable tab, so it needs the same manual-Save toolbar.
@@ -2397,25 +2391,25 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // `saveInLayersRow` below is deliberately NOT extended the same way:
       // §14.5 keeps this tab's own inline Save hidden for delivery-
       // teaching-us — only the shared toolbar gains one.
-      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
+      (activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
       // folded into the pmedian check above: TransportLpInputs isn't
       // PMedianMapInputs-shaped (see TransportMapInputs's own comment).
-      (activeTab.entity === "input-map" && modelId === "transport-coal") ||
+      (activeView.entity === "input-map" && modelId === "transport-coal") ||
       // T7 (Bundle 2) — two-echelon-gold-au's own full-v2 editor
       // (mode="twoEchelon", InputMapTab.tsx) — a THIRD, separate condition
       // for the same reason: TwoEchelonMapInputs isn't PMedianMapInputs-
       // shaped either (refineryOverrides not warehouseOverrides, no
       // capacityMode/capacity concept at all — see TwoEchelonMapInputs's
       // own comment).
-      (activeTab.entity === "input-map" && modelId === "two-echelon-gold-au") ||
+      (activeView.entity === "input-map" && modelId === "two-echelon-gold-au") ||
       // jade-T15.5 (Chapter 9 JADE) — its own full-v2 editor
       // (mode="jade", InputMapTab.tsx) — a FOURTH separate condition:
       // JadeMapInputs isn't PMedianMapInputs-shaped either (a third
       // interactive entity kind, plantProductCapability, explicit-leg
       // distanceOverrides — see JadeMapInputs's own comment).
-      (activeTab.entity === "input-map" && modelId === "two-echelon-jade-us") ||
+      (activeView.entity === "input-map" && modelId === "two-echelon-jade-us") ||
       // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us: same
       // WarehousesTab/CustomersTab components, same entity shapes (T1's
       // manifest parity), same T3 GET /dataset entry.
@@ -2431,7 +2425,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // capacityModes:[], same as JADE/max-coverage-us), so it reuses the
       // same WarehousesTab. Without this row the shared toolbar Save never
       // appears and the dirty state is never tracked for this tab.
-      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
+      (activeView.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       // jade-T15.5 — two-echelon-jade-us's Customers tab reuses
       // CustomersTab too, in its per-product mode (products/productOverrides
       // wired at the render-content branch below).
@@ -2442,16 +2436,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // true), so it reuses the same CustomersTab. Without this row the
       // shared toolbar Save never appears and the dirty state is never
       // tracked for this tab.
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
-      (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
-      (activeTab.entity === "mines" && modelId === "transport-coal") ||
-      (activeTab.entity === "stations" && modelId === "transport-coal") ||
+      (activeView.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
+      (activeView.entity === "refineries" && modelId === "two-echelon-gold-au") ||
+      (activeView.entity === "mines" && modelId === "transport-coal") ||
+      (activeView.entity === "stations" && modelId === "transport-coal") ||
       // jade-T15.5 — Plants/Capability Matrix, two-echelon-jade-us only
       // (gated on the real capability, not modelId — a future sibling
       // multi-echelon model with the same plant/product concept inherits
       // this for free).
-      (activeTab.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
-      (activeTab.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
+      (activeView.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
+      (activeView.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
       // B5.1/B6.2/T5/jade-T15.5 — Distances grid. p-median-us AND
       // p-median-brazil (same {fromId,toId,distance} shape, T9's backend
       // gate) render DistancesTab; two-echelon-gold-au shares the same
@@ -2465,19 +2459,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // shape, and its manifest declares supportsReferenceDistances (raw-km
       // base matrix, C4.4), so it renders DistancesTab (see the render branch
       // below, extended in the same task).
-      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
+      (activeView.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
       // ch9-tc — the Transportation Costs tab writes into `localInputs` via
       // `updateInputsField` exactly like every other editable tab, so it
       // needs the same manual-Save toolbar. Without this entry the fields
       // edit the draft with no way to persist it.
-      activeTab.entity === "transportCosts" ||
+      activeView.entity === "transportCosts" ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
-      (activeTab.entity === "laneCosts" && modelId === "transport-coal") ||
+      (activeView.entity === "laneCosts" && modelId === "transport-coal") ||
       // Task 11 (Chapter 5) — Delivery Costs grid, delivery-teaching-us only
       // (its ONLY editable dataset surface, spec decision 11). Without this
       // row the shared toolbar Save never appears and the dirty state is
       // never tracked for this tab (flagged by a previous review).
-      (activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us"));
+      (activeView.entity === "deliveryCosts" && modelId === "delivery-teaching-us"));
 
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
@@ -2495,44 +2489,35 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // the SHARED toolbar is the only Save affordance this model's Input Map
   // tab gets.
   const saveInLayersRow =
-    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us");
+    activeView?.kind === "input" && activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
   // condition from the pmedian one above (same reasoning as
   // isEditableInputTab's own third branch) — its Layers row is a
   // structurally different component (InputMapTab.tsx's TransportInputMap),
   // just reusing the same relocated-Save UX/testids.
-  const saveInLayersRowTransport = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "transport-coal";
+  const saveInLayersRowTransport = activeView?.kind === "input" && activeView.entity === "input-map" && modelId === "transport-coal";
   // T7 (Bundle 2) — two-echelon-gold-au's own Save-in-Layers gate, same
   // reasoning as saveInLayersRowTransport above (InputMapTab.tsx's
   // TwoEchelonInputMap is its own structurally-different Layers row).
-  const saveInLayersRowTwoEchelon = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "two-echelon-gold-au";
+  const saveInLayersRowTwoEchelon = activeView?.kind === "input" && activeView.entity === "input-map" && modelId === "two-echelon-gold-au";
   // jade-T15.5 — two-echelon-jade-us's own Save-in-Layers gate, same
   // reasoning as saveInLayersRowTransport/saveInLayersRowTwoEchelon above
   // (InputMapTab.tsx's JadeInputMap is its own structurally-different
   // Layers row).
-  const saveInLayersRowJade = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "two-echelon-jade-us";
+  const saveInLayersRowJade = activeView?.kind === "input" && activeView.entity === "input-map" && modelId === "two-echelon-jade-us";
 
-  function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
-    dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
-  }
-
-  // POSTHOG-5 — tab-activation chokepoint (passed to <TabBar onActivate>
-  // below). Fires "scenario tab viewed" when the user activates an
-  // already-open tab from the tab strip. (Opening a NEW tab from the
-  // sidebar dispatches "open" directly via openTab() above, not through
-  // this handler — that's a distinct "tab opened" moment, not a "viewed"
-  // one, and is out of this task's scope.)
-  function handleActivateTab(id: string) {
-    dispatch({ type: "activate", id });
-    track("scenario tab viewed", { tab: id, model_id: modelId });
+  function openTab(kind: WorkspaceView["kind"], entry: SidebarEntry) {
+    setActiveView({ id: workspaceViewId(kind, entry.id), kind, entity: entry.id, label: entry.label });
   }
 
   // Bundle 6 T2 (item 1, resolution #3) — one-shot Input Map seeding: opens
-  // the Input Map tab exactly once per model entry, keyed on `modelId` (not
-  // reactively on `activeTab === null`, which would reopen Input Map after
-  // the user deliberately closes the last tab). Navigating to a different
-  // chapter re-seeds once; closing the last tab does NOT reopen it — the
-  // ref guard is already tripped for this model.
+  // the Input Map view exactly once per model entry, keyed on `modelId`.
+  // COSM-1 — the "don't reopen after the user closes the last tab" half of
+  // this guard is moot now that the tab strip (and its close affordance) is
+  // gone, but the ref is still load-bearing: keyed on `modelId` rather than
+  // reactively on `activeView === null`, it seeds once on entry and does not
+  // fight the user's own sidebar navigation afterwards. Navigating to a
+  // different chapter re-seeds once.
   const didSeedTabRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentScenario) return;
@@ -3434,7 +3419,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     };
 
   function renderTabContent(): ReactNode {
-    if (!activeTab) return null;
+    if (!activeView) return null;
 
     // T8 (Input Map v2) — Input Map tab. Every model now gets a real full-v2
     // map (T5/T6, Bundle 2, and T7 closing the last gap for
@@ -3447,7 +3432,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // model routes to either anymore, so both were removed from
     // InputMapTab.tsx's mode union (cleanup pass) along with this file's own
     // now-unreferenced pinsForModel/placementOptionsForModel/handlePlacePoint.
-    if (activeTab.kind === "input" && activeTab.entity === "input-map") {
+    if (activeView.kind === "input" && activeView.entity === "input-map") {
       if (modelId === "two-echelon-gold-au") {
         if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
         return (
@@ -3610,7 +3595,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // it, since NOT wiring onAddedWarehousesChange is what hides
     // WarehousesTab's own "Added warehouses" section (see that component's
     // addedSection gate), rather than giving it an inert no-op.
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) {
+    if (activeView.kind === "input" && activeView.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -3661,7 +3646,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `entity` — see that component's own comment), reusing
     // deleteAddedEntityAndOverrides unmodified since twoEchelonInputsSchema's
     // distanceOverrides shares p-median-us's exact field name/shape.
-    if (activeTab.kind === "input" && activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") {
+    if (activeView.kind === "input" && activeView.entity === "refineries" && modelId === "two-echelon-gold-au") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -3688,7 +3673,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `supportsPlantProductCapability` capability, never modelId ===, per
     // Gate 6.5 — a future sibling multi-echelon model with the same plant
     // echelon inherits this branch automatically.
-    if (activeTab.kind === "input" && activeTab.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
+    if (activeView.kind === "input" && activeView.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <PlantsTab
@@ -3707,7 +3692,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // mergeEffectivePlants; an added plant defaults every
     // capability cell to disabled (baseCapabilities has no row for it,
     // baseEnabled's own `?? 0 > 0` fallback in CapabilityMatrixTab.tsx).
-    if (activeTab.kind === "input" && activeTab.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
+    if (activeView.kind === "input" && activeView.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CapabilityMatrixTab
@@ -3755,8 +3740,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // "Added customers" section stays hidden, same reasoning as the
     // Warehouses tab call site above.
     if (
-      activeTab.kind === "input" &&
-      activeTab.entity === "customers" &&
+      activeView.kind === "input" &&
+      activeView.entity === "customers" &&
       (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")
     ) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
@@ -3835,7 +3820,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // mines/stations mapped onto the same [warehouse/customer] shape").
     // Task 30 (B6.1 stage 4) — addedMines/onAddedMinesChange/onDeleteMine/
     // precheckErrors join the props, mirroring WarehousesTab's own added-* wiring.
-    if (activeTab.kind === "input" && activeTab.entity === "mines" && modelId === "transport-coal") {
+    if (activeView.kind === "input" && activeView.entity === "mines" && modelId === "transport-coal") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <MinesTab
@@ -3855,7 +3840,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // A5.1 — transport-coal's Stations tab. `dataset.customers` carries
     // station rows for this model. Task 30 — addedStations/
     // onAddedStationsChange/onDeleteStation/precheckErrors join the props.
-    if (activeTab.kind === "input" && activeTab.entity === "stations" && modelId === "transport-coal") {
+    if (activeView.kind === "input" && activeView.entity === "stations" && modelId === "transport-coal") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <StationsTab
@@ -3872,7 +3857,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
+    if (activeView.kind === "input" && activeView.entity === "optimization-parameters") {
       if (!optimizationTabProps) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return <OptimizationParametersTab {...optimizationTabProps} />;
     }
@@ -3891,7 +3876,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // {fromId,toId,distance} override shape, and supportsReferenceDistances
     // true (raw-km base×base matrix from GET /models/max-coverage-us/
     // reference-distances, C4.4), so `referenceCapable` drives the base column.
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us")) {
+    if (activeView.kind === "input" && activeView.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
@@ -3933,7 +3918,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // is reused as-is (not a new reader) — twoEchelonInputsSchema's
     // distanceOverrides shares p-median-us's exact field name/shape
     // ({fromId, toId, distance}), a deliberate stage-1 naming choice.
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "two-echelon-gold-au") {
+    if (activeView.kind === "input" && activeView.entity === "distances" && modelId === "two-echelon-gold-au") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LegDistancesTab
@@ -3968,7 +3953,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // warehouseOverrides/customerOverrides share the same {id,status} shape
     // at the raw-JSON level (CustomerProductOverride's `status` field reads
     // identically to CustomerOverride's).
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "two-echelon-jade-us") {
+    if (activeView.kind === "input" && activeView.entity === "distances" && modelId === "two-echelon-jade-us") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <JadeDistancesTab
@@ -4002,7 +3987,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // textbook values, which is why `transportCostsFromInputs` resolves the
     // EFFECTIVE values while `hasCustomTransportCosts` separately reports
     // whether the key is actually there (Reset must clear, not rewrite).
-    if (activeTab.kind === "input" && activeTab.entity === "transportCosts" && modelId === "two-echelon-jade-us") {
+    if (activeView.kind === "input" && activeView.entity === "transportCosts" && modelId === "two-echelon-jade-us") {
       if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <TransportCostsTab
@@ -4021,7 +4006,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // the mine/station analogue of the Distances tab immediately above.
     // `dataset.warehouses`/`dataset.customers` carry transport-coal's mine/
     // station rows (same dataset the Mines/Stations tabs above already use).
-    if (activeTab.kind === "input" && activeTab.entity === "laneCosts" && modelId === "transport-coal") {
+    if (activeView.kind === "input" && activeView.entity === "laneCosts" && modelId === "transport-coal") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LaneCostsTab
@@ -4050,7 +4035,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // GET /models/:id/reference-costs (via DeliveryCostsTab's own internal
     // useGetReferenceCosts call, modelId-gated) — a cost here is billable
     // miles, not a distance, so no canonicalUnit/Upload/Download wiring.
-    if (activeTab.kind === "input" && activeTab.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
+    if (activeView.kind === "input" && activeView.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DeliveryCostsTab
@@ -4067,7 +4052,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // renderTabContent() itself is only invoked for the active tab — belt
     // and suspenders so a stale result can never bleed into an unrelated
     // tab if this component's mounting rules ever change.
-    if (activeTab.kind === "output" && activeTab.entity === "output-map") {
+    if (activeView.kind === "output" && activeView.entity === "output-map") {
       // A3.2 — blank this tab's real content behind the stale banner
       // whenever the scenario's outputs aren't trustworthy (unsolved or
       // stale), even if the tab was already open+active from before the
@@ -4154,7 +4139,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // reads activeOutputInputs (R5's displayedInputs principle, P1 —
           // ch4-2s-8 (R4) generalizes this to the step-toggle-aware adapter).
           warehouseStatuses={warehouseStatusesFromInputs(activeOutputInputs, modelId)}
-          result={activeTab.entity === "output-map" ? activeOutputResult : null}
+          result={activeView.entity === "output-map" ? activeOutputResult : null}
           // jade-INT (#1 live band recolor, spec §2) — LIVE
           // localInputs.distanceBands, all models, OVERRIDING T4's
           // displayedInputs-only rule for this one lens: requirement #1
@@ -4230,8 +4215,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // sibling" bug class by construction. Every model×grid combination not
     // in its own outputGrids list falls through to the generic placeholder.
     if (
-      activeTab.kind === "output" &&
-      ["open-warehouses", "customer-assignments", "cost-summary", "service-stats", "flows"].includes(activeTab.entity)
+      activeView.kind === "output" &&
+      ["open-warehouses", "customer-assignments", "cost-summary", "service-stats", "flows"].includes(activeView.entity)
     ) {
       // ch4-2s-8 (R4/CH4-18) — same shared gate as the Output Map branch
       // above (null for every non-Chapter-4 model, which then takes the
@@ -4244,10 +4229,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
       const outputGrids = activeModelManifest?.capabilities?.outputGrids ?? [];
-      if (!outputGrids.includes(OUTPUT_ENTITY_TO_CAPABILITY[activeTab.entity])) {
+      if (!outputGrids.includes(OUTPUT_ENTITY_TO_CAPABILITY[activeView.entity])) {
         return (
           <span className="text-muted-foreground" data-testid="tab-content-placeholder">
-            {activeTab.label} — not available for this model.
+            {activeView.label} — not available for this model.
           </span>
         );
       }
@@ -4269,7 +4254,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // so `??` below always resolves to at most one non-undefined map.
       const chenOutputLocationById =
         modelId === "max-coverage-us" ? chenLocationMapFromInputs(dataset, activeOutputInputs) : undefined;
-      if (activeTab.entity === "open-warehouses")
+      if (activeView.entity === "open-warehouses")
         return (
           <OpenWarehousesTab
             result={result}
@@ -4304,7 +4289,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // `localInputs.distanceBands` presentation lens (same source the map
       // reads, §2), not the frozen snapshot's bands, so this column's labels
       // always agree with the map's colors.
-      if (activeTab.entity === "customer-assignments" && modelId === "two-echelon-jade-us")
+      if (activeView.entity === "customer-assignments" && modelId === "two-echelon-jade-us")
         return (
           <JadeAssignmentsTab
             result={result}
@@ -4319,7 +4304,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             identityById={outputIdentityById}
           />
         );
-      if (activeTab.entity === "customer-assignments")
+      if (activeView.entity === "customer-assignments")
         return (
           <AssignmentsTab
             result={result}
@@ -4337,7 +4322,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // per-scenario fetch is needed. `isBrowsingHistory` reuses
       // `canGoForwardResult` verbatim — it's already exactly "the stepper is
       // parked on a non-latest entry" (see that variable's own comment).
-      if (activeTab.entity === "cost-summary") {
+      if (activeView.entity === "cost-summary") {
         const costSummary = (
           <CostSummaryTab
             result={result}
@@ -4370,7 +4355,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // component (`JadeFlowsTab`), NOT the shared `FlowsTab` — same
       // "no regression to shared tabs" reasoning as Customer Assignments
       // above. Live `bands` lens, same as JadeAssignmentsTab.
-      if (activeTab.entity === "flows" && modelId === "two-echelon-jade-us")
+      if (activeView.entity === "flows" && modelId === "two-echelon-jade-us")
         return (
           <JadeFlowsTab
             result={result}
@@ -4382,7 +4367,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             identityById={outputIdentityById}
           />
         );
-      if (activeTab.entity === "flows")
+      if (activeView.entity === "flows")
         return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} identityById={outputIdentityById} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
@@ -4430,7 +4415,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // p-median-brazil's Warehouses/Customers/Distances gap the same way.
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
-        {activeTab.label} — content wired in a later task (A1.2-A3.1).
+        {activeView.label} — content wired in a later task (A1.2-A3.1).
       </span>
     );
   }
@@ -4604,7 +4589,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // selected-but-unsolved, and `chapter4OutputGate` renders the
           // "Not solved yet — Solve Step 2" empty state.
           keepOutputsClickable={stepState.isMaxCoverage && stepState.steps?.step1.solved === true}
-          activeEntityId={activeTab?.entity ?? null}
+          activeEntityId={activeView?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
           onRenameScenario={handleRenameScenario}
@@ -4613,12 +4598,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <TabBar
-            tabs={tabState.tabs}
-            activeTabId={tabState.activeTabId}
-            onActivate={handleActivateTab}
-            onClose={id => dispatch({ type: "close", id })}
-          />
           {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && !saveInLayersRowJade && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
@@ -4670,10 +4649,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                       Create your first scenario
                     </Button>
                   </div>
-                ) : activeTab ? (
+                ) : activeView ? (
                   renderTabContent()
                 ) : (
-                  <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>
+                  <span className="text-muted-foreground">Pick an item from the sidebar to view it.</span>
                 )}
               </div>
             </ExportProvider>

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { UnitProvider } from "@/contexts/UnitContext";
@@ -1794,9 +1795,15 @@ describe("Workspace — Solve dialog", () => {
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
     expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
-    const outputMapTab = screen.getByTestId("tab-output:output-map");
-    expect(outputMapTab).toBeInTheDocument();
-    expect(outputMapTab).toHaveAttribute("aria-selected", "true");
+    // COSM-1 — the open-tab strip is gone, so "activated Output Map" is now
+    // the sidebar's aria-current PLUS the content region having actually left
+    // Input Map for the Output Map view. This fixture's scenario carries
+    // `result: null`, so the Output Map view's own not-yet-solved branch
+    // (StaleOutputBanner) is what that view renders — the assertion's point
+    // is that the content region navigated, not what the banner says.
+    expect(screen.getByTestId("sidebar-output-output-map")).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stale-output-banner")).toBeInTheDocument();
   });
 
   it("shows a destructive toast and does not open Output Map when the polled job fails", () => {
@@ -1816,7 +1823,11 @@ describe("Workspace — Solve dialog", () => {
       title: "Solve failed",
       description: "Solver timed out",
     }));
-    expect(screen.queryByTestId("tab-output:output-map")).not.toBeInTheDocument();
+    // COSM-1 — a failed solve must not navigate anywhere. The seeded Input
+    // Map view is still what the content region shows, and the Output Map
+    // sidebar row was never made current.
+    expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-output-output-map")).toHaveAttribute("aria-current", "false");
   });
 
   // A9 (SCND correctness, §2.11/A5) — a job carrying the permanent
@@ -2536,23 +2547,38 @@ describe("Workspace — last-solved scenario default (Bundle 6 T2)", () => {
 });
 
 // Bundle 6 T2 (item 1, Step 2, resolution #3) — one-shot Input Map seeding:
-// opens the Input Map tab exactly once per model entry, keyed on `modelId`
-// (not reactively on `activeTab === null`, which would reopen Input Map
-// after the user deliberately closes the last tab).
+// opens the Input Map view exactly once per model entry, keyed on `modelId`.
+// COSM-1 — the tab strip is gone, so this is now about which view the
+// sidebar lands on, and the close-behavior case it used to carry was deleted
+// along with the strip's close affordance.
 describe("Workspace — one-shot Input Map seeding (Bundle 6 T2)", () => {
-  it("opens the Input Map tab on mount", () => {
+  it("opens the Input Map view on mount", async () => {
     renderWorkspace();
-    expect(screen.getByTestId("tab-input:input-map")).toBeInTheDocument();
+    expect(await screen.findByTestId("input-map-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "true");
   });
 
-  it("closing the last (seeded) tab leaves no tab active and does NOT reopen Input Map", () => {
+  it("renders no tab strip and swaps the content region on sidebar navigation", async () => {
     renderWorkspace();
-    expect(screen.getByTestId("tab-input:input-map")).toBeInTheDocument();
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByTestId("tab-close-input:input-map"));
+    // The strip and its empty-state placeholder are both gone for good.
+    expect(screen.queryByTestId("tab-bar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-bar-empty")).not.toBeInTheDocument();
 
-    expect(screen.queryByTestId("tab-input:input-map")).not.toBeInTheDocument();
-    expect(screen.getByTestId("tab-bar-empty")).toBeInTheDocument();
+    // Input Map is the seeded initial view — assert its OWN content testid,
+    // not the generic region wrapper.
+    expect(await screen.findByTestId("input-map-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-input-input-map")).toHaveAttribute("aria-current", "true");
+
+    // Clicking another sidebar entry swaps the CONTENT, not just the sidebar
+    // highlight. Asserting aria-current alone would pass even if the content
+    // region never changed, because the highlight derives straight from
+    // activeEntityId (SidebarTree.tsx:104-114) — independently of what renders.
+    await user.click(screen.getByTestId("sidebar-input-warehouses"));
+    await waitFor(() => expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument());
+    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-input-warehouses")).toHaveAttribute("aria-current", "true");
   });
 });
 
@@ -3471,7 +3497,13 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     jobSnapshot({ status: "succeeded" });
     renderWorkspace();
     openAndSolve();
-    expect(screen.getByTestId("tab-output:output-map")).toHaveAttribute("aria-selected", "true");
+    // COSM-1 — same content-surface assertion as the successful-poll case
+    // above: sidebar aria-current plus the content region having swapped off
+    // Input Map (this fixture's `result` is null, so the Output Map view
+    // renders its own not-yet-solved StaleOutputBanner branch).
+    expect(screen.getByTestId("sidebar-output-output-map")).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stale-output-banner")).toBeInTheDocument();
     expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
   });
 

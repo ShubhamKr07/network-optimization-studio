@@ -14,6 +14,7 @@ date: 2026-09-01T07:38:50Z
 | Project screen | Repo files |
 |---|---|
 | ui_kits/studio/index.html (Landing/Labs) | artifacts/studio/src/pages/Landing.tsx, lib/chapters.ts, components/AppShell.tsx |
-| ui_kits/studio/index.html (Workspace) | artifacts/studio/src/pages/Workspace.tsx, components/workspace/{SidebarTree,TabBar,StaleOutputBanner}.tsx, components/ObjectiveBar.tsx, components/ConstraintChips.tsx, components/workspace/map/MapLegend.tsx |
+| ui_kits/studio/index.html (Workspace) | artifacts/studio/src/pages/Workspace.tsx, components/workspace/{SidebarTree,StaleOutputBanner}.tsx, components/ObjectiveBar.tsx, components/ConstraintChips.tsx, components/workspace/map/MapLegend.tsx |
 | ui_kits/studio/login.html | artifacts/studio/src/pages/auth/Login.tsx |
 | components/* | artifacts/studio/src/components/ui/{button,badge,card,input,select,checkbox,table,tabs,dialog}.tsx |
+| components/studio/TabBar.* | *(no app file — COSM-1, 2026-10-03, deleted `components/workspace/TabBar.tsx` along with the Workspace tab strip; the sidebar is the only navigator. The specimen survives here as a library-only artifact.)* |

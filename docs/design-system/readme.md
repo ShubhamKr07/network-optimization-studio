@@ -47,8 +47,8 @@ Tone is **academic and textbook-like**: plain statements, no hype, no exclamatio
 - `guidelines/` — foundation specimen cards (colors, type, spacing, bands, data-viz).
 - `assets/` — `map-placeholder.svg` (striped stand-in for map imagery), `ds-loader.js` (card/UI-kit loader: uses `_ds_bundle.js` when present, else compiles the `.jsx` sources in-browser).
 - `components/core/` — Button, Badge, Input, Select, Checkbox, Card, Table, Tabs, Dialog.
-- `components/studio/` — ObjectiveBar, ConstraintChips, MapLegend, SidebarTree, TabBar, StaleOutputBanner.
-- `ui_kits/studio/` — the Studio app UI kit (Labs landing + tabbed scenario Workspace), interactive.
+- `components/studio/` — ObjectiveBar, ConstraintChips, MapLegend, SidebarTree, StaleOutputBanner, and TabBar (library-only; see below).
+- `ui_kits/studio/` — the Studio app UI kit (Labs landing + sidebar-navigated scenario Workspace), interactive.
 - `SKILL.md` — agent-facing usage guide.
 
-**Intentional additions:** none. Component list mirrors what `artifacts/studio/src` actually uses (the repo's full shadcn folder is stock boilerplate; only used families are styled here).
+**Intentional additions:** `components/studio/TabBar.*` only. Every other component mirrors what `artifacts/studio/src` actually uses (the repo's full shadcn folder is stock boilerplate; only used families are styled here). COSM-1 (2026-10-03) deleted the app's `components/workspace/TabBar.tsx` — the Workspace tab strip is gone and the sidebar is the only navigator — so the `TabBar` specimen and the UI kit's own tab strip are retained as library artifacts with **no app consumer**. Do not cite them as evidence the app has a tab strip.
