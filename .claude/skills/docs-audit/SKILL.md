@@ -1,6 +1,6 @@
 ---
 name: docs-audit
-description: The judgment pass of the weekly documentation sweep. Verifies mechanical docs-audit candidates against code + git, drafts a concrete fix per real finding, and packages them as one-commit-per-finding on a reviewable PR (a combined harness-weekly PR with a FYI report section). Invoked by the harness-weekly GitHub Actions workflow or on demand as /docs-audit. Report-mode: no questions, never edits main, read-only outside the PR branch.
+description: "The judgment pass of the weekly documentation sweep. Verifies mechanical docs-audit candidates against code + git, drafts a concrete fix per real finding, and packages them as one-commit-per-finding on a reviewable PR (a combined harness-weekly PR with a FYI report section). Invoked by the harness-weekly GitHub Actions workflow or on demand as /docs-audit. Report-mode: no questions, never edits main, read-only outside the PR branch."
 ---
 
 # docs-audit (judgment + PR)
