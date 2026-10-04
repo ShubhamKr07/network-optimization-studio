@@ -20,7 +20,7 @@ the current live fallback (`https://nos-api-uwf8.onrender.com` / `https://nos-st
 The fallback lives in `scripts/src/deploy/smoke.ts`'s `DEFAULTS` with a pointer back to this doc; it is
 a documented default, not immutable project state.
 
-## What each check guards (cross-refs CLAUDE.md "Gotchas" + the R0.x migration)
+## What each check guards (cross-refs the `render-ops` skill + the R0.x migration)
 
 | check | guards | asserts |
 |-------|--------|---------|

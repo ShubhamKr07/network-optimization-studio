@@ -128,7 +128,7 @@ exists to prove.
 `render.yaml`. The Blueprint is authoritative for this service (the Dashboard
 is not used to configure it independently), so the Blueprint value and the
 live setting cannot diverge — consistent with this repo's prior Blueprint-vs-
-MCP-created-resource incident (see `CLAUDE.md`'s Render gotchas).
+MCP-created-resource incident (see the `render-ops` skill, `.claude/skills/render-ops/SKILL.md`).
 
 **Sequence:**
 
