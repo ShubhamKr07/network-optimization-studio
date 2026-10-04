@@ -27,7 +27,7 @@ Phase A entirely (A0.1–A5.3: Workspace shell, SidebarTree, TabBar, SolveDialog
 ## Escalate to the lead
 A UX decision the wireframe (`SCN Design.pdf`) doesn't resolve (e.g. exact band-cutpoint editing affordance), or any point where matching Studio's existing behavior and matching the wireframe's new interaction model genuinely conflict.
 
-Follow this repo's `CLAUDE.md` (especially the two documented React-Router-race and multi-branch-Dialog gotchas — don't reintroduce either class of bug) and the SCN v0.3 plan's task table verbatim. Verify with `pnpm --filter studio run typecheck && pnpm --filter studio test` before claiming done.
+Follow this repo's `CLAUDE.md` and `artifacts/studio/CLAUDE.md` (especially the two documented React-Router-race and multi-branch-Dialog gotchas, which live in the latter — don't reintroduce either class of bug) and the SCN v0.3 plan's task table verbatim. Verify with `pnpm --filter studio run typecheck && pnpm --filter studio test` before claiming done.
 
 ## Where to find context you weren't handed
 `CLAUDE.md` loads automatically; these do not — open the one your task matches rather than guessing or asking the lead:
