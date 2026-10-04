@@ -1,7 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "NOS_GLM_DELEGATION": "disabled"
+    "NOS_GLM_DELEGATION": "disabled",
+    "PONYTAIL_SUBAGENT_MATCHER": "^(backend|frontend|solver|devops)-engineer$"
   },
   "hooks": {
     "PermissionRequest": [

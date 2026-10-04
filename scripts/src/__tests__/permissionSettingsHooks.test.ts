@@ -29,8 +29,25 @@ describe(".claude/settings.json — permission ledger hook registration (T7)", (
 
   const settings = JSON.parse(raw) as Settings;
 
+  // toMatchObject, not toEqual: the point is that T7 did not clobber an existing
+  // key, not that env is frozen — other rules legitimately add keys to it.
   it("preserves the pre-existing env block", () => {
-    expect(settings.env).toEqual({ NOS_GLM_DELEGATION: "disabled" });
+    expect(settings.env).toMatchObject({ NOS_GLM_DELEGATION: "disabled" });
+  });
+
+  // Hard rule #12: ponytail's SubagentStart hook injects into every subagent
+  // unless scoped, and qa-sdet must stay exempt. Widening this regex silently
+  // re-injects the ruleset into qa-sdet and every reviewer/Explore subagent.
+  it("scopes the ponytail subagent ruleset to the four engineering roles only", () => {
+    const pattern = settings.env?.PONYTAIL_SUBAGENT_MATCHER;
+    expect(pattern).toBeDefined();
+    const re = new RegExp(pattern as string, "i");
+    for (const role of ["backend-engineer", "frontend-engineer", "solver-engineer", "devops-engineer"]) {
+      expect(re.test(role)).toBe(true);
+    }
+    for (const exempt of ["qa-sdet", "Explore", "general-purpose"]) {
+      expect(re.test(exempt)).toBe(false);
+    }
   });
 
   it("registers both PermissionRequest and PostToolUse for a Bash matcher, each pointing at the committed hook", () => {
