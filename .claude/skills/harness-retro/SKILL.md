@@ -17,8 +17,25 @@ Argument: `<task_id>` — the task/branch tag (e.g. `bundle7`, `OBS-6`). Announc
 
 ```
 flaky_test | spec_gap | registration_point | codegen_drift | merge_conflict |
-deploy_config | solver_timeout | migration_order | zod_strip | doc_drift | other
+deploy_config | solver_timeout | migration_order | zod_strip | doc_drift |
+config_preflight | review_caught | other
 ```
+
+`config_preflight` — the run failed because the environment was misconfigured, not
+because the code was wrong (e.g. a missing `DATABASE_URL` failing every file at
+collection). `review_caught` — a real defect that **no automated check found**,
+surfaced by a human or whole-branch review; these are expected to have no gate,
+and saying so is the point of the row.
+
+**Why these two were split out of `other` (2026-10-05, approved):** the
+second-occurrence rule fired on `other` with two rows that shared only the
+catch-all label — a missing-`DATABASE_URL` preflight and a review-caught UI bug
+have no common mechanism. The rule's contract is "this cause recurred"; a
+catch-all makes it fire on a coincidence of labelling instead, which is a false
+positive of the rule itself. A rule that cries wolf gets ignored, and that costs
+more than two extra labels. **Keep `other` genuinely residual: if you are about
+to file a second row under it, that is the signal to add a cause, not to reuse
+the bucket.**
 
 ## Steps
 
