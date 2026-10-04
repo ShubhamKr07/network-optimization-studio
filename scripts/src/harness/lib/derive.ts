@@ -17,6 +17,38 @@ export function repoRoot(): string {
 
 export const metricsDir = (): string => join(repoRoot(), "docs", "superpowers", "metrics");
 
+/**
+ * The MAIN checkout's root — the directory holding the shared `.git`, which is
+ * NOT the same as `repoRoot()` when running inside a git worktree.
+ *
+ * `repoRoot()` walks up from this file, and a worktree is a full checkout, so
+ * from a worktree it correctly returns the WORKTREE root. That is right for
+ * anything tracked by git and wrong for anything machine-local and gitignored —
+ * `.claude/settings.local.json` exists only in the main checkout, so resolving
+ * it against a worktree finds nothing.
+ *
+ * `git rev-parse --git-common-dir` returns the shared `.git` for both a normal
+ * checkout and a worktree; its parent is the main checkout. Falls back to
+ * `repoRoot()` if git is unavailable, which keeps non-git usage working.
+ *
+ * Added after the audit reported a false 0/0/0/0 twice from worktrees — see
+ * gates/other.md and the `NOT MEASURED` rows in permissions.csv.
+ */
+export function mainCheckoutRoot(): string {
+  try {
+    const common = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+      cwd: repoRoot(),
+      encoding: "utf8",
+    }).trim();
+    if (!common) return repoRoot();
+    const abs = resolve(repoRoot(), common);
+    // `--git-common-dir` points AT the .git directory; its parent is the checkout.
+    return dirname(abs);
+  } catch {
+    return repoRoot();
+  }
+}
+
 function git(args: string[]): string {
   try {
     return execFileSync("git", args, { cwd: repoRoot(), encoding: "utf8" }).trim();

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { appendRow, readRows } from "./lib/csv.js";
-import { repoRoot, metricsDir, deriveTaskTimestamps } from "./lib/derive.js";
+import { repoRoot, mainCheckoutRoot, metricsDir, deriveTaskTimestamps } from "./lib/derive.js";
 import {
   parseStandingPermissions,
   classifyAll,
@@ -119,7 +119,11 @@ function main() {
   if (!f.task) throw new Error("--task is required");
   const root = repoRoot();
 
-  const settingsPath = f.settings ?? join(root, ".claude", "settings.local.json");
+  // Resolved against the MAIN checkout, not repoRoot(). `.claude/settings.local.json`
+  // is machine-local and gitignored, so it exists only in the main checkout — and
+  // repoRoot() walks up from this file, which inside a worktree is the WORKTREE
+  // root. That mismatch is what produced a false 0/0/0/0 twice (ch9-tc, cleanups).
+  const settingsPath = f.settings ?? join(mainCheckoutRoot(), ".claude", "settings.local.json");
   let allow: string[] = [];
   let deny: string[] = [];
   if (existsSync(settingsPath)) {
@@ -127,7 +131,20 @@ function main() {
     allow = perms.allow;
     deny = perms.deny;
   } else {
-    process.stdout.write(`warn: no settings file at ${settingsPath} — allow/deny treated as empty\n`);
+    // EXIT, do not warn-and-continue. The old behaviour treated allow/deny as
+    // empty and carried on; the gate only fires on risky grants, an empty list
+    // has none, so the audit printed 0/0/0/0 and exited 0 — indistinguishable to
+    // any caller from a genuinely clean audit. A check that cannot fail is not a
+    // check. Recorded in permissions.csv as `unknown`, never 0, so the row can
+    // never be misread as "grants dropped to zero".
+    process.stderr.write(
+      `\nPERMISSION AUDIT — NOT MEASURED\n` +
+        `  No settings file at: ${settingsPath}\n` +
+        `  repoRoot() resolved to: ${root}\n` +
+        `  Refusing to report 0/0/0/0, which would pass while blind.\n` +
+        `  If this is a worktree, run the audit from the main checkout, or pass --settings <path>.\n\n`,
+    );
+    process.exit(4);
   }
 
   // Baseline diff (scratch, gitignored). Read prior, then rewrite to current.
