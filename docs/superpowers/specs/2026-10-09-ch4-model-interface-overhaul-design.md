@@ -48,6 +48,7 @@ values will run, and why** (user-selected option in decision 4's question).
 | 7 | The avg-distance row is relabelled **for Chapter 4 only** | Other chapters keep "Weighted avg. distance" (§4.4) |
 | 8 | The three new rows appear in **both** Solution Summary modes | Including the Compare table, which is what makes it a real replacement for the deleted `StepComparisonTable` |
 | 9 | The `costSummary` CSV gains three columns | The export stops being a strict subset of what the tab displays |
+| 10 | `lockedObjectiveMode` is **removed**, so a Model 1 and a Model 2 scenario can be compared together | Required to make decision 4 true at all — the guard blocked the selection, not just a row (§4.4) |
 
 ### Measured blast radius
 
@@ -333,7 +334,9 @@ change (hard rule 1 and 4).
   Rounding moves from 2 dp (km) to 1 dp (mi) with `clampMi`'s `MIN_DISTANCE_MI`
   floor, matching every other model.
 - **`services/templates.ts`** — `CostSummaryTemplateRow` + `costSummaryRowsToCsv`
-  (`:1530-1614`) gain the three columns and a bumped `templateVersion` (§4.5).
+  (`:1530-1614`) gain the three columns and a **new, grid-local**
+  `COST_SUMMARY_TEMPLATE_VERSION = 4` — not a bump of the shared
+  `OUTPUT_TEMPLATE_VERSION`, which must stay `3` (§4.5 explains why).
   `serviceStatsRowsToCsv` (`:1713`) is untouched. The field renames also reach this
   file's Chapter 4 override appliers only if they read the distance fields — they
   do not (they handle warehouse/customer/distance overrides, not solve parameters),
@@ -433,6 +436,52 @@ non-Ch4 branch they already have. `keepOutputsClickable` (4610) and the
 `hooks/useMaxCoverageSteps.ts` (41), and their three test files
 (`StepToggle.test.tsx`, `StepComparisonTable.test.tsx`, plus the step cases in
 `Workspace.DisplayedInputs.test.tsx`). `e2e/ch4-two-step.spec.ts` is deleted whole.
+
+**`lib/formatObjective.ts` — `scenarioObjectiveModeCh4Aware` collapses.** Not in an
+earlier draft of this list; found while verifying a review finding. The function
+(`:58-68`) prefers `scenario.steps` as **authoritative** and only falls back to
+`objectiveModeOfDetails(result.details)` when `steps` is absent. §3.2 deletes
+`Scenario.steps`, so the `steps` branch becomes unreachable and the whole function
+reduces to its fallback:
+
+```ts
+export function scenarioObjectiveMode(input): string | null {
+  return objectiveModeOfDetails(input?.result?.details);
+}
+```
+
+Its long comment block documents a now-void hazard — that reading `result.details`
+across a Step-1 edit would report "the mode of a solve that no longer counts",
+because `result` was deliberately left stale while the epoch moved. With no epoch,
+there is no such state: a Chapter 4 result is either current or the scenario is
+`stale` by the normal staleness guard, exactly like every other model. Delete the
+comment with the branch. `CostSummaryTab.tsx:162`'s thin `scenarioObjectiveMode`
+wrapper then has nothing left to wrap and can call through directly.
+`formatObjective.test.ts` has cases for the `steps`-present branch that go with it.
+
+`formatChenObjective` itself **stays** — it is still the unresolved-unit fallback
+for both Chapter 4 modes (§4.4), and `ObjectiveBar`/`Landing` share it.
+
+**Two more `steps` call sites, both found during the review pass, neither in an
+earlier draft.** `scenarioObjectiveModeCh4Aware` has two consumers, not one:
+
+- **`components/ObjectiveBar.tsx`** — carries its own `steps?: ScenarioSteps | null`
+  prop (`:19`, `:37`) and calls the helper with it (`:48`). The prop goes, and so
+  does the `ScenarioSteps` **type import** (`:1`). That import is the useful part:
+  §3.2 deletes `ScenarioSteps` from the generated client, so this file fails
+  `pnpm run typecheck` loudly rather than silently reading `undefined`. Expect it
+  as the first typecheck error after codegen, not as a bug.
+- **`pages/Studio.tsx:1083`** — the only place that actually *passes* `steps` to
+  `ObjectiveBar`. Studio is the legacy pre-SCN-v0.3 page and is unreachable from
+  any chapter route (every entry in `chapters.ts` carries `workspace: true`), but it
+  still compiles and still has tests, so it is a real edit, not dead code to ignore.
+
+`ObjectiveBar.test.tsx:10` imports its own component as source text
+(`@/components/ObjectiveBar?raw`). That is the same source-grep pattern as MIG-8
+(§4.3): check what it asserts against before editing the component, because a
+text-level assertion can break on a change that is behaviourally correct.
+`:157`, `:189` and `:205` additionally render Chapter 4 cases with
+`distanceUnit="km"`, which becomes `"mi"` under §2.1.
 
 In `Workspace.tsx`: `selectedStep` / `setSelectedStep`, the snap-to-target effect
 (1545-1567, 3231), `guardStep1Edit` / `confirmStep1Edit` / `pendingStep1Inputs` and
@@ -542,12 +591,19 @@ duplication.
 
 | Row | Source | Status |
 |---|---|---|
-| Objective | `result.objective` via `formatChenObjective` | exists (`:379`) |
+| Objective | `result.objective` via `formatObjective` | exists (`:375-379`) |
 | High service cutoff | `details.highServiceDistMi` | **new** |
 | % of demand within high service | `details.coveragePct` | moved from Service Stats |
 | Total demand within high service | `details.coveredDemand` | moved from Service Stats |
 | Avg distance to customers | `metrics.weightedAvgDistance` | exists, **relabelled** |
 | Runtime / Quality / Solver | unchanged | exists |
+
+`formatObjective` is the **primary** path and must be preserved: it is the
+six-model, unit-aware contract, and it is what converts a min-distance
+demand·distance objective into the display unit.
+`formatChenObjective` (`CostSummaryTab.tsx:374-378`) is only the fallback for when
+`modelId` or the canonical unit has not resolved yet — never the normal path.
+A spec earlier draft named the fallback as the source; corrected per review.
 
 Dropped entirely: **Uncovered %** (decision 6). `solve.py` keeps emitting
 `details.uncoveredPct` and `test_max_coverage.py`'s
@@ -557,9 +613,30 @@ rendering decision, not an envelope change.
 **Service Stats keeps the band graph and nothing else** for Chapter 4: the
 `showCoverageKpis` block is deleted outright, leaving the "Percent of demand served
 within the selected distance bands" caption and the bars. Plant Production is
-JADE-only and untouched. `avgServiceDistance` (`ServiceStatsTab.tsx:300`) and the
-`toDisplay`/`canonicalUnit` plumbing it feeds become unused *by that block* but are
-still needed by the band labels, so only the block goes.
+JADE-only and untouched.
+
+**Three declarations die with the block, not just the JSX.** Each has exactly one
+consumer, the KPI block itself:
+
+| Declaration | Line | Only consumer |
+|---|---|---|
+| `details` | `:273-275` | the block |
+| `showCoverageKpis` | `:276` | the block (`:321`) |
+| `avgServiceDistance` | `:300` | the block (`:342`) |
+
+`toDisplay` / `canonicalUnit` / `distanceUnit` **stay** — the band labels use them
+directly (`:376-380`), independently of `avgServiceDistance`. An earlier draft of
+this section lumped all six together and claimed the first three were still needed
+by the band labels; that was wrong, and leaving them would be three dead
+declarations. Corrected per review.
+
+One stale comment goes with them: `ServiceStatsTab.tsx:183-186` says Chapter 4's
+band bars stay frozen "belt-and-suspenders, here on the envelope's own
+`showCoverageKpis` shape". That guard no longer exists — the chen-bands-units
+comment at `:278-287` records it being deleted, and `bandCoverage` (`:293`) now
+branches on `useLiveCoverage` alone. The comment describes a mechanism that is
+already gone, so deleting `showCoverageKpis` does not change band behaviour; only
+the comment needs correcting.
 
 **High service cutoff reads the SOLVED SNAPSHOT, never `localInputs`.** It comes
 from `details.highServiceDistMi` — the value the solve actually ran with — for the
@@ -593,14 +670,42 @@ established `cost-summary-compare-<metric>-${s.id}` pattern:
 `cost-summary-compare-coverage-pct-*`, `cost-summary-compare-covered-demand-*`.
 The compare table's avg-distance row (`:589`) takes the same relabel.
 
-Compare already blocks selecting two Chapter 4 scenarios solved under **different**
-objective modes (`lockedObjectiveMode`, `:270-290`) — their objectives are in
-different dimensions, a percent against a demand·distance. That guard now matters
-more, because comparing a Model 1 run with a Model 2 run is the headline use of
-this page under decision 4. It is **not** relaxed: the three new rows are
-dimensionally comparable across modes, but `Objective` is not, and the guard
-protects that row. Side-by-side Model 1 vs Model 2 is read from the three new rows
-plus avg distance, which is exactly what the deleted `StepComparisonTable` showed.
+**`lockedObjectiveMode` is removed (decision 10).** This is the one place the
+output-report scope collides with decision 4, and an earlier draft of this section
+got it wrong — it claimed the guard "protects the Objective row" while
+side-by-side Model 1 vs Model 2 was still readable. It is not: the guard blocks
+**selection**, not a row, by two independent mechanisms, so the two scenarios can
+never both be in the table. Found by review.
+
+| Site | Today | After |
+|---|---|---|
+| `:277-280` | `lockedObjectiveMode` derived from the first selected scenario's mode | deleted |
+| `:287-290` | `toggleScenario` refuses a mode-mismatched candidate ("defense in depth") | deleted |
+| `:318-326` | the checkbox is `disabled` for a mismatched scenario | deleted |
+| `:342` | the `(different objective)` label beside it | deleted |
+
+Deleting the mechanism is **Chapter-4-only in effect, with no per-model gate**,
+which is why it can go wholesale rather than being conditionalised:
+`lockedObjectiveMode` is `null` whenever no selected scenario carries an objective
+mode, and only Chapter 4's envelopes carry one. Its own comment (`:274-276`) states
+this — "Null … every non-Chen model … imposes NO restriction" — so every other
+model is byte-for-byte unaffected by the removal, exactly as it was unaffected by
+the addition.
+
+The `Objective` row then needs **no special handling**. `formatObjective` already
+emits a dimension-suffixed string per column, so a cross-mode table is
+self-describing rather than silently incomparable: `68.42 %` beside
+`4.87e+10 demand-mi`. The other four rows are directly comparable across modes,
+and that set — cutoff, % within, total within, avg distance — is exactly what the
+deleted `StepComparisonTable` showed.
+
+**One consequence that will look like a bug and is not.** `objectiveDimension()`
+maps coverage to `"percent"` and min-distance to `"demand-distance"`, and only the
+latter is in `CONVERTING`. So toggling the display unit changes the min-distance
+column's objective and leaves the coverage column's untouched. That is correct — a
+percent has no distance dimension to convert — but in a side-by-side table it reads
+as one cell updating and its neighbour freezing. Worth a comment at the render site
+so the next reader does not "fix" it.
 
 ### 4.5 CSV export (decision 9)
 
@@ -620,10 +725,26 @@ solutionStatus,terminationReason,solverUsed
 error this repo already has a gotcha for. All three are blank for every non-Chapter-4
 model, since their envelopes carry no `coveragePct`.
 
-`templateVersion` is bumped, and `docs/superpowers/metrics/README.md`'s column
-semantics for this grid are updated in the same commit. The `serviceStats` CSV is
-**unchanged** — it carries band rows only and never carried these KPIs, so the move
-takes nothing out of it.
+**The version bump needs its own constant — do NOT bump `OUTPUT_TEMPLATE_VERSION`.**
+An earlier draft said "`templateVersion` is bumped" while also saying the
+`serviceStats` CSV is unchanged. Those contradict: `OUTPUT_TEMPLATE_VERSION`
+(`services/templates.ts:53`, currently `3`) is a **single shared constant** read by
+eight output grids, `serviceStats` (`:1703`) and `costSummary` (`:1597`) among
+them. Bumping it moves every one of their `templateVersion` fields, including grids
+whose columns did not change. Found by review; the original wording would have
+shipped a version bump on seven untouched exports.
+
+The fix follows precedent already in this file rather than inventing a pattern:
+`DISTANCE_TEMPLATE_VERSION` (`:38`) is a separate per-family constant, and `:1482`
+shows a grid deliberately pinned at a literal `1` while the shared constant moved
+to `3`. So `costSummary` gets its own `COST_SUMMARY_TEMPLATE_VERSION = 4`, read
+only at `:1597`. `OUTPUT_TEMPLATE_VERSION` stays `3`, every other grid is
+byte-identical, and the `serviceStats` CSV is then genuinely unchanged — content
+**and** version.
+
+`docs/superpowers/metrics/README.md`'s column semantics for the `costSummary` grid
+are updated in the same commit, including the new constant so the next reader does
+not assume one shared version governs every grid.
 
 ### 4.6 Validation surfacing
 
@@ -721,10 +842,21 @@ replaced.
   rows renders one cell per scenario with that scenario's own value. Guard against
   the classic copy-paste defect by giving the two scenarios *different* coverage
   numbers, so a row that reads the wrong scenario's `details` fails.
-- **Mode-mismatch guard still holds** — selecting a Model 1 and a Model 2 scenario
-  is still refused by `lockedObjectiveMode`. This is pre-existing behaviour that
-  decision 8 makes load-bearing, so it gets an explicit test rather than being
-  assumed to survive.
+- **Cross-mode compare is ALLOWED** (decision 10) — a Model 1 and a Model 2
+  scenario can both be selected, both columns render, and the four comparable rows
+  show each scenario's own values. This test **inverts** an existing one: the
+  current suite asserts the mismatched checkbox is `disabled`, and that assertion
+  is deleted, not adapted. Assert the `toggleScenario` path too, not only the
+  checkbox — the refusal lived in both, so a test that only clicks an enabled
+  checkbox would pass against a half-removed guard.
+- **Non-Ch4 models are unaffected by the removal** — a two-scenario compare on any
+  other model behaves identically before and after. This is the test that
+  substantiates "no per-model gate needed"; without it, the claim rests on reading
+  `lockedObjectiveMode`'s comment.
+- **The objective row's asymmetric conversion** — with one column per mode,
+  flipping the display unit changes the min-distance objective and leaves the
+  coverage percent unchanged. Asserted explicitly so the behaviour is pinned as
+  intended rather than discovered later and "fixed".
 Three **existing** assertions break on the move and must be rewritten, not deleted —
 each is load-bearing:
 
@@ -827,10 +959,15 @@ note warns about.
 
 ## 6a. Review history
 
-The spec was reviewed adversarially by Codex (`/codex:rescue`) before the
-implementation plan was written. That run **failed partway** on an OpenAI usage
-limit, having produced exactly one finding — but the finding was real and
-cascaded into four spec gaps, all folded in above:
+Two adversarial passes by Codex (`/codex:rescue`), both before the implementation
+plan was written. Every finding from both was independently verified against the
+code in this repo before being folded in — none was taken on the reviewer's word.
+
+### Round 1 — partial pass, killed by a usage limit
+
+That run **failed partway** on an OpenAI usage limit, having produced exactly one
+finding — but the finding was real and cascaded into four spec gaps, all folded in
+above:
 
 > the current precheck defines 19 registration points, not ten
 
@@ -843,13 +980,44 @@ stale** and that following it literally breaks `Workspace.test.tsx:2827`'s
 source-text grep (§4.3) — a trap neither the spec nor the precheck would have
 caught during implementation.
 
-**The review is incomplete.** Codex's own last message said it was treating all 19
-points as the audit surface and had not yet finished that sweep; it had read the
-spec, the manifests, `maxCoverage.ts`, `scenarioInputWrite.ts`, `openapi.yaml`,
-`jobRunner.ts`, `autoDistance.ts`, `ObjectiveBar.tsx` and `ServiceStatsTab.tsx`
-when it was cut off. Anything it had queued beyond the registration-point thread is
-unknown. A second pass should rerun it after the limit resets and should be
-considered a prerequisite to merge, not to planning.
+### Round 2 — shallow pass over §4.4–4.5
+
+The resumed thread completed, deliberately scoped shallow and pointed at the
+output-report sections no reviewer had seen. Four findings, **all four confirmed
+against the code** and all folded in:
+
+| # | Severity | Finding | Where fixed |
+|---|---|---|---|
+| 1 | Critical | §4.4 claimed Model 1 vs Model 2 was readable on the Compare page while keeping `lockedObjectiveMode`. The guard blocks **selection**, not a row — the comparison was impossible as specified | §4.4, decision 10 |
+| 2 | High | §4.5 required a `templateVersion` bump *and* claimed `serviceStats` was unchanged. `OUTPUT_TEMPLATE_VERSION` is one shared constant across eight grids | §4.5 — own constant |
+| 3 | Medium | §4.4 claimed `details`/`showCoverageKpis`/`avgServiceDistance` were still needed by the band labels. All three have the deleted block as their only consumer | §4.4 — table of the three |
+| 4 | Low | §4.4's table named `formatChenObjective` as the Objective source; it is the unresolved-unit fallback, `formatObjective` is primary | §4.4 |
+
+Finding 1 was worse than reported: the refusal is implemented **twice**
+(disabled checkbox at `:318`, plus a defense-in-depth rejection inside
+`toggleScenario` at `:287`), so a fix that only re-enables the checkbox leaves the
+guard half-removed. §5.2's test is written to catch exactly that.
+
+Verifying findings 1 and 4 then surfaced **three call sites of my own** that no
+review had flagged, all on the `Scenario.steps` deletion: the
+`scenarioObjectiveModeCh4Aware` collapse, `ObjectiveBar.tsx`'s `steps` prop and
+`ScenarioSteps` type import, and `Studio.tsx:1083` (§4.2). The lesson for the
+implementation pass: a deleted API field needs its consumers traced through
+helper functions, not just grepped at the component level — the 28-file sweep in
+§1 found `formatObjective.ts`, but reading that file was what revealed it had two
+consumers rather than one.
+
+Codex confirmed decisions 5–7 and 9 check out clean against `CostSummaryTab.tsx`,
+`ServiceStatsTab.tsx` and `services/templates.ts`. It did **not** verify that
+`solve.py` still emits `uncoveredPct` (out of scope under the shallow budget), so
+that claim in §4.4 rests on this session's own earlier read of `solve.py:1533` —
+confirm it during implementation.
+
+**Remaining unreviewed.** §2 (the contract, solver change, defaults) and §3
+(server, migration) have had one partial pass and one shallow pass that
+deliberately skipped them. §3.4's migration script and §2.4's infeasibility
+attribution are the two places where an error would be expensive and no reviewer
+has looked closely.
 
 ## 7. Out of scope
 
