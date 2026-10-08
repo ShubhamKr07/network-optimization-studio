@@ -371,10 +371,24 @@ By now nothing consumes `steps` (Task 2) and nothing produces it (Task 3), so th
 **Files:**
 - Modify: `lib/api-spec/openapi.yaml`
 - Regenerate: `lib/api-zod/src/generated/`, `lib/api-client-react/src/generated/`
+- Modify (11 test files carrying inert mocks — added after Task 2's review):
+  `artifacts/studio/src/__tests__/deliveryEditableInputs.test.tsx`, and
+  `Workspace.{Analytics,Brazil,InputMapV2,Jade,OutputMap,StaleOutputs,TabCoverage,Transport,TransportCoal,TwoEchelon}.test.tsx`
 
 **Interfaces:**
 - Consumes: Tasks 2 and 3 having removed every consumer and producer.
 - Produces: a generated client with no `ScenarioSteps`, `ScenarioStepState`, `ScenarioStepSummary` or `getScenarioStepResult`.
+
+**Eleven test files mock exports this task deletes, and `vi.mock` will NOT fail on
+them.** Found during Task 2's review. Each carries a `vi.mock` factory stub for
+`useGetScenarioStepResult` / `getGetScenarioStepResultQueryKey`. A factory with
+extra keys does not error, so after this task they silently become mocks of
+non-existent exports — inert, but permanently misleading. Strip those two keys
+from each factory as part of this task rather than leaving them to a later sweep:
+
+```bash
+grep -rln "useGetScenarioStepResult\|getGetScenarioStepResultQueryKey" artifacts/studio/src
+```
 
 - [ ] **Step 1: Edit the spec**
 
@@ -1939,6 +1953,17 @@ The two `VITE_*` dummies are **required, not a workaround**: without them `posth
 - [ ] **Step 3: Rewrite each spec**
 
 `max-coverage.spec.ts` — the single form: no step toggle, no `Solve Step N` label (now `Run Optimizer`), the new mile defaults (450 / 3400 / 650, bands 450/900/1800/3400), and the floor input driving which model runs. Assert the derived-model line.
+
+**Also assert the RESTORED result-history stepper** (added after Task 2's review).
+Removing the two-step workflow restored three things Chapter 4 was denied — the
+stepper, the solve-timing display, and unfrozen editing — but the deleted unit
+tests only ever asserted the OLD behaviour, so nothing positively pins the new.
+Task 2's fix commit covers the `"Run Optimizer"` label and unfrozen dialog
+editing at unit level; the stepper needs a solved-history precondition that is
+awkward to reach in jsdom, so it belongs here. Solve twice, then assert the
+stepper control is present and steps between the two results. Without this, the
+suite would be equally green if the stepper's old `!stepState.isMaxCoverage &&`
+suppression had been left in place.
 
 `chen-bands-units-qa.spec.ts` — km→mi labels and values throughout.
 
