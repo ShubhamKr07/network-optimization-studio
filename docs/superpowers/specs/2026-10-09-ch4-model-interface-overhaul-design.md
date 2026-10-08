@@ -100,7 +100,7 @@ gap                   number >= 0        required
 timeLimitSec          int >= 1           required
 capacityMode          "none"             defaulted
 distanceBands         number[] > 0, strictly ascending, min 1   (reporting lens)
-objective             "coverage" | "min_distance"  — SERVER-DERIVED
+objective             "coverage" | "min_distance"  — optional, SERVER-DERIVED (§2.3)
 warehouseOverrides / customerOverrides / addedWarehouses /
 addedCustomers / distanceOverrides                 — unchanged apart from the rename
 ```
@@ -135,6 +135,37 @@ keys this model's unit semantics off it — `"percent"` for coverage,
 `ObjectiveBar` and the Compare page render the objective with the right dimension
 and the right unit conversion. `solve.py` echoes it into `details.objective`, and
 `jobRunner.ts:1417` reads that echo into `resultSummary.objectiveMode`.
+
+**There are TWO write paths, and the derivation must sit on both.** Added after
+review: an earlier draft put the derivation only in `applyScenarioInputWrite` —
+the **update** path — while §3.3 deleted `initialInputsForInsert` from insert and
+clone. That leaves create and clone with no derivation at all, and the failure
+depends on how the schema declares `objective`: required → every create 422s,
+because a client cannot legally supply it; optional → creates succeed and persist a
+scenario with no objective, which then renders through `objectiveDimension()`'s
+`"opaque"` fallback.
+
+So `initialInputsForInsert` is **repurposed, not deleted** — it is already the
+create/clone hook for exactly this kind of server-owned field, which is what it did
+for `stepEpoch`. Renamed `deriveServerOwnedInputs(modelId, inputs)` and applied at
+all three sites:
+
+| Path | Site | Call |
+|---|---|---|
+| create | `routes/scenarios.ts:239` | `deriveServerOwnedInputs(...)` wrapping `normalizeAddedEntityDistances(...)` |
+| clone | `routes/scenarios.ts:2021` | same |
+| update | `services/scenarioInputWrite.ts:64` | same, replacing the `stepEpoch` computation |
+
+Ordering is fixed and matters: **validate, then derive, then persist.** That is
+already how both paths work today (`scenarios.ts:216` validates before wrapping;
+`scenarioInputWrite.ts:49-66` validates before adding server-owned fields), and it
+is the right order because the derivation reads `coverageFloorDemand`, which only
+validation guarantees is an integer. Deriving first would mean deriving from
+unvalidated input.
+
+`objective` is therefore declared **optional with no default** in the schema: a
+client may omit it (and is refused if it sends one, below), and the derivation
+supplies it before the row is written. It is never absent on a persisted row.
 
 **The write guard inverts.** `services/scenarioInputWrite.ts`'s
 `assertNoServerOwnedStepFields` currently refuses a client-supplied
@@ -182,26 +213,47 @@ makes `details.objective` a report of what actually ran. The server's stored
 `objective` (§2.3) is then a second application of the same rule, for the DB and the
 UI, and §5.2's agreement test is what holds the two applications together.
 
-**Infeasibility messages must name the binding constraint.** Both the floor and the
-cap can now fail, together or separately, and `_envelope("infeasible", ...)`'s
-single `infeasibilityReason` string is the only thing a student sees. CBC reports
-"Infeasible" without attributing it, so attribution is computed **pre-solve** from
-the data. Both checks below are *necessary* conditions — each is cheap and certain
-when it fires, and neither is complete:
+**Infeasibility attribution lives entirely in `services/precheck.ts`, NOT in
+`solve.py`.** An earlier draft split it — the floor bound in the existing
+TypeScript precheck, a new cap bound inside `solve.py` — and that was incoherent,
+found by review. `jobRunner.ts:410-413` returns `precheck_failed` **before** Python
+is ever spawned, so whenever the floor bound fires the Python cap check cannot run,
+and a scenario violating both would be attributed to the floor alone. The draft
+simultaneously claimed both could be reported together.
 
-- **Cap.** Compute the unconstrained lower bound on weighted-average distance:
-  assign every active customer to its nearest active warehouse ignoring both `p` and
-  `maxDistMi`, i.e. `sum(demand[c] * min_w adj[w,c]) / total`. No feasible solution
-  can beat this, so `avgServiceDistCapMi` below it is definitely infeasible → name
-  the cap. `O(|W| × |C|)` on a dict already built.
-- **Floor.** `coverageFloorDemand` above the demand coverable within
-  `highServiceDistMi` is definitely infeasible → name the floor. This check already
-  exists as a precheck rule (§3.3) and is reused rather than reimplemented.
-- **Neither fires** → the infeasibility is a genuine interaction of `p`,
-  `maxDistMi`, the cap and the floor that no cheap bound detects. Keep today's
-  generic "No feasible assignment under the constraints", and say that both the
-  coverage floor and the average-distance cap are candidates — an honest "one of
-  these two" beats naming the wrong one.
+Putting both in precheck fixes the contradiction and is simpler than the draft:
+`runNetworkEditsPrecheckForModel` returns an **error list**, not a single string
+(`precheck.ts:321-331` pushes onto `errors`), so it can report both causes in one
+422 with no precedence rule to invent. `solve.py` then needs **no attribution code
+at all** — it keeps its existing generic infeasible message for the residual case.
+
+Two bounds, both *necessary* conditions — each is cheap and certain when it fires,
+neither is complete:
+
+- **Floor** — `coverageFloorDemand` above the demand coverable within
+  `highServiceDistMi`. **Already exists** (`precheck.ts:321-331`, code
+  `coverage_floor_infeasible`). Its `objective === "min_distance"` guard is dropped:
+  under §2.3 a non-zero floor *is* min-distance mode, so the guard is redundant, and
+  keeping it would make the rule depend on a field the server derives from the very
+  value being checked.
+- **Cap** — a new sibling rule, `avg_distance_cap_infeasible`. Assign every active
+  customer to its nearest active warehouse, ignoring both `p` and `maxDistMi`:
+  `sum(demand[c] × min_w adj[w,c]) / total`. No feasible solution can beat this, so
+  an `avgServiceDistCapMi` below it is definitely infeasible. `O(|W| × |C|)` over
+  the `rawKm` map precheck has already built (`:293-295`), so it costs one more pass
+  over data in hand.
+
+Codex verified the cap bound is genuinely a valid lower bound: every feasible
+assignment picks exactly one active warehouse per customer (`solve.py:1484`), and
+restricting to `p` open facilities and `maxDistMi`-reachable pairs
+(`:1486-1492`) only removes options, so it can never beat each customer's minimum
+over all active warehouses.
+
+**When neither bound fires**, the infeasibility is a genuine interaction of `p`,
+`maxDistMi`, the cap and the floor that no cheap bound detects. `solve.py` returns
+its existing generic "No feasible assignment under the constraints", and the
+message names both the coverage floor and the average-distance cap as candidates —
+an honest "one of these two" beats naming the wrong one.
 
 Deliberately **not** attempted: an exact "smallest feasible cap for this `p`". That
 is itself an optimization problem, so computing it to produce an error message
@@ -264,12 +316,25 @@ automated guard for that claim and must stay green.
 
 | Path | Lines | Note |
 |---|---|---|
-| `services/maxCoverageSteps.ts` | 363 | Epoch authority, step summaries, the batch Compare-list query |
+| `services/maxCoverageSteps.ts` | 363 | Epoch authority, step summaries, the batch Compare-list query. **One export survives** — see below |
 | `services/__tests__/maxCoverageSteps.test.ts` | — | |
 | `services/__tests__/maxCoverageStepsBatch.test.ts` | — | |
 | `solver/__tests__/maxCoverageStepWorkflow.test.ts` | — | Known load-flake; disappears with its subject |
 | `__tests__/crossModelStepContract.test.ts` | — | Registration point 18. Asserts non-Ch4 models have no `steps` — vacuous once nothing has them. See below |
 | `__tests__/maxCoverageWriteGuard.test.ts` | — | Replaced by a new test for the inverted guard (§5) |
+
+**`initialInputsForInsert` must MOVE, not die with the file.** It is defined in
+`maxCoverageSteps.ts:53-59`, and §2.3 keeps it as the create/clone derivation hook
+(renamed `deriveServerOwnedInputs`). Deleting the file therefore means relocating
+that one function to `services/scenarioInputWrite.ts`, which is where the update
+path's derivation already lives — one module owning the whole write contract,
+which is what `scenarioInputWrite.ts:113`'s re-export was approximating anyway.
+`MAX_COVERAGE_MODEL_ID` (`:5`) moves with it, since both paths and several route
+files compare against it.
+
+Everything else in the file goes: `NON_STEP1_KEYS`, `isStep1Key`, `readStepEpoch`,
+`nextStepEpoch`, `synthesizeStep2Inputs`, `deriveTargetStep`, `loadScenarioSteps`,
+`loadScenarioStepsBatch` and the four step-state interfaces.
 
 `maxCoverageStepWorkflow` and `crossModelStepContract` are both on the known
 load-flake list in the root `CLAUDE.md`; deleting them removes two entries from
@@ -299,15 +364,18 @@ change (hard rule 1 and 4).
 
 - **`routes/scenarios.ts`** — drop the `loadScenarioSteps` call on the single-scenario
   read (line 270), the `loadScenarioStepsBatch` call and its `ch4Rows` filter on the
-  list route (200-205), the whole `steps/:step/result` handler (279-300), and the
-  `initialInputsForInsert` wrapping on insert and clone (239, 2021). The
+  list route (200-205), and the whole `steps/:step/result` handler (279-300).
+  **Keep** the insert and clone wrapping (239, 2021), repointed at the renamed
+  `deriveServerOwnedInputs` — §2.3 corrects an earlier draft of this line, which
+  deleted it and left create and clone with no `objective` derivation at all. The
   `MAX_COVERAGE_DATASET` import and the distance-stub path (1265) are unrelated to
   steps and stay.
 - **`services/scenarioInputWrite.ts`** — replace the `stepEpoch` computation
   (64-65) with the `objective` derivation; delete `changed.delete("stepEpoch")`
-  (85); delete the `initialInputsForInsert` / `isStep1Key` re-exports (113);
-  rewrite the guard per §2.3. The `isBandsOnlyChange` non-geometric-write rule is
-  untouched and still correct.
+  (85); keep the create/clone hook's re-export at 113 (renamed
+  `deriveServerOwnedInputs`) and drop only the `isStep1Key` half of it; rewrite the
+  guard per §2.3. The `isBandsOnlyChange` non-geometric-write rule is untouched and
+  still correct.
   Note `objective` must be excluded from the `changed` set the same way `stepEpoch`
   was — it is derived from `coverageFloorDemand`, so it can never change *alone*,
   but leaving it in means a bands-only save that happens to be the first write
@@ -320,10 +388,22 @@ change (hard rule 1 and 4).
 - **`solver/pmedian.ts`** — rename the four wire fields passed to `solve.py`
   (166-169). `objective` (164) still travels.
 - **`services/precheck.ts`** — rename the fields in the two Ch4 rules (309, 324)
-  and change both message strings from `km` to `mi` (313, 330). The
-  `coverageFloorDemand` rule becomes reachable far more often: it used to apply
+  and change both message strings from `km` to `mi` (313, 330). Drop the
+  `objective === "min_distance"` guard on the floor rule (`:321`) — a non-zero floor
+  *is* min-distance mode now. **Add** the `avg_distance_cap_infeasible` sibling rule
+  (§2.4); this file becomes the single home for infeasibility attribution.
+  The `coverageFloorDemand` rule becomes reachable far more often: it used to apply
   only to a server-synthesized floor that was by construction achievable, and now
-  guards a number a student typed. It is the floor half of §2.4's attribution.
+  guards a number a student typed.
+- **`validation/inputs/__tests__/maxCoverage.test.ts`** — not in an earlier draft of
+  this list; found by review. It hardcodes the old field names **and** asserts the
+  objective-discriminated contract being deleted (that `avgServiceDistCapKm` is
+  required iff coverage and `coverageFloorDemand` iff min-distance). Those
+  assertions do not merely need renaming — they assert the **inverse** of the new
+  rule, where both are unconditionally required. Rewrite, do not rename.
+- **`__tests__/precheck.test.ts`** — likewise unlisted before. Covers both Ch4
+  precheck rules, so it takes the renames, the dropped `min_distance` guard, the
+  `km`→`mi` message strings, and new cases for the cap rule.
 - **`services/autoDistance.ts`** — delete `R_KM`, `MIN_DISTANCE_KM`,
   `haversineKm`, `clampKm` (101-113); `fillEstimatedMaxCoverageDistances` (513-560)
   switches to the shared `clampMi(haversineMiles(a, b) * MAX_COVERAGE_CIRCUITY)`,
@@ -354,13 +434,15 @@ New one-off script, `scripts/src/migrate-ch4-to-miles.ts`, following
 `scripts/src/migrate-delete-chens-scenarios.ts`'s existing shape (same argv/dry-run
 conventions, same `DATABASE_URL` handling).
 
-Per `scenarios` row with `model_id = 'max-coverage-us'`:
+Per `scenarios` row with `model_id = 'max-coverage-us'`. `MI = 1.609344`, and
+`toMi(v) = round(v / MI, 2)` — **two decimal places, not integers**; see detail 3:
 
 ```
-inputs.highServiceDistKm    -> inputs.highServiceDistMi   = round(v / 1.609344)
-inputs.maxDistKm            -> inputs.maxDistMi           = round(v / 1.609344)
-inputs.avgServiceDistCapKm  -> inputs.avgServiceDistCapMi = round(v / 1.609344)
-inputs.distanceBands         = sorted(unique(round(b / 1.609344)))   // > 0
+inputs.highServiceDistKm    -> inputs.highServiceDistMi   = toMi(v)
+inputs.maxDistKm            -> inputs.maxDistMi           = toMi(v)
+inputs.avgServiceDistCapKm  -> inputs.avgServiceDistCapMi = toMi(v), else 650
+inputs.distanceBands         = sorted(unique(toMi(b))) filtered > 0, else [high, max]
+inputs.distanceOverrides[].distance = toMi(v)        <-- EVERY entry. See detail 1.
 inputs.coverageFloorDemand   = existing value, else 0
 inputs.objective             = derived from the floor (§2.3)
 inputs.stepEpoch, inputs.step2  -> deleted
@@ -370,19 +452,57 @@ result_cache rows for this model -> deleted
 solve_jobs rows              -> left in place as history
 ```
 
-Three details that are decisions, not mechanics:
+Five details that are decisions, not mechanics. Details 1, 3 and 5 were added
+after review; the original draft of this section would have silently corrupted
+data.
 
-1. **A missing `avgServiceDistCapKm` is possible** on a row last saved in
+1. **`distanceOverrides[].distance` MUST be converted — this is the one that
+   corrupts data if missed.** The field is raw km
+   (`validation/inputs/maxCoverage.ts:66-71`) and `precheck.ts:295` overlays it
+   **directly** onto the base distance matrix with no further conversion. Leaving it
+   would reinterpret every stored km value as miles — a silent 1.609344× inflation
+   of exactly the distances a student hand-edited.
+   It is not a rare field: `precheck.ts:294`'s own comment states that **"every
+   added-entity pair lives ONLY here"**, and `autoDistance.ts`'s
+   `fillEstimatedMaxCoverageDistances` auto-populates it for every added warehouse
+   or customer. So any scenario with an added entity has these overrides, whether or
+   not anyone typed one.
+   `estimated` is a boolean flag and does not convert. §2.2's "override arrays
+   unchanged apart from the rename" refers to their **shape**; this value is the one
+   number inside them that carries a unit, and that sentence must not be read as
+   licence to skip it.
+2. **A missing `avgServiceDistCapKm` is possible** on a row last saved in
    min-distance mode (the old schema made it coverage-only, and
    `synthesizeStep2Inputs` destructured it away). Such a row gets the new default,
    650 mi. Without this the migrated row fails validation on its next read.
-2. **Rounding can collapse a `distanceBands` pair** into a duplicate, which the
-   strictly-ascending refinement rejects. Dedupe after rounding, and drop any
-   value that rounds to 0.
-3. **The script must be idempotent.** Re-running it on an already-migrated row must
+3. **Integer rounding can turn a VALID persisted row into an INVALID one**, which is
+   why `toMi` keeps 2 dp. Two concrete failures with integer rounding:
+   `high = 1 km, max = 1.1 km` → both round to `1`, violating the strict
+   `highServiceDistMi < maxDistMi` refinement; and any positive value under
+   `0.804672 km` rounds to `0`, violating `z.number().positive()`. At 2 dp those
+   become `0.62 / 0.68` and `0.5`, both valid and order-preserving.
+   2 dp is not a proof, only a large reduction in the reachable set, so detail 5 is
+   the actual guarantee. Note the round-number **defaults** in §2.5 are a separate
+   choice and stay integers — they are authored, not converted.
+4. **Rounding can still collapse a `distanceBands` pair** into a duplicate, which
+   the strictly-ascending refinement rejects. Dedupe after rounding, drop any value
+   that rounds to 0, and if the array ends up empty fall back to
+   `[highServiceDistMi, maxDistMi]` — the same derivation the schema's own
+   `.transform` uses for a legacy payload, so an emptied array cannot leave a row
+   unloadable.
+5. **Every migrated row is re-validated against the NEW schema before its UPDATE is
+   committed, and a row that fails is reported and skipped, never written.** This is
+   what makes details 3 and 4 safe rather than merely unlikely: the migration's
+   contract is that it leaves behind only rows the running server can load. A
+   skipped row is a visible one-line report to fix by hand; a written-but-invalid
+   row is a scenario that 422s forever with no indication why.
+6. **The script must be idempotent.** Re-running it on an already-migrated row must
    be a no-op, keyed on the presence of `highServiceDistMi`. This repo already has
    a non-idempotent runbook that silently double-converts
    (`docs/ops/timestamptz-migration.md`); that is the failure mode to not repeat.
+   Each row's JSON update must be atomic — a partially-converted row would be
+   indistinguishable from an unmigrated one under the presence check, and would then
+   be converted twice.
 
 Local dev DB holds **5** `max-coverage-us` scenarios. The production count is
 **unknown and unmeasurable from this session** — `query_render_postgres` connects
@@ -818,9 +938,27 @@ replaced.
   persisted row carries the *derived* value, not the sent one.
 - **Migration** — a fixture row in each shape the migration must handle: a
   coverage-mode row, a min-distance row with no `avgServiceDistCapKm`, a row whose
-  rounded bands collide, and an already-migrated row (idempotency). Per this repo's
-  own gotcha, at least one of these runs against **real Postgres** through the actual
-  writer rather than a hand-built in-memory fixture.
+  rounded bands collide, a row with `distanceOverrides` (including an added-entity
+  pair, whose override is the *only* record of that distance), a row that cannot be
+  made valid and must be **skipped and reported**, and an already-migrated row
+  (idempotency, run twice and assert byte-equality). Per this repo's own gotcha, at
+  least one of these runs against **real Postgres** through the actual writer rather
+  than a hand-built in-memory fixture.
+  The `distanceOverrides` case is the one that matters most and the easiest to write
+  weakly: assert the converted **value**, not just that the key survived. A test
+  that only checks the array's length passes against the exact bug this case exists
+  to catch.
+- **Create and clone derive `objective`** — `POST /scenarios` and the clone route
+  both persist a derived `objective` without the client sending one, for a zero
+  floor and a non-zero floor. Separate from the update-path test: these are three
+  distinct call sites (§2.3), and the update path working proves nothing about the
+  other two.
+- **Both infeasibility bounds, and both together** — a cap below the nearest-warehouse
+  lower bound yields `avg_distance_cap_infeasible`; a floor above coverable demand
+  yields `coverage_floor_infeasible`; a scenario violating **both** returns **both**
+  codes in one 422. That last assertion is the regression guard for the contradiction
+  review found: with the cap check in `solve.py` it was unreachable, because precheck
+  short-circuits before Python runs.
 - **Unit canonicality** — `manifest.distanceUnit === "mi"` asserted directly, not
   only via a round-trip. A round-trip test passes in any environment where the two
   units coincidentally agree, which is exactly how the `timestamptz` class of bug
@@ -1013,11 +1151,43 @@ Codex confirmed decisions 5–7 and 9 check out clean against `CostSummaryTab.ts
 that claim in §4.4 rests on this session's own earlier read of `solve.py:1533` —
 confirm it during implementation.
 
-**Remaining unreviewed.** §2 (the contract, solver change, defaults) and §3
-(server, migration) have had one partial pass and one shallow pass that
-deliberately skipped them. §3.4's migration script and §2.4's infeasibility
-attribution are the two places where an error would be expensive and no reviewer
-has looked closely.
+### Round 3 — §2 and §3 only
+
+Scoped to the two sections the first two passes had skipped, with §4–§7 explicitly
+out of scope. Five findings, **all five confirmed**, all folded in. Two of them
+were data-corruption bugs.
+
+| # | Severity | Finding | Where fixed |
+|---|---|---|---|
+| 1 | Critical | §3.4 converted the three scalars and `distanceBands` but **not** `distanceOverrides[].distance`, which is raw km overlaid straight onto the base matrix. Every stored override would have been reinterpreted as miles — a silent 1.609344× inflation | §3.4 detail 1 |
+| 2 | Critical | The derived `objective` had **no create path**. §3.3 deleted `initialInputsForInsert` while the derivation sat only in the update path, so create and clone would either 422 on every request or persist no objective | §2.3 — three sites |
+| 3 | High | Integer rounding can turn a valid persisted row **invalid**: `high=1 km, max=1.1 km` both round to `1`, breaking the strict inequality; anything under `0.804672 km` rounds to `0` | §3.4 details 3-5 — 2 dp + revalidate-or-skip |
+| 4 | High | The infeasibility attribution was split across TypeScript precheck and `solve.py`, but `jobRunner.ts:410` short-circuits before Python, so "both constraints attributed together" was unreachable | §2.4 — both bounds in precheck |
+| 5 | Medium | §3.3's modified list omitted `maxCoverage.test.ts` (which asserts the *inverse* of the new contract) and `precheck.test.ts` | §3.3 |
+
+Finding 1 is the most dangerous thing any pass has caught, because it fails
+**silently and permanently**: the migration would report success, the scenario
+would load and solve, and the answers would be wrong in a way no test asserts and
+no error surfaces. `precheck.ts:294`'s comment is what makes the scope clear —
+*"every added-entity pair lives ONLY here"* — so for any scenario with an added
+warehouse or customer, those overrides are the sole record of the distance.
+
+Finding 4 **simplified** the design rather than complicating it: moving both bounds
+into `precheck.ts` removes the need for any attribution code in `solve.py`, and
+`runNetworkEditsPrecheckForModel` already returns an error *list*, so reporting two
+causes needs no precedence rule.
+
+Codex also **verified a claim rather than only finding faults** — §2.4's cap lower
+bound is genuinely valid, traced through `solve.py:1484-1492`: restricting to `p`
+open facilities and reachable pairs only removes options, so no feasible assignment
+can beat each customer's nearest-active-warehouse distance. And it confirmed the
+one claim left outstanding from round 2: `solve.py:1533` does still emit
+`details.uncoveredPct`, so §4.4's decision to drop that row from the UI without an
+envelope change holds.
+
+**Review coverage now.** All of §2, §3, §4.4 and §4.5 have had a real pass. Still
+unreviewed by anyone but this session: §4.1–4.3 and §4.6 (the form itself), §5
+(testing), and §6/§7. The form is the largest remaining unreviewed surface.
 
 ## 7. Out of scope
 
