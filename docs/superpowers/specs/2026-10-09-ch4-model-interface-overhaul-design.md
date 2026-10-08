@@ -21,6 +21,10 @@ That machinery is removed. The new workflow:
   not chosen by a toggle and not sequenced across two solves.
 - `coverageFloorDemand` becomes **user-authored** — the inverse of today's contract.
 - The model becomes **miles-canonical**, like every other model in the repo.
+- **Solution Summary becomes the one place the coverage metrics live.** Three of
+  them move off Service Stats, which keeps only its band graph; one (the
+  high-service cutoff) is new; and the metrics reach the CSV export for the first
+  time. See §4.4–4.5.
 
 ### Decisions taken (all four confirmed with the user before writing)
 
@@ -34,6 +38,16 @@ That machinery is removed. The new workflow:
 Plus one decision made while writing, called out here rather than left implicit:
 the form renders an **explicit read-only line stating which model the current
 values will run, and why** (user-selected option in decision 4's question).
+
+### Decisions taken on the output reports (second round, also confirmed)
+
+| # | Decision | Consequence |
+|---|---|---|
+| 5 | Solution Summary carries Objective, High service cutoff, % of demand within high service, Total demand within high service, Avg distance to customers | Three rows move off Service Stats, one is new (§4.4) |
+| 6 | **Uncovered %** is dropped, not moved | It is exactly `100 − coveragePct`; `solve.py` still emits it, so no envelope change |
+| 7 | The avg-distance row is relabelled **for Chapter 4 only** | Other chapters keep "Weighted avg. distance" (§4.4) |
+| 8 | The three new rows appear in **both** Solution Summary modes | Including the Compare table, which is what makes it a real replacement for the deleted `StepComparisonTable` |
+| 9 | The `costSummary` CSV gains three columns | The export stops being a strict subset of what the tab displays |
 
 ### Measured blast radius
 
@@ -318,6 +332,12 @@ change (hard rule 1 and 4).
   `6371 / 1.609344 = 3958.76` against `R_MI = 3959` is a **0.0061%** difference.
   Rounding moves from 2 dp (km) to 1 dp (mi) with `clampMi`'s `MIN_DISTANCE_MI`
   floor, matching every other model.
+- **`services/templates.ts`** — `CostSummaryTemplateRow` + `costSummaryRowsToCsv`
+  (`:1530-1614`) gain the three columns and a bumped `templateVersion` (§4.5).
+  `serviceStatsRowsToCsv` (`:1713`) is untouched. The field renames also reach this
+  file's Chapter 4 override appliers only if they read the distance fields — they
+  do not (they handle warehouse/customer/distance overrides, not solve parameters),
+  so no rename lands here.
 - **`solver/tests/benchmark/`** — `translate.py:201-213` renames; `corpus.py:36-37`'s
   "coverage requires `avgServiceDistCapKm`" rule becomes "every case requires the
   cap and the floor"; `corpus/manifest.json`'s Ch4 strata (lines ~105424+) get the
@@ -507,7 +527,105 @@ rule) is how the Solve button's label and the step that actually ran came to be
 able to disagree, which `useMaxCoverageSteps`'s own comment documents as the thing
 it was written to prevent.
 
-### 4.4 Validation surfacing
+### 4.4 Output reports — Solution Summary and Service Stats
+
+Chapter 4's coverage metrics live in **Service Stats** today
+(`ServiceStatsTab.tsx:321-348`, testid `service-stats-coverage-kpis`), gated on
+`typeof details.coveragePct === "number"` — an envelope-shape check, not a
+`modelId` check, which is the convention this section keeps. That block holds four
+rows, and the achieved average distance is rendered **twice** across the two tabs
+today: once there as "Avg service distance" and once in Solution Summary as
+"Weighted avg. distance" (`CostSummaryTab.tsx:387`). The move removes the
+duplication.
+
+**Target state for Chapter 4's Solution Summary**, single-scenario mode:
+
+| Row | Source | Status |
+|---|---|---|
+| Objective | `result.objective` via `formatChenObjective` | exists (`:379`) |
+| High service cutoff | `details.highServiceDistMi` | **new** |
+| % of demand within high service | `details.coveragePct` | moved from Service Stats |
+| Total demand within high service | `details.coveredDemand` | moved from Service Stats |
+| Avg distance to customers | `metrics.weightedAvgDistance` | exists, **relabelled** |
+| Runtime / Quality / Solver | unchanged | exists |
+
+Dropped entirely: **Uncovered %** (decision 6). `solve.py` keeps emitting
+`details.uncoveredPct` and `test_max_coverage.py`'s
+`uncoveredPct == round(100 - coveragePct, 4)` assertion stays valid — this is a
+rendering decision, not an envelope change.
+
+**Service Stats keeps the band graph and nothing else** for Chapter 4: the
+`showCoverageKpis` block is deleted outright, leaving the "Percent of demand served
+within the selected distance bands" caption and the bars. Plant Production is
+JADE-only and untouched. `avgServiceDistance` (`ServiceStatsTab.tsx:300`) and the
+`toDisplay`/`canonicalUnit` plumbing it feeds become unused *by that block* but are
+still needed by the band labels, so only the block goes.
+
+**High service cutoff reads the SOLVED SNAPSHOT, never `localInputs`.** It comes
+from `details.highServiceDistMi` — the value the solve actually ran with — for the
+same reason every other output report reads the snapshot: a student who edits the
+cutoff and does not re-solve must still see which cutoff produced the numbers
+beside it. Reading the live draft would make the summary describe a solve that
+never happened. It is a distance, so it converts through `formatDistance` /
+`canonicalDistanceUnit` like every other distance in this tab.
+
+**The relabel (decision 7) is gated on envelope shape, not `modelId`.** The
+requested behaviour is "Chapter 4 says *Avg distance to customers*, other chapters
+keep *Weighted avg. distance*". Implemented as a label chosen by the same
+`typeof details.coveragePct === "number"` test the moved rows are already gated on:
+
+```
+const label = showCoverageKpis ? "Avg distance to customers" : "Weighted avg. distance";
+```
+
+This is the decided behaviour, reached without adding a per-model `modelId`
+ternary to a shared row — `model-integration-precheck.md` lists hardcoded
+per-model allowlists as a recurring silent-failure class, and one more of them on
+a row every model renders is the version of this that goes wrong quietly. One
+gate, already present, now also selects the label.
+
+**Compare mode (decision 8).** `CostSummaryTab`'s compare table is a separate row
+set from the single-scenario one, by explicit existing decision. The three rows are
+added there too, between "Objective" and the avg-distance row, each gated the same
+way and each reading its own scenario's `result.details`. Testids follow the
+established `cost-summary-compare-<metric>-${s.id}` pattern:
+`cost-summary-compare-high-service-cutoff-*`,
+`cost-summary-compare-coverage-pct-*`, `cost-summary-compare-covered-demand-*`.
+The compare table's avg-distance row (`:589`) takes the same relabel.
+
+Compare already blocks selecting two Chapter 4 scenarios solved under **different**
+objective modes (`lockedObjectiveMode`, `:270-290`) — their objectives are in
+different dimensions, a percent against a demand·distance. That guard now matters
+more, because comparing a Model 1 run with a Model 2 run is the headline use of
+this page under decision 4. It is **not** relaxed: the three new rows are
+dimensionally comparable across modes, but `Objective` is not, and the guard
+protects that row. Side-by-side Model 1 vs Model 2 is read from the three new rows
+plus avg distance, which is exactly what the deleted `StepComparisonTable` showed.
+
+### 4.5 CSV export (decision 9)
+
+`costSummaryRowsToCsv` / `CostSummaryTemplateRow`
+(`services/templates.ts:1530-1614`) gain three columns:
+
+```
+templateVersion,objective,objectiveMode,highServiceDist,coveragePct,
+coveredDemand,weightedAvgDistance,distanceUnit,runTimeSec,quality,
+solutionStatus,terminationReason,solverUsed
+```
+
+`highServiceDist` is a distance and converts under the export's requested unit via
+`toDisplay` + `roundForFile`, exactly as `weightedAvgDistance` already does
+(`:1600-1601`). `coveragePct` is a percent and `coveredDemand` an integer demand —
+**neither converts**; running either through a distance conversion is the rate-style
+error this repo already has a gotcha for. All three are blank for every non-Chapter-4
+model, since their envelopes carry no `coveragePct`.
+
+`templateVersion` is bumped, and `docs/superpowers/metrics/README.md`'s column
+semantics for this grid are updated in the same commit. The `serviceStats` CSV is
+**unchanged** — it carries band rows only and never carried these KPIs, so the move
+takes nothing out of it.
+
+### 4.6 Validation surfacing
 
 Every one of `highServiceDistMi`, `maxDistMi`, `avgServiceDistCapMi` is now
 required `> 0` in both models, so a blank or zero is a 422 with a field path. There
@@ -590,6 +708,50 @@ replaced.
   and Model 2 at `floor > 0`, reading the shared derivation. This is plain text in
   the DOM, so jsdom can genuinely fail it; it is not one of the CSS-dependent
   assertions that cannot fail.
+- **Output-report move** (`CostSummaryTab.test.tsx`, `ServiceStatsTab.test.tsx`) —
+  the three rows render in Solution Summary for a Chapter 4 result and are **absent**
+  for a non-Ch4 result; `service-stats-coverage-kpis` is gone; the band graph still
+  renders. The absent-for-other-models half is the one that catches the gate being
+  written as a `modelId` check by accident.
+- **Label swap** — the avg-distance row reads "Avg distance to customers" for a
+  result carrying `details.coveragePct` and "Weighted avg. distance" for one that
+  does not. Both directions asserted: a one-sided test passes against a hardcoded
+  string.
+- **Compare rows** — with two Chapter 4 scenarios selected, each of the three new
+  rows renders one cell per scenario with that scenario's own value. Guard against
+  the classic copy-paste defect by giving the two scenarios *different* coverage
+  numbers, so a row that reads the wrong scenario's `details` fails.
+- **Mode-mismatch guard still holds** — selecting a Model 1 and a Model 2 scenario
+  is still refused by `lockedObjectiveMode`. This is pre-existing behaviour that
+  decision 8 makes load-bearing, so it gets an explicit test rather than being
+  assumed to survive.
+Three **existing** assertions break on the move and must be rewritten, not deleted —
+each is load-bearing:
+
+- `CostSummaryTab.test.tsx:334` asserts the **exact row label sequence**
+  `["Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance",
+  "Runtime", "Quality", "Solver"]`. It is a whole-row-set equality check, so it is
+  the test that would catch an accidentally-reordered or duplicated summary. Its
+  fixture decides whether it changes at all: a non-Ch4 fixture keeps this exact
+  list, and a Ch4 case needs its own list with the three rows and the swapped
+  label. Keep it an equality assertion — weakening it to `toContain` would discard
+  the only ordering guarantee this tab has.
+- `CostSummaryTab.test.tsx:416-421` asserts the city-list row sits **immediately
+  after** `Weighted avg. distance`, found via `startsWith`. §4.4 places the three
+  new rows *before* avg distance, so this adjacency survives — but the `startsWith`
+  needle breaks for Chapter 4 under the label swap and must become label-aware.
+- `ServiceStatsTab.test.tsx:205-219, 699` assert all four KPIs by testid, including
+  `:219`'s existing "not in the document for a non-Ch4 result". That negative
+  assertion **generalises**: after the move, `service-stats-coverage-kpis` must be
+  absent for *every* result, which is a strictly stronger claim and the right thing
+  to assert.
+
+- **CSV columns** (`templates.test.ts`) — `costSummaryRowsToCsv` emits the three new
+  columns, blank for a non-Ch4 result. Two unit-correctness assertions that would
+  catch the conversion errors this repo has a gotcha for: `highServiceDist`
+  **converts** under a requested unit, while `coveragePct` and `coveredDemand` are
+  **byte-identical** across `?unit=mi` and `?unit=km`. Export round-trip tests that
+  assert a column count or header list need updating in the same pass.
 
 ### 5.3 Sibling e2e specs must be rewritten before merge
 
