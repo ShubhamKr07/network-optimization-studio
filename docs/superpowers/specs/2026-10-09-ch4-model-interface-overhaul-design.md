@@ -65,9 +65,11 @@ Verified, not assumed:
 - The base matrix contains genuine `0` values (co-located pairs) in both the km and
   mile forms. Not a new condition; no handling changes.
 
-`solvers/max-coverage-us/dataset/version.json`'s `sha256` is recomputed from the
-regenerated files. `lib/dataset-schema/src/maxCoverageDataset.test.ts:23` asserts the
-pairs are "in km" in its test name and must be retitled.
+`solvers/max-coverage-us/dataset/version.json`'s `sha256` is regenerated with
+`computeSha256()` — **never by hand** (registration point 2; a hand-written hash
+makes every solve throw inside `readVersion()` before the solver even spawns).
+`lib/dataset-schema/src/maxCoverageDataset.test.ts:23` asserts the pairs are "in km"
+in its test name and must be retitled.
 
 ### 2.2 Inputs schema
 
@@ -216,6 +218,33 @@ Changed in both places that hold them, which must not drift:
 
 ## 3. Server changes
 
+### 3.0 Registration points touched
+
+`model-integration-precheck.md` is **mandatory** for work that registers a model,
+entity or output grid. This change registers nothing new — the model id is
+unchanged — but it rewrites the manifest, the validator, the payload builder and
+the form, so six of the nineteen points are in scope anyway. Audit all nineteen
+before claiming done; these six are known to be affected.
+
+The list is **nineteen**, not ten (`model-integration-precheck.md:34`, after the
+`delivery-teaching-us` integration found nine the original ten missed).
+`CLAUDE.md:16`'s index row still says "the 10 registration points" and is stale —
+**correct it in this branch**, because a reader who trusts it stops auditing nine
+points early, and roughly half of the nineteen fail silently.
+
+| Pt | Surface | What this change does to it |
+|---|---|---|
+| 2 | `dataset/version.json` sha256 | Regenerated via `computeSha256()` (§2.1) |
+| 6 | `SolveInput` union + `buildPayload()` in `solver/pmedian.ts` | Four wire fields renamed (§3.3) |
+| 11 | `objectiveDimension()` in `lib/units/src/objective.ts` | Keyed off the now-derived `objective`; unchanged in form, but §2.3 is why `objective` must stay stored |
+| 12 | `inputEntriesForModel` case | **Gap closed** — gets an explicit case (§4.1) |
+| 16 | `pMax` | **Gap closed, and the precheck's own entry is stale** — see §4.3 |
+| 18 | `crossModelStepContract.test.ts`'s `NON_STEP_MODELS` | **Deleted** — see §3.1 |
+
+Points 3, 4, 5, 7, 8, 19 (the id registries) are untouched: the model id does not
+change, so no id set gains or loses a member. `modelIdSetEquality.test.ts` is the
+automated guard for that claim and must stay green.
+
 ### 3.1 Deleted outright
 
 | Path | Lines | Note |
@@ -224,12 +253,24 @@ Changed in both places that hold them, which must not drift:
 | `services/__tests__/maxCoverageSteps.test.ts` | — | |
 | `services/__tests__/maxCoverageStepsBatch.test.ts` | — | |
 | `solver/__tests__/maxCoverageStepWorkflow.test.ts` | — | Known load-flake; disappears with its subject |
-| `__tests__/crossModelStepContract.test.ts` | — | Asserts non-Ch4 models have no `steps` — vacuous once nothing has them |
+| `__tests__/crossModelStepContract.test.ts` | — | Registration point 18. Asserts non-Ch4 models have no `steps` — vacuous once nothing has them. See below |
 | `__tests__/maxCoverageWriteGuard.test.ts` | — | Replaced by a new test for the inverted guard (§5) |
 
 `maxCoverageStepWorkflow` and `crossModelStepContract` are both on the known
 load-flake list in the root `CLAUDE.md`; deleting them removes two entries from
 that list, which must be edited in the same commit (see §5.4).
+
+**Deleting `crossModelStepContract.test.ts` retires registration point 18**, and
+that is a deliberate loss, not a cleanup. Its `NON_STEP_MODELS` array is the one
+registration point that fails *loud* by design: every model other than
+`max-coverage-us` must be listed in it, so a newly-added model is refused by a red
+suite rather than slipping through silently. Once `max-coverage-us` has no steps,
+the array is "every model" and the guard asserts nothing — keeping it would be a
+test that cannot fail, which this repo has an explicit gotcha about. So it goes,
+**and point 18 is struck from `model-integration-precheck.md` in the same commit**;
+leaving it listed would send the next model's integration hunting for a file that
+no longer exists. The nineteen becomes eighteen, and `CLAUDE.md:16`'s index row is
+corrected to that number (§3.0), not to the stale ten.
 
 ### 3.2 API contract (`lib/api-spec/openapi.yaml`)
 
@@ -331,11 +372,24 @@ dry-run read first.
 
 ### 4.1 Chapter 3 parity is mostly *regained*, not built
 
-Chapter 4 already uses the p-median tab set — `inputEntriesForModel`
-(`Workspace.tsx:1312-1321`) has no `max-coverage-us` case, so it falls through to
-the `p-median-us` default: Input Map, Customers, Warehouses, Distances,
-Optimization Parameters. Its `capabilities.outputGrids` are also byte-identical to
-Chapter 3's. Nothing in the tab *lists* changes.
+Chapter 4 already renders the p-median tab set — Input Map, Customers, Warehouses,
+Distances, Optimization Parameters — and its `capabilities.outputGrids` are
+byte-identical to Chapter 3's. The tab *contents* therefore need no new work.
+
+But it renders that set **by falling through**: `inputEntriesForModel`
+(`Workspace.tsx:1245-1322`) has no `max-coverage-us` case, so it lands on the
+`case "p-median-brazil": case "p-median-us": default:` tail. That is registration
+point 12, and the precheck is explicit that the omission is a silent defect, not a
+tidiness issue: *"omission **grants** an editable dataset surface a model may not
+actually support."* `delivery-teaching-us` writes its case out in full for exactly
+this reason, and its own comment says so — the switch's tail being *close to* what
+the model wants makes writing the case out **more** important, not less, because
+nothing then distinguishes "inherited by accident" from "chosen".
+
+So this change adds an explicit `case "max-coverage-us":` returning the same five
+entries it renders today. Zero behavioural change, and the next model's
+integration can no longer silently inherit Chapter 4's surface or vice versa.
+`Workspace.TabCoverage.test.tsx` is where the per-model assertion belongs.
 
 What makes the chapter behave unlike Chapter 3 is `stepState.isMaxCoverage` gating
 behaviour all over `Workspace.tsx`. Removing two-step restores four things with no
@@ -394,6 +448,33 @@ Optimization gap (%)            Input                   [existing]
 Max time (seconds)              Input                   [existing]
 Distance bands                  BandChipEditor          [existing]
 ```
+
+**`pMax` — do NOT add a second declaration.** Registration point 16 says `pMax`
+lives at two independent Workspace mounts and warns that updating only one is the
+likely failure. That entry is **stale for this model**, and following it literally
+breaks the build. `CH4UX-6` deliberately reduced Chapter 4 to exactly **one**
+declaration — `Workspace.tsx:3384`'s hoisted `optimizationParamsBaseProps` — and
+deleted the `<SolveDialog>` arm as provably dead, because Chapter 4 is the only
+model that supplies a `paramsSlot`, so the dialog's built-in P slider never mounts
+for it. `Workspace.test.tsx:2827` then locks that in with a **source-text grep**:
+
+```js
+const caps = [...src.matchAll(/modelId === "max-coverage-us" \? (\d+)/g)].map(m => m[1]);
+```
+
+It asserts exactly one match, equal to `26`. Re-adding `modelId === "max-coverage-us" ? 26`
+at the dialog mount — the instinctive move when rebuilding this form, and what
+point 16 as written tells you to do — produces a second match and turns that test
+red. `Workspace.tsx:4728-4738` and `:4752-4759` both carry comments warning that
+even *quoting* the expression in a comment counts as a second declaration.
+
+So: `pMax` stays at the single site, value `26`, and §4.3's rewrite must not
+introduce another. The dialog's 26 cap is guarded only *behaviourally*
+(`Workspace.test.tsx:2792-2799`, asserting `aria-valuemax="26"` on
+`solve-dialog-slider-p-value`), and that test is the sole evidence for it — it
+must not be weakened while the form is rebuilt. Point 16's line references
+(`:3589`, `:4426`) no longer resolve; correct them in the precheck doc alongside
+striking point 18.
 
 `avgServiceDistCapMi` loses its `objective === "coverage"` wrapper (366-391) and
 renders always. `coverageFloorDemand` changes from the read-only locked display it
@@ -581,6 +662,32 @@ note warns about.
    the epoch check in Node is equivalent to resolving it in SQL. Both exist solely
    to serve two-step and have no other consumer, verified by the 28-file reference
    sweep.
+
+## 6a. Review history
+
+The spec was reviewed adversarially by Codex (`/codex:rescue`) before the
+implementation plan was written. That run **failed partway** on an OpenAI usage
+limit, having produced exactly one finding — but the finding was real and
+cascaded into four spec gaps, all folded in above:
+
+> the current precheck defines 19 registration points, not ten
+
+Verified at `model-integration-precheck.md:34`. Consequences, each traced from that
+one claim: `CLAUDE.md:16`'s stale "10 registration points" row (§3.0), the
+fallthrough `inputEntriesForModel` case (point 12, §4.1), the `computeSha256()`
+requirement (point 2, §2.1), and the deletion of a registration point (point 18,
+§3.1). Chasing point 16 additionally found that the precheck's **own entry is
+stale** and that following it literally breaks `Workspace.test.tsx:2827`'s
+source-text grep (§4.3) — a trap neither the spec nor the precheck would have
+caught during implementation.
+
+**The review is incomplete.** Codex's own last message said it was treating all 19
+points as the audit surface and had not yet finished that sweep; it had read the
+spec, the manifests, `maxCoverage.ts`, `scenarioInputWrite.ts`, `openapi.yaml`,
+`jobRunner.ts`, `autoDistance.ts`, `ObjectiveBar.tsx` and `ServiceStatsTab.tsx`
+when it was cut off. Anything it had queued beyond the registration-point thread is
+unknown. A second pass should rerun it after the limit resets and should be
+considered a prerequisite to merge, not to planning.
 
 ## 7. Out of scope
 
