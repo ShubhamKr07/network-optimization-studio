@@ -809,10 +809,18 @@ describe("Workspace — #8 solve timing survives the job-success-then-refetch-ap
 // CH4UX-4's own describe block ("renders the step that will RUN, not the
 // step being viewed") tested a `selectedStep` vs `stepState.targetStep`
 // distinction that no longer exists now that the two-step workflow is
-// deleted — those four cases are gone with it. The two cases that were
-// NOT about the step distinction (no duplicate DOM id/testid; a
-// non-Chapter-4 model keeps the built-in dialog controls) are kept, rebuilt
-// on a plain (stepless) max-coverage-us scenario.
+// deleted — those four cases are gone with it, along with the case that
+// actually pinned this block's title (it asserted the dialog no longer
+// renders the old read-only summary, and pointed at two now-deleted
+// sibling cases for the positive half of the contract). The two surviving
+// cases below were never about the step distinction (no duplicate DOM
+// id/testid; a non-Chapter-4 model keeps the built-in dialog controls), so
+// they were kept and rebuilt on a plain (stepless) max-coverage-us
+// scenario — but neither one, on its own, asserted that the dialog
+// actually renders Chapter 4's real (editable) parameter panel. The
+// duplicate-id test below now carries that assertion directly
+// (`solve-dialog-slider-p-value` present, `solve-dialog-input-gap` not
+// disabled), so the block's title is pinned again.
 describe("CH4O-2 — the Solve dialog renders Chapter 4's real parameter panel", () => {
   // Both namespaces, two assertions — see Task 2's note on why they are split.
   it("emits no duplicate DOM id or data-testid with the parameters tab open behind the dialog", () => {
@@ -821,6 +829,12 @@ describe("CH4O-2 — the Solve dialog renders Chapter 4's real parameter panel",
     expect(screen.getByTestId("optimization-parameters-tab")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+
+    // The actual pin on this block's title: the dialog embeds the REAL
+    // parameter panel (editable), not a frozen/read-only summary — present
+    // and enabled, not merely rendered.
+    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).not.toBeDisabled();
 
     // document, not container: the dialog renders through a Radix portal.
     const ids = Array.from(document.querySelectorAll<HTMLElement>("[id]"), el => el.id).filter(Boolean);

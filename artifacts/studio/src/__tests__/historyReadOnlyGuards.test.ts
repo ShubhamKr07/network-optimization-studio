@@ -37,6 +37,11 @@ const GUARDED_MUTATORS = [
   // CH4-17 — `setChenObjectiveMode` is removed (the free objective toggle
   // is gone); its own `setLocalInputs` call site no longer exists.
   "updateChenServiceDistance",
+  // CH4O-2 — `clearTransportCosts` is now a direct user-edit mutator (its
+  // own `if (isBrowsingHistoryNow) return;` guard is already its first
+  // statement, and always has been — it just wasn't listed here, so it
+  // added no tripwire coverage until now).
+  "clearTransportCosts",
   "deleteAddedEntityAndOverrides",
   "deleteAddedTransportEntityAndOverrides",
   "deleteAddedPlantAndOverrides",

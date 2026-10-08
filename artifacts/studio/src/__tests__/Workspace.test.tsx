@@ -2794,6 +2794,55 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.getByTestId("solve-dialog-button-remove-band-600")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-button-remove-band-5000")).toBeInTheDocument();
   });
+
+  // CH4O-2 review finding (Important 1) — positive coverage for the three
+  // things deleting the two-step machinery RESTORED. Without this, the
+  // suite would be equally green with `timing={undefined}` or the stepper's
+  // old `!stepState.isMaxCoverage &&` prefix still in place as a Chapter-4
+  // special case.
+  it("reads exactly 'Run Optimizer' with no step label (CH4O-2)", () => {
+    renderChen();
+    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Run Optimizer");
+  });
+
+  // CH4O-2 review finding (Important 1), second half — the result-history
+  // stepper used to be suppressed for max-coverage-us via
+  // `!stepState.isMaxCoverage && resultHistoryState.items.length > 0`;
+  // deleting that machinery means Chapter 4 now gets the same stepper every
+  // other model has always had. Follows the exact recipe the dirty-nav
+  // describe block above already uses for p-median-us
+  // (`buildTwoEntryHistoryAtLatest`) — a solve completing appends the first
+  // history entry, which is what makes the stepper's render condition
+  // (`resultHistoryState.items.length > 0`) true.
+  it("shows the result-history stepper once a solve completes (CH4O-2 — no longer excluded)", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 9 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 9, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderChen();
+
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    const solvedScenario = {
+      ...maxCoverageScenario,
+      result: {
+        status: "optimal" as const, objective: 42, runTimeSec: 0.2, quality: "Proven optimal",
+        edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+  });
 });
 
 // ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and

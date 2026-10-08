@@ -1774,8 +1774,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   const activeOutputInputs: Record<string, unknown> | null = displayedInputs;
 
-  const activeOutputReady = hasFreshSolvedRun;
-
   // jade-INT (#8, spec §9) — the DISPLAYED history entry's own frozen solve
   // timing (undefined for the scenario's already-persisted result on first
   // load/scenario-switch, and for any entry stepped to before this session

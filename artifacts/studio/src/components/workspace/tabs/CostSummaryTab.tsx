@@ -155,10 +155,13 @@ function bandBoundaries(result: SolveResult): number[] {
 // objective mode-aware and to block comparing two Chen scenarios solved under
 // different modes (their objectives are in different units — a coverage % and
 // a demand-km total can't share a column).
-// ch4-2s-8 (A1) — routed through the CH4-12-aware adapter (steps.*.summary
-// preferred over scenario.result for max-coverage-us; see that function's
-// own comment for the documented list-route gap). Byte-identical to before
-// for every other model (their `steps` is always undefined).
+// CH4O-2 — the CH4-12-aware adapter this comment used to describe
+// (`scenarioObjectiveModeCh4Aware`, which preferred `steps.*.summary` over
+// `scenario.result` for max-coverage-us) is deleted along with the rest of
+// the two-step machinery it supported. `scenarioObjectiveMode` (imported
+// above, from `@/lib/formatObjective`) now reads `result.details.objective`
+// directly, uniformly for every model including max-coverage-us — there is
+// no longer a `steps`-aware branch to be byte-identical relative to.
 // T5 (B5) — a scenario's own scenario-local added facilities, read directly
 // off the OPAQUE `Scenario.inputs` (never `localInputs` — compare columns
 // are other scenarios' own persisted state, not the currently-open one).
