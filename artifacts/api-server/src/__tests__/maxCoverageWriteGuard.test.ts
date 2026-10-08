@@ -71,8 +71,8 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
       if (ALLOWED_INPUTS_WRITERS.has(rel)) continue;
       const src = readFileSync(file, "utf8");
       if (/\.set\(\s*\{[^}]*\binputs\s*:/s.test(src)) offenders.push(rel);
-      if (/\.values\(\s*\{[^}]*\binputs\s*:/s.test(src) && !/initialInputsForInsert\(/.test(src)) {
-        offenders.push(`${rel} (insert without initialInputsForInsert)`);
+      if (/\.values\(\s*\{[^}]*\binputs\s*:/s.test(src) && !/deriveServerOwnedInputs\(/.test(src)) {
+        offenders.push(`${rel} (insert without deriveServerOwnedInputs)`);
       }
     }
     expect(offenders).toEqual([]);
@@ -87,8 +87,8 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
 
   it("the guard itself is not vacuous — it still finds the insert-side writes it permits", () => {
     const src = readFileSync(resolve(__dirname, "../routes/scenarios.ts"), "utf8");
-    // create + clone both insert `inputs:` through initialInputsForInsert.
-    expect(src.match(/initialInputsForInsert\(/g)?.length).toBe(2);
+    // create + clone both insert `inputs:` through deriveServerOwnedInputs.
+    expect(src.match(/deriveServerOwnedInputs\(/g)?.length).toBe(2);
     expect(src).toContain("applyScenarioInputWrite(");
   });
 

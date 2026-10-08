@@ -81,8 +81,7 @@ import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
-import { applyScenarioInputWrite, initialInputsForInsert, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
-import { loadScenarioSteps, loadScenarioStepsBatch, MAX_COVERAGE_MODEL_ID } from "../services/maxCoverageSteps.js";
+import { applyScenarioInputWrite, deriveServerOwnedInputs, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
 
 const router = Router();
 
@@ -195,22 +194,7 @@ router.get("/scenarios", async (req, res) => {
     .orderBy(scenariosTable.createdAt);
   const visibleRows = rows.filter(row => !isModelLocked(row.modelId));
 
-  // cmp-1 — the compare-list step-awareness gap. Batched (ONE extra query
-  // for the whole list, not one per Chapter 4 row) rather than looping
-  // loadScenarioSteps: see loadScenarioStepsBatch's own header comment for
-  // the epoch-per-scenario handling this requires. `steps` stays absent
-  // (never null) for every other model, same contract as the single-scenario
-  // GET below.
-  const ch4Rows = visibleRows.filter(row => row.modelId === MAX_COVERAGE_MODEL_ID);
-  const stepsByScenario = await loadScenarioStepsBatch(
-    req.userId!,
-    ch4Rows.map(row => ({ id: row.id, inputs: (row.inputs ?? {}) as Record<string, unknown> })),
-  );
-
-  res.json(visibleRows.map(row => {
-    const steps = stepsByScenario.get(row.id);
-    return steps ? { ...toApiScenario(row), steps } : toApiScenario(row);
-  }));
+  res.json(visibleRows.map(row => toApiScenario(row)));
 });
 
 router.post("/scenarios", async (req, res) => {
@@ -236,7 +220,7 @@ router.post("/scenarios", async (req, res) => {
     name: body.name,
     userId: req.userId!,
     modelId: body.modelId,
-    inputs: initialInputsForInsert(
+    inputs: deriveServerOwnedInputs(
       body.modelId,
       normalizeAddedEntityDistances(body.modelId, validation.data) as Record<string, unknown>,
     ),
@@ -263,41 +247,7 @@ router.get("/scenarios/:scenarioId", async (req, res) => {
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(row.modelId)) { respondLocked(res); return; }
 
-  // CH4-12 — `steps` is present ONLY for max-coverage-us; the loader returns
-  // null for every other model and the key is omitted. Deliberately merged
-  // here rather than inside toApiScenario: that projector is synchronous and
-  // shared with GET /scenarios, where a per-row query there would be an N+1.
-  const steps = await loadScenarioSteps(
-    row.id, req.userId!, row.modelId, (row.inputs ?? {}) as Record<string, unknown>,
-  );
-  res.json(steps ? { ...toApiScenario(row), steps } : toApiScenario(row));
-});
-
-// CH4-14 — full envelopes stay lazy. The output tabs read one step at a time,
-// so a 200-customer assignments grid is fetched only when looked at.
-// Ownership-scoped and 404-never-403 like every scenario route (hard rule #5).
-router.get("/scenarios/:scenarioId/steps/:step/result", async (req, res) => {
-  const id = Number(req.params.scenarioId);
-  const step = Number(req.params.step);
-  if (step !== 1 && step !== 2) { res.status(404).json({ error: "Not found" }); return; }
-
-  const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
-  if (scenario.modelId !== "max-coverage-us") { res.status(404).json({ error: "Not found" }); return; }
-
-  const steps = await loadScenarioSteps(
-    scenario.id, req.userId!, scenario.modelId, (scenario.inputs ?? {}) as Record<string, unknown>,
-  );
-  const state = step === 1 ? steps!.step1 : steps!.step2;
-  if (!state.solved || state.jobId == null) { res.status(404).json({ error: "Not found" }); return; }
-
-  const [job] = await db.select({ result: solveJobsTable.result }).from(solveJobsTable)
-    .where(and(eq(solveJobsTable.id, state.jobId), eq(solveJobsTable.userId, req.userId!)));
-  if (!job?.result) { res.status(404).json({ error: "Not found" }); return; }
-
-  res.json({ result: presentResultForRead(job.result as Record<string, unknown>) });
+  res.json(toApiScenario(row));
 });
 
 router.patch("/scenarios/:scenarioId", async (req, res) => {
@@ -2014,11 +1964,9 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     name: `${scenario.name} (copy)`,
     userId: req.userId!,
     modelId: scenario.modelId,
-    // CH4-26 — a clone copies the student's parameters (Step 1 fields,
-    // step2, distanceBands) but NOT the workflow metadata. It has no jobs to
-    // invalidate, but carrying the source's epoch forward would make a fresh
-    // copy's epoch depend on its source's edit history.
-    inputs: initialInputsForInsert(scenario.modelId, scenario.inputs as Record<string, unknown>),
+    // CH4-26 — a clone copies the student's parameters but NOT any
+    // server-owned workflow metadata.
+    inputs: deriveServerOwnedInputs(scenario.modelId, scenario.inputs as Record<string, unknown>),
     result: null,
   }).returning();
 

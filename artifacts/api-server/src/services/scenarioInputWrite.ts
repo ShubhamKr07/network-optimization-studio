@@ -2,9 +2,23 @@ import { and, eq, sql } from "drizzle-orm";
 import { scenariosTable } from "@workspace/db";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { normalizeAddedEntityDistances } from "./autoDistance.js";
-import { MAX_COVERAGE_MODEL_ID, nextStepEpoch } from "./maxCoverageSteps.js";
 
 export type ScenarioRow = typeof scenariosTable.$inferSelect;
+
+export const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
+
+// The create/clone half of the write contract. `applyScenarioInputWrite`
+// below is the UPDATE half; both must derive the same server-owned fields, or
+// a field exists on updated rows and not on created ones. Task 5 completes
+// the real derivation -- this move is behaviour-preserving (it still writes
+// stepEpoch: 1, exactly as initialInputsForInsert did).
+export function deriveServerOwnedInputs(
+  modelId: string,
+  inputs: Record<string, unknown>,
+): Record<string, unknown> {
+  if (modelId !== MAX_COVERAGE_MODEL_ID) return inputs;
+  return { ...inputs, stepEpoch: 1 };
+}
 
 export type ApplyInputWriteOutcome =
   | { kind: "ok"; row: ScenarioRow }
@@ -60,10 +74,7 @@ export async function applyScenarioInputWrite(
   // row. Computed inside this transaction, never read-modify-write in
   // application code, so two concurrent edits cannot both derive the same
   // next epoch.
-  const inputsToStore: Record<string, unknown> =
-    persisted.modelId === MAX_COVERAGE_MODEL_ID
-      ? { ...normalized, stepEpoch: nextStepEpoch(persistedInputs, normalized) }
-      : normalized;
+  const inputsToStore: Record<string, unknown> = deriveServerOwnedInputs(persisted.modelId, normalized);
 
   // Unchanged semantics for every model: a save is non-geometric (does not
   // bump inputsUpdatedAt / solve_input_revision) ONLY when distanceBands is
@@ -108,9 +119,6 @@ export async function applyScenarioInputWrite(
 
   return { kind: "ok", row };
 }
-
-// Re-exported so route files import one module for the whole write contract.
-export { initialInputsForInsert, isStep1Key } from "./maxCoverageSteps.js";
 
 /**
  * CH4-24/CH4-25 — the write-route narrowing guard.

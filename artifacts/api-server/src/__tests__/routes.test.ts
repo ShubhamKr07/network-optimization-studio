@@ -8,11 +8,10 @@ const mockDb = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
-  // cmp-1 — maxCoverageSteps.ts's loadScenarioSteps/loadScenarioStepsBatch
-  // read solve_jobs via a raw db.execute (DISTINCT ON needs it; the query
-  // builder doesn't). Defaulted to zero rows below so a max-coverage-us row
-  // flowing through this mocked app (e.g. the unscoped-list test) resolves
-  // to "both steps unsolved" instead of throwing on an unmocked method.
+  // Some production code paths (e.g. jobRunner's claim-generation sequence)
+  // read via a raw db.execute rather than the query builder. Defaulted to
+  // zero rows below so any such path flowing through this mocked app
+  // resolves safely instead of throwing on an unmocked method.
   execute: vi.fn(),
   transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
@@ -963,7 +962,7 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
 //
 // Fix round (review rejection): every assertion below reads the argument the
 // ROUTE handed to `chain.set`/`chain.values` (i.e. what
-// applyScenarioInputWrite/initialInputsForInsert actually computed), never
+// applyScenarioInputWrite/deriveServerOwnedInputs actually computed), never
 // the mocked RETURN value a test itself authored — asserting on the mocked
 // return would pass even if the production write path silently stripped the
 // field, since this suite controls that return value directly. The real

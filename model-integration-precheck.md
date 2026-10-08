@@ -31,7 +31,7 @@ Legend: **[BLOCKER]** stop and fix · **[VERIFY]** confirm before proceeding · 
 
 ## Gate 1 — The registration points
 
-Adding a model is **nineteen** registrations across five packages, not ten — the delivery-teaching-us
+Adding a model is **eighteen** registrations across five packages, not ten — the delivery-teaching-us
 (Chapter 5, modified) integration found nine more that the original ten missed. Each omission fails
 differently; roughly half fail **silently** (the app looks fine, the new model just gets someone
 else's behavior — never an error, never a red test, until someone notices the wrong number on
@@ -130,21 +130,15 @@ screen). Tick every row.
       silent: the suite stays green with one fewer model covered, indistinguishable from "everything
       passed." Treat "did I add this model's block" as its own checklist item, not an assumption the
       existing suite will catch it.
-- [ ] **18. `crossModelStepContract.test.ts`'s `NON_STEP_MODELS`** —
-      `artifacts/api-server/src/__tests__/crossModelStepContract.test.ts:108`
-      *Miss:* **loud** (red suite) — every model that is NOT `max-coverage-us` (the only model with a
-      Step 1/Step 2 workflow) must appear here with its own stub inputs; a new model absent from this
-      array fails the suite immediately. The one point on this list that fails loud by design — a
-      deliberate drift guard, not an oversight to route around.
-- [ ] **19. `MODEL_IDS`** — a second, separate export from `PACKAGE_SPECS` in the same file,
+- [ ] **18. `MODEL_IDS`** — a second, separate export from `PACKAGE_SPECS` in the same file,
       `lib/dataset-schema/src/index.ts:284`
       *Miss:* **loud** — `manifest.test.ts`'s loop over `MODEL_IDS` throws if the new model's id is
       missing from this array, even though `PACKAGE_SPECS` (point 5) is a completely separate
       registration a few lines away in the same file — adding one does not add the other.
 
-- [ ] **[BLOCKER]** Run the registration consistency test (`registration.test.ts`, point 17) and
-      `crossModelStepContract.test.ts` (point 18). If `registration.test.ts` doesn't have a block for
-      your model yet, write one — it makes points 3/4/6/7/8 automatic for every future model. Points
+- [ ] **[BLOCKER]** Run the registration consistency test (`registration.test.ts`, point 17). If
+      `registration.test.ts` doesn't have a block for your model yet, write one — it makes points
+      3/4/6/7/8 automatic for every future model. Points
       9–10 and 12–16 have no automated equivalent yet — cover them with route/component tests
       instead (see Gate 7). `modelIdSetEquality.test.ts` is the one automated guard that covers the
       **id registries as a set** (`MODEL_IDS == keys(KNOWN_SCHEMAS) == VALID_MODEL_IDS == PACKAGE_SPECS`
