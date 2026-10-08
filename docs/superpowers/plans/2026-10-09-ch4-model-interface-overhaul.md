@@ -502,27 +502,40 @@ describe("assertNoServerOwnedFields — the guard inverts", () => {
   });
 });
 
+// These go in `__tests__/routes.test.ts`, NOT the write-guard file — they need a
+// real HTTP round trip. There are no `createScenario`/`cloneScenario`/
+// `patchScenarioInputs` helpers in this repo; routes.test.ts drives supertest
+// directly with a session cookie (see its existing `loginAs` helper, and call
+// `resetLoginRateLimiterForTests()` in `beforeEach` — the limiter is 10/min/IP
+// and never resets within a process).
 describe("the derived objective reaches all three write paths", () => {
   it("persists a derived objective on CREATE without the client sending one", async () => {
-    const created = await createScenario({ modelId: "max-coverage-us", inputs: { ...valid, coverageFloorDemand: 0 } });
-    expect((created.inputs as Record<string, unknown>).objective).toBe("coverage");
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 coverage", modelId: "max-coverage-us", inputs: { ...validCh4Inputs, coverageFloorDemand: 0 } });
+    expect(res.status).toBe(201);
+    expect(res.body.inputs.objective).toBe("coverage");
   });
 
   it("persists a derived objective on CREATE for a positive floor", async () => {
-    const created = await createScenario({ modelId: "max-coverage-us", inputs: { ...valid, coverageFloorDemand: 500 } });
-    expect((created.inputs as Record<string, unknown>).objective).toBe("min_distance");
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 mindist", modelId: "max-coverage-us", inputs: { ...validCh4Inputs, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(201);
+    expect(res.body.inputs.objective).toBe("min_distance");
   });
 
   it("persists a derived objective on CLONE", async () => {
-    const src = await createScenario({ modelId: "max-coverage-us", inputs: { ...valid, coverageFloorDemand: 500 } });
-    const clone = await cloneScenario(src.id);
-    expect((clone.inputs as Record<string, unknown>).objective).toBe("min_distance");
+    const src = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "src", modelId: "max-coverage-us", inputs: { ...validCh4Inputs, coverageFloorDemand: 500 } });
+    const clone = await request(app).post(`/api/scenarios/${src.body.id}/clone`).set("Cookie", cookie).send({});
+    expect(clone.body.inputs.objective).toBe("min_distance");
   });
 
   it("re-derives on UPDATE when the floor changes", async () => {
-    const s = await createScenario({ modelId: "max-coverage-us", inputs: { ...valid, coverageFloorDemand: 0 } });
-    const updated = await patchScenarioInputs(s.id, { ...valid, coverageFloorDemand: 500 });
-    expect((updated.inputs as Record<string, unknown>).objective).toBe("min_distance");
+    const src = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "upd", modelId: "max-coverage-us", inputs: { ...validCh4Inputs, coverageFloorDemand: 0 } });
+    const updated = await request(app).patch(`/api/scenarios/${src.body.id}`).set("Cookie", cookie)
+      .send({ inputs: { ...validCh4Inputs, coverageFloorDemand: 500 } });
+    expect(updated.body.inputs.objective).toBe("min_distance");
   });
 });
 ```
@@ -754,13 +767,15 @@ Both bounds live in precheck, not split with `solve.py`: `jobRunner` returns `pr
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `precheck.test.ts`:
+Append to `precheck.test.ts`. The existing Chapter 4 fixtures in that file are
+`MAX_COVERAGE_BASE_COVERAGE` and `MAX_COVERAGE_BASE_MIN_DISTANCE` (with
+`MAX_COVERAGE_DATASET_FAKE` as the dataset) — there is no `baseMaxCoverageInputs`:
 
 ```ts
 describe("max-coverage-us — infeasibility attribution", () => {
   it("names the cap when it is below the nearest-warehouse lower bound", () => {
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
-      ...baseMaxCoverageInputs, coverageFloorDemand: 0, avgServiceDistCapKm: 1,
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapKm: 1,
     });
     expect(res.ok).toBe(false);
     expect(res.errors.map(e => e.code)).toContain("avg_distance_cap_infeasible");
@@ -768,7 +783,7 @@ describe("max-coverage-us — infeasibility attribution", () => {
 
   it("names the floor when it exceeds coverable demand", () => {
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
-      ...baseMaxCoverageInputs, coverageFloorDemand: 500_100_100,
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100,
     });
     expect(res.errors.map(e => e.code)).toContain("coverage_floor_infeasible");
   });
@@ -778,7 +793,7 @@ describe("max-coverage-us — infeasibility attribution", () => {
   // Python runs, so a both-violating scenario was attributed to the floor alone.
   it("names BOTH when both bounds are violated", () => {
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
-      ...baseMaxCoverageInputs, coverageFloorDemand: 500_100_100, avgServiceDistCapKm: 1,
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100, avgServiceDistCapKm: 1,
     });
     const codes = res.errors.map(e => e.code);
     expect(codes).toContain("coverage_floor_infeasible");
@@ -787,7 +802,7 @@ describe("max-coverage-us — infeasibility attribution", () => {
 
   it("passes a scenario that violates neither bound", () => {
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
-      ...baseMaxCoverageInputs, coverageFloorDemand: 0, avgServiceDistCapKm: 1000,
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapKm: 1000,
     });
     expect(res.ok).toBe(true);
   });
@@ -891,7 +906,10 @@ git commit -m "[CH4O-6] add the average-distance cap infeasibility bound and its
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `OptimizationParametersTab.test.tsx`:
+Append to `OptimizationParametersTab.test.tsx`. That file already defines a
+`render` helper passing `{ wrapper: UnitProvider }` and a `STORAGE_KEY`
+constant (`"nos:display-unit-pref"`) — use both; `UnitProvider` has no props
+beyond `children`:
 
 ```tsx
 const ch4Props = {
@@ -905,12 +923,12 @@ const ch4Props = {
 
 describe("OptimizationParametersTab — Chapter 4 single form", () => {
   it("renders the avg service cap unconditionally, with no objective prop", () => {
-    render(<UnitProvider><OptimizationParametersTab {...ch4Props} /></UnitProvider>);
+    render(<OptimizationParametersTab {...ch4Props} />);
     expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
   });
 
   it("renders an editable coverage floor", () => {
-    render(<UnitProvider><OptimizationParametersTab {...ch4Props} /></UnitProvider>);
+    render(<OptimizationParametersTab {...ch4Props} />);
     const floor = screen.getByTestId("input-coverage-floor");
     expect(floor).toBeEnabled();
     fireEvent.change(floor, { target: { value: "500" } });
@@ -918,12 +936,12 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   });
 
   it("names Model 1 when the floor is zero", () => {
-    render(<UnitProvider><OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} /></UnitProvider>);
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} />);
     expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 1/);
   });
 
   it("names Model 2 when the floor is positive", () => {
-    render(<UnitProvider><OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} /></UnitProvider>);
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} />);
     expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 2/);
   });
 
@@ -931,11 +949,12 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   // canonical values under a converted label -- the failure a naive
   // unit-suffix implementation produces.
   it("renders the line's distances in the DISPLAY unit, not the canonical one", () => {
-    render(
-      <UnitProvider initialPref="mi">
-        <OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistKm={700} />
-      </UnitProvider>,
-    );
+    // UnitProvider takes NO `initialPref` prop — it reads the persisted
+    // preference from localStorage on mount. This file already has a STORAGE_KEY
+    // constant and a `render` helper that passes `{ wrapper: UnitProvider }`;
+    // use them rather than inventing a prop.
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistKm={700} />);
     const line = screen.getByTestId("derived-model-line");
     expect(line).toHaveTextContent(/mi/);
     expect(line).not.toHaveTextContent("700");   // 700 km displays as ~435 mi
@@ -948,7 +967,7 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   });
 
   it("renders no step 2 panel", () => {
-    render(<UnitProvider><OptimizationParametersTab {...ch4Props} /></UnitProvider>);
+    render(<OptimizationParametersTab {...ch4Props} />);
     expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
   });
 });
