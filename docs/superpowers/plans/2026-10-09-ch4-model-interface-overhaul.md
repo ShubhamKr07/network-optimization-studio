@@ -266,7 +266,26 @@ Runs before the contract change so that removing `Scenario.steps` later touches 
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `deriveServerOwnedInputs(modelId: string, inputs: Record<string, unknown>): Record<string, unknown>` and `MAX_COVERAGE_MODEL_ID`, both exported from `services/scenarioInputWrite.ts`. `jobRunner`'s enqueue has no per-model branch.
+- Produces: `deriveServerOwnedInputs(modelId: string, inputs: Record<string, unknown>): Record<string, unknown>` and `MAX_COVERAGE_MODEL_ID`, both exported from `services/scenarioInputWrite.ts`.
+
+**`jobRunner`'s enqueue has TWO `modelId === MAX_COVERAGE_MODEL_ID` blocks. Delete
+only the Step-1→Step-2 synthesis one; KEEP the other.** Corrected after Task 3
+asked — an earlier draft of this line said "no per-model branch", which read as
+"delete both" and is wrong.
+
+The survivor is the CH4-11 "refuse a second active solve job" check, and it is
+backed by a DB-level partial unique index
+(`UQ_solve_jobs_active_per_scenario`, `lib/db/src/schema/solve_jobs.ts:151-153`,
+predicate `model_id = 'max-coverage-us' AND status IN ('queued','running')`).
+Removing the app-level check while that index stands converts a graceful 409 into
+an unhandled DB error. Removing the index too is a **schema migration** — a
+separate, human-approved decision, and the schema's own comment already says a
+repo-wide policy "is a separate decision with its own migration and compatibility
+review". This plan does not touch it.
+
+Standing consequence, recorded so it is not mistaken for an oversight later:
+Chapter 4 keeps a single-active-solve-job restriction that no other model has.
+That restriction predates this overhaul and survives it.
 
 - [ ] **Step 1: Move the create/clone hook out BEFORE deleting its file**
 
