@@ -615,16 +615,58 @@ render (4643-4649), the `<StepComparisonTable>` render (4362-4372), and the
 
 `components/workspace/tabs/OptimizationParametersTab.tsx`. The `step` /
 `stepEditable` / `step2Gap` / `step2TimeLimitSec` / `coverageFloorFromStep1` props
-and the whole `step === 2` panel (396-443) are deleted, as are the four
+and the whole `step === 2` panel (396-443) are deleted, as are the **three**
 `(step ?? 1) === 1` guards (266, 312, 451) — those existed only to keep Step 1's
 block and Step 2's panel mutually exclusive. `step2Gap` / `step2TimeLimitSec` leave
-the `OptimizationParametersField` union. `SolveDialog.tsx:170`'s hardcoded
-`step={1}` goes with them.
+the `OptimizationParametersField` union. The `Lock` icon import (`:1`) goes too —
+its only use is the deleted panel's locked-floor display (`:418`).
 
-The Chapter 4 block (today gated on `objective != null`) is re-gated on
-`highServiceDistMi != null`, because `objective` is no longer a client-side concept
-and must not be what makes the model's own fields appear. It renders, in one
-column, in this order:
+**`SolveDialog.tsx` has no `step` prop — do NOT touch `SolveDialog.tsx:170`.**
+An earlier draft of this line said to delete "`SolveDialog.tsx:170`'s hardcoded
+`step={1}`" as part of the step cleanup. That was wrong, caught by review: `:170`
+is `<Slider step={1}>`, the **P slider's numeric increment** (`:167-175`), and
+deleting it would make the P slider continuous instead of stepping by whole
+warehouses. `SolveDialog` never had a `step` prop at all — Chapter 4 reaches the
+step-aware form through `paramsSlot`, not through any prop on the dialog. Nothing
+in this file changes for the step removal.
+
+Also deleted, in `Workspace.tsx` — the Step 2 write adapters, which §4.2's list
+covers only partly:
+
+- `updateStep2Field` (`:2070`) and the two `handleOptimizationParamsChange`
+  branches that route into it (`:2061-2062`)
+- the Step 2 prop assembly (`:3403-3404`)
+
+(`step2FromInputs` / `step2GapFromInputs` / `step2TimeLimitSecFromInputs` are
+already listed in §4.2.)
+
+**The `objective` prop is removed from the client entirely — five sites, not one.**
+The Chapter 4 block is re-gated on `highServiceDistMi != null`, but an earlier
+draft stated only the gate and left `objective` in place everywhere else, which
+would have kept two objective authorities and a dead dialog panel. Review found all
+five; the gate alone is not the change:
+
+| Site | Today | After |
+|---|---|---|
+| `OptimizationParametersTab.tsx:120, 215` | `objective?: "coverage" \| "min_distance"` prop, destructured | prop deleted |
+| `OptimizationParametersTab.tsx:312` | `objective != null` gates the Ch4 block | `highServiceDistMi != null` |
+| `OptimizationParametersTab.tsx:366` | `objective === "coverage"` wraps the avg cap | wrapper deleted, cap unconditional |
+| `Workspace.tsx:148` | `defaultInputsForModel` authors `objective: "coverage"` | **removed** — the server derives it |
+| `Workspace.tsx:314, 3385` | `objectiveFromInputs` reader + the prop pass | both deleted |
+
+`Workspace.tsx:148` is the one that matters most: a client-authored `objective` in
+the create payload would be **refused** by §2.3's inverted write guard, so leaving
+it in the defaults makes every new Chapter 4 scenario 422. The gate change is
+cosmetic next to that.
+
+`SolveDialog.tsx`'s own `objective` prop (`:98`, `:138`) and its built-in objective
+panel (`:179-184`) become **unreachable**: `objective` only ever existed for
+`max-coverage-us`, and that model routes through `paramsSlot`
+(`Workspace.tsx:4747`) so the built-in panel never mounts for it. Delete both. This
+is dead code the step removal exposes rather than creates, and leaving it would
+leave a second rendering of a concept the client no longer has.
+
+The Chapter 4 block then renders, in one column, in this order:
 
 ```
 Warehouses to open (P)          slider + quick-select   [existing, unguarded]
@@ -690,11 +732,35 @@ floor = 50,000,000:
   covering at least 50,000,000 demand within 450 mi
 ```
 
-It reads the same derivation function as the server, exported from a shared
-location so there is one rule and not two — the alternative (a UI copy of the
-rule) is how the Solve button's label and the step that actually ran came to be
+It reads the same derivation function as the server — the alternative (a UI copy of
+the rule) is how the Solve button's label and the step that actually ran came to be
 able to disagree, which `useMaxCoverageSteps`'s own comment documents as the thing
 it was written to prevent.
+
+**The shared home is `lib/units/src/objective.ts`.** An earlier draft said "a
+shared location" without naming one, which left the "one rule, not two" claim
+unenforceable — the server derivation lives in `artifacts/api-server` and the form
+in `artifacts/studio`, two packages that share no code by default. Review confirmed
+`@workspace/units` is already a dependency of **both**
+(`artifacts/api-server/package.json:21`, `artifacts/studio/package.json:73`) and
+that `objective.ts` already owns this model's objective-mode semantics —
+`objectiveDimension(modelId, objectiveMode)` is there, and its own header calls
+itself "the ONLY place in the repo where `modelId` determines unit semantics". The
+derivation belongs beside it:
+
+```ts
+// lib/units/src/objective.ts
+export function deriveMaxCoverageObjective(coverageFloorDemand: number) {
+  return coverageFloorDemand === 0 ? "coverage" : "min_distance";
+}
+```
+
+Exported through `lib/units/src/index.ts`, imported by `scenarioInputWrite.ts`
+(§2.3) and by this form. **No new package is needed** — which was the live risk
+when the location was unnamed, since inventing one for a one-line function would
+have been the wrong trade and writing two copies the wrong answer. `solve.py`
+cannot import TypeScript, so its own `mode` derivation (§2.4) remains a third
+implementation of a one-line rule, which is why §5.2 pins the agreement test.
 
 ### 4.4 Output reports — Solution Summary and Service Stats
 
@@ -1185,9 +1251,44 @@ one claim left outstanding from round 2: `solve.py:1533` does still emit
 `details.uncoveredPct`, so §4.4's decision to drop that row from the UI without an
 envelope change holds.
 
-**Review coverage now.** All of §2, §3, §4.4 and §4.5 have had a real pass. Still
-unreviewed by anyone but this session: §4.1–4.3 and §4.6 (the form itself), §5
-(testing), and §6/§7. The form is the largest remaining unreviewed surface.
+### Round 4 — §4.3 only (the form)
+
+Three findings plus three verified-clean checks. All three findings confirmed.
+
+| # | Severity | Finding | Where fixed |
+|---|---|---|---|
+| 1 | High | §4.3 told the implementer to delete `SolveDialog.tsx:170`'s `step={1}`. That line is `<Slider step={1}>` — the **P slider's increment**. `SolveDialog` has no `step` prop at all | §4.3 — instruction removed, line marked do-not-touch |
+| 2 | High | The `objective` cleanup was stated as a gate change only, leaving the prop, the reader, the prop-pass and `defaultInputsForModel`'s `objective: "coverage"` in place — two objective authorities, and a client-authored `objective` that §2.3's guard now **refuses** | §4.3 — five-site table |
+| 3 | Medium | The shared derivation's "exported from a shared location" named no location | §4.3 — `lib/units/src/objective.ts` |
+
+Finding 1 is mine, and it is the kind that does real damage precisely because the
+instruction looks mechanical: deleting that line makes the P slider continuous, so
+a student could select 3.7 warehouses. I had grepped `SolveDialog.tsx` for `step`,
+seen `step={1}` at `:170`, and assumed it was the workflow prop without reading the
+surrounding JSX — a grep match taken as a referent.
+
+Finding 2's sharpest edge is `Workspace.tsx:148`: with §2.3's guard inverted, a
+client-sent `objective` is refused, so leaving it in the create defaults would make
+**every new Chapter 4 scenario 422**. The spec had the guard inversion and the
+stale default in two different sections and never put them together.
+
+Finding 3 resolved better than feared: `@workspace/units` is already a dependency
+of both packages and `objective.ts` already owns this model's objective-mode
+semantics, so no new package is needed. The risk while the location was unnamed was
+real though — inventing a package for a one-line function, or shipping two copies.
+
+Codex verified clean, with evidence: the `pMax` single-declaration claim (grep at
+`Workspace.test.tsx:2827-2846`, sole declaration at `Workspace.tsx:3384`, and both
+UI surfaces consume the same base props so no second declaration is needed); the
+`highServiceDistMi != null` gate being sufficient given the prop stays model-gated
+at `Workspace.tsx:3386`; and `coverageFloorDemand` fitting the generic `onChange`
+path with no distance-draft handling (already in the field union at `:31`,
+`onChange` accepts numbers at `:176`, generic writes land via `updateInputsField`).
+
+**Review coverage now.** §2, §3, §4.3, §4.4 and §4.5 have had a real pass. Still
+unreviewed by anyone but this session: §4.1, §4.2, §4.6, §5 (testing) and §6/§7.
+§4.2's deletion inventory is the largest of those, and round 4 already found two
+`Workspace.tsx` sites missing from it.
 
 ## 7. Out of scope
 
