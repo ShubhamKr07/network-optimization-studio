@@ -1954,16 +1954,18 @@ The two `VITE_*` dummies are **required, not a workaround**: without them `posth
 
 `max-coverage.spec.ts` — the single form: no step toggle, no `Solve Step N` label (now `Run Optimizer`), the new mile defaults (450 / 3400 / 650, bands 450/900/1800/3400), and the floor input driving which model runs. Assert the derived-model line.
 
-**Also assert the RESTORED result-history stepper** (added after Task 2's review).
-Removing the two-step workflow restored three things Chapter 4 was denied — the
-stepper, the solve-timing display, and unfrozen editing — but the deleted unit
-tests only ever asserted the OLD behaviour, so nothing positively pins the new.
-Task 2's fix commit covers the `"Run Optimizer"` label and unfrozen dialog
-editing at unit level; the stepper needs a solved-history precondition that is
-awkward to reach in jsdom, so it belongs here. Solve twice, then assert the
-stepper control is present and steps between the two results. Without this, the
-suite would be equally green if the stepper's old `!stepState.isMaxCoverage &&`
-suppression had been left in place.
+**The restored result-history stepper is ALREADY covered at unit level — do not
+duplicate it here.** Recorded after Task 2's review and corrected after its fix
+commit. Removing the two-step workflow restored three things Chapter 4 was denied
+(the stepper, the solve-timing display, unfrozen editing), and the deleted unit
+tests only ever asserted the OLD behaviour, so nothing positively pinned the new.
+Task 2's fix commit (`2b391b9`) closed that gap entirely in `Workspace.test.tsx`:
+the `"Run Optimizer"` label, the stepper rendering for `max-coverage-us` on a real
+one-entry history, and unfrozen dialog editing. An earlier draft of this line
+claimed the stepper's solved-history precondition was awkward to reach in jsdom and
+assigned it here; that was wrong — the implementer reached it with the file's own
+existing history-building helper. Add an e2e stepper assertion only if it falls out
+of a spec you are already rewriting; it is not required work.
 
 `chen-bands-units-qa.spec.ts` — km→mi labels and values throughout.
 
