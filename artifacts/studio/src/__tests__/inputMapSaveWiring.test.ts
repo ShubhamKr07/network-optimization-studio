@@ -106,10 +106,14 @@ describe("Input Map Layers-row Save — wiring", () => {
   // actually gates the toolbar Save. Without this, deleting `showToolbarSave`
   // from the JSX would leave the suppression test above passing against a
   // dead const while every model's Input Map showed two Save buttons.
+  //
+  // CH4O-2 — the row used to also render for Chapter 4's step toggle alone
+  // (`(stepState.isMaxCoverage && stepState.steps) || showToolbarSave`); with
+  // the step toggle deleted, the row's own render condition collapses to
+  // exactly `showToolbarSave` — the same flag gates both the row and the
+  // Save group inside it now.
   it("the extracted suppression flag is the one gating the toolbar Save group", () => {
     expect(WORKSPACE_SRC).toContain("const showToolbarSave =");
     expect(WORKSPACE_SRC).toContain("{showToolbarSave && (");
-    // And the row itself renders for the Save group OR Chapter 4's toggle.
-    expect(WORKSPACE_SRC).toContain("|| showToolbarSave) && (");
   });
 });

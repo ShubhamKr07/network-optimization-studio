@@ -219,18 +219,11 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
-  // non-Chapter-4 test in this file never has `scenario.steps` set, so
-  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
-  // false here regardless of what it returns.
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
-import { ch4Scenario } from "./helpers/ch4";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListModels = vi.mocked(useListModels);
@@ -241,22 +234,6 @@ const mockUseSearch = vi.mocked(useSearch);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-}
-
-// CH4UX-1 — Chapter 4 needs a different modelId and a server-derived `steps`
-// projection, neither of which the existing parameterless renderWorkspace()
-// can express. A sibling helper, so no existing call site changes. Kept in
-// this file (not helpers/ch4.tsx) because it closes over this file's own
-// module mocks (mockUseListScenarios/mockUseGetScenario/mockUseSearch).
-function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeId = scenarios[0].id) {
-  mockUseListScenarios.mockReturnValue({ data: scenarios } as never);
-  mockUseGetScenario.mockReturnValue({
-    data: scenarios.find(s => s.id === activeId),
-    isLoading: false,
-    isError: false,
-  } as never);
-  mockUseSearch.mockReturnValue(`?scenario=${activeId}`);
-  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 }
 
 beforeEach(() => {
@@ -2898,24 +2875,16 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   // one global `button-save` is present. Both of those stayed TRUE after
   // COSM-2 relocated Chen's Save into the shared toolbar row, so it would
   // have gone false-green with its name and comments lying. It now asserts
-  // WHERE the Save is by containment: present, NOT inside the Layers row, and
-  // in the same row as the step toggle. `showInlineSave={false}` (passed only
-  // for max-coverage-us) is what suppresses the Layers-row copy, and
-  // `saveInLayersRow` no longer lists this model so the shared row renders.
+  // WHERE the Save is by containment: present, and NOT inside the Layers
+  // row. `showInlineSave={false}` (passed only for max-coverage-us) is what
+  // suppresses the Layers-row copy, and `saveInLayersRow` no longer lists
+  // this model so the shared row renders.
+  //
+  // CH4O-2 — the step toggle this test used to also assert containment of
+  // is deleted along with the rest of the two-step workflow; the shared
+  // toolbar row now renders solely for `showToolbarSave`.
   it("input-map gate: renders the pmedian-mode Input Map with its Save in the shared toolbar row, NOT the Layers row, for a Chen scenario", () => {
-    // The step toggle needs a server-derived `steps` projection, which this
-    // block's base fixture deliberately lacks (every other gate here is
-    // step-agnostic) — add it locally rather than changing the shared fixture.
-    const withSteps = {
-      ...maxCoverageScenario,
-      steps: {
-        step1: { solved: true, stale: false, jobId: 1, summary: null },
-        step2: { solved: false, stale: false, jobId: null, summary: null },
-      },
-    };
-    mockUseGetScenario.mockReturnValue({ data: withSteps } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [withSteps] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    renderChen();
 
     // Input Map is one-shot seeded active on mount (didSeedTabRef).
     expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
@@ -2928,7 +2897,6 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
     const toolbarRow = screen.getByTestId("workspace-toolbar-row");
     expect(toolbarRow).toContainElement(save);
-    expect(toolbarRow).toContainElement(screen.getByTestId("step-toggle"));
   });
 
   // GATE: isEditableInputTab (warehouses branch) + the Warehouses render branch.
@@ -3186,149 +3154,13 @@ describe("CH4-17 — no client-side floor authoring survives", () => {
   });
 });
 
-describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
-  it("disables every sidebar Output row when Step 1 is unsolved", () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
-    const outputMap = screen.getByTestId("sidebar-output-output-map");
-    expect(outputMap).toBeDisabled();
-    expect(outputMap).toHaveAttribute("aria-disabled", "true");
-  });
-
-  it("enables the sidebar Output rows once Step 1 has solved, even with Step 2 unsolved", () => {
-    renderCh4Workspace([
-      ch4Scenario({
-        steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-      }),
-    ]);
-    expect(screen.getByTestId("sidebar-output-output-map")).not.toBeDisabled();
-  });
-
-  it("leaves a non-Chapter-4 model gated by hasFreshSolvedRun alone", () => {
-    renderWorkspace();
-    expect(screen.getByTestId("sidebar-output-output-map")).toBeDisabled();
-  });
-
-  // CH4UX-1 — reproduce the ACTUAL defect, not a proxy for it. An output tab
-  // must already be open, because the user-visible symptom is that tab naming
-  // the wrong unmet prerequisite. Asserting only the header toggle would pass
-  // against a fix that left the gate copy wrong.
-  it("switching to a 0-of-2 scenario with an output tab open re-targets the view to Step 1", () => {
-    const a = ch4Scenario({
-      id: 1,
-      name: "A",
-      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-    });
-    const b = ch4Scenario({ id: 2, name: "B", steps: { step1: { solved: false }, step2: { solved: false } } });
-
-    const view = renderCh4Workspace([a, b], 1);
-
-    // Scenario A is 1-of-2, so its outputs are unlocked. Open one, and view Step 2.
-    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
-    fireEvent.click(screen.getByTestId("step-toggle-2"));
-    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
-
-    // Switch to the 0-of-2 scenario. Re-point the query mocks the way a real
-    // scenario switch would, then let the component re-render.
-    mockUseGetScenario.mockReturnValue({ data: b, isLoading: false, isError: false } as never);
-    fireEvent.click(screen.getByTestId("sidebar-scenario-2"));
-    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // The header toggle snapped back...
-    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
-    // ...and the still-open output tab now names the RIGHT prerequisite.
-    expect(screen.getByTestId("tab-content-region")).toHaveTextContent("Solve Step 1");
-  });
-
-  // CH4UX-8 — the case CH4UX-1's warm A→B test could not reach. The scenario
-  // queries resolve ASYNCHRONOUSLY, so a cold mount (page reload) renders once
-  // with no scenario at all and only then gets one. That first resolution is
-  // not a scenario switch, and must not re-point the view: reloading a 1-of-2
-  // scenario has to keep showing Step 1's result, not snap to "Solve Step 2".
-  //
-  // Sequence-faithful on purpose — `render()` with the queries unresolved,
-  // THEN re-point the mocks and `rerender()`. Rendering the resolved state
-  // directly would seed the ref from real data in the same render that reads
-  // it, which is exactly the ordering the real app does NOT have, and is why
-  // the defect survived a green unit gate.
-  it("resolving the initial scenario on a cold mount does not re-point the view off Step 1", () => {
-    const solvedStep1 = ch4Scenario({
-      id: 5,
-      name: "Chen reload",
-      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-    });
-
-    // First render: the URL already names the scenario, but neither query has
-    // resolved — precisely a browser reload's first paint.
-    mockUseSearch.mockReturnValue("?scenario=5");
-    mockUseListScenarios.mockReturnValue({ data: undefined } as never);
-    mockUseGetScenario.mockReturnValue({ data: undefined, isLoading: true, isError: false } as never);
-    const view = render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // The queries resolve.
-    mockUseListScenarios.mockReturnValue({ data: [solvedStep1] } as never);
-    mockUseGetScenario.mockReturnValue({ data: solvedStep1, isLoading: false, isError: false } as never);
-    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // `targetStep` here is 2 (Step 1 is solved), so a guard that mistakes
-    // first resolution for a switch lands on Step 2.
-    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "false");
-
-    // And the user-visible symptom: opening an output tab must not greet a
-    // just-reloaded, already-solved scenario with Step 2's unmet prerequisite.
-    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
-    expect(screen.getByTestId("tab-content-region")).not.toHaveTextContent("Solve Step 2");
-  });
-});
-
-// ── COSM-2 — the step toggle lives in the light toolbar row ──────────────────
-// The toggle used to mount in the dark page header. It now mounts in the
-// shared toolbar row (`workspace-toolbar-row`) beside Save, and that row is
-// forced to render on EVERY Chapter 4 view so the toggle is never missing.
-// Chapter 4's Input Map Save moved out of InputMapTab's own Layers row into
-// that same shared row; p-median-us/p-median-brazil keep their Layers-row
-// Save untouched, which is what the third case below pins down.
-describe("COSM-2 — Chapter 4's step toggle renders in the toolbar row", () => {
-  it("shows the Chapter 4 step toggle on an output view, where Save does not render", async () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
-    const user = userEvent.setup();
-
-    await user.click(await screen.findByTestId("sidebar-output-output-map"));
-
-    expect(screen.getByTestId("step-toggle")).toBeInTheDocument();
-    expect(screen.getByTestId("text-steps-solved-counter")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
-    // The toggle is in the toolbar row, not the header — an output view has no
-    // editable input, so the row exists ONLY because of the max-coverage arm.
-    expect(screen.getByTestId("workspace-toolbar-row")).toContainElement(screen.getByTestId("step-toggle"));
-  });
-
-  it("shows the Chapter 4 step toggle beside Save on the Input Map view", async () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
-
-    // Input Map is the seeded initial view; Save moves out of the Layers row
-    // and into the shared toolbar for this model only.
-    expect(await screen.findByTestId("step-toggle")).toBeInTheDocument();
-    expect(screen.getByTestId("button-save")).toBeInTheDocument();
-    const row = screen.getByTestId("workspace-toolbar-row");
-    expect(row).toContainElement(screen.getByTestId("step-toggle"));
-    expect(row).toContainElement(screen.getByTestId("button-save"));
-    // And exactly one Save on the page — the relocation must not duplicate it.
-    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
-  });
-
-  it("leaves p-median-us Save INSIDE the Layers row and shows no step toggle", async () => {
-    renderWorkspace(); // parameterless — this helper is p-median-us
-
-    // Containment, not mere presence. A bare getByTestId("button-save") would
-    // still pass if p-median's Save accidentally moved into the shared toolbar
-    // — exactly the regression this case exists to catch. Precedent:
-    // Workspace.InputMapV2.test.tsx:153-166.
-    const saveButton = await screen.findByTestId("button-save");
-    expect(screen.getByTestId("pmedian-map-toolbar")).toContainElement(saveButton);
-    expect(screen.queryByTestId("step-toggle")).not.toBeInTheDocument();
-  });
-});
+// CH4O-2 — CH4UX-1 ("Chapter 4 outputs are locked until Step 1 solves") and
+// COSM-2 ("Chapter 4's step toggle renders in the toolbar row") both tested
+// the now-deleted two-step workflow (the server-derived `steps` projection,
+// the step toggle, and the early Step-1-only output unlock). Chapter 4 now
+// behaves exactly like every other model: outputs are gated by
+// `hasFreshSolvedRun` alone (already covered by this file's many other
+// models' tests), and there is no step toggle to render anywhere.
 
 // ── CH4UX-6 — the solve overlay owns running + failed ────────────────────────
 describe("CH4UX-6 — the solve overlay owns the running and failed phases", () => {

@@ -1,6 +1,6 @@
-import type { ScenarioSteps, SolveResult } from "@workspace/api-client-react";
+import type { SolveResult } from "@workspace/api-client-react";
 import { chapterForModelId } from "@/lib/chapters";
-import { formatChenObjective, formatObjective, scenarioObjectiveModeCh4Aware } from "@/lib/formatObjective";
+import { formatChenObjective, formatObjective, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 
@@ -9,14 +9,6 @@ interface ObjectiveBarProps {
   scenarioId: number | undefined;
   modelId?: string;
   scenarioName?: string;
-  /** ch4-2s-8 (A1) — present only for max-coverage-us (Task 5's server-
-   *  derived `Scenario.steps`, undefined for every other model). Routed
-   *  through the same CH4-12-aware adapter CostSummaryTab uses, so this
-   *  component never reads `result.details` directly for Chapter 4's
-   *  objective-mode label. `undefined`/`null` (every non-Chapter-4 caller,
-   *  or a Studio.tsx render before the single-scenario GET resolves) falls
-   *  back to the pre-existing `result.details`-derived mode, unchanged. */
-  steps?: ScenarioSteps | null;
   /** C4.11 — the active model's CANONICAL distance unit (manifest
    * ModelInfo.distanceUnit, threaded by the caller). chen-bands-units, Part D
    * "No fallback unit — reads": `undefined`/`null` means the canonical unit
@@ -34,7 +26,7 @@ interface ObjectiveBarProps {
 // no second per-model table), the scenario name when present, and plain
 // solve stats read straight off `result` when available. No arbitrary
 // targets, no hit/miss coloring, no checkmarks.
-export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit, steps }: ObjectiveBarProps) {
+export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit }: ObjectiveBarProps) {
   const unit = useDisplayUnit();
   const chapter = chapterForModelId(modelId);
   const avgDistance = result?.metrics.weightedAvgDistance;
@@ -45,7 +37,7 @@ export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit, step
   // `modelId` or unit would silently mislabel the objective's DIMENSION
   // (not just its number), which is worse than briefly keeping the
   // pre-existing Chen-only/no-unit formatting while the manifest loads.
-  const objectiveMode = scenarioObjectiveModeCh4Aware({ steps, result });
+  const objectiveMode = scenarioObjectiveMode({ result });
   const objectiveLabel = result
     ? modelId != null && canonicalResolved
       ? formatObjective(modelId, objectiveMode, result.objective, distanceUnit, unit)

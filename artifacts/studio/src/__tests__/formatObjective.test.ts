@@ -14,9 +14,8 @@ vi.mock("@workspace/units", async (importOriginal) => {
 });
 
 import { objectiveDimension, convertObjective, type CanonicalUnit } from "@workspace/units";
-import { formatChenObjective, objectiveModeOfDetails, formatObjective, scenarioObjectiveModeCh4Aware } from "@/lib/formatObjective";
+import { formatChenObjective, objectiveModeOfDetails, formatObjective, scenarioObjectiveMode } from "@/lib/formatObjective";
 import type { UnitApi } from "@/contexts/UnitContext";
-import type { ScenarioSteps } from "@workspace/api-client-react";
 
 // C4.14 (D14) — the single source of truth for Chen's two mode-dependent
 // objective units, shared by ObjectiveBar, CostSummaryTab and Landing.
@@ -53,45 +52,20 @@ describe("objectiveModeOfDetails", () => {
   });
 });
 
-// cmp-1b — `steps` is authoritative once present (max-coverage-us only):
-// no fallback to `result.details` in any branch, including "both steps
-// unsolved" — that state must report null, never a stale cached objective.
-describe("scenarioObjectiveModeCh4Aware — steps is authoritative (cmp-1b)", () => {
-  const EMPTY_STEP = { solved: false, stale: false, jobId: null, summary: null };
-  const solvedSummary = (objective: "coverage" | "min_distance") => ({
-    objective, status: "succeeded", solutionStatus: "optimal", quality: "Optimal",
-    coveragePct: null, coveredDemand: null, weightedAvgDistance: null,
-    distanceUnit: "km", runTimeSec: 1,
+// CH4O-2 — `scenarioObjectiveMode` reads a solved scenario's objective mode
+// straight off its own envelope (`result.details`). No `steps` concept: a
+// Chapter 4 result is current, or the scenario is `stale` by the ordinary
+// staleness guard like every other model's.
+describe("scenarioObjectiveMode", () => {
+  it("reads the mode off result.details", () => {
+    expect(scenarioObjectiveMode({ result: { details: { objective: "min_distance" } } })).toBe("min_distance");
+    expect(scenarioObjectiveMode({ result: { details: { objective: "coverage" } } })).toBe("coverage");
   });
 
-  it("returns null — NOT the stale result.details mode — when steps is present and both steps are unsolved", () => {
-    const steps: ScenarioSteps = { step1: EMPTY_STEP, step2: EMPTY_STEP };
-    // A populated, stale `result` from a solve that no longer counts
-    // (Step 1 edit bumped the epoch, clearing both steps server-side but
-    // leaving `result` untouched per the staleness guard).
-    const staleResult = { details: { objective: "coverage" } };
-    expect(scenarioObjectiveModeCh4Aware({ steps, result: staleResult })).toBeNull();
-  });
-
-  it("returns step2's mode when step2 is solved (even with a stale result.details of a different mode)", () => {
-    const steps: ScenarioSteps = {
-      step1: { solved: true, stale: false, jobId: 1, summary: solvedSummary("coverage") },
-      step2: { solved: true, stale: false, jobId: 2, summary: solvedSummary("min_distance") },
-    };
-    expect(scenarioObjectiveModeCh4Aware({ steps, result: { details: { objective: "coverage" } } })).toBe("min_distance");
-  });
-
-  it("returns step1's mode when only step1 is solved", () => {
-    const steps: ScenarioSteps = {
-      step1: { solved: true, stale: false, jobId: 1, summary: solvedSummary("coverage") },
-      step2: EMPTY_STEP,
-    };
-    expect(scenarioObjectiveModeCh4Aware({ steps, result: null })).toBe("coverage");
-  });
-
-  it("falls back to result.details when steps is absent entirely (every non-Chapter-4 model)", () => {
-    expect(scenarioObjectiveModeCh4Aware({ result: { details: { objective: "min_distance" } } })).toBe("min_distance");
-    expect(scenarioObjectiveModeCh4Aware({ result: null })).toBeNull();
+  it("returns null when result/details is absent", () => {
+    expect(scenarioObjectiveMode({ result: null })).toBeNull();
+    expect(scenarioObjectiveMode(null)).toBeNull();
+    expect(scenarioObjectiveMode(undefined)).toBeNull();
   });
 });
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
-import { formatChenObjective, formatObjective, objectiveModeOfDetails, scenarioObjectiveModeCh4Aware } from "@/lib/formatObjective";
+import { formatChenObjective, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { resultQualityText } from "@/lib/resultOutcome";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
@@ -159,10 +159,6 @@ function bandBoundaries(result: SolveResult): number[] {
 // preferred over scenario.result for max-coverage-us; see that function's
 // own comment for the documented list-route gap). Byte-identical to before
 // for every other model (their `steps` is always undefined).
-function scenarioObjectiveMode(s: Scenario | undefined): string | null {
-  return scenarioObjectiveModeCh4Aware(s);
-}
-
 // T5 (B5) — a scenario's own scenario-local added facilities, read directly
 // off the OPAQUE `Scenario.inputs` (never `localInputs` — compare columns
 // are other scenarios' own persisted state, not the currently-open one).

@@ -1,7 +1,7 @@
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
-import type { Scenario, ScenarioSteps } from "@workspace/api-client-react";
+import type { Scenario } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
@@ -805,38 +805,6 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     expect(screen.getByTestId("cost-summary-compare-mode-hint-60")).toHaveTextContent("different objective");
   });
 
-  // cmp-1b — a Chapter 4 scenario whose steps are BOTH unsolved (e.g. a Step 1
-  // edit just bumped the epoch, clearing both steps server-side) must
-  // contribute NO objective mode to the compare-selection lock, even though
-  // its cached `result` — deliberately left untouched by the staleness guard
-  // — still carries a mode from a solve that no longer counts. Before this
-  // fix, `scenarioObjectiveModeCh4Aware` fell through to that stale
-  // `result.details` mode, wrongly locking the selection and disabling a
-  // perfectly valid, currently-solved sibling of the OTHER mode.
-  const stepsBothUnsolved: ScenarioSteps = {
-    step1: { solved: false, stale: false, jobId: null, summary: null },
-    step2: { solved: false, stale: false, jobId: null, summary: null },
-  };
-
-  it("a scenario with steps both unsolved does not lock the compare mode to its stale cached result — a different-mode sibling stays enabled", () => {
-    const staleAnchor = scenario({
-      id: 80, name: "Stale CH4", modelId: "max-coverage-us",
-      steps: stepsBothUnsolved,
-      result: { ...coverageResult },
-      stale: true,
-    });
-    const freshMinDist = scenario({
-      id: 81, name: "Fresh min-dist", modelId: "max-coverage-us",
-      result: { ...minDistanceResult },
-    });
-    render(
-      <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
-        result={staleAnchor.result} scenarioId={80} modelId="max-coverage-us" scenarios={[staleAnchor, freshMinDist]}
-      /></ExportProvider></UnitProvider>,
-    );
-    expect(screen.getByTestId("cost-summary-compare-toggle-81").querySelector("input")).not.toBeDisabled();
-    expect(screen.queryByTestId("cost-summary-compare-mode-hint-81")).not.toBeInTheDocument();
-  });
 });
 
 // ch9-tc-9 (point 12) — the four rates a JADE result was SOLVED AT, read from
