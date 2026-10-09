@@ -42,7 +42,20 @@ const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
 // `someMutation.error.message` spelling (ImportDialog's — the gap this
 // task closes). describeWriteError.ts:60 itself is NOT a match — it tests
 // `instanceof Error &&`, never `instanceof Error ? ... .message`.
-const RAW_MESSAGE_PATTERN = /instanceof Error\s*\?\s*[\w.]+\.message\s*:/;
+//
+// Review fold-in (WF-3, final whole-branch review) — the ternary alone is
+// one syntactic idiom among several that all end the same way: showing a
+// student an ApiError's raw `buildErrorMessage` text. A write surface
+// spelled `{applyMutation.error?.message ?? "Import failed."}` (no ternary
+// at all — a nullish-coalescing fallback straight off a TanStack Query
+// mutation's `.error`) passed this guard by construction. The second
+// alternative below closes that: any `error`/`error?` immediately followed
+// by `.message` (TanStack Query mutations/queries expose their rejection as
+// `.error`, lowercase, by convention — this deliberately does NOT match an
+// `Error`-suffixed identifier like `apiError.message` or `err.message`,
+// which are a different, narrower idiom already covered by the first
+// alternative where it matters).
+const RAW_MESSAGE_PATTERN = /instanceof Error\s*\?\s*[\w.]+\.message\s*:|\berror\??\.message\b/;
 
 // Named allow-list, one reason per entry — same shape as the api-server's
 // ALLOWED_INPUTS_WRITERS and this file's own ALLOWED_EMPTY_CATCHES
@@ -53,6 +66,18 @@ const ALLOWED_RAW_ERROR_FILES: Record<string, string> = {
     "Dead code: every CHAPTERS entry (lib/chapters.ts) carries workspace: true, so App.tsx's Gate() routes every chapter through Workspace and never reaches the Studio branch — confirmed by reading Gate()'s routing switch. Scheduled for deletion in Phase D (D1.1); not fixed here.",
   "components/workspace/tabs/OutputMapTab.tsx":
     "copyMapToClipboard/downloadMapAsPng (lib/copyMapToClipboard.ts) never call the API — pure Clipboard-API/html-to-image browser calls, confirmed by reading that module (no fetch/API import). `err` here is always a genuine client Error, never custom-fetch.ts's ApiError, so describeWriteError would be a behavior-identical no-op for every shape these sites can actually throw.",
+  // WF-3 review fold-in — the widened `\berror\??\.message\b` alternative's
+  // two real hits, both pre-existing shadcn/ui scaffold primitives with no
+  // consumer anywhere in this codebase (`grep -rl` for an import of either
+  // file outside components/ui/ itself returns nothing). Their `error` is
+  // react-hook-form's FieldError/fieldState — a client-side validation
+  // message the form author wrote (e.g. zod's "Required"), never an
+  // ApiError's buildErrorMessage text, so describeWriteError does not apply
+  // to this shape at all.
+  "components/ui/field.tsx":
+    "FieldError renders react-hook-form validation messages (errors: Array<{ message }>), not an API write rejection — no fetch/mutation import in this file, and it has no consumer anywhere outside components/ui/.",
+  "components/ui/form.tsx":
+    "FormMessage renders useFormField()'s react-hook-form fieldState.error, the same client-side validation shape as field.tsx above — no consumer anywhere outside components/ui/.",
 };
 
 describe("raw error-message surface — repo-wide guard (WF-3 audit)", () => {
@@ -75,10 +100,19 @@ describe("raw error-message surface — repo-wide guard (WF-3 audit)", () => {
   // Guards the allow-list itself against going stale silently: if a listed
   // file stops containing the pattern (e.g. a future pass fixes it too),
   // its entry should be deleted rather than left as dead documentation.
+  // WF-3 review fold-in — this used to test the RAW file text, same as the
+  // detection loop's lines MINUS the `isCode` filter the loop itself applies.
+  // That let a commented-out occurrence (e.g. the fix landing, with the old
+  // line left as a `//`-prefixed note) keep an entry looking fresh forever:
+  // the live code no longer matches, but the comment still does, so this
+  // check never goes red to prompt deleting the entry. Filtering comments
+  // out first — exactly what the detection loop does per line — makes this
+  // test see what the loop actually sees.
   it("every allow-list entry still contains the pattern it's exempting", () => {
     for (const rel of Object.keys(ALLOWED_RAW_ERROR_FILES)) {
       const src = readFileSync(resolve(SRC_ROOT, rel), "utf8");
-      expect(RAW_MESSAGE_PATTERN.test(src)).toBe(true);
+      const codeOnly = src.split("\n").filter(isCode).join("\n");
+      expect(RAW_MESSAGE_PATTERN.test(codeOnly)).toBe(true);
     }
   });
 
