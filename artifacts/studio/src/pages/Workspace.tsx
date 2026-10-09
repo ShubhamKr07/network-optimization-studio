@@ -2946,9 +2946,24 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       updateScenario.mutate(
         { scenarioId, data: { inputs } },
         {
-          onSuccess: () => {
-            savedInputsRef.current = inputs;
-            savedBandLensRef.current = distanceBandsFromInputs(inputs);
+          // CH4O-P1 — adopt the RESPONSE inputs, exactly as
+          // `saveWholeInputsAsync` does (:2089), NEVER the pre-send `inputs`.
+          // `buildWholeInputPayload()` runs the body through
+          // `withoutServerOwnedInputs`, which STRIPS `objective` for
+          // max-coverage-us — so storing the request payload as the
+          // last-saved snapshot left `savedInputsRef` without a key
+          // `localInputs` still carries (every persisted Chapter 4 row has
+          // the server-derived `objective`, and the id-keyed seeding effect
+          // at :1568 never re-syncs it for the same scenario). `isDirty` is a
+          // JSON.stringify comparison, so every Chapter 4 scenario solved via
+          // Run Optimizer went permanently "Unsaved changes" for the rest of
+          // the session, and the dirty-nav prompt then blocked history
+          // browsing on a lie. Byte-identical for every other model (nothing
+          // is stripped there), so this is the one correct form for both.
+          onSuccess: updated => {
+            setLocalInputs(updated.inputs);
+            savedInputsRef.current = updated.inputs;
+            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
             runSolve();

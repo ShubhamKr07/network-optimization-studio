@@ -236,6 +236,22 @@ function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 }
 
+// CH4O-P1 — the faithful shape of a successful whole-input PATCH: the route
+// responds with the PERSISTED ROW, so `onSuccess` receives a Scenario whose
+// `inputs` is what the server stored. Both whole-input writers in Workspace
+// (`saveWholeInputsAsync` and `handleSolve`'s save-before-solve branch) now
+// adopt that response rather than the body they sent, so a mock that calls
+// `opts.onSuccess()` with NO argument is no longer a usable stand-in. Use this
+// wherever the test only needs the save to resolve; pass an explicit
+// implementation when the test is specifically about the server returning
+// something DIFFERENT from what was sent (see the max-coverage objective test).
+function updateScenarioResolvesWithPersistedRow() {
+  mockUpdateScenario.mutate.mockImplementation(
+    (vars: { data: { inputs: Record<string, unknown> } }, opts: { onSuccess: (updated: unknown) => void }) =>
+      opts.onSuccess({ ...scenario, inputs: { ...vars.data.inputs } }),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // `vi.clearAllMocks()` clears call history but NOT a previously-set
@@ -1431,7 +1447,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
   const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
   async function buildTwoEntryHistoryAtLatest() {
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -1658,9 +1674,7 @@ describe("Workspace — Solve dialog", () => {
   // must save a dirty localInputs draft first, and only enqueue the solve once
   // that save succeeds.
   it("clicking Solve with unsaved edits SAVES FIRST, then solves only after the save succeeds", () => {
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
-      opts.onSuccess();
-    });
+    updateScenarioResolvesWithPersistedRow();
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
@@ -1887,7 +1901,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
 
     // Save (used by the second, dirty-draft solve) and solve both resolve
     // synchronously via their mocked onSuccess callbacks.
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -1952,7 +1966,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
     const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -2008,7 +2022,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
     const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -2907,6 +2921,68 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapMi: 1000 });
     expect(args.data.inputs).not.toHaveProperty("objective");
   });
+
+  // CH4O-P1 (whole-branch review, Important 1) — `handleSolve`'s
+  // save-before-solve branch used to store the REQUEST payload as the
+  // last-saved snapshot. For max-coverage-us that payload has had `objective`
+  // stripped (`withoutServerOwnedInputs`) while `localInputs` still carries
+  // the server-derived value, so `isDirty` (a JSON.stringify comparison) went
+  // permanently true: the toolbar showed "Unsaved changes" with Save enabled
+  // for the rest of the session with nothing actually unsaved, and the
+  // dirty-nav prompt then blocked result-history browsing on a lie (choosing
+  // Discard there would have dropped `objective` out of the draft).
+  //
+  // The three pre-existing strip tests cannot catch this: they assert the
+  // PATCH/CREATE *body* and never drive `onSuccess` at all. This one drives
+  // `onSuccess` with a response shaped like the real row — the body without
+  // `objective`, the response WITH it, which is exactly the asymmetry that
+  // produced the bug — and asserts the user-visible dirty state, not the ref.
+  it("solving a dirty Chapter 4 draft leaves it CLEAN afterwards — the response row is adopted, not the stripped request body (CH4O-P1)", async () => {
+    mockUpdateScenario.mutate.mockImplementation(
+      (
+        vars: { data: { inputs: Record<string, unknown> } },
+        opts: { onSuccess: (updated: unknown) => void },
+      ) =>
+        // The server derives and persists `objective` FROM the coverage
+        // floor, so the row it responds with carries a key the body could not
+        // legally contain. Faithfully asymmetric on purpose.
+        opts.onSuccess({
+          ...maxCoverageScenario,
+          inputs: { ...vars.data.inputs, objective: "coverage" },
+        }),
+    );
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 12 }),
+    );
+    renderChen();
+    openParamsTab();
+
+    const avgCap = screen.getByTestId("input-avg-service-cap");
+    fireEvent.change(avgCap, { target: { value: "1200" } });
+    fireEvent.blur(avgCap);
+    // Precondition — the draft really is dirty before the solve, so the
+    // post-solve assertion below is about the fix and not about an edit that
+    // never landed.
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    // The save-before-solve branch ran, stripped the body, and the solve was
+    // enqueued only after it resolved (the pre-existing contract).
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [solveSaveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(solveSaveArgs.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200 });
+    expect(solveSaveArgs.data.inputs).not.toHaveProperty("objective");
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+
+    // The fix itself: nothing is unsaved, so the toolbar must not say so and
+    // Save must be disabled.
+    await waitFor(() => {
+      expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
 });
 
 // ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and
@@ -3092,11 +3168,12 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
 });
 
 // SSC-T1 — non-JADE ServiceStats live coverage: Workspace now wires the live
-// `presentationBands` lens (= distanceBandsFromInputs(localInputs), the same
-// value already fed to the Output Map) into ServiceStatsTab for EVERY
-// distance-band model, not just JADE — EXCEPT max-coverage-us, whose
-// "coverage" is a distinct min-distance concept that stays frozen on
-// result.metrics.bandCoverage. Verified end-to-end through the real
+// `presentationBands` lens (= the dedicated band lens, the same value already
+// fed to the Output Map) into ServiceStatsTab for EVERY distance-band model,
+// not just JADE. CH4O-P1 — "EXCEPT max-coverage-us … stays frozen" used to
+// stand here and is wrong: chen-bands-units (Part A/D, decision 1d) removed
+// that carve-out, the call site passes `presentationBands` unconditionally,
+// and the second test below asserts Chen's LIVE recompute. Verified end-to-end through the real
 // Workspace render (not just ServiceStatsTab's own component-level tests),
 // proving the wiring at the actual call site, not just the component's
 // internal gate.
@@ -3152,10 +3229,13 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
-    // Deliberately different from the frozen result's own bandCoverage
-    // boundary below — if Workspace mistakenly wired presentationBands for
-    // max-coverage-us, this value would drive a live recompute and this test
-    // would catch it.
+    // CH4O-P1 — deliberately different from the frozen result's own
+    // bandCoverage boundary below (600/66%) so the test it feeds is
+    // discriminating: Chen's bars ARE live, so this value is what must drive
+    // the rendered bars. If a future change re-froze them on
+    // result.metrics.bandCoverage, 600/66% would render instead and the test
+    // below would catch it. (The earlier comment here claimed the reverse —
+    // that a live recompute was the failure mode.)
     distanceBands: [111],
     warehouseOverrides: [],
     customerOverrides: [],

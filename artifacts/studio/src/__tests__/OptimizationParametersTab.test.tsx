@@ -711,9 +711,35 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 1/);
   });
 
-  it("names Model 2 when the floor is positive", () => {
+  // CH4O-P1 (whole-branch review, Minor 4) — the cap clause used to be
+  // appended to the Model 1 string ONLY, but this branch made the
+  // average-distance cap an unconditional constraint in BOTH objectives
+  // (spec §2.4: "applies in BOTH modes now" — it is why the field renders
+  // unconditionally). A student who set a positive floor and a tight cap,
+  // solved, and got INFEASIBLE read a Model 2 line naming only the floor, with
+  // no on-screen statement of the constraint that actually caused it — while
+  // the Model 1 line they saw a minute earlier did name it. Both clauses are
+  // asserted in full, not just /Model 2/, so dropping either can't pass.
+  it("names Model 2 when the floor is positive, and states BOTH the floor and the avg-distance cap", () => {
     render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} />);
-    expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 2/);
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).toHaveTextContent(/Model 2/);
+    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
+    expect(line).toHaveTextContent("holding average distance at or under 1,000 km");
+  });
+
+  // CH4O-P1 — the absent-cap handling the Model 1 branch already had (review
+  // F1) must hold for Model 2 too: OMIT the clause, never render a fabricated
+  // `?? 0`, which would be a false statement about the model being solved.
+  it("omits the cap clause from the Model 2 line when avgServiceDistCapMi is absent", () => {
+    const { avgServiceDistCapMi: _absent, ...propsWithoutCap } = ch4Props;
+    void _absent;
+    render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={500} />);
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).toHaveTextContent(/Model 2/);
+    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
+    expect(line).not.toHaveTextContent("at or under");
+    expect(line).not.toHaveTextContent("holding average distance");
   });
 
   // The line shows DISTANCES. It must CONVERT them for display, not print

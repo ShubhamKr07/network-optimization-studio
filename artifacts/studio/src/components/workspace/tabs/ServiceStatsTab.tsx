@@ -179,13 +179,17 @@ const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductio
 // models), else every edge (single-echelon models, which have no `leg`
 // concept and thus no inbound leg to exclude). Never `plant_to_warehouse`
 // / `mine_to_refinery` — mixing legs would double-count throughput.
-// `max-coverage-us` (a distinct min-distance coverage concept) stays
-// frozen: gated by the caller alone (Workspace.tsx never wires
-// `presentationBands` for it) — `bandCoverage` below branches on
-// `useLiveCoverage` alone, never a `modelId` check.
-// Workspace.tsx wires this for every distance-band model EXCEPT
-// `max-coverage-us` (a distinct min-distance coverage concept, stays
-// frozen) — model selection lives entirely in the caller now.
+// Model selection lives ENTIRELY in the caller: `bandCoverage` below
+// branches on `useLiveCoverage` alone, never on a `modelId` check.
+//
+// CH4O-P1 — and the caller wires it for EVERY distance-band model,
+// `max-coverage-us` included (`Workspace.tsx`'s single unconditional
+// `presentationBands={activeBandLens}`), so Chapter 4's bars are LIVE too.
+// The earlier Chen carve-out described here was removed at that call site by
+// chen-bands-units (Part A/D, decision 1d) and this comment was left
+// asserting the opposite; the live behaviour is covered by
+// `Workspace.test.tsx`'s "Chen computes LIVE band coverage …" test. Do not
+// re-add a carve-out here or at the call site on the strength of a comment.
 export function ServiceStatsTab({
   result,
   scenarioId,

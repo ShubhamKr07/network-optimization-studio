@@ -87,6 +87,16 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
     // `deleteAddedEntityAndOverrides`, `handlePMedianMapInputsChange`) each
     // now call `setLocalInputs` directly instead (+5). `confirmStep1Edit`'s
     // write and `updateStep2Field`'s write are also gone (-1 each). Net +2.
-    ).toBe(15);
+    //
+    // CH4O-P1 — was 15. `handleSolve`'s save-before-solve `onSuccess` now
+    // adopts the server's response row (+1), exactly as
+    // `saveWholeInputsAsync`'s `onSuccess` already did. Classified as a
+    // NON-EDIT assignment ("server response" in the list above), so it is
+    // deliberately NOT added to GUARDED_MUTATORS: `handleSolve` already
+    // refuses a historical position before ever reaching this mutation (its
+    // own `isBrowsingHistoryNow` check is in the four-layer guard at the top
+    // of the function), and guarding the response adoption itself would
+    // reintroduce the permanently-dirty bug this change fixes.
+    ).toBe(16);
   });
 });

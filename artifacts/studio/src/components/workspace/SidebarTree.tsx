@@ -26,11 +26,6 @@ interface SidebarTreeProps {
    * solved-but-stale scenario also greys Outputs, not just an unsolved one.
    */
   hasSolvedRun: boolean;
-  /** CH4-18 — per frame 3e, Chapter 4's output entries stay CLICKABLE when the
-   *  selected step is unsolved; the tab itself renders an empty state instead.
-   *  A student can see what they would get before committing to a solve. Every
-   *  other model keeps the existing disabled-until-solved behaviour. */
-  keepOutputsClickable?: boolean;
   /**
    * SBR-2 — initial collapsed state, for tests and for any future caller that
    * needs determinism. An explicitly supplied value WINS over the persisted
@@ -198,7 +193,6 @@ export function SidebarTree({
   inputs,
   outputs,
   hasSolvedRun,
-  keepOutputsClickable = false,
   defaultCollapsed,
   activeEntityId = null,
   onOpenInput,
@@ -417,7 +411,11 @@ export function SidebarTree({
               kind="output"
               collapsed={collapsed}
               active={entry.id === activeEntityId}
-              disabled={!hasSolvedRun && !keepOutputsClickable}
+              // CH4O-P1 — `hasSolvedRun` alone. The `keepOutputsClickable`
+              // opt-out (CH4-18) had exactly one caller, max-coverage-us, and
+              // this branch removed the two-step workflow it existed for; it
+              // is gone rather than left as live-looking dead API.
+              disabled={!hasSolvedRun}
               onOpen={onOpenOutput}
             />
           ))}

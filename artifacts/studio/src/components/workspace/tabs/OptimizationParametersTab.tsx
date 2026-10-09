@@ -405,6 +405,16 @@ export function OptimizationParametersTab({
               // the clause entirely when it's absent rather than assert a false
               // "at or under 0" cap that the model being solved won't actually
               // have.
+              //
+              // CH4O-P1 — the clause goes on BOTH lines. The avg-service cap
+              // used to be a Model-2-only constraint; this branch made it
+              // unconditional in both objectives (which is why its field
+              // renders unconditionally), and the Model 2 string was the one
+              // that still omitted it. A student who sets a positive floor and
+              // a tight cap, gets INFEASIBLE, and reads a Model 2 line naming
+              // only the floor has no on-screen statement of the constraint
+              // that actually caused it — while the Model 1 line they saw a
+              // minute earlier did name it.
               const capClause =
                 avgServiceDistCapMi != null
                   ? `, holding average distance at or under ${fmt(avgServiceDistCapMi)}`
@@ -413,7 +423,7 @@ export function OptimizationParametersTab({
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
                   {deriveMaxCoverageObjective(floor) === "coverage"
                     ? `Model 1 — maximize demand within ${fmt(highServiceDistMi!)}${capClause}`
-                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistMi!)}`}
+                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistMi!)}${capClause}`}
                 </p>
               );
             })()}

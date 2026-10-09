@@ -34,10 +34,17 @@ const mockUseListModels = vi.fn(() => ({
     // jade-T14 — Chapter 9 JADE has real facility open/closed status (no P).
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // C4.14 / CH4O-8 — Al's Athletics Max Coverage: miles (§2.1 made this
-    // model miles-canonical like every other), real facility status. The
-    // non-mi display path still has coverage via the synthetic "km" model
-    // this file mocks in for exactly that purpose further down.
+    // model miles-canonical like every other), real facility status.
     { id: "max-coverage-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    // CH4O-P1 — a FICTIONAL km-canonical model, same precedent and same
+    // reason as ServiceStatsTab.test.tsx's own `synthetic-km-model` (and
+    // OutputMapTab.test.tsx's "two-echelon-fake-km"). Every real model is
+    // "mi"-canonical now, and this file's display pref is the default "auto"
+    // (= mi), so `toDisplay` is the IDENTITY for every real fixture here:
+    // without a km entry, the Chapter 4 coverage-row tests below would pass
+    // whether the code converted, double-converted, or skipped conversion
+    // entirely. This is the entry that makes them discriminate.
+    { id: "synthetic-km-model", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
     // Task 7 (§14, ch5-edit-7) — supportsFacilityStatus flips to `true` for
     // this model. §14 supersedes §6.1/§7.6's "locked false" framing (this
     // was never actually locked — the manifest capability was corrected).
@@ -158,11 +165,62 @@ describe("Solution Summary — Chapter 4 coverage rows", () => {
     metrics: { ...optimalResult.metrics, weightedAvgDistance: 394.6 },
   };
 
-  it("renders the three rows for a Chapter 4 result", () => {
+  afterEach(() => {
+    // The conversion test below flips the persisted display-unit preference.
+    // jsdom's localStorage is NOT reset between tests in the same file, so a
+    // leaked pref would silently change every later test's expected unit.
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  // CH4O-P1 — this one pins the mi-canonical rendering (the real model's own
+  // path) and is deliberately NOT the conversion test: max-coverage-us is
+  // "mi"-canonical and the pref is "auto" (= mi), so `toDisplay` is the
+  // identity here and all three assertions would also pass against code that
+  // converted wrongly or not at all. The km test below is what discriminates.
+  it("renders the three rows for a Chapter 4 result (mi-canonical, no conversion)", () => {
     renderTab({ result: ch4Result, modelId: "max-coverage-us" });
-    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("450");
-    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("68.42");
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("450.0 mi");
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("68.42 %");
     expect(screen.getByTestId("cost-summary-covered-demand")).toHaveTextContent("53,385,024");
+  });
+
+  // CH4O-P1 (whole-branch review, Minor 3) — the discriminating half, driving
+  // the FICTIONAL km-canonical model so canonical != display. Pins the exact
+  // per-row contract, which is NOT uniform:
+  //   - highServiceDistMi IS a distance and MUST convert;
+  //   - coveragePct is a PERCENTAGE and must NEVER convert;
+  //   - coveredDemand is a DEMAND figure and must NEVER convert.
+  // The failure this prevents is concrete: wrap `coveragePct` in
+  // `formatDistance` and a student toggling to km reads "110.11 %" of demand
+  // covered. Nothing else in this repo would catch it.
+  it("converts ONLY the distance row when canonical != display — percentage and demand never convert (CH4O-P1)", () => {
+    // Pref "mi" against a km-canonical model is the only combination in this
+    // file where canonical != display; the default "auto" resolves to the
+    // model's own canonical unit and is therefore the identity. Same move as
+    // ServiceStatsTab.test.tsx's Part D conversion test. Cleared in the
+    // afterEach above — jsdom's localStorage is NOT reset between tests in a
+    // file, so a leaked pref would silently break every test after this one.
+    window.localStorage.setItem("nos:display-unit-pref", "mi");
+    renderTab({ result: ch4Result, modelId: "synthetic-km-model" });
+
+    // 450 km shown in mi: 450 / 1.609344 = 279.6169 -> "279.6 mi" at 1dp.
+    // Asserting the CONVERTED value (not just "not 450") is what fails if the
+    // row stops routing through formatDistance.
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("279.6 mi");
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).not.toHaveTextContent("450");
+
+    // A percentage has no distance dimension. Converted it would read
+    // "42.51" (68.4192 / 1.609344) and carry a distance unit label.
+    const pct = screen.getByTestId("cost-summary-coverage-pct");
+    expect(pct).toHaveTextContent("68.42 %");
+    expect(pct).not.toHaveTextContent("42.51");
+    expect(pct).not.toHaveTextContent("mi");
+
+    // A demand figure likewise. Converted it would read "33,171,887…".
+    const demand = screen.getByTestId("cost-summary-covered-demand");
+    expect(demand).toHaveTextContent("53,385,024");
+    expect(demand).not.toHaveTextContent("33,171");
+    expect(demand).not.toHaveTextContent("mi");
   });
 
   // The half that catches an accidental modelId gate.
