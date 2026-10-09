@@ -56,6 +56,11 @@
  * excluded globally by playwright.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+// FU-8 — was a local `maxCoverageInputs()`, byte-identical to
+// `max-coverage.spec.ts`'s `coverageInputs()`. Note that
+// `chen-bands-units-qa.spec.ts`'s same-named local copy is a DIFFERENT
+// payload (700/5500/1000) with its own goldens and is deliberately not shared.
+import { maxCoverageInputs } from "./helpers/maxCoverageInputs";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 90_000;
@@ -385,27 +390,6 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
 // only the generic cumulative-coverage-bar rows every distance-band model
 // shares, never a Chen-specific KPI (there isn't one left on this tab to
 // assert against).
-
-function maxCoverageInputs() {
-  // CH4O-8's round teaching defaults (test_max_coverage.py::BASE) — NO
-  // `objective` key (CH4O-5: server-owned, 4xx if sent at all).
-  return {
-    p: 3,
-    highServiceDistMi: 450,
-    maxDistMi: 3400,
-    avgServiceDistCapMi: 650,
-    coverageFloorDemand: 0,
-    gap: 0,
-    timeLimitSec: 120,
-    capacityMode: "none",
-    distanceBands: [450, 900, 1800, 3400],
-    warehouseOverrides: [],
-    customerOverrides: [],
-    addedWarehouses: [],
-    addedCustomers: [],
-    distanceOverrides: [],
-  };
-}
 
 async function createMaxCoverageScenario(page: Page): Promise<number> {
   const resp = await page.request.post("/api/scenarios", {

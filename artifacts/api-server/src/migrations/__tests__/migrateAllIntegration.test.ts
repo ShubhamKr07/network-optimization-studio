@@ -268,6 +268,90 @@ describe("migrateAll — real-Postgres round trip", () => {
     expect(outsideJobAfter.result).toEqual({ objective: 601.89 });
   });
 
+  // FU-13 — the dry run's job of predicting its own most destructive effect.
+  // `solveJobResultsCleared` used to be hard-`[]` under `dryRun` because the
+  // whole block was gated on `!dryRun`, so the operator authorising an
+  // irreversible deletion read an empty list and then watched the real run
+  // destroy 18 envelopes. Both halves are asserted here, because either one
+  // alone is satisfiable by a wrong implementation: reporting the set is
+  // worthless if the dry run achieved it by actually nulling the column, and
+  // writing nothing is already true of the broken version.
+  it("a dry run reports the solve_jobs envelopes it WOULD clear, and clears none of them", async () => {
+    const [ch4] = await db.insert(scenariosTable).values({
+      name: "fu-13 dry-run prediction — chapter 4",
+      userId: TEST_USER_ID,
+      modelId: MAX_COVERAGE_MODEL_ID,
+      inputs: kmRowWithOverrides,
+    }).returning();
+    scenarioIds.push(ch4!.id);
+
+    const kmEnvelope = { objective: 601.89, metrics: { weightedAvgDistance: 601.89 } };
+    const [withResult] = await db.insert(solveJobsTable).values({
+      scenarioId: ch4!.id, userId: TEST_USER_ID, status: "succeeded",
+      inputsHash: "fu-13-with-result", result: kmEnvelope,
+    }).returning();
+    jobIds.push(withResult!.id);
+
+    // A second job on the same scenario carrying NO result: `isNotNull` must
+    // keep it out of the predicted list, or the dry run over-reports the
+    // damage — the symmetric lie to the one being fixed.
+    const [withoutResult] = await db.insert(solveJobsTable).values({
+      scenarioId: ch4!.id, userId: TEST_USER_ID, status: "failed",
+      inputsHash: "fu-13-without-result",
+    }).returning();
+    jobIds.push(withoutResult!.id);
+
+    const dry = await migrateAll(db, true, [ch4!.id]);
+
+    expect(dry.migrated).toEqual([ch4!.id]);
+    expect(dry.solveJobResultsCleared).toEqual([withResult!.id]);
+
+    // Writes nothing: the envelope is still there, and the scenario itself is
+    // still kilometre-shaped with its epoch columns unmoved.
+    const jobAfter = (await db.select().from(solveJobsTable).where(eq(solveJobsTable.id, withResult!.id)))[0]!;
+    expect(jobAfter.result).toEqual(kmEnvelope);
+    const scenarioAfter = (await db.select().from(scenariosTable).where(eq(scenariosTable.id, ch4!.id)))[0]!;
+    expect(scenarioAfter.inputs).toEqual(kmRowWithOverrides);
+
+    // And the prediction was accurate: the real run clears exactly the set
+    // the dry run named. A dry run whose list is merely non-empty is not the
+    // fix; matching the real run is.
+    const real = await migrateAll(db, false, [ch4!.id]);
+    expect(real.solveJobResultsCleared).toEqual([withResult!.id]);
+    const jobAfterReal = (await db.select().from(solveJobsTable).where(eq(solveJobsTable.id, withResult!.id)))[0]!;
+    expect(jobAfterReal.result).toBeNull();
+  });
+
+  // FU-13 — the dry run must respect the scenario-id filter exactly as the
+  // real path does, or it predicts damage to rows the caller excluded.
+  it("a dry run's predicted clear-set respects the scenarioIds filter", async () => {
+    const [outside] = await db.insert(scenariosTable).values({
+      name: "fu-13 dry-run prediction — out of scope",
+      userId: TEST_USER_ID,
+      modelId: MAX_COVERAGE_MODEL_ID,
+      inputs: kmRowWithOverrides,
+    }).returning();
+    scenarioIds.push(outside!.id);
+
+    const [outsideJob] = await db.insert(solveJobsTable).values({
+      scenarioId: outside!.id, userId: TEST_USER_ID, status: "succeeded",
+      inputsHash: "fu-13-out-of-scope", result: { objective: 601.89 },
+    }).returning();
+    jobIds.push(outsideJob!.id);
+
+    const [inScope] = await db.insert(scenariosTable).values({
+      name: "fu-13 dry-run prediction — in scope, no job",
+      userId: TEST_USER_ID,
+      modelId: MAX_COVERAGE_MODEL_ID,
+      inputs: kmRowWithOverrides,
+    }).returning();
+    scenarioIds.push(inScope!.id);
+
+    const dry = await migrateAll(db, true, [inScope!.id]);
+    expect(dry.migrated).toEqual([inScope!.id]);
+    expect(dry.solveJobResultsCleared).toEqual([]);
+  });
+
   // An explicit empty filter means "nothing in scope" — never "everything".
   it("writes nothing when given an empty scenarioIds array", async () => {
     const report = await migrateAll(db, false, []);

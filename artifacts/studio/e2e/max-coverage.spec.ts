@@ -26,7 +26,7 @@
  * (even `null`) is rejected by `assertNoServerOwnedFields`
  * (`services/scenarioInputWrite.ts`). The old pre-migration fixture used to
  * send `objective: "coverage"` on create — that would now 4xx. This file's
- * `coverageInputs()` deliberately omits the field.
+ * shared `maxCoverageInputs()` helper deliberately omits the field.
  *
  * Exercises the full max-coverage model through the Workspace UI against
  * local dev servers:
@@ -74,6 +74,10 @@
  */
 import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
+// FU-8 — was a local `coverageInputs()`, byte-identical to
+// `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
+// "no `objective` key" rationale the header comment above refers to.
+import { maxCoverageInputs } from "./helpers/maxCoverageInputs";
 
 const HEADER_TIMEOUT = 10_000;
 // ch4-2s-9 — widened from 120_000: a real CBC solve of this 26-warehouse/
@@ -98,33 +102,9 @@ async function registerAndGoHome(page: Page): Promise<void> {
   await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 }
 
-/** Default (floor-0 / coverage-mode) inputs = the coverage golden config
- * (p=3, high=450mi, max=3400mi, avgServiceDistCap=650mi) — CH4O-8's round
- * teaching defaults, read verbatim off `test_max_coverage.py::BASE`. NO
- * `objective` key: it is server-derived and a 4xx if sent at all
- * (CH4O-5, `assertNoServerOwnedFields`). */
-function coverageInputs() {
-  return {
-    p: 3,
-    highServiceDistMi: 450,
-    maxDistMi: 3400,
-    avgServiceDistCapMi: 650,
-    coverageFloorDemand: 0,
-    gap: 0,
-    timeLimitSec: 120,
-    capacityMode: "none",
-    distanceBands: [450, 900, 1800, 3400],
-    warehouseOverrides: [],
-    customerOverrides: [],
-    addedWarehouses: [],
-    addedCustomers: [],
-    distanceOverrides: [],
-  };
-}
-
 async function createMaxCoverageScenario(page: Page): Promise<string> {
   const resp = await page.request.post("/api/scenarios", {
-    data: { name: `E2E MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: coverageInputs() },
+    data: { name: `E2E MaxCoverage ${Date.now()}`, modelId: "max-coverage-us", inputs: maxCoverageInputs() },
   });
   expect(resp.status()).toBe(201);
   const id = String((await resp.json()).id);
