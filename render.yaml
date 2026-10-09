@@ -50,7 +50,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: CORS_ALLOWED_ORIGIN
-        value: https://nos-studio.onrender.com
+        value: https://nos-studio.onrender.com,https://networkdesignbook.com,https://www.networkdesignbook.com
       - key: LOG_LEVEL
         value: info
       # PostHog analytics — read by src/lib/posthog.ts. Without

@@ -103,9 +103,10 @@ export interface MigrateReport {
   // forced and correct; this is only visibility into how many rows it hit.
   objectiveFlipped: number[];
   // CH4O-P1 (whole-branch review, IMPORTANT #3) — `solve_jobs.id`s whose
-  // `result` envelope was nulled. The runbook prints this so the operator
-  // sees exactly how much pre-migration solve history was destroyed; an
-  // empty array means no job carried a result.
+  // `result` envelope was nulled, or, under `dryRun`, WOULD be nulled
+  // (FU-13). The runbook prints this so the operator sees exactly how much
+  // pre-migration solve history a real run destroys; an empty array means no
+  // job in scope carried a result.
   solveJobResultsCleared: number[];
 }
 
@@ -213,15 +214,28 @@ export async function migrateAll(
   // re-run-after-deploy step repairs a row that an earlier run of this
   // migration converted before this nulling existed. `isNotNull` keeps the
   // report truthful -- it lists only jobs whose result was actually wiped.
+  //
+  // FU-13 -- a dry run REPORTS this set too, via a SELECT over the identical
+  // scope. It used to be `!dryRun && ...`, so `solveJobResultsCleared` was
+  // always `[]` on a dry run and then listed 18 ids on the real production
+  // run: the one output an operator reads before authorising an irreversible
+  // deletion was silently empty exactly when it mattered. The scope is
+  // derived, not duplicated -- `milesScenarioIds` already came out of the
+  // model-filtered (and, when given, scenario-id-filtered) select above, so
+  // the dry run inherits both filters the same way the real path does.
+  // A dry run still writes NOTHING; that is its whole contract.
   const milesScenarioIds = [...report.migrated, ...report.alreadyMigrated];
-  if (!dryRun && milesScenarioIds.length > 0) {
-    const cleared = await database.update(solveJobsTable)
-      .set({ result: null })
-      .where(and(
-        inArray(solveJobsTable.scenarioId, milesScenarioIds),
-        isNotNull(solveJobsTable.result),
-      ))
-      .returning({ id: solveJobsTable.id });
+  if (milesScenarioIds.length > 0) {
+    const clearScope = and(
+      inArray(solveJobsTable.scenarioId, milesScenarioIds),
+      isNotNull(solveJobsTable.result),
+    );
+    const cleared = dryRun
+      ? await database.select({ id: solveJobsTable.id }).from(solveJobsTable).where(clearScope)
+      : await database.update(solveJobsTable)
+          .set({ result: null })
+          .where(clearScope)
+          .returning({ id: solveJobsTable.id });
     report.solveJobResultsCleared = cleared.map((job) => job.id);
   }
 

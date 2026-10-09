@@ -1084,6 +1084,11 @@ describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDist
     // 160.9344 is exact at 4 dp; the km->mi direction is not. Asserted at full
     // precision rather than loosened to toBeCloseTo, so a future rounding
     // change here is a visible, deliberate decision.
+    // FU-3 — those 14 decimals are NOT a chosen precision. They are the
+    // literal shortest round-trip repr of the double `100 / 1.609344`, i.e.
+    // exactly what `fromDisplay` returns and what `String()` prints for it.
+    // Do not "tidy" the digit count: any shorter literal is a different
+    // double and fails, and nothing here is asking for 14 dp of accuracy.
     expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 62.13711922373339 } });
   });
 

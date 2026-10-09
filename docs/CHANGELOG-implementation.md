@@ -3018,3 +3018,11 @@ One thing the reviewers checked and confirmed clean, recorded because it is the 
 ### Not yet done, and each needs its own approval
 
 `superpowers:finishing-a-development-branch`, merge, push, deploy, `/harness-retro CH4O`. Measured deploy surface (full range, no pathspec): **`nos-api` and `nos-studio` both require redeploying** — 44 files under `artifacts/api-server/**`, 3 under `solvers/max-coverage-us/**` (including `manifest.json`'s `distanceUnit` km→mi), 45 under `artifacts/studio/src/**`, plus `lib/api-spec`, `lib/api-zod`, `lib/api-client-react`, `lib/db`, `lib/units`, `lib/dataset-schema`. Do not conclude "frontend-only" from a pathspec. **`nos-postgres` needs no `drizzle-kit push`** — the only `lib/db` change is a comment in `schema/solve_jobs.ts` — but it does need the data migration, in the order above.
+
+## cors-networkdesignbook-domain — allow the custom domain in nos-api CORS (2026-10-09)
+
+The studio moved to `networkdesignbook.com` (GoDaddy DNS → Render, same `nos-studio` bundle, same `nos-api` backend). Login failed there with "Invalid email or password." for valid credentials. Root cause: `CORS_ALLOWED_ORIGIN` on `nos-api` listed only `https://nos-studio.onrender.com`, so the API's response to the new origin carried no `access-control-allow-origin` and the browser discarded it; `Login.tsx` renders that same message for **any** `isError`, including a network/CORS failure, which disguised a CORS block as a credential error.
+
+- Live `nos-api` env var updated (merge mode) to `https://nos-studio.onrender.com,https://networkdesignbook.com,https://www.networkdesignbook.com`; the update auto-triggered a rebuild of the already-live commit `21c4dad` (no code change shipped).
+- `render.yaml` synced to the same value so the Blueprint matches the live service.
+- Deferred follow-up: `Login.tsx` should distinguish a network/CORS failure from a 401 so this class is self-diagnosing next time.
