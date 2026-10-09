@@ -1523,7 +1523,7 @@ Expected: FAIL — module not found.
 Create `artifacts/api-server/src/migrations/ch4ToMiles.ts`:
 
 ```ts
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";   // `sql` for the epoch bump — see the .set() below
 import { db, pool, scenariosTable, resultCacheTable } from "@workspace/db";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import { deriveMaxCoverageObjective } from "@workspace/units";
@@ -1618,7 +1618,38 @@ export async function migrateAll(database: Db = db, dryRun = false): Promise<Mig
     if (!result.ok) { report.skipped.push({ id: row.id, reason: result.reason }); continue; }
     if (!dryRun) {
       await database.update(scenariosTable)
-        .set({ inputs: result.inputs, result: null, solvedAt: null })
+        // CORRECTED after Task 9's review. An earlier draft set only
+        // {inputs, result, solvedAt}, which skipped the write authority's EPOCH
+        // bump -- and that omission is not cosmetic:
+        //
+        // jobRunner publishes a result only if `latestSolveJobId = jobId AND
+        // solveInputRevision = enqueuedSolveInputRevision`. Leave both columns
+        // untouched and an in-flight KILOMETRE-era solve still matches the CAS
+        // after the migration rewrites the row to miles -- so markSucceeded
+        // writes a km-era result plus a fresh solvedAt. It is INVISIBLE, because
+        // isStale() is `inputsUpdatedAt > solvedAt` and inputsUpdatedAt was also
+        // not bumped, so the fresh solvedAt wins and the row reads as freshly
+        // and correctly solved. The `result: null` meant to force a re-solve is
+        // silently undone by a value computed in the wrong unit.
+        //
+        // That window is live PRECISELY when the runbook says to run the
+        // migration: the old km-era server is still serving users.
+        //
+        // Bumping solveInputRevision makes the in-flight CAS fail, so the job
+        // returns `superseded` and never publishes -- the designed behaviour for
+        // "inputs changed under a running job", which is exactly what this is.
+        // `sql`now()`` not `new Date()`: isStale() compares against solvedAt,
+        // which jobRunner writes DB-side, and both sides of that comparison must
+        // come from one clock.
+        .set({
+          inputs: result.inputs,
+          result: null,
+          solvedAt: null,
+          resultRunId: null,
+          inputsUpdatedAt: sql`now()`,
+          solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1`,
+          updatedAt: sql`now()`,
+        })
         .where(eq(scenariosTable.id, row.id));
     }
     report.migrated.push(row.id);
