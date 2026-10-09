@@ -544,9 +544,12 @@ nothing else.
 `inputs_updated_at` advance. That is the deliberate opposite of the km → mi
 migration above, and it is sound only because of what the rounding can and
 cannot change: a 4 dp value is identical to the stored one at every display and
-reporting precision, so no re-solve would produce a different answer, and no
-`stale` badge should appear on a student's scenario for a change they cannot
-see.
+reporting precision, and no `stale` badge should appear on a student's
+scenario for a change they cannot see. (It is not identical at full precision —
+the already-cached envelope's objective was computed from the unrounded value,
+so a fresh solve could differ from it by roughly 1e-4 × demand on the affected
+pair. Immaterial — the optimum cannot realistically flip on a perturbation that
+small — which is why no epoch bump follows, but it is not nothing.)
 
 The one case where that is false is a value whose rounding changes which
 **distance band** it is reported in. Bands are *upper bounds* ("within 450 mi"),
@@ -557,9 +560,12 @@ looking `449.99996 → 450.0` does **not**: both are `<= 450`, so both are alrea
 inside that band.) **Such a row is REFUSED, not converted** — the choice between
 a changed band attribution and forcing a re-solve of a student's saved work
 belongs to you, not to the script. A value that would round to exactly `0`
-(`0.00004 → 0`) is refused on the same principle: every override schema requires
-`positive()`, so writing it would produce a row the running server can no longer
-load.
+(`0.00004 → 0`) is refused on the same principle: most override schemas
+require `positive()`, and writing it there would produce a row the running
+server can no longer load. (Two schemas — `jadeInputs.ts`'s distance and
+`delivery.ts`'s laneCost — allow zero via `nonnegative()`; the script refuses
+there too, because turning a real distance/cost into exactly 0 is a semantic
+model change, not a precision no-op, and the choice is still yours.)
 
 **Any id under `refused` must be brought to the operator, not forced.** There is
 no `--force` flag and none should be added. Resolve a refusal by deciding, per

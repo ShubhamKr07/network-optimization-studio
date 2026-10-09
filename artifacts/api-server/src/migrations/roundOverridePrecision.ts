@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { roundForFile } from "@workspace/units";
+import { roundForFile, assignBandOrOverflow, OVERFLOW_BAND } from "@workspace/units";
 import { db, pool, scenariosTable } from "@workspace/db";
 
 // One-off backfill of persisted override precision (WF-8, completing WF-7 /
@@ -40,15 +40,23 @@ const OVERRIDE_FIELDS = [
 ] as const;
 
 /**
- * The first band at or above `v`, i.e. the band `v` is reported in. Bands are
- * UPPER BOUNDS ("within 450 mi"), so `<=`. `null` is the overflow bucket.
+ * The band boundary VALUE a band index names, or `null` for the overflow
+ * sentinel. `assignBandOrOverflow` sorts `bands` itself on every call, so
+ * sorting again here just re-derives the same order to index into.
  */
-function bandOf(v: number, bands: number[]): number | null {
-  return [...bands].sort((a, b) => a - b).find((b) => v <= b) ?? null;
+function bandValue(idx: number, bands: number[]): number | null {
+  return idx === OVERFLOW_BAND ? null : ([...bands].sort((a, b) => a - b)[idx] ?? null);
 }
 
 /**
  * Does rounding `v` change which band it is REPORTED IN?
+ *
+ * Delegates the membership test itself to `lib/units/src/bands.ts`'s
+ * `assignBandOrOverflow` -- the one authority `bandCoverage` is computed
+ * from -- rather than re-deriving the same "<=", numeric-sort, overflow-
+ * sentinel semantics here. A hand-rolled copy would not follow if that
+ * authority's comparison ever changed, and this guard's entire purpose is to
+ * match it.
  *
  * Membership, not an interval. An interval test (`min < band <= max`) is wrong
  * in both directions and was corrected here after being checked:
@@ -62,9 +70,10 @@ function bandOf(v: number, bands: number[]): number | null {
 function crossesBand(v: number, bands: number[]): { from: number | null; to: number | null } | null {
   const r = roundForFile(v);
   if (r === v) return null;
-  const before = bandOf(v, bands);
-  const after = bandOf(r, bands);
-  return before === after ? null : { from: before, to: after };
+  const before = assignBandOrOverflow(v, bands);
+  const after = assignBandOrOverflow(r, bands);
+  if (before === after) return null;
+  return { from: bandValue(before, bands), to: bandValue(after, bands) };
 }
 
 /**
@@ -79,11 +88,15 @@ function crossesBand(v: number, bands: number[]): { from: number | null; to: num
  * student's saved work is theirs.
  *
  * WF-8 deviation from the brief, second refusal reason: rounding can take a
- * positive value to exactly 0 (`0.00004 -> 0`), and every override schema in
- * validation/inputs/** requires `positive()`. Writing that produces a row the
- * running server can no longer load -- ch4ToMiles.ts's documented lesson
- * ("integer rounding turns valid persisted rows invalid") reached by a
- * different route. Refused too, same reasoning: the operator decides.
+ * positive value to exactly 0 (`0.00004 -> 0`). Most override schemas in
+ * validation/inputs/** require `positive()`, where writing that produces a
+ * row the running server can no longer load -- ch4ToMiles.ts's documented
+ * lesson ("integer rounding turns valid persisted rows invalid") reached by a
+ * different route. Two schemas (jadeInputs.ts's distance, delivery.ts's
+ * laneCost) use `nonnegative()` instead and would accept it, but a real
+ * value rounding to exactly free/zero-distance is a semantic change either
+ * way, so it's refused regardless of which schema the row's model uses: the
+ * operator decides.
  *
  * `dryRun` performs the FULL analysis -- selects every row in scope,
  * classifies each -- and simply does not write. A dry run that cannot predict
@@ -130,7 +143,12 @@ export async function roundAll(
         if (r === v) return o;
         const where = `${key}[${o.fromId}->${o.toId}]`;
         if (r <= 0) {
-          refusals.push(`${where} ${v} rounds to 0, which every override schema forbids (positive())`);
+          // Not every schema actually forbids this -- jadeInputs.ts's distance
+          // and delivery.ts's laneCost both use nonnegative(), where 0 is
+          // legal. Refused anyway: turning a real distance/cost into exactly
+          // 0 is a semantic model change (a free lane, a coincident pair),
+          // not a precision no-op, so the operator decides either way.
+          refusals.push(`${where} ${v} rounds to 0, which most override schemas forbid (positive()) and which, even where legal, changes a real value to free -- refused rather than decided`);
           return o;
         }
         const moved = crossesBand(v, bands);
@@ -158,8 +176,12 @@ export async function roundAll(
     // difference from the epoch-bumping write ch4ToMiles.ts is allow-listed
     // for in __tests__/maxCoverageWriteGuard.test.ts, and the band guard above
     // is what earns it: the rounded value is indistinguishable from the stored
-    // one at every display and reporting precision, so there is nothing for a
-    // re-solve to produce differently.
+    // one at every display and reporting precision. Not literally nothing at
+    // full precision -- the cached envelope's objective was computed from the
+    // unrounded value, so a fresh solve could differ by roughly 1e-4 x demand
+    // on the affected pair -- but immaterial enough (the optimum cannot
+    // realistically flip on a perturbation that small) that no epoch bump is
+    // warranted.
     await database.update(scenariosTable).set({ inputs: next }).where(eq(scenariosTable.id, row.id));
   }
 
@@ -170,5 +192,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const dryRun = process.argv.includes("--dry-run");
   const report = await roundAll(db, dryRun);
   console.log(JSON.stringify(report, null, 2));
+  // A refusal needs a human decision (see the runbook) -- surface it to a
+  // piping/grepping operator via the exit code too, not only the printed
+  // report.
+  process.exitCode = report.refused.length > 0 ? 1 : 0;
   await pool.end();
 }
