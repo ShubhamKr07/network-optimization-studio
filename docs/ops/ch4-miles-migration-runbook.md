@@ -307,8 +307,8 @@ DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
 
 This performs the **full** analysis — selects every `max-coverage-us` row,
 runs `migrateInputs` on each, classifies it — and simply does not write.
-Nothing is written to `scenarios` or `result_cache` in this step, regardless
-of outcome.
+Nothing is written to `scenarios`, `solve_jobs` or `result_cache` in this
+step, regardless of outcome.
 
 Expect `"dryRun": true`, every row's id under `migrated`, and `skipped: []`.
 
@@ -332,6 +332,17 @@ signal. The flip itself is correct and forced (Task 5 deliberately removed
 that state's expressibility) — this list exists so an operator can tell a
 student their scenario's objective changed, rather than them discovering it
 silently.
+
+**`solveJobResultsCleared` on a dry run is the predicted deletion, and it is
+the list to scrutinise before authorising the real run.** It names every
+`solve_jobs.id` whose stored result envelope the real run will null —
+irreversibly (see "What this migration destroys" above, including the backup
+`CREATE TABLE AS` to take first if you want that history kept). The dry run
+computes this by `SELECT`ing the same scope the real run `UPDATE`s, so the
+two lists agree; it writes nothing to get it. Before FU-13 this key was
+hard-`[]` under `--dry-run` and then listed 18 ids on the real production
+run, so the one number an operator checks before an irreversible deletion
+read as "nothing to lose" exactly when it was not.
 
 ### 3. Real run
 
