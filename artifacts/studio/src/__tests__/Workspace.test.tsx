@@ -1436,6 +1436,23 @@ describe("Workspace — Optimization Parameters tab", () => {
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
 
+  // WF-5 — the regression the rejected design (gating the notice on
+  // `highServiceDistMi != null`, a Chen-only model discriminator) would have
+  // failed: a p-median scenario has no Chapter 4 fields at all, and its
+  // fixture (`pmedianInputs`) is missing `highServiceDistMi`/`maxDistMi`/
+  // `avgServiceDistCapMi`/`coverageFloorDemand` simply because this model
+  // doesn't have them — not because its row is damaged. The mock
+  // `useListModels` entry for "p-median-us" also carries no `inputsSchema`
+  // at all, so this doubles as the "unreadable manifest fails closed"
+  // regression. Opens the Optimization Parameters tab (not just the page)
+  // so the notice has somewhere to render — otherwise the assertion would
+  // pass vacuously regardless of what Workspace.tsx computes.
+  it("shows no missing-inputs notice for a p-median scenario with no Chapter 4 fields", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
   // WF-3 gap fix — the plain toolbar Save (`handleSaveInputs`, the
   // ORDINARY-dirty path, as opposed to the lens-only "Save bands" path the
   // test above the Solve-dialog block already covers) used to swallow a

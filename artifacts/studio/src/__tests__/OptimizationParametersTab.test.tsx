@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
-import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import {
+  OptimizationParametersTab,
+  type OptimizationParametersTabProps,
+} from "@/components/workspace/tabs/OptimizationParametersTab";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 const baseProps = {
@@ -29,6 +32,13 @@ function render(
 }
 
 const STORAGE_KEY = "nos:display-unit-pref";
+
+// WF-5 — this file's render helper for the missing-required-inputs notice
+// tests below: `baseProps` plus whatever a given test wants to override,
+// same pattern as `renderMaxCoverageTab` further down this file.
+function renderTab(overrides: Partial<OptimizationParametersTabProps> = {}) {
+  return render(<OptimizationParametersTab {...baseProps} {...overrides} />);
+}
 
 describe("OptimizationParametersTab", () => {
   it("renders the real form (not a placeholder), with current values", () => {
@@ -787,5 +797,38 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   it("renders no step 2 panel", () => {
     render(<OptimizationParametersTab {...ch4Props} />);
     expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
+  });
+});
+
+// WF-5 — a scenario row the Chapter 4 km->mi migration (or any future
+// migration) classified as `skipped` and left with required inputs missing.
+// `missingRequiredInputs` is computed by the CALLER (Workspace.tsx) from the
+// active model's manifest `inputsSchema.required[]`, never derived here from
+// a field's presence — that's what the Workspace-level regression test
+// (Workspace.test.tsx) guards against.
+describe("OptimizationParametersTab — missing required inputs", () => {
+  it("explains the problem when required inputs are absent", () => {
+    renderTab({ missingRequiredInputs: ["highServiceDistMi", "coverageFloorDemand"] });
+    const notice = screen.getByTestId("missing-required-inputs");
+    expect(notice).toBeVisible();
+    expect(notice).toHaveTextContent(/cannot be saved or solved/i);
+    expect(notice).toHaveTextContent("High-service distance");
+    expect(notice).toHaveTextContent("Coverage floor");
+  });
+
+  it("renders nothing when the array is empty", () => {
+    renderTab({ missingRequiredInputs: [] });
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when the prop is omitted — every other model's case", () => {
+    renderTab({});
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
+  it("still renders the fields that ARE intact", () => {
+    renderTab({ missingRequiredInputs: ["highServiceDistMi"], gap: 0, timeLimitSec: 120 });
+    expect(screen.getByTestId("missing-required-inputs")).toBeVisible();
+    expect(screen.getByTestId("input-gap")).toBeInTheDocument();
   });
 });

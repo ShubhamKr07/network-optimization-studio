@@ -3190,6 +3190,29 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     );
   }
 
+  // WF-5 — the manifest's own `inputsSchema.required[]` is the authority for
+  // which fields a scenario row of this model MUST have, and it is already
+  // served on /api/models — verified against production: all nine Chapter 4
+  // keys arrive intact. But the generated type is
+  // `ModelInfoInputsSchema = { [key: string]: unknown }` (the OpenAPI schema
+  // calls inputsSchema "opaque to this contract"), so this is a GUARDED read
+  // that fails closed: an unreadable manifest renders no notice rather than a
+  // scary one.
+  const missingRequiredInputs = useMemo<string[]>(() => {
+    if (!localInputs) return [];
+    const req = (activeModelManifest?.inputsSchema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(req)) return [];
+    const values = localInputs as Record<string, unknown>;
+    return req.filter((k): k is string => {
+      if (typeof k !== "string") return false;
+      // By VALUE, not key presence: `in` treats a present-but-null key as
+      // fine, and a required input whose value is null is just as unusable.
+      // Written as a statement (not a chained `&&`/`||` expression) so
+      // precedence can't quietly make the `k is string` predicate a lie.
+      return values[k] === undefined || values[k] === null;
+    });
+  }, [activeModelManifest, localInputs]);
+
   // CH4UX-4 — ONE base prop object, consumed by two renders: the
   // Optimization Parameters tab itself and the Solve dialog's embedded copy.
   // Every expression below is moved verbatim from the tab's former inline
@@ -3237,6 +3260,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     costPerMile: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined,
     costPerMileOver: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined,
     onChange: handleOptimizationParamsChange,
+    // WF-5 — in the shared base object so both the tab mount and the Solve
+    // dialog's embedded mount surface the same notice.
+    missingRequiredInputs,
   } satisfies OptimizationParametersTabProps | null;
 
   // The tab follows what the student is LOOKING AT.
