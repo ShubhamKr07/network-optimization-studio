@@ -20,7 +20,20 @@ function detailFrom(errors: unknown): string | null {
   const parts = errors
     .map(e => usableSentence(e) ?? usableSentence(asRecord(e)?.message))
     .filter((s): s is string => s !== null);
-  return parts.length > 0 ? parts.join(" ") : null;
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+// custom-fetch.ts's generated `ApiError` isn't re-exported from the package
+// index (see custom-fetch.ts, and exportEntity.ts's `isLegacyResolveRejection`
+// for the same workaround elsewhere in this codebase), so importing it here
+// would mean reaching into package internals. Duck-type instead: ApiError
+// always sets a numeric `status`, which a plain `Error` never does. This is
+// a structural check, not a message-text one — unlike a `message.startsWith
+// ("HTTP ")` test, it can't misfire on a genuine Error whose text happens to
+// start that way (this repo's own test mocks do exactly that, e.g.
+// `new Error("HTTP 422: ...")` in Studio.test.tsx / Workspace.test.tsx).
+function isApiErrorShaped(err: unknown): boolean {
+  return typeof asRecord(err)?.status === "number";
 }
 
 /**
@@ -44,11 +57,13 @@ export function describeWriteError(err: unknown, fallback: string = GENERIC): st
     if (detail) return detail;
     if (label) return label;
   }
-  if (err instanceof Error) {
+  if (err instanceof Error && !isApiErrorShaped(err)) {
+    // A bare Error (not ApiError-shaped) carries no HTTP prefix convention to
+    // worry about; an ApiError would have been handled by the `data` branch
+    // above (or, if its body had nothing usable, falls through to `fallback`
+    // below rather than leaking its own "HTTP ..." message).
     const m = usableSentence(err.message);
-    // A bare Error (not an ApiError) carries no HTTP prefix, so it is usable;
-    // an ApiError's message would have been handled by the `data` branch above.
-    if (m && !m.startsWith("HTTP ")) return m;
+    if (m) return m;
   }
   return fallback;
 }

@@ -36,6 +36,20 @@ describe("describeWriteError", () => {
     expect(out).toContain("Customer C9 does not exist");
   });
 
+  // Minor finding, review: a single space between joined reasons reads as one
+  // run-on sentence when neither reason ends in punctuation. "; " keeps them
+  // visibly separate in a toast.
+  it("joins multiple precheck reasons with a semicolon, not just a space", () => {
+    const err = apiError(422, {
+      error: "Network-edit precheck failed",
+      errors: [{ message: "Warehouse ALN is referenced by an override" },
+               { message: "Customer C9 does not exist" }],
+    }, "HTTP 422 Unprocessable Content: Network-edit precheck failed");
+    expect(describeWriteError(err)).toBe(
+      "Network-edit precheck failed: Warehouse ALN is referenced by an override; Customer C9 does not exist",
+    );
+  });
+
   it("handles precheck errors given as plain strings", () => {
     const err = apiError(422, { error: "Network-edit precheck failed", errors: ["bad lane"] },
       "HTTP 422 …");
@@ -49,6 +63,17 @@ describe("describeWriteError", () => {
 
   it("falls back to a plain Error's message", () => {
     expect(describeWriteError(new Error("Save failed."))).toBe("Save failed.");
+  });
+
+  // Found in review: identifying an ApiError by sniffing for an "HTTP "
+  // prefix on the message is wrong, because a genuine Error can legitimately
+  // have a message that starts that way (and this repo's own test mocks
+  // already do, e.g. Studio.test.tsx / Workspace.test.tsx rejecting with
+  // `new Error("HTTP 422: ...")`). A plain Error — no `status` field, so not
+  // ApiError-shaped — must be trusted regardless of what its text says.
+  it("treats a plain Error's message as real, even if it starts with \"HTTP \"", () => {
+    const err = new Error("HTTP 422: something real");
+    expect(describeWriteError(err)).toBe("HTTP 422: something real");
   });
 
   it("uses the caller's fallback for a non-Error", () => {
