@@ -10,7 +10,7 @@ import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, 
 // canonical unit; `getManifest` (already used the same way by precheck.ts —
 // no new import pattern here) is how this file learns each model's
 // canonical unit without a hardcoded per-model table.
-import { fromDisplay } from "@workspace/units";
+import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
 import { getManifest } from "../registry/modelRegistry.js";
 
@@ -1092,7 +1092,11 @@ function parseDistancesRows(
     // T8 — v1 has no unit column at all; its value IS the canonical value
     // (Part E's locked rule). v2 converts the file's declared unit to
     // canonical; `fromDisplay` is the identity when they already match.
-    const parsedDistance = hasUnitColumn ? fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit) : parsedDistanceRaw;
+    // FU-2 (D5) — export emits roundForFile's 4 dp, so storing full precision
+    // made a re-import of an untouched export report a changed row. Rounding
+    // here makes stored == exported. Accepted cost: the canonical value is
+    // lossy at 4 dp (10 km stores as 6.2137, not 6.2137119223733395).
+    const parsedDistance = hasUnitColumn ? roundForFile(fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit)) : parsedDistanceRaw;
 
     // Unlike every other entity, distances has no meaningful "baseline of
     // existing rows" to diff against by default — a scenario's
@@ -1187,7 +1191,7 @@ function parseLaneCostRows(
       errors.push({ errorClass: "logic", line, message: `cost must be a positive number, got "${costStr}"` });
       continue;
     }
-    const parsedCost = hasUnitColumn ? fromDisplay(parsedCostRaw, fileUnit, canonicalUnit) : parsedCostRaw;
+    const parsedCost = hasUnitColumn ? roundForFile(fromDisplay(parsedCostRaw, fileUnit, canonicalUnit)) : parsedCostRaw;
 
     const beforeValue = currentByPairKey.get(pairKey) ?? null;
     if (beforeValue !== parsedCost) {
@@ -1280,7 +1284,7 @@ function parseLegDistanceRows(
       errors.push({ errorClass: "logic", line, message: `distance must be a positive number, got "${distanceStr}"` });
       continue;
     }
-    const parsedDistance = hasUnitColumn ? fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit) : parsedDistanceRaw;
+    const parsedDistance = hasUnitColumn ? roundForFile(fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit)) : parsedDistanceRaw;
 
     const beforeValue = currentByPairKey.get(pairKey) ?? null;
     if (beforeValue !== parsedDistance) {
