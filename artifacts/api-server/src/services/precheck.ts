@@ -85,7 +85,8 @@ export type PrecheckErrorCode =
   | "zero_demand"
   | "no_feasible_route"
   | "coverage_floor_infeasible"
-  | "coefficient_range";
+  | "coefficient_range"
+  | "avg_distance_cap_infeasible";
 
 export interface PrecheckError {
   code: PrecheckErrorCode;
@@ -218,6 +219,13 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
  *                                — a NECESSARY upper bound (the shared p limit
  *                                may still prevent covering them all together;
  *                                the solver stays authoritative).
+ *   - avg_distance_cap_infeasible avgServiceDistCapKm (§2.4, required in both
+ *                                modes) is below the nearest-active-warehouse
+ *                                weighted-average distance — a NECESSARY
+ *                                lower bound (deliberately loose in
+ *                                min-distance mode, where tightening it would
+ *                                require solving the p-median itself; see the
+ *                                rule's own comment below).
  *
  * The effective view:
  *   - active candidate set   base warehouses not "inactive" per
@@ -332,6 +340,35 @@ export function precheckMaxCoverageInputs(
       errors.push({
         code: "coverage_floor_infeasible",
         message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistKm (${inputs.highServiceDistKm} km)`,
+      });
+    }
+  }
+
+  // --- avg_distance_cap_infeasible: avgServiceDistCapKm vs a cheap NECESSARY
+  // lower bound on achievable weighted-average distance. Assign every active
+  // customer to its nearest active warehouse, ignoring BOTH `p` and maxDistKm:
+  // that is a relaxation, so no feasible solution can beat it. Reuses the
+  // `rawKm` overlay already built above -- O(|W| x |C|) over data in hand.
+  //
+  // A necessary condition, not a complete one: a cap above this bound can still
+  // be infeasible once `p` and maxDistKm bite. Those cases fall through to
+  // solve.py's generic infeasible message, which names both candidates.
+  if (inputs.avgServiceDistCapKm != null && totalDemand > 0) {
+    let weightedNearest = 0;
+    for (const custId of activeCustomerIds) {
+      let nearest = Infinity;
+      for (const whId of activeWarehouseIds) {
+        const d = rawKm.get(whId + "|" + custId);
+        if (d != null && d < nearest) nearest = d;
+      }
+      if (nearest === Infinity) continue; // unreachable customers are the max-dist rule's business
+      weightedNearest += effectiveDemand(custId) * nearest;
+    }
+    const lowerBound = weightedNearest / totalDemand;
+    if (inputs.avgServiceDistCapKm < lowerBound) {
+      errors.push({
+        code: "avg_distance_cap_infeasible",
+        message: `avgServiceDistCapKm (${inputs.avgServiceDistCapKm} km) is below the ${lowerBound.toFixed(2)} km best achievable weighted-average distance`,
       });
     }
   }

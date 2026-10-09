@@ -12,9 +12,9 @@ import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 // lib/api-spec/openapi.yaml via orval codegen) reflect the Chapter 4
 // (max-coverage-us) model-add contract changes:
 //   - max-coverage-us is a valid modelId enum member everywhere it appears;
-//   - PrecheckError.code carries the COMPLETE 9-value taxonomy (the 3 legacy
+//   - PrecheckError.code carries the COMPLETE 10-value taxonomy (the 3 legacy
 //     codes + p_range/capacity that already existed server-side + this
-//     model's 3 new codes + ch9-tc's coefficient_range) and round-trips
+//     model's 4 new codes + ch9-tc's coefficient_range) and round-trips
 //     through the generated client;
 //   - the ExportEnvelope (response) entity enum is a superset of the export
 //     REQUEST-parameter entity enum — i.e. every entity you can request can be
@@ -46,7 +46,7 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
     }
   });
 
-  it("round-trips all 9 PrecheckError.code values through the generated client", () => {
+  it("round-trips all 10 PrecheckError.code values through the generated client", () => {
     const codes = [
       "completeness",
       "id_collision",
@@ -59,6 +59,8 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
       // ch9-tc-2 (9e73f6b) added this to openapi.yaml's PrecheckError.code
       // enum; this test's hardcoded list wasn't updated in that commit.
       "coefficient_range",
+      // CH4O-6 — avg_distance_cap_infeasible's sibling to coverage_floor_infeasible.
+      "avg_distance_cap_infeasible",
     ];
     for (const code of codes) {
       const result = PrecheckScenarioResponse.safeParse({
@@ -72,7 +74,7 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
       PrecheckScenarioResponse.safeParse({ ok: false, errors: [{ code: "not_a_code", message: "x" }] })
         .success,
     ).toBe(false);
-    // The generated enum is exactly these 9 (no more, no fewer).
+    // The generated enum is exactly these 10 (no more, no fewer).
     expect([...ExportScenarioQueryParams.shape.entity.options].length).toBeGreaterThan(0); // sanity: enum introspection works
     expect([...(PrecheckScenarioResponse.shape.errors.element.shape.code.options as string[])].sort()).toEqual(
       [...codes].sort(),

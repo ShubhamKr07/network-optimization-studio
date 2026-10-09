@@ -1526,8 +1526,14 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     it("fires when an inactive-warehouse edit strands a customer beyond maxDistKm", () => {
       // WH-C is C-3's ONLY reachable warehouse (WH-A 1100 > 1000, WH-B
       // 1150 > 1000). Inactivating it leaves C-3 unreachable.
+      // avgServiceDistCapKm raised to isolate no_feasible_route: with only
+      // WH-A/WH-B active, C-3's nearest active warehouse is 1100 km, which
+      // (correctly, per CH4O-6) also pushes the weighted-average lower bound
+      // past the base fixture's 400 km cap — a separate, real finding this
+      // test deliberately doesn't exercise.
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
+        avgServiceDistCapKm: 100_000,
         warehouseOverrides: [{ id: "WH-C", status: "inactive" }],
       };
       const result = precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE);
@@ -1538,8 +1544,10 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
 
     it("fires when a distance override pushes a customer's only route past maxDistKm", () => {
       // 1100 > 1000. C-3's other base routes are already too far.
+      // avgServiceDistCapKm raised to isolate no_feasible_route (see above).
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
+        avgServiceDistCapKm: 100_000,
         distanceOverrides: [{ fromId: "WH-C", toId: "C-3", distance: 1100 }],
       };
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["no_feasible_route"]);
@@ -1549,8 +1557,12 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       // MIG-6: precheck must mirror solve_max_coverage exactly — raw ≤
       // threshold, nothing else. WH-C→C-3 at exactly maxDistKm (1000) is
       // reachable; bumping it 1 km over makes it unreachable.
+      // avgServiceDistCapKm raised to isolate no_feasible_route: with only
+      // WH-C active, every customer's nearest (and only) active warehouse is
+      // WH-C, well past the base fixture's 400 km cap.
       const atBoundary: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
+        avgServiceDistCapKm: 100_000,
         p: 1,
         distanceOverrides: [{ fromId: "WH-C", toId: "C-3", distance: 1000 }],
         warehouseOverrides: [{ id: "WH-A", status: "inactive" }, { id: "WH-B", status: "inactive" }],
@@ -1667,6 +1679,45 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       };
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["reference_integrity"]);
     });
+  });
+});
+
+// CH4O-6 — avg_distance_cap_infeasible. These exercise
+// runNetworkEditsPrecheckForModel against the REAL default max-coverage-us
+// dataset (not MAX_COVERAGE_DATASET_FAKE) per the task-6 brief.
+describe("max-coverage-us — infeasibility attribution", () => {
+  it("names the cap when it is below the nearest-warehouse lower bound", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapKm: 1,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errors.map((e) => e.code)).toContain("avg_distance_cap_infeasible");
+  });
+
+  it("names the floor when it exceeds coverable demand", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100,
+    });
+    expect(res.errors.map((e) => e.code)).toContain("coverage_floor_infeasible");
+  });
+
+  // The regression guard for the contradiction review found: with the cap check
+  // in solve.py this was unreachable, because precheck short-circuits before
+  // Python runs, so a both-violating scenario was attributed to the floor alone.
+  it("names BOTH when both bounds are violated", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100, avgServiceDistCapKm: 1,
+    });
+    const codes = res.errors.map((e) => e.code);
+    expect(codes).toContain("coverage_floor_infeasible");
+    expect(codes).toContain("avg_distance_cap_infeasible");
+  });
+
+  it("passes a scenario that violates neither bound", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapKm: 1000,
+    });
+    expect(res.ok).toBe(true);
   });
 });
 

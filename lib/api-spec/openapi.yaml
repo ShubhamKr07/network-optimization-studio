@@ -1814,7 +1814,7 @@ components:
       properties:
         code:
           type: string
-          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible, coefficient_range]
+          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible, coefficient_range, avg_distance_cap_infeasible]
         message:
           type: string
 

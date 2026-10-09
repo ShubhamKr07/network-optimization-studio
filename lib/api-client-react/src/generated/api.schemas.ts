@@ -822,6 +822,7 @@ export const PrecheckErrorCode = {
   no_feasible_route: 'no_feasible_route',
   coverage_floor_infeasible: 'coverage_floor_infeasible',
   coefficient_range: 'coefficient_range',
+  avg_distance_cap_infeasible: 'avg_distance_cap_infeasible',
 } as const;
 
 /**

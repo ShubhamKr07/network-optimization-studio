@@ -498,7 +498,7 @@ export const PrecheckScenarioParams = zod.object({
 export const PrecheckScenarioResponse = zod.object({
   "ok": zod.boolean(),
   "errors": zod.array(zod.object({
-  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible', 'coefficient_range']),
+  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible', 'coefficient_range', 'avg_distance_cap_infeasible']),
   "message": zod.string()
 }).describe('One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. \"WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142\".'))
 }).describe('Result of the semantic precheck against a scenario\'s addedWarehouses\/addedCustomers\/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route\'s 422 when the same precheck fails before enqueue.')
