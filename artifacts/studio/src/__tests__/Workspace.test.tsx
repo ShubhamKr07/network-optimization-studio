@@ -1444,8 +1444,16 @@ describe("Workspace — Optimization Parameters tab", () => {
   // uses, then rejects the save the same way the Solve-dialog's own
   // save-before-solve test does.
   it("a rejected toolbar Save (ordinary-dirty path) shows a destructive toast, not silence", async () => {
+    // ApiError-shaped, like the sibling "Save bands" test below — a bare
+    // Error fixture can't discriminate describeWriteError(err) from
+    // err.message (both fall back to the same string), so it can't prove
+    // which one handleSaveInputs actually calls.
+    const apiErr = Object.assign(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"), {
+      status: 422,
+      data: { error: "inputs fails model-specific validation" },
+    });
     mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
-      opts.onError(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"));
+      opts.onError(apiErr);
     });
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
@@ -1461,8 +1469,12 @@ describe("Workspace — Optimization Parameters tab", () => {
     // own `await screen.findByTestId("save-error")` for the same reason).
     await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Couldn't save your changes",
+      description: "inputs fails model-specific validation",
       variant: "destructive",
     })));
+    expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringMatching(/HTTP 422/),
+    }));
   });
 });
 

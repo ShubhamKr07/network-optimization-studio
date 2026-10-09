@@ -69,4 +69,27 @@ describe("DirtyNavPrompt", () => {
     expect(onDiscard).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  // WF-3 review — the test above's fixture is a bare Error, which
+  // describeWriteError's isApiErrorShaped check routes to the exact same
+  // message-fallback string `e.message` would have produced, so it cannot
+  // tell `describeWriteError(e, …)` apart from the old `e.message` this
+  // component used to render (the spec's §1 bug: a raw "HTTP 422
+  // Unprocessable Content: [...]" body shown to a student). This case
+  // rejects with an ApiError-shaped object instead, so only
+  // describeWriteError's `.data` branch — not the bare-Error fallback —
+  // can produce a passing assertion.
+  it("a REJECTED Save with an ApiError-shaped rejection shows the server's sentence, never the raw HTTP body", async () => {
+    const apiErr = Object.assign(new Error("HTTP 422 Unprocessable Content: Coverage floor is required."), {
+      status: 422,
+      data: { error: "Coverage floor is required." },
+    });
+    const onSave = vi.fn(() => Promise.reject(apiErr));
+    render(<DirtyNavPrompt open={true} onSave={onSave} onDiscard={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("dirty-nav-save"));
+
+    await waitFor(() => expect(screen.getByTestId("save-error")).toBeInTheDocument());
+    expect(screen.getByTestId("save-error")).toHaveTextContent("Coverage floor is required.");
+    expect(screen.getByTestId("save-error")).not.toHaveTextContent(/HTTP 422/);
+  });
 });

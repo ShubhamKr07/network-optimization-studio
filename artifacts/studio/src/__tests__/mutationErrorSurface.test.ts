@@ -11,12 +11,18 @@ import { resolve } from "node:path";
  */
 const SRC = resolve(__dirname, "../pages/Workspace.tsx");
 
+// Ignore commented-out code so a `// foo.mutate(` note is not an offender,
+// AND so a commented-out `onError:`/`toast(` inside an otherwise-real
+// window can't be mistaken for a live handler satisfying the guard (WF-3
+// review, minor 3 — both guards below filter comments out of SITE
+// detection but used to leave them in the window text itself).
+const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
+const stripComments = (text: string) => text.split("\n").filter(isCode).join("\n");
+
 describe("Workspace mutation error surface", () => {
   it("every .mutate( call site has an onError before the next one begins", () => {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
-    // Ignore commented-out code so a `// foo.mutate(` note is not an offender.
-    const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
     const sites = lines
       .map((line, i) => ({ line, i }))
       .filter(({ line }) => /\.mutate(Async)?\(/.test(line) && isCode(line));
@@ -28,7 +34,7 @@ describe("Workspace mutation error surface", () => {
       // line count cannot do this: the real gaps between these sites range
       // from 4 to over 700 lines.
       const end = n + 1 < sites.length ? sites[n + 1].i : lines.length;
-      const own = lines.slice(i, end).join("\n");
+      const own = stripComments(lines.slice(i, end).join("\n"));
       if (!/onError\s*:/.test(own)) offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
     });
     expect(offenders).toEqual([]);
@@ -63,23 +69,54 @@ describe("Workspace mutation error surface", () => {
   // one-liner, not a loosened regex.
   const ALLOWED_EMPTY_CATCHES: string[] = [];
 
+  // Extracts the exact text of the `.catch( ... )` call starting at
+  // `charOffset` (the index of its `.catch(`), by counting parens from the
+  // opening one until its match closes — i.e. the call's own real extent,
+  // not a guessed line count. WF-3 review, minor 4: the previous fixed
+  // 15-line cap failed OPEN (an empty `.catch(` within 15 lines of some
+  // unrelated `toast(`/`throw` would pass), and the "window ends where the
+  // next site begins" alternative fails open too whenever a site is the
+  // last (or only) one in the file, since the window then runs to EOF and
+  // can pick up a later, unrelated site's handler. Paren-matching has
+  // neither failure mode — it is bounded by the call's own syntax.
+  function catchCallText(src: string, charOffset: number): string {
+    const openIdx = src.indexOf("(", charOffset);
+    let depth = 0;
+    for (let i = openIdx; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") {
+        depth--;
+        if (depth === 0) return src.slice(charOffset, i + 1);
+      }
+    }
+    return src.slice(charOffset);
+  }
+
   it("every .catch( handler in this file does something with the error it catches", () => {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
-    const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
     const sites = lines
       .map((line, i) => ({ line, i }))
       .filter(({ line }) => /\.catch\(/.test(line) && isCode(line));
 
+    // Char offset of the start of each line, to translate a site's line
+    // index into a character offset for catchCallText.
+    const lineStartChar: number[] = [];
+    let running = 0;
+    for (const l of lines) {
+      lineStartChar.push(running);
+      running += l.length + 1; // +1 for the stripped "\n"
+    }
+
     const offenders: string[] = [];
-    sites.forEach(({ line, i }, n) => {
-      const end = n + 1 < sites.length ? sites[n + 1].i : lines.length;
-      // A `.catch(` handler is typically a short arrow-function body ending
-      // at its own closing `});` — cap the window at 15 lines so a later
-      // site's unrelated code can never be mistaken for this one's body.
-      const own = lines.slice(i, Math.min(end, i + 15)).join("\n");
+    sites.forEach(({ line, i }) => {
+      const charOffset = lineStartChar[i] + line.indexOf(".catch(");
+      const own = stripComments(catchCallText(src, charOffset));
       const usesError = /toast\s*\(|describeWriteError\(|setError\(|throw\b/.test(own);
-      if (!usesError && !ALLOWED_EMPTY_CATCHES.some(name => own.includes(name))) {
+      // Match the allow-list name against this SITE's own line only, not
+      // the extracted window — otherwise a future allowed name could be
+      // satisfied by text belonging to a neighbouring site (WF-3 review).
+      if (!usesError && !ALLOWED_EMPTY_CATCHES.some(name => line.includes(name))) {
         offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
       }
     });
