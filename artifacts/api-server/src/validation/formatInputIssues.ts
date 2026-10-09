@@ -41,8 +41,9 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   costPerMileOver: "Cost per mile over threshold",
   // two-echelon
   bomRatio: "BOM ratio",
-  legDistanceOverrides: "Leg distance overrides",
-  plantCapabilityOverrides: "Plant capability overrides",
+  // two-echelon-jade-us (Chapter 9) — plant x product "can-make" toggle.
+  // `distanceOverrides` above already covers this model's leg overrides.
+  plantProductCapability: "Plant-product capability",
 };
 
 /**
@@ -53,7 +54,12 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
  */
 const GENERIC_SUBJECT = /^(Number|String|Array|Date|Boolean|Value)\s+/;
 
-const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+// Leaves an acronym label alone (e.g. "BOM ratio") rather than lowercasing
+// just its first character ("bOM ratio") — an acronym is detected by its
+// first two characters both being uppercase, which no ordinary label
+// (e.g. "Max distance") matches.
+const lower = (s: string): string =>
+  /^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1);
 
 function labelFor(path: z.ZodIssue["path"]): string {
   const head = path[0];

@@ -51,11 +51,37 @@ describe("formatInputIssues", () => {
   });
 
   it("keeps the index for a nested collection path so the bad row is locatable", () => {
-    const fake: z.ZodIssue[] = [
-      { code: "custom", message: "must be positive", path: ["distanceOverrides", 2, "distance"] } as z.ZodIssue,
-    ];
-    expect(formatInputIssues(fake)).toContain("Distance overrides");
-    expect(formatInputIssues(fake)).toContain("row 3");
+    // Real fixture, not hand-authored: a bad distanceOverrides[2].distance
+    // produces Zod's own "Number must be greater than 0" at that nested
+    // path, which is what actually exercises the GENERIC_SUBJECT strip.
+    const issues = issuesFor({
+      distanceOverrides: [
+        { fromId: "a", toId: "b", distance: 5 },
+        { fromId: "c", toId: "d", distance: 5 },
+        { fromId: "e", toId: "f", distance: -1 },
+      ],
+    });
+    expect(formatInputIssues(issues)).toBe("Distance overrides row 3 must be greater than 0.");
+  });
+
+  it("keeps an acronym label uppercase in both the subject and mid-sentence position, unlike an ordinary label", () => {
+    // Subject position: labelFor's raw table value, never run through lower().
+    expect(formatInputIssues([
+      { code: "custom", message: "Required", path: ["bomRatio"] } as z.ZodIssue,
+    ])).toBe("BOM ratio is required.");
+    expect(formatInputIssues([
+      { code: "custom", message: "Required", path: ["maxDistMi"] } as z.ZodIssue,
+    ])).toBe("Max distance is required.");
+
+    // Mid-sentence position: hand-built, because no real cross-field message
+    // names either field from another field's issue today (same
+    // not-reachable-via-a-real-schema justification as someFutureField above).
+    expect(formatInputIssues([
+      { code: "custom", message: "refineryOverrides must not exceed bomRatio", path: ["refineryOverrides"] } as z.ZodIssue,
+    ])).toBe("refineryOverrides must not exceed BOM ratio.");
+    expect(formatInputIssues([
+      { code: "custom", message: "refineryOverrides must not exceed maxDistMi", path: ["refineryOverrides"] } as z.ZodIssue,
+    ])).toBe("refineryOverrides must not exceed max distance.");
   });
 
   it("never returns an empty string", () => {
@@ -75,5 +101,22 @@ describe("formatInputIssues", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  // Reverse direction: a label for a field that no model actually has (a
+  // typo, or a rename the table was never updated for) is a dead key that
+  // the forward test above cannot catch — it only checks that required
+  // fields HAVE a label, not that every label corresponds to a real field.
+  // This is what makes a misspelled/stale key fail loudly.
+  it("has no label for a field that does not exist in any model's schema", async () => {
+    const { MODEL_IDS, readManifest } = await import("@workspace/dataset-schema");
+    const realFields = new Set<string>();
+    for (const id of MODEL_IDS) {
+      const props = (readManifest(id).inputsSchema as { properties?: Record<string, unknown> })
+        .properties;
+      if (props) for (const key of Object.keys(props)) realFields.add(key);
+    }
+    const dead = Object.keys(INPUT_FIELD_LABELS).filter((key) => !realFields.has(key));
+    expect(dead).toEqual([]);
   });
 });
