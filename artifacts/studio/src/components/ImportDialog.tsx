@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { describeWriteError } from "@/lib/describeWriteError";
 
 interface ImportDialogProps {
   open: boolean;
@@ -131,7 +132,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
           {previewMutation.isPending && <p className="text-xs text-muted-foreground">Parsing…</p>}
           {previewMutation.isError && (
             <p className="text-xs text-destructive" data-testid="import-preview-error">
-              {previewMutation.error instanceof Error ? previewMutation.error.message : "Could not parse file."}
+              {describeWriteError(previewMutation.error, "Could not parse file.")}
             </p>
           )}
 
@@ -235,7 +236,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
 
               {applyMutation.isError && (
                 <p className="text-xs text-destructive" data-testid="import-apply-error">
-                  {applyMutation.error instanceof Error ? applyMutation.error.message : "Import failed."}
+                  {describeWriteError(applyMutation.error, "Import failed.")}
                 </p>
               )}
             </>
