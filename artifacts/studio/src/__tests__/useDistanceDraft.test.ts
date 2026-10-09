@@ -265,6 +265,41 @@ describe("presentation: grouped (ch4-fixes item 4)", () => {
   });
 });
 
+// WF-6 — commit() must not fire onCommit for a draft that is a no-op at
+// display precision, so retyping the identical text and blurring doesn't
+// flip the scenario dirty or retarget a band to a float.
+describe("useDistanceDraft — no-op commits (WF-6)", () => {
+  it("does not call onCommit when the typed value is unchanged at display precision", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("650"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("still calls onCommit for a real change", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("700"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).toHaveBeenCalledWith(700);
+  });
+
+  it("clears the draft even when the commit is a no-op, so the field re-formats", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("650"));
+    act(() => result.current.draft.commit());
+
+    expect(result.current.draft.isDirty).toBe(false);
+  });
+});
+
 describe("ch9-tc — convert override", () => {
   // Build the converter INSIDE renderHook from the current UnitApi. This
   // tracks pref changes; a converter hardcoded to "km" cannot test toggles.

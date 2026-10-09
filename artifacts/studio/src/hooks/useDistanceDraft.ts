@@ -199,7 +199,15 @@ export function useDistanceDraft({
     setFocused(false);
     if (disabled || draft === null) return;
     if (isComplete(draft.text) && !Number.isNaN(draft.anchor)) {
-      onCommit(draft.anchor);
+      // WF-6 — compare in DISPLAY space at roundForFile's 4 dp, the rule
+      // artifacts/studio/CLAUDE.md prescribes. commit() fires for every
+      // grammar-complete draft, so focusing a field, retyping the identical
+      // displayed text and blurring used to commit e.g.
+      // 650 -> 650.0000000000001: the scenario flipped dirty and a band
+      // retargeted to a float. Guarded HERE rather than in each caller
+      // because 15 call sites share this hook and an eleventh bespoke guard
+      // would make the consolidation harder.
+      if (roundForFile(draft.anchor) !== roundForFile(value)) onCommit(draft.anchor);
     }
     setDraft(null);
   }
