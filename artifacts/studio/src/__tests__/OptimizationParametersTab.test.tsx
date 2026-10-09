@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   OptimizationParametersTab,
+  MISSING_INPUT_LABELS,
   type OptimizationParametersTabProps,
 } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { UnitProvider } from "@/contexts/UnitContext";
@@ -830,5 +834,81 @@ describe("OptimizationParametersTab — missing required inputs", () => {
     renderTab({ missingRequiredInputs: ["highServiceDistMi"], gap: 0, timeLimitSec: 120 });
     expect(screen.getByTestId("missing-required-inputs")).toBeVisible();
     expect(screen.getByTestId("input-gap")).toBeInTheDocument();
+  });
+});
+
+// WF-5 review fold-in — MISSING_INPUT_LABELS used to cover only Chapter 4 +
+// the shared fields, leaving 8 real required[] keys (across transport-coal,
+// delivery-teaching-us, two-echelon-gold-au) with no entry, so a missing
+// one of those would have rendered a raw camelCase identifier to a student
+// instead of a label. Reads every solvers/*/manifest.json directly — same
+// fs-walk pattern as lockedChapterDrift.test.ts in this same directory —
+// and checks both directions, following the server's own equivalent table's
+// test shape (artifacts/api-server/src/validation/__tests__/
+// formatInputIssues.test.ts's "has a label for every real input field" /
+// "has no label for a field that does not exist" pair).
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+function findRepoRoot(start: string): string {
+  let dir = start;
+  for (let i = 0; i < 12; i++) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
+    dir = dirname(dir);
+  }
+  throw new Error("repo root (pnpm-workspace.yaml) not found above " + start);
+}
+
+/** Every model's own `inputsSchema.required[]`, read straight from its
+ *  manifest.json — not hand-copied, so a future model/field addition is
+ *  caught here without this test needing an edit. */
+function allRequiredFields(): Array<{ modelId: string; required: string[] }> {
+  const solversDir = join(findRepoRoot(HERE), "solvers");
+  const out: Array<{ modelId: string; required: string[] }> = [];
+  for (const entry of readdirSync(solversDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = join(solversDir, entry.name, "manifest.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      id?: string;
+      inputsSchema?: { required?: unknown };
+    };
+    const required = manifest.inputsSchema?.required;
+    out.push({
+      modelId: manifest.id ?? entry.name,
+      required: Array.isArray(required) ? required.filter((k): k is string => typeof k === "string") : [],
+    });
+  }
+  return out;
+}
+
+describe("OptimizationParametersTab — MISSING_INPUT_LABELS completeness", () => {
+  it("scans real manifests — the comparison is not vacuously empty", () => {
+    const models = allRequiredFields();
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.some(m => m.required.length > 0)).toBe(true);
+  });
+
+  it("has a label for every key in every model's inputsSchema.required[]", () => {
+    const missing: string[] = [];
+    for (const { modelId, required } of allRequiredFields()) {
+      for (const key of required) {
+        if (!(key in MISSING_INPUT_LABELS)) missing.push(`${modelId}:${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  // Reverse direction: a label for a key that no model's required[] actually
+  // has (a typo, or a rename this table was never updated for) is a dead
+  // entry the forward test above cannot catch — it only checks that
+  // required fields HAVE a label, not that every label corresponds to a
+  // real required field.
+  it("has no label for a key that is not required by any model", () => {
+    const realRequiredKeys = new Set<string>();
+    for (const { required } of allRequiredFields()) {
+      for (const key of required) realRequiredKeys.add(key);
+    }
+    const dead = Object.keys(MISSING_INPUT_LABELS).filter(key => !realRequiredKeys.has(key));
+    expect(dead).toEqual([]);
   });
 });

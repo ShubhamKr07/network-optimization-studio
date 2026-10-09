@@ -179,7 +179,25 @@ export interface OptimizationParametersTabProps {
 // WF-5 — label map for the missing-required-inputs notice. Module-level
 // (not inside the component) because it holds no per-instance state and
 // every key here is one of this component's own field names.
-const MISSING_INPUT_LABELS: Record<string, string> = {
+//
+// Review fold-in (WF-3, final whole-branch review) — this used to cover only
+// Chapter 4 + the shared p-median/gap/timeLimitSec/capacityMode/distanceBands
+// keys, leaving EIGHT keys that appear in some model's own
+// `inputsSchema.required[]` with no entry at all: capacityFactor,
+// singleSource, capacityInactive (transport-coal); costAdjustEnabled,
+// distanceThreshold, costPerMile, costPerMileOver (delivery-teaching-us);
+// bomRatio (two-echelon-gold-au). A row of one of those models missing a
+// required field would have rendered the raw camelCase key to a student
+// instead of a label. Verified against every manifest's own required[]
+// (`solvers/*/manifest.json`), not guessed — see this file's own test
+// coverage (`OptimizationParametersTab — MISSING_INPUT_LABELS completeness`
+// in the sibling test file), which iterates every model's required[] in
+// both directions, following the server's `INPUT_FIELD_LABELS` test shape
+// (artifacts/api-server/src/validation/__tests__/formatInputIssues.test.ts).
+// Wording below is taken verbatim from this component's own existing UI
+// copy for each field where it has one (the Label text / button text
+// rendered further down), not invented fresh.
+export const MISSING_INPUT_LABELS: Record<string, string> = {
   p: "Number of warehouses",
   highServiceDistMi: "High-service distance",
   maxDistMi: "Max distance",
@@ -189,6 +207,17 @@ const MISSING_INPUT_LABELS: Record<string, string> = {
   timeLimitSec: "Time limit",
   capacityMode: "Capacity mode",
   distanceBands: "Distance bands",
+  // transport-coal
+  capacityFactor: "Mine capacity factor",
+  singleSource: "Single-source",
+  capacityInactive: "Ignore capacity",
+  // delivery-teaching-us
+  costAdjustEnabled: "Adjust Cost Table",
+  distanceThreshold: "Distance threshold",
+  costPerMile: "Cost per mile",
+  costPerMileOver: "Cost per mile over the threshold",
+  // two-echelon-gold-au
+  bomRatio: "BOM ratio",
 };
 
 // A1.2 — grid-style editor over the scalar solve-parameter fields
