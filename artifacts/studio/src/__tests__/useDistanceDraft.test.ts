@@ -298,6 +298,28 @@ describe("useDistanceDraft — no-op commits (WF-6)", () => {
 
     expect(result.current.draft.isDirty).toBe(false);
   });
+
+  // WF-6 review — the three cases above all use canonicalUnit "mi" with the
+  // default "auto" preference, which resolves to "mi" too: fromDisplay is
+  // the IDENTITY there, so draft.anchor === value exactly and the drift
+  // roundForFile exists to absorb never occurs. A guard comparing raw
+  // equality (`draft.anchor !== value`) would pass all three above just as
+  // well as the real roundForFile guard — proven by reverting the guard to
+  // that and re-running (see the commit message). This case forces an
+  // actual cross-unit round trip: canonical 650 mi displayed in km is
+  // "1046.0736" (roundForFile'd), and re-parsing that back to mi lands on
+  // 649.9999999999999 — equal to 650 only at roundForFile's 4 dp, not by ===.
+  it("does not call onCommit for a same-text edit made in km display mode, where the mi<->km round trip actually drifts", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("1046.0736");
+
+    act(() => result.current.draft.onChange("1046.0736"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).not.toHaveBeenCalled();
+  });
 });
 
 describe("ch9-tc — convert override", () => {
