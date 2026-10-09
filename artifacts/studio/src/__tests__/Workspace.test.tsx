@@ -2845,6 +2845,60 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
 
     expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
   });
+
+  // CH4O-5 review finding (Important 1) — `handleSaveAsScenario`'s CREATE
+  // body is the third of three `withoutServerOwnedInputs` call sites and had
+  // NO direct coverage: the two pre-existing `button-save-as-scenario` tests
+  // (Task 7, CH4UX-6 review) both use a p-median fixture, which never
+  // carries `objective` in the first place — so neither could ever fail if
+  // the strip at this call site regressed. `maxCoverageCoverageInputs` DOES
+  // carry `objective: "coverage"`, and it flows unchanged into the history
+  // entry's `inputs` (the solved scenario's own persisted inputs), so this
+  // genuinely exercises the strip rather than passing vacuously. If this
+  // regresses, Save-as-scenario 422s for the entire chapter.
+  it("strips the derived objective from the Save-as-scenario CREATE body (CH4O-5)", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 11 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 11, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderChen();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    const solvedScenario = {
+      ...maxCoverageScenario,
+      result: {
+        status: "optimal" as const, objective: 42, runTimeSec: 0.2, quality: "Proven optimal",
+        edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    const created = { ...solvedScenario, id: 99, name: "Chen coverage (saved run)", result: null };
+    mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
+      opts.onSuccess(created);
+    });
+
+    fireEvent.click(screen.getByTestId("button-save-as-scenario"));
+
+    expect(mockCreateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockCreateScenario.mutate.mock.calls[0];
+    expect(args.data.modelId).toBe("max-coverage-us");
+    // The fixture's own inputs carry `objective: "coverage"` (asserted here
+    // so a future fixture edit can't silently make this test vacuous), and
+    // the CREATE body must not.
+    expect(maxCoverageCoverageInputs).toHaveProperty("objective", "coverage");
+    expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapKm: 1000 });
+    expect(args.data.inputs).not.toHaveProperty("objective");
+  });
 });
 
 // ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and

@@ -184,22 +184,26 @@ def _translate_max_coverage(i: dict[str, Any]) -> dict[str, Any]:
     # maxCoverageInputsSchema (maxCoverage.ts) is a direct-id passthrough
     # (DD-2) -- solve_max_coverage / build_merged_max_coverage_dataset read
     # `warehouseOverrides`, `customerOverrides`, `addedWarehouses`,
-    # `addedCustomers`, `distanceOverrides`, `objective`, `p`,
-    # `highServiceDistKm`, `maxDistKm`, `avgServiceDistCapKm`,
-    # `coverageFloorDemand` under these EXACT names (verified directly
-    # against solve.py, no `inp['pValue']`-style renaming anywhere in
-    # solve_max_coverage). buildPayload's max-coverage-us block (pmedian.ts)
-    # does this same no-op passthrough, only adding `modelType`.
-    # avgServiceDistCapKm/coverageFloorDemand are objective-discriminated
-    # (present iff their mode) -- included only when not None, same as
-    # buildPayload's own JSON.stringify-drops-undefined behavior for those
-    # two fields.
+    # `addedCustomers`, `distanceOverrides`, `p`, `highServiceDistKm`,
+    # `maxDistKm`, `avgServiceDistCapKm`, `coverageFloorDemand` under these
+    # EXACT names (verified directly against solve.py, no `inp['pValue']`-
+    # style renaming anywhere in solve_max_coverage). buildPayload's
+    # max-coverage-us block (pmedian.ts) does this same no-op passthrough,
+    # only adding `modelType`.
+    # CH4O-5 -- `avgServiceDistCapKm`/`coverageFloorDemand` are now
+    # UNCONDITIONALLY required (the mode is derived server-side from the
+    # floor: 0 -> coverage, >0 -> min_distance), so both are emitted
+    # unconditionally here too, matching the manifest's flat `required`
+    # list. `objective` is no longer part of the contract at all -- it is
+    # server-derived and refused if a client sends it -- so it is not
+    # translated/emitted here either.
     out: dict[str, Any] = {
         "modelType": "max_coverage_us",
-        "objective": i.get("objective"),
         "p": i.get("p"),
         "highServiceDistKm": i.get("highServiceDistKm"),
         "maxDistKm": i.get("maxDistKm"),
+        "avgServiceDistCapKm": i.get("avgServiceDistCapKm"),
+        "coverageFloorDemand": i.get("coverageFloorDemand"),
         "gap": i.get("gap", 0.0),
         "timeLimitSec": i.get("timeLimitSec", 120),
         "distanceBands": i.get("distanceBands", []),
@@ -209,10 +213,6 @@ def _translate_max_coverage(i: dict[str, Any]) -> dict[str, Any]:
         "addedCustomers": i.get("addedCustomers", []),
         "distanceOverrides": i.get("distanceOverrides", []),
     }
-    if i.get("avgServiceDistCapKm") is not None:
-        out["avgServiceDistCapKm"] = i["avgServiceDistCapKm"]
-    if i.get("coverageFloorDemand") is not None:
-        out["coverageFloorDemand"] = i["coverageFloorDemand"]
     return out
 
 

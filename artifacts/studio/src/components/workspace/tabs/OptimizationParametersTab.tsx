@@ -113,10 +113,11 @@ export interface OptimizationParametersTabProps {
   // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
   // model passing none of these renders none of it, so this stays generic.
   /** Coverage vs min-distance objective mode. Presence gates the Chen block.
-   * CH4-17 — removed. The step toggle (Task 7) is now the ONLY way to choose
-   * an objective, so two controls cannot disagree and no path reaches a
-   * min-distance solve without the floor that gives it meaning. This value
-   * is read-only for display; there is no `onObjectiveModeChange` prop. */
+   * CH4-17 — removed. CH4O-5 — the step toggle no longer exists either; the
+   * objective is now server-derived from `coverageFloorDemand` (0 ->
+   * coverage, > 0 -> min_distance, §2.3), so there is no client-side control
+   * that chooses it at all. This value is read-only for display; there is no
+   * `onObjectiveModeChange` prop. */
   objective?: "coverage" | "min_distance";
   /** Chen's two service-distance thresholds (both always visible in the
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`

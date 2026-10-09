@@ -300,14 +300,26 @@ class TestCapBindsInBothModes:
         assert r["metrics"]["weightedAvgDistance"] == pytest.approx(624.33, abs=0.05)
         assert set(r["details"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
 
-    def test_tight_cap_changes_the_min_distance_solution(self):
+    def test_cap_below_the_true_minimum_is_infeasible_not_reshaped(self):
+        # CH4O-5 review finding (Minor) -- in min_distance mode the cap
+        # constrains the SAME expression the objective minimises
+        # (`sum(adj*dem*a) <= cap*total` vs `minimize sum(adj*dem*a)`), so a
+        # cap set below the true achievable minimum can only ever make the
+        # problem infeasible -- it can never reshape the optimum to a
+        # different, cap-satisfying solution the way a cap in coverage mode
+        # can. (In coverage mode the cap constrains distance while the
+        # objective maximises covered demand -- two different expressions --
+        # so there a tight cap genuinely CAN force a different open set.)
+        # The previous version of this test had an `if optimal / else
+        # infeasible` branch for exactly this case; the `optimal` branch was
+        # unreachable by construction and the test was a duplicate of
+        # `test_cap_below_any_feasible_average_is_infeasible` with a
+        # different number. This version asserts the real, single-branch
+        # property directly.
         loose = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": 1000})
         tight_cap = loose["metrics"]["weightedAvgDistance"] - 20
         r = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": tight_cap})
-        if r["status"] == "optimal":
-            assert r["metrics"]["weightedAvgDistance"] <= tight_cap + 0.01
-        else:
-            assert r["status"] == "infeasible"
+        assert r["status"] == "infeasible"
 
     def test_cap_below_any_feasible_average_is_infeasible(self):
         r = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": 1.0})

@@ -96,7 +96,9 @@ interface SolveDialogProps {
   // same convention as `p`/`bomRatio` above.
   /** Coverage vs min-distance objective mode. Presence gates the section. */
   objective?: "coverage" | "min_distance";
-  /** Coverage-mode-only cap (present when `objective === "coverage"`). */
+  /** CH4O-5 — the weighted-average service-distance cap. No longer
+   * coverage-mode-only: it is a constraint in BOTH objectives and is
+   * unconditionally required on `inputs`. */
   avgServiceDistCapKm?: number;
   /** Writes directly into Workspace.tsx's `localInputs` draft via
    * `updateInputsField` — the exact same callback shape
