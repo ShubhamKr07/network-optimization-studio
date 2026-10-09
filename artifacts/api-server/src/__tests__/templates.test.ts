@@ -3,6 +3,7 @@ import {
   TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  COST_SUMMARY_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
   applyCustomerOverrides,
@@ -1072,9 +1073,14 @@ describe("openWarehouseRowsToCsv", () => {
 describe("buildCostSummaryRows", () => {
   it("returns exactly one row; objective/weightedAvgDistance identity when requestedUnit==canonicalUnit", () => {
     expect(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).toEqual([{
-      templateVersion: OUTPUT_TEMPLATE_VERSION,
+      templateVersion: COST_SUMMARY_TEMPLATE_VERSION,
       objective: 29873735731,
       objectiveMode: null,
+      // Task 11 (CH4O) — blank for p-median-us: makeResult()'s default
+      // `details: {}` carries none of Chapter 4's coverage fields.
+      highServiceDist: null,
+      coveragePct: null,
+      coveredDemand: null,
       weightedAvgDistance: 382.9,
       distanceUnit: "mi",
       runTimeSec: 0.45,
@@ -1165,11 +1171,15 @@ describe("buildCostSummaryRows", () => {
 });
 
 describe("costSummaryRowsToCsv", () => {
-  it("emits exactly one data line (plus header) with the v3 column set", () => {
+  // Task 11 (CH4O) — header gained high_service_dist/coverage_pct/
+  // covered_demand between objective_mode and weighted_avg_distance, and
+  // the row's own templateVersion moved to the grid-local
+  // COST_SUMMARY_TEMPLATE_VERSION (4), not the shared OUTPUT_TEMPLATE_VERSION.
+  it("emits exactly one data line (plus header) with the v4 column set", () => {
     const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).trim().split("\n");
     expect(lines.length).toBe(2);
-    expect(lines[0]).toBe("template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used");
-    expect(lines[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
+    expect(lines[0]).toBe("template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used");
+    expect(lines[1].split(",")[0]).toBe(String(COST_SUMMARY_TEMPLATE_VERSION));
   });
 });
 
@@ -1178,11 +1188,78 @@ describe("toCostSummaryJsonRow", () => {
     const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
     const jsonRow = toCostSummaryJsonRow(row);
     expect(jsonRow).toEqual({
-      objective: 29873735731, objectiveMode: null, weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal",
+      objective: 29873735731, objectiveMode: null,
+      highServiceDist: null, coveragePct: null, coveredDemand: null,
+      weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal",
       solutionStatus: "optimal", terminationReason: "optimality_proven", solverUsed: "CBC",
     });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
+// Task 11 (CH4O, §4.5 decision 9) — the three Chapter 4 coverage columns
+// Task 10 moved onto the Solution Summary tab, now reaching the cost-summary
+// export too. `ch4Result`/`pmedianResult` built via `makeResult()` (this
+// file's shared helper), not hand-rolled — a Chapter 4 result's `details`
+// carries `highServiceDistMi`/`coveragePct`/`coveredDemand`; every other
+// model's `details` carries none of them (shape-gated, never modelId-gated).
+describe("costSummary CSV — Chapter 4 coverage columns", () => {
+  const ch4Result = makeResult({
+    details: { objective: "coverage", highServiceDistMi: 450, coveragePct: 66.6667, coveredDemand: 131645389 },
+  });
+  const pmedianResult = makeResult(); // details: {} — no Chapter 4 fields at all.
+
+  it("emits the three new columns, positioned between objective_mode and weighted_avg_distance", () => {
+    const csv = costSummaryRowsToCsv(buildCostSummaryRows(ch4Result, "mi", "mi", "max-coverage-us"));
+    expect(csv.split("\n")[0]).toContain("objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance");
+  });
+
+  it("leaves them blank (null) for a non-Chapter-4 result", () => {
+    const row = buildCostSummaryRows(pmedianResult, "mi", "mi", "p-median-us")[0];
+    expect(row.highServiceDist).toBeNull();
+    expect(row.coveragePct).toBeNull();
+    expect(row.coveredDemand).toBeNull();
+    // And the CSV row itself carries the blank cells: objective_mode (null,
+    // p-median-us has no objective mode either) plus the three new nulls,
+    // four empty fields in a row between `objective` and `weighted_avg_distance`.
+    const csvRow = costSummaryRowsToCsv([row]).trim().split("\n")[1];
+    expect(csvRow).toContain(",,,,,"); // objective_mode,high_service_dist,coverage_pct,covered_demand all blank
+  });
+
+  // highServiceDist IS a distance and converts; the other two are a percent
+  // and a demand count with no distance dimension, so running either
+  // through a conversion is the rate-style error this repo already has a
+  // gotcha for.
+  it("converts highServiceDist but NOT coveragePct or coveredDemand", () => {
+    const mi = buildCostSummaryRows(ch4Result, "mi", "mi", "max-coverage-us")[0];
+    const km = buildCostSummaryRows(ch4Result, "mi", "km", "max-coverage-us")[0];
+    expect(km.highServiceDist).not.toBe(mi.highServiceDist);
+    expect(km.highServiceDist).toBeCloseTo(450 * 1.609344, 4);
+    expect(mi.highServiceDist).toBe(450);
+    expect(km.coveragePct).toBe(mi.coveragePct);
+    expect(km.coveredDemand).toBe(mi.coveredDemand);
+    expect(km.coveragePct).toBe(66.6667);
+    expect(km.coveredDemand).toBe(131645389);
+  });
+
+  it("uses its own template version, leaving the shared one alone", () => {
+    expect(buildCostSummaryRows(ch4Result, "mi", "mi", "max-coverage-us")[0].templateVersion)
+      .toBe(COST_SUMMARY_TEMPLATE_VERSION);
+    expect(COST_SUMMARY_TEMPLATE_VERSION).not.toBe(OUTPUT_TEMPLATE_VERSION);
+  });
+
+  it("leaves the serviceStats grid's version untouched (still OUTPUT_TEMPLATE_VERSION)", () => {
+    expect(buildServiceStatsRows(ch4Result, "mi", "mi", [200, 400], "max-coverage-us")[0].templateVersion)
+      .toBe(OUTPUT_TEMPLATE_VERSION);
+  });
+
+  it("the JSON row projector carries the same three columns (format=json must not diverge from CSV)", () => {
+    const row = buildCostSummaryRows(ch4Result, "mi", "mi", "max-coverage-us")[0];
+    const jsonRow = toCostSummaryJsonRow(row);
+    expect(jsonRow.highServiceDist).toBe(450);
+    expect(jsonRow.coveragePct).toBe(66.6667);
+    expect(jsonRow.coveredDemand).toBe(131645389);
   });
 });
 
@@ -1516,10 +1593,13 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
     expect(flowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
   });
 
-  it("costSummary CSV + JSON row both carry v3", () => {
+  // Task 11 (CH4O) — costSummary moved OFF this shared v3 onto its own
+  // grid-local COST_SUMMARY_TEMPLATE_VERSION (4); every other grid in this
+  // describe block is unaffected and still carries v3.
+  it("costSummary CSV + JSON row carry COST_SUMMARY_TEMPLATE_VERSION (4), not the shared v3", () => {
     const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
-    expect(row.templateVersion).toBe(3);
-    expect(costSummaryRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(COST_SUMMARY_TEMPLATE_VERSION);
+    expect(costSummaryRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(COST_SUMMARY_TEMPLATE_VERSION));
   });
 
   it("serviceStats CSV + JSON row both carry v3", () => {

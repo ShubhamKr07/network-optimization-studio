@@ -13,6 +13,7 @@ import type { CanonicalUnit } from "@workspace/units";
 import {
   TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  COST_SUMMARY_TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
@@ -842,8 +843,15 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // TEMPLATE_VERSION onto OUTPUT_TEMPLATE_VERSION too (v1 -> v3, skipping
     // v2 — it never had one; buildFlowRows already stamps this on each row,
     // so the wrapper must match or the envelope self-contradicts).
+    // Task 11 (CH4O) — costSummary moved OFF OUTPUT_TEMPLATE_VERSION onto its
+    // own COST_SUMMARY_TEMPLATE_VERSION (buildCostSummaryRows now stamps
+    // rows with that constant, not OUTPUT_TEMPLATE_VERSION) — the wrapper
+    // must follow, same "wrapper == each row's templateVersion" rule the
+    // comment above already states, or the JSON envelope would declare v3
+    // while a CSV export of the identical data declares v4 per row.
     const wrapperVersion =
-      entity === "assignments" || entity === "costSummary" || entity === "serviceStats" || entity === "flows"
+      entity === "costSummary" ? COST_SUMMARY_TEMPLATE_VERSION
+      : entity === "assignments" || entity === "serviceStats" || entity === "flows"
         ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
     // T9 — `unit` is added to the envelope ONLY for the four v3 (unit-
     // bearing) entities; openWarehouses (v1, non-distance) gets no `unit`

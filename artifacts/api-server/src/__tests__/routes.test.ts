@@ -2165,7 +2165,12 @@ describe("GET /api/scenarios/:id/export", () => {
   // C4.9 / D28 — output wrapper templateVersion: OUTPUT_TEMPLATE_VERSION for
   // the unit-aware exports, 1 for openWarehouses (+ distances, an input
   // entity). Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
-  it("uses OUTPUT_TEMPLATE_VERSION (3) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
+  // Task 11 (CH4O) — costSummary moved OFF OUTPUT_TEMPLATE_VERSION onto its
+  // own grid-local COST_SUMMARY_TEMPLATE_VERSION (4), since
+  // buildCostSummaryRows now stamps rows with that constant; the JSON
+  // wrapper follows so it never declares a version its own rows disagree
+  // with. serviceStats/openWarehouses are unaffected by this task.
+  it("uses COST_SUMMARY_TEMPLATE_VERSION (4) at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION (3) for serviceStats, v1 for openWarehouses", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
@@ -2176,7 +2181,7 @@ describe("GET /api/scenarios/:id/export", () => {
       }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
-    for (const [entity, expected] of [["costSummary", 3], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
+    for (const [entity, expected] of [["costSummary", 4], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
       mockDb.select.mockReturnValue(makeChain([solvedRow]));
       const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
       expect(res.status).toBe(200);
@@ -2194,7 +2199,11 @@ describe("GET /api/scenarios/:id/export", () => {
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
-        details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
+        // Task 11 (CH4O) — highServiceDistMi/coveragePct/coveredDemand added
+        // to exercise the new cost-summary coverage columns end-to-end
+        // through the real route, not just templates.ts in isolation.
+        details: { objective: "coverage", highServiceDistMi: 450, coveragePct: 66.6667, coveredDemand: 131645389 },
+        solverUsed: "CBC", infeasibilityReason: null,
       }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
@@ -2206,13 +2215,24 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(asg.text).not.toContain("distance_mi");
 
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const costCsv = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=csv").set("Cookie", cookie);
+    expect(costCsv.status).toBe(200);
+    expect(costCsv.text.split("\n")[0]).toBe(
+      "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used",
+    );
+    expect(costCsv.text).toContain("4,87.5,coverage,450,66.6667,131645389,250.5,mi");
+
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
     expect(cost.status).toBe(200);
     // T9 — `distanceUnit`/`templateVersion` live on the envelope only in
     // JSON (`unit`/`templateVersion`); the row itself never duplicates them.
-    expect(cost.body.templateVersion).toBe(3);
+    // Task 11 (CH4O) — costSummary's wrapper is now COST_SUMMARY_TEMPLATE_VERSION (4).
+    expect(cost.body.templateVersion).toBe(4);
     expect(cost.body.unit).toBe("mi");
-    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage" });
+    expect(cost.body.rows[0]).toMatchObject({
+      objectiveMode: "coverage", highServiceDist: 450, coveragePct: 66.6667, coveredDemand: 131645389,
+    });
     expect(cost.body.rows[0]).not.toHaveProperty("distanceUnit");
     expect(cost.body.rows[0]).not.toHaveProperty("templateVersion");
   });
