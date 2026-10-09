@@ -2133,6 +2133,70 @@ it is why the migration is not optional.
 
 ---
 
+## Follow-ups this branch creates but does not close
+
+Surfaced by Task 8's review and scoped in ITS words, because my own framing
+under-stated two of the three. None blocks the branch; all three are real. Carry
+these into the final whole-branch review's triage.
+
+### FU-1 — The api-server has no non-mi model, so 13 unit-threading sites are now unobservable
+
+Chapter 4 was the repo's only kilometre-canonical model. With it converted, **13
+production sites** reading `manifest.distanceUnit ?? "mi"` are behaviourally
+indistinguishable from a bare `"mi"` literal:
+
+`solver/jobRunner.ts:1404`, `registry/modelRegistry.ts:115`,
+`routes/referenceDistances.ts:48`, `routes/referenceCosts.ts:33`,
+`routes/solveHistory.ts:94`, `routes/scenarios.ts:767,943,1022,1107,1216,1328`,
+`services/import.ts:456`.
+
+Worse: `distanceUnit` is `.optional()` in `ManifestSchema`
+(`lib/dataset-schema/src/index.ts:279`), so **the `?? "mi"` fallback branch itself
+is unobservable** — a manifest that silently *drops* `distanceUnit` now produces
+correct behaviour for all seven models.
+
+**Correction to how this was first recorded.** Two tests' lost teeth do NOT
+"return automatically the day a non-mi model is added" — the surviving test is
+pinned to `max-coverage-us` via its own fixture row, so a new km model would need
+a new fixture and this test would never notice it. Teeth return only if *Chapter
+4's own* unit becomes non-mi, which will not happen.
+
+The frontend already solved this with a synthetic entry (`synthetic-km-model` in
+`ServiceStatsTab.test.tsx`, precedent `two-echelon-fake-km`); the api-server never
+got the equivalent. The fix is a module-level test seam shaped like
+`middlewares/lockedModel.ts`'s `setLockedModelsForTests`, which restores all 13 at
+once. **Size it against 13 sites, not 2 tests.**
+
+### FU-2 — Import does not round unit-converted values; export does. THREE sites.
+
+`roundForFile` wraps all 11 export counterparts in `services/templates.ts`.
+Import has **three** unrounded `fromDisplay` sites — not one:
+`services/import.ts:1095` (distances), `:1190` (laneCosts), `:1283` (legDistances).
+
+**Verified downstream consequence.** Change detection at `import.ts:1104` is an
+exact `beforeValue !== parsedDistance`. A km-sourced import stores
+`62.13711922373339`; the next same-unit export emits `roundForFile` → `62.1371`;
+re-importing that file reports a **spurious change on a row nobody edited**, and
+the DistancesTab changed-row highlight fires. That is precisely this repo's
+standing "compare in display space at `roundForFile`'s 4 dp" gotcha.
+
+Why no test ever caught it: `160.9344 / 1.609344 === 100` **exactly** in IEEE-754,
+so the mi→km→mi direction is lossless. km→mi is not, which is why converting
+Chapter 4 exposed it.
+
+Pre-existing, model-agnostic, and the fix changes stored values for every model
+across three entities — correctly NOT a Chapter 4 units task's business. Needs a
+product decision: round on import to match export, leave it, or round at the
+comparison sites.
+
+### FU-3 — Minor hygiene
+
+The `62.13711922373339` assertion added in Task 8 pins a float repr. Fine on V8,
+but it reads as a chosen precision when it is actually "the unrounded
+`fromDisplay` output" — worth a one-line comment saying so.
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
