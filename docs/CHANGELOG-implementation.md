@@ -2881,3 +2881,100 @@ The qa-sdet exemption is **enforced, not merely written**. `hooks/ponytail-subag
 **Whole-branch review findings (folded on the branch, re-merged).** Six findings, all accepted. The material one: hard rule #12 was **unsatisfiable by the four roles it binds** — `.claude/agents/{backend,frontend,solver,devops}-engineer.md` pin an explicit `tools:` allowlist (`Read, Edit, Write, Bash, Grep, Glob`) with no `Skill` tool, so every dispatched engineering agent would read the obligation and have no way to invoke either skill; and because the `SubagentStart` hook carries ponytail only, **nothing injects karpathy at all**, so that half could never be met even in principle. Fixed by adding `Skill` to those four allowlists (qa-sdet deliberately left without it, matching its exemption); `claude plugin validate .claude` passes. Rule #12 now also states that the matcher governs *who* receives the ruleset rather than *that* it is on (`ponytail-subagent.js` exits early when the per-project mode flag is `off` or unset, which a bare "normal mode" prompt clears), and that the skill invocation — not the injected text — is the obligation. `AGENTS.md`: the "loads `CLAUDE.md` + relevant skills on spawn" claim was false under those allowlists and now says skills do **not** auto-load; the latest-Opus paragraph contradicted itself (permitted inline review on the lead's model *and* forbade a sonnet review) and now reads "inline only when the lead IS an Opus, else dispatch `model: opus`"; the lead's "Opus 5" is marked as an observation, not a version pin, so it cannot drift against the de-pinned column two lines above. `permissionSettingsHooks.test.ts` regained the half the `toMatchObject` loosening dropped — a new case asserts `Object.keys(env).sort()` against an explicit allowlist, because every `env` key is injected into every tool and hook child process, so an unreviewed addition (anything re-enabling GLM against hard rule #10, or repointing the API base URL) would otherwise land with nothing going red; 6/6 green. The flake-list path note was generalised: `dispatcherRecovery`, `maxCoverageStepWorkflow`, `overDeadlineDrain` **and** `solverContractIdentity` are all under `src/solver/__tests__/` (verified by `find`), so the warning no longer names only the first and invite a session to delete a real entry it cannot find under `src/__tests__/`.
 
 Not fixable in-session: rule #12's own `ponytail:ponytail-review` half could not run on this branch, because ponytail was installed mid-session and its skills register at the next `SessionStart`. The review was the Opus lead pass only.
+
+## 2026-10-09 — Chapter 4 model interface overhaul (`ch4-model-upgrade`, CH4O-1…CH4O-13)
+
+The two-step solve workflow is **gone**. Chapter 4 (`max-coverage-us`) now has one editable form: the coverage floor is a plain integer whose value *derives* the objective (floor 0 → Model 1 max-coverage; floor > 0 → Model 2 min-distance), so `objective` stops being a client concept and becomes server-owned. The model also converted **kilometres → miles end to end** — dataset, manifest, field names, schema, solver, goldens and a data migration for existing rows. Three coverage metrics moved onto Solution Summary, the cost-summary CSV gained three columns on its own template version, and the Chapter 4 e2e specs were rewritten for the single-form miles UI. Base `3343277`. Spec: `docs/superpowers/specs/2026-10-09-ch4-model-interface-overhaul-design.md`. Plan: `docs/superpowers/plans/2026-10-09-ch4-model-interface-overhaul.md`.
+
+| Task | Commit(s) | What |
+|---|---|---|
+| CH4O-1 | `229d308` | shared objective derivation in `lib/units/src/objective.ts` |
+| CH4O-2 | `2f0f134` + fix `2b391b9` | delete the frontend two-step machinery (19 files, 1561 deletions) |
+| CH4O-3 | `a64020a` + fix `ec4b908` | delete the server two-step machinery, keep the create/clone hook |
+| CH4O-4 | `a11ccbb` | remove the per-step result surfaces from `openapi.yaml` + codegen |
+| CH4O-5 | `ccb067b` (28 files) + fix `ba64f57` | **atomic**: floor + cap unconditional, objective derived server-side |
+| CH4O-6 | `b9f9ce1` + fix `3ec84f8` | `avg_distance_cap_infeasible` bound and its three-place contract |
+| CH4O-7 | `966ae98` + fix `1803e97` | rebuild Optimization Parameters as one editable surface |
+| CH4O-8 | `be0df1f` (56 files) + fix `0a6e186` | **atomic**: miles conversion — dataset, manifest, rename, goldens |
+| CH4O-9 | `7ccbd8d` + fixes `c873aa9`, `000912d` | the km→mi scenario migration + its runbook (3 fix cycles) |
+| CH4O-10 | `53f2794` | coverage metrics onto Solution Summary, `lockedObjectiveMode` removed |
+| CH4O-11 | `a3d9b21` | cost-summary CSV columns on `COST_SUMMARY_TEMPLATE_VERSION = 4` |
+| CH4O-12 | `61d29b2` + fix `e4701d8` | rewrite the four Chapter 4 e2e specs |
+| CH4O-13 | *this commit* | this entry + the durable lessons into the `CLAUDE.md` files |
+
+Spec commits: `e744cec`, `7831b94`, `ac17f6c`, `9d9551a`, `6d902bb`, `ab43a59`. Plan commits: `4a8a144`, `08bb3c0`, `1c30246`, `f82988c`, `22df155`, `ce8aa65`, `2614c4e`, `c273275`, `10b1ba7`, `a9b6f3e`, `ab9fb89`, `428143e` — eight of those are **corrections to the plan found by the task that executed it**, which is the honest shape of this branch's record.
+
+### The five Codex review rounds, all before implementation
+
+Every finding from every round was independently verified against this repo's code before being folded in — none was taken on the reviewer's word, and two of the reviewer's framings were adopted *verbatim over mine* because mine under-stated the problem.
+
+| Round | Scope | Found |
+|---|---|---|
+| 1 | spec, partial — **killed mid-run by an OpenAI usage limit** | exactly one finding, and it cascaded into four spec gaps: the precheck defines **19** registration points, not ten. Traced from that one claim: `CLAUDE.md`'s stale count, the fallthrough `inputEntriesForModel` case (point 12), the `computeSha256()` requirement (point 2), and the deletion of point 18. Chasing point 16 also found the precheck's **own entry is stale**, and that following it literally breaks `Workspace.test.tsx:2827`'s source-text grep |
+| 2 | spec §4.4–4.5, deliberately shallow | 4 findings, all confirmed. **Critical:** §4.4 claimed Model 1 vs Model 2 was readable on Compare while keeping `lockedObjectiveMode` — the guard blocks *selection*, so the comparison was impossible as specified, and the refusal is implemented **twice** (disabled checkbox *and* a rejection inside `toggleScenario`), so re-enabling only the checkbox leaves it half-removed. **High:** §4.5 wanted a `templateVersion` bump while calling `serviceStats` unchanged — `OUTPUT_TEMPLATE_VERSION` is one constant across eight grids |
+| 3 | spec §2 and §3 | 5 findings, all confirmed, **two of them silent-data-corruption bugs** (below). Also: integer rounding could turn a valid persisted row *invalid*; the infeasibility attribution was unreachable in `solve.py`; §3.3's modified list omitted `maxCoverage.test.ts`, which asserts the **inverse** of the new contract |
+| 4 | spec §4.3 (the form) | 3 findings + 3 verified-clean. **High, and mine:** the spec told the implementer to delete `SolveDialog.tsx:170`'s `step={1}` — that line is `<Slider step={1}>`, the P slider's **increment**; deleting it makes the slider continuous so a student could pick 3.7 warehouses. I had grepped for `step`, seen the match, and taken it for the referent without reading the surrounding JSX |
+| 5 | the 16-task **plan**, breadth-then-deep | 10 findings. Several structural: I had split tasks by **layer** at points where the contract between layers changes, which guarantees a broken intermediate commit — three instances. Produced the ordering rule this branch ran on, merged old T2+T5 and T10+T11 into single atomic tasks, and removed both declared-red commits. Also caught that the previous draft's verification commands were chained with `&&`, which is why it had claimed a suite passed that never ran |
+
+Round 3 also **verified a claim rather than only faulting it**: §2.4's cap lower bound is genuinely valid, traced through `solve.py:1484-1492`, and `solve.py:1533` does still emit `details.uncoveredPct`.
+
+### The branch's worst bug — caught in plan review, before any code
+
+The migration's per-row `UPDATE` originally set only `{inputs, result, solvedAt}` and **skipped the write authority's epoch bump** (plan snippet `ab9fb89`, mine). `jobRunner` publishes a result only if `latestSolveJobId = jobId` **and** `solveInputRevision = enqueuedSolveInputRevision`. With both columns untouched, an **in-flight kilometre-era solve still matched that CAS after the row had been rewritten to miles**, so `markSucceeded` would write a km-era result plus a fresh `solvedAt`. The failure is invisible: `isStale()` is `inputsUpdatedAt > solvedAt`, and because `inputsUpdatedAt` was not bumped either, the fresh `solvedAt` wins and the row reads as **freshly and correctly solved** while holding a result computed in the wrong unit — the `result: null` meant to force a re-solve silently undone. The window is live *precisely* when the runbook says to run the migration, since the old km-era server is still serving users. Fixed by bumping `solveInputRevision` (the in-flight CAS now fails, the job returns `superseded` and never publishes — the designed behaviour for "inputs changed under a running job", which is exactly what a migration is) plus `inputsUpdatedAt` and `resultRunId: null`, all written DB-side via `now()` rather than `new Date()`, because both sides of `isStale()` must come from one clock.
+
+### `objective` was stripped from the CREATE path only — every save would have 422'd
+
+My brief removed the derived `objective` from the create default and stopped there. But `buildWholeInputPayload()` spreads `localInputs`, which is seeded from the **persisted row** — and the persisted row now always carries the server-derived `objective`. Since the write guard uses `"objective" in rawInputs` (presence, not truthiness), **every save of every Chapter 4 scenario would have been refused**, including with the correct value. Fixed with `withoutServerOwnedInputs` at **three** write sites; the third (`handleSaveAsScenario`) had no test at all until the fix cycle added one. The general rule is now in `artifacts/api-server/CLAUDE.md`: a server-derived field needs its derivation on every write path, and the persisted row is itself an input to the next save.
+
+### The km→mi conversion is lossless — established by evidence, not assumed
+
+The Chapter 4 distance matrix is generated from `p-median-us`'s integer miles × 1.609344, so the inverse is exact. Verified independently rather than asserted: **all 5200 pairs integral, max exactly 3219, and the multiset identical to `p-median-us`'s.** (The asymmetry is worth keeping in mind — `160.9344 / 1.609344 === 100` exactly in IEEE-754, so mi→km→mi is lossless while km→mi in general is not. That asymmetry is what exposed FU-2 below.)
+
+### The pytest goldens were RE-RUN, not divided — and the proof is the unit-free ones
+
+Both **unit-free** goldens moved: `coveredDemand` **53385024 → 54946145** and `coveragePct` **68.4192 → 70.42**. Pure division would leave both untouched; they moved because the new `highServiceDistMi: 450` predicate admits a *different covered set* than the old 435 mi equivalent of 700 km. The three distance-dimension goldens *do* equal km / 1.609344 — coherent, since the open set `{DAL, LA, PIT}` is unchanged — and that coherence is exactly why it could not have been the evidence.
+
+Current goldens and the command that produced them, documented inline at `tests/test_max_coverage.py:70-107`:
+
+```
+cd artifacts/api-server/src/solver && echo '{"modelType":"max_coverage_us",
+"p":3,"highServiceDistMi":450,"maxDistMi":3400,"avgServiceDistCapMi":650,
+"coverageFloorDemand":0,"gap":0.0,"timeLimitSec":60,"warehouseOverrides":[],
+"customerOverrides":[],"addedWarehouses":[],"addedCustomers":[],
+"distanceOverrides":[]}' | python3 solve.py | python3 -m json.tool
+```
+
+- **Coverage (floor 0):** `coveredDemand` 54946145 · `coveragePct` 70.42 · open `{DAL, LA, PIT}` · `weightedAvgDistance` 394.65 mi · longest served edge 1197 mi.
+- **Min-distance:** the same command with `"coverageFloorDemand":54946145` (the coverage run's own achieved demand) → `objective` 30269639699.0 · `weightedAvgDistance` 387.94 mi · open `{DAL, LA, PIT}`.
+- Sanity, not a golden: 387.94 ≤ 394.65 ≤ the 650 mi cap, so **the cap does not bind** at the defaults — which is what makes the cap tests' loose case a real no-op check rather than a vacuous one.
+
+The 1000-case benchmark corpus was judged **rename-only, correctly**: all 1000 cases have all three thresholds non-binding before *and* after, so the LP structure and feasible region are identical and only objective coefficients scale. No archived timings exist in-tree to invalidate.
+
+### Deviations
+
+- **The migration's host package.** The km→mi migration lives in `artifacts/api-server/src/migrations/`, not in `lib/db/`. `drizzle-kit push` has no migration history and `lib/db` owns schema shape, not data rewrites over a jsonb blob; the migration is a TypeScript program that validates each row against the new Zod schema, so it belongs with the code that owns that schema's runtime use.
+- `lib/units/src/index.ts` was left unmodified (CH4O-1): it is `export * from "./objective.js"`, a wildcard, so the new export is already surfaced at the package root. The plan was wrong, not the implementer.
+- CH4O-3 escalated correctly that `jobRunner`'s enqueue had **two** max-coverage blocks, not one. Only the Step 1→Step 2 synthesis belongs to two-step; the survivor is the "refuse a second active solve job" guard forced by the `UQ_solve_jobs_active_per_scenario` partial index. My plan's "no per-model branch" read as delete-both and was wrong (`ce8aa65`).
+- CH4O-9's migration report says `alreadyMigrated` for rows with no km-era keys; idempotency was proven on the local DB — dry-run 5/0, then 5 migrated, then 0/5 already-migrated.
+- A documented **behavioural** change kept deliberately: a no-op import now produces an empty diff and therefore does **not** bump the solve-input revision, where previously it always did. Arguably more correct; applies to all models, not just Chapter 4.
+- "The brief's file list is a floor, not a ceiling" held in **6 of 8** implementation tasks — CH4O-8 alone needed 8 extra files, every one of them a false claim about Chapter 4's unit.
+
+### Follow-ups this branch creates and does NOT close
+
+- **FU-1 — the api-server has no non-mi model, so 13 unit-threading sites are now unobservable.** Chapter 4 was the repo's only kilometre-canonical model; with it converted, 13 production sites reading `manifest.distanceUnit ?? "mi"` are behaviourally indistinguishable from a bare `"mi"` literal: `solver/jobRunner.ts:1404`, `registry/modelRegistry.ts:115`, `routes/referenceDistances.ts:48`, `routes/referenceCosts.ts:33`, `routes/solveHistory.ts:94`, `routes/scenarios.ts:767,943,1022,1107,1216,1328`, `services/import.ts:456`. Worse, `distanceUnit` is `.optional()` in `ManifestSchema` (`lib/dataset-schema/src/index.ts:279`), so **the `?? "mi"` fallback branch itself is unobservable** — a manifest that silently *drops* `distanceUnit` now behaves correctly for all seven models. The two tests' lost teeth do **not** return automatically when a non-mi model is added: the surviving test is pinned to `max-coverage-us` via its own fixture row, so a new km model would need a new fixture and this test would never notice it. The fix is a module-level test seam shaped like `middlewares/lockedModel.ts`'s `setLockedModelsForTests`, which restores all 13 at once (the frontend already solved this with a synthetic `synthetic-km-model` entry). **Size it against 13 sites, not 2 tests.**
+- **FU-2 — import does not round unit-converted values; export does. THREE sites.** `roundForFile` wraps all 11 export counterparts in `services/templates.ts`; import has three unrounded `fromDisplay` sites — `services/import.ts:1095` (distances), `:1190` (laneCosts), `:1283` (legDistances). Verified consequence: change detection at `import.ts:1104` is an exact `beforeValue !== parsedDistance`, so a km-sourced import stores `62.13711922373339`, the next same-unit export emits `62.1371`, and re-importing that file reports a **spurious change on a row nobody edited**, firing the DistancesTab changed-row highlight. Pre-existing, model-agnostic, and the fix changes stored values for every model across three entities — correctly not a Chapter 4 units task's business. Needs a product decision: round on import to match export, leave it, or round at the comparison sites.
+- **FU-3 — minor hygiene.** The `62.13711922373339` assertion added in CH4O-8 pins a float repr. Fine on V8, but it reads as a chosen precision when it is actually "the unrounded `fromDisplay` output" — worth a one-line comment saying so.
+
+### Gates (CH4O-13, measured on a quiet machine)
+
+0 concurrent vitest and 0 vite dev servers verified before starting (`ps aux | grep "[v]itest" | grep -vc "zsh -c"` → 0), and the studio run re-confirmed 0 at its own start.
+
+typecheck **clean** · api-server **1634/1638** · studio **2290/2291** across 124 files · solver pytest **329/329** · `e2e_accuracy.py` **99/99 ALL PASS and unmodified** (`git diff main --stat` on that path is empty; hard rule #2 intact) · `e2e_journey.py … auth` **18/18 ALL PASS**.
+
+The two non-green full runs are the documented load-flake class, both confirmed by isolated re-run: api-server's 4 failures spanned 3 files, of which the three captured are `resultEnvelope` ×2 and `src/solver/__tests__/dispatcherRecovery.test.ts` ×1 — **43/43 green** re-run together; studio's single failure was `JadeDistancesTab.test.tsx` — **55/55 green** alone. Honest limitation: that api-server run was captured through `tail -60`, so **the third failing file and the 4th test name were not recorded and are not reconstructed here** rather than being guessed. `collect` at 180s against a 69s wall clock is the usual contention tell.
+
+`pnpm e2e:gate` was **not** re-run for this task: CH4O-12 gated it at **62 expected / 2 unexpected / 6 flaky / 0 skipped**, both unexpected diagnosed and benign, and that diff is e2e-only across both of its commits — zero production source, which is what makes the flake attribution structural rather than inferential. Note the arithmetic, because the error direction is always flattering: Playwright's `flaky` is a **separate** bucket from `expected`, so 62 + 2 + 6 + 0 = 70 and **8 of 70 (11%) did not pass on first attempt**, not 2.
+
+### Not yet done, and each needs its own approval
+
+The whole-branch review, `superpowers:finishing-a-development-branch`, merge, push, deploy, `/harness-retro CH4O`. Two ordering facts that must not be lost: this branch touches `solvers/**`, so **`nos-api` needs redeploying as well as `nos-studio`** (`solvers/*/manifest.json` is read at boot by `registry/modelRegistry.ts` and baked into the API image) — do not conclude "frontend-only" from a pathspec. And from CH4O-5 onward `coverageFloorDemand` is unconditionally required, so a deployed new server against an unmigrated database **422s on save and refuses to solve every pre-existing Chapter 4 scenario**: run CH4O-9's migration **before or in the same window as** the `nos-api` deploy, never after.
