@@ -974,14 +974,18 @@ Where the active model's `ModelInfo` is already available, add:
     if (!localInputs) return [];
     const req = (activeModelManifest?.inputsSchema as { required?: unknown } | undefined)?.required;
     if (!Array.isArray(req)) return [];
-    return req.filter(
-      (k): k is string =>
-        typeof k === "string" &&
-        // By VALUE, not key presence: `in` treats a present-but-null key as
-        // fine, and a required input whose value is null is just as unusable.
-        (localInputs as Record<string, unknown>)[k] === undefined ||
-        (localInputs as Record<string, unknown>)[k] === null,
-    );
+    const values = localInputs as Record<string, unknown>;
+    return req.filter((k): k is string => {
+      if (typeof k !== "string") return false;
+      // By VALUE, not key presence: `in` treats a present-but-null key as
+      // fine, and a required input whose value is null is just as unusable.
+      // NOTE the parentheses matter — `&&` binds tighter than `||`, so
+      // `typeof k === "string" && v === undefined || v === null` returns true
+      // for a NON-string key whose value is null, making the `k is string`
+      // predicate a lie. Written as statements so the precedence cannot be
+      // got wrong again.
+      return values[k] === undefined || values[k] === null;
+    });
   }, [activeModelManifest, localInputs]);
 ```
 
