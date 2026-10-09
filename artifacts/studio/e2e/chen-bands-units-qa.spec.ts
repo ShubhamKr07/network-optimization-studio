@@ -278,7 +278,12 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       // content replaces the placeholder — proving this was a genuine
       // load-then-resolve transition, not a permanently-broken editor.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
-      await expect(page.getByTestId("bands-unit-pending")).toHaveCount(0, { timeout: 6_000 });
+      // ch4-fixes item 3 — widened from 6_000: under 4 workers with real CBC
+      // solves in flight, the 3s injected route delay plus resolve-and-
+      // re-render had no headroom at 6s (repeated gate failures; 3/3 clean
+      // in isolation). The injected delay and the assertion itself are
+      // unchanged — only the timeout budget grew.
+      await expect(page.getByTestId("bands-unit-pending")).toHaveCount(0, { timeout: 15_000 });
       await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByText("Distance bands (mi)")).toBeVisible();
     } finally {
@@ -450,25 +455,29 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // ── Toggle to km: displays the converted value. mi -> km MULTIPLIES
       // (the opposite direction from the old km-canonical world) ─────────
       await page.getByTestId("unit-toggle-km").click();
-      const kmText1 = await page.getByTestId("input-distance-ALN-C4").inputValue();
+      const kmInput = page.getByTestId("input-distance-ALN-C4");
+      // ch4-fixes item 2 — `inputValue()` does not auto-retry, so a React
+      // re-render lagging under 4-worker load could still return the
+      // pre-toggle string; assert with the auto-retrying `toHaveValue`
+      // FIRST, then read once the value is confirmed settled.
       // ch4-fixes item 4 — the IDLE override cell is grouped at max 2 dp
       // (formatDistanceDisplay), not `roundForFile`'s 4 dp: 500*1.609344 =
       // 804.672 renders "804.67". Full precision is still there — it is
       // revealed on focus — so this asserts the DISPLAY contract at 2 dp and
       // the focused round-trip below still proves no precision was lost.
-      expect(kmText1).toBe("804.67");
+      await expect(kmInput).toHaveValue("804.67", { timeout: HEADER_TIMEOUT });
+      const kmText1 = await kmInput.inputValue(); // still needed: reused below for equality checks
       expect(Number(kmText1.replace(/,/g, ""))).toBeCloseTo(500 * 1.609344, 1);
 
       // ── Repeated toggles introduce no drift ─────────────────────────────
       await page.getByTestId("unit-toggle-auto").click();
-      const miText2 = await page.getByTestId("input-distance-ALN-C4").inputValue();
-      expect(miText2).toBe("500");
+      await expect(kmInput).toHaveValue("500", { timeout: HEADER_TIMEOUT });
       await page.getByTestId("unit-toggle-km").click();
-      const kmText2 = await page.getByTestId("input-distance-ALN-C4").inputValue();
-      expect(kmText2).toBe(kmText1); // idempotent — not accumulating drift
+      // idempotent — not accumulating drift; dynamic expected value, so
+      // assert directly against `kmText1` rather than a hardcoded literal.
+      await expect(kmInput).toHaveValue(kmText1, { timeout: HEADER_TIMEOUT });
       await page.getByTestId("unit-toggle-mi").click();
-      const miText3 = await page.getByTestId("input-distance-ALN-C4").inputValue();
-      expect(miText3).toBe("500"); // explicit "mi" button matches canonical too
+      await expect(kmInput).toHaveValue("500", { timeout: HEADER_TIMEOUT }); // explicit "mi" button matches canonical too
 
       // ── Edit while displayed in km: confirm the stored CANONICAL value ──
       await page.getByTestId("unit-toggle-km").click();

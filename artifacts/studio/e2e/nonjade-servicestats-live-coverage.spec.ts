@@ -117,11 +117,13 @@ async function getScenarioResult(page: Page, id: number): Promise<ScenarioResult
 }
 
 /** Replaces the current chip-editor distance bands (p-median-us /
- * two-echelon-gold-au both use this shared chip editor — only
- * `two-echelon-jade-us` uses the fixed-4-slot JadeBandEditor) with a fresh
- * set: removes every chip in `currentBands`, then adds each of `newBands`
- * one at a time via the "+ Add" flow. Caller must already be on the
- * Optimization Parameters tab. */
+ * two-echelon-gold-au / max-coverage-us all use this shared chip editor —
+ * only `two-echelon-jade-us` uses the fixed-4-slot JadeBandEditor) with a
+ * fresh set: adds each of `newBands` one at a time via the "+ Add" flow
+ * FIRST, then removes every chip in `currentBands` that isn't also a target
+ * band (see the inline rationale below for why add-then-remove, not
+ * remove-then-add). Caller must already be on the Optimization Parameters
+ * tab. */
 async function replaceBandsViaChipEditor(page: Page, currentBands: number[], newBands: number[]): Promise<void> {
   // Add the new band(s) FIRST, then remove the old ones. The chip editor
   // enforces a last-boundary guard (at least one band must always remain —

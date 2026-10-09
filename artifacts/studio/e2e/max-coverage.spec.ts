@@ -133,11 +133,11 @@ async function createMaxCoverageScenario(page: Page): Promise<string> {
   return id;
 }
 
-async function getScenario(page: Page, id: string): Promise<{ solvedAt: string | null; result: MaxCoverageResult | null }> {
+async function getScenario(page: Page, id: string): Promise<{ result: MaxCoverageResult | null }> {
   const resp = await page.request.get(`/api/scenarios/${id}`);
   expect(resp.status()).toBe(200);
   const body = await resp.json();
-  return { solvedAt: body.solvedAt ?? null, result: body.result ?? null };
+  return { result: body.result ?? null };
 }
 
 /** Trigger a solve via the Run Optimizer dialog (auto-saves any dirty edit —
@@ -281,15 +281,30 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       // `.fill()` alone never reaches its write path; it commits only on
       // blur (clicking a neighbouring field), never on Enter (which races
       // Radix). Round-trip it through a real value and back to its
-      // original 650 so the golden solve below is undisturbed, proving
-      // this works against the real backend (not just jsdom). ────────────
+      // original 650 so the golden solve below is undisturbed. NOTE: this
+      // proves blur reaches `onCommit` and updates `localInputs` — it does
+      // NOT round-trip through the backend (no Save, no PATCH; the value
+      // goes 650 -> 700 -> 650 entirely client-side).
       const avgCapInput = page.getByTestId("input-avg-service-cap");
       await avgCapInput.fill("700");
       await page.getByTestId("input-high-service-dist").click(); // blur-commit via a neighbouring field
+      // The input's own displayed value discriminates here because
+      // `commit()` calls `setDraft(null)` — a blur that never reached
+      // `onCommit` would leave the draft in place and the field would
+      // revert to displaying "650", not "700".
       await expect(avgCapInput).toHaveValue("700", { timeout: HEADER_TIMEOUT });
+      // Independent surface: the derived-model line renders this same value
+      // off `localInputs`, not off the input's own DOM state, so this
+      // confirms the commit actually updated application state.
+      await expect(derivedLine).toContainText("holding average distance at or under 700 mi", {
+        timeout: HEADER_TIMEOUT,
+      });
       await avgCapInput.fill("650");
       await page.getByTestId("input-high-service-dist").click();
       await expect(avgCapInput).toHaveValue("650", { timeout: HEADER_TIMEOUT });
+      await expect(derivedLine).toContainText("holding average distance at or under 650 mi", {
+        timeout: HEADER_TIMEOUT,
+      });
 
       // ── 3. Edit the coverage floor to the achieved covered demand →
       // MIN_DISTANCE mode is derived automatically (CH4O-5, §2.3). The
