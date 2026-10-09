@@ -212,11 +212,16 @@ export function OptimizationParametersTab({
   // bare string literal in review rather than a silent collision at runtime.
   const pid = (s: string) => `${idPrefix}${s}`;
   const tid = (s: string) => `${testIdPrefix}${s}`;
-  // CH4O-7 — unconditional call (Rules of Hooks): every caller of this
-  // component now goes through a `UnitProvider` ancestor in its tests
-  // (chen-bands-units, T13's own convention), and this hook is cheap/pure
-  // for callers that never render the Chapter 4 block below.
-  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  // CH4O-7 — unconditional call (Rules of Hooks). `useDisplayUnit()` THROWS
+  // without a `UnitProvider` ancestor (UnitContext.tsx) — this is therefore
+  // a hard contract on every caller of this component, for every model, not
+  // a cheap/free no-op for callers that never render the Chapter 4 block.
+  // Safe today because every real caller already satisfies it: production
+  // (`main.tsx` wraps the whole `<App>`), and every test file that renders
+  // this component wraps with `{ wrapper: UnitProvider }` (see
+  // `BandChipEditor.tsx`'s own comment for the same warning on that sibling
+  // component).
+  const { format } = useDisplayUnit();
   // chen-bands-units, Part A — the conditionally-linked high boundary: on a
   // highServiceDistKm edit oldHigh -> newHigh, retarget a band EQUAL TO
   // oldHigh to newHigh, but ONLY if such a band is present (the user may
@@ -384,18 +389,30 @@ export function OptimizationParametersTab({
             />
             {(() => {
               // Reads the SAME derivation the server uses, so the label and the
-              // solve that runs cannot disagree. Distances are converted AND
-              // labelled -- printing canonical numbers under a display-unit
-              // label is the trap here.
+              // solve that runs cannot disagree. `UnitApi.format` converts AND
+              // labels a distance in one call, so the number and the unit can
+              // never drift apart -- printing canonical numbers under a
+              // display-unit label is the trap this guards against.
               if (canonicalUnit == null) return null;
-              const u = effectiveUnit(canonicalUnit);
-              const d = (v: number) => toDisplay(v, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 1 });
+              const fmt = (v: number) => format(v, canonicalUnit, { maximumFractionDigits: 1 });
               const floor = coverageFloorDemand ?? 0;
+              // CH4O-5 requires avgServiceDistCapKm unconditionally on a real
+              // Chen scenario (§2.4), but a legacy row saved before that
+              // requirement existed can still have it absent. `highServiceDistKm!`
+              // is safe (gated by the enclosing block's `highServiceDistKm !=
+              // null`); `avgServiceDistCapKm` is NOT gated by anything, so omit
+              // the clause entirely when it's absent rather than assert a false
+              // "at or under 0" cap that the model being solved won't actually
+              // have.
+              const capClause =
+                avgServiceDistCapKm != null
+                  ? `, holding average distance at or under ${fmt(avgServiceDistCapKm)}`
+                  : "";
               return (
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
                   {deriveMaxCoverageObjective(floor) === "coverage"
-                    ? `Model 1 — maximize demand within ${d(highServiceDistKm!)} ${u}, holding average distance at or under ${d(avgServiceDistCapKm!)} ${u}`
-                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${d(highServiceDistKm!)} ${u}`}
+                    ? `Model 1 — maximize demand within ${fmt(highServiceDistKm!)}${capClause}`
+                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistKm!)}`}
                 </p>
               );
             })()}

@@ -14,11 +14,13 @@ const baseProps = {
 // chen-bands-units, T13 — every render in this file now goes through a
 // `UnitProvider` ancestor via RTL's `wrapper` OPTION (not a wrapping
 // element — a wrapping element is silently dropped by a later
-// `rerender(...)` call). A `UnitProvider` ancestor is harmless for every
-// pre-existing (legacy, `canonicalUnit`-omitting) test above — nothing in
-// this file's legacy path calls `useDisplayUnit()`, so wrapping
-// unconditionally costs nothing and lets every `render(...)` call in this
-// file (old and new) stay textually unchanged.
+// `rerender(...)` call). CH4O-7 review F4 — this is now LOAD-BEARING, not
+// free: `OptimizationParametersTab` calls `useDisplayUnit()` unconditionally
+// at the top of its body (Rules of Hooks), so every render in this file —
+// including every legacy, `canonicalUnit`-omitting test above — throws
+// without this wrapper. The `wrapper` option lets every `render(...)` call
+// in this file (old and new) stay textually unchanged, but it is required,
+// not merely harmless.
 function render(
   ui: Parameters<typeof rtlRender>[0],
   options?: Parameters<typeof rtlRender>[1],
@@ -716,8 +718,29 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
     render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistKm={700} />);
     const line = screen.getByTestId("derived-model-line");
-    expect(line).toHaveTextContent(/mi/);
+    // Tightened (review F2): both branch strings contain "maxi**mi**ze" /
+    // "**mi**nimize", so a bare /mi/ match passes no matter what -- it is
+    // non-vacuous only in combination with the `not.toHaveTextContent("700")`
+    // assertion below. Assert the actual converted-and-labelled value instead,
+    // so the inverse regression (correct numbers under a wrong/canonical-km
+    // label) can no longer slip through.
+    expect(line).toHaveTextContent("435 mi");   // 700 km converts to ~435 mi
     expect(line).not.toHaveTextContent("700");   // 700 km displays as ~435 mi
+  });
+
+  // review F1 — `avgServiceDistCapKm!` used to be an unchecked non-null
+  // assertion on a prop gated by nothing: a legacy row with the cap absent
+  // threw a TypeError during render (km-canonical/km-display path) or printed
+  // a false "at or under NaN"/"at or under 0" (mi path / `?? 0` path). Must
+  // render cleanly and must not claim a cap that doesn't exist.
+  it("omits the cap clause (never throws, never claims a false cap) when avgServiceDistCapKm is absent", () => {
+    const { avgServiceDistCapKm, ...propsWithoutCap } = ch4Props;
+    expect(() =>
+      render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={0} />),
+    ).not.toThrow();
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).not.toHaveTextContent("at or under");
+    expect(line).toHaveTextContent(/Model 1/);
   });
 
   it("renders no Chapter 4 block for a model without the thresholds", () => {

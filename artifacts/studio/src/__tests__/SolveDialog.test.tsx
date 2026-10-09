@@ -322,10 +322,14 @@ describe("CH4UX-3 — paramsSlot", () => {
     expect(screen.queryByTestId("solve-dialog-input-gap")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-input-time-limit")).toBeNull();
     expect(screen.queryByTestId("solve-dialog-band-200")).toBeNull();
-    // The Chapter-4-specific built-in block, precisely the one a Chapter 4
-    // paramsSlot must displace. The original test asserted absence for only
-    // 3 of the built-in blocks; this was missing.
-    expect(screen.queryByTestId("solve-dialog-chen-objective-section")).toBeNull();
+    // review F5 — a `solve-dialog-chen-objective-section` assertion used to
+    // sit here, but that testid has never existed anywhere in SolveDialog's
+    // built-in (non-slot) region (CH4O-7 deleted that block entirely, not
+    // just its toggle — see "SolveDialog — no built-in Chen objective
+    // display" below). The assertion therefore passed whether or not
+    // `paramsSlot` was supplied, which is exactly the failure mode the
+    // comment above (CH4UX-4 review Finding 1) forbids — removed rather than
+    // kept passing vacuously.
   });
 
   // CH4UX-6 — the sibling case "hides the read-only summary too when a slot
