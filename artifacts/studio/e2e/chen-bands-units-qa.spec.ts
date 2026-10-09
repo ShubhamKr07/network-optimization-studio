@@ -655,10 +655,12 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       // and does NOT relocate: at the time, `SidebarTree`'s
       // `keepOutputsClickable` was true ONLY for max-coverage-us (CH4-18).
       // CH4O-12 (ch4-model-upgrade) note: that carve-out is gone too —
-      // Workspace.tsx no longer passes `keepOutputsClickable` for ANY
-      // model (grep confirms zero occurrences), so max-coverage-us's
-      // output sidebar is now `disabled` while browsing non-latest history
-      // exactly like every other model, including p-median-us here.
+      // Workspace.tsx stopped passing `keepOutputsClickable` for ANY model,
+      // and the whole-branch review fix wave then removed the prop itself
+      // from `SidebarTree` as dead API. So max-coverage-us's output sidebar
+      // is now `disabled` while browsing non-latest history exactly like
+      // every other model, including p-median-us here, and there is no
+      // longer a prop by which that could differ per model.
       // Output sidebar entries are genuinely `disabled` while browsing a
       // non-latest entry (confirmed via trace replay: the click hung on a
       // real `disabled aria-disabled="true"` button, inheriting the whole
