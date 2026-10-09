@@ -2063,7 +2063,28 @@ Then **stop and prompt for approval to merge.** A hard stop, not a notification.
 
 When the deploy question arrives: this branch touches `solvers/**`, so **`nos-api` needs redeploying as well as `nos-studio`** — `solvers/*/manifest.json` is read at boot by `registry/modelRegistry.ts:47` and baked into the API image by `Dockerfile:16`. Do not conclude "frontend-only" from a pathspec over `artifacts/api-server lib/db lib/api-spec`; that exact mistake shipped a stale model name once already. Check `list_deploys` after any push — the commit webhook does not fire for either service.
 
-The production migration (Task 9's runbook) is yet another separate approval.
+The production migration (Task 9's runbook) is yet another separate approval —
+**and its ORDER relative to the deploy is load-bearing.** Added after Task 5
+escalated the underlying fact.
+
+From Task 5 onward, `coverageFloorDemand` is unconditionally required. Every
+Chapter 4 row written before that commit lacks it, so a deployed server running
+the new code against an unmigrated database will **422 on save and refuse to
+solve every pre-existing Chapter 4 scenario.** Task 9's migration is what fixes
+those rows (it defaults an absent floor to `0`), so:
+
+> Run the migration BEFORE or IN THE SAME WINDOW as the `nos-api` deploy. Never
+> deploy the new code and leave the migration for later.
+
+Verified locally at Task 5's commit: all 5 `max-coverage-us` rows in `nos_dev`
+lack `coverageFloorDemand` and lack `highServiceDistMi`, so the migration's
+presence-key picks every one of them up. Production's count is unmeasurable from
+an agent session (see Task 9) — measure it with `psql` from an allowlisted host
+before deciding the window.
+
+Between Task 5 and Task 9 the local dev database's Chapter 4 scenarios are
+expected to be unusable. That is a transient development state, not a defect, and
+it is why the migration is not optional.
 
 - [ ] **Step 6: Run the retro**
 
