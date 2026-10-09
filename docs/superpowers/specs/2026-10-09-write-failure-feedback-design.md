@@ -12,7 +12,10 @@ project.
 ## 1. The problem
 
 The app has **three** different answers to "how does a failed write reach the
-user", and one of them is silence.
+user", and the most common one is silence. The surfaces below are the
+*distinct behaviours*; §4.2 enumerates the nine actual mutation call sites and
+shows that **six of them handle failure not at all**, which is how one of these
+three behaviours came to be the default rather than the exception.
 
 | Path | On failure today |
 |---|---|
@@ -110,11 +113,19 @@ expression is why every input-validation 422 in the system carries a dump like:
 ```
 
 `validateInputs` is the sole producer of `ValidateInputsResult.error`, and every
-422 path reaches the client through it — `routes/scenarios.ts:217` (create),
-`services/scenarioInputWrite.ts:74` (update, via `{ kind: "invalid" }`),
-`routes/distanceBands.ts:54`. So replacing that one expression with a formatted
-sentence improves **every** consumer at once, with no OpenAPI change, no
-regenerated client, and no new field.
+**Zod shape-validation** 422 reaches the client through it —
+`routes/scenarios.ts:217` (create), `services/scenarioInputWrite.ts:74` (update
+and the import/apply path, via `{ kind: "invalid" }` surfaced as
+`outcome.error`), `routes/distanceBands.ts:54`. So replacing that one expression
+with a formatted sentence improves **every** consumer at once, with no OpenAPI
+change, no regenerated client, and no new field.
+
+Scoped precisely after review: that claim covers Zod validation text, **not
+every 422 in the system**. The others are already plain human strings
+(`modelId is fixed at creation…`, `assertNoServerOwnedFields`' guard text, the
+export-parameter messages, `referenceCosts`/`referenceDistances`' capability
+refusals) and need nothing — plus one differently-shaped body, the network-edit
+precheck, handled in §4.1.
 
 **The function's other error branch must be left alone.**
 `modelRegistry.ts:134` returns `` `Unknown model_id: ${modelId}` `` — already a
@@ -185,9 +196,57 @@ Content: …` is not a sentence for a student. Reading `.data.error` rather than
 `.message` avoids the prefix entirely rather than stripping it, so there is no
 regex to drift.
 
+**There is a SECOND 422 body shape, found in review, that a `data.error`-only
+read silently truncates.** The network-edit precheck returns
+`{ error: "Network-edit precheck failed", errors: outcome.errors }`
+(`routes/scenarios.ts`) — the headline is a label and the *actual* per-entity
+detail is in `errors`. Reading `data.error` alone would show a student
+"Network-edit precheck failed" and discard every reason. So
+`describeWriteError` must handle both shapes: when `data.errors` is a non-empty
+array, render its entries; otherwise use `data.error`. Both are guarded reads
+against `unknown`, not casts.
+
+For completeness, the other 422 bodies in the system are already plain human
+strings — `"modelId is fixed at creation and cannot be changed"`,
+`assertNoServerOwnedFields`' guard text, the export-parameter messages — so they
+pass through this helper unchanged and need nothing.
+
 Not a React hook; a pure function, so it is unit-testable without rendering.
 
-### 4.2 Four call sites, one wording
+### 4.2 Every mutation call site, one wording
+
+**Corrected after review — the original draft of this section named four call
+sites and that contradicted D1.** `Workspace.tsx` has **nine** `.mutate()` call
+sites across six hooks, and **six of them have no `onError` at all**. Silence is
+not one path's quirk; it is the majority behaviour:
+
+| Line | Handler | Today |
+|---|---|---|
+| 2077 | `saveWholeInputsAsync` | `onError` → rejects (caller decides) |
+| **2138** | `handleSaveBandsOnly` | **nothing** |
+| **2699** | `handleCreateConfirm` | **nothing** |
+| **2715** | `handleCloneScenario` | **nothing** |
+| **2730** | `handleDeleteScenario` | **nothing** |
+| **2767** | `handleRenameScenario` | **nothing** |
+| 2863 | `enqueueSolve` | `onError` + toast + failure card |
+| 2946 | `handleSolve` (save-before-solve) | `onError` + toast |
+| **3122** | `handleSaveAsScenario` | **nothing** |
+
+"One mechanism applied everywhere" (D1) therefore means **all nine**, not the
+four the draft listed. Naming four would have left five silent paths and
+reproduced the exact divergence this project exists to end — and `handleCloneScenario`
+is one of them, so D4's server-side 422 would have landed on a call site that
+discards it.
+
+Every site gets `onError` routing through `describeWriteError`, with a title
+naming the action ("Couldn't save your changes", "Couldn't rename the scenario",
+"Couldn't delete the scenario", …) and the server's sentence as the description.
+Two keep their existing extra surfaces unchanged: `enqueueSolve`'s failure card
+and `setSolveError` stay, and `saveWholeInputsAsync` keeps rejecting so its
+callers can still react — it gains nothing, because its *callers* are what
+surface the error.
+
+Specifics that differ from the uniform treatment:
 
 - `handleSaveInputs` (`Workspace.tsx:2122-2127`) stops swallowing and toasts
   `{ title: "Couldn't save your changes", description: describeWriteError(err), variant: "destructive" }`.
@@ -218,10 +277,33 @@ manifest declares `inputsSchema.required[]` — for `max-coverage-us`:
 — and `inputsSchema` is surfaced on `/api/models`
 (`registry/modelRegistry.ts:114`).
 
+**Verified against the live production API, not just the manifest on disk:**
+`GET /api/models` for `max-coverage-us` serves `inputsSchema` with keys
+`['properties','required','type']` and all nine `required` entries intact. The
+mechanism is real end to end.
+
+Two refinements from review:
+
+- **`required` is runtime-present but untyped.** The generated type is
+  `ModelInfoInputsSchema = { [key: string]: unknown }`
+  (`api.schemas.ts:222`), because the OpenAPI schema declares `inputsSchema` as
+  a bare `type: object` described as "Opaque to this contract". So the caller
+  needs a *guarded* read — `Array.isArray(x.required) && x.required.every(k => typeof k === "string")`
+  — not a property access or a cast. If the guard fails, render no notice: a
+  missing-manifest-detail must never produce a scary message.
+- **Absence must be tested by value, not by key presence.** "Required keys
+  absent from `localInputs`" misses a key that is present but `null` or
+  `undefined`, which an `in`-style check treats as fine. For a
+  migration-skipped Chapter 4 row this happens not to arise — such rows are
+  left wholly unconverted, so the `…Mi` keys are genuinely absent — but a
+  value-based check is strictly safer, costs nothing, and does not depend on
+  that incidental fact holding for every model.
+
 So **the caller computes, the component renders**:
 
 - `Workspace.tsx` derives `missingRequiredInputs: string[]` as the manifest's
-  `required` keys absent from `localInputs`, and passes it down.
+  `required` keys whose value in `localInputs` is `null`/`undefined`/absent, and
+  passes it down.
 - `OptimizationParametersTab` renders the notice when that array is non-empty,
   listing the labels.
 
@@ -270,6 +352,18 @@ not `onCommit` fired. Only the `onCommit` call becomes conditional.
 distances). Their change-detection comparisons at `:1102`, `:1193` and `:1286`
 stay exact `!==` — once both sides are 4 dp, exact comparison is correct.
 
+**The lane-cost site was challenged in review and is safe — recorded because the
+opposite conclusion is the intuitive one.** This repo has a standing rule that a
+`$/unit-distance` RATE converts as the *reciprocal* of a distance and must never
+go through the distance helpers, so wrapping a field named `cost` in a distance
+rounding looks like exactly that mistake. It is not: `templates.ts:1172-1178`
+states that transport-coal's lane "cost" **is literally geographic miles** — the
+objective is distance × flow and `cost` is only chapter vocabulary — which is
+why its export already does `roundForFile(toDisplay(...))` at
+`applyLaneCostOverrides`. The genuine rate case (`$/ton-mi`, with
+`rateConversion` and `IDENTITY_CONVERSION`) lives in the studio's
+`lib/transportCosts.ts` and this import path never touches it.
+
 **D5 prevents new mismatches but does not fix existing ones.** A value already
 stored at full precision still differs from its own 4 dp export, so the spurious
 changed-row survives for that data. This is measured, not hypothetical:
@@ -286,13 +380,52 @@ to 4 dp — two values in one row in production. Without it the fix is partial,
 which the project's own standard forbids.
 
 The backfill must be idempotent (rounding an already-4 dp value is a no-op, so
-this is satisfied by construction, and a test asserts it), must leave
-non-override fields alone, and — unlike the CH4O migration — must **not** clear
-`result` or bump the solve epoch: rounding a stored override at the 5th decimal
-cannot change a solver outcome that was computed from the unrounded value to any
-visible precision, and invalidating a student's solved result over it would be
-worse than the wart. This is a deliberate difference from `ch4ToMiles.ts`, whose
-epoch bump *was* load-bearing because the unit changed.
+this is satisfied by construction, and a test asserts it) and must leave
+non-override fields alone.
+
+### 6.1 The no-epoch-bump decision, corrected
+
+The original reasoning here was **too strong and is withdrawn**. It claimed that
+rounding at the 5th decimal "cannot change a solver outcome to any visible
+precision". A counterexample exists and was constructed: a stored value of
+`449.99996` rounds to exactly `450.0`, i.e. **across** a distance-band boundary
+at 450.
+
+What that does and does not break:
+
+- It does **not** change the solve. Distance bands are a reporting lens computed
+  in post-processing, not model constraints — this repo's own standing note.
+- It **can** change `result.metrics.bandCoverage` in the *cached* envelope,
+  which would then disagree with a client-side recompute of the same bands. That
+  is precisely the cached-result-drift class the staleness guard exists for, and
+  not bumping the epoch is what would let it persist.
+
+Two round-trip claims were tested and **hold**, so only the boundary case is at
+issue: across 4010 values (including every integer kilometre figure in range and
+4000 random ones) a km→mi→km→mi→km chain with 4 dp rounding at every hop was
+**stable in all 4010 cases**, zero oscillation or drift.
+
+**So the decision stands but must be made true by construction rather than by
+luck.** The backfill:
+
+1. computes, per row, whether any value it would round **crosses a band boundary
+   declared in that scenario's own `distanceBands`**;
+2. if none do, writes the rounded values and does **not** clear `result` or bump
+   the solve epoch — the original rationale applies, since nothing observable
+   changes;
+3. if any do, it **refuses that row and reports it** rather than choosing for the
+   operator, because the correct handling (accept a changed band attribution, or
+   bump the epoch and force a re-solve) is a judgement about a student's saved
+   work.
+
+Verified for the actual production data: scenario 40's bands are
+`[200, 400, 800, 1600]` and its two values round `6.2137119223733395 → 6.2137`
+and `9.32056788356001 → 9.3206`, neither crossing any boundary. So the real
+backfill takes path (2) — but it takes it because the guard checked, not because
+the spec asserted it.
+
+This remains a deliberate difference from `ch4ToMiles.ts`, whose epoch bump *was*
+load-bearing because the unit itself changed.
 
 ## 7. Testing
 
@@ -335,6 +468,27 @@ otherwise the guard could be made to pass by never committing at all.
 reporting the rows it would touch. FU-13 (already landed) established that a dry
 run which cannot predict its own effect is worse than none; this one must not
 repeat that.
+
+Four tests added by the review, each pinning a finding that would otherwise be
+only prose:
+
+- **All nine mutation sites surface a failure.** A test that enumerates
+  `Workspace.tsx`'s `.mutate(` call sites and asserts each has an `onError`,
+  in the style of the existing `lockedModelGuards.test.ts` and
+  `maxCoverageWriteGuard.test.ts` source-reading guards. Without it, the tenth
+  call site added next year silently reintroduces the whole defect — which is
+  exactly how this one arose.
+- **The second 422 shape is rendered, not truncated.** `describeWriteError`
+  given `{ error: "Network-edit precheck failed", errors: [...] }` must surface
+  the entries, not just the label.
+- **The notice does not misfire when the manifest detail is unreadable.** Given
+  an `inputsSchema` whose `required` is absent or not a string array, the guard
+  fails closed and renders nothing.
+- **The backfill refuses a band-crossing row.** A fixture whose value rounds
+  across one of its own `distanceBands` must be reported and skipped, not
+  written — and a sibling fixture that crosses nothing must be written without
+  an epoch bump. Both halves are needed: a guard that refuses everything would
+  pass the first assertion alone.
 
 ## 8. Out of scope
 
