@@ -3123,3 +3123,65 @@ The follow-up commit `9ccb628` replaced a hand-rolled `bandOf` with `@workspace/
 ### Not yet done, and each needs its own approval
 
 `superpowers:finishing-a-development-branch`, merge, whole-branch review, push, deploy, `/harness-retro WF`. **The production backfill is a further separate approval and must not be bundled with a deploy request** — its scope is 1 scenario / 2 values (`p-median-us` scenario 40: `6.2137119223733395` and `9.32056788356001`, both reproducible as `10 / 1.609344` and `15 / 1.609344`, confirming a km-sourced import). Deploy surface: `nos-api` (server validation, clone, import rounding, the new migration) **and** `nos-studio` (every client error surface, the notice, the draft guard) both change. `nos-postgres` needs no `drizzle-kit push` — the branch adds no schema change.
+
+### Whole-branch review round 2 — the eighth weak test, and the last silent mutation
+
+The final review returned **not ready** with two must-fix defects, and both were
+tests rather than code: the implementations already fixed their bugs and the
+shipped tests passed against implementations that did not.
+
+- **WF-5's caller-level computation had zero coverage** (`94c112f`). The only
+  Workspace-level test of the missing-required notice reached the *fails-closed*
+  branch and never the filter — the mocked `p-median-us` entry carried no
+  `inputsSchema`, so the memo returned `[]` before the by-value check was
+  evaluated. Proven by mutation: changing the predicate to `!values[k]` left 350
+  tests green. The failure that would have shipped is the reason it matters —
+  `gap` is in **every** model's `required[]` and `gap: 0` is the stored default,
+  so that mutant renders *"MIP gap — it cannot be saved or solved … contact your
+  instructor"* on all 376 production scenarios with every suite green. The mock
+  now carries a real `required[]` and asserts no notice while `gap: 0` is
+  present, with a second model keeping the fails-closed branch covered.
+- **WF-6's three tests could not fail on their own defect** (`907d650`). All used
+  mi with the default unit preference, so `fromDisplay` was the identity and the
+  floating-point drift the guard exists for never occurred; strict `!==` left all
+  three green. A km-mode case was added: canonical `650` mi displays as
+  `1046.0736`, retypes to `649.9999999999999`, equal only at `roundForFile`'s
+  4 dp. Spec §7 had asked for exactly this and the shipped tests were mi-only.
+
+Two fold-ins and one scope decision:
+
+- The raw-message guard keyed on a single idiom, so `mutation.error?.message` —
+  ImportDialog's own shipped bug in another spelling — passed it. Widened, with
+  two genuine hits added to the named allow-list (unused shadcn scaffold whose
+  `error` is a react-hook-form `FieldError`, not an `ApiError`), and its
+  staleness check now filters comments so a commented-out occurrence cannot keep
+  a stale entry looking fresh (`7646568`).
+- The notice's label table was a **third** label table on this branch and was
+  missing eight keys that appear in some model's `required[]`
+  (`capacityFactor`, `singleSource`, `capacityInactive`, `costAdjustEnabled`,
+  `distanceThreshold`, `costPerMile`, `costPerMileOver`, `bomRatio`) — a row of
+  one of those models would have shown a student a raw camelCase identifier. All
+  eight added with a bidirectional coverage test following the server table's
+  shape (`5680861`).
+- **`AppShell`'s logout was the last mutation in `src/` with no failure surface
+  at all** — no `onError`, no `isError` render, and invisible to both guards by
+  construction, exactly as the toolbar Save had been. Out of the spec's
+  scenario-write scope, folded in on an explicit decision because the failure is
+  security-adjacent rather than cosmetic: on a shared machine a student clicks
+  Log out, the request fails, nothing happens, the session cookie stays valid and
+  the header still shows their email — they leave believing they logged out. The
+  fallback names the state they are actually in ("You are still signed in")
+  rather than the HTTP detail (`dd278d9`).
+
+Gate: studio **127 files / 2331 tests**, zero failures, zero concurrent vitest,
+no flakes in the run. Workspace-level typecheck clean across all projects. The
+api-server suite, solver pytest and `e2e_accuracy.py` were not re-run for this
+round and did not need to be — the only api-server-tree change since the last
+full gate is a `CLAUDE.md` doc, so those results apply by content.
+
+**One structural gap left open, deliberately.** `mutationErrorSurface.test.ts`
+still reads only `Workspace.tsx`, so a *missing* `onError` elsewhere matches no
+pattern in either guard — which is how both the toolbar Save and this logout
+stayed hidden. Widening it needs a cross-file allow-list audit and was judged
+too large to force into a review fix round. It is the first follow-up this branch
+leaves behind.
