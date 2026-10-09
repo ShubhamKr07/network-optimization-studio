@@ -199,7 +199,9 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   addedWarehouses: "Added warehouses",
   addedCustomers: "Added customers",
   distanceOverrides: "Distance overrides",
-  // max-coverage-us (Chapter 4)
+  // max-coverage-us (Chapter 4). Entries are CAPITALISED because they are used
+  // as sentence subjects; `substituteKeys` lowercases them for mid-sentence
+  // use, so one table serves both positions.
   highServiceDistMi: "High-service distance",
   maxDistMi: "Max distance",
   avgServiceDistCapMi: "Average service distance cap",
@@ -215,6 +217,16 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   plantCapabilityOverrides: "Plant capability overrides",
 };
 
+/**
+ * Zod prefixes its own generic subject onto range messages — "Number must be
+ * greater than 0", not "must be greater than 0". Prepending a field label
+ * without stripping it yields "Average service distance cap NUMBER must be
+ * greater than 0." Verified against the real schema output, not assumed.
+ */
+const GENERIC_SUBJECT = /^(Number|String|Array|Date|Boolean|Value)\s+/;
+
+const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+
 function labelFor(path: z.ZodIssue["path"]): string {
   const head = path[0];
   if (typeof head !== "string") return "The values";
@@ -222,10 +234,25 @@ function labelFor(path: z.ZodIssue["path"]): string {
   return INPUT_FIELD_LABELS[head] ?? head;
 }
 
-/** "distanceOverrides[2].distance" -> " row 3" (1-based, for humans). */
+/** "distanceOverrides[1].distance" -> " row 2" (1-based, for humans). */
 function rowSuffix(path: z.ZodIssue["path"]): string {
   const idx = path.find(seg => typeof seg === "number");
   return typeof idx === "number" ? ` row ${idx + 1}` : "";
+}
+
+/**
+ * Replaces every known raw field key inside a message with its label,
+ * lowercased because these land mid-sentence ("… must be less than max
+ * distance"). `skipHead` is the path's own head, which the caller has already
+ * rendered as a capitalised label and must not re-substitute.
+ */
+function substituteKeys(message: string, skipHead?: string): string {
+  let out = message;
+  for (const [key, label] of Object.entries(INPUT_FIELD_LABELS)) {
+    if (key === skipHead) continue;
+    out = out.replace(new RegExp(`\\b${key}\\b`, "g"), lower(label));
+  }
+  return out;
 }
 
 function sentenceFor(issue: z.ZodIssue): string {
@@ -235,16 +262,17 @@ function sentenceFor(issue: z.ZodIssue): string {
   // message a migration-skipped row produces for every absent field, so it is
   // load-bearing for the skipped-row diagnosis path (spec §3.2).
   if (issue.message === "Required") return `${label}${row} is required.`;
-  // A `custom` cross-field message is already a full statement written for
-  // humans (e.g. "highServiceDistMi must be less than maxDistMi") — but it
-  // names the raw field. Replace a leading raw key with its label.
+  // A `custom` cross-field message is already a full human statement
+  // ("highServiceDistMi must be less than maxDistMi") but names raw fields —
+  // and it names them on BOTH sides, so substituting only the leading one
+  // leaves "must be less than maxDistMi" in front of a student.
   const head = issue.path[0];
   if (typeof head === "string" && issue.message.startsWith(head)) {
-    const rest = issue.message.slice(head.length);
+    const rest = substituteKeys(issue.message.slice(head.length), head);
     return `${label}${row}${rest}.`;
   }
-  const lowered = issue.message.charAt(0).toLowerCase() + issue.message.slice(1);
-  return `${label}${row} ${lowered}.`;
+  const body = substituteKeys(issue.message.replace(GENERIC_SUBJECT, ""));
+  return `${label}${row} ${lower(body)}.`;
 }
 
 /**
@@ -266,7 +294,22 @@ DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-s
 ```
 Expected: PASS, 8 tests.
 
-If `"High-service distance must be less than max distance."` fails, read the actual `custom` message in `maxCoverage.ts` and adjust the *test's* expected string to match the real message with its label substituted — do not weaken the assertion to `toContain`.
+**All six single-issue expectations in Step 1 were verified by running the real
+schema, not reasoned about** — `maxCoverageInputsSchema.safeParse` was executed
+against each bad payload and the formatter above reproduces exactly:
+
+| Input | Zod's raw message | Formatter output |
+|---|---|---|
+| `avgServiceDistCapMi: 0` | `Number must be greater than 0` | `Average service distance cap must be greater than 0.` |
+| `coverageFloorDemand` absent | `Required` | `Coverage floor is required.` |
+| `highServiceDistMi: 9999` | `highServiceDistMi must be less than maxDistMi` | `High-service distance must be less than max distance.` |
+| `maxDistMi: 0` | `Number must be greater than 0` | `Max distance must be greater than 0.` *(label capitalised as a subject)* |
+| bad `distanceOverrides[1]` | `Number must be greater than 0` | `Distance overrides row 2 must be greater than 0.` |
+| unmapped `someFutureField` | `must be even` | `someFutureField must be even.` |
+
+So a failure here means the implementation diverged from the code above, **not**
+that the expectation is wrong. Fix the implementation; do not weaken the
+assertion to `toContain`, and do not edit the expected strings.
 
 - [ ] **Step 5: Wire it into the chokepoint**
 
@@ -554,15 +597,24 @@ import { resolve } from "node:path";
 const SRC = resolve(__dirname, "../pages/Workspace.tsx");
 
 describe("Workspace mutation error surface", () => {
-  it("every .mutate( call site has an onError within its options object", () => {
+  it("every .mutate( call site has an onError before the next one begins", () => {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
+    // Ignore commented-out code so a `// foo.mutate(` note is not an offender.
+    const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
+    const sites = lines
+      .map((line, i) => ({ line, i }))
+      .filter(({ line }) => /\.mutate(Async)?\(/.test(line) && isCode(line));
+
     const offenders: string[] = [];
-    lines.forEach((line, i) => {
-      if (!/\.mutate(Async)?\(/.test(line)) return;
-      // The options object follows within ~45 lines at every existing site.
-      const window = lines.slice(i, i + 45).join("\n");
-      if (!/onError\s*:/.test(window)) offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
+    sites.forEach(({ line, i }, n) => {
+      // Scope each site's window to where the NEXT site starts, so a
+      // neighbour's handler can never be mistaken for this one's. A fixed
+      // line count cannot do this: the real gaps between these sites range
+      // from 4 to over 700 lines.
+      const end = n + 1 < sites.length ? sites[n + 1].i : lines.length;
+      const own = lines.slice(i, end).join("\n");
+      if (!/onError\s*:/.test(own)) offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
     });
     expect(offenders).toEqual([]);
   });
@@ -1204,16 +1256,33 @@ describe("roundOverridePrecision", () => {
     expect(second.alreadyRounded).toEqual([id]);
   });
 
-  it("REFUSES a row whose value would round across one of its own bands", async () => {
+  // 450.00004 rounds DOWN to exactly 450.0, moving the value from the overflow
+  // bucket INTO the 450 band — a real membership change. Do NOT use 449.99996
+  // here: it rounds UP to 450.0 but is <= 450 both before and after, so
+  // membership does not change and the guard correctly ignores it. That value
+  // was this plan's original fixture and would have made this test fail.
+  it("REFUSES a row whose value would change which band it is reported in", async () => {
     const id = await seedScenario({ modelId: "p-median-us", distanceBands: [450],
-      distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 449.99996 }] });
+      distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 450.00004 }] });
     const report = await roundAll(db, false, [id]);
     expect(report.rounded).toEqual([]);
     expect(report.refused).toHaveLength(1);
     expect(report.refused[0]).toMatchObject({ id });
     expect(report.refused[0].reason).toContain("450");
     // Refused means UNCHANGED, not partially written.
-    expect(await storedDistance(id, "C1")).toBe(449.99996);
+    expect(await storedDistance(id, "C1")).toBe(450.00004);
+  });
+
+  it("does NOT refuse a value that rounds onto a boundary from inside the band", async () => {
+    const id = await seedScenario({ modelId: "p-median-us", distanceBands: [450],
+      distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 449.99996 }] });
+    const report = await roundAll(db, false, [id]);
+    // 449.99996 and 450.0 are both within the 450 band, so nothing is reported
+    // differently and the row is safe to round. This pins the guard against the
+    // interval-based implementation, which would have refused it.
+    expect(report.refused).toEqual([]);
+    expect(report.rounded).toEqual([id]);
+    expect(await storedDistance(id, "C1")).toBe(450);
   });
 
   it("does NOT clear result or bump the solve epoch on a row it rounds", async () => {
@@ -1275,13 +1344,32 @@ const OVERRIDE_FIELDS = [
   { key: "legDistanceOverrides", value: "distance" },
 ] as const;
 
-/** Does rounding `v` move it across any boundary in `bands`? */
-function crossesBand(v: number, bands: number[]): number | null {
+/**
+ * The first band at or above `v`, i.e. the band `v` is reported in. Bands are
+ * UPPER BOUNDS ("within 450 mi"), so `<=`. `null` is the overflow bucket.
+ */
+function bandOf(v: number, bands: number[]): number | null {
+  return [...bands].sort((a, b) => a - b).find(b => v <= b) ?? null;
+}
+
+/**
+ * Does rounding `v` change which band it is REPORTED IN?
+ *
+ * Membership, not an interval. An interval test (`min < band <= max`) is wrong
+ * in both directions and was corrected here after being checked:
+ *   - 449.99996 -> 450.0 : interval says "crosses 450"; membership says NO,
+ *     because both are <= 450 and therefore both inside that band. False
+ *     positive, and it was this plan's original test fixture.
+ *   - 450.00004 -> 450.0 : interval says nothing; membership says YES — the
+ *     value moves from the overflow bucket INTO the 450 band. This is the real
+ *     case and the interval test missed it.
+ */
+function crossesBand(v: number, bands: number[]): { from: number | null; to: number | null } | null {
   const r = roundForFile(v);
   if (r === v) return null;
-  const lo = Math.min(v, r);
-  const hi = Math.max(v, r);
-  return bands.find(b => lo < b && b <= hi) ?? null;
+  const before = bandOf(v, bands);
+  const after = bandOf(r, bands);
+  return before === after ? null : { from: before, to: after };
 }
 
 /**
@@ -1326,9 +1414,9 @@ export async function roundAll(
         if (typeof v !== "number") return o;
         const r = roundForFile(v);
         if (r === v) return o;
-        const band = crossesBand(v, bands);
-        if (band !== null) {
-          refusal = `${key}[${o.fromId}->${o.toId}] ${v} rounds to ${r}, crossing band ${band}`;
+        const moved = crossesBand(v, bands);
+        if (moved !== null) {
+          refusal = `${key}[${o.fromId}->${o.toId}] ${v} rounds to ${r}, moving it from band ${moved.from ?? "overflow"} to band ${moved.to ?? "overflow"}`;
           return o;
         }
         changed = true;

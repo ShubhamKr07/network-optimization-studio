@@ -387,9 +387,20 @@ non-override fields alone.
 
 The original reasoning here was **too strong and is withdrawn**. It claimed that
 rounding at the 5th decimal "cannot change a solver outcome to any visible
-precision". A counterexample exists and was constructed: a stored value of
-`449.99996` rounds to exactly `450.0`, i.e. **across** a distance-band boundary
-at 450.
+precision". A counterexample exists.
+
+**The counterexample, corrected twice.** The first version given here was
+`449.99996 → 450.0` "crossing the boundary at 450". That is **wrong**, and
+checking it is what produced the right answer: bands are *upper bounds* ("within
+450 mi"), so `449.99996` and `450.0` are both **inside** the 450 band and
+membership does not change. The genuine case is the other direction —
+**`450.00004 → 450.0`**, which moves a value from the overflow bucket *into* the
+450 band.
+
+This matters beyond pedantry: a boundary test written as an interval
+(`min < band <= max`) reports the harmless case and **misses** the real one. The
+correct test is whether **band membership** changes — compute the first band
+`>= value` for the stored and rounded values and compare.
 
 What that does and does not break:
 
