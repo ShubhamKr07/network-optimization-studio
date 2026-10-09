@@ -159,27 +159,16 @@ describe("SolveDialog — built-in P slider cap (pMax) and band-editor seam", ()
   });
 });
 
-// CH4-17 — the free objective toggle (and its coverage-floor input) are
-// gone from this dialog. `objective` stays a read-only display prop, gated
-// on presence exactly like before, so every other model's dialog is
-// unaffected.
-describe("SolveDialog — Chen objective display (CH4-17: no toggle)", () => {
-  it("no longer renders a free objective toggle or a coverage-floor input for a Chen scenario (coverage)", () => {
-    renderDialog({ objective: "coverage", avgServiceDistCapKm: 1000, distanceUnit: "km" });
-    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeInTheDocument();
-  });
-
-  it("renders no avg-service-cap or coverage-floor input for a min_distance display (only the server can produce that objective)", () => {
-    renderDialog({ objective: "min_distance", distanceUnit: "km" });
-    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
-  });
-
-  it("does not render the objective section for a non-Chen scenario (objective omitted)", () => {
+// CH4O-7 — the built-in Chen objective display (and its `objective` prop)
+// is deleted entirely, not just its toggle: it was unreachable dead code —
+// max-coverage-us always supplies `paramsSlot` (CH4UX-4/CH4UX-6), so this
+// dialog's built-in region, including this section, never mounted for it.
+// The real, editable avg-cap/coverage-floor fields now live on
+// `OptimizationParametersTab`, covered by that component's own tests.
+describe("SolveDialog — no built-in Chen objective display (CH4O-7)", () => {
+  it("does not render an objective section, avg-cap, or coverage-floor for any built-in (non-slot) render", () => {
     renderDialog({ p: 3 });
+    expect(screen.queryByTestId("solve-dialog-chen-objective-section")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
@@ -262,46 +251,22 @@ describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", 
     window.localStorage.clear();
   });
 
-  it("renders a placeholder and disables editing until the Chen manifest resolves (canonicalUnit=null)", () => {
-    renderDialog({
-      canonicalUnit: null,
-      objective: "coverage",
-      avgServiceDistCapKm: 1000,
-      distanceBands: [600, 5000],
-    });
-    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeDisabled();
-    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toHaveValue("");
-    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeDisabled();
-    expect(screen.getByTestId("solve-dialog-bands-unit-pending")).toBeInTheDocument();
-  });
+  // CH4O-7 — the built-in avg-cap/coverage-floor-specific placeholder and
+  // commit-as-canonical tests that used to live here are deleted along with
+  // the `objective`/`avgServiceDistCapKm` props themselves (dead,
+  // unreachable code — see the "no built-in Chen objective display" describe
+  // block above). The placeholder-under-canonicalUnit=null contract for the
+  // band editor (the part of this still genuinely owned by THIS dialog) is
+  // already covered below and in BandChipEditor.test.tsx/
+  // OptimizationParametersTab.test.tsx, so nothing is lost.
 
-  it("does the same commit-as-canonical conversion as OptimizationParametersTab, through the identical hook", () => {
-    window.localStorage.setItem(STORAGE_KEY, "mi");
-    const onChange = vi.fn();
-    renderDialog({
-      canonicalUnit: "km",
-      objective: "coverage",
-      avgServiceDistCapKm: 1000,
-      distanceBands: [600, 5000],
-      onChange,
-    });
-    const input = screen.getByTestId("solve-dialog-input-avg-service-cap");
-    // 1000 km displayed in mi: 1000 / 1.609344 = 621.3712 (rounded to 4dp).
-    expect(input).toHaveValue("621.3712");
-    fireEvent.change(input, { target: { value: "500" } });
-    fireEvent.blur(input);
-    // 500 mi -> km: 500 * 1.609344 = 804.672.
-    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 804.672);
-  });
-
-  // CH4-17 — there is no coverageFloorDemand field any more; a
-  // min_distance display renders no avg-service-cap and no floor field,
-  // leaving gap/timeLimitSec untouched.
-  it("gap / timeLimitSec are untouched by a min_distance display (no floor field exists)", () => {
+  // CH4O-7 — gap/timeLimitSec are untouched regardless of canonicalUnit;
+  // there is no `objective`-gated avg-cap/floor field in this dialog's
+  // built-in region at all any more (not just in a "min_distance display").
+  it("gap / timeLimitSec are untouched by canonicalUnit (no avg-cap/coverage-floor field exists in the built-in region)", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
     renderDialog({
       canonicalUnit: "km",
-      objective: "min_distance",
       distanceBands: [600, 5000],
       gap: 0.02,
       timeLimitSec: 300,
@@ -343,14 +308,13 @@ describe("CH4UX-3 — paramsSlot", () => {
     // the read-only-mode half of every gate: each assertion below
     // must name a block whose OWN remaining gate this render satisfies, or
     // it passes whether or not `paramsSlot` is supplied. Hence `p: 5` (the
-    // slider block is gated `p != null`) and `objective: "coverage"` (the
-    // chen-objective section is gated `objective != null`, and
-    // `renderDialog`'s defaults never pass it). The gap/time-limit grid and
-    // the band editor are now unconditional inside the fallback, so those
-    // two are real by construction.
+    // slider block is gated `p != null`). CH4O-7 — the built-in Chen
+    // objective section (and its `objective` prop) is deleted entirely, so
+    // there is no longer a gate to exercise for it here; the gap/time-limit
+    // grid and the band editor are unconditional inside the fallback, so
+    // those two are real by construction.
     renderDialog({
       p: 5,
-      objective: "coverage",
       paramsSlot: <div data-testid="slotted-params">slotted</div>,
     });
     expect(screen.getByTestId("slotted-params")).toBeInTheDocument();

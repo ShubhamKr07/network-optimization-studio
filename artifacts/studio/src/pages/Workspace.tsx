@@ -313,14 +313,6 @@ function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number
   return Array.isArray(raw) ? (raw as number[]) : [];
 }
 
-// C4.12 — Chen (max-coverage-us) objective mode + coverage params, all read
-// off the opaque inputs blob (the caller gates these on modelId so no sibling
-// model ever passes them into OptimizationParametersTab's Chen block).
-function objectiveFromInputs(inputs: Record<string, unknown> | null): "coverage" | "min_distance" | undefined {
-  const raw = inputs?.objective;
-  return raw === "coverage" || raw === "min_distance" ? raw : undefined;
-}
-
 function optionalNumberFromInputs(inputs: Record<string, unknown> | null, key: string): number | undefined {
   const raw = inputs?.[key];
   return typeof raw === "number" ? raw : undefined;
@@ -1312,6 +1304,19 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         // timeLimitSec (spec §2.3, decided with the simpler alternative
         // costed out).
         { id: "transportCosts", label: "Transportation Costs" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    // Registration point 12. Written out explicitly even though it matches the
+    // p-median tail: the precheck is explicit that OMISSION is a silent defect,
+    // because falling through GRANTS an editable dataset surface a model may
+    // not support. The tail being close to what this model wants makes writing
+    // the case out more important, not less.
+    case "max-coverage-us":
+      return [
+        { id: "input-map", label: "Input Map" },
+        { id: "customers", label: "Customers" },
+        { id: "warehouses", label: "Warehouses" },
+        { id: "distances", label: "Distances" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     case "p-median-brazil":
@@ -3152,7 +3157,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // max-coverage-us cap and would otherwise stop matching this
     // occurrence if it were split across lines.
     pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
-    objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
+    // CH4O-7 — no `objective:` entry here any more: the mode is fully
+    // derived (client- and server-side) from `coverageFloorDemand` below,
+    // via the SAME `deriveMaxCoverageObjective` rule, never a second copy.
     highServiceDistKm:
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined,
     maxDistKm:

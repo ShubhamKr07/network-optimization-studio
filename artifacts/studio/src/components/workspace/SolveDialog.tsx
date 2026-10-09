@@ -14,8 +14,6 @@ import {
 import type { OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
 import { type CanonicalUnit } from "@workspace/units";
-import { useDisplayUnit } from "@/contexts/UnitContext";
-import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 interface SolveDialogProps {
   open: boolean;
@@ -88,18 +86,12 @@ interface SolveDialogProps {
    * drift onto two different parameter editors; every other model omits it
    * and keeps the built-in controls verbatim. */
   paramsSlot?: ReactNode;
-  // ── Chen's Cosmetics (max-coverage-us) objective display ──────────────
-  // CH4-17 — no toggle any more: `objective` stays "coverage" for every
-  // persisted Chapter 4 payload (only the server may produce a
-  // "min_distance" payload, Task 3/4), so this section is read-only display
-  // scoped to the active mode's field. Presence of `objective` gates it, the
-  // same convention as `p`/`bomRatio` above.
-  /** Coverage vs min-distance objective mode. Presence gates the section. */
-  objective?: "coverage" | "min_distance";
-  /** CH4O-5 — the weighted-average service-distance cap. No longer
-   * coverage-mode-only: it is a constraint in BOTH objectives and is
-   * unconditionally required on `inputs`. */
-  avgServiceDistCapKm?: number;
+  // CH4O-7 — the built-in Chen objective display (a read-only `objective`
+  // prop + its gated avg-service-cap field) is deleted: it was unreachable
+  // dead code — `objective` only ever existed for max-coverage-us, which
+  // always supplies `paramsSlot` above and so never mounts this dialog's
+  // built-in region at all. The real, editable avg-cap field now lives on
+  // `OptimizationParametersTab`, rendered through `paramsSlot`.
   /** Writes directly into Workspace.tsx's `localInputs` draft via
    * `updateInputsField` — the exact same callback shape
    * OptimizationParametersTab uses, so there is exactly one source of
@@ -137,8 +129,6 @@ export function SolveDialog({
   canonicalUnit,
   showBandEditor = true,
   paramsSlot,
-  objective,
-  avgServiceDistCapKm,
   onChange,
   onSolve,
 }: SolveDialogProps) {
@@ -175,42 +165,6 @@ export function SolveDialog({
                   data-testid="solve-dialog-slider-p"
                   className="my-1"
                 />
-              </div>
-            )}
-
-            {/* Chen's Cosmetics objective display — CH4-17: no toggle, no
-                floor input. `objective` is always "coverage" for a persisted
-                Chapter 4 payload; this is read-only display of the one
-                mode-specific field, scoped exactly like
-                OptimizationParametersTab's surviving `chen-objective-section`. */}
-            {objective != null && (
-              <div className="space-y-2" data-testid="solve-dialog-chen-objective-section">
-                {objective === "coverage" && (
-                  canonicalUnit !== undefined ? (
-                    <SolveDialogDistanceInput
-                      id="solve-dialog-input-avg-service-cap"
-                      testId="solve-dialog-input-avg-service-cap"
-                      labelPrefix="Avg service distance cap"
-                      canonicalUnit={canonicalUnit}
-                      value={avgServiceDistCapKm ?? 0}
-                      onCommit={v => onChange("avgServiceDistCapKm", v)}
-                    />
-                  ) : (
-                    <div>
-                      <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
-                        Avg service distance cap{distanceUnit ? ` (${distanceUnit})` : ""}
-                      </Label>
-                      <Input
-                        id="solve-dialog-input-avg-service-cap"
-                        type="number"
-                        value={avgServiceDistCapKm ?? ""}
-                        onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
-                        className="h-8 text-sm mt-1 font-mono"
-                        data-testid="solve-dialog-input-avg-service-cap"
-                      />
-                    </div>
-                  )
-                )}
               </div>
             )}
 
@@ -286,57 +240,5 @@ export function SolveDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// chen-bands-units, T13, Step 3b — mirrors OptimizationParametersTab's own
-// `ChenDistanceInput`: adopts `useDistanceDraft` verbatim, only mounted once
-// the caller opts into `canonicalUnit` (undefined callers never trigger
-// `useDisplayUnit()` and need no `UnitProvider`). "One state source, not a
-// parallel copy" is satisfied by both call sites routing through the SAME
-// hook + the SAME `@workspace/units` conversion functions — not by sharing
-// this small presentational wrapper itself.
-function SolveDialogDistanceInput({
-  id,
-  testId,
-  labelPrefix,
-  canonicalUnit,
-  value,
-  onCommit,
-}: {
-  id: string;
-  testId: string;
-  labelPrefix: string;
-  canonicalUnit: CanonicalUnit | null;
-  value: number;
-  onCommit: (canonicalValue: number) => void;
-}) {
-  const { effectiveUnit } = useDisplayUnit();
-  const draft = useDistanceDraft({ canonicalUnit, value, onCommit });
-  const unitLabel = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
-  return (
-    <div>
-      <Label htmlFor={id} className="text-xs text-muted-foreground">
-        {labelPrefix}
-        {unitLabel ? ` (${unitLabel})` : ""}
-      </Label>
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        value={draft.text}
-        // CH4UX-6 — the caller's `disabled` seam is gone with `busy`; the
-        // only remaining reason to disable is an unresolved canonicalUnit.
-        disabled={draft.disabled}
-        onChange={e => draft.onChange(e.target.value)}
-        onBlur={draft.commit}
-        onKeyDown={e => {
-          if (e.key === "Enter") draft.commit();
-          if (e.key === "Escape") draft.discard();
-        }}
-        className="h-8 text-sm mt-1 font-mono"
-        data-testid={testId}
-      />
-    </div>
   );
 }

@@ -2698,12 +2698,15 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
   // payload must not carry the derived `objective` at all: the write route
   // 422s a body containing it, while every persisted row (and therefore
   // `localInputs`) does carry it, so `buildWholeInputPayload` strips it.
-  it("shows the avg-service-cap field only (no toggle) and strips the derived objective from the save payload", () => {
+  // CH4O-7 — superseded (was "... the avg-service-cap field only (no
+  // toggle)"): the coverage floor is editable again now, since the server
+  // derives `objective` FROM it rather than the reverse.
+  it("shows the avg-service-cap AND the editable coverage floor (no toggle) and strips the derived objective from the save payload", () => {
     renderChen();
     openParamsTab();
 
     expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toBeEnabled();
     expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chen-objective-min_distance")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chen-objective-coverage")).not.toBeInTheDocument();

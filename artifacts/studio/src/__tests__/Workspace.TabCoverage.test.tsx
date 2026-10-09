@@ -115,7 +115,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
-import { Workspace } from "@/pages/Workspace";
+import { Workspace, inputEntriesForModel } from "@/pages/Workspace";
 import { useGetScenario, useListScenarios, useGetDataset, useListModels } from "@workspace/api-client-react";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
@@ -867,4 +867,15 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
 
     expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
   });
+});
+
+// CH4O-7 — Task 6 of model-integration-precheck.md's registration point 12:
+// an explicit case for max-coverage-us rather than inheriting the
+// p-median-us/p-median-brazil fallthrough tail. The list happens to be
+// identical today, but omission would silently grant this model whatever
+// the tail grants next, with no test to catch the drift.
+it("gives max-coverage-us an explicit tab list rather than the p-median fallthrough", () => {
+  expect(inputEntriesForModel("max-coverage-us").map(e => e.id)).toEqual([
+    "input-map", "customers", "warehouses", "distances", "optimization-parameters",
+  ]);
 });
