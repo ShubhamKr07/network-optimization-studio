@@ -1907,7 +1907,8 @@ git commit -m "[CH4O-10] move Chapter 4's coverage metrics onto Solution Summary
 
 **Files:**
 - Modify: `artifacts/api-server/src/services/templates.ts`
-- Modify: `docs/superpowers/metrics/README.md`
+- Document the new columns INLINE in `services/templates.ts` (that file's own
+  established convention). **NOT** `docs/superpowers/metrics/README.md` — see below
 - Test: `artifacts/api-server/src/__tests__/templates.test.ts`
 
 **Interfaces:**
@@ -1983,6 +1984,14 @@ Extend `CostSummaryTemplateRow` with `highServiceDist: number | null; coveragePc
 
 Change that builder's `templateVersion` to `COST_SUMMARY_TEMPLATE_VERSION`.
 
+**A second site my brief missed, found by Task 11 and worth stating.** The
+JSON-export wrapper in `routes/scenarios.ts` hardcoded `OUTPUT_TEMPLATE_VERSION`
+for `costSummary`. Left alone, the wrapper would have reported v3 while the rows
+inside it reported v4 — and that route's **own pre-existing comment** states that
+wrapper-version == row-version is the invariant. So the grid-local constant has
+two readers, not one: the row builder and the route's wrapper. `routes.test.ts`
+has two tests pinning the old wrapper version and needs both updated.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter api-server test -- templates`
@@ -1990,13 +1999,24 @@ Expected: PASS.
 
 - [ ] **Step 5: Update the column docs**
 
-In `docs/superpowers/metrics/README.md`, add the three columns to the `costSummary` grid's table and note that this grid now carries its own `COST_SUMMARY_TEMPLATE_VERSION`, separate from the shared `OUTPUT_TEMPLATE_VERSION`.
+**CORRECTED after Task 11 ran: `docs/superpowers/metrics/README.md` is the WRONG
+FILE and must not be edited for this.** It is the *harness metrics store* —
+process telemetry (`tasks.csv`, `failures.csv`, flake and permission audits)
+written by `pnpm harness:record` and friends. It contains **zero** output-grid
+content; verified by reading it in full, and its only near-match is a line
+listing e2e spec names. I conflated `CLAUDE.md`'s "a metrics CSV's exact
+columns" index row with the export grids; that row points at harness CSVs.
+
+There is **no** document for output-grid CSV columns anywhere in this repo. So
+document the three new columns and the grid-local version inline in
+`services/templates.ts`, beside the builder — which is already how that file
+records every other grid's column semantics.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add artifacts/api-server/src/services/templates.ts artifacts/api-server/src/__tests__/templates.test.ts docs/superpowers/metrics/README.md
+git add artifacts/api-server/src/services/templates.ts artifacts/api-server/src/__tests__/templates.test.ts artifacts/api-server/src/routes/scenarios.ts artifacts/api-server/src/__tests__/routes.test.ts
 git commit -m "[CH4O-11] export Chapter 4's coverage metrics in the cost-summary CSV"
 ```
 
