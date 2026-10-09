@@ -575,6 +575,23 @@ describe("POST /api/scenarios", () => {
       .send({ name: "Bad inputs", modelId: "p-median-us", inputs: { ...pmedianInputs, capacityMode: "bogus" } });
     expect(res.status).toBe(422);
   });
+
+  // WF-1 — proves the 422 body is a readable sentence, not a Zod dump.
+  it("a rejected scenario input returns a readable sentence, not a Zod dump", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "bad", modelId: "max-coverage-us",
+      inputs: { p: 3, highServiceDistMi: 450, maxDistMi: 3400, avgServiceDistCapMi: 0,
+                coverageFloorDemand: 0, gap: 0, timeLimitSec: 120, capacityMode: "none",
+                distanceBands: [450], warehouseOverrides: [], customerOverrides: [],
+                addedWarehouses: [], addedCustomers: [], distanceOverrides: [] },
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Average service distance cap must be greater than 0.");
+    // The defect this fixes: the body used to be a JSON array.
+    expect(res.body.error).not.toContain("{");
+    expect(res.body.error).not.toContain("too_small");
+  });
 });
 
 // ── Get scenario ───────────────────────────────────────────────────────────
