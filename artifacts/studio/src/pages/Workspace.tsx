@@ -2116,14 +2116,20 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
-  // The plain Save control — fires the whole-input save and swallows a
-  // rejection (this path had no visible error handling before this bundle
-  // either; DirtyNavPrompt's own Save action is the one place a rejection
-  // must surface inline, per plan-review #7).
+  // The plain Save control — fires the whole-input save and toasts on
+  // rejection, matching every other mutation site in this file.
+  // DirtyNavPrompt's own Save action (`handleDirtyNavSave` above) is the one
+  // legitimate consumer that leaves a rejection unswallowed here: it awaits
+  // `saveWholeInputsAsync()` uncaught so the error propagates to the dialog,
+  // which surfaces it inline instead of via toast.
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || isBrowsingHistoryNow || !ordinaryDirty) return;
-    saveWholeInputsAsync().catch(() => {
-      // Intentionally silent here — see the comment above.
+    saveWholeInputsAsync().catch(err => {
+      toast({
+        title: "Couldn't save your changes",
+        description: describeWriteError(err),
+        variant: "destructive",
+      });
     });
   }
 

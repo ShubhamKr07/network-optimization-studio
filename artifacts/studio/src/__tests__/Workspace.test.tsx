@@ -1435,6 +1435,35 @@ describe("Workspace — Optimization Parameters tab", () => {
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
+
+  // WF-3 gap fix — the plain toolbar Save (`handleSaveInputs`, the
+  // ORDINARY-dirty path, as opposed to the lens-only "Save bands" path the
+  // test above the Solve-dialog block already covers) used to swallow a
+  // rejected `saveWholeInputsAsync()` with no toast at all. Reaches it via
+  // the same `button-p-quick-10` ordinary edit the save-success test above
+  // uses, then rejects the save the same way the Solve-dialog's own
+  // save-before-solve test does.
+  it("a rejected toolbar Save (ordinary-dirty path) shows a destructive toast, not silence", async () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"));
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    // `saveWholeInputsAsync` wraps the mutate call in a Promise and
+    // `handleSaveInputs` consumes it via `.catch(...)` — the toast fires in
+    // a microtask after `onError`'s synchronous `reject`, not synchronously
+    // with the click, hence `waitFor` (mirrors the dirty-nav-prompt tests'
+    // own `await screen.findByTestId("save-error")` for the same reason).
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save your changes",
+      variant: "destructive",
+    })));
+  });
 });
 
 // chen-bands-units, Part A (decision 1i), Task 14 Step 1/5 — the dirty-nav

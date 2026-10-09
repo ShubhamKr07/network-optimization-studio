@@ -46,4 +46,43 @@ describe("Workspace mutation error surface", () => {
     // buildErrorMessage's "HTTP 422 …" prefix plus the raw body.
     expect(src).not.toMatch(/err instanceof Error \? err\.message/);
   });
+
+  // WF-3 gap fix — `.mutate(` isn't the only way to drop a write failure on
+  // the floor: `handleSaveInputs` discarded `saveWholeInputsAsync()`'s
+  // rejection via a `.catch(() => { /* silent */ })` that the scan above,
+  // scoped to `.mutate(`/`.mutateAsync(`, structurally cannot see. Flags any
+  // `.catch(` whose handler body never references the error (no toast, no
+  // describeWriteError, no setError, no rethrow) — i.e. it binds a parameter
+  // (or none at all) and then ignores it.
+  //
+  // A handler that deliberately needs no parameter (nothing to report, or it
+  // unconditionally does something else useful) is still allowed, but only
+  // by name, in ALLOWED_EMPTY_CATCHES below — same shape as the api-server's
+  // maxCoverageWriteGuard.test.ts ALLOWED_INPUTS_WRITERS. There are none
+  // today; this list exists so the next legitimate exception is a reviewable
+  // one-liner, not a loosened regex.
+  const ALLOWED_EMPTY_CATCHES: string[] = [];
+
+  it("every .catch( handler in this file does something with the error it catches", () => {
+    const src = readFileSync(SRC, "utf8");
+    const lines = src.split("\n");
+    const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
+    const sites = lines
+      .map((line, i) => ({ line, i }))
+      .filter(({ line }) => /\.catch\(/.test(line) && isCode(line));
+
+    const offenders: string[] = [];
+    sites.forEach(({ line, i }, n) => {
+      const end = n + 1 < sites.length ? sites[n + 1].i : lines.length;
+      // A `.catch(` handler is typically a short arrow-function body ending
+      // at its own closing `});` — cap the window at 15 lines so a later
+      // site's unrelated code can never be mistaken for this one's body.
+      const own = lines.slice(i, Math.min(end, i + 15)).join("\n");
+      const usesError = /toast\s*\(|describeWriteError\(|setError\(|throw\b/.test(own);
+      if (!usesError && !ALLOWED_EMPTY_CATCHES.some(name => own.includes(name))) {
+        offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
+      }
+    });
+    expect(offenders).toEqual([]);
+  });
 });
