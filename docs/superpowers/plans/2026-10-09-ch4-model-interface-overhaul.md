@@ -1102,7 +1102,23 @@ Then, inside the Chapter 4 block after the avg cap:
               return (
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
                   {deriveMaxCoverageObjective(floor) === "coverage"
-                    ? `Model 1 — maximize demand within ${d(highServiceDistKm!)} ${u}, holding average distance at or under ${d(avgServiceDistCapKm!)} ${u}`
+                    // CORRECTED after Task 7's review. `highServiceDistKm!` is
+                    // safe (the block gate proves it); `avgServiceDistCapKm!`
+                    // was NOT gated by anything, and the `!` is exactly what
+                    // kept tsc quiet. convert.ts returns its input unchanged
+                    // when canonical === target, so on the DEFAULT km->km path
+                    // toDisplay(undefined) is undefined and .toLocaleString()
+                    // throws a TypeError DURING RENDER -- taking down the whole
+                    // tab, not just this line. Reachable: the pre-branch schema
+                    // allowed a min_distance row with floor 0 and no cap, which
+                    // now derives to "coverage" and reads the missing cap.
+                    // OMIT the clause rather than printing `?? 0` -- "at or
+                    // under 0 mi" is a false statement about the model that will
+                    // run.
+                    ? `Model 1 — maximize demand within ${d(highServiceDistKm!)} ${u}` +
+                      (avgServiceDistCapKm == null
+                        ? ""
+                        : `, holding average distance at or under ${d(avgServiceDistCapKm)} ${u}`)
                     : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${d(highServiceDistKm!)} ${u}`}
                 </p>
               );
