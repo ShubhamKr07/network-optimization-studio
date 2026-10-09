@@ -89,4 +89,22 @@ describe("downloadEntityExport — 409 LEGACY_RESULT_REQUIRES_RESOLVE resolve pr
       expect.objectContaining({ title: "Export failed" }),
     );
   });
+
+  // WF-3 audit fix — a REAL ApiError (instanceof Error, unlike the plain
+  // object literal above) carries custom-fetch.ts's buildErrorMessage
+  // prefix in `.message`: "HTTP 422 Unprocessable Content: <server
+  // sentence>". The old `err instanceof Error ? err.message : ...` fallback
+  // showed that raw dump; describeWriteError reads `.data.error` instead.
+  it("shows the server's clean sentence, not the raw HTTP-prefixed message, for a real ApiError-shaped rejection", async () => {
+    const apiError = Object.assign(new Error("HTTP 422 Unprocessable Content: Invalid entity"), {
+      status: 422,
+      data: { error: "Invalid entity" },
+    });
+    mockExportScenario.mockRejectedValue(apiError);
+    await downloadEntityExport(1, "costSummary", "csv");
+
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Export failed", description: "Invalid entity" }),
+    );
+  });
 });

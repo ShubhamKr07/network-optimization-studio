@@ -126,6 +126,52 @@ describe("ImportDialog", () => {
   });
 });
 
+// WF-3 gap fix — the preview and apply mutations both used to render
+// `error.message` straight to the student, which is custom-fetch.ts's
+// `buildErrorMessage` output: "HTTP 422 Unprocessable Content: <the clean
+// sentence WF-1's server-side formatter just built>". Both must route
+// through describeWriteError instead, same as every Workspace.tsx site.
+function errorResponse(body: unknown, status = 422, statusText = "Unprocessable Content") {
+  return new Response(JSON.stringify(body), { status, statusText, headers: { "content-type": "application/json" } });
+}
+
+describe("ImportDialog — write-failure messages (WF-3 gap fix)", () => {
+  it("shows the server's clean sentence, not the raw HTTP-prefixed dump, when the preview request 422s", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/import")) return errorResponse({ error: "Column 'id' is required." });
+      throw new Error(`Unhandled fetch in test: ${url}`);
+    });
+    renderDialog();
+
+    await uploadFile();
+
+    await waitFor(() => expect(screen.getByTestId("import-preview-error")).toBeInTheDocument());
+    expect(screen.getByTestId("import-preview-error")).toHaveTextContent("Column 'id' is required.");
+    expect(screen.getByTestId("import-preview-error").textContent).not.toMatch(/HTTP 422/);
+  });
+
+  it("shows the server's clean sentence, not the raw HTTP-prefixed dump, when the apply request 422s", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/import")) {
+        return jsonResponse({ errors: [], changes: [{ id: "CHI", line: 2, before: {}, after: {} }], warnings: [] });
+      }
+      if (url.endsWith("/import/apply")) return errorResponse({ error: "The scenario was modified by someone else." });
+      throw new Error(`Unhandled fetch in test: ${url}`);
+    });
+    renderDialog();
+
+    await uploadFile();
+    await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("button-import-confirm"));
+
+    await waitFor(() => expect(screen.getByTestId("import-apply-error")).toBeInTheDocument());
+    expect(screen.getByTestId("import-apply-error")).toHaveTextContent("The scenario was modified by someone else.");
+    expect(screen.getByTestId("import-apply-error").textContent).not.toMatch(/HTTP 422/);
+  });
+});
+
 // B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in `enableFilters`, wired
 // into the Errors and Changes preview grids as TWO SEPARATE tables, each
 // shown/hidden by its OWN unfiltered row count (>10).

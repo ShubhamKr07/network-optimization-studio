@@ -71,6 +71,19 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     // otherwise silently overwrite. Added deliberately per this test's own
     // comment above.
     "migrations/ch4ToMiles.ts",
+    // WF-8 — the one-off override-precision backfill. Also not a request-path
+    // route, and allow-listed with its epoch behaviour INVERTED relative to
+    // ch4ToMiles.ts above: it deliberately does NOT bump `solveInputRevision`
+    // or touch `inputsUpdatedAt`/`result`/`solvedAt`. That is sound only
+    // because of what it is allowed to write — a value rounded to
+    // `roundForFile`'s 4 dp, i.e. identical to the stored one at every display
+    // and reporting precision, so there is nothing a re-solve would produce
+    // differently. The one case where that is false is a value whose rounding
+    // changes which distance band it is REPORTED in (which would change the
+    // cached envelope's `bandCoverage`), and the migration REFUSES such a row
+    // rather than writing it, leaving the re-solve decision to the operator.
+    // Added deliberately per this test's own comment above.
+    "migrations/roundOverridePrecision.ts",
   ]);
 
   it("no file outside the allow-list writes scenarios.inputs", () => {

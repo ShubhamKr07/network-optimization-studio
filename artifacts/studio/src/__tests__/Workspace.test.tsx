@@ -84,15 +84,18 @@ const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: fa
 const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+// WF-3 — stabilized (was a fresh object from a new `vi.fn(() => ({...}))`
+// call on every render) so a test can configure `mutate`'s onError/onSuccess
+// before rendering, the same way every other mutation mock here does.
+const mockUpdateDistanceBands = { mutate: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
   useGetScenario: vi.fn(() => ({ data: scenario })),
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
-  // chen-bands-units, T14 - field-scoped distanceBands PATCH. Minimal mock;
-  // only Workspace.test.tsx asserts on its call args (Save-bands routing).
-  useUpdateDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  // chen-bands-units, T14 - field-scoped distanceBands PATCH.
+  useUpdateDistanceBands: vi.fn(() => mockUpdateDistanceBands),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),
@@ -119,6 +122,14 @@ vi.mock("@workspace/api-client-react", () => ({
         id: "p-median-us",
         distanceUnit: "mi",
         countryBounds: { sw: [24, -125], ne: [50, -66] },
+        // WF-5 — required[] copied verbatim from solvers/p-median-us/
+        // manifest.json's own inputsSchema.required, not guessed. This is
+        // what lets the "no notice while every required field is present"
+        // test below actually reach missingRequiredInputs's VALUE filter
+        // instead of returning [] before it, via the fails-closed branch
+        // (`!Array.isArray(req)`) — every other model in this file still
+        // carries no inputsSchema, so that branch stays covered too.
+        inputsSchema: { required: ["p", "capacityMode", "distanceBands", "gap", "timeLimitSec"] },
         capabilities: {
           supportsP: true,
           capacityModes: ["none", "uniform", "per_wh"],
@@ -267,11 +278,13 @@ beforeEach(() => {
   mockCreateScenario.mutate.mockReset();
   mockCloneScenario.mutate.mockReset();
   mockDeleteScenario.mutate.mockReset();
+  mockUpdateDistanceBands.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
   mockCreateScenario.isPending = false;
   mockCloneScenario.isPending = false;
   mockDeleteScenario.isPending = false;
+  mockUpdateDistanceBands.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
   mockQueryClient.setQueryData.mockReset();
   mockQueryClient.removeQueries.mockReset();
@@ -1430,6 +1443,82 @@ describe("Workspace — Optimization Parameters tab", () => {
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
+
+  // WF-5 — the regression the rejected design (gating the notice on
+  // `highServiceDistMi != null`, a Chen-only model discriminator) would have
+  // failed: a p-median scenario has no Chapter 4 fields at all, and its
+  // fixture (`pmedianInputs`) is missing `highServiceDistMi`/`maxDistMi`/
+  // `avgServiceDistCapMi`/`coverageFloorDemand` simply because this model
+  // doesn't have them — not because its row is damaged. The mock
+  // `useListModels` entry for "p-median-us" now carries a REAL
+  // `inputsSchema.required` (copied from the manifest above), so this test
+  // actually reaches the by-VALUE filter inside `missingRequiredInputs`
+  // instead of returning `[]` before it via the fails-closed branch —
+  // `pmedianInputs.gap` is `0`, every model's stored default, which is
+  // exactly the value a `!values[k]` mutant (falsy-coerces `0`) would wrongly
+  // flag as missing. Opens the Optimization Parameters tab (not just the
+  // page) so the notice has somewhere to render — otherwise the assertion
+  // would pass vacuously regardless of what Workspace.tsx computes.
+  it("shows no missing-inputs notice for a p-median scenario with every required field present (gap: 0 included)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
+  // WF-5 — the fails-closed branch, kept as its own case now that the test
+  // above exercises the real filter: p-median-brazil's mock manifest entry
+  // carries no `inputsSchema` at all, so `missingRequiredInputs` must return
+  // `[]` via `!Array.isArray(req)` rather than render a notice from an
+  // unreadable manifest.
+  it("shows no missing-inputs notice when the manifest's inputsSchema is unreadable (fails closed)", () => {
+    const brazilScenario = { ...scenario, id: 9, modelId: "p-median-brazil" };
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
+  // WF-3 gap fix — the plain toolbar Save (`handleSaveInputs`, the
+  // ORDINARY-dirty path, as opposed to the lens-only "Save bands" path the
+  // test above the Solve-dialog block already covers) used to swallow a
+  // rejected `saveWholeInputsAsync()` with no toast at all. Reaches it via
+  // the same `button-p-quick-10` ordinary edit the save-success test above
+  // uses, then rejects the save the same way the Solve-dialog's own
+  // save-before-solve test does.
+  it("a rejected toolbar Save (ordinary-dirty path) shows a destructive toast, not silence", async () => {
+    // ApiError-shaped, like the sibling "Save bands" test below — a bare
+    // Error fixture can't discriminate describeWriteError(err) from
+    // err.message (both fall back to the same string), so it can't prove
+    // which one handleSaveInputs actually calls.
+    const apiErr = Object.assign(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"), {
+      status: 422,
+      data: { error: "inputs fails model-specific validation" },
+    });
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(apiErr);
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    // `saveWholeInputsAsync` wraps the mutate call in a Promise and
+    // `handleSaveInputs` consumes it via `.catch(...)` — the toast fires in
+    // a microtask after `onError`'s synchronous `reject`, not synchronously
+    // with the click, hence `waitFor` (mirrors the dirty-nav-prompt tests'
+    // own `await screen.findByTestId("save-error")` for the same reason).
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save your changes",
+      description: "inputs fails model-specific validation",
+      variant: "destructive",
+    })));
+    expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringMatching(/HTTP 422/),
+    }));
+  });
 });
 
 // chen-bands-units, Part A (decision 1i), Task 14 Step 1/5 — the dirty-nav
@@ -1665,6 +1754,42 @@ describe("Workspace — Solve dialog", () => {
     expect(screen.getByTestId("button-save")).toBeEnabled();
     expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  // WF-3 — drives the REAL onError the toolbar Save button's handler
+  // registers, not just the request body (the three pre-existing strip
+  // tests in this file only ever asserted the body and never invoked a
+  // callback, which is exactly how six silent `.mutate(` sites survived
+  // 2293 tests). Routed through the lens-only-dirty path (same setup as the
+  // test above) so clicking "button-save" reaches `handleSaveBandsOnly`
+  // (one of the six sites this task adds an `onError` to) rather than the
+  // ordinary-dirty path, whose `saveWholeInputsAsync` deliberately keeps
+  // rejecting silently for its own callers (DirtyNavPrompt surfaces that
+  // one — see the "dirty-nav prompt" describe block instead).
+  it("a 422 on the toolbar's 'Save bands' click shows the server's sentence, never the raw body, in a toast", () => {
+    const apiErr = Object.assign(new Error("HTTP 422 Unprocessable Content: Coverage floor is required."), {
+      status: 422,
+      data: { error: "Coverage floor is required." },
+    });
+    mockUpdateDistanceBands.mutate.mockImplementation(
+      (_vars: unknown, opts: { onError?: (err: unknown) => void }) => opts?.onError?.(apiErr),
+    );
+
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("solve-dialog-cancel"));
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save the distance bands",
+      description: "Coverage floor is required.",
+      variant: "destructive",
+    }));
   });
 
   // The one test that must exist per the task brief: this repo already shipped

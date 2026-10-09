@@ -503,3 +503,176 @@ library. `@workspace/scripts` depends only on `@workspace/db` and
 `drizzle-orm`, so a `scripts/`-hosted migration could not reach the
 validator and would have had to re-implement the very invariants it exists
 to satisfy. This is a deliberate, one-off deviation for this migration only.
+
+---
+
+# Override-precision backfill (WF-8)
+
+Operator runbook for `artifacts/api-server/src/migrations/roundOverridePrecision.ts`
+(`pnpm --filter api-server run round-override-precision`). It lives in this
+document because it shares every operational precondition with the migration
+above, and **nothing else**: it is a different migration, on a different
+schedule, against different rows.
+
+**This is a SEPARATE operation needing its own approval.** Approval to run the
+km → mi migration is not approval to run this, and vice versa. There is no
+ordering dependency between them in either direction. Like everything above:
+**do not run any of this against production from an agent session** — it has
+been executed against local `nos_dev` only.
+
+## What it does, and the one thing it refuses to do
+
+WF-7 made CSV import store `roundForFile(fromDisplay(...))` — 4 decimal places,
+matching what export emits — so for every write after that deploy, the stored
+value equals its own export. Rows written *before* it still hold the
+full-precision converted double, so re-importing an untouched export of such a
+row reports a changed row nobody edited. This backfill rounds those stored
+values to 4 dp, in two `inputs` keys:
+
+- `distanceOverrides[].distance` — covers both the `distances` import entity
+  (p-median, Chapter 4, JADE) and the `legDistances` entity (two-echelon), which
+  persists into the same key.
+- `laneCostOverrides[].cost` — the `laneCosts` entity (transport-coal). Its
+  "cost" is literally geographic miles, not a `$/unit-distance` rate.
+
+It is **not** model-scoped (over-precision is model-independent), so an
+unfiltered run reads **every** row of `scenarios`. It writes `inputs` and
+nothing else.
+
+**It does NOT clear `result` and does NOT bump the solve epoch** — no
+`result`/`solvedAt`/`resultRunId` nulling, no `solve_input_revision + 1`, no
+`inputs_updated_at` advance. That is the deliberate opposite of the km → mi
+migration above, and it is sound only because of what the rounding can and
+cannot change: a 4 dp value is identical to the stored one at every display and
+reporting precision, and no `stale` badge should appear on a student's
+scenario for a change they cannot see. (It is not identical at full precision —
+the already-cached envelope's objective was computed from the unrounded value,
+so a fresh solve could differ from it by roughly 1e-4 × demand on the affected
+pair. Immaterial — the optimum cannot realistically flip on a perturbation that
+small — which is why no epoch bump follows, but it is not nothing.)
+
+The one case where that is false is a value whose rounding changes which
+**distance band** it is reported in. Bands are *upper bounds* ("within 450 mi"),
+so `450.00004 → 450.0` moves a value out of the overflow bucket and **into** the
+450 band, which would change `result.metrics.bandCoverage` in the already-cached
+envelope and make it disagree with a client-side recompute. (The symmetric-
+looking `449.99996 → 450.0` does **not**: both are `<= 450`, so both are already
+inside that band.) **Such a row is REFUSED, not converted** — the choice between
+a changed band attribution and forcing a re-solve of a student's saved work
+belongs to you, not to the script. A value that would round to exactly `0`
+(`0.00004 → 0`) is refused on the same principle: most override schemas
+require `positive()`, and writing it there would produce a row the running
+server can no longer load. (Two schemas — `jadeInputs.ts`'s distance and
+`delivery.ts`'s laneCost — allow zero via `nonnegative()`; the script refuses
+there too, because turning a real distance/cost into exactly 0 is a semantic
+model change, not a precision no-op, and the choice is still yours.)
+
+**Any id under `refused` must be brought to the operator, not forced.** There is
+no `--force` flag and none should be added. Resolve a refusal by deciding, per
+row, either (a) leave it over-precise — the only cost is the spurious changed-row
+on re-import that WF-7/WF-8 exist to remove, which is cosmetic; or (b) edit that
+one value by hand and re-solve the scenario deliberately, so the cached envelope
+and the inputs agree again.
+
+## Preconditions — identical to the migration above
+
+Same three, for the same reasons; the warnings in "### 2. Dry run" above apply
+verbatim:
+
+- **`NODE_ENV=production`** — `lib/db/src/index.ts` enables TLS only under that
+  value, and Render Postgres refuses non-TLS external connections.
+- **`?sslmode=require`** on the production external connection string.
+- **An allowlisted host.** `nos-postgres` only accepts allowlisted addresses,
+  and these steps connect from *your* machine.
+
+Unlike the km → mi migration there is **no deploy-ordering constraint**: this
+backfill neither depends on nor blocks any deploy, and it changes no schema. It
+is also safe to run against a database with the current code live, though the
+whole-blob `inputs` write means a concurrent save of the same scenario can be
+lost — prefer a quiet window, same as above.
+
+## Procedure
+
+### 1. Pre-check — count affected values
+
+From an allowlisted host:
+
+```sql
+SELECT s.id, s.model_id, o->>'distance' AS value
+FROM scenarios s, jsonb_array_elements(COALESCE(s.inputs->'distanceOverrides','[]'::jsonb)) o
+WHERE (o->>'distance')::numeric <> round((o->>'distance')::numeric, 4)
+UNION ALL
+SELECT s.id, s.model_id, o->>'cost'
+FROM scenarios s, jsonb_array_elements(COALESCE(s.inputs->'laneCostOverrides','[]'::jsonb)) o
+WHERE (o->>'cost')::numeric <> round((o->>'cost')::numeric, 4);
+```
+
+**Measured production state (2026-10-09, design doc §6):** exactly **one**
+scenario — **id 40, `p-median-us`**, two values, `6.2137119223733395` and
+`9.32056788356001`, under bands `[200, 400, 800, 1600]`. Neither is anywhere
+near a band boundary, so the real run takes the no-refusal path and should
+report `refused: []`. `laneCostOverrides` had **zero** affected rows (and there
+is no `legDistanceOverrides` key — leg distances live in `distanceOverrides`).
+If this query now returns anything else, stop and re-read the refusal section
+above before continuing.
+
+### 2. Dry run
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
+  pnpm --filter api-server run round-override-precision -- --dry-run
+```
+
+This performs the **full** analysis — selects every row, classifies each — and
+writes nothing, to any table, regardless of outcome. Expect `"dryRun": true`,
+`"rounded": [40]`, `"refused": []`, and every other scenario id under
+`alreadyRounded`. The real run rounds exactly the ids the dry run named.
+
+If `refused` is non-empty, each entry is `{ id, reason }`, and `reason` names the
+field, the pair, the value, the rounded value, and the two bands — e.g.
+`distanceOverrides[ALN->C1] 450.00004 rounds to 450, moving it from band overflow
+to band 450`. Take those ids to the operator decision above; do not proceed with
+them unresolved. (A refused row is left **completely** unwritten, including any
+other, safe over-precise value in the same row — so a refusal is never a
+half-backfilled row.)
+
+### 3. Real run
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
+  pnpm --filter api-server run round-override-precision
+```
+
+### 4. Post-check
+
+Re-run step 1's SQL — it should return zero rows. Re-running the script is
+cheap and idempotent: rounding an already-4 dp value is a no-op, so a second run
+reports every id under `alreadyRounded` and `rounded: []`.
+
+**Rollback is restore-from-backup, as above — there is no inverse script.** It is
+also, uniquely for this migration, the one case where rollback is close to
+unnecessary: the discarded information is the 5th decimal place onward of a
+distance, and the pre-run value is reproducible by hand from the row's origin
+(scenario 40's two values are exactly `10 / 1.609344` and `15 / 1.609344`). Take
+the `scenarios` backup anyway if you are taking one for anything else in the
+same window.
+
+## Local dry-run output (nos_dev, 2026-10-10)
+
+```
+{ "rounded": [], "refused": [],
+  "alreadyRounded": [17822, 5, 17909, 3, 4, 23083, 23106, 17910, 1, 2, 23110,
+                     23077, 17911, 17912, 17913, 23103, 23081, 23090, 23085,
+                     23072, 23070],
+  "dryRun": true }
+```
+
+21 of 21 local scenarios already at 4 dp, nothing to round — which step 1's SQL
+independently confirms (0 over-precise values in each of the two keys). Local
+`nos_dev` therefore exercises the *empty* path only; the non-empty paths are
+covered by `src/migrations/__tests__/roundOverridePrecision.test.ts`, a
+real-Postgres suite that seeds production scenario 40's two exact values under
+its real bands, plus the band-crossing, rounds-to-zero, dry-run-writes-nothing
+and no-epoch-bump cases.

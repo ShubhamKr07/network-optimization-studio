@@ -10,6 +10,8 @@ import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { NetworkBackground } from "@/components/NetworkBackground";
 import { resetUser } from "@/lib/analytics";
 import { clearErrorUser } from "@/lib/errorTracking";
+import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 
 interface AppShellProps {
   userEmail: string;
@@ -36,6 +38,23 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
         resetUser();
         clearErrorUser();
         navigate("/login", { replace: true });
+      },
+      // WF-3 — the one mutation in this file (and, before this, in all of
+      // src/) with no failure surface at all: a 500 or dropped connection
+      // left the student still signed in, still looking at the header they
+      // just clicked, with no toast and no navigation — easy to read as "I'm
+      // logged out" on a shared lab machine. A toast matches every other
+      // write-failure surface in the app (see Workspace.tsx's mutation
+      // sites) rather than inventing an inline affordance for this one
+      // header; the fallback names the STATE the student is actually in
+      // (still signed in), not the HTTP detail, since that's what they need
+      // to act on.
+      onError: err => {
+        toast({
+          title: "Couldn't log you out",
+          description: describeWriteError(err, "You are still signed in. Try again."),
+          variant: "destructive",
+        });
       },
     });
   }

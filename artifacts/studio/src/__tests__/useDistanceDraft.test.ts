@@ -265,6 +265,63 @@ describe("presentation: grouped (ch4-fixes item 4)", () => {
   });
 });
 
+// WF-6 — commit() must not fire onCommit for a draft that is a no-op at
+// display precision, so retyping the identical text and blurring doesn't
+// flip the scenario dirty or retarget a band to a float.
+describe("useDistanceDraft — no-op commits (WF-6)", () => {
+  it("does not call onCommit when the typed value is unchanged at display precision", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("650"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("still calls onCommit for a real change", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("700"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).toHaveBeenCalledWith(700);
+  });
+
+  it("clears the draft even when the commit is a no-op, so the field re-formats", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+
+    act(() => result.current.draft.onChange("650"));
+    act(() => result.current.draft.commit());
+
+    expect(result.current.draft.isDirty).toBe(false);
+  });
+
+  // WF-6 review — the three cases above all use canonicalUnit "mi" with the
+  // default "auto" preference, which resolves to "mi" too: fromDisplay is
+  // the IDENTITY there, so draft.anchor === value exactly and the drift
+  // roundForFile exists to absorb never occurs. A guard comparing raw
+  // equality (`draft.anchor !== value`) would pass all three above just as
+  // well as the real roundForFile guard — proven by reverting the guard to
+  // that and re-running (see the commit message). This case forces an
+  // actual cross-unit round trip: canonical 650 mi displayed in km is
+  // "1046.0736" (roundForFile'd), and re-parsing that back to mi lands on
+  // 649.9999999999999 — equal to 650 only at roundForFile's 4 dp, not by ===.
+  it("does not call onCommit for a same-text edit made in km display mode, where the mi<->km round trip actually drifts", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({ canonicalUnit: "mi", value: 650, onCommit });
+    act(() => result.current.unit.setPref("km"));
+    expect(result.current.draft.text).toBe("1046.0736");
+
+    act(() => result.current.draft.onChange("1046.0736"));
+    act(() => result.current.draft.commit());
+
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+});
+
 describe("ch9-tc — convert override", () => {
   // Build the converter INSIDE renderHook from the current UnitApi. This
   // tracks pref changes; a converter hardcoded to "km" cannot test toggles.

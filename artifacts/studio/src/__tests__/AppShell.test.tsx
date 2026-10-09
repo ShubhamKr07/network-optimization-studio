@@ -18,6 +18,12 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
 }));
 
+// WF-3 — bare-spy mock, same pattern as Workspace.test.tsx: no DOM toast
+// renders in this suite, so a failed logout is asserted via the call to
+// `toast(...)`, not by querying for rendered text.
+const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
+vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
+
 // COSM-4 — the wholesale @workspace/api-client-react mock above exports no
 // useSubmitFeedback, so every hero-mode render would mount the real widget
 // and crash on an undefined hook. Stub the component instead of widening the
@@ -64,6 +70,36 @@ describe("AppShell logout", () => {
     // "/login" route).
     expect(mockSetQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], { user: null });
     expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+  });
+
+  // WF-3 — before this fix, `handleLogout` passed no `onError` at all, so a
+  // rejected logout call left the student still signed in with no visible
+  // sign anything had happened: no toast, no navigation, the cache and the
+  // header both untouched. Drives the REAL `onError` the component registers
+  // (not a hand-rolled one), so reverting the fix in AppShell.tsx — deleting
+  // the `onError` key — makes this red: `mockLogoutMutate`'s second argument
+  // would then have no `onError` property to call, and `mockToast` would
+  // never fire.
+  it("toasts a failure and leaves the student signed in — no cache clear, no navigation", async () => {
+    const apiErr = Object.assign(new Error("HTTP 500 Internal Server Error"), {
+      status: 500,
+      data: {},
+    });
+    mockLogoutMutate.mockImplementation((_body, { onError }) => onError(apiErr));
+    renderShell(
+      <AppShell userEmail="student@example.com">
+        <div>content</div>
+      </AppShell>,
+    );
+    await userEvent.click(screen.getByTestId("button-logout"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't log you out",
+      description: "You are still signed in. Try again.",
+      variant: "destructive",
+    }));
+    expect(mockSetQueryData).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it("renders the user's email and children", () => {

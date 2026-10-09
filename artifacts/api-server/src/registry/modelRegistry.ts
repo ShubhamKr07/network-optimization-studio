@@ -8,6 +8,7 @@ import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
+import { formatInputIssues } from "../validation/formatInputIssues.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -131,11 +132,18 @@ export type ValidateInputsResult =
 export function validateInputs(modelId: string, inputs: unknown): ValidateInputsResult {
   const schema = KNOWN_SCHEMAS[modelId];
   if (!schema) {
+    // Already a human sentence, and not a Zod issue list — deliberately NOT
+    // routed through formatInputIssues (spec §3.1).
     return { success: false, error: `Unknown model_id: ${modelId}` };
   }
   const result = schema.safeParse(inputs);
   if (!result.success) {
-    return { success: false, error: result.error.message };
+    // Was `result.error.message`, which IS the JSON-stringified issue array —
+    // the reason every input-validation 422 in this system carried a raw Zod
+    // dump. This is the sole producer of that text, so formatting here fixes
+    // create, update, the import/apply path and the bands PATCH at once, with
+    // no OpenAPI change and no regenerated client.
+    return { success: false, error: formatInputIssues(result.error.issues) };
   }
   return { success: true, data: result.data as Record<string, unknown> };
 }

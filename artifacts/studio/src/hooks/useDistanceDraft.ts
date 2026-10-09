@@ -199,7 +199,20 @@ export function useDistanceDraft({
     setFocused(false);
     if (disabled || draft === null) return;
     if (isComplete(draft.text) && !Number.isNaN(draft.anchor)) {
-      onCommit(draft.anchor);
+      // WF-6 — compare at roundForFile's 4 dp. Note this is CANONICAL space,
+      // not display space: `draft.anchor` and `value` are both canonical-unit
+      // numbers per this file's own type docs, and roundForFile is the
+      // file/canonical precision rule ("exported distances serialize at 4
+      // decimal places"). The caller-side guards that compare display values
+      // (e.g. TransportCostsTab) are the display-space variant of the same
+      // idea; this one deliberately is not, because the hook never knows the
+      // caller's conversion. commit() fires for every grammar-complete draft,
+      // so focusing a field, retyping the identical displayed text and
+      // blurring used to commit e.g. 650 -> 650.0000000000001: the scenario
+      // flipped dirty and a band retargeted to a float. Guarded HERE rather
+      // than in each caller because 15 call sites share this hook and another
+      // bespoke per-caller guard would make the consolidation harder.
+      if (roundForFile(draft.anchor) !== roundForFile(value)) onCommit(draft.anchor);
     }
     setDraft(null);
   }

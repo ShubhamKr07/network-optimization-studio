@@ -1978,6 +1978,17 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
+  // Clone is the fourth write path and was the only unvalidated one, so a
+  // kilometre-era row could be duplicated into a fresh row that can never be
+  // saved or solved. Placed AFTER the ownership lookup on purpose: a 422 here
+  // must only be reachable once the caller is known to own the row, or it
+  // would leak existence (hard rule #5 — 404, never 403).
+  const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
+  if (!validation.success) {
+    res.status(422).json({ error: validation.error });
+    return;
+  }
+
   const [clone] = await db.insert(scenariosTable).values({
     name: `${scenario.name} (copy)`,
     userId: req.userId!,

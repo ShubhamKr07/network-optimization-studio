@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "migrate-ch4-to-miles": "tsx ./src/migrations/ch4ToMiles.ts"
+    "migrate-ch4-to-miles": "tsx ./src/migrations/ch4ToMiles.ts",
+    "round-override-precision": "tsx ./src/migrations/roundOverridePrecision.ts"
   },
   "dependencies": {
     "@sentry/node": "^10.74.0",

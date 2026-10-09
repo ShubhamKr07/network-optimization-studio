@@ -3026,3 +3026,162 @@ The studio moved to `networkdesignbook.com` (GoDaddy DNS → Render, same `nos-s
 - Live `nos-api` env var updated (merge mode) to `https://nos-studio.onrender.com,https://networkdesignbook.com,https://www.networkdesignbook.com`; the update auto-triggered a rebuild of the already-live commit `21c4dad` (no code change shipped).
 - `render.yaml` synced to the same value so the Blueprint matches the live service.
 - Deferred follow-up: `Login.tsx` should distinguish a network/CORS failure from a 401 so this class is self-diagnosing next time.
+
+## 2026-10-10 — Write-failure feedback (`write-feedback`, WF-1…WF-9)
+
+A failed write now says what went wrong, in one wording, everywhere. The server stopped shipping `ZodError.message` (which *is* the JSON-stringified issue array) and formats input-validation 422s as English sentences; the client routes every write rejection through one helper; clone joins the validated write paths; a migration-skipped row explains itself on the tab instead of rendering a plausible-looking form; and two unit-precision defects that made unedited rows look edited were fixed, with a backfill for the data already stored. Origin: CH4O follow-ups **FU-5, FU-7, FU-12, FU-6, FU-2**. Base `669d12a`. Spec: `docs/superpowers/specs/2026-10-09-write-failure-feedback-design.md`. Plan: `docs/superpowers/plans/2026-10-09-write-failure-feedback.md`.
+
+| Task | Commit(s) | What |
+|---|---|---|
+| WF-1 | `bbb8639`, `74a08a4`, `7f37b30` | `formatInputIssues` + the label table; **one line** at `modelRegistry.ts:138` |
+| WF-2 | `0b9daf7`, `8a48ac4` | `describeWriteError`, both 422 body shapes, no call sites wired |
+| WF-3 | `dde2b1a`, `7546b5a`, `fc916e5`, `ce63849`, `5d19701`, `c619fcd` | every mutation site + `DirtyNavPrompt` + `ImportDialog` + `exportEntity` + the source guards |
+| WF-4 | `97f4657` | clone validates, **after** the ownership check |
+| WF-5 | `46820e9` | the skipped-row notice, derived from the manifest's `inputsSchema.required[]` |
+| WF-6 | `c16f3e3` | the draft no-op guard, moved **into** `useDistanceDraft.commit()` |
+| WF-7 | `5c5134f` | `roundForFile` on the three unrounded `fromDisplay` import sites |
+| WF-8 | `6b0c48e`, `9ccb628` | the override-precision backfill + its band-crossing guard |
+| WF-9 | *this commit* | this entry, the spec corrections, and the durable rules into the `CLAUDE.md` files |
+
+Spec commits: `7eb8fbb`, `527789f` (plus merge `f18c8cf`). Plan commits: `d06e74c`, `016a793`, `4fdebf0` — the last two are **corrections to the plan found by executing the plan's own claims**, including an `&&`/`||` precedence bug that made WF-5's `k is string` predicate a lie.
+
+### Gate, measured at WF-9 on `9ccb628`
+
+Host state recorded with every result, because this branch ran under load as high as 110–160: **0 concurrent vitest rows** (`ps aux | grep "[v]itest" | grep -v "zsh -c"`, rows read not counted) before each run, load average `2.24 / 2.73 / 9.69` at the start.
+
+| Gate | Result |
+|---|---|
+| `pnpm run typecheck` | clean, whole workspace |
+| api-server vitest | **1673 passed / 3 failed** across 2 files on the full run; both files on the documented load-flake list (`cors` ×1, `resultEnvelope` ×2), each re-run **alone twice** → `cors` 3/3, 3/3 and `resultEnvelope` 16/16, 16/16 |
+| studio vitest | **127 files / 2325 tests**, clean on the first run |
+| solver pytest | **329 passed** |
+| `e2e_accuracy.py` | **99/99**, and **unmodified** — `git diff main --stat` on that path is empty |
+
+The full api-server run's own timings are the usual tell for this class: `collect` alone was 171.46s against a 61.69s wall clock. **`pnpm e2e:gate` was deliberately NOT run** — it needs two servers and `E2E_BASE_URL`, and `git diff main --stat -- artifacts/studio/e2e/` is empty, so no spec on this branch changed. That is a scoped omission, not a green result.
+
+### The design decisions
+
+- **The server fix is one line, at the sole producer of the text.** `registry/modelRegistry.ts`'s `validateInputs` returned `result.error.message`; it now returns `formatInputIssues(result.error.issues)`. Because that is the only place the string is made, create, update, clone, the import/apply path and the bands PATCH were all fixed at once — no `openapi.yaml` change, no regenerated client, no per-route formatting. The adjacent `Unknown model_id:` branch is deliberately left alone: it is already a sentence, not an issue list.
+- **§4.2's original four-site scope contradicted D1 and was corrected to nine.** `Workspace.tsx` had nine `.mutate()` call sites across six hooks and **six had no `onError` at all** — silence was the majority behaviour, not one path's quirk. Naming four would have left five silent paths, including `handleCloneScenario`, so D4's new server-side 422 would have landed on a call site that discarded it.
+- **§1 was wrong about the starting state, and WF-9 corrected it rather than quietly rewriting it.** The spec credited Run Optimizer with the one *correct* surface. It was not correct: all three error-message extractions in the pre-branch code used `err.message` — `DirtyNavPrompt.tsx:54`, `Workspace.tsx:2868`, `:2975` — i.e. `buildErrorMessage`'s `HTTP 422 …` prefix plus the raw body, verified by reading all three at `669d12a`. The real starting state was **six silent, three dumping JSON, zero correct**, so there was no working surface to align the others to; D1 had to build one. That mistaken belief is exactly why the first draft of §4.2 scoped only four sites.
+- **§6's no-epoch-bump reasoning was withdrawn and replaced with a band-crossing guard.** The original claim — that rounding at the 5th decimal "cannot change a solver outcome to any visible precision" — is false: distance **bands** are derived from those very numbers, so `449.99996 → 450.0` moves a pair across the ≤450 boundary. The backfill now refuses any row whose rounding would change band membership. No epoch bump is still correct, and the review established *why*: `isStale()` is `result != null && inputsUpdatedAt > solvedAt`, purely **timestamp**-based rather than hash-based. Had it been hash-based, rounding inputs would have badged every backfilled row stale; leaving `inputsUpdatedAt` untouched is what keeps the student's scenario un-badged, and an exact-millisecond assertion pins it.
+- **The lane-cost rounding was challenged as a rate-vs-distance error and cleared, independently.** Wrapping a field named `cost` in a *distance* rounding looks like exactly the mistake `artifacts/studio/CLAUDE.md` warns about. It is not: `services/templates.ts:1172-1178` states that `transport-coal`'s lane "cost" **is literally geographic miles** (objective = distance × flow; `cost` is chapter vocabulary), and its export already does `roundForFile(toDisplay(...))`. The genuine `$/ton-mi` rate case lives in the studio's `lib/transportCosts.ts` and this import path never touches it. Recorded because the opposite conclusion is the intuitive one, and because had the lane cost genuinely been a rate the commit would have silently degraded it.
+- **`legDistanceOverrides` does not exist, and the measurement that "cleared" it was a null result.** `services/import.ts`'s two `legDistances` branches read and write `distanceOverrides` (`:515`), so there are **three import sites but only two stored override fields**; spec §6 and the FU-2 text both said three, and both are corrected. The part worth keeping is how the error survived: the production audit counted `inputs->'legDistanceOverrides'`, got `0`, and read it as "no affected rows" when the real reason was that the key could never have matched — **a null measurement misread as a benign zero**, which is the exact class the branch's reviews kept flagging in other people's work.
+
+### Seven findings of a test that could not fail — none caught by a gate
+
+Every one originated in the spec or a task brief rather than an implementer's work, and the per-task review is the only thing that caught any of them. The list is the lesson, because the shapes repeat:
+
+| # | Where | The shape |
+|---|---|---|
+| 1 | WF-1 nested-path test | a hand-built fixture whose message lacked the `Number ` prefix, so it **bypassed the `GENERIC_SUBJECT` strip** a real nested issue hits — the branch it claimed to exercise |
+| 2 | WF-1 label-coverage guard | a forward guard over `required[]` and a reverse guard over the labels **that do not meet**: a real non-required field with no label falls through both. 8 such fields across three models proven to leak real names past two review rounds |
+| 3 | WF-3 `DirtyNavPrompt` | the spec's **own designated bug fix** shipped with no test that could fail — both existing cases use a bare `Error`, whose `.message` and `describeWriteError` output are **identical**, so reverting the line kept the suite green |
+| 4 | WF-3 toolbar-Save test | asserted that a toast **fired**, never its text — non-silence proven, correctness not |
+| 5 | WF-3 `exportEntity` 422 test | a plain **object literal** where an `instanceof Error` was required, so it exercised the already-safe fallback |
+| 6 | WF-4 clone test 3 | **coverage-identical** to the pre-existing sibling above it: under that file's mock architecture an empty select *is* "scoped query found nothing", so the row's input validity never enters the mock |
+| 7 | WF-5 notice test | a negative assertion that passed **because the tab was never opened** — the element absent for the wrong reason |
+| 7b | WF-7 round-trip test | re-imported through the same unit, so its failure required floating-point drift **I had myself measured to be absent** (4010 values, zero drift). Replaced with an export at the model's own canonical unit, making `roundForFile` the only variable |
+
+The diagnosis is consistent across all of them: **expectations written from what the code *should* do, without ever asking what a *broken* version would produce.** Two more of the same family were caught in the same branch but are not tests — see the null-measurement zero above, and WF-8's honest negative result: deleting the backfill's explicit empty-filter early return turns **no** test red, because drizzle 0.45.2 compiles `inArray(col, [])` to a false predicate. It was reported as a non-result rather than dressed up as coverage.
+
+### The project's headline deliverable shipped missed, and green
+
+WF-3's first commit (`dde2b1a`) passed **2308 tests** with eight sites fixed and `handleSaveInputs` — FU-5, the single defect this project was created to fix — still reading `saveWholeInputsAsync().catch(() => {})` with its "Intentionally silent" comment intact.
+
+The cause is one mistake, and it is the branch's dominant one: **the plan enumerated by a syntactic criterion and mistook it for the semantic set.** The table is ".mutate() call sites"; `handleSaveInputs` is a `.catch()` *consumer* of `saveWholeInputsAsync` (whose `onError` deliberately rejects so callers decide). So the nine-site table skipped it — and `mutationErrorSurface.test.ts`, which scans `.mutate(`, was **structurally incapable of seeing it**. The guard built to prevent this exact recurrence was blind to the headline bug. It was found by a human reading the implementer's report, not by any check. The same grep, scoped to `Workspace.tsx` alone, then missed `ImportDialog.tsx:134,238` (live from eight input tabs, rendering `HTTP 422 …` on top of the clean sentence WF-1 had just built — the two tasks actively working against each other) and, only via the follow-up audit the user asked for, `lib/exportEntity.ts:87`. Four misses, one criterion. The distilled rule is in root `CLAUDE.md`; the guard now walks the whole `src/` tree and also flags a `.catch(` that does nothing with its error.
+
+Two implementer judgements were accepted **over the brief's own instructions**, both correct: the "window ends at the next site" rule for the `.catch` guard was rejected because with one site it collapses to EOF and scoops unrelated `toast()` calls (a different fail-open) — exact paren-matching used instead; and widening the regex canary was argued against, since a noisier guard invites being loosened under pressure, which is this failure mode relocated.
+
+### WF-8's band guard — the counter-example where the process worked
+
+Recorded deliberately, because seven entries above describe the process failing and this one describes it working end to end.
+
+The implementer **corrected the brief's own fixture**: `449.99996` does not change band membership (it rounds to `450.0`, and `450.0` is still ≤ 450), while `450.00004` does. The review then did not merely confirm the guard — it **proved the guard exactly equivalent to the real reporting lens.** `lib/units/src/bands.ts` is the authority: `assignBandOrOverflow` uses `distance <= b` and `computeCumulativeBandCoverage` is cumulative, so the property that must not change is the whole membership vector `[v <= b for b in bands]`, and `bandOf(v) = min{b : v <= b}` preserves that vector iff `before === after`. Proof sketch, plus **200,000 random values**, plus an exhaustive ±200 × 1e-5 sweep around all four production bands → **0 mismatches**. It then re-ran all three mutations itself and reproduced the counts exactly (guard removed → 3 red; guard refuses everything → 9 red; interval-based `crossesBand` → 4 red, including both the refusal and the boundary test). Edge cases checked and cleared: a value already *at* a band short-circuits before the guard; empty/absent bands yield null on both sides and are not refused (correct — `computeCumulativeBandCoverage` returns `[]`, so there is no reporting to desync); unsorted bands handled by a numeric comparator; and the `r <= 0` check **precedes** `crossesBand` so `0.00004` yields the actionable "rounds to 0" reason rather than a misleading band message.
+
+The follow-up commit `9ccb628` replaced a hand-rolled `bandOf` with `@workspace/units`' own `assignBandOrOverflow`. Present correctness was never in doubt; the risk was **silent drift** — the guard's only purpose is to mirror the lens, so a future `<=` → `<` in `bands.ts` would desync it with no test failing. Behaviour preservation was proven by re-injecting the interval bug into the new code (4/15 red). The same commit corrected two overclaims of mine: "no re-solve would produce a different answer" (the guard bounds band **membership**, not the objective — a fresh solve differs by ~1e-4 × demand on the affected pair; immaterial, not nothing), and "every override schema forbids `positive()`" (the fixer checked and found `jadeInputs.ts` uses `nonnegative()` too, narrowing it in three places where one had been flagged).
+
+### Deliberate decisions and their accepted costs
+
+- **D5 — round on import to match export, accepting that the stored canonical value becomes lossy at 4 dp.** This is a real loss of precision in persisted data, taken knowingly: the alternative is that every re-import of an unmodified export flags rows nobody edited, because change detection is an exact `!==`. `roundForFile` is now the single rounding authority on both sides.
+- **The backfill refuses rather than decides.** A row whose rounding would cross a band boundary, or would round to `0` and violate an override schema's `positive()`/`nonnegative()`, is left **completely unwritten** with a reason naming the boundary. There is no `--force` flag **and none should be added**; the operator decides. Two concrete options and a worked reason string are in the runbook.
+- **No epoch bump**, safe only because `isStale()` is timestamp-based — see the design decisions above.
+- **No model scope, by design** (over-precision is model-independent), so an unfiltered `roundAll` rewrites the whole `scenarios` table. Mitigated by the doc comment and by all 15 tests passing explicit fixture ids — the same hazard class as the `ch4ToMiles` Critical, handled correctly this time.
+- **Whole-blob write carries `ch4ToMiles`' lost-update window**, and unlike that migration nothing forces a maintenance window. Strictly smaller exposure (one row, two values); the runbook advises a quiet window, with no code lock, matching precedent.
+- **Non-zero exit on a non-empty `refused` list is absent**, matching `ch4ToMiles`' identical gap, which was deliberately not touched because it is already merged, deployed and run against production. No test was added, with sound reasoning: the CLI block only runs under direct invocation and the script takes no id-scoping flag, so a spawned test would scan the whole `scenarios` table in whatever DB `DATABASE_URL` points at — the exact hazard that file's tests avoid.
+- **Two Minors from WF-2 were deliberately not changed**: the `{`/`[` JSON-dump guard stays simple (narrowing it for a `"[DEPRECATED] …"` message that exists nowhere buys a new false-negative surface for no present need), and `asRecord` keeps admitting arrays (property reads return `undefined`, so both call sites already fall through identically).
+- **The caller-side no-op guard in `TransportCostsTab` was kept, not deleted.** The progress ledger called it dead redundancy once WF-6 moved the guard into the hook. It is not: the hook compares two **canonical** values at 4 dp, this compares two **display** values, and for a rate `toDisplay` *divides*, so 1e-4 in display space is ~1.6e-4 in canonical space — strictly the coarser of the two for the rate fields. Deleting it would widen what counts as a change, i.e. a behaviour change rather than a cleanup. Only the false half of its comment was corrected. (For the min-charge fields, which pass `IDENTITY_CONVERSION`, the two genuinely do coincide.)
+
+### Verified negatives and other things worth not re-deriving
+
+- **WF-4's security property is stronger than its proof claimed.** The reorder-and-watch-it-break proof establishes that the guard is necessary to avoid a *crash*, not that there is no ownership leak. The real property is better: the clone `SELECT` is itself scoped `and(eq(id), eq(userId))` (`scenarios.ts:1974-1991`), so `scenario` is only ever truthy for a row the caller owns. There is no "fetch unscoped, then branch on ownership" shape, so a 422-before-404 leak was never reachable regardless of statement order.
+- **WF-3's audit negatives, with reasons** (so a future session does not re-derive them): `Studio.tsx` is dead (all 7 `chapters.ts` entries are `workspace: true`, so `App.tsx`'s Studio branch is unreachable — Phase D); `OutputMapTab` is clipboard-only and never calls the API; `Workspace.tsx:3132` is a solver outcome, §8 out of scope; `FeedbackWidget`, `Login`, `Register` and `AppShell` render no `.message` at all; `ui/form.tsx` and `ui/field.tsx` have zero imports anywhere.
+- **WF-5's notice fires on nothing in production today, and the margin is an accident.** Cross-joining every model's `required[]` against all **376** production scenarios flags **0 rows**, because the three models requiring `capacityMode` are exactly the three where every row has it. The latent constraint this creates — a `required[]` edit is now a data-compatibility decision, worth 284 rows on `two-echelon-jade-us` — is in root `CLAUDE.md`.
+- **A new load-flake sighting:** `scenarioSolveAtomicity.test.ts`, added to root `CLAUDE.md`'s list. It lives under `src/solver/__tests__/`, **not** `src/__tests__/` — the same path trap that list already warns about.
+- **Standing repo-wide problem, reported on every engineering task and not WF's to fix:** `ponytail:ponytail` does not resolve via the `Skill` tool anywhere in this repo, so hard rule #12's invocation obligation is unmet on every engineering task.
+
+### Not yet done, and each needs its own approval
+
+`superpowers:finishing-a-development-branch`, merge, whole-branch review, push, deploy, `/harness-retro WF`. **The production backfill is a further separate approval and must not be bundled with a deploy request** — its scope is 1 scenario / 2 values (`p-median-us` scenario 40: `6.2137119223733395` and `9.32056788356001`, both reproducible as `10 / 1.609344` and `15 / 1.609344`, confirming a km-sourced import). Deploy surface: `nos-api` (server validation, clone, import rounding, the new migration) **and** `nos-studio` (every client error surface, the notice, the draft guard) both change. `nos-postgres` needs no `drizzle-kit push` — the branch adds no schema change.
+
+### Whole-branch review round 2 — the eighth weak test, and the last silent mutation
+
+The final review returned **not ready** with two must-fix defects, and both were
+tests rather than code: the implementations already fixed their bugs and the
+shipped tests passed against implementations that did not.
+
+- **WF-5's caller-level computation had zero coverage** (`94c112f`). The only
+  Workspace-level test of the missing-required notice reached the *fails-closed*
+  branch and never the filter — the mocked `p-median-us` entry carried no
+  `inputsSchema`, so the memo returned `[]` before the by-value check was
+  evaluated. Proven by mutation: changing the predicate to `!values[k]` left 350
+  tests green. The failure that would have shipped is the reason it matters —
+  `gap` is in **every** model's `required[]` and `gap: 0` is the stored default,
+  so that mutant renders *"MIP gap — it cannot be saved or solved … contact your
+  instructor"* on all 376 production scenarios with every suite green. The mock
+  now carries a real `required[]` and asserts no notice while `gap: 0` is
+  present, with a second model keeping the fails-closed branch covered.
+- **WF-6's three tests could not fail on their own defect** (`907d650`). All used
+  mi with the default unit preference, so `fromDisplay` was the identity and the
+  floating-point drift the guard exists for never occurred; strict `!==` left all
+  three green. A km-mode case was added: canonical `650` mi displays as
+  `1046.0736`, retypes to `649.9999999999999`, equal only at `roundForFile`'s
+  4 dp. Spec §7 had asked for exactly this and the shipped tests were mi-only.
+
+Two fold-ins and one scope decision:
+
+- The raw-message guard keyed on a single idiom, so `mutation.error?.message` —
+  ImportDialog's own shipped bug in another spelling — passed it. Widened, with
+  two genuine hits added to the named allow-list (unused shadcn scaffold whose
+  `error` is a react-hook-form `FieldError`, not an `ApiError`), and its
+  staleness check now filters comments so a commented-out occurrence cannot keep
+  a stale entry looking fresh (`7646568`).
+- The notice's label table was a **third** label table on this branch and was
+  missing eight keys that appear in some model's `required[]`
+  (`capacityFactor`, `singleSource`, `capacityInactive`, `costAdjustEnabled`,
+  `distanceThreshold`, `costPerMile`, `costPerMileOver`, `bomRatio`) — a row of
+  one of those models would have shown a student a raw camelCase identifier. All
+  eight added with a bidirectional coverage test following the server table's
+  shape (`5680861`).
+- **`AppShell`'s logout was the last mutation in `src/` with no failure surface
+  at all** — no `onError`, no `isError` render, and invisible to both guards by
+  construction, exactly as the toolbar Save had been. Out of the spec's
+  scenario-write scope, folded in on an explicit decision because the failure is
+  security-adjacent rather than cosmetic: on a shared machine a student clicks
+  Log out, the request fails, nothing happens, the session cookie stays valid and
+  the header still shows their email — they leave believing they logged out. The
+  fallback names the state they are actually in ("You are still signed in")
+  rather than the HTTP detail (`dd278d9`).
+
+Gate: studio **127 files / 2331 tests**, zero failures, zero concurrent vitest,
+no flakes in the run. Workspace-level typecheck clean across all projects. The
+api-server suite, solver pytest and `e2e_accuracy.py` were not re-run for this
+round and did not need to be — the only api-server-tree change since the last
+full gate is a `CLAUDE.md` doc, so those results apply by content.
+
+**One structural gap left open, deliberately.** `mutationErrorSurface.test.ts`
+still reads only `Workspace.tsx`, so a *missing* `onError` elsewhere matches no
+pattern in either guard — which is how both the toolbar Save and this logout
+stayed hidden. Widening it needs a cross-file allow-list audit and was judged
+too large to force into a review fix round. It is the first follow-up this branch
+leaves behind.

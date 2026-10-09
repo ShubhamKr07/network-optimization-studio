@@ -167,7 +167,58 @@ export interface OptimizationParametersTabProps {
   /** See `idPrefix`. Forwarded to the nested `BandChipEditor`, which already
    * takes this exact prop. Defaults to "". */
   testIdPrefix?: string;
+  /** WF-5 — required inputs this scenario's row is missing, as manifest key
+   * names. Computed by the caller from the model's own `inputsSchema.required[]`
+   * (Workspace.tsx) — NOT derived here from a field's presence, because
+   * presence cannot distinguish "this model has no such field" from "this
+   * model needs it and the row lacks it". Empty or omitted for every healthy
+   * scenario of every model. */
+  missingRequiredInputs?: string[];
 }
+
+// WF-5 — label map for the missing-required-inputs notice. Module-level
+// (not inside the component) because it holds no per-instance state and
+// every key here is one of this component's own field names.
+//
+// Review fold-in (WF-3, final whole-branch review) — this used to cover only
+// Chapter 4 + the shared p-median/gap/timeLimitSec/capacityMode/distanceBands
+// keys, leaving EIGHT keys that appear in some model's own
+// `inputsSchema.required[]` with no entry at all: capacityFactor,
+// singleSource, capacityInactive (transport-coal); costAdjustEnabled,
+// distanceThreshold, costPerMile, costPerMileOver (delivery-teaching-us);
+// bomRatio (two-echelon-gold-au). A row of one of those models missing a
+// required field would have rendered the raw camelCase key to a student
+// instead of a label. Verified against every manifest's own required[]
+// (`solvers/*/manifest.json`), not guessed — see this file's own test
+// coverage (`OptimizationParametersTab — MISSING_INPUT_LABELS completeness`
+// in the sibling test file), which iterates every model's required[] in
+// both directions, following the server's `INPUT_FIELD_LABELS` test shape
+// (artifacts/api-server/src/validation/__tests__/formatInputIssues.test.ts).
+// Wording below is taken verbatim from this component's own existing UI
+// copy for each field where it has one (the Label text / button text
+// rendered further down), not invented fresh.
+export const MISSING_INPUT_LABELS: Record<string, string> = {
+  p: "Number of warehouses",
+  highServiceDistMi: "High-service distance",
+  maxDistMi: "Max distance",
+  avgServiceDistCapMi: "Average service distance cap",
+  coverageFloorDemand: "Coverage floor",
+  gap: "MIP gap",
+  timeLimitSec: "Time limit",
+  capacityMode: "Capacity mode",
+  distanceBands: "Distance bands",
+  // transport-coal
+  capacityFactor: "Mine capacity factor",
+  singleSource: "Single-source",
+  capacityInactive: "Ignore capacity",
+  // delivery-teaching-us
+  costAdjustEnabled: "Adjust Cost Table",
+  distanceThreshold: "Distance threshold",
+  costPerMile: "Cost per mile",
+  costPerMileOver: "Cost per mile over the threshold",
+  // two-echelon-gold-au
+  bomRatio: "BOM ratio",
+};
 
 // A1.2 — grid-style editor over the scalar solve-parameter fields
 // (p/gap/timeLimitSec/distanceBands) that live in the same scenario.inputs
@@ -208,6 +259,7 @@ export function OptimizationParametersTab({
   onChange,
   idPrefix = "",
   testIdPrefix = "",
+  missingRequiredInputs,
 }: OptimizationParametersTabProps) {
   // CH4UX-2 — one helper per namespace so a missed call site is a visible
   // bare string literal in review rather than a silent collision at runtime.
@@ -245,6 +297,26 @@ export function OptimizationParametersTab({
 
   return (
     <div className="max-w-md space-y-6" data-testid={tid("optimization-parameters-tab")}>
+      {/* WF-5 — a scenario row the Chapter 4 km->mi migration (or any future
+          migration) left with required inputs missing. The notice is driven
+          entirely by `missingRequiredInputs` (computed in Workspace.tsx from
+          the active model's own manifest `inputsSchema.required[]`) — never
+          by a field's presence here, since presence alone cannot distinguish
+          "this model has no such field" from "this model needs it and the
+          row lacks it". */}
+      {missingRequiredInputs !== undefined && missingRequiredInputs.length > 0 && (
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm"
+          data-testid={tid("missing-required-inputs")}
+        >
+          <p className="font-medium text-destructive">This scenario is missing required values</p>
+          <p className="mt-1 text-muted-foreground">
+            {missingRequiredInputs.map(k => MISSING_INPUT_LABELS[k] ?? k).join(", ")}
+            {" "}— it cannot be saved or solved until they are restored. Contact your instructor.
+          </p>
+        </div>
+      )}
+
       {p != null && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">

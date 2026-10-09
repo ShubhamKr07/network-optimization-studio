@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { describeWriteError } from "@/lib/describeWriteError";
 import {
   Dialog,
   DialogContent,
@@ -51,7 +52,11 @@ export function DirtyNavPrompt({ open, onSave, onDiscard, onCancel }: DirtyNavPr
       // On success the caller flips `open` to false (and proceeds with the
       // navigation) via its own state update — nothing further to do here.
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed. Try again.");
+      // Was `e.message`, which is ApiError's buildErrorMessage output — so
+      // this dialog rendered "HTTP 422 Unprocessable Content: [{"code":…}]"
+      // inline to the student. describeWriteError reads the parsed body
+      // instead.
+      setError(describeWriteError(e, "Save failed. Try again."));
     } finally {
       setSaving(false);
     }

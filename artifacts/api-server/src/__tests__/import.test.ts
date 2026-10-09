@@ -3,6 +3,11 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { parseAndValidateImport } from "../services/import.js";
+// WF-7 — the real export-path primitives (templates.ts), used below to
+// build a genuine export CSV from a stored override rather than a
+// hand-rolled one, so the round-trip test proves stored === exported
+// through the actual production functions on both sides.
+import { applyDistanceOverrides, distanceRowsToCsv } from "../services/templates.js";
 // T8 — round-trip tolerance test exercises the SAME conversion primitives
 // the real export path (templates.ts) uses, rather than a locally
 // recomputed expectation.
@@ -1077,19 +1082,13 @@ describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDist
     const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "max-coverage-us");
     expect(result.errors).toEqual([]);
     expect(result.changes).toHaveLength(1);
-    // 100 km -> mi = 62.13711922373339, UNROUNDED. The import path applies
-    // fromDisplay and does NOT round to roundForFile's 4 dp (a pre-existing
-    // behaviour, not something CH4O-8 changed). It was invisible before only
-    // because this test drove the mi->km direction, where 100 * 1.609344 =
-    // 160.9344 is exact at 4 dp; the km->mi direction is not. Asserted at full
-    // precision rather than loosened to toBeCloseTo, so a future rounding
-    // change here is a visible, deliberate decision.
-    // FU-3 — those 14 decimals are NOT a chosen precision. They are the
-    // literal shortest round-trip repr of the double `100 / 1.609344`, i.e.
-    // exactly what `fromDisplay` returns and what `String()` prints for it.
-    // Do not "tidy" the digit count: any shorter literal is a different
-    // double and fails, and nothing here is asking for 14 dp of accuracy.
-    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 62.13711922373339 } });
+    // WF-7 (D5) — 100 km -> mi is 62.13711922373339 at full precision, but
+    // the import path now rounds through roundForFile the same way export
+    // does (templates.ts's `roundForFile(toDisplay(...))`), so stored ==
+    // exported and a re-import of an untouched export reports no change.
+    // This used to assert the unrounded 14-decimal value; that was the
+    // behaviour this task deliberately changed.
+    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 62.1371 } });
   });
 
   it("mixed units inside one file → format-class error", () => {
@@ -1161,6 +1160,65 @@ describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDist
       expect(Math.abs(importedCanonical - value)).toBeLessThanOrEqual(tolerance);
       value = importedCanonical;
     }
+  });
+
+  // WF-7 (D5) — export emits roundForFile's 4 dp; import used to store full
+  // precision, so a km-sourced value drifted from what export would later
+  // emit for it. This is the regression test for that fix: it must fail if
+  // the roundForFile wrapping on the import side is removed.
+  it("a km-sourced distance import stores the value rounded to 4 dp", () => {
+    // 10 km in miles is 6.2137119223733395 at full precision; roundForFile
+    // brings that to 6.2137, matching what templates.ts's export would emit
+    // for the same stored value.
+    const csv = "template_version,unit,from_id,to_id,distance\n2,km,ALN,C1,10\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 6.2137 } });
+  });
+
+  it("re-importing an unmodified export (built via templates.ts's real export path) detects no change", () => {
+    // Step 1: import a km file, producing the stored canonical (mi) value.
+    const importCsv = "template_version,unit,from_id,to_id,distance\n2,km,ALN,C1,10\n";
+    const firstImport = parseAndValidateImport("distances", importCsv, NO_OVERRIDES, 0);
+    expect(firstImport.errors).toEqual([]);
+    const stored = firstImport.changes[0].after.value as number;
+    const storedOverride = { fromId: "ALN", toId: "C1", distance: stored };
+
+    // Step 2: export that stored value the SAME way the real route does
+    // (applyDistanceOverrides + distanceRowsToCsv), in the model's OWN
+    // canonical unit (mi) — not a hand-rolled CSV. This is the
+    // discriminating choice: round-tripping back out through km instead
+    // would, for this value, land on a km literal (10) that reconstructs
+    // the exact pre-fix full-precision double on reimport regardless of
+    // whether import rounds, so it would pass even with the bug present.
+    // Exporting in mi isolates export's roundForFile as the only thing a
+    // reimport has to match, which is exactly where the bug lived.
+    const exportRows = applyDistanceOverrides([storedOverride], "mi", "mi");
+    const exportedCsv = distanceRowsToCsv(exportRows);
+
+    // Step 3: re-importing that export against the already-stored override
+    // must detect zero changes — nobody edited anything. Before WF-7, this
+    // failed: the stored value (full precision, 6.2137119223733395) never
+    // equalled export's rounded 6.2137, so reimporting it registered a
+    // change nobody made.
+    const second = parseAndValidateImport("distances", exportedCsv, { distanceOverrides: [storedOverride] }, 0);
+    expect(second.errors).toEqual([]);
+    expect(second.changes).toEqual([]);
+  });
+
+  // WF-7 — the third site (`parseLaneCostRows`): transport-coal's lane
+  // "cost" is literally geographic miles (templates.ts:1172-1178), so it
+  // goes through the exact same roundForFile(fromDisplay(...)) wrapping as
+  // the two distance sites above, not the $/unit-distance rate path.
+  it("a km-sourced laneCosts import stores the value rounded to 4 dp", () => {
+    // Same 10 km -> 6.2137119223733395 mi conversion as the distances case
+    // above; transport-coal is mi-canonical too.
+    const csv = "template_version,unit,from_id,to_id,cost\n2,km,KY,CHI,10\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "KY|CHI", after: { value: 6.2137 } });
   });
 });
 

@@ -1,5 +1,6 @@
 import { exportScenario } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 
 // T11 (Chapter 9 JADE) — "plants"/"plantCapabilities" added, matching T3.5's
 // already-generated `ExportScenarioEntity` (openapi.yaml) exactly. This
@@ -84,7 +85,7 @@ export async function downloadEntityExport(
     }
     toast({
       title: "Export failed",
-      description: err instanceof Error ? err.message : "Could not export.",
+      description: describeWriteError(err, "Could not export."),
       variant: "destructive",
     });
   }

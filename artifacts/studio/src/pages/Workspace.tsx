@@ -94,6 +94,7 @@ import { workspaceViewId, type WorkspaceView } from "@/lib/workspaceView";
 import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 import {
   completenessCountForWarehouse,
   completenessCountForCustomer,
@@ -2115,14 +2116,20 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
-  // The plain Save control — fires the whole-input save and swallows a
-  // rejection (this path had no visible error handling before this bundle
-  // either; DirtyNavPrompt's own Save action is the one place a rejection
-  // must surface inline, per plan-review #7).
+  // The plain Save control — fires the whole-input save and toasts on
+  // rejection, matching every other mutation site in this file.
+  // DirtyNavPrompt's own Save action (`handleDirtyNavSave` above) is the one
+  // legitimate consumer that leaves a rejection unswallowed here: it awaits
+  // `saveWholeInputsAsync()` uncaught so the error propagates to the dialog,
+  // which surfaces it inline instead of via toast.
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || isBrowsingHistoryNow || !ordinaryDirty) return;
-    saveWholeInputsAsync().catch(() => {
-      // Intentionally silent here — see the comment above.
+    saveWholeInputsAsync().catch(err => {
+      toast({
+        title: "Couldn't save your changes",
+        description: describeWriteError(err),
+        variant: "destructive",
+      });
     });
   }
 
@@ -2143,6 +2150,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't save the distance bands",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );
@@ -2707,6 +2721,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           navigate(`?scenario=${created.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: err => {
+          toast({
+            title: "Couldn't create the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
@@ -2721,6 +2742,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           navigate(`?scenario=${cloned.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't duplicate the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );
@@ -2750,6 +2778,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           queryClient.removeQueries({ queryKey: getGetScenarioQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: err => {
+          toast({
+            title: "Couldn't delete the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
@@ -2773,6 +2808,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't rename the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );
@@ -2865,7 +2907,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       {
         onSuccess: job => setPollingJobId(job.jobId),
         onError: err => {
-          const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+          const message = describeWriteError(err, "Could not enqueue the solve. Try again.");
           // Lock deliberately still held — the failure card is up, and
           // Close/Adjust (`resetSolveState`) own that release.
           setSolvePhase("failed");
@@ -2972,7 +3014,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // silently in Studio.tsx before that was fixed — Solve just quietly
           // did nothing. Surface it the same way here.
           onError: err => {
-            const message = err instanceof Error ? err.message : "The scenario was not solved — fix the invalid input and try again.";
+            const message = describeWriteError(err, "The scenario was not solved — fix the invalid input and try again.");
             setSolvePhase("failed");
             setSolveError(message);
             toast({
@@ -3137,9 +3179,39 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // state precede.
           enqueueSolve(created.id);
         },
+        onError: err => {
+          toast({
+            title: "Couldn't save as a new scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
+
+  // WF-5 — the manifest's own `inputsSchema.required[]` is the authority for
+  // which fields a scenario row of this model MUST have, and it is already
+  // served on /api/models — verified against production: all nine Chapter 4
+  // keys arrive intact. But the generated type is
+  // `ModelInfoInputsSchema = { [key: string]: unknown }` (the OpenAPI schema
+  // calls inputsSchema "opaque to this contract"), so this is a GUARDED read
+  // that fails closed: an unreadable manifest renders no notice rather than a
+  // scary one.
+  const missingRequiredInputs = useMemo<string[]>(() => {
+    if (!localInputs) return [];
+    const req = (activeModelManifest?.inputsSchema as { required?: unknown } | undefined)?.required;
+    if (!Array.isArray(req)) return [];
+    const values = localInputs as Record<string, unknown>;
+    return req.filter((k): k is string => {
+      if (typeof k !== "string") return false;
+      // By VALUE, not key presence: `in` treats a present-but-null key as
+      // fine, and a required input whose value is null is just as unusable.
+      // Written as a statement (not a chained `&&`/`||` expression) so
+      // precedence can't quietly make the `k is string` predicate a lie.
+      return values[k] === undefined || values[k] === null;
+    });
+  }, [activeModelManifest, localInputs]);
 
   // CH4UX-4 — ONE base prop object, consumed by two renders: the
   // Optimization Parameters tab itself and the Solve dialog's embedded copy.
@@ -3188,6 +3260,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     costPerMile: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMile") : undefined,
     costPerMileOver: modelId === "delivery-teaching-us" ? optionalNumberFromInputs(localInputs, "costPerMileOver") : undefined,
     onChange: handleOptimizationParamsChange,
+    // WF-5 — in the shared base object so both the tab mount and the Solve
+    // dialog's embedded mount surface the same notice.
+    missingRequiredInputs,
   } satisfies OptimizationParametersTabProps | null;
 
   // The tab follows what the student is LOOKING AT.

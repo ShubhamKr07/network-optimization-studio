@@ -575,6 +575,23 @@ describe("POST /api/scenarios", () => {
       .send({ name: "Bad inputs", modelId: "p-median-us", inputs: { ...pmedianInputs, capacityMode: "bogus" } });
     expect(res.status).toBe(422);
   });
+
+  // WF-1 — proves the 422 body is a readable sentence, not a Zod dump.
+  it("a rejected scenario input returns a readable sentence, not a Zod dump", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
+      name: "bad", modelId: "max-coverage-us",
+      inputs: { p: 3, highServiceDistMi: 450, maxDistMi: 3400, avgServiceDistCapMi: 0,
+                coverageFloorDemand: 0, gap: 0, timeLimitSec: 120, capacityMode: "none",
+                distanceBands: [450], warehouseOverrides: [], customerOverrides: [],
+                addedWarehouses: [], addedCustomers: [], distanceOverrides: [] },
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Average service distance cap must be greater than 0.");
+    // The defect this fixes: the body used to be a JSON array.
+    expect(res.body.error).not.toContain("{");
+    expect(res.body.error).not.toContain("too_small");
+  });
 });
 
 // ── Get scenario ───────────────────────────────────────────────────────────
@@ -3366,6 +3383,55 @@ describe("POST /api/scenarios/:id/clone", () => {
     const cookie = await loginAs("other-user-id");
     mockDb.select.mockReturnValue(makeChain([]));
     const res = await request(app).post("/api/scenarios/1/clone").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+});
+
+// WF-4 — clone was the only scenario-write path that never re-validated the
+// source row's inputs, so duplicating a stale/pre-migration-shaped row
+// produced another row that can never be saved or solved.
+describe("POST /api/scenarios/:id/clone — validation", () => {
+  it("422s when the source row's inputs are invalid, instead of copying them", async () => {
+    const cookie = await loginAs(OWNER);
+    // A kilometre-era shaped row, the way a pre-migration row looks — the
+    // production writer can no longer produce this (it only ever writes the
+    // Mi-named fields), which is the point: clone is how such a row
+    // propagates if it isn't re-validated.
+    const kmEraInputs = {
+      p: 3, highServiceDistKm: 700, maxDistKm: 5500, gap: 0, timeLimitSec: 120,
+      capacityMode: "none", distanceBands: [700], warehouseOverrides: [],
+      customerOverrides: [], addedWarehouses: [], addedCustomers: [],
+      distanceOverrides: [],
+    };
+    mockDb.select.mockReturnValue(makeChain([{ ...maxCoverageRow, inputs: kmEraInputs }]));
+    const res = await request(app).post("/api/scenarios/13/clone").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("required");
+    expect(res.body.error).not.toContain("{");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("still clones a valid source row", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    mockDb.insert.mockReturnValue(makeChain([{ ...maxCoverageRow, id: 20, name: "Max Coverage Base Case (copy)" }]));
+    const res = await request(app).post("/api/scenarios/13/clone").set("Cookie", cookie);
+    expect(res.status).toBe(201);
+    expect(res.body.id).not.toBe(13);
+  });
+
+  // Ownership must still win, or a 422 becomes an existence oracle. The
+  // ownership-scoped lookup is simulated here the same way the 404 test
+  // above does it — an empty result, as a real `and(eq(id), eq(userId))`
+  // lookup would return for a non-owned row. `scenario` is therefore
+  // `undefined` at this point: if validation were moved above the
+  // `if (!scenario)` guard, this would throw (TypeError reading `.modelId`
+  // off `undefined`) and surface as a 500, not a 404 — which is exactly how
+  // this test would catch that reordering.
+  it("404s for a non-owned source even when its inputs are invalid", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/13/clone").set("Cookie", cookie);
     expect(res.status).toBe(404);
   });
 });
