@@ -1424,11 +1424,20 @@ const MAX_COVERAGE_DATASET_FAKE: MaxCoveragePrecheckDataset = {
 // CH4O-5 — a ZERO floor is coverage mode (§2.3); the cap is required in both
 // modes (§2.4). `objective` is server-derived and deliberately absent here:
 // precheck must never read it.
+// CH4O-6 — avgServiceDistCapKm is deliberately slack (100_000, far above any
+// plausible nearest-active-warehouse weighted average against either
+// MAX_COVERAGE_DATASET_FAKE or the real dataset): the cap rule is a
+// necessary-condition check that ignores maxDistKm by design, so a tight
+// default here co-fires with any test that inactivates a warehouse or
+// overrides a distance past maxDistKm (both bounds can legitimately break
+// together) and obscures what that test is actually asserting. Tests that
+// want to exercise the cap itself override this field explicitly downward
+// (see the "infeasibility attribution" describe block below).
 const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   p: 2,
   highServiceDistKm: 500,
   maxDistKm: 1000,
-  avgServiceDistCapKm: 400,
+  avgServiceDistCapKm: 100_000,
   coverageFloorDemand: 0,
   gap: 0.01,
   timeLimitSec: 60,
@@ -1526,14 +1535,8 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     it("fires when an inactive-warehouse edit strands a customer beyond maxDistKm", () => {
       // WH-C is C-3's ONLY reachable warehouse (WH-A 1100 > 1000, WH-B
       // 1150 > 1000). Inactivating it leaves C-3 unreachable.
-      // avgServiceDistCapKm raised to isolate no_feasible_route: with only
-      // WH-A/WH-B active, C-3's nearest active warehouse is 1100 km, which
-      // (correctly, per CH4O-6) also pushes the weighted-average lower bound
-      // past the base fixture's 400 km cap — a separate, real finding this
-      // test deliberately doesn't exercise.
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
-        avgServiceDistCapKm: 100_000,
         warehouseOverrides: [{ id: "WH-C", status: "inactive" }],
       };
       const result = precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE);
@@ -1544,10 +1547,8 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
 
     it("fires when a distance override pushes a customer's only route past maxDistKm", () => {
       // 1100 > 1000. C-3's other base routes are already too far.
-      // avgServiceDistCapKm raised to isolate no_feasible_route (see above).
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
-        avgServiceDistCapKm: 100_000,
         distanceOverrides: [{ fromId: "WH-C", toId: "C-3", distance: 1100 }],
       };
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["no_feasible_route"]);
@@ -1557,12 +1558,8 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       // MIG-6: precheck must mirror solve_max_coverage exactly — raw ≤
       // threshold, nothing else. WH-C→C-3 at exactly maxDistKm (1000) is
       // reachable; bumping it 1 km over makes it unreachable.
-      // avgServiceDistCapKm raised to isolate no_feasible_route: with only
-      // WH-C active, every customer's nearest (and only) active warehouse is
-      // WH-C, well past the base fixture's 400 km cap.
       const atBoundary: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
-        avgServiceDistCapKm: 100_000,
         p: 1,
         distanceOverrides: [{ fromId: "WH-C", toId: "C-3", distance: 1000 }],
         warehouseOverrides: [{ id: "WH-A", status: "inactive" }, { id: "WH-B", status: "inactive" }],
