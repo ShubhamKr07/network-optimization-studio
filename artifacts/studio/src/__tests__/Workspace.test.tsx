@@ -122,6 +122,14 @@ vi.mock("@workspace/api-client-react", () => ({
         id: "p-median-us",
         distanceUnit: "mi",
         countryBounds: { sw: [24, -125], ne: [50, -66] },
+        // WF-5 — required[] copied verbatim from solvers/p-median-us/
+        // manifest.json's own inputsSchema.required, not guessed. This is
+        // what lets the "no notice while every required field is present"
+        // test below actually reach missingRequiredInputs's VALUE filter
+        // instead of returning [] before it, via the fails-closed branch
+        // (`!Array.isArray(req)`) — every other model in this file still
+        // carries no inputsSchema, so that branch stays covered too.
+        inputsSchema: { required: ["p", "capacityMode", "distanceBands", "gap", "timeLimitSec"] },
         capabilities: {
           supportsP: true,
           capacityModes: ["none", "uniform", "per_wh"],
@@ -1442,13 +1450,31 @@ describe("Workspace — Optimization Parameters tab", () => {
   // fixture (`pmedianInputs`) is missing `highServiceDistMi`/`maxDistMi`/
   // `avgServiceDistCapMi`/`coverageFloorDemand` simply because this model
   // doesn't have them — not because its row is damaged. The mock
-  // `useListModels` entry for "p-median-us" also carries no `inputsSchema`
-  // at all, so this doubles as the "unreadable manifest fails closed"
-  // regression. Opens the Optimization Parameters tab (not just the page)
-  // so the notice has somewhere to render — otherwise the assertion would
-  // pass vacuously regardless of what Workspace.tsx computes.
-  it("shows no missing-inputs notice for a p-median scenario with no Chapter 4 fields", () => {
+  // `useListModels` entry for "p-median-us" now carries a REAL
+  // `inputsSchema.required` (copied from the manifest above), so this test
+  // actually reaches the by-VALUE filter inside `missingRequiredInputs`
+  // instead of returning `[]` before it via the fails-closed branch —
+  // `pmedianInputs.gap` is `0`, every model's stored default, which is
+  // exactly the value a `!values[k]` mutant (falsy-coerces `0`) would wrongly
+  // flag as missing. Opens the Optimization Parameters tab (not just the
+  // page) so the notice has somewhere to render — otherwise the assertion
+  // would pass vacuously regardless of what Workspace.tsx computes.
+  it("shows no missing-inputs notice for a p-median scenario with every required field present (gap: 0 included)", () => {
     renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
+  });
+
+  // WF-5 — the fails-closed branch, kept as its own case now that the test
+  // above exercises the real filter: p-median-brazil's mock manifest entry
+  // carries no `inputsSchema` at all, so `missingRequiredInputs` must return
+  // `[]` via `!Array.isArray(req)` rather than render a notice from an
+  // unreadable manifest.
+  it("shows no missing-inputs notice when the manifest's inputsSchema is unreadable (fails closed)", () => {
+    const brazilScenario = { ...scenario, id: 9, modelId: "p-median-brazil" };
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.queryByTestId("missing-required-inputs")).not.toBeInTheDocument();
   });
