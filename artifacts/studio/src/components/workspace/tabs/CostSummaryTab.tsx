@@ -154,7 +154,7 @@ function bandBoundaries(result: SolveResult): number[] {
 // other model, which has no such discriminator). Used both to LABEL the
 // objective mode-aware and to block comparing two Chen scenarios solved under
 // different modes (their objectives are in different units — a coverage % and
-// a demand-km total can't share a column).
+// a demand-mi total can't share a column).
 // CH4O-2 — the CH4-12-aware adapter this comment used to describe
 // (`scenarioObjectiveModeCh4Aware`, which preferred `steps.*.summary` over
 // `scenario.result` for max-coverage-us) is deleted along with the rest of
@@ -363,7 +363,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // fields are simply absent for every pre-existing model's envelope, so
     // these two rows never appear for them (byte-identical row set to before
     // this task).
-    // C4.14 (D14) — mode-aware objective (coverage % / min-distance demand-km).
+    // C4.14 (D14) — mode-aware objective (coverage % / min-distance demand-mi).
     // chen-bands-units, Part D decision 6 — `formatObjective` (the six-model,
     // unit-aware contract) is used ONLY once BOTH `modelId` and the model's
     // canonical distance unit are genuinely resolved; a wrong/guessed

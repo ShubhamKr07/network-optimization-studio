@@ -3,14 +3,14 @@ import { maxCoverageInputsSchema } from "../maxCoverage.js";
 
 // A minimal valid base. distanceBands is intentionally omitted from most
 // tests — D19's transform derives it from the two thresholds. CH4O-5: both
-// `avgServiceDistCapKm` and `coverageFloorDemand` are unconditionally
+// `avgServiceDistCapMi` and `coverageFloorDemand` are unconditionally
 // required, and no `objective` is ever client-supplied (it is derived from the
 // floor by services/scenarioInputWrite.ts).
 const COVERAGE_BASE = {
   p: 3,
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
-  avgServiceDistCapKm: 1000,
+  highServiceDistMi: 600,
+  maxDistMi: 5000,
+  avgServiceDistCapMi: 1000,
   coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 60,
@@ -24,8 +24,8 @@ const MIN_DISTANCE_BASE = {
 };
 
 describe("maxCoverageInputsSchema — both mode fields unconditionally required", () => {
-  it("rejects a payload missing avgServiceDistCapKm, even with a zero floor", () => {
-    const r = maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, avgServiceDistCapKm: undefined, coverageFloorDemand: 0 });
+  it("rejects a payload missing avgServiceDistCapMi, even with a zero floor", () => {
+    const r = maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, avgServiceDistCapMi: undefined, coverageFloorDemand: 0 });
     expect(r.success).toBe(false);
   });
 
@@ -42,7 +42,7 @@ describe("maxCoverageInputsSchema — both mode fields unconditionally required"
   });
 
   it("keeps the high < max invariant", () => {
-    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 5500, maxDistKm: 700 }).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistMi: 5500, maxDistMi: 700 }).success).toBe(false);
   });
 
   it("no longer carries stepEpoch or step2", () => {
@@ -74,12 +74,12 @@ describe("maxCoverageInputsSchema — scalar constraints", () => {
     expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 3.5 }).success).toBe(false);
   });
 
-  it("rejects highServiceDistKm >= maxDistKm", () => {
+  it("rejects highServiceDistMi >= maxDistMi", () => {
     expect(
-      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 5000, maxDistKm: 5000 }).success,
+      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistMi: 5000, maxDistMi: 5000 }).success,
     ).toBe(false);
     expect(
-      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 6000, maxDistKm: 5000 }).success,
+      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistMi: 6000, maxDistMi: 5000 }).success,
     ).toBe(false);
   });
 
@@ -107,7 +107,7 @@ describe("maxCoverageInputsSchema — distanceBands are free, D19's overwrite is
 
   it("derives [high,max] ONLY when distanceBands is omitted (legacy payload)", () => {
     const r = maxCoverageInputsSchema.parse(COVERAGE_BASE);
-    expect(r.distanceBands).toEqual([COVERAGE_BASE.highServiceDistKm, COVERAGE_BASE.maxDistKm]);
+    expect(r.distanceBands).toEqual([COVERAGE_BASE.highServiceDistMi, COVERAGE_BASE.maxDistMi]);
   });
 
   it("accepts a single band (minItems 1)", () => {
@@ -124,9 +124,9 @@ describe("maxCoverageInputsSchema — distanceBands are free, D19's overwrite is
     expect(() => maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: bands })).toThrow();
   });
 
-  it("rejects maxDistKm <= highServiceDistKm", () => {
+  it("rejects maxDistMi <= highServiceDistMi", () => {
     expect(() =>
-      maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, highServiceDistKm: 600, maxDistKm: 600 }),
+      maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, highServiceDistMi: 600, maxDistMi: 600 }),
     ).toThrow();
   });
 

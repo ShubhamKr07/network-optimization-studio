@@ -76,7 +76,11 @@ describe("max-coverage-us map bounds — manifest countryBounds contain all poin
     expect(props.center[1]).toBeLessThan(0);
   });
 
-  it("the manifest declares km (not mi) for max-coverage-us", () => {
-    expect(manifest.distanceUnit).toBe("km");
+  // CH4O-8 (§2.1) — Chapter 4 was this repo's only km-canonical model and is
+  // now miles like every other. The assertion is inverted deliberately rather
+  // than deleted: the unit is the field whose regression is silent everywhere
+  // else, and this file already loads the real manifest.
+  it("the manifest declares mi (not km) for max-coverage-us", () => {
+    expect(manifest.distanceUnit).toBe("mi");
   });
 });

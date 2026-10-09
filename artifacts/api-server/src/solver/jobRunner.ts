@@ -1397,7 +1397,8 @@ export async function markSucceeded(
   // each solve without re-deriving the model. objectiveMode is the solver's
   // details.objective when present (Chen emits "coverage"/"min_distance"; mile
   // models don't set it) else null; distanceUnit is the model manifest's unit
-  // (mile models "mi", Chen "km"). Replaces the removed mile-locked
+  // ("mi" for every model as of CH4O-8, Chapter 4 included; still read from
+  // the manifest, never assumed). Replaces the removed mile-locked
   // weightedAvgDistanceMi.
   const objectiveMode = typeof envelope.details.objective === "string" ? envelope.details.objective : null;
   const distanceUnit = getManifest(modelId)?.distanceUnit ?? "mi";

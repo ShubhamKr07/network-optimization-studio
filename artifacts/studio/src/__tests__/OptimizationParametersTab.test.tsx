@@ -55,7 +55,7 @@ describe("OptimizationParametersTab", () => {
     expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
   });
 
-  it("labels distance bands (km), never mi, for a Chen scenario (distanceUnit=km)", () => {
+  it("labels distance bands from the distanceUnit prop, never a hardcoded mi — driven by a synthetic km unit (CH4O-8: no real model is km-canonical any more, and passing mi would make this unable to fail)", () => {
     render(<OptimizationParametersTab {...baseProps} distanceUnit="km" onChange={vi.fn()} />);
     expect(screen.getByText("Distance bands (km)")).toBeInTheDocument();
     expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
@@ -214,7 +214,7 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
 // C4.12/CH4O-7 — Chen's Cosmetics (max-coverage-us) coverage model: the two
 // service-distance thresholds, the avg-cap (now unconditional), the editable
 // coverage-floor input, and NO band editor (D13/D19). The whole block is
-// gated on `highServiceDistKm != null` (present only for Chen) — a sibling
+// gated on `highServiceDistMi != null` (present only for Chen) — a sibling
 // model passing none of these renders none of it. There is no `objective`
 // prop any more — `coverageFloorDemand: 0` is this fixture's equivalent of
 // the old "coverage" mode.
@@ -225,9 +225,9 @@ const chenCoverageProps = {
   timeLimitSec: 120,
   distanceBands: [600, 5000],
   distanceUnit: "km",
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
-  avgServiceDistCapKm: 1000,
+  highServiceDistMi: 600,
+  maxDistMi: 5000,
+  avgServiceDistCapMi: 1000,
   coverageFloorDemand: 0,
   showBandEditor: false,
   onChange: vi.fn(),
@@ -253,7 +253,7 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
     expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
   });
 
-  it("does not render the objective section at all for other models (`highServiceDistKm` is undefined)", () => {
+  it("does not render the objective section at all for other models (`highServiceDistMi` is undefined)", () => {
     render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
     expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
   });
@@ -277,19 +277,19 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
     fireEvent.change(screen.getByTestId("input-max-dist"), { target: { value: "4000" } });
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("maxDistKm", 4000);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("maxDistMi", 4000);
     // The generic onChange never fired for the thresholds.
-    expect(onChange).not.toHaveBeenCalledWith("highServiceDistKm", expect.anything());
-    expect(onChange).not.toHaveBeenCalledWith("maxDistKm", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("highServiceDistMi", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("maxDistMi", expect.anything());
   });
 
-  it("editing the avg-service-cap calls the generic onChange('avgServiceDistCapKm', value)", () => {
+  it("editing the avg-service-cap calls the generic onChange('avgServiceDistCapMi', value)", () => {
     const onChange = vi.fn();
     render(<OptimizationParametersTab {...chenCoverageProps} onChange={onChange} />);
     fireEvent.change(screen.getByTestId("input-avg-service-cap"), { target: { value: "1200" } });
-    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 1200);
+    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapMi", 1200);
   });
 
   // D27 — the P slider caps at 25 (26 cannot be authored), and the 25
@@ -382,9 +382,9 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     timeLimitSec: 120,
     distanceBands: [600, 5000],
     canonicalUnit: "km" as const,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     showBandEditor: true,
     onChange: vi.fn(),
@@ -412,7 +412,7 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "400" } });
     fireEvent.blur(input);
     // 400 mi -> km: 400 * 1.609344 = 643.7376.
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 643.7376);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 643.7376);
   });
 
   // CH4O-7 — superseded (was "... no floor field exists"): the floor and the
@@ -451,7 +451,7 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledWith("distanceBands", [700, 1200, 2400, 5000]);
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
   });
 
   it("removing the high band first means a later high edit leaves bands untouched", () => {
@@ -470,7 +470,7 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);
     expect(onChange).not.toHaveBeenCalled();
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
   });
 
   it("re-enables the free band chip editor for Chen (showBandEditor truthy) — add/remove works", () => {
@@ -510,9 +510,9 @@ describe("CH4UX-2 — instance namespacing", () => {
     timeLimitSec: 120,
     distanceBands: [200, 400],
     canonicalUnit: "km" as const,
-    highServiceDistKm: 200,
-    maxDistKm: 400,
-    avgServiceDistCapKm: 300,
+    highServiceDistMi: 200,
+    maxDistMi: 400,
+    avgServiceDistCapMi: 300,
     coverageFloorDemand: 0,
     onServiceDistanceChange: vi.fn(),
     onChange: vi.fn(),
@@ -677,7 +677,7 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
 const ch4Props = {
   p: 3, pMax: 26, gap: 0, timeLimitSec: 120,
   distanceBands: [700, 1400, 2800, 5500],
-  highServiceDistKm: 700, maxDistKm: 5500, avgServiceDistCapKm: 1000,
+  highServiceDistMi: 700, maxDistMi: 5500, avgServiceDistCapMi: 1000,
   coverageFloorDemand: 0,
   canonicalUnit: "km" as const,
   onChange: vi.fn(), onServiceDistanceChange: vi.fn(),
@@ -716,7 +716,7 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     // constant and a `render` helper that passes `{ wrapper: UnitProvider }`;
     // use them rather than inventing a prop.
     window.localStorage.setItem(STORAGE_KEY, "mi");
-    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistKm={700} />);
+    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistMi={700} />);
     const line = screen.getByTestId("derived-model-line");
     // Tightened (review F2): both branch strings contain "maxi**mi**ze" /
     // "**mi**nimize", so a bare /mi/ match passes no matter what -- it is
@@ -728,13 +728,13 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     expect(line).not.toHaveTextContent("700");   // 700 km displays as ~435 mi
   });
 
-  // review F1 — `avgServiceDistCapKm!` used to be an unchecked non-null
+  // review F1 — `avgServiceDistCapMi!` used to be an unchecked non-null
   // assertion on a prop gated by nothing: a legacy row with the cap absent
   // threw a TypeError during render (km-canonical/km-display path) or printed
   // a false "at or under NaN"/"at or under 0" (mi path / `?? 0` path). Must
   // render cleanly and must not claim a cap that doesn't exist.
-  it("omits the cap clause (never throws, never claims a false cap) when avgServiceDistCapKm is absent", () => {
-    const { avgServiceDistCapKm, ...propsWithoutCap } = ch4Props;
+  it("omits the cap clause (never throws, never claims a false cap) when avgServiceDistCapMi is absent", () => {
+    const { avgServiceDistCapMi, ...propsWithoutCap } = ch4Props;
     expect(() =>
       render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={0} />),
     ).not.toThrow();

@@ -716,9 +716,9 @@ describe("buildPayload()", () => {
   const maxCoverageBaseInputs = {
     objective: "coverage" as const,
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 60,
@@ -736,16 +736,16 @@ describe("buildPayload()", () => {
     expect(payload.modelType).toBe("max_coverage_us");
     expect(payload.objective).toBe("coverage");
     expect(payload.p).toBe(3);
-    expect(payload.highServiceDistKm).toBe(600);
-    expect(payload.maxDistKm).toBe(5000);
-    expect(payload.avgServiceDistCapKm).toBe(1000);
+    expect(payload.highServiceDistMi).toBe(600);
+    expect(payload.maxDistMi).toBe(5000);
+    expect(payload.avgServiceDistCapMi).toBe(1000);
     // CH4O-5 — both mode fields are passed unconditionally now.
     expect(payload.coverageFloorDemand).toBe(0);
     expect(payload.gap).toBe(0);
     expect(payload.timeLimitSec).toBe(60);
   });
 
-  it("normalizes distanceBands to [highServiceDistKm, maxDistKm] on the payload", () => {
+  it("normalizes distanceBands to [highServiceDistMi, maxDistMi] on the payload", () => {
     const payload = buildPayload({ modelId: "max-coverage-us", inputs: maxCoverageBaseInputs });
     expect(payload.distanceBands).toEqual([600, 5000]);
   });

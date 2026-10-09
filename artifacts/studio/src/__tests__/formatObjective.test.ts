@@ -24,8 +24,12 @@ describe("formatChenObjective", () => {
     expect(formatChenObjective(66.6667, "coverage")).toBe("66.67 %");
   });
 
-  it("formats a min_distance-mode objective as demand-km (scientific)", () => {
-    expect(formatChenObjective(131645389, "min_distance")).toBe("1.32e+8 demand-km");
+  it("formats a min_distance-mode objective as demand-mi (scientific)", () => {
+    // CH4O-8 (§2.1) — Chapter 4 is miles-canonical, so this fallback label is
+    // `demand-mi`. It is the UNRESOLVED-unit path (formatChenObjective takes no
+    // canonical unit), which is exactly why the literal has to be kept correct
+    // by hand -- nothing resolves it from the manifest here.
+    expect(formatChenObjective(131645389, "min_distance")).toBe("1.32e+8 demand-mi");
   });
 
   it("returns null for a null/absent mode so callers apply their own default", () => {
@@ -114,11 +118,11 @@ describe("formatObjective — seven-model contract", () => {
       expectedDim: "monetary", suffix: () => "$",
     },
     {
-      modelId: "max-coverage-us", mode: "coverage", canonicalUnit: "km", objective: 66.6667,
+      modelId: "max-coverage-us", mode: "coverage", canonicalUnit: "mi", objective: 66.6667,
       expectedDim: "percent", suffix: () => "%",
     },
     {
-      modelId: "max-coverage-us", mode: "min_distance", canonicalUnit: "km", objective: 1000,
+      modelId: "max-coverage-us", mode: "min_distance", canonicalUnit: "mi", objective: 1000,
       expectedDim: "demand-distance", suffix: (u) => `demand-${u}`,
     },
     {
@@ -155,7 +159,7 @@ describe("formatObjective — seven-model contract", () => {
     // $100, unconverted — a naive distance conversion would have scaled it.
     expect(monetary).toBe("$100.00");
 
-    const percent = formatObjective("max-coverage-us", "coverage", 66.6667, "km", stubUnitApi("mi"));
+    const percent = formatObjective("max-coverage-us", "coverage", 66.6667, "mi", stubUnitApi("km"));
     expect(percent).toBe("66.67 %");
   });
 

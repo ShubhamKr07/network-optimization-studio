@@ -73,9 +73,9 @@ function coverageInputs() {
   return {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 700,
-    maxDistKm: 5500,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 700,
+    maxDistMi: 5500,
+    avgServiceDistCapMi: 1000,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",

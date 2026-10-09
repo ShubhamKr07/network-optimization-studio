@@ -39,10 +39,18 @@ const mockUseListModels = vi.fn(() => ({
     // numbers are geographically miles; zero data change).
     { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: true } },
-    // C4.14 — Chen's Cosmetics reports distances in km.
-    { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
+    // C4.14 / CH4O-8 — Al's Athletics Max Coverage reports distances in
+    // miles (§2.1); it was this repo's only km model.
+    { id: "max-coverage-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
     // Task 12 (Chapter 5, delivery-teaching-us) — R7 row 28's guard.
     { id: "delivery-teaching-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
+    // CH4O-8 — a FICTIONAL km-canonical model. Every real model is "mi"-
+    // canonical now (max-coverage-us was the last km one), so the only way to
+    // keep covering the cross-unit display path is a synthetic entry. Same
+    // precedent as OutputMapTab.test.tsx's "two-echelon-fake-km". Without it
+    // the Part D conversion test below would run canonical==display and become
+    // an assertion that cannot fail.
+    { id: "synthetic-km-model", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -131,8 +139,8 @@ describe("ServiceStatsTab", () => {
   // fallback this test used to assert is gone. No modelId (or an
   // unresolved manifest) means the canonical unit is unauthoritative, so
   // this now renders the disabled placeholder instead of guessing "mi" —
-  // never assume a unit, ever (a Chen (km) scenario transiently rendered
-  // as "mi" is a correct number under a WRONG unit, which reads as fact).
+  // never assume a unit, ever (a scenario in a non-mi unit transiently
+  // rendered as "mi" is a correct number under a WRONG unit, reading as fact).
   it("renders the unit-pending placeholder when modelId is not provided (canonical unit unresolved), no fallback", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} />);
     expect(screen.getByTestId("service-stats-unit-pending")).toBeInTheDocument();
@@ -200,12 +208,12 @@ describe("ServiceStatsTab", () => {
       solverUsed: "CBC", infeasibilityReason: null,
     };
 
-    it("renders Coverage %, Covered demand, Uncovered %, and Avg service distance (km) from details", () => {
+    it("renders Coverage %, Covered demand, Uncovered %, and Avg service distance (mi) from details", () => {
       render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="max-coverage-us" />);
       expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
       expect(screen.getByTestId("service-stats-covered-demand")).toHaveTextContent("131,645,389");
       expect(screen.getByTestId("service-stats-uncovered-pct")).toHaveTextContent("33.33 %");
-      expect(screen.getByTestId("service-stats-avg-service-distance")).toHaveTextContent("812.4 km");
+      expect(screen.getByTestId("service-stats-avg-service-distance")).toHaveTextContent("812.4 mi");
     });
 
     it("still renders the existing band rows below the KPI block", () => {
@@ -664,7 +672,7 @@ describe("ServiceStatsTab", () => {
     // the deliberate Chen guard (`&& !showCoverageKpis`) is deleted, so once
     // a caller wires `presentationBands` for Chen, it computes live from
     // `edges` exactly like its five siblings (cumulative + overflow,
-    // km-labelled). Chen's SEPARATE `details.coveragePct` KPI block above
+    // mi-labelled as of CH4O-8). Chen's SEPARATE `details.coveragePct` KPI block above
     // is untouched — this only concerns which source the band-coverage
     // BARS below it read from.
     it("max-coverage-us now computes bandCoverage LIVE once presentationBands is wired (Part A guard deleted)", () => {
@@ -692,7 +700,7 @@ describe("ServiceStatsTab", () => {
       expect(screen.getByTestId("service-stats-band-20")).toHaveTextContent("0%");
       expect(screen.getByTestId("service-stats-band-30")).toHaveTextContent("0%");
       const overflowRow = screen.getByTestId("service-stats-band--1");
-      expect(overflowRow).toHaveTextContent("> 30 km");
+      expect(overflowRow).toHaveTextContent("> 30 mi");
       expect(overflowRow).toHaveTextContent("100%");
       expect(screen.queryByTestId("service-stats-band-600")).not.toBeInTheDocument();
       // Chen's separate coverage-% KPI block is untouched by this change.
@@ -771,7 +779,10 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
         ],
       },
     };
-    render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="max-coverage-us" />);
+    // CH4O-8 — drives the FICTIONAL km-canonical model, not max-coverage-us:
+    // that model is "mi"-canonical now, so with pref "mi" the conversion would
+    // be the identity and this test could not fail.
+    render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="synthetic-km-model" />);
     // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
     expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("≤ 372.8227 mi");
     const overflowRow = screen.getByTestId("service-stats-band--1");

@@ -86,32 +86,6 @@ function clampMi(mi: number): number {
   return Math.max(MIN_DISTANCE_MI, Math.round(mi * 10) / 10);
 }
 
-// C4.7 (Chapter 4, max-coverage-us) — this model's BASE dataset is authored
-// in kilometers (already road-adjusted km, and MIG-6: the solver applies no
-// further circuity — stored == solved == displayed == exported), unlike
-// every model above which stores miles. So its added-entity estimator needs
-// its own km haversine (earth radius 6371 km) rather than reusing
-// haversineMiles' R_MI=3959. Rounds each estimate to 2 dp and floors at 0.01
-// km (positive, never 0 for co-located points — same "never 0" invariant as
-// clampMi, just at km precision). MIG-20 (see the estimator's own comment,
-// below): the estimator itself DOES road-adjust its raw haversine fills via
-// MAX_COVERAGE_CIRCUITY, so an added entity lands on the same footing as the
-// base matrix — "no circuity" describes the base dataset's provenance, not
-// the estimator's output.
-const R_KM = 6371;
-const MIN_DISTANCE_KM = 0.01;
-
-export function haversineKm(a: Coord, b: Coord): number {
-  const dLat = rad(b.lat - a.lat);
-  const dLng = rad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(s)));
-}
-
-function clampKm(km: number): number {
-  return Math.max(MIN_DISTANCE_KM, Math.round(km * 100) / 100);
-}
-
 /**
  * Canonical p-median normalization: fill missing ACTIVE added-involving
  * distances as estimated haversine (clamped to MIN_DISTANCE_MI, never 0),
@@ -477,16 +451,15 @@ const MAX_COVERAGE_DEFAULT: MaxCoverageRoleDataset = { warehouses: MAX_COVERAGE_
  * (unlike fillEstimatedBrazilDistances, which just injects a circuity
  * constant) — because it must reparse through `maxCoverageInputsSchema` so
  * this model's own objective/threshold fields (`objective`,
- * `highServiceDistKm`, `maxDistKm`, `avgServiceDistCapKm`/
+ * `highServiceDistMi`, `maxDistMi`, `avgServiceDistCapMi`/
  * `coverageFloorDemand`) survive; routing these inputs through the p-median
  * schema would strip every max-coverage-us-only field.
  *
- * Differs from the core in exactly three numeric ways, matching this
- * model's km-authored raw-distance dataset (D8): a km haversine
- * (`haversineKm`, R=6371), a MIG-20 road-adjustment (`MAX_COVERAGE_CIRCUITY`,
- * applied before rounding — see the constant's own comment for why), and
- * 2-dp rounding with a positive 0.01 km floor (never 0 for co-located
- * points). Pure and idempotent — a pair that already has an override
+ * Differs from the core in exactly one numeric way: a road-adjustment
+ * (`MAX_COVERAGE_CIRCUITY`, applied before rounding — see the constant's own
+ * comment for why). Everything else — `haversineMiles`, `clampMi`'s 1-dp
+ * rounding and its positive MIN_DISTANCE_MI floor — is the shared mile path
+ * every other model uses (CH4O-8, §2.1). Pure and idempotent — a pair that already has an override
  * (manual or previously estimated) is left untouched, so a second pass is a
  * no-op. Only FILLS genuinely-missing rows; it does NOT repair a stale
  * estimate after a coordinate change (the frontend move/delete purge,
@@ -499,15 +472,22 @@ const MAX_COVERAGE_DEFAULT: MaxCoverageRoleDataset = { warehouses: MAX_COVERAGE_
  * stale third boundary is NOT corrected here — `distanceBands` is a free,
  * user-editable reporting lens, not a value this estimator owns.
  */
-// MIG-20 -- road-adjustment now happens HERE, at the point distances are
-// produced, because solve_max_coverage no longer multiplies (MIG-6). The base
-// matrix sits at ~1.1788x true great-circle; 1.17 leaves added distances 0.75%
-// below that, which is the same order of inconsistency that already existed
-// and reuses the constant already in this file (TRANSPORT_CIRCUITY) rather
-// than introducing 1.1788 as a second magic number.
+// MIG-20 -- road-adjustment happens HERE, at the point distances are produced,
+// because solve_max_coverage does not multiply. The rule: distances enter the
+// dataset already road-adjusted; nothing downstream adjusts them again.
 //
-// The rule: distances enter the dataset already road-adjusted. Nothing
-// downstream adjusts them again.
+// Chapter 4 (max-coverage-us) is miles-canonical like every other model
+// (§2.1), so it shares haversineMiles/clampMi rather than carrying its own km
+// pair. MAX_COVERAGE_CIRCUITY stays 1.17, which PRESERVES the previous
+// estimates: a fill was haversineKm x 1.17 and is now haversineMiles x 1.17,
+// and 6371 / 1.609344 = 3958.76 against R_MI = 3959 is a 0.0061% difference.
+// Rounding moves from 2 dp to clampMi's 1 dp, matching every other model.
+//
+// NOTE a pre-existing inconsistency this conversion surfaces but does NOT fix:
+// Chapters 3 and 4 now share a byte-identical distance matrix, yet p-median-us
+// fills added-entity distances at circuity 1 and this model at 1.17. Keeping
+// 1.17 is what preserves Chapter 4's current estimates; reconciling the two is
+// a separate task.
 const MAX_COVERAGE_CIRCUITY = TRANSPORT_CIRCUITY;
 
 export function fillEstimatedMaxCoverageDistances(
@@ -543,7 +523,7 @@ export function fillEstimatedMaxCoverageDistances(
   const have = new Set(overrides.map((o) => o.fromId + "|" + o.toId));
 
   for (const whId of activeWarehouseIds) {
-    // base<->base pairs are covered by the base dataset's own km matrix — an
+    // base<->base pairs are covered by the base dataset's own mile matrix — an
     // added warehouse needs a distance to every active customer, a base
     // warehouse only to the active ADDED customers (the "vice versa"
     // direction).
@@ -554,7 +534,7 @@ export function fillEstimatedMaxCoverageDistances(
       const a = whCoord.get(whId);
       const b = custCoord.get(custId);
       if (!a || !b) continue;
-      const d = clampKm(haversineKm(a, b) * MAX_COVERAGE_CIRCUITY);
+      const d = clampMi(haversineMiles(a, b) * MAX_COVERAGE_CIRCUITY);
       overrides.push({ fromId: whId, toId: custId, distance: d, estimated: true });
       have.add(key);
     }
@@ -597,8 +577,9 @@ export function normalizeAddedEntityDistances(modelId: string, data: Record<stri
     return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
   }
   // C4.7 (Chapter 4) — max-coverage-us fills missing added-entity
-  // warehouse<->customer distances as `estimated` raw km (R=6371, no
-  // circuity) on every persist path (POST create, PATCH, import/apply). Its
+  // warehouse<->customer distances as `estimated` raw miles (the shared
+  // haversineMiles path, road-adjusted by MAX_COVERAGE_CIRCUITY) on every
+  // persist path (POST create, PATCH, import/apply). Its
   // reparse through maxCoverageInputsSchema also re-applies the D19
   // distanceBands=[high,max] transform, so a distances-import staging a stale
   // third boundary is corrected here.

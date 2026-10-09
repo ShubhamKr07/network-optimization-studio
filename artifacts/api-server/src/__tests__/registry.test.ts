@@ -57,8 +57,11 @@ describe("GET /api/models", () => {
     expect(byId["p-median-brazil"]).toBe("mi");
     expect(byId["transport-coal"]).toBe("mi");
     expect(byId["two-echelon-gold-au"]).toBe("mi");
-    // C4.4 — Chapter 4 (max-coverage-us) is the repo's first km model.
-    expect(byId["max-coverage-us"]).toBe("km");
+    // CH4O-8 (§2.1) — Chapter 4 (max-coverage-us) WAS the repo's only km
+    // model; it is now miles-canonical like every other model, so this
+    // assertion is deliberately the same as the four above rather than
+    // vestigially different.
+    expect(byId["max-coverage-us"]).toBe("mi");
   });
 
   // Bundle 2 (B2-T1) — supportsFacilityStatus gates R3 (status paint) and

@@ -161,9 +161,10 @@ def _jade_distances():
 
 # ---------------------------------------------------------------------------
 # Dataset: Al's Athletics — Max Coverage, US coverage model (Chapter 4)
-# 26 candidate warehouses -> 200 customers; distances are RAW km and ARE the
-# effective distances (MIG-6: no circuity factor applied in solve_max_coverage
-# -- this dataset's matrix is pre-baked and used as-is). Direct-id keyed
+# 26 candidate warehouses -> 200 customers; distances are RAW MILES and ARE the
+# effective distances (miles-canonical, §2.1: no unit conversion and no
+# circuity factor applied in solve_max_coverage -- this matrix IS Chapter 3's
+# integer-mile matrix, re-keyed and used as-is). Direct-id keyed
 # (e.g. "ALN"/"C1"), distances keyed by "ALN,C1" (like two-echelon), NOT
 # ordinals.
 # solvers/max-coverage-us/dataset/
@@ -1433,9 +1434,11 @@ def solve_jade(inp):
 # branch, everything else is a coefficient/constraint change, not a code path):
 #   coverage      -> MAXIMISE high-service-covered demand s.t. avg distance cap
 #   min_distance  -> MINIMISE total demand-weighted distance s.t. coverage floor
-# Distances are RAW km in DISTANCE_MAX_COVERAGE and ARE the effective
-# distances (MIG-6: no circuity factor -- this dataset's matrix is pre-baked
-# and used as-is). Demand is the integer domain (D30) -- edge flow = integer
+# Distances are RAW MILES in DISTANCE_MAX_COVERAGE and ARE the effective
+# distances (miles-canonical, §2.1: no unit conversion and no circuity factor
+# -- this matrix IS Chapter 3's integer-mile matrix, used as-is), so the
+# highServiceDistMi/maxDistMi/avgServiceDistCapMi thresholds compare like
+# with like. Demand is the integer domain (D30) -- edge flow = integer
 # demand, details.coveredDemand is an exact integer sum.
 # ---------------------------------------------------------------------------
 def solve_max_coverage(inp):
@@ -1451,7 +1454,7 @@ def solve_max_coverage(inp):
     custs = [cid for cid in m["customers"] if cid not in m["excluded"]]
     dem = {cid: m["customers"][cid]["demand"] for cid in custs}
     total = sum(dem.values())
-    hi, mx, p = inp["highServiceDistKm"], inp["maxDistKm"], inp["p"]
+    hi, mx, p = inp["highServiceDistMi"], inp["maxDistMi"], inp["p"]
     if total <= 0:
         # No CBC evidence exists -- this is a pure pre-solve, data-derived
         # infeasibility (zero effective demand), detected before any solve
@@ -1460,12 +1463,13 @@ def solve_max_coverage(inp):
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
                          _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero",
                          termination_reason="infeasible")
-    # MIG-6: stored distances ARE the effective distances. This dataset's
-    # matrix is pre-baked and is used as-is, so there is no circuity factor to
-    # apply here -- stored == solved == displayed == exported. .get((w,c),
+    # §2.1: stored distances ARE the effective distances, in MILES. The matrix
+    # is Chapter 3's integer-mile matrix used as-is, so there is neither a unit
+    # conversion nor a circuity factor to apply here -- stored == solved ==
+    # displayed == exported. .get((w,c),
     # 9999) sentinel matches every other model's missing-pair convention: an
     # added entity with no distanceOverrides/estimate to some counterpart is
-    # simply unreachable (adj 9999 km fails both hi and mx thresholds), never
+    # simply unreachable (adj 9999 mi fails both hi and mx thresholds), never
     # a KeyError crash -- the "solver never throws" contract. Numerically
     # identical to a direct index for the base dataset (all 5200 pairs present).
     adj = {(w, c): m["distance"].get((w, c), 9999) for w in cand for c in custs}
@@ -1482,7 +1486,7 @@ def solve_max_coverage(inp):
     # The average-service-distance cap applies in BOTH modes. Hoisting it out of
     # the branch below is the whole change: one constraint, no new code path
     # (hard rule 6).
-    prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs) <= inp["avgServiceDistCapKm"] * total
+    prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs) <= inp["avgServiceDistCapMi"] * total
     if mode == "coverage":
         prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
     else:
@@ -1536,8 +1540,8 @@ def solve_max_coverage(inp):
     avg = round(tdd / total, 2)                                      # D22: avg 2-dp
     metrics = {"openFacilityIds": open_ids, "weightedAvgDistance": avg, "utilizationByNode": [],
                "bandCoverage": [{"band": hi, "percent": cov}, {"band": mx, "percent": 100.0}]}
-    details = {"objective": mode, "p": p, "highServiceDistKm": hi, "maxDistKm": mx,
-               "avgServiceDistCapKm": inp.get("avgServiceDistCapKm"), "coverageFloorDemand": inp.get("coverageFloorDemand"),
+    details = {"objective": mode, "p": p, "highServiceDistMi": hi, "maxDistMi": mx,
+               "avgServiceDistCapMi": inp.get("avgServiceDistCapMi"), "coverageFloorDemand": inp.get("coverageFloorDemand"),
                "openWarehouseIds": open_ids, "coveragePct": cov, "coveredDemand": int(covered),
                "uncoveredPct": round(100 - cov, 4), "assignments": []}
     obj = cov if mode == "coverage" else round(value(prob.objective), 2)   # D22: min-dist objective 2-dp

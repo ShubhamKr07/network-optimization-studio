@@ -1033,13 +1033,14 @@ describe("parseAndValidateImport — legDistances (composite key, three id space
 });
 
 // T8 (Chen-bands-units bundle, Part E) — v2 unit-labeled distances/laneCosts/
-// legDistances files. p-median-us (ALN/C1) is "mi"-canonical, max-coverage-us
-// (same ALN/C1 facility codes — Chapter 4 reuses Chapter 3's warehouse/customer
-// list) is "km"-canonical (the one model whose canonical unit differs from
-// every other import-entity test above), transport-coal (KY/CHI) is
-// "mi"-canonical. v1 (unitless) files keep importing unchanged (interpreted
-// as already canonical) — none of the tests above this block changed
-// behavior; this block adds only the NEW v2 behavior.
+// legDistances files. CH4O-8 (§2.1): EVERY model is now "mi"-canonical,
+// max-coverage-us included, so the cross-unit case is no longer "a mi file into
+// the one km model" but "a km FILE into a mi model" — the conversion that
+// matters is the one driven by the file's declared unit, and that direction is
+// what the import rule actually has to get right for a real user (a student who
+// exports with unit=km and re-imports). v1 (unitless) files keep importing
+// unchanged (interpreted as already canonical) — none of the tests above this
+// block changed behavior; this block covers the v2 behavior.
 describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDistances (T8, Part E)", () => {
   it("v1 unitless file still imports, interpreted as canonical", () => {
     const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
@@ -1065,17 +1066,25 @@ describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDist
     }]);
   });
 
-  it("v2 mi file into a km-canonical model is ACCEPTED and converted", () => {
-    // max-coverage-us is "km"-canonical (its manifest) — a v2 file
-    // declaring unit=mi is a genuinely different-but-known unit, per Part
-    // E's locked import rule: accepted, converted to canonical km via
-    // fromDisplay, never rejected.
-    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,ALN,C1,100\n";
+  it("v2 km file into a mi-canonical model is ACCEPTED and converted", () => {
+    // CH4O-8 — max-coverage-us is "mi"-canonical now (as is every model), so
+    // the different-but-known unit comes from the FILE: a v2 file declaring
+    // unit=km is accepted and converted to canonical mi via fromDisplay, never
+    // rejected (Part E's locked import rule). The pre-CH4O-8 version of this
+    // test drove the opposite direction through max-coverage-us's then-km
+    // manifest; the rule under test is the same one.
+    const csv = "template_version,unit,from_id,to_id,distance\n2,km,ALN,C1,100\n";
     const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "max-coverage-us");
     expect(result.errors).toEqual([]);
     expect(result.changes).toHaveLength(1);
-    // 100 mi -> km: 100 * 1.609344 = 160.9344
-    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 160.9344 } });
+    // 100 km -> mi = 62.13711922373339, UNROUNDED. The import path applies
+    // fromDisplay and does NOT round to roundForFile's 4 dp (a pre-existing
+    // behaviour, not something CH4O-8 changed). It was invisible before only
+    // because this test drove the mi->km direction, where 100 * 1.609344 =
+    // 160.9344 is exact at 4 dp; the km->mi direction is not. Asserted at full
+    // precision rather than loosened to toBeCloseTo, so a future rounding
+    // change here is a visible, deliberate decision.
+    expect(result.changes[0]).toMatchObject({ id: "ALN|C1", after: { value: 62.13711922373339 } });
   });
 
   it("mixed units inside one file → format-class error", () => {

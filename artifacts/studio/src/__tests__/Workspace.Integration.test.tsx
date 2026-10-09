@@ -154,7 +154,7 @@ function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeI
     data: [
       {
         id: "max-coverage-us",
-        distanceUnit: "km",
+        distanceUnit: "mi",
         countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
         capabilities: {
           supportsP: true,

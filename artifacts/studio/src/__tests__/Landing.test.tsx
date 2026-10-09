@@ -176,35 +176,38 @@ describe("Landing — Recent solves (G3.2)", () => {
 });
 
 // C4.10/D14 — the recent-solves objective label is mode-aware: a coverage
-// solve renders as a percentage, a min-distance solve as demand-km, keyed on
-// objectiveMode; a null-mode (mile) solve keeps the "obj <sci-notation>" label.
+// solve renders as a percentage, a min-distance solve as demand-<unit>, keyed
+// on objectiveMode; a null-mode solve keeps the "obj <sci-notation>" label.
+// CH4O-8 (§2.1): the row's `distanceUnit` is SERVER-derived from the model
+// manifest, so these fixtures carry "mi" for max-coverage-us -- a "km" fixture
+// would be a response the API can no longer produce.
 describe("Landing — mode-aware recent-solve objective label (D14)", () => {
-  it("renders a coverage solve's objective as a percentage and its distance in km", () => {
+  it("renders a coverage solve's objective as a percentage and its distance in mi", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 20, scenarioId: 4, scenarioName: "Max Coverage Coverage", modelId: "max-coverage-us",
-        status: "succeeded", objective: 66.5, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
+        status: "succeeded", objective: 66.5, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "mi", runTimeSec: 0.7,
         queuedAt: "2026-01-05T00:00:00Z", finishedAt: "2026-01-05T00:00:01Z",
       }],
     });
     renderLanding();
     expect(screen.getByText("66.50 %")).toBeInTheDocument();
-    expect(screen.getByText("250.5 km")).toBeInTheDocument();
+    expect(screen.getByText("250.5 mi")).toBeInTheDocument();
     // NOT the mile-model "obj ..." label.
     expect(screen.queryByText(/^obj /)).not.toBeInTheDocument();
   });
 
-  it("renders a min-distance solve's objective in demand-km", () => {
+  it("renders a min-distance solve's objective in demand-mi", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 21, scenarioId: 5, scenarioName: "Max Coverage Min-Distance", modelId: "max-coverage-us",
-        status: "succeeded", objective: 123456789, objectiveMode: "min_distance", weightedAvgDistance: 300.2, distanceUnit: "km", runTimeSec: 0.9,
+        status: "succeeded", objective: 123456789, objectiveMode: "min_distance", weightedAvgDistance: 300.2, distanceUnit: "mi", runTimeSec: 0.9,
         queuedAt: "2026-01-06T00:00:00Z", finishedAt: "2026-01-06T00:00:01Z",
       }],
     });
     renderLanding();
-    expect(screen.getByText(/demand-km$/)).toBeInTheDocument();
-    expect(screen.getByText("300.2 km")).toBeInTheDocument();
+    expect(screen.getByText(/demand-mi$/)).toBeInTheDocument();
+    expect(screen.getByText("300.2 mi")).toBeInTheDocument();
   });
 });
 

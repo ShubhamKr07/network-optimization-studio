@@ -754,7 +754,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     });
 
     // C4.9 / D20/D24/D25 — the three unit-aware output exports carry the
-    // model's manifest distanceUnit (mile models "mi", Chen "km"); manifest is
+    // model's manifest distanceUnit (every model is "mi" as of CH4O-8, but it
+    // is read from the manifest, never assumed); manifest is
     // non-null here (the outputGrids gate above already returned on a missing
     // manifest). D29 — the effective facility id→city lookup (base dataset ∪
     // this scenario's added facilities) so a forced-open zero-flow facility
@@ -1205,10 +1206,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
 
     if (entity === "distances") {
       // T9 — thread this model's real manifest-declared canonical unit.
-      // max-coverage-us is "km" — this is the exact bug both T7 and T8
-      // surfaced: this branch was calling applyDistanceOverrides with NO
-      // unit argument at all, silently defaulting to "mi" and mislabeling
-      // (and, pre-T9, never converting) a real km-canonical export.
+      // Historically max-coverage-us was "km" and this branch called
+      // applyDistanceOverrides with NO unit argument at all, silently
+      // defaulting to "mi" and mislabeling (pre-T9, never converting) a real
+      // km-canonical export — the exact bug T7 and T8 surfaced. CH4O-8 makes
+      // this model "mi" too, so the manifest read is no longer load-bearing
+      // for THIS model; it stays because threading the declared unit rather
+      // than a hardcoded default is the rule, not an accident of one model.
       const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
       const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {

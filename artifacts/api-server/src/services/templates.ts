@@ -1026,7 +1026,7 @@ interface DistanceOverride { fromId: string; toId: string; distance: number; }
 // DISTANCE_TEMPLATE_VERSION (was the global TEMPLATE_VERSION). T9 threads
 // each model's real manifest-declared `canonicalUnit` through from
 // routes/scenarios.ts (was defaulting to "mi" for every caller, silently
-// mislabeling Chen's "km" export — see applyDistanceOverrides below, whose
+// mislabeling Chen's then-km export — see applyDistanceOverrides below, whose
 // own comment covers the value-conversion half of this fix).
 export interface DistanceTemplateRow {
   templateVersion: number;
@@ -1352,8 +1352,8 @@ export function buildLegDistanceStubRows(
 // ---------------------------------------------------------------------------
 
 // C4.9 / D24 — `distanceMi` renamed to `distance` + a self-describing
-// `distanceUnit` (from the model's manifest — every model passes its own unit;
-// Chen "km", the mile models "mi"). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
+// `distanceUnit` (from the model's manifest — every model passes its own unit,
+// "mi" for all seven as of CH4O-8). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
 // Chen-bands-units bundle — v3: `band` is now ALWAYS computed (never null),
 // recomputed server-side from the scenario's SAVED distanceBands lens via the
 // shared @workspace/units `assignBandOrOverflow` (a numeric index, `-1` =

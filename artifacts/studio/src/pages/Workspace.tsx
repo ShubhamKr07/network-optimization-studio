@@ -112,12 +112,12 @@ import { track } from "@/lib/analytics";
 // defaultInputsForModel's max-coverage-us case exactly. The mode toggle
 // seeds the newly-required field with these when toggling into a mode whose
 // field is currently absent (D1).
-// MIG-4 Task 4 Step 8/ch4-mig-4: recomputed against the real on-disk US
-// dataset (26 warehouses, 200 customers, km) for the current default seed
-// params (p:3, highServiceDistKm:700, maxDistKm:5500,
-// avgServiceDistCapKm:1000) — the coverage-mode solve's real coveredDemand,
-// verified 2026-09-28 via a direct solve.py invocation: coveragePct
-// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}.
+// CH4O-8: the seed params are now MILES (§2.1 — Chapter 4 is miles-canonical
+// like every other model; the dataset is Chapter 3's integer-mile matrix
+// re-keyed). Round teaching numbers, NOT exact conversions of the old km
+// seeds. The authoritative recomputed goldens for these defaults live beside
+// the assertions in solver/tests/test_max_coverage.py, each with the solve.py
+// command that produced it.
 // CH4-17 — `MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND` (the former
 // min-distance-mode seed default) is deleted along with `setChenObjectiveMode`:
 // the floor is now produced solely by the server from Step 1's achieved
@@ -133,7 +133,7 @@ import { track } from "@/lib/analytics";
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
     // C4.11 — Al's Athletics — Max Coverage (Chapter 4). CH4O-5 — BOTH
-    // avgServiceDistCapKm and coverageFloorDemand are unconditionally
+    // avgServiceDistCapMi and coverageFloorDemand are unconditionally
     // required, and `objective` is DERIVED server-side from the floor
     // (`0` → coverage): sending one is a 422, so a default must not carry it.
     // A zero floor is the coverage-mode default. No capacity concept
@@ -141,29 +141,22 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
     case "max-coverage-us":
       return {
         p: 3,
-        highServiceDistKm: 700,
-        maxDistKm: 5500,
-        avgServiceDistCapKm: 1000,
+        highServiceDistMi: 450,
+        maxDistMi: 3400,
+        avgServiceDistCapMi: 650,
         coverageFloorDemand: 0,
         gap: 0,
         timeLimitSec: 120,
         capacityMode: "none",
-        // MIG-4 Task 4 Step 8/ch4-mig-4 — max-coverage-us's dataset was
-        // replaced with real US data (26 warehouses, 200 customers, km);
-        // this dataset's longest warehouse->customer pair is 5,180.5 km, so
-        // the old China-era maxDistKm of 5000 left customers unassignable
-        // from every warehouse. Defaults recomputed for the new dataset:
-        // distanceBands [700, 1400, 2800, 5500] (700 == the default
-        // highServiceDistKm; 5500 == the default maxDistKm, comfortably
-        // above the 5,180.5 km max pair). Frozen golden at these defaults:
-        // coveragePct 68.4192%, open {DAL, LA, PIT} (verified against
-        // solve.py directly, 2026-09-28). Independently, the two
-        // service-distance defaults immediately above/below
-        // (highServiceDistKm=700, avgServiceDistCapKm=1000) are NOT changed
-        // and must NEVER be made equal — doing so tightens the default
-        // solve to a different open set and breaks e2e/max-coverage.spec.ts.
-        // See the guard test in Workspace.test.tsx.
-        distanceBands: [700, 1400, 2800, 5500],
+        // Miles-canonical (§2.1/§2.5). Round teaching numbers, not exact
+        // conversions of the old km seeds. maxDistMi 3400 clears the dataset's
+        // longest pair (3219 mi) so no customer is unassignable.
+        // highServiceDistMi and avgServiceDistCapMi must NEVER be made equal --
+        // Workspace.test.tsx guards it, because equal values tighten the default
+        // solve to a different open set.
+        // `objective` is deliberately absent: the server derives it (§2.3) and
+        // the write guard REFUSES a client-sent one.
+        distanceBands: [450, 900, 1800, 3400],
         warehouseOverrides: [],
         customerOverrides: [],
         addedWarehouses: [],
@@ -1939,7 +1932,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // ...)` — routed to `activeBandLens` by this component's wrapper below —
   // BEFORE calling this function, so the two updates compose correctly
   // without this function touching bands at all.
-  function updateChenServiceDistance(field: "highServiceDistKm" | "maxDistKm", value: number) {
+  function updateChenServiceDistance(field: "highServiceDistMi" | "maxDistMi", value: number) {
     if (isBrowsingHistoryNow) return;
     if (!localInputs) return;
     setLocalInputs({ ...localInputs, [field]: value });
@@ -2300,7 +2293,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // below for all three.
       // C4.13 — max-coverage-us joins the p-median DistancesTab branch: its
       // distanceOverrides share p-median-us's exact {fromId,toId,distance}
-      // shape, and its manifest declares supportsReferenceDistances (raw-km
+      // shape, and its manifest declares supportsReferenceDistances (raw-mile
       // base matrix, C4.4), so it renders DistancesTab (see the render branch
       // below, extended in the same task).
       (activeView.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us")) ||
@@ -3160,12 +3153,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // CH4O-7 — no `objective:` entry here any more: the mode is fully
     // derived (client- and server-side) from `coverageFloorDemand` below,
     // via the SAME `deriveMaxCoverageObjective` rule, never a second copy.
-    highServiceDistKm:
-      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined,
-    maxDistKm:
-      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined,
-    avgServiceDistCapKm:
-      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined,
+    highServiceDistMi:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistMi") : undefined,
+    maxDistMi:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistMi") : undefined,
+    avgServiceDistCapMi:
+      modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapMi") : undefined,
     // CH4O-5 — the coverage floor is now a student-authored input (and the
     // objective's discriminator), read with the same reader pattern as `gap`.
     coverageFloorDemand: modelId === "max-coverage-us" ? coverageFloorDemandFromInputs(localInputs) : undefined,
@@ -3658,7 +3651,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // effect), so this value is never stale at paint time.
     // C4.13 — max-coverage-us joins the p-median DistancesTab: same
     // {fromId,toId,distance} override shape, and supportsReferenceDistances
-    // true (raw-km base×base matrix from GET /models/max-coverage-us/
+    // true (raw-mile base×base matrix from GET /models/max-coverage-us/
     // reference-distances, C4.4), so `referenceCapable` drives the base column.
     if (activeView.kind === "input" && activeView.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
@@ -3682,7 +3675,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
           excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
           // ch4-tab-city-labels — max-coverage-us-only city label (its
-          // 5200 raw-km ids are opaque ids with no separate city column on
+          // 5200 raw-mile ids are opaque ids with no separate city column on
           // this grid, unlike the base Warehouses/Customers tabs). p-median-us/
           // brazil pass undefined here, unchanged (DistancesTab's own
           // "no city column" design, Bundle 6.1 resolution #5).

@@ -4,10 +4,10 @@ import { z } from "zod";
 // `inputs` validator. A US single-echelon warehouse->customer service-level
 // model with TWO coupled objectives, selected by the COVERAGE FLOOR rather
 // than by any client-settable mode field (CH4O-5, §2.3):
-//   - floor == 0  ->  "coverage"      maximize demand within highServiceDistKm.
+//   - floor == 0  ->  "coverage"      maximize demand within highServiceDistMi.
 //   - floor  > 0  ->  "min_distance"  minimize total demand-weighted distance,
 //                     subject to that demand-coverage floor.
-// The weighted-average service-distance cap (avgServiceDistCapKm) is a
+// The weighted-average service-distance cap (avgServiceDistCapMi) is a
 // constraint in BOTH modes (§2.4), so both it and the floor are now
 // UNCONDITIONALLY required, and `objective` is server-derived
 // (services/scenarioInputWrite.ts) — never client-authored.
@@ -70,7 +70,7 @@ const addedCustomerSchema = z.object({
 const distanceOverrideSchema = z.object({
   fromId: z.string().min(1),
   toId: z.string().min(1),
-  // RAW km, strictly positive. MIG-6: stored distances ARE the effective
+  // RAW MILES, strictly positive. §2.1: stored distances ARE the effective
   // distances for max-coverage-us — no circuity factor is applied downstream.
   distance: z.number().positive(),
   // Informational: true when auto-filled by the added-entity estimator
@@ -87,8 +87,8 @@ function distanceOverridePairKey(o: { fromId: string; toId: string }): string {
 // reporting lens, not a derived pair. Every boundary must be strictly
 // positive, and the array strictly ascending (which also guarantees
 // uniqueness) with at least one boundary. There is deliberately NO
-// `<= maxDistKm` rule and no requirement that the top band equal
-// `maxDistKm` — an overflow bucket handles anything beyond the last
+// `<= maxDistMi` rule and no requirement that the top band equal
+// `maxDistMi` — an overflow bucket handles anything beyond the last
 // boundary (see `@workspace/units`'s `assignBandOrOverflow`).
 const distanceBandsSchema = z
   .array(z.number().positive())
@@ -106,15 +106,15 @@ export const maxCoverageInputsSchema = z
     // of being stripped on the next read/write.
     objective: z.enum(["coverage", "min_distance"]).optional(),
     p: z.number().int().min(1).max(26),
-    // RAW km thresholds. The cross-field `highServiceDistKm < maxDistKm`
+    // RAW MILE thresholds. The cross-field `highServiceDistMi < maxDistMi`
     // invariant (a solver-parameter constraint, independent of
     // `distanceBands`) is enforced in `.superRefine` below.
-    highServiceDistKm: z.number().positive(),
-    maxDistKm: z.number().positive(),
+    highServiceDistMi: z.number().positive(),
+    maxDistMi: z.number().positive(),
     // Both unconditionally required now: the cap binds in BOTH objectives
     // (§2.4), and the floor is the mode discriminator (§2.3), so neither can be
     // absent. The two objective-discriminated superRefine branches are gone.
-    avgServiceDistCapKm: z.number().positive(),
+    avgServiceDistCapMi: z.number().positive(),
     // Integer demand domain (D30).
     coverageFloorDemand: z.number().int().nonnegative(),
     gap: z.number().min(0),
@@ -124,7 +124,7 @@ export const maxCoverageInputsSchema = z
     capacityMode: z.literal("none").default("none"),
     // Optional: a supplied valid array is preserved VERBATIM (see the
     // `.transform` below). Omitted ONLY for a legacy payload that predates
-    // this contract — then `[highServiceDistKm, maxDistKm]` is derived as a
+    // this contract — then `[highServiceDistMi, maxDistMi]` is derived as a
     // back-compat default, never as a silent overwrite of a client's own
     // supplied value.
     distanceBands: distanceBandsSchema.optional(),
@@ -152,11 +152,11 @@ export const maxCoverageInputsSchema = z
       ),
   })
   .superRefine((v, ctx) => {
-    if (v.highServiceDistKm >= v.maxDistKm) {
+    if (v.highServiceDistMi >= v.maxDistMi) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "highServiceDistKm must be less than maxDistKm",
-        path: ["highServiceDistKm"],
+        message: "highServiceDistMi must be less than maxDistMi",
+        path: ["highServiceDistMi"],
       });
     }
   })
@@ -167,7 +167,7 @@ export const maxCoverageInputsSchema = z
   // 422s on a field it never knew to send.
   .transform((v) => ({
     ...v,
-    distanceBands: v.distanceBands ?? [v.highServiceDistKm, v.maxDistKm],
+    distanceBands: v.distanceBands ?? [v.highServiceDistMi, v.maxDistMi],
   }));
 
 export type MaxCoverageInputs = z.infer<typeof maxCoverageInputsSchema>;

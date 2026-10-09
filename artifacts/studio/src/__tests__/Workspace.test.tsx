@@ -171,7 +171,7 @@ vi.mock("@workspace/api-client-react", () => ({
       // exercise their real capability gates.
       {
         id: "max-coverage-us",
-        distanceUnit: "km",
+        distanceUnit: "mi",
         countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
         capabilities: {
           supportsP: true,
@@ -2591,7 +2591,7 @@ describe("defaultInputsForModel — max-coverage-us", () => {
   const d = defaultInputsForModel("max-coverage-us");
 
   it("carries both unconditionally-required mode fields and NO client-sent objective", () => {
-    expect(d.avgServiceDistCapKm).toBe(1000);
+    expect(d.avgServiceDistCapMi).toBe(650);
     expect(d.coverageFloorDemand).toBe(0);
     expect(Object.prototype.hasOwnProperty.call(d, "objective")).toBe(false);
   });
@@ -2601,20 +2601,25 @@ describe("defaultInputsForModel — max-coverage-us", () => {
     expect(d.timeLimitSec).toBe(120);
   });
 
-  // MIG-4 Task 4 Step 8/ch4-mig-4 — the exact locked default band array
-  // `[700, 1400, 2800, 5500]` (700 == the default highServiceDistKm; 5500 ==
-  // the default maxDistKm, above the new US dataset's longest
-  // warehouse->customer pair of 5,180.5 km). Both service-distance defaults
-  // below are asserted TOGETHER and pinned to their exact values so a future
-  // "tidy-up" cannot silently make them equal — doing so would tighten the
-  // default solve to a different open set and break
-  // e2e/chens-cosmetics.spec.ts.
+  // CH4O-8 (§2.1/§2.5) — the exact locked default band array
+  // `[450, 900, 1800, 3400]` in MILES (450 == the default highServiceDistMi;
+  // 3400 == the default maxDistMi, above the dataset's longest
+  // warehouse->customer pair of 3219 mi, so no customer is unassignable).
+  // These are round teaching numbers, NOT conversions of the old km seeds.
+  // Both service-distance defaults below are asserted TOGETHER and pinned to
+  // their exact values so a future "tidy-up" cannot silently make them equal —
+  // doing so would tighten the default solve to a different open set.
   it("has high < max thresholds (deliberately NOT coupled) and the locked default distanceBands array", () => {
-    expect(d.highServiceDistKm).toBe(700);
-    expect(d.maxDistKm).toBe(5500);
-    expect(d.avgServiceDistCapKm).toBe(1000);
-    expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
-    expect(d.distanceBands).toEqual([700, 1400, 2800, 5500]);
+    expect(d.highServiceDistMi).toBe(450);
+    expect(d.maxDistMi).toBe(3400);
+    expect(d.avgServiceDistCapMi).toBe(650);
+    expect((d.highServiceDistMi as number)).toBeLessThan(d.maxDistMi as number);
+    // The guard the comment above describes, asserted rather than only stated:
+    // high and the avg-distance cap must never be made equal.
+    expect(d.highServiceDistMi).not.toBe(d.avgServiceDistCapMi);
+    // And maxDistMi must clear the dataset's longest pair.
+    expect(d.maxDistMi as number).toBeGreaterThan(3219);
+    expect(d.distanceBands).toEqual([450, 900, 1800, 3400]);
   });
 
   it("has no capacity concept (capacityMode 'none') and p within the 1..26 max-coverage-us bound", () => {
@@ -2659,9 +2664,9 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
   const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
@@ -2721,7 +2726,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ avgServiceDistCapKm: 1200, coverageFloorDemand: 0 });
+    expect(args.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200, coverageFloorDemand: 0 });
     expect(args.data.inputs).not.toHaveProperty("objective");
   });
 
@@ -2753,7 +2758,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     // The changed threshold and the retargeted lens both land in the SAME
     // whole-input save (buildWholeInputPayload's last-write-wins merge).
-    expect(args.data.inputs.highServiceDistKm).toBe(700);
+    expect(args.data.inputs.highServiceDistMi).toBe(700);
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
@@ -2899,7 +2904,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     // so a future fixture edit can't silently make this test vacuous), and
     // the CREATE body must not.
     expect(maxCoverageCoverageInputs).toHaveProperty("objective", "coverage");
-    expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapKm: 1000 });
+    expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapMi: 1000 });
     expect(args.data.inputs).not.toHaveProperty("objective");
   });
 });
@@ -2944,9 +2949,9 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
@@ -3029,7 +3034,7 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   });
 
   // GATE: isEditableInputTab (distances branch) + the DistancesTab render
-  // branch. Chen's manifest declares supportsReferenceDistances (raw-km base
+  // branch. Chen's manifest declares supportsReferenceDistances (raw-mile base
   // matrix, C4.4), so the reference section renders (proves referenceCapable is
   // wired, not just that the tab shows).
   it("distances gate: renders DistancesTab with the base-reference section (supportsReferenceDistances) + Save toolbar for a Chen scenario", () => {
@@ -3140,9 +3145,9 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   const maxCoverageCoverageInputsForBands = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
@@ -3214,9 +3219,9 @@ describe("CH4O-5 — the derived objective never leaves the client", () => {
   const coverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,

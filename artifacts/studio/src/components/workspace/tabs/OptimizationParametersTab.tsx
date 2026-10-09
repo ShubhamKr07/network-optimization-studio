@@ -24,10 +24,10 @@ export type OptimizationParametersField =
   | "bomRatio"
   // C4.12 — Chen's Cosmetics (max-coverage-us) mode-specific coverage
   // params, routed through the generic `onChange` (a plain single-field draft
-  // update, no cross-field coupling). `highServiceDistKm`/`maxDistKm` are
+  // update, no cross-field coupling). `highServiceDistMi`/`maxDistMi` are
   // NOT here — they need an atomic distanceBands resync (D13/D19) and so go
   // through a dedicated `onServiceDistanceChange` callback instead.
-  | "avgServiceDistCapKm"
+  | "avgServiceDistCapMi"
   | "coverageFloorDemand"
   // ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature. Gated on
   // presence like every other model-specific field above, never on modelId.
@@ -81,7 +81,8 @@ export interface OptimizationParametersTabProps {
   bomRatio?: number;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
    * used in the distance-bands label. Optional/defaults to "mi" so existing
-   * callers stay unchanged; Chen (max-coverage-us) passes "km". Ignored
+   * callers stay unchanged; every model including Chen (max-coverage-us) is
+   * "mi" as of CH4O-8, but the caller still passes the manifest value. Ignored
    * once `canonicalUnit` (below) is supplied — that prop supersedes this
    * label-only string for any caller that has migrated to Part D. */
   distanceUnit?: string;
@@ -103,7 +104,7 @@ export interface OptimizationParametersTabProps {
    */
   canonicalUnit?: CanonicalUnit | null;
   // ── C4.12/CH4O-7 — Chen's Cosmetics coverage model (max-coverage-us) ───
-  // The whole Chen block is gated on `highServiceDistKm != null` (present
+  // The whole Chen block is gated on `highServiceDistMi != null` (present
   // only for Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a
   // sibling model passing none of these renders none of it, so this stays
   // generic. CH4O-7 — there is no `objective` prop any more: the mode is
@@ -114,14 +115,14 @@ export interface OptimizationParametersTabProps {
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
    * via `onServiceDistanceChange` (D13/D19), so these do NOT flow through the
    * generic `onChange`. */
-  highServiceDistKm?: number;
-  maxDistKm?: number;
+  highServiceDistMi?: number;
+  maxDistMi?: number;
   /** CH4O-5 — the weighted-average service-distance cap. No longer
    * coverage-mode-only: it is a constraint in BOTH objectives (§2.4) and is
    * unconditionally required on `inputs`. CH4O-7 — it now renders
    * unconditionally too (the `objective === "coverage"` render gate that used
    * to hide it is gone). */
-  avgServiceDistCapKm?: number;
+  avgServiceDistCapMi?: number;
   /** CH4O-5 — the demand-coverage floor, now a student-authored input and the
    * discriminator the server (and, via the same `deriveMaxCoverageObjective`
    * rule, this component) derives `objective` from (0 -> coverage, > 0 ->
@@ -130,7 +131,7 @@ export interface OptimizationParametersTabProps {
   coverageFloorDemand?: number;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */
-  onServiceDistanceChange?: (field: "highServiceDistKm" | "maxDistKm", value: number) => void;
+  onServiceDistanceChange?: (field: "highServiceDistMi" | "maxDistMi", value: number) => void;
   /** D13/D19 (superseded by chen-bands-units, T13 — see the render site's
    * own comment below): originally hid the free-edit distance-bands chip
    * editor for Chen, whose bands were then DERIVED (`[high, max]`), not
@@ -194,9 +195,9 @@ export function OptimizationParametersTab({
   bomRatio,
   distanceUnit,
   canonicalUnit,
-  highServiceDistKm,
-  maxDistKm,
-  avgServiceDistCapKm,
+  highServiceDistMi,
+  maxDistMi,
+  avgServiceDistCapMi,
   coverageFloorDemand,
   onServiceDistanceChange,
   showBandEditor = true,
@@ -223,14 +224,14 @@ export function OptimizationParametersTab({
   // component).
   const { format } = useDisplayUnit();
   // chen-bands-units, Part A — the conditionally-linked high boundary: on a
-  // highServiceDistKm edit oldHigh -> newHigh, retarget a band EQUAL TO
+  // highServiceDistMi edit oldHigh -> newHigh, retarget a band EQUAL TO
   // oldHigh to newHigh, but ONLY if such a band is present (the user may
   // have already removed it — in which case bands stay untouched and later
   // high edits never touch them again). Dedupe + re-sort after. This is a
   // pure business-logic wrapper around `onServiceDistanceChange`, and
   // applies identically regardless of legacy vs unit-aware mode below.
   function handleHighServiceDistChange(newHigh: number) {
-    const oldHigh = highServiceDistKm;
+    const oldHigh = highServiceDistMi;
     if (oldHigh != null && oldHigh !== newHigh && distanceBands.includes(oldHigh)) {
       const nextBands = Array.from(
         new Set(distanceBands.map(b => (b === oldHigh ? newHigh : b))),
@@ -239,7 +240,7 @@ export function OptimizationParametersTab({
         .sort((a, b) => a - b);
       onChange("distanceBands", nextBands);
     }
-    onServiceDistanceChange?.("highServiceDistKm", newHigh);
+    onServiceDistanceChange?.("highServiceDistMi", newHigh);
   }
 
   return (
@@ -287,9 +288,9 @@ export function OptimizationParametersTab({
           (chen-bands-units, T13, superseding D13/D19's derived-only bands)
           — `showBandEditor` defaults true and Workspace.tsx deliberately
           omits the prop for max-coverage-us; see the `{showBandEditor &&
-          ...}` render below. Gated on `highServiceDistKm != null` (present
+          ...}` render below. Gated on `highServiceDistMi != null` (present
           only for Chen) rather than the deleted `objective` prop. */}
-      {highServiceDistKm != null && (
+      {highServiceDistMi != null && (
         <div className="space-y-4" data-testid={tid("chen-objective-section")}>
           <div className="grid grid-cols-2 gap-3">
             {canonicalUnit !== undefined ? (
@@ -299,7 +300,7 @@ export function OptimizationParametersTab({
                   testId={tid("input-high-service-dist")}
                   labelPrefix="High-service distance"
                   canonicalUnit={canonicalUnit}
-                  value={highServiceDistKm ?? 0}
+                  value={highServiceDistMi ?? 0}
                   onCommit={handleHighServiceDistChange}
                 />
                 <ChenDistanceInput
@@ -307,8 +308,8 @@ export function OptimizationParametersTab({
                   testId={tid("input-max-dist")}
                   labelPrefix="Max distance"
                   canonicalUnit={canonicalUnit}
-                  value={maxDistKm ?? 0}
-                  onCommit={v => onServiceDistanceChange?.("maxDistKm", v)}
+                  value={maxDistMi ?? 0}
+                  onCommit={v => onServiceDistanceChange?.("maxDistMi", v)}
                 />
               </>
             ) : (
@@ -320,7 +321,7 @@ export function OptimizationParametersTab({
                   <Input
                     id={pid("input-high-service-dist")}
                     type="number"
-                    value={highServiceDistKm ?? ""}
+                    value={highServiceDistMi ?? ""}
                     onChange={e => handleHighServiceDistChange(parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
                     data-testid={tid("input-high-service-dist")}
@@ -333,8 +334,8 @@ export function OptimizationParametersTab({
                   <Input
                     id={pid("input-max-dist")}
                     type="number"
-                    value={maxDistKm ?? ""}
-                    onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
+                    value={maxDistMi ?? ""}
+                    onChange={e => onServiceDistanceChange?.("maxDistMi", parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
                     data-testid={tid("input-max-dist")}
                   />
@@ -351,8 +352,8 @@ export function OptimizationParametersTab({
               testId={tid("input-avg-service-cap")}
               labelPrefix="Avg service distance cap"
               canonicalUnit={canonicalUnit}
-              value={avgServiceDistCapKm ?? 0}
-              onCommit={v => onChange("avgServiceDistCapKm", v)}
+              value={avgServiceDistCapMi ?? 0}
+              onCommit={v => onChange("avgServiceDistCapMi", v)}
             />
           ) : (
             <div>
@@ -362,8 +363,8 @@ export function OptimizationParametersTab({
               <Input
                 id={pid("input-avg-service-cap")}
                 type="number"
-                value={avgServiceDistCapKm ?? ""}
-                onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                value={avgServiceDistCapMi ?? ""}
+                onChange={e => onChange("avgServiceDistCapMi", parseFloat(e.target.value) || 0)}
                 className="h-8 text-sm mt-1 font-mono"
                 data-testid={tid("input-avg-service-cap")}
               />
@@ -396,23 +397,23 @@ export function OptimizationParametersTab({
               if (canonicalUnit == null) return null;
               const fmt = (v: number) => format(v, canonicalUnit, { maximumFractionDigits: 1 });
               const floor = coverageFloorDemand ?? 0;
-              // CH4O-5 requires avgServiceDistCapKm unconditionally on a real
+              // CH4O-5 requires avgServiceDistCapMi unconditionally on a real
               // Chen scenario (§2.4), but a legacy row saved before that
-              // requirement existed can still have it absent. `highServiceDistKm!`
-              // is safe (gated by the enclosing block's `highServiceDistKm !=
-              // null`); `avgServiceDistCapKm` is NOT gated by anything, so omit
+              // requirement existed can still have it absent. `highServiceDistMi!`
+              // is safe (gated by the enclosing block's `highServiceDistMi !=
+              // null`); `avgServiceDistCapMi` is NOT gated by anything, so omit
               // the clause entirely when it's absent rather than assert a false
               // "at or under 0" cap that the model being solved won't actually
               // have.
               const capClause =
-                avgServiceDistCapKm != null
-                  ? `, holding average distance at or under ${fmt(avgServiceDistCapKm)}`
+                avgServiceDistCapMi != null
+                  ? `, holding average distance at or under ${fmt(avgServiceDistCapMi)}`
                   : "";
               return (
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
                   {deriveMaxCoverageObjective(floor) === "coverage"
-                    ? `Model 1 — maximize demand within ${fmt(highServiceDistKm!)}${capClause}`
-                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistKm!)}`}
+                    ? `Model 1 — maximize demand within ${fmt(highServiceDistMi!)}${capClause}`
+                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistMi!)}`}
                 </p>
               );
             })()}

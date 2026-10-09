@@ -1280,7 +1280,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     expect(html).toContain("1,234 mi");
   });
 
-  it("buildCustomerPopupHtml renders the distance in km (never mi) for a Chen scenario", () => {
+  it("buildCustomerPopupHtml renders the distance from the given unit, never a hardcoded mi — driven by a synthetic km unit (CH4O-8: no real model is km-canonical any more, and passing mi would make this unable to fail)", () => {
     const html = buildCustomerPopupHtml(popupInfo, "km");
     expect(html).toContain("1,234 km");
     expect(html).not.toContain("1,234 mi");
@@ -1437,7 +1437,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
 });
 
 // ── C4.14 (D14) — Chen two-class coverage lens ──────────────────────────────
-// Chen's Cosmetics passes distanceBands = [highServiceDistKm, maxDistKm] (D13),
+// Chen's Cosmetics passes distanceBands = [highServiceDistMi, maxDistMi] (D13),
 // so the SHARED band-coloring path already produces exactly a two-class lens:
 // a warehouse→customer route with distance ≤ high sits in band 0 (covered,
 // getBandColor(0)), and one with high < distance ≤ max sits in band 1

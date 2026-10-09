@@ -20,9 +20,9 @@ export const maxCoverageInputs = {
   gap: 0,
   timeLimitSec: 120,
   objective: "coverage",
-  highServiceDistKm: 200,
-  maxDistKm: 400,
-  avgServiceDistCapKm: 300,
+  highServiceDistMi: 200,
+  maxDistMi: 400,
+  avgServiceDistCapMi: 300,
   // CH4O-5 — a zero floor IS coverage mode, and every persisted row now
   // carries both the floor and the server-derived `objective`.
   coverageFloorDemand: 0,

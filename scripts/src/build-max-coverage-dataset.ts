@@ -5,14 +5,14 @@
 // Two transforms, both deliberate:
 //  1. Re-key by entity id. p-median-us keys entities by ordinal ("1","2")
 //     with the real id inside the record; Chapter 4's loader keys by id.
-//  2. Convert miles to km. NO circuity factor is applied or removed --
-//     Chapter 3's matrix is pre-baked and its numbers are used as-is
-//     (MIG-6). solve_max_coverage does not multiply.
+//  2. Re-key only. Chapter 4 is miles-canonical (§2.1 of the 2026-10-09 design):
+//     the matrix IS Chapter 3's integer-mile matrix, used as-is. NO unit
+//     conversion and no circuity factor -- stored == solved == displayed ==
+//     exported.
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash } from "crypto";
 
-const MI2KM = 1.609344;
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const SRC = path.join(ROOT, "solvers", "p-median-us", "dataset");
 const OUT = path.join(ROOT, "solvers", "max-coverage-us", "dataset");
@@ -32,7 +32,7 @@ for (const row of Object.values(srcC)) customers[row.id] = row;
 const distances: Record<string, number> = {};
 for (const [key, miles] of Object.entries(srcD)) {
   const [wOrd, cOrd] = key.split(",");
-  distances[`${srcW[wOrd].id},${srcC[cOrd].id}`] = miles * MI2KM;
+  distances[`${srcW[wOrd].id},${srcC[cOrd].id}`] = miles;
 }
 
 mkdirSync(OUT, { recursive: true });

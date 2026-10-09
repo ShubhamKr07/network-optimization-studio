@@ -23,7 +23,7 @@ def _required_inputs(model_id):
     return (set(manifest["inputsSchema"]["required"]) - {"gap"}) | {"modelType"}
 
 # CH4O-5 -- max-coverage-us's conditional-required check is GONE, and its
-# deletion is the point: `avgServiceDistCapKm` and `coverageFloorDemand` are now
+# deletion is the point: `avgServiceDistCapMi` and `coverageFloorDemand` are now
 # UNCONDITIONALLY required (the cap binds in both objectives; the floor is the
 # mode discriminator), so solvers/max-coverage-us/manifest.json's flat
 # `required` list expresses the whole rule and `_required_inputs` above already

@@ -33,8 +33,11 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // jade-T14 — Chapter 9 JADE has real facility open/closed status (no P).
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
-    // C4.14 — Chen's Cosmetics: km, real facility status.
-    { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    // C4.14 / CH4O-8 — Al's Athletics Max Coverage: miles (§2.1 made this
+    // model miles-canonical like every other), real facility status. The
+    // non-mi display path still has coverage via the synthetic "km" model
+    // this file mocks in for exactly that purpose further down.
+    { id: "max-coverage-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: true } },
     // Task 7 (§14, ch5-edit-7) — supportsFacilityStatus flips to `true` for
     // this model. §14 supersedes §6.1/§7.6's "locked false" framing (this
     // was never actually locked — the manifest capability was corrected).
@@ -776,9 +779,9 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("66.67 %");
   });
 
-  it("single-scenario: a min-distance solve shows a demand-km objective", () => {
+  it("single-scenario: a min-distance solve shows a demand-mi objective", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="max-coverage-us" /></ExportProvider></UnitProvider>);
-    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-km");
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-mi");
   });
 
   it("with a coverage anchor selected, a different-mode (min-distance) scenario is DISABLED with a hint; a same-mode one is enabled", () => {

@@ -3,7 +3,7 @@
   "name": "AL's Athletics — Max Coverage",
   "chapter": "Chapter 4",
   "datasetDir": "solvers/max-coverage-us/dataset",
-  "distanceUnit": "km",
+  "distanceUnit": "mi",
   "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
   "capabilities": {
     "supportsP": true,
@@ -19,9 +19,9 @@
     "properties": {
       "objective": { "type": "string", "enum": ["coverage", "min_distance"] },
       "p": { "type": "integer", "minimum": 1, "maximum": 26 },
-      "highServiceDistKm": { "type": "number", "exclusiveMinimum": 0 },
-      "maxDistKm": { "type": "number", "exclusiveMinimum": 0 },
-      "avgServiceDistCapKm": { "type": "number", "exclusiveMinimum": 0 },
+      "highServiceDistMi": { "type": "number", "exclusiveMinimum": 0 },
+      "maxDistMi": { "type": "number", "exclusiveMinimum": 0 },
+      "avgServiceDistCapMi": { "type": "number", "exclusiveMinimum": 0 },
       "coverageFloorDemand": { "type": "integer", "minimum": 0 },
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
@@ -43,6 +43,6 @@
         "properties": { "fromId": { "type": "string", "minLength": 1 }, "toId": { "type": "string", "minLength": 1 }, "distance": { "type": "number", "exclusiveMinimum": 0 }, "estimated": { "type": "boolean" } },
         "required": ["fromId", "toId", "distance"] } }
     },
-    "required": ["p", "highServiceDistKm", "maxDistKm", "avgServiceDistCapKm", "coverageFloorDemand", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
+    "required": ["p", "highServiceDistMi", "maxDistMi", "avgServiceDistCapMi", "coverageFloorDemand", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
   }
 }

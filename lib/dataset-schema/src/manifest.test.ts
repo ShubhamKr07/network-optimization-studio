@@ -281,11 +281,19 @@ describe("ManifestSchema — all real manifests still validate (Bundle 2.2, B2.2
 });
 
 describe("ManifestSchema — max-coverage-us (Chapter 4, C4.2)", () => {
-  it("parses cleanly and carries the km unit + Chapter 4 + exact outputGrids", async () => {
+  // §2.1 contract anchor, deliberately its own test rather than only a line
+  // inside the big manifest assertion below: Chapter 4 was this repo's single
+  // km-canonical model and the unit is the one field whose regression would be
+  // silent everywhere else.
+  it("declares max-coverage-us as miles-canonical", () => {
+    expect(readManifest("max-coverage-us").distanceUnit).toBe("mi");
+  });
+
+  it("parses cleanly and carries the mi unit + Chapter 4 + exact outputGrids", async () => {
     const { readManifest } = await import("./index");
     const manifest = readManifest("max-coverage-us");
     expect(manifest.id).toBe("max-coverage-us");
-    expect(manifest.distanceUnit).toBe("km");
+    expect(manifest.distanceUnit).toBe("mi");
     expect(manifest.chapter).toBe("Chapter 4");
     expect(manifest.capabilities.outputGrids).toEqual([
       "openWarehouses",
@@ -313,9 +321,9 @@ describe("ManifestSchema — max-coverage-us (Chapter 4, C4.2)", () => {
       [
         "objective",
         "p",
-        "highServiceDistKm",
-        "maxDistKm",
-        "avgServiceDistCapKm",
+        "highServiceDistMi",
+        "maxDistMi",
+        "avgServiceDistCapMi",
         "coverageFloorDemand",
         "gap",
         "timeLimitSec",

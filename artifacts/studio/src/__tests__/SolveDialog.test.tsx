@@ -253,7 +253,7 @@ describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", 
 
   // CH4O-7 — the built-in avg-cap/coverage-floor-specific placeholder and
   // commit-as-canonical tests that used to live here are deleted along with
-  // the `objective`/`avgServiceDistCapKm` props themselves (dead,
+  // the `objective`/`avgServiceDistCapMi` props themselves (dead,
   // unreachable code — see the "no built-in Chen objective display" describe
   // block above). The placeholder-under-canonicalUnit=null contract for the
   // band editor (the part of this still genuinely owned by THIS dialog) is

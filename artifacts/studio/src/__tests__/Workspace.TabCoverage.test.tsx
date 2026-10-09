@@ -674,9 +674,9 @@ describe("Workspace tab coverage — max-coverage-us", () => {
   const maxCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
@@ -725,7 +725,7 @@ describe("Workspace tab coverage — max-coverage-us", () => {
       data: [
         {
           id: "max-coverage-us",
-          distanceUnit: "km",
+          distanceUnit: "mi",
           countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
           capabilities: {
             supportsP: true,

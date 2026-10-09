@@ -24,7 +24,7 @@
  *      bars would show nonzero overflow; they must show exactly 0%.
  *   3. NEGATIVE — `max-coverage-us` (Chapter 4, rewritten off the retired
  *      China-dataset model per the ch4-migration cutover, MIG-8): a
- *      band-affecting edit (`highServiceDistKm`, which re-derives
+ *      band-affecting edit (`highServiceDistMi`, which re-derives
  *      `distanceBands` locally) must NOT move the ServiceStats bars at all
  *      (frozen, unwired — Workspace.tsx never wires `presentationBands` for
  *      this model; its "coverage" is a distinct min-distance concept, not a
@@ -355,7 +355,7 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
 
 // ── Check 3 (NEGATIVE, max-coverage-us): RETIRED, not redirected ───────────
 //
-// This block used to commit a `highServiceDistKm` edit (a Step 1 field)
+// This block used to commit a `highServiceDistMi` edit (a Step 1 field)
 // against an already-solved Chapter 4 scenario and assert the ServiceStats
 // bars stay frozen. Under the two-step workflow, editing a Step 1 field
 // post-solve now correctly raises the freeze-confirm dialog, and accepting
@@ -363,7 +363,7 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
 // Step 1 change invalidates the Step 2 solve). Once the result is cleared,
 // "the bars didn't move" is no longer provable: there's no stable
 // `result.metrics.bandCoverage` snapshot left to diff against. The probe's
-// premise — proving frozen bars via a live `highServiceDistKm` edit — is
+// premise — proving frozen bars via a live `highServiceDistMi` edit — is
 // structurally unprovable for this model under the current workflow, not
 // merely flaky.
 //

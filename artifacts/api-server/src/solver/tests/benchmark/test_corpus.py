@@ -53,7 +53,7 @@ def test_weights_must_sum_to_one(tmp_path):
     with pytest.raises(ManifestError, match="weights must sum to 1"):
         load_manifest(str(p))
 
-# CH4O-5 -- `avgServiceDistCapKm` and `coverageFloorDemand` are
+# CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are
 # UNCONDITIONALLY required for max-coverage-us now, so the manifest's own flat
 # `required` list is the whole rule and the objective-discriminated
 # conditional-required hook is gone. These three tests kept their intent (a
@@ -62,10 +62,13 @@ def test_weights_must_sum_to_one(tmp_path):
 # assert through. `objective` is not an input any more and is absent from the
 # base case.
 def _max_coverage_case(case_id, extra=None):
+    # CH4O-8 -- miles (§2.1), matching defaultInputsForModel's seeds. These
+    # tests only exercise load-time REQUIRED-key validation (no solve, no
+    # golden), so the values matter for coherence, not for a result.
     base = {"modelType": "max_coverage_us", "p": 3,
-            "highServiceDistKm": 700, "maxDistKm": 5500, "capacityMode": "none",
-            "avgServiceDistCapKm": 1000, "coverageFloorDemand": 0,
-            "distanceBands": [700, 1400, 2800, 5500], "timeLimitSec": 60}
+            "highServiceDistMi": 450, "maxDistMi": 3400, "capacityMode": "none",
+            "avgServiceDistCapMi": 650, "coverageFloorDemand": 0,
+            "distanceBands": [450, 900, 1800, 3400], "timeLimitSec": 60}
     base.update(extra or {})
     return {"case_id": case_id, "inputs": base}
 
@@ -94,10 +97,10 @@ def test_max_coverage_with_both_mode_fields_is_accepted(tmp_path):
 
 def test_max_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
     case = _max_coverage_case("mc-0")
-    del case["inputs"]["avgServiceDistCapKm"]
+    del case["inputs"]["avgServiceDistCapMi"]
     p = tmp_path / "m.json"
     p.write_text(json.dumps(_one_max_coverage_manifest(case)))
-    with pytest.raises(ManifestError, match=r"missing \['avgServiceDistCapKm'\]"):
+    with pytest.raises(ManifestError, match=r"missing \['avgServiceDistCapMi'\]"):
         load_manifest(str(p))
 
 def test_max_coverage_no_longer_requires_objective(tmp_path):

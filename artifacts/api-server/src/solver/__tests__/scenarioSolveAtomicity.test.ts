@@ -262,9 +262,9 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
 describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", () => {
   const maxCoverageInputs = {
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
     coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 60,

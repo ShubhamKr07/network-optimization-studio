@@ -24,7 +24,7 @@ function findRepoRoot(from: string): string {
 // service-level model. Unlike p-median-us's index-keyed dataset, this package
 // is a record-map keyed directly by the real entity id (e.g. `ALN`/`C1`), same on-disk
 // shape as two-echelon-gold-au — so Object.values (insertion order), not the
-// byIndex sort dataset.ts uses. Distances are RAW km on disk and ARE the
+// byIndex sort dataset.ts uses. Distances are RAW MILES on disk and ARE the
 // effective distances (MIG-6: no circuity factor applied); the
 // warehouse/customer rows here carry only geometry, so the km/mi distinction
 // is a solver/reporting concern, not a dataset-loader one.

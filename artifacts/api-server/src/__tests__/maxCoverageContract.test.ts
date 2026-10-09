@@ -131,9 +131,9 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
   it("accepts p=26 and rejects p=27 (MIG-8, the Zod declaration)", () => {
     const base = {
       p: 3,
-      highServiceDistKm: 700,
-      maxDistKm: 5500,
-      avgServiceDistCapKm: 1000,
+      highServiceDistMi: 700,
+      maxDistMi: 5500,
+      avgServiceDistCapMi: 1000,
       coverageFloorDemand: 0,
       gap: 0,
       timeLimitSec: 120,

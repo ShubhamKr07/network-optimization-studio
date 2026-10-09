@@ -10,7 +10,7 @@ import type { UnitApi } from "@/contexts/UnitContext";
 // two different UNITS depending on the solve mode, carried on the envelope's
 // `details.objective` discriminator:
 //   coverage      -> the objective IS a coverage percentage  (NN.NN %)
-//   min_distance  -> the objective is total demand-weighted distance (demand-km)
+//   min_distance  -> the objective is total demand-weighted distance (demand-mi)
 // Every other model (and Chen before it's solved) has no `details.objective`,
 // so this returns null and each caller applies its own pre-existing default
 // number format unchanged — a single source of truth for the two Chen modes,
@@ -20,7 +20,7 @@ export function formatChenObjective(
   objectiveMode: string | null | undefined,
 ): string | null {
   if (objectiveMode === "coverage") return `${objective.toFixed(2)} %`;
-  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-km`;
+  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-mi`;
   return null;
 }
 
