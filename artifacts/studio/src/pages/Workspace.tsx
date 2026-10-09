@@ -94,6 +94,7 @@ import { workspaceViewId, type WorkspaceView } from "@/lib/workspaceView";
 import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 import {
   completenessCountForWarehouse,
   completenessCountForCustomer,
@@ -2144,6 +2145,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
         },
+        onError: err => {
+          toast({
+            title: "Couldn't save the distance bands",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
@@ -2707,6 +2715,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           navigate(`?scenario=${created.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: err => {
+          toast({
+            title: "Couldn't create the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
@@ -2721,6 +2736,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           navigate(`?scenario=${cloned.id}`);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't duplicate the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );
@@ -2750,6 +2772,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           queryClient.removeQueries({ queryKey: getGetScenarioQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: err => {
+          toast({
+            title: "Couldn't delete the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
+        },
       },
     );
   }
@@ -2773,6 +2802,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           );
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't rename the scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );
@@ -2865,7 +2901,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       {
         onSuccess: job => setPollingJobId(job.jobId),
         onError: err => {
-          const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+          const message = describeWriteError(err, "Could not enqueue the solve. Try again.");
           // Lock deliberately still held — the failure card is up, and
           // Close/Adjust (`resetSolveState`) own that release.
           setSolvePhase("failed");
@@ -2972,7 +3008,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // silently in Studio.tsx before that was fixed — Solve just quietly
           // did nothing. Surface it the same way here.
           onError: err => {
-            const message = err instanceof Error ? err.message : "The scenario was not solved — fix the invalid input and try again.";
+            const message = describeWriteError(err, "The scenario was not solved — fix the invalid input and try again.");
             setSolvePhase("failed");
             setSolveError(message);
             toast({
@@ -3136,6 +3172,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // lands on an error card the student has actually seen a running
           // state precede.
           enqueueSolve(created.id);
+        },
+        onError: err => {
+          toast({
+            title: "Couldn't save as a new scenario",
+            description: describeWriteError(err),
+            variant: "destructive",
+          });
         },
       },
     );

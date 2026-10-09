@@ -84,15 +84,18 @@ const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: fa
 const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+// WF-3 — stabilized (was a fresh object from a new `vi.fn(() => ({...}))`
+// call on every render) so a test can configure `mutate`'s onError/onSuccess
+// before rendering, the same way every other mutation mock here does.
+const mockUpdateDistanceBands = { mutate: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
   useGetScenario: vi.fn(() => ({ data: scenario })),
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
-  // chen-bands-units, T14 - field-scoped distanceBands PATCH. Minimal mock;
-  // only Workspace.test.tsx asserts on its call args (Save-bands routing).
-  useUpdateDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  // chen-bands-units, T14 - field-scoped distanceBands PATCH.
+  useUpdateDistanceBands: vi.fn(() => mockUpdateDistanceBands),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),
@@ -267,11 +270,13 @@ beforeEach(() => {
   mockCreateScenario.mutate.mockReset();
   mockCloneScenario.mutate.mockReset();
   mockDeleteScenario.mutate.mockReset();
+  mockUpdateDistanceBands.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
   mockCreateScenario.isPending = false;
   mockCloneScenario.isPending = false;
   mockDeleteScenario.isPending = false;
+  mockUpdateDistanceBands.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
   mockQueryClient.setQueryData.mockReset();
   mockQueryClient.removeQueries.mockReset();
@@ -1665,6 +1670,42 @@ describe("Workspace — Solve dialog", () => {
     expect(screen.getByTestId("button-save")).toBeEnabled();
     expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  // WF-3 — drives the REAL onError the toolbar Save button's handler
+  // registers, not just the request body (the three pre-existing strip
+  // tests in this file only ever asserted the body and never invoked a
+  // callback, which is exactly how six silent `.mutate(` sites survived
+  // 2293 tests). Routed through the lens-only-dirty path (same setup as the
+  // test above) so clicking "button-save" reaches `handleSaveBandsOnly`
+  // (one of the six sites this task adds an `onError` to) rather than the
+  // ordinary-dirty path, whose `saveWholeInputsAsync` deliberately keeps
+  // rejecting silently for its own callers (DirtyNavPrompt surfaces that
+  // one — see the "dirty-nav prompt" describe block instead).
+  it("a 422 on the toolbar's 'Save bands' click shows the server's sentence, never the raw body, in a toast", () => {
+    const apiErr = Object.assign(new Error("HTTP 422 Unprocessable Content: Coverage floor is required."), {
+      status: 422,
+      data: { error: "Coverage floor is required." },
+    });
+    mockUpdateDistanceBands.mutate.mockImplementation(
+      (_vars: unknown, opts: { onError?: (err: unknown) => void }) => opts?.onError?.(apiErr),
+    );
+
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("solve-dialog-cancel"));
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save the distance bands",
+      description: "Coverage floor is required.",
+      variant: "destructive",
+    }));
   });
 
   // The one test that must exist per the task brief: this repo already shipped
