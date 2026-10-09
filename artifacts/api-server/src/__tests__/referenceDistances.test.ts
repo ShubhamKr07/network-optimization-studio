@@ -164,7 +164,8 @@ describe("JADE (two-echelon-jade-us) reference distances", () => {
 // DistanceMap keyed DIRECTLY by entity id ("ALN,C1"), like two-echelon/JADE,
 // NOT by ordinal — so its builder splits the key and validates role
 // membership (fromId a warehouse, toId a customer), throwing on any
-// malformed/unresolved key. km, not mi.
+// malformed/unresolved key. CH4O-8 (§2.1): miles, like every other model --
+// this matrix IS Chapter 3's integer-mile matrix re-keyed by entity id.
 describe("max-coverage-us reference distances", () => {
   it("builds all 5200 pairs (26×200) at boot", () => {
     const data = getReferenceDistances("max-coverage-us");
@@ -172,11 +173,14 @@ describe("max-coverage-us reference distances", () => {
     expect(data!.pairs).toHaveLength(5200);
   });
 
-  it("the loaded matrix carries the golden ALN -> C1 == 601.894656 raw-km pair", () => {
+  it("the loaded matrix carries the golden ALN -> C1 == 374 raw-mile pair", () => {
+    // CH4O-8 — 374 is p-median-us's own integer value for this pair; the old
+    // golden 601.894656 was exactly 374 * 1.609344, which is why the
+    // conversion is lossless in both directions.
     const data = getReferenceDistances("max-coverage-us")!;
     const pair = data.pairs.find((p) => p.fromId === "ALN" && p.toId === "C1");
     expect(pair).toBeDefined();
-    expect(pair!.distance).toBe(601.894656);
+    expect(pair!.distance).toBe(374);
     expect(pair!.fromCode).toBe("ALN");
     expect(pair!.toCode).toBe("C1");
   });
@@ -205,15 +209,15 @@ describe("max-coverage-us reference distances", () => {
 
   it("throws when the full matrix is incomplete (count mismatch)", () => {
     expect(() =>
-      buildMaxCoverageReferenceDistancePairs({ "ALN,C1": 601.894656 }, MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS),
+      buildMaxCoverageReferenceDistancePairs({ "ALN,C1": 374 }, MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS),
     ).toThrow(/expected 5200 max-coverage-us pairs/);
   });
 
-  it("GET /api/models/max-coverage-us/reference-distances returns 5200 pairs + distanceUnit 'km'", async () => {
+  it("GET /api/models/max-coverage-us/reference-distances returns 5200 pairs + distanceUnit 'mi'", async () => {
     const res = await request(testApp).get("/api/models/max-coverage-us/reference-distances");
     expect(res.status).toBe(200);
     expect(res.body.pairs).toHaveLength(5200);
-    expect(res.body.distanceUnit).toBe("km");
+    expect(res.body.distanceUnit).toBe("mi");
     expect(res.headers.etag).toBeDefined();
     expect(res.headers.etag).toMatch(/^".+"$/);
   });

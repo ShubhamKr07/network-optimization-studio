@@ -181,23 +181,26 @@ const jadeRow = {
 // identical (same 26 warehouse ids/cities, same 200 customer ids), row
 // count/id-membership/capacity-null assertions below are equally true of the
 // p-median-us code path — they do NOT discriminate which dataset actually
-// resolved. The real discriminator that survives the shared facility list is
-// each model's own manifest-declared canonical distance unit (max-coverage-us
-// is "km", p-median-us is "mi" — solvers/*/manifest.json); see the
-// reference-distances test at the end of this describe block and the unit
-// assertions in the "v1 distances export -> re-import round-trips unchanged"
-// describe block below for the assertions that actually pin dataset
-// identity.
+// resolved. CH4O-8 (§2.1) removed the discriminator this comment used to name:
+// the manifest unit was "km" for max-coverage-us and "mi" for p-median-us, and
+// both are "mi" now, over a byte-identical distance matrix. Nothing reachable
+// through these HTTP endpoints discriminates the two packages any more. What
+// does: the package's own sha256 (lib/dataset-schema/src/maxCoverageDataset.
+// test.ts) and the id-keyed reference-distance builder's strict role/shape
+// validation (referenceDistances.test.ts), both of which reject p-median-us's
+// ordinal-keyed distances.json outright. The tests below therefore assert
+// route-level behaviour, not dataset identity -- see the pair-for-pair
+// reference-distances test at the end of this describe block.
 const maxCoverageInputs = {
-  objective: "coverage",
   p: 3,
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
-  avgServiceDistCapKm: 1000,
+  highServiceDistMi: 450,
+  maxDistMi: 3400,
+  avgServiceDistCapMi: 650,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 120,
   capacityMode: "none",
-  distanceBands: [600, 5000],
+  distanceBands: [450, 3400],
   warehouseOverrides: [],
   customerOverrides: [],
   addedWarehouses: [],
@@ -465,34 +468,42 @@ describe("max-coverage-us — export resolves its own dataset via its own code p
 
   // review-4.4a — the assertions above (row count, id membership, capacity
   // null) are all equally true of the p-median-us dataset now that the two
-  // models share an identical 26-warehouse/200-customer facility list, so
-  // none of them alone proves max-coverage-us's OWN dataset package
-  // resolved rather than p-median-us's. This test uses the one thing that
-  // does NOT survive the shared facility list: each model's own
-  // manifest-declared canonical distance unit and its real base-matrix
-  // value for the SAME (ALN, C1) pair (solvers/max-coverage-us/manifest.json
-  // declares "km", solvers/p-median-us/manifest.json declares "mi" — the
-  // two datasets are copies of the same facility list but NOT the same
-  // distance matrix). GET /models/:id/reference-distances is unauthenticated
-  // and model-scoped (routes/referenceDistances.ts), so no scenario mocking
-  // is needed here.
-  it("reference-distances proves ALN->C1 is a genuinely different matrix from p-median-us despite the shared id", async () => {
+  // models share an identical 26-warehouse/200-customer facility list.
+  //
+  // CH4O-8 (§2.1) — this test used to lean on the one thing that did NOT
+  // survive the shared facility list: the manifest unit ("km" vs "mi") and the
+  // (ALN, C1) value (601.894656 vs 374). Both of those discriminators are gone
+  // on purpose: Chapter 4's matrix IS Chapter 3's integer-mile matrix re-keyed,
+  // so the two endpoints now agree pair-for-pair. Rather than keep a test whose
+  // stated premise is false, this asserts the NEW, stronger property it can
+  // honestly prove end-to-end through the API: the re-keying is lossless across
+  // ALL 5200 pairs, not just the one spot-checked pair, and 601.894656 / 1.609344
+  // is exactly 374. What proves max-coverage-us's OWN package resolved is no
+  // longer this endpoint — it is the package's own sha256 check
+  // (lib/dataset-schema/src/maxCoverageDataset.test.ts) plus the id-keyed
+  // builder's strict role/shape validation (referenceDistances.test.ts), both of
+  // which would throw on p-median-us's ordinal-keyed file.
+  it("reference-distances now matches p-median-us pair-for-pair: the re-keying is lossless across all 5200 pairs", async () => {
     const mc = await request(app).get("/api/models/max-coverage-us/reference-distances");
     expect(mc.status).toBe(200);
-    expect(mc.body.distanceUnit).toBe("km");
-    const mcPair = (mc.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
-      .find((p) => p.fromId === "ALN" && p.toId === "C1");
-    expect(mcPair?.distance).toBe(601.894656);
+    expect(mc.body.distanceUnit).toBe("mi");
 
     const pm = await request(app).get("/api/models/p-median-us/reference-distances");
     expect(pm.status).toBe(200);
     expect(pm.body.distanceUnit).toBe("mi");
-    const pmPair = (pm.body.pairs as Array<{ fromId: string; toId: string; distance: number }>)
-      .find((p) => p.fromId === "ALN" && p.toId === "C1");
-    expect(pmPair?.distance).toBe(374);
 
-    // Same shared id pair, genuinely different underlying matrices.
-    expect(mcPair?.distance).not.toBe(pmPair?.distance);
+    type Pair = { fromId: string; toId: string; distance: number };
+    const asMap = (pairs: Pair[]) =>
+      Object.fromEntries(pairs.map((p) => [p.fromId + "|" + p.toId, p.distance]));
+    const mcMap = asMap(mc.body.pairs as Pair[]);
+    const pmMap = asMap(pm.body.pairs as Pair[]);
+
+    // Non-vacuous: both sides are the full matrix, and the spot-checked pair
+    // carries the known integer value.
+    expect(Object.keys(mcMap)).toHaveLength(5200);
+    expect(Object.keys(pmMap)).toHaveLength(5200);
+    expect(mcMap["ALN|C1"]).toBe(374);
+    expect(mcMap).toEqual(pmMap);
   });
 });
 
@@ -551,8 +562,8 @@ describe("max-coverage-us — distanceBands preserved verbatim on every write pa
     mockDb.insert.mockReturnValue(chain);
     // A minimal-but-valid coverage input with no override/added/distance arrays.
     const minimalInputs = {
-      objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
-      avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 120,
+      p: 3, highServiceDistMi: 600, maxDistMi: 5000,
+      avgServiceDistCapMi: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 120,
     };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "Max Coverage Minimal", modelId: "max-coverage-us", inputs: minimalInputs });
@@ -653,26 +664,27 @@ describe("max-coverage-us — v1 distances export -> re-import round-trips uncha
   // real canonical unit via `fromDisplay`. T9 threaded each model's real
   // manifest-declared canonical unit into `applyDistanceOverrides`'s call
   // sites in `routes/scenarios.ts` (was defaulting to "mi" for every
-  // caller, silently mislabeling this model's "km" export as "mi") — its
-  // exported CSV now correctly says `unit=km`, so re-importing it converts
-  // nothing (km -> km is an identity conversion) and this round trip is
-  // genuinely zero-change.
+  // caller, silently mislabeling this model's then-"km" export as "mi").
+  // CH4O-8 (§2.1): this model is "mi"-canonical now, so the exported CSV says
+  // `unit=mi` and re-importing it converts nothing (mi -> mi is an identity
+  // conversion). The round trip stays genuinely zero-change; what changed is
+  // that the unit column is no longer a DISCRIMINATOR between this model's code
+  // path and p-median-us's — see the pair-for-pair test above for why, and
+  // note the assertion below is now a label check, not a dispatch proof.
   it("exporting a distanceOverride then re-importing it produces zero changes", async () => {
     const cookie = await loginAs(OWNER);
     const rowWithOverride = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 100 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
     const exportRes = await request(app).get("/api/scenarios/20/export?entity=distances&format=csv").set("Cookie", cookie);
     expect(exportRes.status).toBe(200);
-    // review-4.4a — the header + row-level unit column is the actual proof
-    // this export dispatched on max-coverage-us's own "km" manifest, not a
-    // p-median-us ("mi") fallback: a route falling through to the
-    // p-median-us code path would still emit "ALN,C1,100" (the override
-    // value round-trips identically regardless of unit label, since
-    // requestedUnit defaults to whichever canonicalUnit gets resolved), but
-    // the `unit` column would read "mi", not "km".
+    // The v2 header + row-level unit column must be emitted from the model's
+    // OWN manifest-declared unit, which CH4O-8 makes "mi" for this model too.
+    // A "km" label here would mean the manifest read regressed to a stale
+    // value, so the negative assertion still has teeth even though a
+    // p-median-us fallback would now produce the same string.
     expect(exportRes.text.split("\n")[0]).toBe("template_version,unit,from_id,to_id,distance");
-    expect(exportRes.text).toContain("km,ALN,C1,100");
-    expect(exportRes.text).not.toContain("mi,ALN,C1,100");
+    expect(exportRes.text).toContain("mi,ALN,C1,100");
+    expect(exportRes.text).not.toContain("km,ALN,C1,100");
 
     // Re-import the exact exported CSV against the same override — no change.
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));

@@ -277,41 +277,7 @@ export const ListScenariosResponseItem = zod.object({
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
-  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.'),
-  "steps": zod.object({
-  "step1": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-}),
-  "step2": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-})
-}).optional().describe('Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.')
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
 
@@ -398,41 +364,7 @@ export const GetScenarioResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
-  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.'),
-  "steps": zod.object({
-  "step1": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-}),
-  "step2": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-})
-}).optional().describe('Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.')
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 
@@ -513,41 +445,7 @@ export const UpdateScenarioResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
-  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.'),
-  "steps": zod.object({
-  "step1": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-}),
-  "step2": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-})
-}).optional().describe('Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.')
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 
@@ -591,70 +489,6 @@ export const GetSolveJobResponse = zod.object({
 
 
 /**
- * @summary Full stored result envelope for one workflow step (Chapter 4 only)
- */
-export const GetScenarioStepResultParams = zod.object({
-  "scenarioId": zod.coerce.number(),
-  "step": zod.union([zod.literal(1),zod.literal(2)])
-})
-
-export const GetScenarioStepResultResponse = zod.object({
-  "result": zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
-  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
-  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
-  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
-  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
-  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
-  "objective": zod.number(),
-  "runTimeSec": zod.number(),
-  "quality": zod.string(),
-  "edges": zod.array(zod.object({
-  "fromId": zod.string(),
-  "toId": zod.string(),
-  "flow": zod.number(),
-  "distance": zod.number(),
-  "band": zod.number().optional(),
-  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer', 'plant_to_warehouse', 'warehouse_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.'),
-  "productId": zod.string().optional().describe('Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model.')
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon-gold-au, plant->warehouse\/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
-  "metrics": zod.object({
-  "utilizationByNode": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "city": zod.string(),
-  "utilization": zod.number()
-})).optional(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "weightedAvgDistance": zod.number().optional(),
-  "avgDistanceByLeg": zod.array(zod.object({
-  "leg": zod.string(),
-  "avgDistance": zod.number(),
-  "totalFlow": zod.number()
-})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.'),
-  "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
-  "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
-  "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
-  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
-  "transportRates": zod.object({
-  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
-  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
-  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
-  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
-}).optional()
-}),
-  "details": zod.object({
-
-}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
-  "solverUsed": zod.string(),
-  "infeasibilityReason": zod.string().nullable()
-}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.')
-})
-
-
-/**
  * @summary Semantic precheck of a scenario's network-edit fields (SCN v0.3 Phase B, B2.1) — read-only, no DB writes. p-median-us only for now; other models return ok:true with no errors until B6.x extends this.
  */
 export const PrecheckScenarioParams = zod.object({
@@ -664,7 +498,7 @@ export const PrecheckScenarioParams = zod.object({
 export const PrecheckScenarioResponse = zod.object({
   "ok": zod.boolean(),
   "errors": zod.array(zod.object({
-  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible', 'coefficient_range']),
+  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible', 'coefficient_range', 'avg_distance_cap_infeasible']),
   "message": zod.string()
 }).describe('One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. \"WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142\".'))
 }).describe('Result of the semantic precheck against a scenario\'s addedWarehouses\/addedCustomers\/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route\'s 422 when the same precheck fails before enqueue.')
@@ -779,41 +613,7 @@ export const ApplyScenarioImportResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
-  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.'),
-  "steps": zod.object({
-  "step1": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-}),
-  "step2": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-})
-}).optional().describe('Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.')
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 }).optional(),
   "applied": zod.number(),
   "errors": zod.array(zod.object({
@@ -900,20 +700,23 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "flows": zod.number()
 }).describe('two-echelon-jade-us combined-leg flow row — band is the display-label string.')]))
 }).describe('v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.'),zod.object({
-  "templateVersion": zod.literal(3),
+  "templateVersion": zod.literal(4),
   "entity": zod.enum(['costSummary']),
   "unit": zod.enum(['km', 'mi']),
   "rows": zod.array(zod.object({
   "objective": zod.number().nullable(),
   "objectiveMode": zod.string().nullable(),
+  "highServiceDist": zod.number().nullish().describe('max-coverage-us only — the scenario\'s high-service distance threshold; a plain distance, so it DOES convert under `unit=`.'),
+  "coveragePct": zod.number().nullish().describe('max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.'),
+  "coveredDemand": zod.number().nullish().describe('max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.'),
   "weightedAvgDistance": zod.number().nullable(),
   "runTimeSec": zod.number().nullable(),
   "quality": zod.string(),
   "solutionStatus": zod.string().nullable(),
   "terminationReason": zod.string().nullable(),
   "solverUsed": zod.string()
-}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\".'))
-}).describe('v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.'),zod.object({
+}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\". CH4O — `highServiceDist`\/`coveragePct`\/`coveredDemand` are the v4 additions and are CONDITIONAL, not required: only max-coverage-us puts the three source fields on `details`, so for the other six models they are emitted as null (JSON) \/ blank (CSV). They are deliberately absent from `required` so a non-Chapter-4 producer that omits the keys entirely still satisfies this contract.'))
+}).describe('v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib\/units\/src\/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services\/templates.ts\'s COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments\/flows\/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['serviceStats']),
   "unit": zod.enum(['km', 'mi']),
@@ -921,7 +724,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "band": zod.number(),
   "percent": zod.number()
 }).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
-}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/costSummary\/serviceStats). Never a single global v3+unit shape.')
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
 
 
 /**
@@ -1004,41 +807,7 @@ export const UpdateDistanceBandsResponse = zod.object({
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
-  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.'),
-  "steps": zod.object({
-  "step1": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-}),
-  "step2": zod.object({
-  "solved": zod.boolean(),
-  "stale": zod.boolean().describe('Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).'),
-  "jobId": zod.number().nullable(),
-  "summary": zod.union([zod.object({
-  "objective": zod.enum(['coverage', 'min_distance']),
-  "status": zod.string(),
-  "solutionStatus": zod.string().nullable(),
-  "quality": zod.string().nullable(),
-  "coveragePct": zod.number().nullable(),
-  "coveredDemand": zod.number().nullable(),
-  "weightedAvgDistance": zod.number().nullable(),
-  "distanceUnit": zod.string(),
-  "runTimeSec": zod.number().nullable()
-}),zod.null()])
-})
-}).optional().describe('Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.')
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 

@@ -650,46 +650,6 @@ export const ScenarioModelId = {
  */
 export type ScenarioInputs = { [key: string]: unknown };
 
-export type ScenarioStepSummaryObjective = typeof ScenarioStepSummaryObjective[keyof typeof ScenarioStepSummaryObjective];
-
-
-export const ScenarioStepSummaryObjective = {
-  coverage: 'coverage',
-  min_distance: 'min_distance',
-} as const;
-
-export interface ScenarioStepSummary {
-  objective: ScenarioStepSummaryObjective;
-  status: string;
-  /** @nullable */
-  solutionStatus: string | null;
-  /** @nullable */
-  quality: string | null;
-  /** @nullable */
-  coveragePct: number | null;
-  /** @nullable */
-  coveredDemand: number | null;
-  /** @nullable */
-  weightedAvgDistance: number | null;
-  distanceUnit: string;
-  /** @nullable */
-  runTimeSec: number | null;
-}
-
-export interface ScenarioStepState {
-  solved: boolean;
-  /** Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3). */
-  stale: boolean;
-  /** @nullable */
-  jobId: number | null;
-  summary: ScenarioStepSummary | null;
-}
-
-export interface ScenarioSteps {
-  step1: ScenarioStepState;
-  step2: ScenarioStepState;
-}
-
 export interface Scenario {
   id: number;
   name: string;
@@ -705,8 +665,6 @@ export interface Scenario {
   stale: boolean;
   /** The solve_jobs id that produced this scenario's current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable. */
   readonly resultRunId: number | null;
-  /** Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored. */
-  steps?: ScenarioSteps;
 }
 
 export interface SolveJobQueued {
@@ -864,6 +822,7 @@ export const PrecheckErrorCode = {
   no_feasible_route: 'no_feasible_route',
   coverage_floor_infeasible: 'coverage_floor_infeasible',
   coefficient_range: 'coefficient_range',
+  avg_distance_cap_infeasible: 'avg_distance_cap_infeasible',
 } as const;
 
 /**
@@ -1104,13 +1063,28 @@ export interface ServiceStatsExportRow {
 }
 
 /**
- * No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/ `terminationReason` are the evidence it's derived from; null on both for a legacy (pre-B2) result, where `quality` reads "Unverified".
+ * No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/ `terminationReason` are the evidence it's derived from; null on both for a legacy (pre-B2) result, where `quality` reads "Unverified". CH4O — `highServiceDist`/`coveragePct`/`coveredDemand` are the v4 additions and are CONDITIONAL, not required: only max-coverage-us puts the three source fields on `details`, so for the other six models they are emitted as null (JSON) / blank (CSV). They are deliberately absent from `required` so a non-Chapter-4 producer that omits the keys entirely still satisfies this contract.
  */
 export interface CostSummaryExportRow {
   /** @nullable */
   objective: number | null;
   /** @nullable */
   objectiveMode: string | null;
+  /**
+     * max-coverage-us only — the scenario's high-service distance threshold; a plain distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  highServiceDist?: number | null;
+  /**
+     * max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.
+     * @nullable
+     */
+  coveragePct?: number | null;
+  /**
+     * max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.
+     * @nullable
+     */
+  coveredDemand?: number | null;
   /** @nullable */
   weightedAvgDistance: number | null;
   /** @nullable */
@@ -1191,7 +1165,7 @@ export type CostSummaryExportEnvelopeTemplateVersion = typeof CostSummaryExportE
 
 
 export const CostSummaryExportEnvelopeTemplateVersion = {
-  NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;
 
 export type CostSummaryExportEnvelopeEntity = typeof CostSummaryExportEnvelopeEntity[keyof typeof CostSummaryExportEnvelopeEntity];
@@ -1210,7 +1184,7 @@ export const CostSummaryExportEnvelopeUnit = {
 } as const;
 
 /**
- * v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
+ * v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib/units/src/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services/templates.ts's COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments/flows/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.
  */
 export interface CostSummaryExportEnvelope {
   templateVersion: CostSummaryExportEnvelopeTemplateVersion;
@@ -1252,7 +1226,7 @@ export interface ServiceStatsExportEnvelope {
 }
 
 /**
- * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/costSummary/serviceStats). Never a single global v3+unit shape.
+ * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.
  */
 export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
 
@@ -1299,10 +1273,6 @@ export const ListScenariosModelId = {
   'max-coverage-us': 'max-coverage-us',
   'delivery-teaching-us': 'delivery-teaching-us',
 } as const;
-
-export type GetScenarioStepResult200 = {
-  result: SolveResult;
-};
 
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { resolve, relative, sep, join } from "path";
-import { assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
+import { assertNoServerOwnedFields } from "../services/scenarioInputWrite.js";
 
 // R9 — plain recursive walk; no new dependency, and deliberately defined in
 // this file rather than imported, so the guard cannot be weakened by editing
@@ -15,31 +15,29 @@ function* walkTsFiles(dir: string): Generator<string> {
   }
 }
 
-describe("CH4-24/CH4-25 — the write-route narrowing guard", () => {
-  it("rejects objective min_distance for max-coverage-us", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "min_distance" })).toBeTruthy();
+describe("assertNoServerOwnedFields — the guard inverts", () => {
+  it("ACCEPTS a client-supplied coverageFloorDemand (now user-authored)", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 1000 })).toBeNull();
+    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 0, p: 3 })).toBeNull();
   });
 
-  it("rejects a coverageFloorDemand key at all — present, even when null", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: 1 })).toBeTruthy();
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: null })).toBeTruthy();
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: undefined })).toBeTruthy();
+  it("REFUSES a client-supplied objective", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "coverage" })).toMatch(/objective/);
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "min_distance" })).toMatch(/objective/);
   });
 
-  it("accepts an ordinary coverage payload", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", p: 3 })).toBeNull();
+  it("refuses objective when present even as null — `in`, not truthiness", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: null })).toMatch(/objective/);
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: undefined })).toMatch(/objective/);
   });
 
-  // stepEpoch is treated differently ON PURPOSE: stripped and overwritten by
-  // CH4-23, not rejected, because a client legitimately round-trips the whole
-  // inputs blob and would otherwise be unable to save anything. A floor has no
-  // such excuse — no well-behaved client ever sends one.
-  it("accepts a client-supplied stepEpoch rather than rejecting it", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", stepEpoch: 9 })).toBeNull();
+  it("ignores every other model", () => {
+    expect(assertNoServerOwnedFields("p-median-us", { objective: "coverage" })).toBeNull();
   });
 
-  it("never constrains another model", () => {
-    expect(assertNoServerOwnedStepFields("p-median-us", { objective: "min_distance", coverageFloorDemand: 5 })).toBeNull();
+  it("ignores a non-object body rather than throwing", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", null)).toBeNull();
+    expect(assertNoServerOwnedFields("max-coverage-us", "nope")).toBeNull();
   });
 });
 
@@ -60,6 +58,19 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     // the documented atomic field-scoped exception (preserves the epoch by
     // construction — see CH4-26's table)
     "routes/distanceBands.ts",
+    // CH4O-9 — the one-off km->mi scenario migration. Not a request-path
+    // route (no client ever reaches it), and it does not bypass the
+    // authority's invariant: `objective` is derived through the same
+    // `deriveMaxCoverageObjective` function scenarioInputWrite.ts uses,
+    // every candidate is re-validated against `maxCoverageInputsSchema`
+    // before its UPDATE commits, AND (review fix, Important #1) its
+    // `.set()` bumps `solveInputRevision` and advances `inputsUpdatedAt`
+    // itself, the same epoch-preservation currency `routes/distanceBands.ts`
+    // below is allow-listed for — a kilometre-era in-flight solve job's
+    // publication CAS can no longer land on the now-miles row it would
+    // otherwise silently overwrite. Added deliberately per this test's own
+    // comment above.
+    "migrations/ch4ToMiles.ts",
   ]);
 
   it("no file outside the allow-list writes scenarios.inputs", () => {
@@ -71,24 +82,33 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
       if (ALLOWED_INPUTS_WRITERS.has(rel)) continue;
       const src = readFileSync(file, "utf8");
       if (/\.set\(\s*\{[^}]*\binputs\s*:/s.test(src)) offenders.push(rel);
-      if (/\.values\(\s*\{[^}]*\binputs\s*:/s.test(src) && !/initialInputsForInsert\(/.test(src)) {
-        offenders.push(`${rel} (insert without initialInputsForInsert)`);
+      if (/\.values\(\s*\{[^}]*\binputs\s*:/s.test(src) && !/deriveServerOwnedInputs\(/.test(src)) {
+        offenders.push(`${rel} (insert without deriveServerOwnedInputs)`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it("the allow-list is not vacuous — both allowed writers still exist and still write inputs", () => {
+  // CH4O-P1 (MINOR #4) — this used to assert only `/\binputs\b/`, which the
+  // bare word satisfies from a comment or from an identifier like
+  // `migrateInputs`/`nextInputs`, in all three files. It therefore passed
+  // even if a file stopped writing `scenarios.inputs` entirely — the exact
+  // regression the test's name claims to catch. It now reuses the same two
+  // regexes the offender loop above uses, so "still writes inputs" means the
+  // same thing on both sides of the allow-list.
+  it("the allow-list is not vacuous — every allowed writer still exists and still writes inputs", () => {
     for (const rel of ALLOWED_INPUTS_WRITERS) {
       const src = readFileSync(resolve(__dirname, "..", rel), "utf8");
-      expect(src).toMatch(/\binputs\b/);
+      const writesInputs =
+        /\.set\(\s*\{[^}]*\binputs\s*:/s.test(src) || /\.values\(\s*\{[^}]*\binputs\s*:/s.test(src);
+      expect(writesInputs, `${rel} is allow-listed but no longer writes scenarios.inputs — drop it from the allow-list`).toBe(true);
     }
   });
 
   it("the guard itself is not vacuous — it still finds the insert-side writes it permits", () => {
     const src = readFileSync(resolve(__dirname, "../routes/scenarios.ts"), "utf8");
-    // create + clone both insert `inputs:` through initialInputsForInsert.
-    expect(src.match(/initialInputsForInsert\(/g)?.length).toBe(2);
+    // create + clone both insert `inputs:` through deriveServerOwnedInputs.
+    expect(src.match(/deriveServerOwnedInputs\(/g)?.length).toBe(2);
     expect(src).toContain("applyScenarioInputWrite(");
   });
 

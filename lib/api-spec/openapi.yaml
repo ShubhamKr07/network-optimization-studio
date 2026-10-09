@@ -377,35 +377,6 @@ paths:
         "404":
           description: Not found
 
-  /scenarios/{scenarioId}/steps/{step}/result:
-    get:
-      operationId: getScenarioStepResult
-      tags: [scenarios]
-      summary: Full stored result envelope for one workflow step (Chapter 4 only)
-      parameters:
-        - name: scenarioId
-          in: path
-          required: true
-          schema: { type: integer }
-        - name: step
-          in: path
-          required: true
-          schema: { type: integer, enum: [1, 2] }
-      responses:
-        "200":
-          description: The step's complete stored envelope
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  result: { $ref: "#/components/schemas/SolveResult" }
-                required: [result]
-        "401":
-          description: Not authenticated
-        "404":
-          description: Not found, not owned, not a Chapter 4 scenario, or that step is unsolved
-
   /scenarios/{scenarioId}/precheck:
     get:
       operationId: precheckScenario
@@ -1636,9 +1607,6 @@ components:
             The solve_jobs id that produced this scenario's current `result`.
             Null for pre-migration solves, whose full result was not retained —
             such a history entry is non-exportable.
-        steps:
-          $ref: "#/components/schemas/ScenarioSteps"
-          description: Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored.
       required:
         - id
         - name
@@ -1667,43 +1635,6 @@ components:
           type: integer
           description: The id of the queued or running job that blocked this request.
       required: [error, jobId]
-
-    ScenarioStepSummary:
-      type: object
-      properties:
-        objective:
-          type: string
-          enum: [coverage, min_distance]
-        status: { type: string }
-        solutionStatus: { type: ["string", "null"] }
-        quality: { type: ["string", "null"] }
-        coveragePct: { type: ["number", "null"] }
-        coveredDemand: { type: ["number", "null"] }
-        weightedAvgDistance: { type: ["number", "null"] }
-        distanceUnit: { type: string }
-        runTimeSec: { type: ["number", "null"] }
-      required: [objective, status, solutionStatus, quality, coveragePct, coveredDemand, weightedAvgDistance, distanceUnit, runTimeSec]
-
-    ScenarioStepState:
-      type: object
-      properties:
-        solved: { type: boolean }
-        stale:
-          type: boolean
-          description: Derived, never stored. Always false for step 1 — a Step 1 edit bumps the epoch and drops the step entirely (CH4-3).
-        jobId: { type: ["integer", "null"] }
-        summary:
-          oneOf:
-            - $ref: "#/components/schemas/ScenarioStepSummary"
-            - type: "null"
-      required: [solved, stale, jobId, summary]
-
-    ScenarioSteps:
-      type: object
-      properties:
-        step1: { $ref: "#/components/schemas/ScenarioStepState" }
-        step2: { $ref: "#/components/schemas/ScenarioStepState" }
-      required: [step1, step2]
 
     SolveJobStatus:
       type: string
@@ -1883,7 +1814,7 @@ components:
       properties:
         code:
           type: string
-          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible, coefficient_range]
+          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible, coefficient_range, avg_distance_cap_infeasible]
         message:
           type: string
 
@@ -2103,9 +2034,24 @@ components:
         (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/
         `terminationReason` are the evidence it's derived from; null on both
         for a legacy (pre-B2) result, where `quality` reads "Unverified".
+        CH4O — `highServiceDist`/`coveragePct`/`coveredDemand` are the v4
+        additions and are CONDITIONAL, not required: only max-coverage-us
+        puts the three source fields on `details`, so for the other six
+        models they are emitted as null (JSON) / blank (CSV). They are
+        deliberately absent from `required` so a non-Chapter-4 producer that
+        omits the keys entirely still satisfies this contract.
       properties:
         objective: { type: ["number", "null"] }
         objectiveMode: { type: ["string", "null"] }
+        highServiceDist:
+          type: ["number", "null"]
+          description: max-coverage-us only — the scenario's high-service distance threshold; a plain distance, so it DOES convert under `unit=`.
+        coveragePct:
+          type: ["number", "null"]
+          description: max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.
+        coveredDemand:
+          type: ["number", "null"]
+          description: max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.
         weightedAvgDistance: { type: ["number", "null"] }
         runTimeSec: { type: ["number", "null"] }
         quality: { type: string }
@@ -2160,12 +2106,25 @@ components:
 
     CostSummaryExportEnvelope:
       type: object
-      description: v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
-      example: { templateVersion: 3, entity: costSummary, unit: km, rows: [] }
+      description: >-
+        v4 costSummary export. objective converts under `unit=` per the
+        shared seven-model objective-dimension mapping (lib/units/src/
+        objective.ts); jade monetary and Chen coverage-percent do not
+        convert. CH4O — costSummary is the one output grid on a GRID-LOCAL
+        template version (services/templates.ts's
+        COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three
+        max-coverage-us row additions while assignments/flows/serviceStats
+        stay on the shared v3. The enum is SINGLE-VALUED on purpose: the
+        route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is
+        computed per request and never persisted or re-imported, so a v3
+        costSummary envelope can no longer exist — admitting 3 here would
+        only let an emitter that drifted back off the constant pass
+        validation.
+      example: { templateVersion: 4, entity: costSummary, unit: km, rows: [] }
       properties:
         templateVersion:
           type: integer
-          enum: [3]
+          enum: [4]
         entity:
           type: string
           enum: [costSummary]
@@ -2204,8 +2163,9 @@ components:
         (warehouses/customers/mines/stations/refineries/plants/
         plantCapabilities/openWarehouses), v2 unit-bearing input
         (distances/legDistances/laneCosts), or v3 unit-bearing output
-        (assignments/flows/costSummary/serviceStats). Never a single global
-        v3+unit shape.
+        (assignments/flows/serviceStats — plus costSummary, which is the
+        same family but on its own grid-local version, v4 as of CH4O; see
+        CostSummaryExportEnvelope). Never a single global v3+unit shape.
       oneOf:
         - $ref: "#/components/schemas/ExportEnvelopeV1"
         - $ref: "#/components/schemas/ExportEnvelopeV2"

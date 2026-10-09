@@ -89,8 +89,6 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace, inputEntriesForModel } from "@/pages/Workspace";

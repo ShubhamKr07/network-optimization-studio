@@ -1,10 +1,9 @@
-import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { type CanonicalUnit } from "@workspace/units";
+import { type CanonicalUnit, deriveMaxCoverageObjective } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
@@ -25,16 +24,11 @@ export type OptimizationParametersField =
   | "bomRatio"
   // C4.12 — Chen's Cosmetics (max-coverage-us) mode-specific coverage
   // params, routed through the generic `onChange` (a plain single-field draft
-  // update, no cross-field coupling). `highServiceDistKm`/`maxDistKm` are
+  // update, no cross-field coupling). `highServiceDistMi`/`maxDistMi` are
   // NOT here — they need an atomic distanceBands resync (D13/D19) and so go
   // through a dedicated `onServiceDistanceChange` callback instead.
-  | "avgServiceDistCapKm"
+  | "avgServiceDistCapMi"
   | "coverageFloorDemand"
-  // ch4-2s-7 — CH4-6: Step 2's own gap/timeLimitSec, routed by Workspace.tsx
-  // onto `localInputs.step2.{gap,timeLimitSec}` — never the top-level
-  // `gap`/`timeLimitSec` fields above, which are Step 1's.
-  | "step2Gap"
-  | "step2TimeLimitSec"
   // ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature. Gated on
   // presence like every other model-specific field above, never on modelId.
   | "costAdjustEnabled"
@@ -87,7 +81,8 @@ export interface OptimizationParametersTabProps {
   bomRatio?: number;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
    * used in the distance-bands label. Optional/defaults to "mi" so existing
-   * callers stay unchanged; Chen (max-coverage-us) passes "km". Ignored
+   * callers stay unchanged; every model including Chen (max-coverage-us) is
+   * "mi" as of CH4O-8, but the caller still passes the manifest value. Ignored
    * once `canonicalUnit` (below) is supplied — that prop supersedes this
    * label-only string for any caller that has migrated to Part D. */
   distanceUnit?: string;
@@ -108,27 +103,35 @@ export interface OptimizationParametersTabProps {
    * and are never gated or converted by this prop.
    */
   canonicalUnit?: CanonicalUnit | null;
-  // ── C4.12 — Chen's Cosmetics coverage model (max-coverage-us) ──────────
-  // The whole Chen block is gated on `objective != null` (present only for
-  // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
-  // model passing none of these renders none of it, so this stays generic.
-  /** Coverage vs min-distance objective mode. Presence gates the Chen block.
-   * CH4-17 — removed. The step toggle (Task 7) is now the ONLY way to choose
-   * an objective, so two controls cannot disagree and no path reaches a
-   * min-distance solve without the floor that gives it meaning. This value
-   * is read-only for display; there is no `onObjectiveModeChange` prop. */
-  objective?: "coverage" | "min_distance";
+  // ── C4.12/CH4O-7 — Chen's Cosmetics coverage model (max-coverage-us) ───
+  // The whole Chen block is gated on `highServiceDistMi != null` (present
+  // only for Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a
+  // sibling model passing none of these renders none of it, so this stays
+  // generic. CH4O-7 — there is no `objective` prop any more: the mode is
+  // fully derived (both server- and client-side) from `coverageFloorDemand`
+  // via `deriveMaxCoverageObjective`, and displayed, never chosen, by the
+  // `derived-model-line` rendered below.
   /** Chen's two service-distance thresholds (both always visible in the
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
    * via `onServiceDistanceChange` (D13/D19), so these do NOT flow through the
    * generic `onChange`. */
-  highServiceDistKm?: number;
-  maxDistKm?: number;
-  /** Coverage-mode-only cap (present when `objective === "coverage"`). */
-  avgServiceDistCapKm?: number;
+  highServiceDistMi?: number;
+  maxDistMi?: number;
+  /** CH4O-5 — the weighted-average service-distance cap. No longer
+   * coverage-mode-only: it is a constraint in BOTH objectives (§2.4) and is
+   * unconditionally required on `inputs`. CH4O-7 — it now renders
+   * unconditionally too (the `objective === "coverage"` render gate that used
+   * to hide it is gone). */
+  avgServiceDistCapMi?: number;
+  /** CH4O-5 — the demand-coverage floor, now a student-authored input and the
+   * discriminator the server (and, via the same `deriveMaxCoverageObjective`
+   * rule, this component) derives `objective` from (0 -> coverage, > 0 ->
+   * min_distance, §2.3). CH4O-7 — this is the editable input rendered below,
+   * via the generic `onChange`; NOT a distance, never unit-converted. */
+  coverageFloorDemand?: number;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */
-  onServiceDistanceChange?: (field: "highServiceDistKm" | "maxDistKm", value: number) => void;
+  onServiceDistanceChange?: (field: "highServiceDistMi" | "maxDistMi", value: number) => void;
   /** D13/D19 (superseded by chen-bands-units, T13 — see the render site's
    * own comment below): originally hid the free-edit distance-bands chip
    * editor for Chen, whose bands were then DERIVED (`[high, max]`), not
@@ -139,26 +142,6 @@ export interface OptimizationParametersTabProps {
    * renders. Kept as an opt-out seam for a future caller, not currently
    * exercised by any model. */
   showBandEditor?: boolean;
-  // ── ch4-2s-7 — the two-step workflow's Step 2 panel ─────────────────────
-  /** Which step's view to render. Omitted/`1` renders today's Step 1 block
-   *  unchanged (every non-Chapter-4 caller, and Chapter 4 while Step 1 is
-   *  selected); `2` renders the Step 2 panel instead. The two are mutually
-   *  exclusive — never both. */
-  step?: 1 | 2;
-  /** R6 — false at `0 of 2`: Step 2 is VIEWABLE there (CH4-15) but its
-   *  fields are not yet editable, since their meaning depends on a Step 1
-   *  result existing to seed the floor. Ignored when `step !== 2`. */
-  stepEditable?: boolean;
-  /** Step 2's own `gap`, read from `localInputs.step2.gap` — never the
-   *  top-level `gap` prop above, which is Step 1's. */
-  step2Gap?: number;
-  /** Step 2's own `timeLimitSec`, read from `localInputs.step2.timeLimitSec`
-   *  — never the top-level `timeLimitSec` prop above, which is Step 1's. */
-  step2TimeLimitSec?: number;
-  /** CH4-5/CH4-9 — Step 1's achieved `coveredDemand`, the floor Step 2 will
-   *  solve against. `null` until Step 1 has solved (renders a placeholder);
-   *  never client-authored — this is display-only, produced by the server. */
-  coverageFloorFromStep1?: number | null;
   // ── ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature ──────
   /** Chapter 5 (modified) - present only for delivery-teaching-us. Gated on
    * presence like every other model-specific parameter in this component,
@@ -212,17 +195,12 @@ export function OptimizationParametersTab({
   bomRatio,
   distanceUnit,
   canonicalUnit,
-  objective,
-  highServiceDistKm,
-  maxDistKm,
-  avgServiceDistCapKm,
+  highServiceDistMi,
+  maxDistMi,
+  avgServiceDistCapMi,
+  coverageFloorDemand,
   onServiceDistanceChange,
   showBandEditor = true,
-  step,
-  stepEditable,
-  step2Gap,
-  step2TimeLimitSec,
-  coverageFloorFromStep1,
   costAdjustEnabled,
   distanceThreshold,
   costPerMile,
@@ -235,15 +213,25 @@ export function OptimizationParametersTab({
   // bare string literal in review rather than a silent collision at runtime.
   const pid = (s: string) => `${idPrefix}${s}`;
   const tid = (s: string) => `${testIdPrefix}${s}`;
+  // CH4O-7 — unconditional call (Rules of Hooks). `useDisplayUnit()` THROWS
+  // without a `UnitProvider` ancestor (UnitContext.tsx) — this is therefore
+  // a hard contract on every caller of this component, for every model, not
+  // a cheap/free no-op for callers that never render the Chapter 4 block.
+  // Safe today because every real caller already satisfies it: production
+  // (`main.tsx` wraps the whole `<App>`), and every test file that renders
+  // this component wraps with `{ wrapper: UnitProvider }` (see
+  // `BandChipEditor.tsx`'s own comment for the same warning on that sibling
+  // component).
+  const { format } = useDisplayUnit();
   // chen-bands-units, Part A — the conditionally-linked high boundary: on a
-  // highServiceDistKm edit oldHigh -> newHigh, retarget a band EQUAL TO
+  // highServiceDistMi edit oldHigh -> newHigh, retarget a band EQUAL TO
   // oldHigh to newHigh, but ONLY if such a band is present (the user may
   // have already removed it — in which case bands stay untouched and later
   // high edits never touch them again). Dedupe + re-sort after. This is a
   // pure business-logic wrapper around `onServiceDistanceChange`, and
   // applies identically regardless of legacy vs unit-aware mode below.
   function handleHighServiceDistChange(newHigh: number) {
-    const oldHigh = highServiceDistKm;
+    const oldHigh = highServiceDistMi;
     if (oldHigh != null && oldHigh !== newHigh && distanceBands.includes(oldHigh)) {
       const nextBands = Array.from(
         new Set(distanceBands.map(b => (b === oldHigh ? newHigh : b))),
@@ -252,18 +240,12 @@ export function OptimizationParametersTab({
         .sort((a, b) => a - b);
       onChange("distanceBands", nextBands);
     }
-    onServiceDistanceChange?.("highServiceDistKm", newHigh);
+    onServiceDistanceChange?.("highServiceDistMi", newHigh);
   }
 
   return (
     <div className="max-w-md space-y-6" data-testid={tid("optimization-parameters-tab")}>
-      {/* ch4-2s-7 — CH4-6: P is a Step 1 field (inherited, read-only, shown
-          in Step 2's own `step2-inherited` block below), so this editable
-          slider is hidden while Step 2 is selected. `(step ?? 1) === 1` is
-          always true for every caller that omits `step` (every non-Chapter-4
-          model, and Chapter 4 while Step 1 is selected), so this is a no-op
-          everywhere else. */}
-      {p != null && (step ?? 1) === 1 && (
+      {p != null && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
@@ -296,20 +278,19 @@ export function OptimizationParametersTab({
         </div>
       )}
 
-      {/* C4.12 — max-coverage-us coverage model (formerly Chen's Cosmetics).
-          Mode toggle (objective) + the two always-visible service-distance
-          thresholds + the one mode-specific field. No capacity concept
-          (capacityMode "none" is persisted, so the Warehouses table never
-          shows a Capacity column). The distance-band editor IS rendered for
-          this model (chen-bands-units, T13, superseding D13/D19's
-          derived-only bands) — `showBandEditor` defaults true and
-          Workspace.tsx deliberately omits the prop for max-coverage-us; see
-          the `{showBandEditor && ...}` render below.
-          ch4-2s-7 — wrapped in `(step ?? 1) === 1` so Step 1's block and
-          Step 2's panel below are mutually exclusive: every non-Chapter-4
-          caller (and Chapter 4 while Step 1 is selected) omits `step`/passes
-          `1` and is unaffected. */}
-      {(step ?? 1) === 1 && objective != null && (
+      {/* C4.12/CH4O-7 — max-coverage-us coverage model (formerly Chen's
+          Cosmetics), rebuilt as ONE always-editable surface: the two
+          service-distance thresholds, the avg-service-cap (now
+          unconditional in both modes, §2.4), and the coverage-floor input +
+          derived-model-line below. No capacity concept (capacityMode "none"
+          is persisted, so the Warehouses table never shows a Capacity
+          column). The distance-band editor IS rendered for this model
+          (chen-bands-units, T13, superseding D13/D19's derived-only bands)
+          — `showBandEditor` defaults true and Workspace.tsx deliberately
+          omits the prop for max-coverage-us; see the `{showBandEditor &&
+          ...}` render below. Gated on `highServiceDistMi != null` (present
+          only for Chen) rather than the deleted `objective` prop. */}
+      {highServiceDistMi != null && (
         <div className="space-y-4" data-testid={tid("chen-objective-section")}>
           <div className="grid grid-cols-2 gap-3">
             {canonicalUnit !== undefined ? (
@@ -319,7 +300,7 @@ export function OptimizationParametersTab({
                   testId={tid("input-high-service-dist")}
                   labelPrefix="High-service distance"
                   canonicalUnit={canonicalUnit}
-                  value={highServiceDistKm ?? 0}
+                  value={highServiceDistMi ?? 0}
                   onCommit={handleHighServiceDistChange}
                 />
                 <ChenDistanceInput
@@ -327,8 +308,8 @@ export function OptimizationParametersTab({
                   testId={tid("input-max-dist")}
                   labelPrefix="Max distance"
                   canonicalUnit={canonicalUnit}
-                  value={maxDistKm ?? 0}
-                  onCommit={v => onServiceDistanceChange?.("maxDistKm", v)}
+                  value={maxDistMi ?? 0}
+                  onCommit={v => onServiceDistanceChange?.("maxDistMi", v)}
                 />
               </>
             ) : (
@@ -340,7 +321,7 @@ export function OptimizationParametersTab({
                   <Input
                     id={pid("input-high-service-dist")}
                     type="number"
-                    value={highServiceDistKm ?? ""}
+                    value={highServiceDistMi ?? ""}
                     onChange={e => handleHighServiceDistChange(parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
                     data-testid={tid("input-high-service-dist")}
@@ -353,8 +334,8 @@ export function OptimizationParametersTab({
                   <Input
                     id={pid("input-max-dist")}
                     type="number"
-                    value={maxDistKm ?? ""}
-                    onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
+                    value={maxDistMi ?? ""}
+                    onChange={e => onServiceDistanceChange?.("maxDistMi", parseFloat(e.target.value) || 0)}
                     className="h-8 text-sm mt-1 font-mono"
                     data-testid={tid("input-max-dist")}
                   />
@@ -363,118 +344,119 @@ export function OptimizationParametersTab({
             )}
           </div>
 
-          {objective === "coverage" && (
-            canonicalUnit !== undefined ? (
-              <ChenDistanceInput
+          {/* CH4O-7 — no longer gated on `objective === "coverage"`: the cap
+              is a constraint in BOTH modes (§2.4) and must render always. */}
+          {canonicalUnit !== undefined ? (
+            <ChenDistanceInput
+              id={pid("input-avg-service-cap")}
+              testId={tid("input-avg-service-cap")}
+              labelPrefix="Avg service distance cap"
+              canonicalUnit={canonicalUnit}
+              value={avgServiceDistCapMi ?? 0}
+              onCommit={v => onChange("avgServiceDistCapMi", v)}
+            />
+          ) : (
+            <div>
+              <Label htmlFor={pid("input-avg-service-cap")} className="text-xs text-muted-foreground">
+                Avg service distance cap ({distanceUnit})
+              </Label>
+              <Input
                 id={pid("input-avg-service-cap")}
-                testId={tid("input-avg-service-cap")}
-                labelPrefix="Avg service distance cap"
-                canonicalUnit={canonicalUnit}
-                value={avgServiceDistCapKm ?? 0}
-                onCommit={v => onChange("avgServiceDistCapKm", v)}
+                type="number"
+                value={avgServiceDistCapMi ?? ""}
+                onChange={e => onChange("avgServiceDistCapMi", parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm mt-1 font-mono"
+                data-testid={tid("input-avg-service-cap")}
               />
-            ) : (
-              <div>
-                <Label htmlFor={pid("input-avg-service-cap")} className="text-xs text-muted-foreground">
-                  Avg service distance cap ({distanceUnit})
-                </Label>
-                <Input
-                  id={pid("input-avg-service-cap")}
-                  type="number"
-                  value={avgServiceDistCapKm ?? ""}
-                  onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
-                  className="h-8 text-sm mt-1 font-mono"
-                  data-testid={tid("input-avg-service-cap")}
-                />
-              </div>
-            )
+            </div>
           )}
 
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-4" data-testid={tid("step2-parameters")}>
-          {/* CH4-6 — inherited from Step 1 and NOT editable here. Inheriting
-              highServiceDistKm is load-bearing: the floor must constrain demand
-              within the same radius that produced it. */}
-          <dl className="grid grid-cols-3 gap-3 text-xs" data-testid={tid("step2-inherited")}>
-            <div><dt className="text-muted-foreground">P (inherited)</dt><dd className="font-mono">{p}</dd></div>
-            <div><dt className="text-muted-foreground">High-service distance</dt><dd className="font-mono">{highServiceDistKm}</dd></div>
-            <div><dt className="text-muted-foreground">Max distance</dt><dd className="font-mono">{maxDistKm}</dd></div>
-          </dl>
-
           <div>
-            <Label className="text-xs text-muted-foreground">Coverage floor (demand)</Label>
-            {coverageFloorFromStep1 == null ? (
-              <div data-testid={tid("step2-floor-placeholder")}
-                className="h-8 mt-1 flex items-center px-2 text-sm font-mono text-muted-foreground border border-dashed border-border rounded">
-                — produced by solve
-              </div>
-            ) : (
-              <div data-testid={tid("step2-floor-value")}
-                className="h-8 mt-1 flex items-center gap-2 px-2 text-sm font-mono border border-border rounded bg-muted">
-                {coverageFloorFromStep1.toLocaleString()}
-                <Lock className="w-3 h-3 text-muted-foreground" />
-              </div>
-            )}
-          </div>
-
-          {/* R6 — `stepEditable` is FALSE at `0 of 2`. Step 2 is viewable
-              there (CH4-15) but must not be editable: its settings only mean
-              something once a Step 1 result exists to seed the floor. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor={pid("input-step2-gap")} className="text-xs text-muted-foreground">Gap</Label>
-              <Input id={pid("input-step2-gap")} type="number" data-testid={tid("input-step2-gap")}
-                disabled={!stepEditable}
-                value={step2Gap ?? ""} className="h-8 text-sm mt-1 font-mono"
-                onChange={e => onChange("step2Gap", parseFloat(e.target.value) || 0)} />
-            </div>
-            <div>
-              <Label htmlFor={pid("input-step2-time-limit")} className="text-xs text-muted-foreground">Time limit (s)</Label>
-              <Input id={pid("input-step2-time-limit")} type="number" data-testid={tid("input-step2-time-limit")}
-                disabled={!stepEditable}
-                value={step2TimeLimitSec ?? ""} className="h-8 text-sm mt-1 font-mono"
-                onChange={e => onChange("step2TimeLimitSec", parseInt(e.target.value, 10) || 1)} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ch4-2s-7 — CH4-6: `gap`/`timeLimitSec` here are Step 1's own (Step
-          2 has its own dedicated pair, above, bound to `localInputs.step2`),
-          so this block is hidden while Step 2 is selected — otherwise two
-          "Gap"/"Time limit" editors would appear on screen at once, one of
-          them silently editing the wrong step. `(step ?? 1) === 1` is a
-          no-op for every caller that omits `step`. */}
-      {(step ?? 1) === 1 && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor={pid("input-gap")} className="text-xs text-muted-foreground">Optimization gap (%)</Label>
+            <Label htmlFor={pid("input-coverage-floor")} className="text-xs text-muted-foreground">
+              Coverage floor (demand)
+            </Label>
+            {/* NOT a distance -- never routed through ChenDistanceInput /
+                useDistanceDraft, and never unit-converted. A demand count has
+                no distance dimension. */}
             <Input
-              id={pid("input-gap")}
+              id={pid("input-coverage-floor")}
               type="number"
-              step="0.01"
-              value={gap}
-              onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
+              min={0}
+              step={1}
+              value={coverageFloorDemand ?? 0}
+              onChange={e => onChange("coverageFloorDemand", parseInt(e.target.value, 10) || 0)}
               className="h-8 text-sm mt-1 font-mono"
-              data-testid={tid("input-gap")}
+              data-testid={tid("input-coverage-floor")}
             />
+            {(() => {
+              // Reads the SAME derivation the server uses, so the label and the
+              // solve that runs cannot disagree. `UnitApi.format` converts AND
+              // labels a distance in one call, so the number and the unit can
+              // never drift apart -- printing canonical numbers under a
+              // display-unit label is the trap this guards against.
+              if (canonicalUnit == null) return null;
+              const fmt = (v: number) => format(v, canonicalUnit, { maximumFractionDigits: 1 });
+              const floor = coverageFloorDemand ?? 0;
+              // CH4O-5 requires avgServiceDistCapMi unconditionally on a real
+              // Chen scenario (§2.4), but a legacy row saved before that
+              // requirement existed can still have it absent. `highServiceDistMi!`
+              // is safe (gated by the enclosing block's `highServiceDistMi !=
+              // null`); `avgServiceDistCapMi` is NOT gated by anything, so omit
+              // the clause entirely when it's absent rather than assert a false
+              // "at or under 0" cap that the model being solved won't actually
+              // have.
+              //
+              // CH4O-P1 — the clause goes on BOTH lines. The avg-service cap
+              // used to be a Model-2-only constraint; this branch made it
+              // unconditional in both objectives (which is why its field
+              // renders unconditionally), and the Model 2 string was the one
+              // that still omitted it. A student who sets a positive floor and
+              // a tight cap, gets INFEASIBLE, and reads a Model 2 line naming
+              // only the floor has no on-screen statement of the constraint
+              // that actually caused it — while the Model 1 line they saw a
+              // minute earlier did name it.
+              const capClause =
+                avgServiceDistCapMi != null
+                  ? `, holding average distance at or under ${fmt(avgServiceDistCapMi)}`
+                  : "";
+              return (
+                <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
+                  {deriveMaxCoverageObjective(floor) === "coverage"
+                    ? `Model 1 — maximize demand within ${fmt(highServiceDistMi!)}${capClause}`
+                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistMi!)}${capClause}`}
+                </p>
+              );
+            })()}
           </div>
-          <div>
-            <Label htmlFor={pid("input-time-limit")} className="text-xs text-muted-foreground">Max time (seconds)</Label>
-            <Input
-              id={pid("input-time-limit")}
-              type="number"
-              value={timeLimitSec}
-              onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-              className="h-8 text-sm mt-1 font-mono"
-              data-testid={tid("input-time-limit")}
-            />
-          </div>
+
         </div>
       )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor={pid("input-gap")} className="text-xs text-muted-foreground">Optimization gap (%)</Label>
+          <Input
+            id={pid("input-gap")}
+            type="number"
+            step="0.01"
+            value={gap}
+            onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
+            className="h-8 text-sm mt-1 font-mono"
+            data-testid={tid("input-gap")}
+          />
+        </div>
+        <div>
+          <Label htmlFor={pid("input-time-limit")} className="text-xs text-muted-foreground">Max time (seconds)</Label>
+          <Input
+            id={pid("input-time-limit")}
+            type="number"
+            value={timeLimitSec}
+            onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
+            className="h-8 text-sm mt-1 font-mono"
+            data-testid={tid("input-time-limit")}
+          />
+        </div>
+      </div>
 
       {/* A5.1 — transport-coal's mine capacity factor (Studio.tsx:1273-1285). */}
       {capacityFactor != null && (
@@ -548,11 +530,11 @@ export function OptimizationParametersTab({
 
       {/* ch5-del-10 — delivery-teaching-us's Adjust Cost Table control.
           Gated on `costAdjustEnabled != null` like every other
-          model-specific field above (never on modelId), and deliberately
-          placed OUTSIDE all four `step` guards above (this model has no
-          step concept — Chapter 4 selecting Step 2 must never hide this
-          control). Joins the capacityFactor/singleSource/capacityInactive/
-          bomRatio family of unguarded, presence-gated sections. */}
+          model-specific field above (never on modelId). CH4O-7 — the
+          two-step workflow's `step` guards this comment used to reference
+          are gone entirely now; this control was never affected by them.
+          Joins the capacityFactor/singleSource/capacityInactive/bomRatio
+          family of unguarded, presence-gated sections. */}
       {costAdjustEnabled != null && (
         <div className="space-y-2" data-testid={tid("cost-adjust-section")}>
           <Button

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // chen-bands-units, Part D — components rendered inside this tree now read the
@@ -137,26 +137,6 @@ vi.mock("@workspace/api-client-react", () => ({
           supportsAddedCustomerExclusion: true,
         },
       },
-      // ch4-2s-8 (R4) — the two-step-workflow test group below (the "R4 —
-      // Chapter 4 outputs follow the step toggle" describe) needs a real
-      // max-coverage-us manifest entry: its own canonical unit (km) for
-      // CostSummaryTab's weighted-avg-distance formatting, and `costSummary`
-      // in outputGrids so the sidebar entry/content gate both unlock.
-      // Mirrors `solvers/max-coverage-us/manifest.json` verbatim.
-      {
-        id: "max-coverage-us",
-        countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
-        distanceUnit: "km",
-        capabilities: {
-          supportsP: true,
-          capacityModes: ["none"],
-          demandEditable: true,
-          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
-          supportsFacilityStatus: true,
-          supportsAddedCustomerExclusion: true,
-          supportsReferenceDistances: true,
-        },
-      },
     ],
   })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
@@ -167,133 +147,17 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
-  // non-Chapter-4 test in this file never has `scenario.steps` set, so
-  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
-  // false here regardless of what it returns.
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace } from "@/pages/Workspace";
-import { useGetScenario, useGetSolveJob, useGetScenarioStepResult } from "@workspace/api-client-react";
+import { useGetScenario, useGetSolveJob } from "@workspace/api-client-react";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
-const mockUseGetScenarioStepResult = vi.mocked(useGetScenarioStepResult);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 }
-
-// ch4-2s-8 (R4) — this file's existing render-helper convention (a plain
-// function wrapping `render(<Workspace .../>)`), extended with two named
-// variants rather than a parallel scaffold: `renderWorkspaceForPMedian` is
-// the existing `renderWorkspace` under the name the R4 tests below use
-// (accepts/ignores an options bag for call-site symmetry with the Chapter 4
-// variant); `renderWorkspaceForMaxCoverage` swaps in a max-coverage-us
-// scenario carrying a real `steps` projection (Task 5's server-derived
-// field) and wires `useGetScenarioStepResult`'s mock to answer per the
-// `step` argument it's actually called with — proving Workspace.tsx's own
-// per-step fetch, not a canned response.
-function renderWorkspaceForPMedian(_opts?: { withHistory?: boolean }) {
-  // Explicit reset (not just relying on `beforeEach`) — this helper is also
-  // used AFTER `renderWorkspaceForMaxCoverage` within the same test (the
-  // "hides for Chapter 4, keeps for p-median-us" comparison below), whose
-  // own `mockUseGetScenario.mockReturnValue` would otherwise still be in
-  // effect for a later render in that same test.
-  mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
-  return renderWorkspace();
-}
-
-function renderWorkspaceForMaxCoverage(opts: {
-  steps: {
-    step1: { solved: boolean; stale: boolean; jobId: number | null; summary: typeof step1Summary | null };
-    step2: { solved: boolean; stale: boolean; jobId: number | null; summary: typeof step2Summary | null };
-  };
-  stepResults?: Partial<Record<1 | 2, typeof step1Envelope>>;
-}) {
-  const scenarioForSteps = {
-    id: 1,
-    name: "Chen Cosmetics",
-    modelId: "max-coverage-us",
-    inputs: maxCoverageInputs,
-    // `.result` mirrors real server behaviour (whichever step solved last) —
-    // Chapter 4's own output surfaces must NOT read this (R4's whole point);
-    // it's set here only so any code that happens to touch it (e.g. the
-    // dead CostSummaryTab-compare mode-guard fallback) sees a plausible
-    // value rather than `null`.
-    result: opts.steps.step2.solved ? step2Envelope : opts.steps.step1.solved ? step1Envelope : null,
-    stale: false,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-    steps: opts.steps,
-  };
-  mockUseGetScenario.mockReturnValue({ data: scenarioForSteps } as unknown as ReturnType<typeof useGetScenario>);
-  const stepResults = opts.stepResults ?? {};
-  mockUseGetScenarioStepResult.mockImplementation((_scenarioId: unknown, step: unknown) => {
-    const result = stepResults[step as 1 | 2];
-    return {
-      data: result ? { result } : undefined,
-      isLoading: false,
-      isError: false,
-      isSuccess: !!result,
-      refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useGetScenarioStepResult>;
-  });
-  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-}
-
-const maxCoverageInputs = {
-  p: 3,
-  highServiceDistKm: 700,
-  maxDistKm: 5500,
-  avgServiceDistCapKm: 1000,
-  distanceBands: [700, 1400, 2800, 5500],
-  gap: 0,
-  timeLimitSec: 120,
-  step2: { gap: 0, timeLimitSec: 120 },
-  stepEpoch: 1,
-};
-
-// Frozen goldens (SCN v0.3 Global Constraints) — two DISTINCT weighted-avg
-// values so a wrong-step render is unambiguous.
-const step1Summary = {
-  objective: "coverage" as const,
-  status: "optimal",
-  solutionStatus: "optimal",
-  quality: "Proven Optimal",
-  coveragePct: 68.4192,
-  coveredDemand: 53385024,
-  weightedAvgDistance: 635.13,
-  distanceUnit: "km",
-  runTimeSec: 1.5,
-};
-const step2Summary = {
-  ...step1Summary,
-  objective: "min_distance" as const,
-  weightedAvgDistance: 624.33,
-  runTimeSec: 2.1,
-};
-
-const step1Envelope = {
-  status: "optimal" as const,
-  objective: 68.4192,
-  runTimeSec: 1.5,
-  quality: "Proven Optimal",
-  edges: [{ fromId: "DAL", toId: "C1", flow: 100, distance: 500 }],
-  metrics: { weightedAvgDistance: 635.13, bandCoverage: [], utilizationByNode: [] },
-  details: { objective: "coverage", openWarehouseIds: ["DAL", "LA", "PIT"], assignments: [] },
-  solverUsed: "CBC (PuLP)",
-  infeasibilityReason: null,
-};
-const step2Envelope = {
-  ...step1Envelope,
-  objective: 48714263031.75,
-  runTimeSec: 2.1,
-  metrics: { weightedAvgDistance: 624.33, bandCoverage: [], utilizationByNode: [] },
-  details: { objective: "min_distance", openWarehouseIds: ["DAL", "LA", "PIT"], assignments: [] },
-};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -441,58 +305,5 @@ describe("Workspace — Output Map added-entity geometry reads displayedInputs, 
     expect(outputMapTabSpy).toHaveBeenCalledWith(
       expect.objectContaining({ addedWarehouses: [expect.objectContaining({ id: "WH-ADD", lat: 39.74, lng: -104.99 })] }),
     );
-  });
-});
-
-// ch4-2s-8 (R4) — Workspace.tsx has 44 references to `displayedResult`/
-// `displayedInputs` plus `hasFreshSolvedRun`, ALL describing the SCENARIO's
-// latest solve, never Chapter 4's step toggle. These two tests prove the
-// `activeOutputResult`/`activeOutputInputs`/`activeOutputReady` adapter
-// actually closes that gap end-to-end (through a real output tab, Solution
-// Summary — CostSummaryTab is stubbed nowhere in this file, so this is the
-// genuine component reading the genuine prop), and that the result-history
-// stepper — which would otherwise be a SECOND, conflicting result selector —
-// is hidden for Chapter 4 while staying exactly as before for every other
-// model.
-describe("R4 — Chapter 4 outputs follow the step toggle", () => {
-  it("renders Step 1's result on step 1 and Step 2's on step 2, from the same scenario", async () => {
-    // Two distinct envelopes so a wrong-step render is unambiguous:
-    // deviation from this task's illustrative snippet — the real
-    // `CostSummaryTab` formats weighted-avg-distance to ONE decimal
-    // (`formatDistance`'s own `.toFixed(1)`) under testid
-    // `cost-summary-value-weighted-avg-distance` (the label-derived id;
-    // `cost-summary-value-wavg` does not exist), not the two-decimal
-    // `cost-summary-value-wavg`/"635.13" the task prompt's snippet named —
-    // asserting on the real rendered contract instead.
-    renderWorkspaceForMaxCoverage({
-      steps: {
-        step1: { solved: true, stale: false, jobId: 11, summary: step1Summary },
-        step2: { solved: true, stale: false, jobId: 12, summary: step2Summary },
-      },
-      stepResults: { 1: step1Envelope, 2: step2Envelope },
-    });
-
-    await screen.findByTestId("sidebar-output-cost-summary");
-    fireEvent.click(screen.getByTestId("sidebar-output-cost-summary"));
-    expect(await screen.findByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("635.1 km");
-
-    fireEvent.click(screen.getByTestId("step-toggle-2"));
-    expect(await screen.findByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("624.3 km");
-  });
-
-  it("hides the result-history stepper for Chapter 4 but keeps it for p-median-us", async () => {
-    const bothSolvedSteps = {
-      step1: { solved: true, stale: false, jobId: 11, summary: step1Summary },
-      step2: { solved: true, stale: false, jobId: 12, summary: step2Summary },
-    };
-    renderWorkspaceForMaxCoverage({ steps: bothSolvedSteps, stepResults: { 1: step1Envelope, 2: step2Envelope } });
-    await screen.findByTestId("step-toggle");
-    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-save-as-scenario")).not.toBeInTheDocument();
-
-    cleanup();
-    renderWorkspaceForPMedian({ withHistory: true });
-    expect(await screen.findByTestId("button-result-back")).toBeInTheDocument();
   });
 });

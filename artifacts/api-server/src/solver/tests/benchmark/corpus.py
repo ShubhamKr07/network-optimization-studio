@@ -22,30 +22,15 @@ def _required_inputs(model_id):
     # gap is supplied by Cell; modelType is the solve.py dispatcher field.
     return (set(manifest["inputsSchema"]["required"]) - {"gap"}) | {"modelType"}
 
-def _max_coverage_conditional_missing(inputs: dict) -> set:
-    """Mirrors maxCoverageInputsSchema's `.superRefine` conditional-required
-    rule (validation/inputs/maxCoverage.ts), which the model's flat
-    JSON-schema `required` list (used by `_required_inputs` above) cannot
-    express: objective="coverage" additionally requires
-    `avgServiceDistCapKm`, objective="min_distance" additionally requires
-    `coverageFloorDemand`. A corpus case missing the field for its own
-    declared objective is a real, unsolvable input -- `solve_max_coverage`
-    reads the field via a bare `inp[...]` and KeyErrors (the exact
-    M1.1-fix gap)."""
-    objective = inputs.get("objective")
-    if objective == "coverage" and "avgServiceDistCapKm" not in inputs:
-        return {"avgServiceDistCapKm"}
-    if objective == "min_distance" and "coverageFloorDemand" not in inputs:
-        return {"coverageFloorDemand"}
-    return set()
-
-# Per-model_id conditional-required checks that a flat JSON-schema `required`
-# list cannot express (objective-discriminated fields etc). Only
-# max-coverage-us has one today; new entries go here rather than as a new
-# branch in `validate`'s loop, so the loop itself stays model-agnostic.
-_CONDITIONAL_REQUIRED = {
-    "max-coverage-us": _max_coverage_conditional_missing,
-}
+# CH4O-5 -- max-coverage-us's conditional-required check is GONE, and its
+# deletion is the point: `avgServiceDistCapMi` and `coverageFloorDemand` are now
+# UNCONDITIONALLY required (the cap binds in both objectives; the floor is the
+# mode discriminator), so solvers/max-coverage-us/manifest.json's flat
+# `required` list expresses the whole rule and `_required_inputs` above already
+# enforces it. `objective` is no longer an input at all -- solve_max_coverage
+# derives the mode from the floor -- so there is nothing left to discriminate
+# on. If a future model needs a rule the flat list cannot express, reintroduce a
+# per-model_id table here rather than branching inside `validate`'s loop.
 
 @dataclass(frozen=True)
 class Case:
@@ -98,7 +83,6 @@ class Manifest:
             if s["model_id"] not in live:
                 raise ManifestError(f"unknown model_id: {s['model_id']}")
             required = _required_inputs(s["model_id"])
-            cond_check = _CONDITIONAL_REQUIRED.get(s["model_id"])
             for c in s["cases"]:
                 missing = required - set(c["inputs"])
                 if missing:
@@ -107,13 +91,6 @@ class Manifest:
                 if c["inputs"]["modelType"] != MODEL_TYPES[s["model_id"]]:
                     raise ManifestError(
                         f"{s['model_id']} case {c['case_id']} has wrong modelType")
-                if cond_check:
-                    missing_cond = cond_check(c["inputs"])
-                    if missing_cond:
-                        raise ManifestError(
-                            f"{s['model_id']} case {c['case_id']} missing "
-                            f"conditionally-required {sorted(missing_cond)} for "
-                            f"objective={c['inputs'].get('objective')!r}")
             if s["regime"] not in ("forced_open", "free_choice"):
                 raise ManifestError(f"bad regime: {s['regime']}")
             if s.get("edit_family") not in (None, "demand", "capacity", "force", "distance"):

@@ -53,49 +53,62 @@ def test_weights_must_sum_to_one(tmp_path):
     with pytest.raises(ManifestError, match="weights must sum to 1"):
         load_manifest(str(p))
 
+# CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are
+# UNCONDITIONALLY required for max-coverage-us now, so the manifest's own flat
+# `required` list is the whole rule and the objective-discriminated
+# conditional-required hook is gone. These three tests kept their intent (a
+# case solve_max_coverage would KeyError on must be rejected at load time,
+# without ever driving a real solve) and changed only the mechanism they
+# assert through. `objective` is not an input any more and is absent from the
+# base case.
 def _max_coverage_case(case_id, extra=None):
-    base = {"modelType": "max_coverage_us", "objective": "min_distance", "p": 3,
-            "highServiceDistKm": 700, "maxDistKm": 5500, "capacityMode": "none",
-            "distanceBands": [700, 1400, 2800, 5500], "timeLimitSec": 60}
-    return {"case_id": case_id, "inputs": {**base, **(extra or {})}}
+    # CH4O-8 -- miles (§2.1), matching defaultInputsForModel's seeds. These
+    # tests only exercise load-time REQUIRED-key validation (no solve, no
+    # golden), so the values matter for coherence, not for a result.
+    base = {"modelType": "max_coverage_us", "p": 3,
+            "highServiceDistMi": 450, "maxDistMi": 3400, "capacityMode": "none",
+            "avgServiceDistCapMi": 650, "coverageFloorDemand": 0,
+            "distanceBands": [450, 900, 1800, 3400], "timeLimitSec": 60}
+    base.update(extra or {})
+    return {"case_id": case_id, "inputs": base}
 
-def test_max_coverage_min_distance_missing_coverage_floor_is_rejected(tmp_path):
-    # M1.1-fix: maxCoverageInputsSchema's superRefine (maxCoverage.ts)
-    # requires coverageFloorDemand whenever objective="min_distance" -- a
-    # flat `required`-list check alone (the pre-fix behavior) cannot see
-    # this, and solve_max_coverage KeyErrors on such a case. Manifest.validate
-    # must now catch it directly, without ever driving a real solve.
-    p = tmp_path / "m.json"
-    p.write_text(json.dumps({
+def _one_max_coverage_manifest(case):
+    return {
         "version": 1,
         "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
                     "edit_family": None, "weight": 1.0,
-                    "cases": [_max_coverage_case("mc-0")]}],   # no coverageFloorDemand
+                    "cases": [case]}],
         "gaps": [0],
-    }))
-    with pytest.raises(ManifestError, match="conditionally-required.*coverageFloorDemand"):
+    }
+
+def test_max_coverage_missing_coverage_floor_is_rejected(tmp_path):
+    case = _max_coverage_case("mc-0")
+    del case["inputs"]["coverageFloorDemand"]
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps(_one_max_coverage_manifest(case)))
+    with pytest.raises(ManifestError, match=r"missing \['coverageFloorDemand'\]"):
         load_manifest(str(p))
 
-def test_max_coverage_min_distance_with_coverage_floor_is_accepted(tmp_path):
+def test_max_coverage_with_both_mode_fields_is_accepted(tmp_path):
     p = tmp_path / "m.json"
-    p.write_text(json.dumps({
-        "version": 1,
-        "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
-                    "edit_family": None, "weight": 1.0,
-                    "cases": [_max_coverage_case("mc-0", {"coverageFloorDemand": 0})]}],
-        "gaps": [0],
-    }))
+    p.write_text(json.dumps(_one_max_coverage_manifest(_max_coverage_case("mc-0"))))
     m = load_manifest(str(p))          # must not raise
     assert m.cells()[0].cases[0].case_id == "mc-0"
 
-def test_max_coverage_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
+def test_max_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
+    case = _max_coverage_case("mc-0")
+    del case["inputs"]["avgServiceDistCapMi"]
     p = tmp_path / "m.json"
-    p.write_text(json.dumps({
-        "version": 1,
-        "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
-                    "edit_family": None, "weight": 1.0,
-                    "cases": [_max_coverage_case("mc-0", {"objective": "coverage"})]}],
-        "gaps": [0],
-    }))
-    with pytest.raises(ManifestError, match="conditionally-required.*avgServiceDistCapKm"):
+    p.write_text(json.dumps(_one_max_coverage_manifest(case)))
+    with pytest.raises(ManifestError, match=r"missing \['avgServiceDistCapMi'\]"):
         load_manifest(str(p))
+
+def test_max_coverage_no_longer_requires_objective(tmp_path):
+    # The mode is derived from the floor server-side and re-derived inside
+    # solve_max_coverage; a corpus case that omits `objective` entirely (as
+    # every case now does) must load cleanly.
+    case = _max_coverage_case("mc-0")
+    assert "objective" not in case["inputs"]
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps(_one_max_coverage_manifest(case)))
+    load_manifest(str(p))              # must not raise

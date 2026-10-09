@@ -63,14 +63,15 @@ import { getManifest } from "../registry/modelRegistry.js";
 //   - "zero_demand"                total effective demand across active
 //                                  customers is <= 0 (nothing to serve).
 //   - "no_feasible_route"          an active customer has NO active warehouse
-//                                  reachable within maxDistKm (MIG-6: rawKm ≤
-//                                  maxDistKm — no circuity factor, matching
+//                                  reachable within maxDistMi (§2.1: raw miles ≤
+//                                  maxDistMi — no circuity factor, matching
 //                                  the solver).
-//   - "coverage_floor_infeasible"  min_distance mode's coverageFloorDemand
-//                                  exceeds a cheap NECESSARY upper bound on
+//   - "coverage_floor_infeasible"  a POSITIVE coverageFloorDemand (i.e.
+//                                  min-distance mode, §2.3) exceeds a cheap
+//                                  NECESSARY upper bound on
 //                                  coverable demand (Σ demand of customers with
-//                                  ≥1 active warehouse at rawKm ≤
-//                                  highServiceDistKm) — the solver stays
+//                                  ≥1 active warehouse at raw miles ≤
+//                                  highServiceDistMi) — the solver stays
 //                                  authoritative for the sufficient case.
 // These are already present in openapi.yaml's PrecheckError.code enum (added
 // by C4.5) — this type is the api-server-side source of truth those codes
@@ -84,7 +85,8 @@ export type PrecheckErrorCode =
   | "zero_demand"
   | "no_feasible_route"
   | "coverage_floor_infeasible"
-  | "coefficient_range";
+  | "coefficient_range"
+  | "avg_distance_cap_infeasible";
 
 export interface PrecheckError {
   code: PrecheckErrorCode;
@@ -169,14 +171,14 @@ export const TRANSPORT_DATASET: PrecheckDataset = { warehouses: TRANSPORT_COAL_W
 // precheck reads:
 //   - customerDemands — base integer demand by customer id (D30), for the
 //     effective-demand map (zero_demand + coverage-floor upper bound).
-//   - baseDistanceKm  — the full base RAW-km distance matrix keyed
+//   - baseDistanceMi  — the full base RAW-mile distance matrix keyed
 //     "fromId|toId" (26×200), overlaid at precheck time by this scenario's
 //     distanceOverrides, for the feasibility thresholds. Built from
 //     getReferenceDistances (the same immutable per-model matrix GET
 //     /models/:id/reference-distances serves), NOT re-loaded here.
 export interface MaxCoveragePrecheckDataset extends PrecheckDataset {
   customerDemands: Record<string, number>;
-  baseDistanceKm: Record<string, number>;
+  baseDistanceMi: Record<string, number>;
 }
 
 export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
@@ -185,7 +187,7 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
   supportsAddedCustomerExclusion:
     getManifest("max-coverage-us")?.capabilities.supportsAddedCustomerExclusion ?? false,
   customerDemands: Object.fromEntries(MAX_COVERAGE_CUSTOMERS.map((c) => [c.id, c.demand])),
-  baseDistanceKm: Object.fromEntries(
+  baseDistanceMi: Object.fromEntries(
     (getReferenceDistances("max-coverage-us")?.pairs ?? []).map((p) => [p.fromId + "|" + p.toId, p.distance]),
   ),
 };
@@ -208,15 +210,22 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
  *                                (reuse `p_range`, D18 — NOT a new code).
  *   - zero_demand                total effective demand ≤ 0.
  *   - no_feasible_route          an active customer with no active warehouse at
- *                                rawKm ≤ maxDistKm (MIG-6: no circuity factor —
+ *                                raw miles ≤ maxDistMi (no circuity factor —
  *                                a hard assignment constraint in BOTH
  *                                objective modes).
- *   - coverage_floor_infeasible  (min_distance only) coverageFloorDemand
- *                                exceeds Σ demand of customers with ≥1 active
- *                                warehouse at rawKm ≤ highServiceDistKm
+ *   - coverage_floor_infeasible  a POSITIVE coverageFloorDemand (min-distance
+ *                                mode, §2.3) exceeds Σ demand of customers with ≥1 active
+ *                                warehouse at raw miles ≤ highServiceDistMi
  *                                — a NECESSARY upper bound (the shared p limit
  *                                may still prevent covering them all together;
  *                                the solver stays authoritative).
+ *   - avg_distance_cap_infeasible avgServiceDistCapMi (§2.4, required in both
+ *                                modes) is below the nearest-active-warehouse
+ *                                weighted-average distance — a NECESSARY
+ *                                lower bound (deliberately loose in
+ *                                min-distance mode, where tightening it would
+ *                                require solving the p-median itself; see the
+ *                                rule's own comment below).
  *
  * The effective view:
  *   - active candidate set   base warehouses not "inactive" per
@@ -227,7 +236,7 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
  *                            customers not "excluded" — same helper.
  *   - effective demand       added customer's own demand, else customerOverride
  *                            demand, else base demand.
- *   - raw-distance lookup    base matrix (baseDistanceKm) overlaid by this
+ *   - raw-distance lookup    base matrix (baseDistanceMi) overlaid by this
  *                            scenario's distanceOverrides (which C4.7's
  *                            estimator has already filled for added entities);
  *                            a pair absent from both is treated as unreachable
@@ -292,42 +301,75 @@ export function precheckMaxCoverageInputs(
   // --- raw-distance lookup: base matrix overlaid by distanceOverrides -------
   // distanceOverrides win over the base value (a user/estimator override on a
   // base pair replaces it, and every added-entity pair lives ONLY here).
-  const rawKm = new Map<string, number>(Object.entries(dataset.baseDistanceKm));
-  for (const o of distanceOverrides) rawKm.set(o.fromId + "|" + o.toId, o.distance);
+  const rawMi = new Map<string, number>(Object.entries(dataset.baseDistanceMi));
+  for (const o of distanceOverrides) rawMi.set(o.fromId + "|" + o.toId, o.distance);
 
-  // MIG-6: rawKm IS the effective distance — no circuity factor, matching
+  // §2.1: rawMi IS the effective distance — miles in, miles out, no unit
+  // conversion and no circuity factor, matching
   // solve_max_coverage exactly.
-  const isReachable = (whId: string, custId: string, thresholdKm: number): boolean => {
-    const raw = rawKm.get(whId + "|" + custId);
-    return raw !== undefined && raw <= thresholdKm;
+  const isReachable = (whId: string, custId: string, thresholdMi: number): boolean => {
+    const raw = rawMi.get(whId + "|" + custId);
+    return raw !== undefined && raw <= thresholdMi;
   };
 
   // --- no_feasible_route: every active customer needs a reachable active WH
-  // within maxDistKm (a hard assignment constraint in BOTH objective modes).
+  // within maxDistMi (a hard assignment constraint in BOTH objective modes).
   // -------------------------------------------------------------------------
   for (const custId of activeCustomerIds) {
-    const reachable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.maxDistKm));
+    const reachable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.maxDistMi));
     if (!reachable) {
       errors.push({
         code: "no_feasible_route",
-        message: `Customer '${custId}' has no active warehouse within maxDistKm (${inputs.maxDistKm} km)`,
+        message: `Customer '${custId}' has no active warehouse within maxDistMi (${inputs.maxDistMi} mi)`,
       });
     }
   }
 
-  // --- coverage_floor_infeasible (min_distance only): coverageFloorDemand vs
-  // a cheap NECESSARY upper bound on coverable demand. coverageFloorDemand is
-  // only present in min_distance mode (undefined in coverage mode → skipped).
-  if (inputs.objective === "min_distance" && inputs.coverageFloorDemand != null) {
+  // --- coverage_floor_infeasible: coverageFloorDemand vs a cheap NECESSARY
+  // upper bound on coverable demand.
+  //
+  // No `objective` guard: a non-zero floor IS min-distance mode (§2.3), and
+  // `objective` is server-derived FROM this value, so gating on it would make
+  // the rule depend on its own output.
+  if (inputs.coverageFloorDemand != null && inputs.coverageFloorDemand > 0) {
     let coverableDemand = 0;
     for (const custId of activeCustomerIds) {
-      const coverable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.highServiceDistKm));
+      const coverable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.highServiceDistMi));
       if (coverable) coverableDemand += effectiveDemand(custId);
     }
     if (inputs.coverageFloorDemand > coverableDemand) {
       errors.push({
         code: "coverage_floor_infeasible",
-        message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistKm (${inputs.highServiceDistKm} km)`,
+        message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistMi (${inputs.highServiceDistMi} mi)`,
+      });
+    }
+  }
+
+  // --- avg_distance_cap_infeasible: avgServiceDistCapMi vs a cheap NECESSARY
+  // lower bound on achievable weighted-average distance. Assign every active
+  // customer to its nearest active warehouse, ignoring BOTH `p` and maxDistMi:
+  // that is a relaxation, so no feasible solution can beat it. Reuses the
+  // `rawMi` overlay already built above -- O(|W| x |C|) over data in hand.
+  //
+  // A necessary condition, not a complete one: a cap above this bound can still
+  // be infeasible once `p` and maxDistMi bite. Those cases fall through to
+  // solve.py's generic infeasible message, which names both candidates.
+  if (inputs.avgServiceDistCapMi != null && totalDemand > 0) {
+    let weightedNearest = 0;
+    for (const custId of activeCustomerIds) {
+      let nearest = Infinity;
+      for (const whId of activeWarehouseIds) {
+        const d = rawMi.get(whId + "|" + custId);
+        if (d != null && d < nearest) nearest = d;
+      }
+      if (nearest === Infinity) continue; // unreachable customers are the max-dist rule's business
+      weightedNearest += effectiveDemand(custId) * nearest;
+    }
+    const lowerBound = weightedNearest / totalDemand;
+    if (inputs.avgServiceDistCapMi < lowerBound) {
+      errors.push({
+        code: "avg_distance_cap_infeasible",
+        message: `avgServiceDistCapMi (${inputs.avgServiceDistCapMi} mi) is below the ${lowerBound.toFixed(2)} mi best achievable weighted-average distance`,
       });
     }
   }

@@ -60,7 +60,7 @@ describe("AssignmentsTab", () => {
     expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("—");
   });
 
-  it("renders the Distance header in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
+  it("renders the Distance header from the distanceUnit prop, never a hardcoded mi — driven by a synthetic km unit (CH4O-8: no real model is km-canonical any more, and passing mi would make this unable to fail)", () => {
     render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="km" />);
     expect(screen.getByText("Distance (km)")).toBeInTheDocument();
     expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();

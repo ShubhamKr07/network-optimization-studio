@@ -41,6 +41,20 @@ export function objectiveDimension(modelId: string, objectiveMode: string | null
   }
 }
 
+/**
+ * The ONE rule mapping max-coverage-us's coverage floor to its objective mode.
+ * Lives in @workspace/units because both artifacts/api-server (which derives
+ * and persists it) and artifacts/studio (which displays which model will run)
+ * depend on this package. A UI copy of this rule is how a label and the solve
+ * that actually ran came to be able to disagree under the old two-step flow.
+ *
+ * solve.py derives the same rule independently (it cannot import TypeScript);
+ * test_max_coverage.py pins the two against each other.
+ */
+export function deriveMaxCoverageObjective(coverageFloorDemand: number): "coverage" | "min_distance" {
+  return coverageFloorDemand === 0 ? "coverage" : "min_distance";
+}
+
 const CONVERTING: ReadonlySet<ObjectiveDimension> = new Set([
   "demand-distance", "flow-distance", "truckload-distance", "distance",
 ]);

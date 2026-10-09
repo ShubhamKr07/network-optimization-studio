@@ -5,13 +5,12 @@ import {
   type ObjectiveDimension,
 } from "@workspace/units";
 import type { UnitApi } from "@/contexts/UnitContext";
-import type { ScenarioSteps } from "@workspace/api-client-react";
 
 // C4.14 (D14) — max-coverage-us reports its objective in
 // two different UNITS depending on the solve mode, carried on the envelope's
 // `details.objective` discriminator:
 //   coverage      -> the objective IS a coverage percentage  (NN.NN %)
-//   min_distance  -> the objective is total demand-weighted distance (demand-km)
+//   min_distance  -> the objective is total demand-weighted distance (demand-mi)
 // Every other model (and Chen before it's solved) has no `details.objective`,
 // so this returns null and each caller applies its own pre-existing default
 // number format unchanged — a single source of truth for the two Chen modes,
@@ -21,7 +20,7 @@ export function formatChenObjective(
   objectiveMode: string | null | undefined,
 ): string | null {
   if (objectiveMode === "coverage") return `${objective.toFixed(2)} %`;
-  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-km`;
+  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-mi`;
   return null;
 }
 
@@ -34,36 +33,16 @@ export function objectiveModeOfDetails(details: unknown): string | null {
   return typeof raw === "string" ? raw : null;
 }
 
-// ch4-2s-8 (Task 8, review finding A1) — CH4-12 says Chapter 4's UI must
-// never read `scenario.result` for objective-mode discrimination.
-// `objectiveModeOfDetails(scenario.result?.details)` alone was the pre-Task-8
-// path; this wrapper prefers the per-step summaries instead (`steps.step2`
-// if solved, else `steps.step1`) when `steps` is present, and falls back to
-// the `result.details` path otherwise — byte-identical to before for every
-// non-Chapter-4 caller (whose `steps` is always undefined).
-//
-// cmp-1b — `GET /scenarios` now merges `steps` onto every max-coverage-us row
-// (batched via `loadScenarioStepsBatch`; see maxCoverageSteps.ts), closing
-// the gap the comment above used to document. `steps` is therefore
-// AUTHORITATIVE whenever present: it is never mixed with a `result.details`
-// fallback. Both steps unsolved -> null, full stop — `scenario.result` is
-// deliberately left untouched (stale, not cleared) across a Step 1 edit that
-// bumps the epoch (see CLAUDE.md's staleness-guard gotcha), so falling
-// through to `result.details` in that state would report the mode of a
-// solve that no longer counts, wrongly locking/mismatching the compare
-// selection (CostSummaryTab.tsx) against a discarded result. The
-// `result.details` path below is reached ONLY when `steps` itself is absent
-// (every non-Chapter-4 model, and any caller that hasn't resolved `steps`
-// yet) — unchanged for them.
-export function scenarioObjectiveModeCh4Aware(
-  input: { steps?: ScenarioSteps | null; result?: { details?: unknown } | null } | null | undefined,
+// The objective mode a solved scenario ran under, read off its own envelope.
+// The `steps`-preferring version this replaces existed because Chapter 4 left
+// `result` deliberately stale across a Step 1 edit, so `result.details` could
+// report the mode of a solve that no longer counted. With no epoch there is no
+// such state: a Chapter 4 result is current, or the scenario is `stale` by the
+// ordinary staleness guard like every other model's.
+export function scenarioObjectiveMode(
+  input: { result?: { details?: unknown } | null } | null | undefined,
 ): string | null {
-  if (!input) return null;
-  if (input.steps) {
-    const summary = input.steps.step2.solved ? input.steps.step2.summary : input.steps.step1.summary;
-    return summary ? summary.objective : null;
-  }
-  return objectiveModeOfDetails(input.result?.details);
+  return objectiveModeOfDetails(input?.result?.details);
 }
 
 // SCN chen-bands-units, Part D, decision 6 — the six-model objective-units

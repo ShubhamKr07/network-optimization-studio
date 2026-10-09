@@ -113,15 +113,9 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
-  // non-Chapter-4 test in this file never has `scenario.steps` set, so
-  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
-  // false here regardless of what it returns.
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
-import { Workspace } from "@/pages/Workspace";
+import { Workspace, inputEntriesForModel } from "@/pages/Workspace";
 import { useGetScenario, useListScenarios, useGetDataset, useListModels } from "@workspace/api-client-react";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
@@ -680,9 +674,10 @@ describe("Workspace tab coverage — max-coverage-us", () => {
   const maxCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -730,7 +725,7 @@ describe("Workspace tab coverage — max-coverage-us", () => {
       data: [
         {
           id: "max-coverage-us",
-          distanceUnit: "km",
+          distanceUnit: "mi",
           countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
           capabilities: {
             supportsP: true,
@@ -872,4 +867,15 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
 
     expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
   });
+});
+
+// CH4O-7 — Task 6 of model-integration-precheck.md's registration point 12:
+// an explicit case for max-coverage-us rather than inheriting the
+// p-median-us/p-median-brazil fallthrough tail. The list happens to be
+// identical today, but omission would silently grant this model whatever
+// the tail grants next, with no test to catch the drift.
+it("gives max-coverage-us an explicit tab list rather than the p-median fallthrough", () => {
+  expect(inputEntriesForModel("max-coverage-us").map(e => e.id)).toEqual([
+    "input-map", "customers", "warehouses", "distances", "optimization-parameters",
+  ]);
 });

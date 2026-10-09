@@ -1,10 +1,34 @@
 import { and, eq, sql } from "drizzle-orm";
 import { scenariosTable } from "@workspace/db";
+import { deriveMaxCoverageObjective } from "@workspace/units";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { normalizeAddedEntityDistances } from "./autoDistance.js";
-import { MAX_COVERAGE_MODEL_ID, nextStepEpoch } from "./maxCoverageSteps.js";
 
 export type ScenarioRow = typeof scenariosTable.$inferSelect;
+
+export const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
+
+// The create/clone half of the write contract. `applyScenarioInputWrite`
+// below is the UPDATE half; both must derive the same server-owned fields, or
+// a field exists on updated rows and not on created ones.
+//
+// CH4O-5 — `objective` is the ONE server-owned max-coverage-us input, derived
+// from `coverageFloorDemand` through `@workspace/units`'
+// `deriveMaxCoverageObjective` (the single TypeScript authority for the rule;
+// solve.py necessarily carries its own copy, pinned against this one by
+// solver/tests/test_max_coverage.py's TestModeDerivedFromFloor).
+//
+// Ordering at every call site is fixed: validate -> derive -> persist. Only
+// validation guarantees the floor is an integer, and this reads it.
+export function deriveServerOwnedInputs(
+  modelId: string,
+  inputs: Record<string, unknown>,
+): Record<string, unknown> {
+  if (modelId !== MAX_COVERAGE_MODEL_ID) return inputs;
+  const floor = inputs.coverageFloorDemand;
+  if (typeof floor !== "number") return inputs; // validation already guaranteed this; defensive only
+  return { ...inputs, objective: deriveMaxCoverageObjective(floor) };
+}
 
 export type ApplyInputWriteOutcome =
   | { kind: "ok"; row: ScenarioRow }
@@ -20,7 +44,7 @@ export interface ApplyScenarioInputWriteParams {
 /**
  * CH4-26 — the SINGLE place `scenarios.inputs` is updated. Every update-side
  * writer (PATCH, import/apply) calls this instead of composing its own
- * `.set({ inputs, … })`; create and clone use `initialInputsForInsert`.
+ * `.set({ inputs, … })`; create and clone use `deriveServerOwnedInputs`.
  * `routes/distanceBands.ts` is the one deliberate exception: it writes a
  * single `jsonb_set` on `{distanceBands}` alone, which preserves the epoch BY
  * CONSTRUCTION and must keep its atomic field-scoped write — that property is
@@ -56,20 +80,15 @@ export async function applyScenarioInputWrite(
 
   const persistedInputs = (persisted.inputs ?? {}) as Record<string, unknown>;
 
-  // CH4-23 — discard whatever the client sent and recompute from the locked
-  // row. Computed inside this transaction, never read-modify-write in
-  // application code, so two concurrent edits cannot both derive the same
-  // next epoch.
-  const inputsToStore: Record<string, unknown> =
-    persisted.modelId === MAX_COVERAGE_MODEL_ID
-      ? { ...normalized, stepEpoch: nextStepEpoch(persistedInputs, normalized) }
-      : normalized;
+  // CH4O-5 — derive the server-owned `objective` from the VALIDATED candidate,
+  // after validation and before the write (validate -> derive -> persist).
+  // Nothing the client sent is consulted: the write routes refuse an
+  // `objective` key outright, and this recomputes it from the floor regardless.
+  const inputsToStore: Record<string, unknown> = deriveServerOwnedInputs(persisted.modelId, normalized);
 
   // Unchanged semantics for every model: a save is non-geometric (does not
   // bump inputsUpdatedAt / solve_input_revision) ONLY when distanceBands is
-  // the sole changed key. CH4-8 — solve_input_revision is left alone by the
-  // step workflow; a Step 2 parameter write is a real inputs change and bumps
-  // it exactly as any other non-bands change already did.
+  // the sole changed key.
   //
   // A2 — this absorbs import/apply's old invariant. That call site used to
   // carry the comment "import/apply is always a geometric input write ... so
@@ -82,7 +101,10 @@ export async function applyScenarioInputWrite(
     ...Object.keys(persistedInputs),
     ...Object.keys(inputsToStore),
   ].filter((k) => JSON.stringify(persistedInputs[k]) !== JSON.stringify(inputsToStore[k])));
-  changed.delete("stepEpoch");
+  // `objective` is derived from coverageFloorDemand, so it can never change
+  // alone -- but leaving it in would misclassify a bands-only save as geometric
+  // on the first write after the migration, which is where it first appears.
+  changed.delete("objective");
   const isBandsOnlyChange = [...changed].every((k) => k === "distanceBands");
 
   const [row] = await tx.update(scenariosTable)
@@ -109,40 +131,22 @@ export async function applyScenarioInputWrite(
   return { kind: "ok", row };
 }
 
-// Re-exported so route files import one module for the whole write contract.
-export { initialInputsForInsert, isStep1Key } from "./maxCoverageSteps.js";
-
 /**
- * CH4-24/CH4-25 — the write-route narrowing guard.
+ * The write-route narrowing guard, INVERTED from its two-step form.
  *
- * The model registry's validator stays the EXECUTABLE one (it must accept
- * `min_distance`, because `validateInputsForModel` is called by BOTH
- * `buildValidatedInputSnapshot` at enqueue AND the recovery reconstructor
- * that rebuilds a queued job after a process restart — a coverage-only
- * registry entry would make every recovered Step 2 job permanently
- * unrunnable). The narrowing therefore has to sit here, at the write routes.
- *
- * It inspects the RAW request body, before Zod has a chance to strip
- * anything. This repo's validators are deliberately non-`.strict()`, so
- * unknown and omitted keys are STRIPPED, not refused — simply leaving
- * `coverageFloorDemand` out of a persisted schema would silently discard a
- * client-supplied floor and report success, the opposite of what CH4-24
- * promises. Only the server can produce a payload that reaches the
- * executable validator with `min_distance` set; that is what makes the floor
- * un-typeable rather than merely un-shown.
+ * Under the old workflow `coverageFloorDemand` was server-produced and
+ * un-typeable. It is now exactly what the student types, and `objective` is the
+ * only server-owned field. Still reads the RAW body before Zod runs: these
+ * validators are non-strict, so an unknown key is STRIPPED rather than refused,
+ * and silently discarding a client-sent `objective` would report success while
+ * ignoring it.
  */
-export function assertNoServerOwnedStepFields(modelId: string, rawInputs: unknown): string | null {
+export function assertNoServerOwnedFields(modelId: string, rawInputs: unknown): string | null {
   if (modelId !== MAX_COVERAGE_MODEL_ID) return null;
   if (rawInputs === null || typeof rawInputs !== "object") return null;
-  const raw = rawInputs as Record<string, unknown>;
-
-  if (raw.objective === "min_distance") {
-    return "objective min_distance is produced by the Step 2 solve and cannot be set directly";
-  }
-  // `in`, not a truthiness check: the key is refused when PRESENT, even if
-  // null or undefined.
-  if ("coverageFloorDemand" in raw) {
-    return "coverageFloorDemand is produced by the Step 1 solve and cannot be set directly";
+  // `in`, not truthiness: refused when PRESENT, even as null or undefined.
+  if ("objective" in (rawInputs as Record<string, unknown>)) {
+    return "objective is derived from coverageFloorDemand and cannot be set directly";
   }
   return null;
 }

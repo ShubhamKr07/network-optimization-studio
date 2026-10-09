@@ -152,8 +152,13 @@ describe("ObjectiveBar — solve stats", () => {
     expect(screen.getByText(/avg distance —/)).toBeInTheDocument();
   });
 
-  // C4.11 — the avg-distance stat follows the active model's unit.
-  it("renders avg distance in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
+  // C4.11 — the avg-distance stat follows the `distanceUnit` prop, never a
+  // hardcoded "mi". CH4O-8 (§2.1): every real model is "mi"-canonical now, so
+  // the unit here is a deliberately SYNTHETIC non-mi value -- passing "mi"
+  // would make this assertion unable to fail against a hardcoded "mi", which
+  // is the only bug it exists to catch. Same precedent as
+  // OutputMapTab.test.tsx's fictional "two-echelon-fake-km" model.
+  it("renders avg distance in the given unit (never a hardcoded mi), driven by a synthetic km unit", () => {
     render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="max-coverage-us" distanceUnit="km" />);
     expect(screen.getByText(/avg distance 340 km/)).toBeInTheDocument();
     expect(screen.queryByText(/avg distance 340 mi/)).not.toBeInTheDocument();
@@ -180,13 +185,13 @@ describe("ObjectiveBar — solve stats", () => {
   });
 
   // C4.14 (D14) — the objective stat is mode-aware for Chen, keyed on
-  // details.objective (coverage -> NN.NN %, min_distance -> demand-km).
+  // details.objective (coverage -> NN.NN %, min_distance -> demand-mi).
   it("renders a Chen coverage objective as a percentage", () => {
     const coverage: SolveResult = {
       ...optimalResult, objective: 66.6667,
       details: { objective: "coverage", coveragePct: 66.6667 },
     };
-    render(<ObjectiveBar result={coverage} scenarioId={40} modelId="max-coverage-us" distanceUnit="km" />);
+    render(<ObjectiveBar result={coverage} scenarioId={40} modelId="max-coverage-us" distanceUnit="mi" />);
     expect(screen.getByText(/objective 66\.67 %/)).toBeInTheDocument();
   });
 
@@ -197,19 +202,23 @@ describe("ObjectiveBar — solve stats", () => {
   // `.toExponential(2)` — an intentional format change from "1.32e+8" to
   // "131,645,389", since every other objective-displaying surface
   // (CostSummaryTab, Landing) shares this exact same formatter.
-  it("renders a Chen min-distance objective as demand-km", () => {
+  it("renders a Chen min-distance objective as demand-mi", () => {
     const minDist: SolveResult = {
       ...optimalResult, objective: 131645389,
       details: { objective: "min_distance" },
     };
-    render(<ObjectiveBar result={minDist} scenarioId={41} modelId="max-coverage-us" distanceUnit="km" />);
-    expect(screen.getByText(/objective 131,645,389 demand-km/)).toBeInTheDocument();
+    // CH4O-8 — "mi" is this model's REAL canonical unit now, so the suffix is
+    // demand-mi. The per-unit suffix matrix itself is covered exhaustively in
+    // formatObjective.test.ts; this call site only has to agree with the
+    // manifest.
+    render(<ObjectiveBar result={minDist} scenarioId={41} modelId="max-coverage-us" distanceUnit="mi" />);
+    expect(screen.getByText(/objective 131,645,389 demand-mi/)).toBeInTheDocument();
   });
 
   it("keeps the plain integer objective for a non-Chen model (no details.objective)", () => {
     render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" />);
     expect(screen.getByText(/objective 1,000,000/)).toBeInTheDocument();
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/demand-km/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/demand-mi/)).not.toBeInTheDocument();
   });
 });

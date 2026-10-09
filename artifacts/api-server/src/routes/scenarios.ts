@@ -13,6 +13,7 @@ import type { CanonicalUnit } from "@workspace/units";
 import {
   TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  COST_SUMMARY_TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
@@ -81,8 +82,7 @@ import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
-import { applyScenarioInputWrite, initialInputsForInsert, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
-import { loadScenarioSteps, loadScenarioStepsBatch, MAX_COVERAGE_MODEL_ID } from "../services/maxCoverageSteps.js";
+import { applyScenarioInputWrite, deriveServerOwnedInputs, assertNoServerOwnedFields } from "../services/scenarioInputWrite.js";
 
 const router = Router();
 
@@ -195,22 +195,7 @@ router.get("/scenarios", async (req, res) => {
     .orderBy(scenariosTable.createdAt);
   const visibleRows = rows.filter(row => !isModelLocked(row.modelId));
 
-  // cmp-1 — the compare-list step-awareness gap. Batched (ONE extra query
-  // for the whole list, not one per Chapter 4 row) rather than looping
-  // loadScenarioSteps: see loadScenarioStepsBatch's own header comment for
-  // the epoch-per-scenario handling this requires. `steps` stays absent
-  // (never null) for every other model, same contract as the single-scenario
-  // GET below.
-  const ch4Rows = visibleRows.filter(row => row.modelId === MAX_COVERAGE_MODEL_ID);
-  const stepsByScenario = await loadScenarioStepsBatch(
-    req.userId!,
-    ch4Rows.map(row => ({ id: row.id, inputs: (row.inputs ?? {}) as Record<string, unknown> })),
-  );
-
-  res.json(visibleRows.map(row => {
-    const steps = stepsByScenario.get(row.id);
-    return steps ? { ...toApiScenario(row), steps } : toApiScenario(row);
-  }));
+  res.json(visibleRows.map(row => toApiScenario(row)));
 });
 
 router.post("/scenarios", async (req, res) => {
@@ -224,7 +209,7 @@ router.post("/scenarios", async (req, res) => {
   // (exists but withheld).
   if (isModelLocked(body.modelId)) { respondLocked(res); return; }
   {
-    const guardError = assertNoServerOwnedStepFields(body.modelId, body.inputs);
+    const guardError = assertNoServerOwnedFields(body.modelId, body.inputs);
     if (guardError) { res.status(422).json({ error: guardError }); return; }
   }
   const validation = validateInputsForModel(body.modelId, body.inputs);
@@ -236,7 +221,7 @@ router.post("/scenarios", async (req, res) => {
     name: body.name,
     userId: req.userId!,
     modelId: body.modelId,
-    inputs: initialInputsForInsert(
+    inputs: deriveServerOwnedInputs(
       body.modelId,
       normalizeAddedEntityDistances(body.modelId, validation.data) as Record<string, unknown>,
     ),
@@ -263,41 +248,7 @@ router.get("/scenarios/:scenarioId", async (req, res) => {
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(row.modelId)) { respondLocked(res); return; }
 
-  // CH4-12 — `steps` is present ONLY for max-coverage-us; the loader returns
-  // null for every other model and the key is omitted. Deliberately merged
-  // here rather than inside toApiScenario: that projector is synchronous and
-  // shared with GET /scenarios, where a per-row query there would be an N+1.
-  const steps = await loadScenarioSteps(
-    row.id, req.userId!, row.modelId, (row.inputs ?? {}) as Record<string, unknown>,
-  );
-  res.json(steps ? { ...toApiScenario(row), steps } : toApiScenario(row));
-});
-
-// CH4-14 — full envelopes stay lazy. The output tabs read one step at a time,
-// so a 200-customer assignments grid is fetched only when looked at.
-// Ownership-scoped and 404-never-403 like every scenario route (hard rule #5).
-router.get("/scenarios/:scenarioId/steps/:step/result", async (req, res) => {
-  const id = Number(req.params.scenarioId);
-  const step = Number(req.params.step);
-  if (step !== 1 && step !== 2) { res.status(404).json({ error: "Not found" }); return; }
-
-  const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
-  if (scenario.modelId !== "max-coverage-us") { res.status(404).json({ error: "Not found" }); return; }
-
-  const steps = await loadScenarioSteps(
-    scenario.id, req.userId!, scenario.modelId, (scenario.inputs ?? {}) as Record<string, unknown>,
-  );
-  const state = step === 1 ? steps!.step1 : steps!.step2;
-  if (!state.solved || state.jobId == null) { res.status(404).json({ error: "Not found" }); return; }
-
-  const [job] = await db.select({ result: solveJobsTable.result }).from(solveJobsTable)
-    .where(and(eq(solveJobsTable.id, state.jobId), eq(solveJobsTable.userId, req.userId!)));
-  if (!job?.result) { res.status(404).json({ error: "Not found" }); return; }
-
-  res.json({ result: presentResultForRead(job.result as Record<string, unknown>) });
+  res.json(toApiScenario(row));
 });
 
 router.patch("/scenarios/:scenarioId", async (req, res) => {
@@ -353,7 +304,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     if (!existing) { res.status(404).json({ error: "Not found" }); return; }
     if (isModelLocked(existing.modelId)) { respondLocked(res); return; }
 
-    const guardError = assertNoServerOwnedStepFields(existing.modelId, body.inputs);
+    const guardError = assertNoServerOwnedFields(existing.modelId, body.inputs);
     if (guardError) { res.status(422).json({ error: guardError }); return; }
 
     const outcome = await db.transaction(async (tx) => {
@@ -804,7 +755,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     });
 
     // C4.9 / D20/D24/D25 — the three unit-aware output exports carry the
-    // model's manifest distanceUnit (mile models "mi", Chen "km"); manifest is
+    // model's manifest distanceUnit (every model is "mi" as of CH4O-8, but it
+    // is read from the manifest, never assumed); manifest is
     // non-null here (the outputGrids gate above already returned on a missing
     // manifest). D29 — the effective facility id→city lookup (base dataset ∪
     // this scenario's added facilities) so a forced-open zero-flow facility
@@ -891,8 +843,15 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // TEMPLATE_VERSION onto OUTPUT_TEMPLATE_VERSION too (v1 -> v3, skipping
     // v2 — it never had one; buildFlowRows already stamps this on each row,
     // so the wrapper must match or the envelope self-contradicts).
+    // Task 11 (CH4O) — costSummary moved OFF OUTPUT_TEMPLATE_VERSION onto its
+    // own COST_SUMMARY_TEMPLATE_VERSION (buildCostSummaryRows now stamps
+    // rows with that constant, not OUTPUT_TEMPLATE_VERSION) — the wrapper
+    // must follow, same "wrapper == each row's templateVersion" rule the
+    // comment above already states, or the JSON envelope would declare v3
+    // while a CSV export of the identical data declares v4 per row.
     const wrapperVersion =
-      entity === "assignments" || entity === "costSummary" || entity === "serviceStats" || entity === "flows"
+      entity === "costSummary" ? COST_SUMMARY_TEMPLATE_VERSION
+      : entity === "assignments" || entity === "serviceStats" || entity === "flows"
         ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
     // T9 — `unit` is added to the envelope ONLY for the four v3 (unit-
     // bearing) entities; openWarehouses (v1, non-distance) gets no `unit`
@@ -1255,10 +1214,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
 
     if (entity === "distances") {
       // T9 — thread this model's real manifest-declared canonical unit.
-      // max-coverage-us is "km" — this is the exact bug both T7 and T8
-      // surfaced: this branch was calling applyDistanceOverrides with NO
-      // unit argument at all, silently defaulting to "mi" and mislabeling
-      // (and, pre-T9, never converting) a real km-canonical export.
+      // Historically max-coverage-us was "km" and this branch called
+      // applyDistanceOverrides with NO unit argument at all, silently
+      // defaulting to "mi" and mislabeling (pre-T9, never converting) a real
+      // km-canonical export — the exact bug T7 and T8 surfaced. CH4O-8 makes
+      // this model "mi" too, so the manifest read is no longer load-bearing
+      // for THIS model; it stays because threading the declared unit rather
+      // than a hardcoded default is the rule, not an accident of one model.
       const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
       const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
@@ -1967,15 +1929,21 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     nextInputs = revalidated.data;
   }
 
-  // CH4-26 — import/apply was the live hole: it wrote `inputs` and bumped
-  // solve_input_revision unconditionally but knew nothing about stepEpoch,
-  // and it never passes through the confirm-and-clear UI. Without the bump a
-  // student could import a new customer set and keep looking at results
-  // computed from the old one — the precise failure CH4-7 exists to prevent,
-  // arriving through the one door the freeze does not cover. The normalizer
-  // that used to run here directly (T1 / follow-up item 3) is now performed
-  // inside applyScenarioInputWrite, so every persist path stays consistent
-  // without a second, redundant call.
+  // CH4-26 — import/apply is an UPDATE-side `scenarios.inputs` writer, so it
+  // persists through `applyScenarioInputWrite` rather than composing its own
+  // `.set({ inputs, … })`. That routine owns everything this route used to do
+  // by hand: the ownership-scoped `SELECT … FOR UPDATE` (hard rule #5 — a row
+  // this user does not own comes back `not_found`, answered as 404, never
+  // 403), re-validation against the model's Zod schema, the added-entity
+  // distance normalizer, the derivation of server-owned inputs, and the
+  // epoch bump (`inputsUpdatedAt` + `solve_input_revision`, both DB-clock) so
+  // a student cannot import a new customer set and keep reading results
+  // computed from the old one. The bump is conditional in form — skipped when
+  // `distanceBands` is the only changed key — but unconditional in effect
+  // here, because distanceBands is never an imported entity.
+  // CH4O-P1 — this comment previously explained the route in terms of
+  // `stepEpoch` and "the precise failure CH4-7 exists to prevent"; the
+  // Chapter 4 overhaul deleted both branch-wide.
   const writeOutcome = await db.transaction(async (tx) =>
     applyScenarioInputWrite(tx, {
       scenarioId: id,
@@ -2014,11 +1982,9 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     name: `${scenario.name} (copy)`,
     userId: req.userId!,
     modelId: scenario.modelId,
-    // CH4-26 — a clone copies the student's parameters (Step 1 fields,
-    // step2, distanceBands) but NOT the workflow metadata. It has no jobs to
-    // invalidate, but carrying the source's epoch forward would make a fresh
-    // copy's epoch depend on its source's edit history.
-    inputs: initialInputsForInsert(scenario.modelId, scenario.inputs as Record<string, unknown>),
+    // CH4-26 — a clone copies the student's parameters but NOT any
+    // server-owned workflow metadata.
+    inputs: deriveServerOwnedInputs(scenario.modelId, scenario.inputs as Record<string, unknown>),
     result: null,
   }).returning();
 

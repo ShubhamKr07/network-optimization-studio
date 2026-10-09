@@ -155,17 +155,19 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
     // two-echelon/transport (DD-2), so the override arrays pass straight
     // through WITHOUT the p-median warehouseStatuses/excludedCustomerIds
     // reshaping below — the Python merge resolves status/exclusion/demand
-    // itself. avgServiceDistCapKm/coverageFloorDemand are objective-
-    // discriminated (present iff their mode — enforced by
-    // maxCoverageInputsSchema), so an absent one is JSON.stringify-dropped
-    // and solve_max_coverage only reads it in the mode where it exists.
+    // itself. CH4O-5 — avgServiceDistCapMi and coverageFloorDemand are now
+    // UNCONDITIONALLY required by maxCoverageInputsSchema (the cap binds in
+    // both objectives; the floor is the mode discriminator), so both are
+    // always present on validated inputs and are passed unconditionally.
+    // `objective` is still forwarded for traceability, but solve.py ignores
+    // it and re-derives the mode from the floor itself.
     return {
       modelType: "max_coverage_us",
       objective: i.objective,
       p: i.p,
-      highServiceDistKm: i.highServiceDistKm,
-      maxDistKm: i.maxDistKm,
-      avgServiceDistCapKm: i.avgServiceDistCapKm,
+      highServiceDistMi: i.highServiceDistMi,
+      maxDistMi: i.maxDistMi,
+      avgServiceDistCapMi: i.avgServiceDistCapMi,
       coverageFloorDemand: i.coverageFloorDemand,
       gap: i.gap,
       timeLimitSec: i.timeLimitSec,

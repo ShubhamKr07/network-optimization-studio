@@ -107,12 +107,6 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
-  // non-Chapter-4 test in this file never has `scenario.steps` set, so
-  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
-  // false here regardless of what it returns.
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
 }));
@@ -120,14 +114,12 @@ vi.mock("@workspace/api-client-react", () => ({
 import { Workspace } from "@/pages/Workspace";
 import { useGetScenario, useListScenarios, useGetDataset, useListModels, useGetSolveJob } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
-// CH4UX-4 — `ch4Scenario`/`maxCoverageInputs`/`Ch4Steps` are Task 1's shared
-// fixtures (already imported by Workspace.test.tsx from the same module, no
-// second copy). `renderCh4Workspace` itself is NOT lifted alongside them —
-// mirrors Workspace.test.tsx's own documented reason for keeping its copy
-// local: it closes over THIS file's own module mocks (mockUseListScenarios/
+// CH4UX-4 — `ch4Scenario`/`maxCoverageInputs` are shared fixtures (see
+// helpers/ch4.tsx). `renderCh4Workspace` itself is NOT lifted alongside
+// them: it closes over THIS file's own module mocks (mockUseListScenarios/
 // mockUseGetScenario/mockUseGetDataset/mockUseListModels/mockUseSearch),
 // which helpers/ch4.tsx has no access to.
-import { ch4Scenario, type Ch4Steps } from "./helpers/ch4";
+import { ch4Scenario } from "./helpers/ch4";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseListScenarios = vi.mocked(useListScenarios);
@@ -162,7 +154,7 @@ function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeI
     data: [
       {
         id: "max-coverage-us",
-        distanceUnit: "km",
+        distanceUnit: "mi",
         countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
         capabilities: {
           supportsP: true,
@@ -813,64 +805,36 @@ describe("Workspace — #8 solve timing survives the job-success-then-refetch-ap
   });
 });
 
-// ── CH4UX-4 — the Solve dialog follows the solve TARGET ─────────────────────
-// `stepState.targetStep` (`steps.step1.solved ? 2 : 1`) is what will RUN;
-// `selectedStep` is what the student is currently VIEWING. They diverge in
-// both directions (0 of 2 viewing Step 2; 1 of 2 viewing Step 1), and the
-// dialog must always follow the target, never the view.
-describe("CH4UX-4 — the Solve dialog renders the step that will RUN, not the step being viewed", () => {
-  function openDialogAt(steps: Ch4Steps, viewStep: 1 | 2) {
-    const view = renderCh4Workspace([ch4Scenario({ steps })]);
-    fireEvent.click(screen.getByTestId(`step-toggle-${viewStep}`));
-    fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
-    return view;
-  }
-
-  it("0 of 2, viewing Step 1 → dialog shows editable Step 1", () => {
-    openDialogAt({ step1: { solved: false }, step2: { solved: false } }, 1);
-    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-input-gap")).not.toBeDisabled();
-    expect(screen.queryByTestId("solve-dialog-step2-parameters")).toBeNull();
-  });
-
-  it("0 of 2, viewing Step 2 → dialog STILL shows Step 1 (Solve Step 1 is what will run)", () => {
-    openDialogAt({ step1: { solved: false }, step2: { solved: false } }, 2);
-    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Solve Step 1");
-    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-step2-parameters")).toBeNull();
-  });
-
-  it("1 of 2, viewing Step 2 → dialog shows the editable Step 2 panel", () => {
-    openDialogAt({ step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } }, 2);
-    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-step2-inherited")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-input-step2-gap")).not.toBeDisabled();
-    expect(screen.queryByTestId("solve-dialog-slider-p-value")).toBeNull();
-  });
-
-  it("1 of 2, viewing Step 1 → dialog STILL shows Step 2 (Solve Step 2 is what will run)", () => {
-    openDialogAt({ step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } }, 1);
-    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Solve Step 2");
-    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-slider-p-value")).toBeNull();
-  });
-
-  // CH4UX-6 — "no longer renders the CH4-17 read-only summary" is deleted,
-  // not re-pointed: the confirmation-only prop and the summary element it
-  // gated no longer exist in SolveDialog at all, so that assertion could
-  // never fail again. The positive half of the contract — Chapter 4's
-  // dialog renders the REAL parameter panel — is covered by the 0-of-2 and
-  // 1-of-2 cases above (`solve-dialog-slider-p-value` /
-  // `solve-dialog-step2-parameters` present).
-
+// ── CH4O-2 — the Solve dialog renders Chapter 4's real parameter panel ──────
+// CH4UX-4's own describe block ("renders the step that will RUN, not the
+// step being viewed") tested a `selectedStep` vs `stepState.targetStep`
+// distinction that no longer exists now that the two-step workflow is
+// deleted — those four cases are gone with it, along with the case that
+// actually pinned this block's title (it asserted the dialog no longer
+// renders the old read-only summary, and pointed at two now-deleted
+// sibling cases for the positive half of the contract). The two surviving
+// cases below were never about the step distinction (no duplicate DOM
+// id/testid; a non-Chapter-4 model keeps the built-in dialog controls), so
+// they were kept and rebuilt on a plain (stepless) max-coverage-us
+// scenario — but neither one, on its own, asserted that the dialog
+// actually renders Chapter 4's real (editable) parameter panel. The
+// duplicate-id test below now carries that assertion directly
+// (`solve-dialog-slider-p-value` present, `solve-dialog-input-gap` not
+// disabled), so the block's title is pinned again.
+describe("CH4O-2 — the Solve dialog renders Chapter 4's real parameter panel", () => {
   // Both namespaces, two assertions — see Task 2's note on why they are split.
   it("emits no duplicate DOM id or data-testid with the parameters tab open behind the dialog", () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
+    renderCh4Workspace([ch4Scenario()]);
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.getByTestId("optimization-parameters-tab")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+
+    // The actual pin on this block's title: the dialog embeds the REAL
+    // parameter panel (editable), not a frozen/read-only summary — present
+    // and enabled, not merely rendered.
+    expect(screen.getByTestId("solve-dialog-slider-p-value")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-gap")).not.toBeDisabled();
 
     // document, not container: the dialog renders through a Radix portal.
     const ids = Array.from(document.querySelectorAll<HTMLElement>("[id]"), el => el.id).filter(Boolean);

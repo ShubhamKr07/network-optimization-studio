@@ -31,24 +31,17 @@ const WORKSPACE = path.resolve(
  *   - `stepResultBack`/`stepResultForward` (replace the draft with an entry)
  *   - the discard path (restores `savedInputsRef`)
  *   - import-apply / reset responses (server-authored inputs)
- *   - ch4-2s-7 — `guardStep1Edit`'s own write: it is reached only through an
- *     already-guarded caller (`updateInputsField`, `updateChenServiceDistance`,
- *     `deleteAddedEntityAndOverrides`, `handlePMedianMapInputsChange`), which
- *     has already checked `isBrowsingHistoryNow` before calling it — a second
- *     check here would be dead code, not defence in depth.
- *   - ch4-2s-7 — `confirmStep1Edit`'s own write: reachable only when
- *     `pendingStep1Inputs` is set, which itself requires one of the same
- *     already-guarded callers to have run first.
  */
 const GUARDED_MUTATORS = [
   "updateInputsField",
   // CH4-17 — `setChenObjectiveMode` is removed (the free objective toggle
   // is gone); its own `setLocalInputs` call site no longer exists.
   "updateChenServiceDistance",
-  // ch4-2s-7 — CH4-6: Step 2's own gap/timeLimitSec editor. Never routed
-  // through `guardStep1Edit` (step2 is never a Step 1 field), but still a
-  // genuine user edit, so it keeps its own `isBrowsingHistoryNow` guard.
-  "updateStep2Field",
+  // CH4O-2 — `clearTransportCosts` is now a direct user-edit mutator (its
+  // own `if (isBrowsingHistoryNow) return;` guard is already its first
+  // statement, and always has been — it just wasn't listed here, so it
+  // added no tripwire coverage until now).
+  "clearTransportCosts",
   "deleteAddedEntityAndOverrides",
   "deleteAddedTransportEntityAndOverrides",
   "deleteAddedPlantAndOverrides",
@@ -87,12 +80,23 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
         "user edit (add it to GUARDED_MUTATORS and guard it) or as a non-edit " +
         "assignment (scenario switch / history step / discard / server response), " +
         "then update this count.",
-    // ch4-2s-7 — was 14. Net -1: `updateInputsField`/`updateChenServiceDistance`/
-    // `deleteAddedEntityAndOverrides`/`handlePMedianMapInputsChange` each lost
-    // their own direct `setLocalInputs` call (now routed through the shared
-    // `guardStep1Edit`, -4), and three call sites were added: `guardStep1Edit`'s
-    // own write, `confirmStep1Edit`'s write, and the new `updateStep2Field`
-    // mutator (+3).
-    ).toBe(13);
+    // CH4O-2 — was 13. `guardStep1Edit` (the shared Step-1-freeze
+    // interception point) is deleted: its own single `setLocalInputs` call
+    // is gone (-1), but its five former callers (`updateInputsField`,
+    // `clearTransportCosts`, `updateChenServiceDistance`,
+    // `deleteAddedEntityAndOverrides`, `handlePMedianMapInputsChange`) each
+    // now call `setLocalInputs` directly instead (+5). `confirmStep1Edit`'s
+    // write and `updateStep2Field`'s write are also gone (-1 each). Net +2.
+    //
+    // CH4O-P1 — was 15. `handleSolve`'s save-before-solve `onSuccess` now
+    // adopts the server's response row (+1), exactly as
+    // `saveWholeInputsAsync`'s `onSuccess` already did. Classified as a
+    // NON-EDIT assignment ("server response" in the list above), so it is
+    // deliberately NOT added to GUARDED_MUTATORS: `handleSolve` already
+    // refuses a historical position before ever reaching this mutation (its
+    // own `isBrowsingHistoryNow` check is in the four-layer guard at the top
+    // of the function), and guarding the response adoption itself would
+    // reintroduce the permanently-dirty bug this change fixes.
+    ).toBe(16);
   });
 });

@@ -284,8 +284,8 @@ describe("jobRunner", () => {
 
   // C4.10/D21 — a max-coverage-us solve emits details.objective ("coverage"/"min_distance")
   // and its manifest reports km, so the resultSummary carries objectiveMode +
-  // distanceUnit:"km".
-  it("carries objectiveMode from details.objective and the model's km distanceUnit (Chen)", async () => {
+  // distanceUnit:"mi" (CH4O-8 — Chapter 4 is miles-canonical like the rest).
+  it("carries objectiveMode from details.objective and the model's manifest distanceUnit (Chen)", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     const scenarioUpdateChain = makeChain([{}]);
@@ -312,8 +312,8 @@ describe("jobRunner", () => {
     const maxCoverageInput = {
       modelId: "max-coverage-us",
       inputs: {
-        objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 1000,
-        avgServiceDistCapKm: 800, gap: 0, timeLimitSec: 1,
+        p: 3, highServiceDistMi: 600, maxDistMi: 1000,
+        avgServiceDistCapMi: 800, coverageFloorDemand: 0, gap: 0, timeLimitSec: 1,
       },
     } as unknown as SolveInput;
     await enqueueSolveJob(1, "user-1", maxCoverageInput);
@@ -322,7 +322,7 @@ describe("jobRunner", () => {
     const summarySet = setValues(jobUpdateChain).find((s) => s.status === "succeeded")!;
     expect(summarySet.resultSummary).toEqual({
       status: "optimal", objective: 66.0, objectiveMode: "coverage",
-      weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
+      weightedAvgDistance: 250.5, distanceUnit: "mi", runTimeSec: 0.7,
     });
   });
 

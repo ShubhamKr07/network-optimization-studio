@@ -7,7 +7,6 @@
  */
 import type { ScenarioInputs } from './scenarioInputs';
 import type { ScenarioModelId } from './scenarioModelId';
-import type { ScenarioSteps } from './scenarioSteps';
 import type { SolveResult } from './solveResult';
 
 export interface Scenario {
@@ -25,6 +24,4 @@ export interface Scenario {
   stale: boolean;
   /** The solve_jobs id that produced this scenario's current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable. */
   readonly resultRunId: number | null;
-  /** Present only for max-coverage-us (Chapter 4). Derived from solve_jobs on every read; never stored. */
-  steps?: ScenarioSteps;
 }

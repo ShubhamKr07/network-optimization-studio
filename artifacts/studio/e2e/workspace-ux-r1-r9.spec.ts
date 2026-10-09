@@ -186,13 +186,17 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     // LATER bundle (SSC-T1, `docs/superpowers/specs/2026-09-18-nonjade-
     // servicestats-live-coverage-design.md`): post-solve band edits WITHOUT
     // re-solving now LIVE re-bucket the ServiceStats coverage bars (matching
-    // the Output Map's already-live band lens) for every distance-band model
-    // except max-coverage-us. Confirmed via ServiceStatsTab.tsx's own
-    // `presentationBands` prop comment and the dedicated
-    // nonjade-servicestats-live-coverage.spec.ts coverage — not a product
-    // bug, a real intentional feature this test predates. What R5 DID still
-    // establish and remains true: this is a pure client-side recompute, not
-    // a re-solve — tracked via zero `/solve` network calls below.
+    // the Output Map's already-live band lens) for every distance-band
+    // model. (CH4O-12/ch4-model-upgrade note: this comment used to say
+    // "except max-coverage-us" — that carve-out was removed by the
+    // chen-bands-units bundle's Task 14 Step C, confirmed via
+    // `Workspace.tsx`'s own `ServiceStatsTab` call-site comment and the
+    // dedicated positive check in `nonjade-servicestats-live-coverage.spec.ts`
+    // — Chen now recomputes live exactly like every sibling model.) Not a
+    // product bug, a real intentional feature this test predates. What R5
+    // DID still establish and remains true: this is a pure client-side
+    // recompute, not a re-solve — tracked via zero `/solve` network calls
+    // below.
     const solveCallsBeforeDraftEdit: string[] = [];
     page.on("request", req => {
       const url = req.url();

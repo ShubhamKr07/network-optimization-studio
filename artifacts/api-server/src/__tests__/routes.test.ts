@@ -8,11 +8,10 @@ const mockDb = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
-  // cmp-1 — maxCoverageSteps.ts's loadScenarioSteps/loadScenarioStepsBatch
-  // read solve_jobs via a raw db.execute (DISTINCT ON needs it; the query
-  // builder doesn't). Defaulted to zero rows below so a max-coverage-us row
-  // flowing through this mocked app (e.g. the unscoped-list test) resolves
-  // to "both steps unsolved" instead of throwing on an unmocked method.
+  // Some production code paths (e.g. jobRunner's claim-generation sequence)
+  // read via a raw db.execute rather than the query builder. Defaulted to
+  // zero rows below so any such path flowing through this mocked app
+  // resolves safely instead of throwing on an unmocked method.
   execute: vi.fn(),
   transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
@@ -83,6 +82,7 @@ import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
 import { MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+import { getManifest } from "../registry/modelRegistry.js";
 import { isModelLocked, lockedModelIds, setLockedModelsForTests } from "../middlewares/lockedModel.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -274,15 +274,15 @@ const jadeRow = {
 // this fixture proves the schema no longer treats a third boundary as a
 // stale value to overwrite back to [high, max].
 const maxCoverageInputs = {
-  objective: "coverage",
   p: 3,
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
-  avgServiceDistCapKm: 1000,
+  highServiceDistMi: 450,
+  maxDistMi: 3400,
+  avgServiceDistCapMi: 650,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 60,
   capacityMode: "none",
-  distanceBands: [600, 3000, 5000],
+  distanceBands: [450, 1800, 3400],
   warehouseOverrides: [],
   customerOverrides: [],
   addedWarehouses: [],
@@ -963,7 +963,7 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
 //
 // Fix round (review rejection): every assertion below reads the argument the
 // ROUTE handed to `chain.set`/`chain.values` (i.e. what
-// applyScenarioInputWrite/initialInputsForInsert actually computed), never
+// applyScenarioInputWrite/deriveServerOwnedInputs actually computed), never
 // the mocked RETURN value a test itself authored — asserting on the mocked
 // return would pass even if the production write path silently stripped the
 // field, since this suite controls that return value directly. The real
@@ -1043,7 +1043,7 @@ describe("ch9-tc — transportCosts write path (two-echelon-jade-us)", () => {
 
 // C4.7 (Chapter 4, max-coverage-us) — auto-estimate normalizer, sixth
 // writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
-// missing added-entity warehouse<->customer distances as RAW-km
+// missing added-entity warehouse<->customer distances as RAW-mile
 // `estimated: true` rows on all three persist paths (POST create, PATCH,
 // import/apply). The maxCoverageInputsSchema reparse on each of these paths no
 // longer overwrites `distanceBands` (T3, spec Part A supersedes D19) — the
@@ -1051,7 +1051,7 @@ describe("ch9-tc — transportCosts write path (two-echelon-jade-us)", () => {
 describe("C4.7 — auto-estimate distance normalizer (max-coverage-us)", () => {
   const newWarehouse = { id: "wh-new1", city: "Bristol", state: "VA", lat: 36.5951, lng: -82.1857, status: "active" };
 
-  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer, at raw km", async () => {
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer, at raw miles", async () => {
     const cookie = await loginAs(OWNER);
     const inputsWithAddedWarehouse = { ...maxCoverageInputs, addedWarehouses: [newWarehouse] };
     const chain = makeChain([{ ...maxCoverageRow, inputs: inputsWithAddedWarehouse }]);
@@ -1065,10 +1065,10 @@ describe("C4.7 — auto-estimate distance normalizer (max-coverage-us)", () => {
     const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
     expect(fromNew.length).toBe(MAX_COVERAGE_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
-    // All values are raw km (positive), never 0.
+    // All values are raw miles (positive), never 0.
     expect(fromNew.every((o) => o.distance > 0)).toBe(true);
     // T3 — bands are free: the supplied 3-boundary array is preserved verbatim.
-    expect(insertArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
+    expect(insertArgs.inputs.distanceBands).toEqual([450, 1800, 3400]);
   });
 
   it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
@@ -1086,7 +1086,7 @@ describe("C4.7 — auto-estimate distance normalizer (max-coverage-us)", () => {
     expect(fromNew.length).toBe(MAX_COVERAGE_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
     // T3 — bands are free: the supplied 3-boundary array is preserved verbatim.
-    expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
+    expect(setArgs.inputs.distanceBands).toEqual([450, 1800, 3400]);
   });
 
   it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
@@ -1131,7 +1131,7 @@ describe("C4.7 — auto-estimate distance normalizer (max-coverage-us)", () => {
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
     };
-    expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
+    expect(setArgs.inputs.distanceBands).toEqual([450, 1800, 3400]);
     // The staged override was applied (base<->base pair, so it is a real
     // override the estimator then leaves untouched).
     const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "ALN" && o.toId === "C1");
@@ -1170,7 +1170,7 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
     };
-    expect(insertArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistKm, withoutBands.maxDistKm]);
+    expect(insertArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistMi, withoutBands.maxDistMi]);
   });
 
   it("PATCH /scenarios/:id (whole-input) preserves a supplied band array verbatim", async () => {
@@ -1203,15 +1203,104 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
     };
-    expect(setArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistKm, withoutBands.maxDistKm]);
+    expect(setArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistMi, withoutBands.maxDistMi]);
   });
 
-  it("rejects maxDistKm <= highServiceDistKm at the route boundary", async () => {
+  it("rejects maxDistMi <= highServiceDistMi at the route boundary", async () => {
     const cookie = await loginAs(OWNER);
-    const invalid = { ...maxCoverageInputs, highServiceDistKm: 600, maxDistKm: 600 };
+    const invalid = { ...maxCoverageInputs, highServiceDistMi: 450, maxDistMi: 450 };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "Max Coverage Invalid", modelId: "max-coverage-us", inputs: invalid });
     expect(res.status).toBe(422);
+  });
+});
+
+// CH4O-5 — the derived objective reaches all three write paths. `objective` is
+// server-owned: the routes 422 a body that carries it, and every persist path
+// recomputes it from `coverageFloorDemand` (0 -> coverage, > 0 -> min_distance)
+// AFTER validation. Asserted on what the route actually hands the DB (the
+// insert/update args), since this file's `db` is mocked and the response body
+// is whatever the mocked chain was told to return.
+describe("CH4O-5 — the derived objective reaches all three write paths", () => {
+  function insertedInputs(chain: ReturnType<typeof makeChain>): Record<string, unknown> {
+    const args = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    return args.inputs;
+  }
+
+  it("persists a derived objective on CREATE without the client sending one", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 coverage", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, coverageFloorDemand: 0 } });
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("coverage");
+  });
+
+  it("persists a derived objective on CREATE for a positive floor", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 mindist", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("min_distance");
+  });
+
+  it("422s a CREATE that sends objective itself", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 forbidden", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, objective: "coverage" } });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/objective/);
+  });
+
+  it("422s a CREATE whose inputs omit coverageFloorDemand", async () => {
+    const cookie = await loginAs(OWNER);
+    const { coverageFloorDemand: _omit, ...withoutFloor } = maxCoverageInputs;
+    void _omit;
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 no floor", modelId: "max-coverage-us", inputs: withoutFloor });
+    expect(res.status).toBe(422);
+  });
+
+  it("persists a derived objective on CLONE", async () => {
+    const cookie = await loginAs(OWNER);
+    // The SOURCE row's own persisted floor is what the clone re-derives from.
+    mockDb.select.mockReturnValue(makeChain([
+      { ...maxCoverageRow, inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } },
+    ]));
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/13/clone").set("Cookie", cookie).send({});
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("min_distance");
+  });
+
+  it("re-derives on UPDATE when the floor changes", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));   // persisted floor 0
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
+      .send({ inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    expect(setArgs.inputs.objective).toBe("min_distance");
+    expect(setArgs.inputs.coverageFloorDemand).toBe(500);
+  });
+
+  it("422s a PATCH that sends objective itself", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
+      .send({ inputs: { ...maxCoverageInputs, objective: "min_distance" } });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/objective/);
   });
 });
 
@@ -2076,7 +2165,12 @@ describe("GET /api/scenarios/:id/export", () => {
   // C4.9 / D28 — output wrapper templateVersion: OUTPUT_TEMPLATE_VERSION for
   // the unit-aware exports, 1 for openWarehouses (+ distances, an input
   // entity). Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
-  it("uses OUTPUT_TEMPLATE_VERSION (3) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
+  // Task 11 (CH4O) — costSummary moved OFF OUTPUT_TEMPLATE_VERSION onto its
+  // own grid-local COST_SUMMARY_TEMPLATE_VERSION (4), since
+  // buildCostSummaryRows now stamps rows with that constant; the JSON
+  // wrapper follows so it never declares a version its own rows disagree
+  // with. serviceStats/openWarehouses are unaffected by this task.
+  it("uses COST_SUMMARY_TEMPLATE_VERSION (4) at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION (3) for serviceStats, v1 for openWarehouses", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
@@ -2087,7 +2181,7 @@ describe("GET /api/scenarios/:id/export", () => {
       }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
-    for (const [entity, expected] of [["costSummary", 3], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
+    for (const [entity, expected] of [["costSummary", 4], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
       mockDb.select.mockReturnValue(makeChain([solvedRow]));
       const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
       expect(res.status).toBe(200);
@@ -2095,8 +2189,9 @@ describe("GET /api/scenarios/:id/export", () => {
     }
   });
 
-  // C4.9 / D20/D24/D25 — max-coverage-us exports its own km unit + coverage objectiveMode.
-  it("exports max-coverage-us assignments/costSummary with distance_unit=km and objectiveMode from details", async () => {
+  // C4.9 / D20/D24/D25 — max-coverage-us exports its own manifest unit +
+  // coverage objectiveMode. CH4O-8 (§2.1): that unit is "mi" now.
+  it("exports max-coverage-us assignments/costSummary with distance_unit=mi and objectiveMode from details", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...maxCoverageRow,
@@ -2104,7 +2199,11 @@ describe("GET /api/scenarios/:id/export", () => {
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
-        details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
+        // Task 11 (CH4O) — highServiceDistMi/coveragePct/coveredDemand added
+        // to exercise the new cost-summary coverage columns end-to-end
+        // through the real route, not just templates.ts in isolation.
+        details: { objective: "coverage", highServiceDistMi: 450, coveragePct: 66.6667, coveredDemand: 131645389 },
+        solverUsed: "CBC", infeasibilityReason: null,
       }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
@@ -2112,17 +2211,28 @@ describe("GET /api/scenarios/:id/export", () => {
     const asg = await request(app).get("/api/scenarios/13/export?entity=assignments&format=csv").set("Cookie", cookie);
     expect(asg.status).toBe(200);
     expect(asg.text.split("\n")[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
-    expect(asg.text).toContain("3,cn-1,wh-15,250.5,km,0,100");
+    expect(asg.text).toContain("3,cn-1,wh-15,250.5,mi,0,100");
     expect(asg.text).not.toContain("distance_mi");
+
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const costCsv = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=csv").set("Cookie", cookie);
+    expect(costCsv.status).toBe(200);
+    expect(costCsv.text.split("\n")[0]).toBe(
+      "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used",
+    );
+    expect(costCsv.text).toContain("4,87.5,coverage,450,66.6667,131645389,250.5,mi");
 
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
     expect(cost.status).toBe(200);
     // T9 — `distanceUnit`/`templateVersion` live on the envelope only in
     // JSON (`unit`/`templateVersion`); the row itself never duplicates them.
-    expect(cost.body.templateVersion).toBe(3);
-    expect(cost.body.unit).toBe("km");
-    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage" });
+    // Task 11 (CH4O) — costSummary's wrapper is now COST_SUMMARY_TEMPLATE_VERSION (4).
+    expect(cost.body.templateVersion).toBe(4);
+    expect(cost.body.unit).toBe("mi");
+    expect(cost.body.rows[0]).toMatchObject({
+      objectiveMode: "coverage", highServiceDist: 450, coveragePct: 66.6667, coveredDemand: 131645389,
+    });
     expect(cost.body.rows[0]).not.toHaveProperty("distanceUnit");
     expect(cost.body.rows[0]).not.toHaveProperty("templateVersion");
   });
@@ -2313,23 +2423,27 @@ describe("GET /api/scenarios/:id/export — unit= (T9, spec Part E / decision 5b
     expect(withUnit.body).not.toHaveProperty("unit");
   });
 
-  it("omitted unit defaults to the model's own canonical unit (max-coverage-us: km)", async () => {
+  it("omitted unit defaults to the model's own canonical unit (max-coverage-us: mi)", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValueOnce(makeChain([maxCoverageRow]));
     const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.unit).toBe("km");
+    expect(res.body.unit).toBe("mi");
   });
 
-  it("unit=mi converts a max-coverage-us distanceOverride value from its canonical km", async () => {
+  // CH4O-8 (§2.1) — the cross-unit direction is inverted, because every model
+  // is "mi"-canonical now: the REQUESTED unit is what differs from canonical,
+  // not the model's. Same conversion machinery, exercised the only way it can
+  // still be exercised for this model.
+  it("unit=km converts a max-coverage-us distanceOverride value from its canonical mi", async () => {
     const cookie = await loginAs(OWNER);
     const row = { ...maxCoverageRow, inputs: { ...maxCoverageInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([row]));
-    const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json&unit=mi").set("Cookie", cookie);
+    const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json&unit=km").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.unit).toBe("mi");
-    // 100 km -> mi, rounded to 4dp (@workspace/units' roundForFile).
-    expect(res.body.rows[0].distance).toBe(62.1371);
+    expect(res.body.unit).toBe("km");
+    // 100 mi -> km = 160.9344, exact at roundForFile's 4 dp.
+    expect(res.body.rows[0].distance).toBe(160.9344);
   });
 });
 
@@ -3750,16 +3864,27 @@ describe("GET /api/solve-history", () => {
     });
   });
 
-  it("derives a failed max-coverage-us job's distanceUnit from the manifest (km), not the legacy 'mi' fallback", async () => {
+  // CH4O-8 (§2.1) — HONEST NOTE ON LOST COVERAGE. This test used to
+  // discriminate a real bug: solve-history derived distanceUnit from the model
+  // manifest rather than a hardcoded "mi", and max-coverage-us's "km" was the
+  // only input that could tell the two implementations apart. Every model is
+  // "mi" now, so NOTHING reachable from this route can distinguish "read the
+  // manifest" from "return the literal 'mi'". Rather than leave an assertion
+  // that cannot fail, the expectation is tied to the LIVE manifest value, so a
+  // future non-mi model restores the discriminating power automatically instead
+  // of needing someone to remember this test exists.
+  it("derives a failed max-coverage-us job's distanceUnit from the live manifest, not a hardcoded literal", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockClear();
     mockDb.selectDistinctOn.mockClear();
     configureSolveHistoryMocks([historyRowFailedMaxCoverage]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
+    const manifestUnit = getManifest("max-coverage-us")!.distanceUnit;
+    expect(manifestUnit).toBe("mi");   // pins the manifest side; not a tautology
     expect(res.body[0]).toMatchObject({
       status: "failed", objective: null, objectiveMode: null,
-      weightedAvgDistance: null, distanceUnit: "km", runTimeSec: null,
+      weightedAvgDistance: null, distanceUnit: manifestUnit, runTimeSec: null,
     });
   });
 

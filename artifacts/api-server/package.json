@@ -11,7 +11,8 @@
     "pretest": "node ./scripts/preflight-db-url.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "migrate-ch4-to-miles": "tsx ./src/migrations/ch4ToMiles.ts"
   },
   "dependencies": {
     "@sentry/node": "^10.74.0",

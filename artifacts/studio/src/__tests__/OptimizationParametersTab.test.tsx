@@ -14,11 +14,13 @@ const baseProps = {
 // chen-bands-units, T13 — every render in this file now goes through a
 // `UnitProvider` ancestor via RTL's `wrapper` OPTION (not a wrapping
 // element — a wrapping element is silently dropped by a later
-// `rerender(...)` call). A `UnitProvider` ancestor is harmless for every
-// pre-existing (legacy, `canonicalUnit`-omitting) test above — nothing in
-// this file's legacy path calls `useDisplayUnit()`, so wrapping
-// unconditionally costs nothing and lets every `render(...)` call in this
-// file (old and new) stay textually unchanged.
+// `rerender(...)` call). CH4O-7 review F4 — this is now LOAD-BEARING, not
+// free: `OptimizationParametersTab` calls `useDisplayUnit()` unconditionally
+// at the top of its body (Rules of Hooks), so every render in this file —
+// including every legacy, `canonicalUnit`-omitting test above — throws
+// without this wrapper. The `wrapper` option lets every `render(...)` call
+// in this file (old and new) stay textually unchanged, but it is required,
+// not merely harmless.
 function render(
   ui: Parameters<typeof rtlRender>[0],
   options?: Parameters<typeof rtlRender>[1],
@@ -53,7 +55,7 @@ describe("OptimizationParametersTab", () => {
     expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
   });
 
-  it("labels distance bands (km), never mi, for a Chen scenario (distanceUnit=km)", () => {
+  it("labels distance bands from the distanceUnit prop, never a hardcoded mi — driven by a synthetic km unit (CH4O-8: no real model is km-canonical any more, and passing mi would make this unable to fail)", () => {
     render(<OptimizationParametersTab {...baseProps} distanceUnit="km" onChange={vi.fn()} />);
     expect(screen.getByText("Distance bands (km)")).toBeInTheDocument();
     expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
@@ -209,11 +211,13 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
   });
 });
 
-// C4.12 — Chen's Cosmetics (max-coverage-us) coverage model: objective
-// mode toggle, the two service-distance thresholds, the mode-specific field,
-// pMax=25 (D27), and NO band editor (D13/D19). The whole block is gated on
-// `objective != null` (present only for Chen) — a sibling model passing none
-// of these renders none of it.
+// C4.12/CH4O-7 — Chen's Cosmetics (max-coverage-us) coverage model: the two
+// service-distance thresholds, the avg-cap (now unconditional), the editable
+// coverage-floor input, and NO band editor (D13/D19). The whole block is
+// gated on `highServiceDistMi != null` (present only for Chen) — a sibling
+// model passing none of these renders none of it. There is no `objective`
+// prop any more — `coverageFloorDemand: 0` is this fixture's equivalent of
+// the old "coverage" mode.
 const chenCoverageProps = {
   p: 3,
   pMax: 25,
@@ -221,31 +225,35 @@ const chenCoverageProps = {
   timeLimitSec: 120,
   distanceBands: [600, 5000],
   distanceUnit: "km",
-  objective: "coverage" as const,
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
-  avgServiceDistCapKm: 1000,
+  highServiceDistMi: 600,
+  maxDistMi: 5000,
+  avgServiceDistCapMi: 1000,
+  coverageFloorDemand: 0,
   showBandEditor: false,
   onChange: vi.fn(),
 };
 
-// CH4-17 — the only way to build a max-coverage-us render for this
-// describe block now; there is no longer an `onObjectiveModeChange` prop
-// or a `coverageFloorDemand` prop to vary a render by.
+// CH4-17/CH4O-7 — the only way to build a max-coverage-us render for this
+// describe block now; there is no `onObjectiveModeChange` prop, and
+// `coverageFloorDemand` is varied directly rather than through a toggle.
 function renderMaxCoverageTab(overrides: Partial<typeof chenCoverageProps> = {}) {
   return render(<OptimizationParametersTab {...chenCoverageProps} {...overrides} onChange={overrides.onChange ?? vi.fn()} />);
 }
 
 describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
-  it("no longer renders a free objective toggle for max-coverage-us (CH4-17)", () => {
+  // CH4O-7 — superseded (was "no longer renders a free objective toggle ...
+  // and NO input-coverage-floor"): the floor is editable again, now that the
+  // objective is derived from it rather than the reverse. The toggle itself
+  // (never built) stays absent.
+  it("no longer renders a free objective toggle for max-coverage-us, and the coverage floor IS editable", () => {
     renderMaxCoverageTab();
     expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toBeEnabled();
     // The section itself stays — it still renders the service-distance fields.
     expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
   });
 
-  it("does not render the objective section at all for other models (`objective` is undefined)", () => {
+  it("does not render the objective section at all for other models (`highServiceDistMi` is undefined)", () => {
     render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
     expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
   });
@@ -269,19 +277,19 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
     fireEvent.change(screen.getByTestId("input-max-dist"), { target: { value: "4000" } });
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("maxDistKm", 4000);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("maxDistMi", 4000);
     // The generic onChange never fired for the thresholds.
-    expect(onChange).not.toHaveBeenCalledWith("highServiceDistKm", expect.anything());
-    expect(onChange).not.toHaveBeenCalledWith("maxDistKm", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("highServiceDistMi", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("maxDistMi", expect.anything());
   });
 
-  it("editing the avg-service-cap calls the generic onChange('avgServiceDistCapKm', value)", () => {
+  it("editing the avg-service-cap calls the generic onChange('avgServiceDistCapMi', value)", () => {
     const onChange = vi.fn();
     render(<OptimizationParametersTab {...chenCoverageProps} onChange={onChange} />);
     fireEvent.change(screen.getByTestId("input-avg-service-cap"), { target: { value: "1200" } });
-    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 1200);
+    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapMi", 1200);
   });
 
   // D27 — the P slider caps at 25 (26 cannot be authored), and the 25
@@ -367,6 +375,11 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     window.localStorage.clear();
   });
 
+  // `canonicalUnit: "km"` paired with a `...Mi`-named field is deliberate,
+  // not a mismatch: no real model is km-canonical any more (CH4O-8), so this
+  // is a synthetic km fixture used purely to exercise the display-conversion
+  // path. Passing "mi" here would make the km->mi conversion an identity and
+  // leave the conversion assertions below unable to fail.
   const chenUnitProps = {
     p: 3,
     pMax: 25,
@@ -374,10 +387,10 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     timeLimitSec: 120,
     distanceBands: [600, 5000],
     canonicalUnit: "km" as const,
-    objective: "coverage" as const,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     showBandEditor: true,
     onChange: vi.fn(),
   };
@@ -404,28 +417,28 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "400" } });
     fireEvent.blur(input);
     // 400 mi -> km: 400 * 1.609344 = 643.7376.
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 643.7376);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 643.7376);
   });
 
-  // CH4-17 — there is no coverageFloorDemand prop/field any more: the
-  // objective toggle is gone, so a "min_distance" display (which only the
-  // server can produce, never a client write) renders NEITHER the
-  // avg-service-cap NOR a floor field — just p/gap/timeLimitSec unaffected.
-  it("p / gap / timeLimitSec are untouched by an objective=min_distance display (no floor field exists)", () => {
+  // CH4O-7 — superseded (was "... no floor field exists"): the floor and the
+  // avg-cap now BOTH render unconditionally, in either derived mode. This
+  // keeps the one assertion that's still this describe block's own concern —
+  // p/gap/timeLimitSec are untouched by a positive (min_distance-deriving)
+  // coverage floor.
+  it("p / gap / timeLimitSec are untouched by a positive (min_distance-deriving) coverage floor", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
     render(
       <OptimizationParametersTab
         {...chenUnitProps}
-        objective="min_distance"
-        avgServiceDistCapKm={undefined}
+        coverageFloorDemand={500}
         onChange={vi.fn()}
       />,
     );
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
     expect(screen.getByTestId("input-gap")).toHaveValue(0);
     expect(screen.getByTestId("input-time-limit")).toHaveValue(120);
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toBeEnabled();
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
   });
 
   it("a high-service edit retargets a band equal to the OLD high, then dedupes and re-sorts", () => {
@@ -443,7 +456,7 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledWith("distanceBands", [700, 1200, 2400, 5000]);
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
   });
 
   it("removing the high band first means a later high edit leaves bands untouched", () => {
@@ -462,7 +475,7 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);
     expect(onChange).not.toHaveBeenCalled();
-    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistMi", 700);
   });
 
   it("re-enables the free band chip editor for Chen (showBandEditor truthy) — add/remove works", () => {
@@ -490,104 +503,6 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
   });
 });
 
-// ch4-2s-7 — CH4-6: Step 2's own dedicated panel. `step`/`stepEditable`/
-// `step2Gap`/`step2TimeLimitSec`/`coverageFloorFromStep1` are all new; every
-// test above this point omits them and is unaffected (`(step ?? 1) === 1`
-// keeps the Step 1 view — including the P slider and the top gap/time-limit
-// block — exactly as it rendered before this task).
-describe("OptimizationParametersTab — Step 2 panel (ch4-2s-7, CH4-6)", () => {
-  const step1Props = {
-    ...chenCoverageProps,
-    step: 1 as const,
-  };
-
-  it("renders Step 1's view (P slider, chen-objective-section, top gap/time-limit) when step=1", () => {
-    render(<OptimizationParametersTab {...step1Props} onChange={vi.fn()} />);
-    expect(screen.getByTestId("slider-p-value")).toBeInTheDocument();
-    expect(screen.getByTestId("chen-objective-section")).toBeInTheDocument();
-    expect(screen.getByTestId("input-gap")).toBeInTheDocument();
-    expect(screen.getByTestId("input-time-limit")).toBeInTheDocument();
-    expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
-  });
-
-  it("renders ONLY the Step 2 panel when step=2 — Step 1's editable fields are hidden", () => {
-    render(
-      <OptimizationParametersTab
-        {...chenCoverageProps}
-        step={2}
-        coverageFloorFromStep1={53385024}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("step2-parameters")).toBeInTheDocument();
-    expect(screen.queryByTestId("slider-p-value")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("input-gap")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("input-time-limit")).not.toBeInTheDocument();
-  });
-
-  it("shows the inherited P/highServiceDistKm/maxDistKm as read-only display", () => {
-    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
-    const inherited = screen.getByTestId("step2-inherited");
-    expect(inherited).toHaveTextContent("3");
-    expect(inherited).toHaveTextContent("600");
-    expect(inherited).toHaveTextContent("5000");
-  });
-
-  it("shows a placeholder for the coverage floor until Step 1 has solved (coverageFloorFromStep1 null/undefined)", () => {
-    render(<OptimizationParametersTab {...chenCoverageProps} step={2} onChange={vi.fn()} />);
-    expect(screen.getByTestId("step2-floor-placeholder")).toBeInTheDocument();
-    expect(screen.queryByTestId("step2-floor-value")).not.toBeInTheDocument();
-  });
-
-  it("shows the locked floor value once Step 1 has solved", () => {
-    render(
-      <OptimizationParametersTab {...chenCoverageProps} step={2} coverageFloorFromStep1={53385024} onChange={vi.fn()} />,
-    );
-    expect(screen.getByTestId("step2-floor-value")).toHaveTextContent("53,385,024");
-    expect(screen.queryByTestId("step2-floor-placeholder")).not.toBeInTheDocument();
-  });
-
-  // R6 — `stepEditable` false at `0 of 2`: Step 2 is viewable but its own
-  // fields must not be editable yet.
-  it("disables Step 2's own gap/time-limit fields when stepEditable is false", () => {
-    render(
-      <OptimizationParametersTab
-        {...chenCoverageProps}
-        step={2}
-        stepEditable={false}
-        step2Gap={0}
-        step2TimeLimitSec={60}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("input-step2-gap")).toBeDisabled();
-    expect(screen.getByTestId("input-step2-time-limit")).toBeDisabled();
-  });
-
-  it("enables Step 2's own gap/time-limit fields when stepEditable is true, and writes step2Gap/step2TimeLimitSec", () => {
-    const onChange = vi.fn();
-    render(
-      <OptimizationParametersTab
-        {...chenCoverageProps}
-        step={2}
-        stepEditable
-        step2Gap={0}
-        step2TimeLimitSec={60}
-        onChange={onChange}
-      />,
-    );
-    const gapInput = screen.getByTestId("input-step2-gap");
-    const timeInput = screen.getByTestId("input-step2-time-limit");
-    expect(gapInput).toBeEnabled();
-    expect(timeInput).toBeEnabled();
-    fireEvent.change(gapInput, { target: { value: "0.02" } });
-    expect(onChange).toHaveBeenCalledWith("step2Gap", 0.02);
-    fireEvent.change(timeInput, { target: { value: "90" } });
-    expect(onChange).toHaveBeenCalledWith("step2TimeLimitSec", 90);
-  });
-});
-
 // CH4UX-2 — instance namespace so CH4UX-4's Solve dialog can embed a SECOND
 // copy of this component while the Optimization Parameters tab may still be
 // mounted behind it, with no DOM id or data-testid collision between them.
@@ -600,10 +515,10 @@ describe("CH4UX-2 — instance namespacing", () => {
     timeLimitSec: 120,
     distanceBands: [200, 400],
     canonicalUnit: "km" as const,
-    objective: "coverage" as const,
-    highServiceDistKm: 200,
-    maxDistKm: 400,
-    avgServiceDistCapKm: 300,
+    highServiceDistMi: 200,
+    maxDistMi: 400,
+    avgServiceDistCapMi: 300,
+    coverageFloorDemand: 0,
     onServiceDistanceChange: vi.fn(),
     onChange: vi.fn(),
     // whole-branch review, M2 — the merge (16021ec) namespaced Chapter 5's
@@ -641,24 +556,22 @@ describe("CH4UX-2 — instance namespacing", () => {
     expect(screen.queryByTestId("input-gap")).toBeNull();
   });
 
-  it("prefixes the Step 2 panel too", () => {
+  // CH4O-7 — supersedes the deleted "prefixes the Step 2 panel too" test:
+  // the coverage-floor input and the derived-model-line are this task's own
+  // new elements, and they go through the same `pid`/`tid` namespacing.
+  it("prefixes the coverage-floor input and the derived-model-line too", () => {
     render(
       <OptimizationParametersTab
         {...chenProps}
-        step={2}
-        stepEditable
-        step2Gap={1}
-        step2TimeLimitSec={60}
-        coverageFloorFromStep1={12345}
         idPrefix="solve-dialog-"
         testIdPrefix="solve-dialog-"
       />,
       { wrapper: UnitProvider },
     );
-    expect(screen.getByTestId("solve-dialog-step2-parameters")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-step2-inherited")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-step2-floor-value")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-input-step2-gap")).toHaveAttribute("id", "solve-dialog-input-step2-gap");
+    expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toHaveAttribute("id", "solve-dialog-input-coverage-floor");
+    expect(screen.getByTestId("solve-dialog-derived-model-line")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).toBeNull();
+    expect(screen.queryByTestId("derived-model-line")).toBeNull();
   });
 
   // Two SEPARATE assertions, deliberately: the requirement covers both
@@ -759,5 +672,120 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
     const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(thumb).toHaveAttribute("aria-valuemax", "33");
     for (const n of [2, 3, 4, 10, 25]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+  });
+});
+
+// CH4O-7 — the Optimization Parameters form rebuilt as ONE editable surface:
+// no `step`/`objective` concept any more, the avg-cap field unconditional in
+// both modes, and a new editable coverage-floor input plus a derived-model
+// line that reads the SAME `deriveMaxCoverageObjective` rule the server uses.
+// Same deliberate synthetic-km choice as chenUnitProps above: `canonicalUnit:
+// "km"` next to `...Mi`-named values is intentional, not a leftover mismatch
+// — it's what makes the display-conversion test below (~435 mi) able to
+// fail if the conversion ever broke. Passing "mi" would make it an identity.
+const ch4Props = {
+  p: 3, pMax: 26, gap: 0, timeLimitSec: 120,
+  distanceBands: [700, 1400, 2800, 5500],
+  highServiceDistMi: 700, maxDistMi: 5500, avgServiceDistCapMi: 1000,
+  coverageFloorDemand: 0,
+  canonicalUnit: "km" as const,
+  onChange: vi.fn(), onServiceDistanceChange: vi.fn(),
+};
+
+describe("OptimizationParametersTab — Chapter 4 single form", () => {
+  it("renders the avg service cap unconditionally, with no objective prop", () => {
+    render(<OptimizationParametersTab {...ch4Props} />);
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+  });
+
+  it("renders an editable coverage floor", () => {
+    render(<OptimizationParametersTab {...ch4Props} />);
+    const floor = screen.getByTestId("input-coverage-floor");
+    expect(floor).toBeEnabled();
+    fireEvent.change(floor, { target: { value: "500" } });
+    expect(ch4Props.onChange).toHaveBeenCalledWith("coverageFloorDemand", 500);
+  });
+
+  it("names Model 1 when the floor is zero", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} />);
+    expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 1/);
+  });
+
+  // CH4O-P1 (whole-branch review, Minor 4) — the cap clause used to be
+  // appended to the Model 1 string ONLY, but this branch made the
+  // average-distance cap an unconditional constraint in BOTH objectives
+  // (spec §2.4: "applies in BOTH modes now" — it is why the field renders
+  // unconditionally). A student who set a positive floor and a tight cap,
+  // solved, and got INFEASIBLE read a Model 2 line naming only the floor, with
+  // no on-screen statement of the constraint that actually caused it — while
+  // the Model 1 line they saw a minute earlier did name it. Both clauses are
+  // asserted in full, not just /Model 2/, so dropping either can't pass.
+  it("names Model 2 when the floor is positive, and states BOTH the floor and the avg-distance cap", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} />);
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).toHaveTextContent(/Model 2/);
+    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
+    expect(line).toHaveTextContent("holding average distance at or under 1,000 km");
+  });
+
+  // CH4O-P1 — the absent-cap handling the Model 1 branch already had (review
+  // F1) must hold for Model 2 too: OMIT the clause, never render a fabricated
+  // `?? 0`, which would be a false statement about the model being solved.
+  it("omits the cap clause from the Model 2 line when avgServiceDistCapMi is absent", () => {
+    const { avgServiceDistCapMi: _absent, ...propsWithoutCap } = ch4Props;
+    void _absent;
+    render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={500} />);
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).toHaveTextContent(/Model 2/);
+    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
+    expect(line).not.toHaveTextContent("at or under");
+    expect(line).not.toHaveTextContent("holding average distance");
+  });
+
+  // The line shows DISTANCES. It must CONVERT them for display, not print
+  // canonical values under a converted label -- the failure a naive
+  // unit-suffix implementation produces.
+  it("renders the line's distances in the DISPLAY unit, not the canonical one", () => {
+    // UnitProvider takes NO `initialPref` prop — it reads the persisted
+    // preference from localStorage on mount. This file already has a STORAGE_KEY
+    // constant and a `render` helper that passes `{ wrapper: UnitProvider }`;
+    // use them rather than inventing a prop.
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistMi={700} />);
+    const line = screen.getByTestId("derived-model-line");
+    // Tightened (review F2): both branch strings contain "maxi**mi**ze" /
+    // "**mi**nimize", so a bare /mi/ match passes no matter what -- it is
+    // non-vacuous only in combination with the `not.toHaveTextContent("700")`
+    // assertion below. Assert the actual converted-and-labelled value instead,
+    // so the inverse regression (correct numbers under a wrong/canonical-km
+    // label) can no longer slip through.
+    expect(line).toHaveTextContent("435 mi");   // 700 km converts to ~435 mi
+    expect(line).not.toHaveTextContent("700");   // 700 km displays as ~435 mi
+  });
+
+  // review F1 — `avgServiceDistCapMi!` used to be an unchecked non-null
+  // assertion on a prop gated by nothing: a legacy row with the cap absent
+  // threw a TypeError during render (km-canonical/km-display path) or printed
+  // a false "at or under NaN"/"at or under 0" (mi path / `?? 0` path). Must
+  // render cleanly and must not claim a cap that doesn't exist.
+  it("omits the cap clause (never throws, never claims a false cap) when avgServiceDistCapMi is absent", () => {
+    const { avgServiceDistCapMi, ...propsWithoutCap } = ch4Props;
+    expect(() =>
+      render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={0} />),
+    ).not.toThrow();
+    const line = screen.getByTestId("derived-model-line");
+    expect(line).not.toHaveTextContent("at or under");
+    expect(line).toHaveTextContent(/Model 1/);
+  });
+
+  it("renders no Chapter 4 block for a model without the thresholds", () => {
+    render(<OptimizationParametersTab p={3} gap={0} timeLimitSec={120} distanceBands={[200]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("chen-objective-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("derived-model-line")).not.toBeInTheDocument();
+  });
+
+  it("renders no step 2 panel", () => {
+    render(<OptimizationParametersTab {...ch4Props} />);
+    expect(screen.queryByTestId("step2-parameters")).not.toBeInTheDocument();
   });
 });

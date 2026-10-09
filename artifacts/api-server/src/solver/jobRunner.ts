@@ -5,7 +5,7 @@ import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import { and, asc, desc, eq, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace/db";
 import type { InsertSolveJob, SolveJob } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
@@ -29,12 +29,7 @@ import {
   type SolverSuccessEnvelopeV2,
   type TerminalOutcome,
 } from "./solverProcessMessage.js";
-import {
-  MAX_COVERAGE_MODEL_ID,
-  readStepEpoch,
-  synthesizeStep2Inputs,
-  deriveTargetStep,
-} from "../services/maxCoverageSteps.js";
+import { MAX_COVERAGE_MODEL_ID } from "../services/scenarioInputWrite.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -386,8 +381,28 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
     // serialises two concurrent enqueues but does not make the second refuse;
     // this check plus UQ_solve_jobs_active_per_scenario is what does.
     //
+    // This is the LAST SURVIVING PIECE of the Chapter 4 two-step workflow
+    // (CH4O-3 deleted the rest: Step 1-derives-Step-2 synthesis, the steps
+    // routes, services/maxCoverageSteps.ts). It is retained deliberately, not
+    // an oversight left behind by that deletion. The original motivation —
+    // Step 2's inputs were derived from a succeeded Step 1 job, so a
+    // concurrent second solve could race that derivation — no longer applies
+    // (there is no Step 2 derivation left to race). What forces this check to
+    // stay is now purely a schema fact, not a workflow one:
+    // `UQ_solve_jobs_active_per_scenario` (lib/db/src/schema/solve_jobs.ts)
+    // is a partial unique index scoped to `model_id = 'max-coverage-us' AND
+    // status IN ('queued','running')`. As long as that index exists, a
+    // second insert for an already-active max-coverage-us scenario WILL be
+    // rejected by Postgres one way or another; this check is what turns that
+    // rejection into a clean `{kind:"conflict", jobId}` (a 409) instead of an
+    // unhandled unique-violation surfacing as a 500. Removing this check
+    // without first dropping the index would reintroduce exactly that 500.
+    // Dropping the index itself is a separate, human-approved schema
+    // migration (this plan's "zero migrations" guarantee) — not something to
+    // decide here.
+    //
     // R1 — GATED ON THE MODEL. Running this for every model would change
-    // enqueue behaviour for the other five, which this plan's scope line
+    // enqueue behaviour for the other six, which this plan's scope line
     // forbids, and would break scenarioSolveAtomicity.test.ts (it enqueues a
     // second p-median-us job on the same scenario while the first is queued).
     if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {
@@ -412,40 +427,10 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
       return { kind: "precheck_failed", errors: precheck.errors } as const;
     }
 
-    // CH4-9 — the target step is derived INSIDE this lock, against the freshly
-    // locked row, so a concurrent edit cannot land between the decision and
-    // the enqueue. CH4-10 — Step 2's payload is synthesized here and is what
-    // gets persisted as input_snapshot; it is never written to the scenario.
-    let solveInputs: Record<string, unknown> = validation.data as Record<string, unknown>;
-    if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {
-      const epoch = readStepEpoch(scenario.inputs as Record<string, unknown>);
-      const [step1Job] = await tx.select({ result: solveJobsTable.result }).from(solveJobsTable)
-        .where(and(
-          eq(solveJobsTable.scenarioId, scenarioId),
-          eq(solveJobsTable.status, "succeeded"),
-          sql`${solveJobsTable.inputSnapshot} -> 'inputs' ->> 'objective' = 'coverage'`,
-          sql`COALESCE((${solveJobsTable.inputSnapshot} -> 'inputs' ->> 'stepEpoch')::int, 1) = ${epoch}`,
-        ))
-        .orderBy(desc(solveJobsTable.id))
-        .limit(1);
-
-      if (deriveTargetStep(Boolean(step1Job)) === 2) {
-        const details = (step1Job!.result as { details?: { coveredDemand?: number } } | null)?.details;
-        const coveredDemand = details?.coveredDemand;
-        if (typeof coveredDemand !== "number") {
-          // A succeeded Step 1 job always carries details.coveredDemand
-          // (solve.py emits `int(covered)`), so this is a defect, not a user
-          // outcome — refuse rather than solve against a fabricated floor.
-          return { kind: "invalid", error: "Step 1 result is missing coveredDemand" } as const;
-        }
-        const synthesized = synthesizeStep2Inputs(solveInputs, coveredDemand);
-        const step2Validation = validateInputsForModel(scenario.modelId, synthesized);
-        if (!step2Validation.success) {
-          return { kind: "invalid", error: step2Validation.error } as const;
-        }
-        solveInputs = step2Validation.data as Record<string, unknown>;
-      }
-    }
+    // The validated inputs ARE the solve inputs, for every model. The
+    // max-coverage Step 2 synthesis that used to sit here is gone with the
+    // two-step workflow.
+    const solveInputs: Record<string, unknown> = validation.data as Record<string, unknown>;
 
     const input = { modelId: scenario.modelId, inputs: solveInputs } as SolveInput;
     const values = buildSolveJobValues({
@@ -1412,7 +1397,8 @@ export async function markSucceeded(
   // each solve without re-deriving the model. objectiveMode is the solver's
   // details.objective when present (Chen emits "coverage"/"min_distance"; mile
   // models don't set it) else null; distanceUnit is the model manifest's unit
-  // (mile models "mi", Chen "km"). Replaces the removed mile-locked
+  // ("mi" for every model as of CH4O-8, Chapter 4 included; still read from
+  // the manifest, never assumed). Replaces the removed mile-locked
   // weightedAvgDistanceMi.
   const objectiveMode = typeof envelope.details.objective === "string" ? envelope.details.objective : null;
   const distanceUnit = getManifest(modelId)?.distanceUnit ?? "mi";

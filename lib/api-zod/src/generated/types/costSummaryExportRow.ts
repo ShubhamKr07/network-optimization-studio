@@ -7,13 +7,28 @@
  */
 
 /**
- * No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/ `terminationReason` are the evidence it's derived from; null on both for a legacy (pre-B2) result, where `quality` reads "Unverified".
+ * No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/ `terminationReason` are the evidence it's derived from; null on both for a legacy (pre-B2) result, where `quality` reads "Unverified". CH4O — `highServiceDist`/`coveragePct`/`coveredDemand` are the v4 additions and are CONDITIONAL, not required: only max-coverage-us puts the three source fields on `details`, so for the other six models they are emitted as null (JSON) / blank (CSV). They are deliberately absent from `required` so a non-Chapter-4 producer that omits the keys entirely still satisfies this contract.
  */
 export interface CostSummaryExportRow {
   /** @nullable */
   objective: number | null;
   /** @nullable */
   objectiveMode: string | null;
+  /**
+     * max-coverage-us only — the scenario's high-service distance threshold; a plain distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  highServiceDist?: number | null;
+  /**
+     * max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.
+     * @nullable
+     */
+  coveragePct?: number | null;
+  /**
+     * max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.
+     * @nullable
+     */
+  coveredDemand?: number | null;
   /** @nullable */
   weightedAvgDistance: number | null;
   /** @nullable */

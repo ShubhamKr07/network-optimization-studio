@@ -1402,38 +1402,46 @@ describe("buildActiveJadeIds — jade-T6", () => {
 // C4.8 — Chapter 4 (max-coverage-us) semantic precheck. Small fake dataset
 // (not the real 26/200-row package) so the coverage/min-distance thresholds
 // are testable in isolation — same design as every other model's precheck
-// fixtures. MIG-6: distances are RAW km and ARE the effective distance — no
+// fixtures. §2.1: distances are RAW MILES and ARE the effective distance — no
 // circuity factor anywhere. Chosen so the baseline is feasible and C-3 is
 // reachable by exactly one warehouse (WH-C), giving inactivate/override edits
 // a single clean lever.
 //   raw ≤ threshold (no multiplier):
-//     highServiceDistKm 500
-//     maxDistKm        1000
+//     highServiceDistMi 500
+//     maxDistMi        1000
 const MAX_COVERAGE_DATASET_FAKE: MaxCoveragePrecheckDataset = {
   warehouses: [{ id: "WH-A" }, { id: "WH-B" }, { id: "WH-C" }],
   customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
   supportsAddedCustomerExclusion: true,
   customerDemands: { "C-1": 100, "C-2": 200, "C-3": 300 },
-  baseDistanceKm: {
+  baseDistanceMi: {
     "WH-A|C-1": 100, "WH-A|C-2": 300, "WH-A|C-3": 1100,
     "WH-B|C-1": 200, "WH-B|C-2": 100, "WH-B|C-3": 1150,
     "WH-C|C-1": 800, "WH-C|C-2": 850, "WH-C|C-3": 300,
   },
 };
 
+// CH4O-5 — a ZERO floor is coverage mode (§2.3); the cap is required in both
+// modes (§2.4). `objective` is server-derived and deliberately absent here:
+// precheck must never read it.
+// CH4O-6 — avgServiceDistCapMi is deliberately slack (100_000, far above any
+// plausible nearest-active-warehouse weighted average against either
+// MAX_COVERAGE_DATASET_FAKE or the real dataset): the cap rule is a
+// necessary-condition check that ignores maxDistMi by design, so a tight
+// default here co-fires with any test that inactivates a warehouse or
+// overrides a distance past maxDistMi (both bounds can legitimately break
+// together) and obscures what that test is actually asserting. Tests that
+// want to exercise the cap itself override this field explicitly downward
+// (see the "infeasibility attribution" describe block below).
 const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
-  objective: "coverage",
   p: 2,
-  highServiceDistKm: 500,
-  maxDistKm: 1000,
-  avgServiceDistCapKm: 400,
+  highServiceDistMi: 500,
+  maxDistMi: 1000,
+  avgServiceDistCapMi: 100_000,
+  coverageFloorDemand: 0,
   gap: 0.01,
   timeLimitSec: 60,
   capacityMode: "none",
-  // ch4-2s-1 — stepEpoch is required in MaxCoverageInputs' OUTPUT type
-  // (z.default() makes it optional on input, required on output); a
-  // hand-built fixture typed against that output type needs it explicit.
-  stepEpoch: 1,
   distanceBands: [500, 1000],
   warehouseOverrides: [],
   customerOverrides: [],
@@ -1442,10 +1450,10 @@ const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   distanceOverrides: [],
 };
 
+// A POSITIVE floor is what makes this min-distance mode — the cap is carried
+// over from the base because it binds here too.
 const MAX_COVERAGE_BASE_MIN_DISTANCE: MaxCoverageInputs = {
   ...MAX_COVERAGE_BASE_COVERAGE,
-  objective: "min_distance",
-  avgServiceDistCapKm: undefined,
   coverageFloorDemand: 100,
 };
 
@@ -1483,13 +1491,13 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
 
   it("returns ok:true for a real max-coverage-us coverage scenario with no network edits (default dataset)", () => {
     // Uses the real MAX_COVERAGE_DATASET default: every one of the 200
-    // customers has a warehouse within maxDistKm (the coverage golden is
-    // feasible at maxDistKm 5000), so no_feasible_route never fires.
+    // customers has a warehouse within maxDistMi (the coverage golden is
+    // feasible at maxDistMi 5000), so no_feasible_route never fires.
     const inputs: MaxCoverageInputs = {
       ...MAX_COVERAGE_BASE_COVERAGE,
       p: 3,
-      highServiceDistKm: 600,
-      maxDistKm: 5000,
+      highServiceDistMi: 600,
+      maxDistMi: 5000,
       distanceBands: [600, 5000],
     };
     expect(precheckMaxCoverageInputs(inputs)).toEqual({ ok: true, errors: [] });
@@ -1523,8 +1531,8 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     });
   });
 
-  describe("no_feasible_route (maxDistKm, MIG-6: raw km, no circuity)", () => {
-    it("fires when an inactive-warehouse edit strands a customer beyond maxDistKm", () => {
+  describe("no_feasible_route (maxDistMi, §2.1: raw miles, no circuity)", () => {
+    it("fires when an inactive-warehouse edit strands a customer beyond maxDistMi", () => {
       // WH-C is C-3's ONLY reachable warehouse (WH-A 1100 > 1000, WH-B
       // 1150 > 1000). Inactivating it leaves C-3 unreachable.
       const inputs: MaxCoverageInputs = {
@@ -1537,7 +1545,7 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       expect(result.errors[0].message).toContain("C-3");
     });
 
-    it("fires when a distance override pushes a customer's only route past maxDistKm", () => {
+    it("fires when a distance override pushes a customer's only route past maxDistMi", () => {
       // 1100 > 1000. C-3's other base routes are already too far.
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
@@ -1546,10 +1554,10 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["no_feasible_route"]);
     });
 
-    it("compares raw km directly with no circuity multiplier: exactly at maxDistKm passes, one km over fails", () => {
+    it("compares raw miles directly with no circuity multiplier: exactly at maxDistMi passes, one mile over fails", () => {
       // MIG-6: precheck must mirror solve_max_coverage exactly — raw ≤
-      // threshold, nothing else. WH-C→C-3 at exactly maxDistKm (1000) is
-      // reachable; bumping it 1 km over makes it unreachable.
+      // threshold, nothing else. WH-C→C-3 at exactly maxDistMi (1000) is
+      // reachable; bumping it 0.01 mi over makes it unreachable.
       const atBoundary: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
         p: 1,
@@ -1566,9 +1574,9 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     });
   });
 
-  describe("coverage_floor_infeasible (min_distance only, highServiceDistKm, MIG-6: raw km, no circuity)", () => {
+  describe("coverage_floor_infeasible (positive floor only, highServiceDistMi, §2.1: raw miles, no circuity)", () => {
     it("fires when excluding a customer drops coverable demand below coverageFloorDemand", () => {
-      // Baseline coverable = 600 (all three within highServiceDistKm, raw).
+      // Baseline coverable = 600 (all three within highServiceDistMi, raw).
       // Floor 350 is fine at baseline; excluding C-3 (demand 300) drops
       // coverable to 300 < 350.
       const inputs: MaxCoverageInputs = {
@@ -1592,31 +1600,29 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
     });
 
-    it("does NOT fire in coverage mode (coverageFloorDemand absent)", () => {
+    it("does NOT fire on a ZERO floor (coverage mode) however small coverable demand gets", () => {
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
         customerOverrides: [{ id: "C-3", status: "excluded" }],
       };
-      // Excluding C-3 in coverage mode is fine — no coverage floor to violate,
-      // C-1/C-2 still have demand and routes.
+      // Excluding C-3 with a zero floor is fine — 0 can never exceed coverable
+      // demand, and C-1/C-2 still have demand and routes.
       expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
     });
 
-    it("does NOT fire in coverage mode even carrying a residual coverageFloorDemand that would exceed the coverable-demand upper bound", () => {
-      // D18/C4.8: coverage_floor_infeasible only applies in min_distance mode
-      // — coverage mode enforces the avg-distance cap instead, never the
-      // coverage floor. A coverage-mode scenario can carry a residual
-      // coverageFloorDemand (authorable via a direct API PATCH; the UI's
-      // clear-other-field prevents it normally) without being falsely
-      // 422-blocked against a constraint that never runs in this mode.
-      // Baseline coverable demand at highServiceDistKm 500 (raw) is
-      // 100+200+300=600 (all three customers coverable by some warehouse) —
-      // 999999 would exceed it by a wide margin if the check ran.
-      const inputs: MaxCoverageInputs = {
+    it("fires on a positive floor even when a STALE objective: coverage is carried alongside it", () => {
+      // CH4O-5 — the rule no longer gates on `objective`, because `objective`
+      // is DERIVED from this very field: gating on it would make the rule
+      // depend on its own output, and a persisted row written before the
+      // derivation landed can carry an `objective` that disagrees with its
+      // floor. Baseline coverable demand at highServiceDistMi 500 (raw) is
+      // 100+200+300=600, so 999999 exceeds it by a wide margin.
+      const inputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
+        objective: "coverage" as const,
         coverageFloorDemand: 999999,
-      };
-      expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+      } as MaxCoverageInputs;
+      expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
     });
   });
 
@@ -1670,6 +1676,45 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       };
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["reference_integrity"]);
     });
+  });
+});
+
+// CH4O-6 — avg_distance_cap_infeasible. These exercise
+// runNetworkEditsPrecheckForModel against the REAL default max-coverage-us
+// dataset (not MAX_COVERAGE_DATASET_FAKE) per the task-6 brief.
+describe("max-coverage-us — infeasibility attribution", () => {
+  it("names the cap when it is below the nearest-warehouse lower bound", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapMi: 1,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errors.map((e) => e.code)).toContain("avg_distance_cap_infeasible");
+  });
+
+  it("names the floor when it exceeds coverable demand", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100,
+    });
+    expect(res.errors.map((e) => e.code)).toContain("coverage_floor_infeasible");
+  });
+
+  // The regression guard for the contradiction review found: with the cap check
+  // in solve.py this was unreachable, because precheck short-circuits before
+  // Python runs, so a both-violating scenario was attributed to the floor alone.
+  it("names BOTH when both bounds are violated", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100, avgServiceDistCapMi: 1,
+    });
+    const codes = res.errors.map((e) => e.code);
+    expect(codes).toContain("coverage_floor_infeasible");
+    expect(codes).toContain("avg_distance_cap_infeasible");
+  });
+
+  it("passes a scenario that violates neither bound", () => {
+    const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
+      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 0, avgServiceDistCapMi: 1000,
+    });
+    expect(res.ok).toBe(true);
   });
 });
 

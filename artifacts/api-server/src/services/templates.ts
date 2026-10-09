@@ -52,6 +52,17 @@ export const DISTANCE_TEMPLATE_VERSION = 2;
 // non-distance entity and stays v1, unaffected by `unit=`.
 export const OUTPUT_TEMPLATE_VERSION = 3;
 
+// Task 11 (CH4O) — grid-local, following DISTANCE_TEMPLATE_VERSION's
+// precedent. The cost-summary grid gains three Chapter 4 coverage columns
+// (highServiceDist/coveragePct/coveredDemand — Task 10 moved these onto the
+// Solution Summary tab, but they reached no export until now).
+// OUTPUT_TEMPLATE_VERSION is read by EIGHT grids and must stay at 3, or
+// seven untouched exports (serviceStats, assignments, flows, both JADE
+// variants, ...) get a version bump they did not earn — exactly the false
+// signal a shared version constant is supposed to prevent. Only
+// buildCostSummaryRows/costSummaryRowsToCsv/toCostSummaryJsonRow read this.
+export const COST_SUMMARY_TEMPLATE_VERSION = 4;
+
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
 // Mines/stations have no open/close binary in the LP (no status field) — a
@@ -1026,7 +1037,7 @@ interface DistanceOverride { fromId: string; toId: string; distance: number; }
 // DISTANCE_TEMPLATE_VERSION (was the global TEMPLATE_VERSION). T9 threads
 // each model's real manifest-declared `canonicalUnit` through from
 // routes/scenarios.ts (was defaulting to "mi" for every caller, silently
-// mislabeling Chen's "km" export — see applyDistanceOverrides below, whose
+// mislabeling Chen's then-km export — see applyDistanceOverrides below, whose
 // own comment covers the value-conversion half of this fix).
 export interface DistanceTemplateRow {
   templateVersion: number;
@@ -1352,8 +1363,8 @@ export function buildLegDistanceStubRows(
 // ---------------------------------------------------------------------------
 
 // C4.9 / D24 — `distanceMi` renamed to `distance` + a self-describing
-// `distanceUnit` (from the model's manifest — every model passes its own unit;
-// Chen "km", the mile models "mi"). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
+// `distanceUnit` (from the model's manifest — every model passes its own unit,
+// "mi" for all seven as of CH4O-8). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
 // Chen-bands-units bundle — v3: `band` is now ALWAYS computed (never null),
 // recomputed server-side from the scenario's SAVED distanceBands lens via the
 // shared @workspace/units `assignBandOrOverflow` (a numeric index, `-1` =
@@ -1523,10 +1534,24 @@ export function openWarehouseRowsToCsv(rows: OpenWarehouseTemplateRow[]): string
 // a reader of the export can see the real evidence, and `quality` itself is
 // now derived truthfully (see truthfulQualityText below) rather than passed
 // through raw — a gap-limited export must never read "Optimal".
+// Task 11 (CH4O) — highServiceDist/coveragePct/coveredDemand: Chapter 4's
+// (max-coverage-us) three coverage metrics, gated on envelope SHAPE
+// (typeof details.field === "number"), never on modelId — same gate Task
+// 10's UI (CostSummaryTab.tsx) already uses, so the CSV/JSON export and the
+// tab can never disagree about which model has the data. Blank (null) for
+// every other model, since only Chapter 4's `details` carries these.
+// `highServiceDist` IS a distance (converts under `unit=`, like
+// weightedAvgDistance); `coveragePct`/`coveredDemand` are a percent and a
+// demand count respectively — neither has a distance dimension, so neither
+// converts (the rate-style conversion error this repo already has a gotcha
+// for).
 export interface CostSummaryTemplateRow {
   templateVersion: number;
   objective: number | null;
   objectiveMode: string | null;
+  highServiceDist: number | null;
+  coveragePct: number | null;
+  coveredDemand: number | null;
   weightedAvgDistance: number | null;
   distanceUnit: string;
   runTimeSec: number | null;
@@ -1593,10 +1618,22 @@ export function buildCostSummaryRows(
   // absent (undefined) or non-string for every other model → explicit null.
   const objectiveMode = typeof result.details.objective === "string" ? result.details.objective : null;
   const dim = objectiveDimension(modelId ?? "", objectiveMode);
+  // Task 11 (CH4O) — shape-gated, see CostSummaryTemplateRow's header
+  // comment. `result.details` is `Record<string, unknown>`, so each field
+  // needs its own typeof narrowing before it can be converted/returned.
+  const highServiceDistMi = typeof result.details.highServiceDistMi === "number" ? result.details.highServiceDistMi : null;
+  const coveragePct = typeof result.details.coveragePct === "number" ? result.details.coveragePct : null;
+  const coveredDemand = typeof result.details.coveredDemand === "number" ? result.details.coveredDemand : null;
   return [{
-    templateVersion: OUTPUT_TEMPLATE_VERSION,
+    templateVersion: COST_SUMMARY_TEMPLATE_VERSION,
     objective: result.objective == null ? null : roundForFile(convertObjective(result.objective, dim, canonicalUnit, requestedUnit)),
     objectiveMode,
+    highServiceDist: highServiceDistMi == null ? null : roundForFile(toDisplay(highServiceDistMi, canonicalUnit, requestedUnit)),
+    // Neither converts: a percent and a demand count have no distance
+    // dimension — running either through toDisplay would be the rate-style
+    // conversion error this repo already carries a gotcha for.
+    coveragePct,
+    coveredDemand,
     weightedAvgDistance:
       result.metrics.weightedAvgDistance == null ? null : roundForFile(toDisplay(result.metrics.weightedAvgDistance, canonicalUnit, requestedUnit)),
     distanceUnit: requestedUnit,
@@ -1608,10 +1645,13 @@ export function buildCostSummaryRows(
   }];
 }
 
+// Task 11 (CH4O) — high_service_dist/coverage_pct/covered_demand inserted
+// between objective_mode and weighted_avg_distance (per plan). Blank for
+// every non-Chapter-4 result (null -> "").
 export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
-  const header = "template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used";
+  const header = "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used";
   const lines = rows.map(r =>
-    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solutionStatus ?? ""), csvEscape(r.terminationReason ?? ""), csvEscape(r.solverUsed)].join(","),
+    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.highServiceDist ?? "", r.coveragePct ?? "", r.coveredDemand ?? "", r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solutionStatus ?? ""), csvEscape(r.terminationReason ?? ""), csvEscape(r.solverUsed)].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1626,9 +1666,20 @@ export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
 // its header comment) — the JSON export needs the same truthful-status
 // evidence the CSV export gained, not just a truthfully-derived `quality`
 // string with no way to see why.
+// Task 11 (CH4O) — gained highServiceDist/coveragePct/coveredDemand,
+// matching CostSummaryTemplateRow's own addition (see its header comment).
+// Not in this task's brief file list, but necessary: routes/scenarios.ts's
+// JSON export path (format=json) runs every costSummary row through THIS
+// projector, so leaving it unextended would silently drop the three new
+// columns from the JSON export while the CSV export carries them — the
+// exact "reaches no export" gap this task exists to close, just for JSON
+// instead of CSV.
 export interface CostSummaryJsonRow {
   objective: number | null;
   objectiveMode: string | null;
+  highServiceDist: number | null;
+  coveragePct: number | null;
+  coveredDemand: number | null;
   weightedAvgDistance: number | null;
   runTimeSec: number | null;
   quality: string;
@@ -1641,6 +1692,9 @@ export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJson
   return {
     objective: r.objective,
     objectiveMode: r.objectiveMode,
+    highServiceDist: r.highServiceDist,
+    coveragePct: r.coveragePct,
+    coveredDemand: r.coveredDemand,
     weightedAvgDistance: r.weightedAvgDistance,
     runTimeSec: r.runTimeSec,
     quality: r.quality,

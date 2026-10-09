@@ -942,7 +942,7 @@ def build_merged_max_coverage_dataset(
         customers: base dataset, `CUSTOMERS_MAX_COVERAGE`-shaped
             `{str_id: {..., "demand": int}}`. Never mutated.
         distance: base dataset, `DISTANCE_MAX_COVERAGE`-shaped
-            `{(whId, csId): km}` (RAW km -- MIG-6: these ARE the effective
+            `{(whId, csId): miles}` (RAW MILES -- §2.1: these ARE the effective
             distances, no circuity factor is applied). Never mutated.
 
     Returns a dict:

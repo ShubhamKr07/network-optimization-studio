@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objectiveDimension, objectiveConverts, convertObjective } from "../objective.js";
+import { objectiveDimension, objectiveConverts, convertObjective, deriveMaxCoverageObjective } from "../objective.js";
 
 describe("objectiveDimension — the seven-model contract", () => {
   const cases: Array<[string, string | null, string, boolean]> = [
@@ -30,5 +30,24 @@ describe("objectiveDimension — the seven-model contract", () => {
   it("non-converting dimensions pass through untouched", () => {
     expect(convertObjective(66.0639, "percent", "km", "mi")).toBe(66.0639);
     expect(convertObjective(12345, "monetary", "mi", "km")).toBe(12345);
+  });
+});
+
+describe("deriveMaxCoverageObjective", () => {
+  it("returns coverage for a zero floor", () => {
+    expect(deriveMaxCoverageObjective(0)).toBe("coverage");
+  });
+
+  it("returns min_distance for any positive floor", () => {
+    expect(deriveMaxCoverageObjective(1)).toBe("min_distance");
+    expect(deriveMaxCoverageObjective(53385024)).toBe("min_distance");
+  });
+
+  // The derived value must line up with objectiveDimension's own switch, which
+  // keys Chapter 4's unit semantics off this same string. Drift here renders a
+  // coverage percent as a demand-distance.
+  it("produces modes objectiveDimension already understands", () => {
+    expect(objectiveDimension("max-coverage-us", deriveMaxCoverageObjective(0))).toBe("percent");
+    expect(objectiveDimension("max-coverage-us", deriveMaxCoverageObjective(100))).toBe("demand-distance");
   });
 });

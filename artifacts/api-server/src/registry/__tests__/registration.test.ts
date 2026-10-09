@@ -141,8 +141,8 @@ const STUB_INPUTS: Record<string, unknown> = {
     addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
   "max-coverage-us": {
-    objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
-    avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+    p: 3, highServiceDistMi: 600, maxDistMi: 5000,
+    avgServiceDistCapMi: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
     warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
   "delivery-teaching-us": {

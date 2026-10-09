@@ -5,14 +5,14 @@
 // Two transforms, both deliberate:
 //  1. Re-key by entity id. p-median-us keys entities by ordinal ("1","2")
 //     with the real id inside the record; Chapter 4's loader keys by id.
-//  2. Convert miles to km. NO circuity factor is applied or removed --
-//     Chapter 3's matrix is pre-baked and its numbers are used as-is
-//     (MIG-6). solve_max_coverage does not multiply.
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+//  2. Re-key only. Chapter 4 is miles-canonical (§2.1 of the 2026-10-09 design):
+//     the matrix IS Chapter 3's integer-mile matrix, used as-is. NO unit
+//     conversion and no circuity factor -- stored == solved == displayed ==
+//     exported.
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import path from "path";
 import { createHash } from "crypto";
 
-const MI2KM = 1.609344;
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const SRC = path.join(ROOT, "solvers", "p-median-us", "dataset");
 const OUT = path.join(ROOT, "solvers", "max-coverage-us", "dataset");
@@ -32,7 +32,7 @@ for (const row of Object.values(srcC)) customers[row.id] = row;
 const distances: Record<string, number> = {};
 for (const [key, miles] of Object.entries(srcD)) {
   const [wOrd, cOrd] = key.split(",");
-  distances[`${srcW[wOrd].id},${srcC[cOrd].id}`] = miles * MI2KM;
+  distances[`${srcW[wOrd].id},${srcC[cOrd].id}`] = miles;
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -52,13 +52,28 @@ const hash = createHash("sha256");
 for (const name of Object.keys(files).sort()) {
   hash.update(readFileSync(path.join(OUT, name)));
 }
-writeFileSync(
-  path.join(OUT, "version.json"),
-  JSON.stringify({ version: 1, sha256: hash.digest("hex") }, null, 2) + "\n",
-);
+// CH4O-P1 (MINOR #5) -- `version` is a CACHE KEY, not a label: solver/
+// jobRunner.ts mixes `readVersion(modelId).version` (the integer, NOT the
+// sha) into computeInputsHash, and solver/recoveryContractIdentity.ts mixes
+// it into the recovery identity. Content that changes under an unchanged
+// version therefore serves every pre-existing scenario a stale cached result
+// -- model-integration-precheck.md's failure-table row 2 ("My fix did
+// nothing -- result cache keyed on dataset version") verbatim. Hardcoding
+// `version: 1` here made that the DEFAULT outcome of any dataset-only
+// regeneration. Derive it from the sha instead: identical bytes keep the
+// version (so a no-op re-run stays a no-op), changed bytes bump it, and
+// neither depends on anyone remembering.
+const sha256 = hash.digest("hex");
+const versionPath = path.join(OUT, "version.json");
+const prev = existsSync(versionPath)
+  ? (JSON.parse(readFileSync(versionPath, "utf8")) as { version: number; sha256: string })
+  : null;
+const version = prev == null ? 1 : prev.sha256 === sha256 ? prev.version : prev.version + 1;
+writeFileSync(versionPath, JSON.stringify({ version, sha256 }, null, 2) + "\n");
 
 console.log(
   `wrote ${Object.keys(warehouses).length} warehouses, ` +
   `${Object.keys(customers).length} customers, ` +
-  `${Object.keys(distances).length} distances`,
+  `${Object.keys(distances).length} distances ` +
+  `(dataset version ${version}${prev != null && prev.version !== version ? ` -- bumped from ${prev.version}, content changed` : ""})`,
 );

@@ -171,7 +171,7 @@ vi.mock("@workspace/api-client-react", () => ({
       // exercise their real capability gates.
       {
         id: "max-coverage-us",
-        distanceUnit: "km",
+        distanceUnit: "mi",
         countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
         capabilities: {
           supportsP: true,
@@ -219,18 +219,11 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
-  // ch4-2s-8 — default stub: undefined/not-loading/not-errored. Every
-  // non-Chapter-4 test in this file never has `scenario.steps` set, so
-  // `stepState.isMaxCoverage` is false and this hook's `enabled` is always
-  // false here regardless of what it returns.
-  useGetScenarioStepResult: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, isSuccess: false, refetch: vi.fn() })),
-  getGetScenarioStepResultQueryKey: vi.fn((scenarioId: number, step: number) => ["scenario-step-result", scenarioId, step]),
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
-import { ch4Scenario } from "./helpers/ch4";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListModels = vi.mocked(useListModels);
@@ -243,20 +236,20 @@ function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 }
 
-// CH4UX-1 — Chapter 4 needs a different modelId and a server-derived `steps`
-// projection, neither of which the existing parameterless renderWorkspace()
-// can express. A sibling helper, so no existing call site changes. Kept in
-// this file (not helpers/ch4.tsx) because it closes over this file's own
-// module mocks (mockUseListScenarios/mockUseGetScenario/mockUseSearch).
-function renderCh4Workspace(scenarios: ReturnType<typeof ch4Scenario>[], activeId = scenarios[0].id) {
-  mockUseListScenarios.mockReturnValue({ data: scenarios } as never);
-  mockUseGetScenario.mockReturnValue({
-    data: scenarios.find(s => s.id === activeId),
-    isLoading: false,
-    isError: false,
-  } as never);
-  mockUseSearch.mockReturnValue(`?scenario=${activeId}`);
-  return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+// CH4O-P1 — the faithful shape of a successful whole-input PATCH: the route
+// responds with the PERSISTED ROW, so `onSuccess` receives a Scenario whose
+// `inputs` is what the server stored. Both whole-input writers in Workspace
+// (`saveWholeInputsAsync` and `handleSolve`'s save-before-solve branch) now
+// adopt that response rather than the body they sent, so a mock that calls
+// `opts.onSuccess()` with NO argument is no longer a usable stand-in. Use this
+// wherever the test only needs the save to resolve; pass an explicit
+// implementation when the test is specifically about the server returning
+// something DIFFERENT from what was sent (see the max-coverage objective test).
+function updateScenarioResolvesWithPersistedRow() {
+  mockUpdateScenario.mutate.mockImplementation(
+    (vars: { data: { inputs: Record<string, unknown> } }, opts: { onSuccess: (updated: unknown) => void }) =>
+      opts.onSuccess({ ...scenario, inputs: { ...vars.data.inputs } }),
+  );
 }
 
 beforeEach(() => {
@@ -1454,7 +1447,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
   const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
   async function buildTwoEntryHistoryAtLatest() {
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -1681,9 +1674,7 @@ describe("Workspace — Solve dialog", () => {
   // must save a dirty localInputs draft first, and only enqueue the solve once
   // that save succeeds.
   it("clicking Solve with unsaved edits SAVES FIRST, then solves only after the save succeeds", () => {
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
-      opts.onSuccess();
-    });
+    updateScenarioResolvesWithPersistedRow();
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
@@ -1910,7 +1901,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
 
     // Save (used by the second, dirty-draft solve) and solve both resolve
     // synchronously via their mocked onSuccess callbacks.
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -1975,7 +1966,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
     const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -2031,7 +2022,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
     const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
 
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
     );
@@ -2606,15 +2597,17 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
 
 // C4.11 — defaultInputsForModel's max-coverage-us branch. This is
 // the concrete new-scenario default POSTed by handleCreateConfirm; it must
-// match maxCoverageInputsSchema's contract (coverage mode present, min-distance
-// field absent, high < max, distanceBands == [high, max], no capacity).
+// match maxCoverageInputsSchema's contract (BOTH mode fields present, high <
+// max, no capacity) and must NOT carry `objective` — CH4O-5 makes that field
+// server-derived and the write routes 422 a body that sends one, so shipping it
+// in the default would make every new Chapter 4 scenario un-creatable.
 describe("defaultInputsForModel — max-coverage-us", () => {
   const d = defaultInputsForModel("max-coverage-us");
 
-  it("uses coverage mode with avgServiceDistCapKm present and coverageFloorDemand absent", () => {
-    expect(d.objective).toBe("coverage");
-    expect(d.avgServiceDistCapKm).toBe(1000);
-    expect(d.coverageFloorDemand).toBeUndefined();
+  it("carries both unconditionally-required mode fields and NO client-sent objective", () => {
+    expect(d.avgServiceDistCapMi).toBe(650);
+    expect(d.coverageFloorDemand).toBe(0);
+    expect(Object.prototype.hasOwnProperty.call(d, "objective")).toBe(false);
   });
 
   it("locks gap:0 / timeLimitSec:120 like every other model's default", () => {
@@ -2622,20 +2615,25 @@ describe("defaultInputsForModel — max-coverage-us", () => {
     expect(d.timeLimitSec).toBe(120);
   });
 
-  // MIG-4 Task 4 Step 8/ch4-mig-4 — the exact locked default band array
-  // `[700, 1400, 2800, 5500]` (700 == the default highServiceDistKm; 5500 ==
-  // the default maxDistKm, above the new US dataset's longest
-  // warehouse->customer pair of 5,180.5 km). Both service-distance defaults
-  // below are asserted TOGETHER and pinned to their exact values so a future
-  // "tidy-up" cannot silently make them equal — doing so would tighten the
-  // default solve to a different open set and break
-  // e2e/chens-cosmetics.spec.ts.
+  // CH4O-8 (§2.1/§2.5) — the exact locked default band array
+  // `[450, 900, 1800, 3400]` in MILES (450 == the default highServiceDistMi;
+  // 3400 == the default maxDistMi, above the dataset's longest
+  // warehouse->customer pair of 3219 mi, so no customer is unassignable).
+  // These are round teaching numbers, NOT conversions of the old km seeds.
+  // Both service-distance defaults below are asserted TOGETHER and pinned to
+  // their exact values so a future "tidy-up" cannot silently make them equal —
+  // doing so would tighten the default solve to a different open set.
   it("has high < max thresholds (deliberately NOT coupled) and the locked default distanceBands array", () => {
-    expect(d.highServiceDistKm).toBe(700);
-    expect(d.maxDistKm).toBe(5500);
-    expect(d.avgServiceDistCapKm).toBe(1000);
-    expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
-    expect(d.distanceBands).toEqual([700, 1400, 2800, 5500]);
+    expect(d.highServiceDistMi).toBe(450);
+    expect(d.maxDistMi).toBe(3400);
+    expect(d.avgServiceDistCapMi).toBe(650);
+    expect((d.highServiceDistMi as number)).toBeLessThan(d.maxDistMi as number);
+    // The guard the comment above describes, asserted rather than only stated:
+    // high and the avg-distance cap must never be made equal.
+    expect(d.highServiceDistMi).not.toBe(d.avgServiceDistCapMi);
+    // And maxDistMi must clear the dataset's longest pair.
+    expect(d.maxDistMi as number).toBeGreaterThan(3219);
+    expect(d.distanceBands).toEqual([450, 900, 1800, 3400]);
   });
 
   it("has no capacity concept (capacityMode 'none') and p within the 1..26 max-coverage-us bound", () => {
@@ -2680,9 +2678,10 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
   const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -2714,17 +2713,19 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
   }
 
-  // CH4-17 — no toggle exists any more: `chen-objective-min_distance`/
-  // `chen-objective-coverage` are gone, and there is no client path that
-  // can write `coverageFloorDemand` or `objective: "min_distance"` into
-  // `localInputs`. The seeded scenario stays in coverage mode; the field
-  // that persists is exactly the field already there.
-  it("shows the avg-service-cap field only (no toggle, no floor field) and persists objective: coverage unchanged on save", () => {
+  // CH4-17 — no objective toggle exists any more. CH4O-5 — and the save
+  // payload must not carry the derived `objective` at all: the write route
+  // 422s a body containing it, while every persisted row (and therefore
+  // `localInputs`) does carry it, so `buildWholeInputPayload` strips it.
+  // CH4O-7 — superseded (was "... the avg-service-cap field only (no
+  // toggle)"): the coverage floor is editable again now, since the server
+  // derives `objective` FROM it rather than the reverse.
+  it("shows the avg-service-cap AND the editable coverage floor (no toggle) and strips the derived objective from the save payload", () => {
     renderChen();
     openParamsTab();
 
     expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
-    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toBeEnabled();
     expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chen-objective-min_distance")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chen-objective-coverage")).not.toBeInTheDocument();
@@ -2739,8 +2740,8 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1200 });
-    expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
+    expect(args.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200, coverageFloorDemand: 0 });
+    expect(args.data.inputs).not.toHaveProperty("objective");
   });
 
   // chen-bands-units — superseded (was "... resyncs distanceBands to
@@ -2771,7 +2772,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     // The changed threshold and the retargeted lens both land in the SAME
     // whole-input save (buildWholeInputPayload's last-write-wins merge).
-    expect(args.data.inputs.highServiceDistKm).toBe(700);
+    expect(args.data.inputs.highServiceDistMi).toBe(700);
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
@@ -2817,6 +2818,171 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.getByTestId("solve-dialog-button-remove-band-600")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-button-remove-band-5000")).toBeInTheDocument();
   });
+
+  // CH4O-2 review finding (Important 1) — positive coverage for the three
+  // things deleting the two-step machinery RESTORED. Without this, the
+  // suite would be equally green with `timing={undefined}` or the stepper's
+  // old `!stepState.isMaxCoverage &&` prefix still in place as a Chapter-4
+  // special case.
+  it("reads exactly 'Run Optimizer' with no step label (CH4O-2)", () => {
+    renderChen();
+    expect(screen.getByTestId("button-run-optimizer")).toHaveTextContent("Run Optimizer");
+  });
+
+  // CH4O-2 review finding (Important 1), second half — the result-history
+  // stepper used to be suppressed for max-coverage-us via
+  // `!stepState.isMaxCoverage && resultHistoryState.items.length > 0`;
+  // deleting that machinery means Chapter 4 now gets the same stepper every
+  // other model has always had. Follows the exact recipe the dirty-nav
+  // describe block above already uses for p-median-us
+  // (`buildTwoEntryHistoryAtLatest`) — a solve completing appends the first
+  // history entry, which is what makes the stepper's render condition
+  // (`resultHistoryState.items.length > 0`) true.
+  it("shows the result-history stepper once a solve completes (CH4O-2 — no longer excluded)", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 9 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 9, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderChen();
+
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    const solvedScenario = {
+      ...maxCoverageScenario,
+      result: {
+        status: "optimal" as const, objective: 42, runTimeSec: 0.2, quality: "Proven optimal",
+        edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+  });
+
+  // CH4O-5 review finding (Important 1) — `handleSaveAsScenario`'s CREATE
+  // body is the third of three `withoutServerOwnedInputs` call sites and had
+  // NO direct coverage: the two pre-existing `button-save-as-scenario` tests
+  // (Task 7, CH4UX-6 review) both use a p-median fixture, which never
+  // carries `objective` in the first place — so neither could ever fail if
+  // the strip at this call site regressed. `maxCoverageCoverageInputs` DOES
+  // carry `objective: "coverage"`, and it flows unchanged into the history
+  // entry's `inputs` (the solved scenario's own persisted inputs), so this
+  // genuinely exercises the strip rather than passing vacuously. If this
+  // regresses, Save-as-scenario 422s for the entire chapter.
+  it("strips the derived objective from the Save-as-scenario CREATE body (CH4O-5)", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 11 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 11, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderChen();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    const solvedScenario = {
+      ...maxCoverageScenario,
+      result: {
+        status: "optimal" as const, objective: 42, runTimeSec: 0.2, quality: "Proven optimal",
+        edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    const created = { ...solvedScenario, id: 99, name: "Chen coverage (saved run)", result: null };
+    mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
+      opts.onSuccess(created);
+    });
+
+    fireEvent.click(screen.getByTestId("button-save-as-scenario"));
+
+    expect(mockCreateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockCreateScenario.mutate.mock.calls[0];
+    expect(args.data.modelId).toBe("max-coverage-us");
+    // The fixture's own inputs carry `objective: "coverage"` (asserted here
+    // so a future fixture edit can't silently make this test vacuous), and
+    // the CREATE body must not.
+    expect(maxCoverageCoverageInputs).toHaveProperty("objective", "coverage");
+    expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapMi: 1000 });
+    expect(args.data.inputs).not.toHaveProperty("objective");
+  });
+
+  // CH4O-P1 (whole-branch review, Important 1) — `handleSolve`'s
+  // save-before-solve branch used to store the REQUEST payload as the
+  // last-saved snapshot. For max-coverage-us that payload has had `objective`
+  // stripped (`withoutServerOwnedInputs`) while `localInputs` still carries
+  // the server-derived value, so `isDirty` (a JSON.stringify comparison) went
+  // permanently true: the toolbar showed "Unsaved changes" with Save enabled
+  // for the rest of the session with nothing actually unsaved, and the
+  // dirty-nav prompt then blocked result-history browsing on a lie (choosing
+  // Discard there would have dropped `objective` out of the draft).
+  //
+  // The three pre-existing strip tests cannot catch this: they assert the
+  // PATCH/CREATE *body* and never drive `onSuccess` at all. This one drives
+  // `onSuccess` with a response shaped like the real row — the body without
+  // `objective`, the response WITH it, which is exactly the asymmetry that
+  // produced the bug — and asserts the user-visible dirty state, not the ref.
+  it("solving a dirty Chapter 4 draft leaves it CLEAN afterwards — the response row is adopted, not the stripped request body (CH4O-P1)", async () => {
+    mockUpdateScenario.mutate.mockImplementation(
+      (
+        vars: { data: { inputs: Record<string, unknown> } },
+        opts: { onSuccess: (updated: unknown) => void },
+      ) =>
+        // The server derives and persists `objective` FROM the coverage
+        // floor, so the row it responds with carries a key the body could not
+        // legally contain. Faithfully asymmetric on purpose.
+        opts.onSuccess({
+          ...maxCoverageScenario,
+          inputs: { ...vars.data.inputs, objective: "coverage" },
+        }),
+    );
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 12 }),
+    );
+    renderChen();
+    openParamsTab();
+
+    const avgCap = screen.getByTestId("input-avg-service-cap");
+    fireEvent.change(avgCap, { target: { value: "1200" } });
+    fireEvent.blur(avgCap);
+    // Precondition — the draft really is dirty before the solve, so the
+    // post-solve assertion below is about the fix and not about an edit that
+    // never landed.
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    // The save-before-solve branch ran, stripped the body, and the solve was
+    // enqueued only after it resolved (the pre-existing contract).
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [solveSaveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(solveSaveArgs.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200 });
+    expect(solveSaveArgs.data.inputs).not.toHaveProperty("objective");
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+
+    // The fix itself: nothing is unsaved, so the toolbar must not say so and
+    // Save must be disabled.
+    await waitFor(() => {
+      expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
 });
 
 // ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and
@@ -2859,9 +3025,10 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -2898,24 +3065,16 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   // one global `button-save` is present. Both of those stayed TRUE after
   // COSM-2 relocated Chen's Save into the shared toolbar row, so it would
   // have gone false-green with its name and comments lying. It now asserts
-  // WHERE the Save is by containment: present, NOT inside the Layers row, and
-  // in the same row as the step toggle. `showInlineSave={false}` (passed only
-  // for max-coverage-us) is what suppresses the Layers-row copy, and
-  // `saveInLayersRow` no longer lists this model so the shared row renders.
+  // WHERE the Save is by containment: present, and NOT inside the Layers
+  // row. `showInlineSave={false}` (passed only for max-coverage-us) is what
+  // suppresses the Layers-row copy, and `saveInLayersRow` no longer lists
+  // this model so the shared row renders.
+  //
+  // CH4O-2 — the step toggle this test used to also assert containment of
+  // is deleted along with the rest of the two-step workflow; the shared
+  // toolbar row now renders solely for `showToolbarSave`.
   it("input-map gate: renders the pmedian-mode Input Map with its Save in the shared toolbar row, NOT the Layers row, for a Chen scenario", () => {
-    // The step toggle needs a server-derived `steps` projection, which this
-    // block's base fixture deliberately lacks (every other gate here is
-    // step-agnostic) — add it locally rather than changing the shared fixture.
-    const withSteps = {
-      ...maxCoverageScenario,
-      steps: {
-        step1: { solved: true, stale: false, jobId: 1, summary: null },
-        step2: { solved: false, stale: false, jobId: null, summary: null },
-      },
-    };
-    mockUseGetScenario.mockReturnValue({ data: withSteps } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [withSteps] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    renderChen();
 
     // Input Map is one-shot seeded active on mount (didSeedTabRef).
     expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
@@ -2928,7 +3087,6 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
     const toolbarRow = screen.getByTestId("workspace-toolbar-row");
     expect(toolbarRow).toContainElement(save);
-    expect(toolbarRow).toContainElement(screen.getByTestId("step-toggle"));
   });
 
   // GATE: isEditableInputTab (warehouses branch) + the Warehouses render branch.
@@ -2952,7 +3110,7 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   });
 
   // GATE: isEditableInputTab (distances branch) + the DistancesTab render
-  // branch. Chen's manifest declares supportsReferenceDistances (raw-km base
+  // branch. Chen's manifest declares supportsReferenceDistances (raw-mile base
   // matrix, C4.4), so the reference section renders (proves referenceCapable is
   // wired, not just that the tab shows).
   it("distances gate: renders DistancesTab with the base-reference section (supportsReferenceDistances) + Save toolbar for a Chen scenario", () => {
@@ -3010,11 +3168,12 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
 });
 
 // SSC-T1 — non-JADE ServiceStats live coverage: Workspace now wires the live
-// `presentationBands` lens (= distanceBandsFromInputs(localInputs), the same
-// value already fed to the Output Map) into ServiceStatsTab for EVERY
-// distance-band model, not just JADE — EXCEPT max-coverage-us, whose
-// "coverage" is a distinct min-distance concept that stays frozen on
-// result.metrics.bandCoverage. Verified end-to-end through the real
+// `presentationBands` lens (= the dedicated band lens, the same value already
+// fed to the Output Map) into ServiceStatsTab for EVERY distance-band model,
+// not just JADE. CH4O-P1 — "EXCEPT max-coverage-us … stays frozen" used to
+// stand here and is wrong: chen-bands-units (Part A/D, decision 1d) removed
+// that carve-out, the call site passes `presentationBands` unconditionally,
+// and the second test below asserts Chen's LIVE recompute. Verified end-to-end through the real
 // Workspace render (not just ServiceStatsTab's own component-level tests),
 // proving the wiring at the actual call site, not just the component's
 // internal gate.
@@ -3063,16 +3222,20 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   const maxCoverageCoverageInputsForBands = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
-    // Deliberately different from the frozen result's own bandCoverage
-    // boundary below — if Workspace mistakenly wired presentationBands for
-    // max-coverage-us, this value would drive a live recompute and this test
-    // would catch it.
+    // CH4O-P1 — deliberately different from the frozen result's own
+    // bandCoverage boundary below (600/66%) so the test it feeds is
+    // discriminating: Chen's bars ARE live, so this value is what must drive
+    // the rendered bars. If a future change re-froze them on
+    // result.metrics.bandCoverage, 600/66% would render instead and the test
+    // below would catch it. (The earlier comment here claimed the reverse —
+    // that a live recompute was the failure mode.)
     distanceBands: [111],
     warehouseOverrides: [],
     customerOverrides: [],
@@ -3125,18 +3288,21 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   });
 });
 
-// CH4-17 — no client path can author `coverageFloorDemand` or
-// `objective: "min_distance"` any more; the write-route guard (Task 3) 422s
-// either key present in a PATCH body. This is the save-path regression test
-// for that removal, self-contained (own fixture + helper) rather than
-// reaching into the "Chen inputs UI" describe block's locals above.
-describe("CH4-17 — no client-side floor authoring survives", () => {
+// CH4O-5 — the guard INVERTED: `coverageFloorDemand` is now student-authored
+// and must round-trip, while `objective` is server-derived and the write route
+// 422s any body containing it. Every persisted row carries the derived
+// `objective`, and `localInputs` is seeded straight from that row, so the save
+// path has to strip it — without that, the first save of ANY Chapter 4
+// scenario fails. Self-contained (own fixture + helper) rather than reaching
+// into the "Chen inputs UI" describe block's locals above.
+describe("CH4O-5 — the derived objective never leaves the client", () => {
   const coverageInputs = {
     objective: "coverage",
     p: 3,
-    highServiceDistKm: 600,
-    maxDistKm: 5000,
-    avgServiceDistCapKm: 1000,
+    highServiceDistMi: 600,
+    maxDistMi: 5000,
+    avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -3179,156 +3345,20 @@ describe("CH4-17 — no client-side floor authoring survives", () => {
     return args.data as { inputs: Record<string, unknown> };
   }
 
-  it("never sends coverageFloorDemand or objective min_distance in a PATCH", async () => {
+  it("strips the derived objective from a PATCH while round-tripping the floor", async () => {
     const patched = await saveMaxCoverageScenarioAndCaptureBody();
-    expect("coverageFloorDemand" in patched.inputs).toBe(false);
-    expect(patched.inputs.objective).toBe("coverage");
+    expect("objective" in patched.inputs).toBe(false);
+    expect(patched.inputs.coverageFloorDemand).toBe(0);
   });
 });
 
-describe("CH4UX-1 — Chapter 4 outputs are locked until Step 1 solves", () => {
-  it("disables every sidebar Output row when Step 1 is unsolved", () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: false }, step2: { solved: false } } })]);
-    const outputMap = screen.getByTestId("sidebar-output-output-map");
-    expect(outputMap).toBeDisabled();
-    expect(outputMap).toHaveAttribute("aria-disabled", "true");
-  });
-
-  it("enables the sidebar Output rows once Step 1 has solved, even with Step 2 unsolved", () => {
-    renderCh4Workspace([
-      ch4Scenario({
-        steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-      }),
-    ]);
-    expect(screen.getByTestId("sidebar-output-output-map")).not.toBeDisabled();
-  });
-
-  it("leaves a non-Chapter-4 model gated by hasFreshSolvedRun alone", () => {
-    renderWorkspace();
-    expect(screen.getByTestId("sidebar-output-output-map")).toBeDisabled();
-  });
-
-  // CH4UX-1 — reproduce the ACTUAL defect, not a proxy for it. An output tab
-  // must already be open, because the user-visible symptom is that tab naming
-  // the wrong unmet prerequisite. Asserting only the header toggle would pass
-  // against a fix that left the gate copy wrong.
-  it("switching to a 0-of-2 scenario with an output tab open re-targets the view to Step 1", () => {
-    const a = ch4Scenario({
-      id: 1,
-      name: "A",
-      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-    });
-    const b = ch4Scenario({ id: 2, name: "B", steps: { step1: { solved: false }, step2: { solved: false } } });
-
-    const view = renderCh4Workspace([a, b], 1);
-
-    // Scenario A is 1-of-2, so its outputs are unlocked. Open one, and view Step 2.
-    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
-    fireEvent.click(screen.getByTestId("step-toggle-2"));
-    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "true");
-
-    // Switch to the 0-of-2 scenario. Re-point the query mocks the way a real
-    // scenario switch would, then let the component re-render.
-    mockUseGetScenario.mockReturnValue({ data: b, isLoading: false, isError: false } as never);
-    fireEvent.click(screen.getByTestId("sidebar-scenario-2"));
-    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // The header toggle snapped back...
-    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
-    // ...and the still-open output tab now names the RIGHT prerequisite.
-    expect(screen.getByTestId("tab-content-region")).toHaveTextContent("Solve Step 1");
-  });
-
-  // CH4UX-8 — the case CH4UX-1's warm A→B test could not reach. The scenario
-  // queries resolve ASYNCHRONOUSLY, so a cold mount (page reload) renders once
-  // with no scenario at all and only then gets one. That first resolution is
-  // not a scenario switch, and must not re-point the view: reloading a 1-of-2
-  // scenario has to keep showing Step 1's result, not snap to "Solve Step 2".
-  //
-  // Sequence-faithful on purpose — `render()` with the queries unresolved,
-  // THEN re-point the mocks and `rerender()`. Rendering the resolved state
-  // directly would seed the ref from real data in the same render that reads
-  // it, which is exactly the ordering the real app does NOT have, and is why
-  // the defect survived a green unit gate.
-  it("resolving the initial scenario on a cold mount does not re-point the view off Step 1", () => {
-    const solvedStep1 = ch4Scenario({
-      id: 5,
-      name: "Chen reload",
-      steps: { step1: { solved: true, summary: { coveredDemand: 1000 } }, step2: { solved: false } },
-    });
-
-    // First render: the URL already names the scenario, but neither query has
-    // resolved — precisely a browser reload's first paint.
-    mockUseSearch.mockReturnValue("?scenario=5");
-    mockUseListScenarios.mockReturnValue({ data: undefined } as never);
-    mockUseGetScenario.mockReturnValue({ data: undefined, isLoading: true, isError: false } as never);
-    const view = render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // The queries resolve.
-    mockUseListScenarios.mockReturnValue({ data: [solvedStep1] } as never);
-    mockUseGetScenario.mockReturnValue({ data: solvedStep1, isLoading: false, isError: false } as never);
-    view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-
-    // `targetStep` here is 2 (Step 1 is solved), so a guard that mistakes
-    // first resolution for a switch lands on Step 2.
-    expect(screen.getByTestId("step-toggle-1")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("step-toggle-2")).toHaveAttribute("aria-pressed", "false");
-
-    // And the user-visible symptom: opening an output tab must not greet a
-    // just-reloaded, already-solved scenario with Step 2's unmet prerequisite.
-    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
-    expect(screen.getByTestId("tab-content-region")).not.toHaveTextContent("Solve Step 2");
-  });
-});
-
-// ── COSM-2 — the step toggle lives in the light toolbar row ──────────────────
-// The toggle used to mount in the dark page header. It now mounts in the
-// shared toolbar row (`workspace-toolbar-row`) beside Save, and that row is
-// forced to render on EVERY Chapter 4 view so the toggle is never missing.
-// Chapter 4's Input Map Save moved out of InputMapTab's own Layers row into
-// that same shared row; p-median-us/p-median-brazil keep their Layers-row
-// Save untouched, which is what the third case below pins down.
-describe("COSM-2 — Chapter 4's step toggle renders in the toolbar row", () => {
-  it("shows the Chapter 4 step toggle on an output view, where Save does not render", async () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
-    const user = userEvent.setup();
-
-    await user.click(await screen.findByTestId("sidebar-output-output-map"));
-
-    expect(screen.getByTestId("step-toggle")).toBeInTheDocument();
-    expect(screen.getByTestId("text-steps-solved-counter")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
-    // The toggle is in the toolbar row, not the header — an output view has no
-    // editable input, so the row exists ONLY because of the max-coverage arm.
-    expect(screen.getByTestId("workspace-toolbar-row")).toContainElement(screen.getByTestId("step-toggle"));
-  });
-
-  it("shows the Chapter 4 step toggle beside Save on the Input Map view", async () => {
-    renderCh4Workspace([ch4Scenario({ steps: { step1: { solved: true }, step2: { solved: false } } })]);
-
-    // Input Map is the seeded initial view; Save moves out of the Layers row
-    // and into the shared toolbar for this model only.
-    expect(await screen.findByTestId("step-toggle")).toBeInTheDocument();
-    expect(screen.getByTestId("button-save")).toBeInTheDocument();
-    const row = screen.getByTestId("workspace-toolbar-row");
-    expect(row).toContainElement(screen.getByTestId("step-toggle"));
-    expect(row).toContainElement(screen.getByTestId("button-save"));
-    // And exactly one Save on the page — the relocation must not duplicate it.
-    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
-  });
-
-  it("leaves p-median-us Save INSIDE the Layers row and shows no step toggle", async () => {
-    renderWorkspace(); // parameterless — this helper is p-median-us
-
-    // Containment, not mere presence. A bare getByTestId("button-save") would
-    // still pass if p-median's Save accidentally moved into the shared toolbar
-    // — exactly the regression this case exists to catch. Precedent:
-    // Workspace.InputMapV2.test.tsx:153-166.
-    const saveButton = await screen.findByTestId("button-save");
-    expect(screen.getByTestId("pmedian-map-toolbar")).toContainElement(saveButton);
-    expect(screen.queryByTestId("step-toggle")).not.toBeInTheDocument();
-  });
-});
+// CH4O-2 — CH4UX-1 ("Chapter 4 outputs are locked until Step 1 solves") and
+// COSM-2 ("Chapter 4's step toggle renders in the toolbar row") both tested
+// the now-deleted two-step workflow (the server-derived `steps` projection,
+// the step toggle, and the early Step-1-only output unlock). Chapter 4 now
+// behaves exactly like every other model: outputs are gated by
+// `hasFreshSolvedRun` alone (already covered by this file's many other
+// models' tests), and there is no step toggle to render anywhere.
 
 // ── CH4UX-6 — the solve overlay owns running + failed ────────────────────────
 describe("CH4UX-6 — the solve overlay owns the running and failed phases", () => {
