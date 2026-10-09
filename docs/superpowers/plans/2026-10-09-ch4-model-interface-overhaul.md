@@ -1099,6 +1099,13 @@ Then, inside the Chapter 4 block after the avg cap:
               const u = effectiveUnit(canonicalUnit);
               const d = (v: number) => toDisplay(v, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 1 });
               const floor = coverageFloorDemand ?? 0;
+              // Defined ONCE and appended to both strings below -- the cap is
+              // an unconditional constraint in both objectives (§2.4), so a
+              // clause that exists in only one of them understates the model.
+              const capClause =
+                avgServiceDistCapKm == null
+                  ? ""
+                  : `, holding average distance at or under ${d(avgServiceDistCapKm)} ${u}`;
               return (
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
                   {deriveMaxCoverageObjective(floor) === "coverage"
@@ -1115,11 +1122,18 @@ Then, inside the Chapter 4 block after the avg cap:
                     // OMIT the clause rather than printing `?? 0` -- "at or
                     // under 0 mi" is a false statement about the model that will
                     // run.
-                    ? `Model 1 — maximize demand within ${d(highServiceDistKm!)} ${u}` +
-                      (avgServiceDistCapKm == null
-                        ? ""
-                        : `, holding average distance at or under ${d(avgServiceDistCapKm)} ${u}`)
-                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${d(highServiceDistKm!)} ${u}`}
+                    // The cap clause belongs on BOTH strings. Corrected after
+                    // the whole-branch review: this sketch appended it to the
+                    // Model 1 string only, matching the spec's (also wrong)
+                    // Model 2 example, and the implementation reproduced the
+                    // sketch. But §2.4 makes the cap unconditional in both
+                    // objectives, so a student with a positive floor and a
+                    // tight cap read a Model 2 line that never mentioned the
+                    // cap, got INFEASIBLE, and had no on-screen statement of
+                    // the constraint responsible. Hoist the clause out and
+                    // append it to whichever string is showing.
+                    ? `Model 1 — maximize demand within ${d(highServiceDistKm!)} ${u}` + capClause
+                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${d(highServiceDistKm!)} ${u}` + capClause}
                 </p>
               );
             })()}

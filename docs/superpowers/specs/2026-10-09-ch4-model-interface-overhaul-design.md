@@ -729,8 +729,25 @@ floor = 0:
 
 floor = 50,000,000:
   Model 2 — minimize average distance,
-  covering at least 50,000,000 demand within 450 mi
+  covering at least 50,000,000 demand within 450 mi,
+  holding average distance at or under 650 mi
 ```
+
+**The cap clause appears in BOTH lines**, because §2.4 makes the cap an
+unconditional constraint in both objectives — which is also why §4.3 renders
+the field unconditionally. When the cap is absent the clause is **omitted**
+from whichever line is showing; it is never rendered as a fabricated zero,
+which would be a false statement about the model that ran.
+
+> Corrected after the whole-branch review. This block previously showed the
+> Model 2 example **without** the cap clause, and the implementation faithfully
+> reproduced the example — appending the clause to the Model 1 string only — so
+> a student setting a positive floor and a tight cap read a Model 2 line that
+> never mentioned the cap, hit `INFEASIBLE`, and had no on-screen statement of
+> the constraint that caused it. The spec's *constraint semantics* (§2.4) and
+> its *illustrative example* disagreed, and the example won. **An example in a
+> spec is normative to whoever implements it** — when a spec states a rule and
+> then shows a sample that contradicts it, the sample is the bug.
 
 It reads the same derivation function as the server — the alternative (a UI copy of
 the rule) is how the Solve button's label and the step that actually ran came to be
