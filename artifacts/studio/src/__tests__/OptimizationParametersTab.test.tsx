@@ -375,6 +375,11 @@ describe("OptimizationParametersTab — Part D display-unit contract (canonicalU
     window.localStorage.clear();
   });
 
+  // `canonicalUnit: "km"` paired with a `...Mi`-named field is deliberate,
+  // not a mismatch: no real model is km-canonical any more (CH4O-8), so this
+  // is a synthetic km fixture used purely to exercise the display-conversion
+  // path. Passing "mi" here would make the km->mi conversion an identity and
+  // leave the conversion assertions below unable to fail.
   const chenUnitProps = {
     p: 3,
     pMax: 25,
@@ -674,6 +679,10 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
 // no `step`/`objective` concept any more, the avg-cap field unconditional in
 // both modes, and a new editable coverage-floor input plus a derived-model
 // line that reads the SAME `deriveMaxCoverageObjective` rule the server uses.
+// Same deliberate synthetic-km choice as chenUnitProps above: `canonicalUnit:
+// "km"` next to `...Mi`-named values is intentional, not a leftover mismatch
+// — it's what makes the display-conversion test below (~435 mi) able to
+// fail if the conversion ever broke. Passing "mi" would make it an identity.
 const ch4Props = {
   p: 3, pMax: 26, gap: 0, timeLimitSec: 120,
   distanceBands: [700, 1400, 2800, 5500],

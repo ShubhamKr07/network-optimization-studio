@@ -1557,7 +1557,7 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     it("compares raw miles directly with no circuity multiplier: exactly at maxDistMi passes, one mile over fails", () => {
       // MIG-6: precheck must mirror solve_max_coverage exactly — raw ≤
       // threshold, nothing else. WH-C→C-3 at exactly maxDistMi (1000) is
-      // reachable; bumping it 1 km over makes it unreachable.
+      // reachable; bumping it 0.01 mi over makes it unreachable.
       const atBoundary: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
         p: 1,

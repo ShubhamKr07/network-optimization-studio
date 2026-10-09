@@ -26,8 +26,7 @@ function findRepoRoot(from: string): string {
 // shape as two-echelon-gold-au — so Object.values (insertion order), not the
 // byIndex sort dataset.ts uses. Distances are RAW MILES on disk and ARE the
 // effective distances (MIG-6: no circuity factor applied); the
-// warehouse/customer rows here carry only geometry, so the km/mi distinction
-// is a solver/reporting concern, not a dataset-loader one.
+// warehouse/customer rows here carry only geometry.
 const MAX_COVERAGE_DATASET_DIR = path.join(findRepoRoot(__dirname), "solvers", "max-coverage-us", "dataset");
 
 interface MaxCoverageWarehouseEntry { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }

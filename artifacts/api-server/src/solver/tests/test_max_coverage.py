@@ -88,7 +88,8 @@ def test_coverage_golden():
     served = [e["toId"] for e in r["edges"]]
     assert len(served) == len(set(served)) == 200                    # exactly-one per active customer
     assert all(e["fromId"] in set(r["details"]["openWarehouseIds"]) for e in r["edges"])  # open linkage
-    assert all(e["distance"] <= 3400 for e in r["edges"])            # max-distance feasibility (longest served edge: 1197 mi)
+    assert all(e["distance"] <= 3400 for e in r["edges"])            # max-distance feasibility
+    assert max(e["distance"] for e in r["edges"]) == 1197            # golden: longest served edge (real solve, not vacuous slack)
 
 
 def test_min_distance_golden():
@@ -172,8 +173,8 @@ def test_distance_override_changes_assignment():
     # CH4O-5 -- floor 1, not 0: a ZERO floor now derives COVERAGE mode, whose
     # objective does not minimise distance, so the "cheapest stays assigned"
     # assertion below would no longer be testing anything. 1 is slack against
-    # the ~53M demand any feasible assignment covers, so the problem solved is
-    # the same unconstrained min-distance one this test has always used.
+    # the ~54.9M demand any feasible assignment covers, so the problem solved
+    # is the same unconstrained min-distance one this test has always used.
     forced = [{"id": w, "status": "forced_open"} for w in ("DAL", "LA", "PIT")]
     base = run({**BASE, "coverageFloorDemand": 1,
                 "warehouseOverrides": forced})

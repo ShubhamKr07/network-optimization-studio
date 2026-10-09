@@ -579,10 +579,12 @@ export function normalizeAddedEntityDistances(modelId: string, data: Record<stri
   // C4.7 (Chapter 4) — max-coverage-us fills missing added-entity
   // warehouse<->customer distances as `estimated` raw miles (the shared
   // haversineMiles path, road-adjusted by MAX_COVERAGE_CIRCUITY) on every
-  // persist path (POST create, PATCH, import/apply). Its
-  // reparse through maxCoverageInputsSchema also re-applies the D19
-  // distanceBands=[high,max] transform, so a distances-import staging a stale
-  // third boundary is corrected here.
+  // persist path (POST create, PATCH, import/apply). Its reparse through
+  // maxCoverageInputsSchema does NOT re-apply a [high,max] distanceBands
+  // transform (T3, spec Part A supersedes D19): a supplied distanceBands
+  // array is preserved verbatim, so a distances-import staging a stale third
+  // boundary is NOT corrected here — see this function's own JSDoc above for
+  // the full rationale.
   if (modelId === "max-coverage-us") {
     return fillEstimatedMaxCoverageDistances(data as unknown as MaxCoverageInputs) as unknown as Record<string, unknown>;
   }
