@@ -197,32 +197,37 @@ describe("ServiceStatsTab", () => {
     });
   });
 
-  // C4.14 (D14) — Chen coverage KPI summary block (from envelope `details`),
-  // gated on the presence of `details.coveragePct`, never a modelId ternary.
-  describe("Chen's Cosmetics — coverage KPIs (C4.14)", () => {
-    const chenResult = {
+  // CH4O-10 (decisions 5-8) — the coverage KPI block (Coverage %, Covered
+  // demand, Uncovered %, Avg service distance) that used to live here moved
+  // to Solution Summary (CostSummaryTab.test.tsx). After the move this
+  // block is absent for EVERY result, not just non-Chapter-4 ones -- a
+  // strictly stronger claim than the one this replaces (which only checked
+  // a non-Chen model never got it).
+  describe("Solution Summary move — no coverage KPI block here (CH4O-10)", () => {
+    const ch4Result = {
       status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
       edges: [],
-      metrics: { weightedAvgDistance: 812.4, bandCoverage: [{ band: 600, percent: 66 }, { band: 5000, percent: 100 }] },
+      // band at 450 matches the high-service cutoff this fixture's sibling
+      // in CostSummaryTab.test.tsx uses, so "the band graph stays" is proven
+      // against the SAME cutoff the moved KPI rows now describe.
+      metrics: { weightedAvgDistance: 812.4, bandCoverage: [{ band: 450, percent: 66 }, { band: 5000, percent: 100 }] },
       details: { objective: "coverage", coveragePct: 66.6667, coveredDemand: 131645389, uncoveredPct: 33.3333 },
       solverUsed: "CBC", infeasibilityReason: null,
     };
 
-    it("renders Coverage %, Covered demand, Uncovered %, and Avg service distance (mi) from details", () => {
-      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="max-coverage-us" />);
-      expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
-      expect(screen.getByTestId("service-stats-covered-demand")).toHaveTextContent("131,645,389");
-      expect(screen.getByTestId("service-stats-uncovered-pct")).toHaveTextContent("33.33 %");
-      expect(screen.getByTestId("service-stats-avg-service-distance")).toHaveTextContent("812.4 mi");
+    it("renders no coverage KPI block at all", () => {
+      render(<ServiceStatsTab result={ch4Result} scenarioId={1} modelId="max-coverage-us" />);
+      expect(screen.queryByTestId("service-stats-coverage-kpis")).not.toBeInTheDocument();
+      expect(screen.getByTestId("service-stats-band-450")).toBeInTheDocument(); // band graph stays
     });
 
-    it("still renders the existing band rows below the KPI block", () => {
-      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="max-coverage-us" />);
-      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
+    it("still renders the existing band rows (unaffected by the KPI block's removal)", () => {
+      render(<ServiceStatsTab result={ch4Result} scenarioId={1} modelId="max-coverage-us" />);
+      expect(screen.getByTestId("service-stats-band-450")).toHaveTextContent("66%");
       expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
     });
 
-    it("does NOT render the coverage KPI block for a non-Chen model (no details.coveragePct)", () => {
+    it("renders no coverage KPI block for a non-Chapter-4 model either (no regression)", () => {
       render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
       expect(screen.queryByTestId("service-stats-coverage-kpis")).not.toBeInTheDocument();
     });
@@ -672,9 +677,9 @@ describe("ServiceStatsTab", () => {
     // the deliberate Chen guard (`&& !showCoverageKpis`) is deleted, so once
     // a caller wires `presentationBands` for Chen, it computes live from
     // `edges` exactly like its five siblings (cumulative + overflow,
-    // mi-labelled as of CH4O-8). Chen's SEPARATE `details.coveragePct` KPI block above
-    // is untouched — this only concerns which source the band-coverage
-    // BARS below it read from.
+    // mi-labelled as of CH4O-8). CH4O-10 moved Chen's SEPARATE
+    // `details.coveragePct` KPI block to Solution Summary entirely — this
+    // test now only concerns which source the band-coverage BARS read from.
     it("max-coverage-us now computes bandCoverage LIVE once presentationBands is wired (Part A guard deleted)", () => {
       const chenResult = {
         status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
@@ -703,8 +708,9 @@ describe("ServiceStatsTab", () => {
       expect(overflowRow).toHaveTextContent("> 30 mi");
       expect(overflowRow).toHaveTextContent("100%");
       expect(screen.queryByTestId("service-stats-band-600")).not.toBeInTheDocument();
-      // Chen's separate coverage-% KPI block is untouched by this change.
-      expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
+      // CH4O-10 — the coverage-% KPI block no longer lives in this
+      // component at all (moved to Solution Summary).
+      expect(screen.queryByTestId("service-stats-coverage-pct")).not.toBeInTheDocument();
     });
 
     it("JADE (two-echelon-jade-us) is unchanged — still warehouse_to_customer edges only", () => {

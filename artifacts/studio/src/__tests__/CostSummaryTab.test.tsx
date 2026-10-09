@@ -1,7 +1,7 @@
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
-import type { Scenario } from "@workspace/api-client-react";
+import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
@@ -117,6 +117,118 @@ function scenario(overrides: Partial<Scenario>): Scenario {
 function withModel(s: Scenario, modelId: Scenario["modelId"]): Scenario {
   return { ...s, modelId } as Scenario;
 }
+
+// CH4O-10 — `result` above IS this file's pre-existing "optimal,
+// non-Chapter-4" fixture; aliased under the brief's own name so the task-10
+// fixtures below read against the same vocabulary the brief specifies.
+const optimalResult = result;
+
+// CH4O-10 — shared render helper for the task-10 test blocks below. Mirrors
+// every pre-existing call site's `<UnitProvider><ExportProvider ...>` wrap
+// (never a second, redundant provider layer). When `scenarios` is supplied
+// without an explicit `result`/`scenarioId`, defaults to the FIRST scenario
+// (its own result becomes the single-scenario view's `result`, and it
+// becomes the default compare anchor) — matching how every real call site
+// (Workspace.tsx) derives these from the active scenario.
+function renderTab(opts: {
+  result?: SolveResult | null;
+  modelId?: string;
+  scenarioId?: number;
+  scenarios?: Scenario[];
+} = {}) {
+  const scenarios = opts.scenarios ?? [];
+  const scenarioId = opts.scenarioId ?? scenarios[0]?.id ?? 1;
+  const resolvedResult = opts.result !== undefined ? opts.result : scenarios.find(s => s.id === scenarioId)?.result ?? null;
+  return rtlRender(
+    <UnitProvider>
+      <ExportProvider value={makeExportProviderValue()}>
+        <CostSummaryTab result={resolvedResult} scenarioId={scenarioId} modelId={opts.modelId} scenarios={scenarios} />
+      </ExportProvider>
+    </UnitProvider>,
+  );
+}
+
+// CH4O-10 (spec §4.4, decisions 5-8) — Chapter 4's coverage rows, moved here
+// from Service Stats (ServiceStatsTab.test.tsx's "Solution Summary move"
+// describe block covers the removal from there).
+describe("Solution Summary — Chapter 4 coverage rows", () => {
+  const ch4Result = {
+    ...optimalResult,
+    details: { objective: "coverage", coveragePct: 68.4192, coveredDemand: 53385024, highServiceDistMi: 450 },
+    metrics: { ...optimalResult.metrics, weightedAvgDistance: 394.6 },
+  };
+
+  it("renders the three rows for a Chapter 4 result", () => {
+    renderTab({ result: ch4Result, modelId: "max-coverage-us" });
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("450");
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("68.42");
+    expect(screen.getByTestId("cost-summary-covered-demand")).toHaveTextContent("53,385,024");
+  });
+
+  // The half that catches an accidental modelId gate.
+  it("renders none of them for a non-Chapter-4 result", () => {
+    renderTab({ result: optimalResult, modelId: "p-median-us" });
+    expect(screen.queryByTestId("cost-summary-high-service-cutoff")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cost-summary-coverage-pct")).not.toBeInTheDocument();
+  });
+
+  it("labels avg distance per model — both directions", () => {
+    renderTab({ result: ch4Result, modelId: "max-coverage-us" });
+    expect(screen.getByText(/Avg distance to customers/)).toBeInTheDocument();
+    cleanup();
+    renderTab({ result: optimalResult, modelId: "p-median-us" });
+    expect(screen.getByText(/Weighted avg\. distance/)).toBeInTheDocument();
+  });
+});
+
+describe("Solution Summary — cross-mode compare is allowed", () => {
+  const coverageScenario = scenario({
+    id: 90, name: "Coverage", modelId: "max-coverage-us",
+    result: {
+      ...optimalResult,
+      details: { objective: "coverage", coveragePct: 68.4192, coveredDemand: 53385024, highServiceDistMi: 450 },
+    },
+  });
+  // Deliberately a DIFFERENT coveredDemand (41,000,000) than
+  // coverageScenario's 53,385,024 -- a row reading the wrong scenario's
+  // details would pass against identical fixtures.
+  const minDistanceScenario = scenario({
+    id: 91, name: "Min Distance", modelId: "max-coverage-us",
+    result: {
+      ...optimalResult,
+      details: { objective: "min_distance", coveragePct: 54.3, coveredDemand: 41000000, highServiceDistMi: 450 },
+    },
+  });
+  const pmedianA = scenario({ id: 92, name: "PM A", modelId: "p-median-us", result: { ...optimalResult } });
+  const pmedianB = scenario({ id: 93, name: "PM B", modelId: "p-median-us", result: { ...optimalResult, objective: 999 } });
+
+  // Decision 10. lockedObjectiveMode blocked SELECTION by two mechanisms: a
+  // disabled checkbox AND a refusal inside toggleScenario. Assert the
+  // toggleScenario path too -- a test that only clicks an enabled checkbox
+  // passes against a half-removed guard.
+  it("lets a coverage and a min_distance scenario be selected together", () => {
+    renderTab({ scenarios: [coverageScenario, minDistanceScenario], modelId: "max-coverage-us" });
+    const checkbox = screen.getByTestId(`cost-summary-compare-toggle-${minDistanceScenario.id}`).querySelector("input")!;
+    expect(checkbox).toBeEnabled();
+    fireEvent.click(checkbox);
+    expect(screen.getByTestId(`cost-summary-compare-objective-${minDistanceScenario.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`cost-summary-compare-objective-${coverageScenario.id}`)).toBeInTheDocument();
+  });
+
+  it("renders each scenario's OWN coverage values in compare", () => {
+    renderTab({ scenarios: [coverageScenario, minDistanceScenario], modelId: "max-coverage-us" });
+    fireEvent.click(screen.getByTestId(`cost-summary-compare-toggle-${minDistanceScenario.id}`).querySelector("input")!);
+    // Deliberately different numbers: a row reading the wrong scenario's
+    // details would pass against identical fixtures.
+    expect(screen.getByTestId(`cost-summary-compare-covered-demand-${coverageScenario.id}`)).toHaveTextContent("53,385,024");
+    expect(screen.getByTestId(`cost-summary-compare-covered-demand-${minDistanceScenario.id}`)).toHaveTextContent("41,000,000");
+  });
+
+  it("leaves non-Chapter-4 compare behaviour unchanged", () => {
+    renderTab({ scenarios: [pmedianA, pmedianB], modelId: "p-median-us" });
+    expect(screen.getByTestId(`cost-summary-compare-toggle-${pmedianB.id}`).querySelector("input")).toBeEnabled();
+  });
+});
 
 describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   it("renders objective, weighted avg distance, runtime, quality, and solver", () => {
@@ -784,13 +896,18 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-mi");
   });
 
-  it("with a coverage anchor selected, a different-mode (min-distance) scenario is DISABLED with a hint; a same-mode one is enabled", () => {
+  // CH4O-10 (decision 10) — this used to assert the min-distance scenario
+  // was DISABLED with a "(different objective)" hint (C4.14/D14). Decision
+  // 10 reverses that restriction wholesale: a same-mode AND a
+  // different-mode scenario are both now selectable from a coverage
+  // anchor, and the mode-hint testid no longer exists at all.
+  it("with a coverage anchor selected, both a same-mode and a different-mode (min-distance) scenario are selectable (decision 10)", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="max-coverage-us" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
-    // Same mode (coverage) — selectable.
+    // Same mode (coverage) — selectable, as before.
     expect(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")).not.toBeDisabled();
-    // Different mode (min_distance) — blocked with a mode hint (NOT a solve-first hint; it IS solved).
-    expect(screen.getByTestId("cost-summary-compare-toggle-62").querySelector("input")).toBeDisabled();
-    expect(screen.getByTestId("cost-summary-compare-mode-hint-62")).toHaveTextContent("different objective");
+    // Different mode (min_distance) — ALSO selectable now; no mode hint.
+    expect(screen.getByTestId("cost-summary-compare-toggle-62").querySelector("input")).not.toBeDisabled();
+    expect(screen.queryByTestId("cost-summary-compare-mode-hint-62")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-hint-62")).not.toBeInTheDocument();
   });
 
@@ -802,10 +919,12 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
     expect(screen.getByTestId("cost-summary-compare-objective-61")).toHaveTextContent("70.00 %");
   });
 
-  it("with a min-distance anchor, coverage scenarios are the ones blocked (symmetry)", () => {
+  // CH4O-10 (decision 10) — symmetry check from the other anchor direction:
+  // this used to assert coverage scenarios were the ones blocked.
+  it("with a min-distance anchor, coverage scenarios are also selectable (symmetry, decision 10)", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDist.result} scenarioId={62} modelId="max-coverage-us" scenarios={[minDist, coverageA, coverageB]} /></ExportProvider></UnitProvider>);
-    expect(screen.getByTestId("cost-summary-compare-toggle-60").querySelector("input")).toBeDisabled();
-    expect(screen.getByTestId("cost-summary-compare-mode-hint-60")).toHaveTextContent("different objective");
+    expect(screen.getByTestId("cost-summary-compare-toggle-60").querySelector("input")).not.toBeDisabled();
+    expect(screen.queryByTestId("cost-summary-compare-mode-hint-60")).not.toBeInTheDocument();
   });
 
 });

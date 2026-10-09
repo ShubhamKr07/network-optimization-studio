@@ -266,28 +266,20 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   const [selectedIds, setSelectedIds] = useState<number[]>(() => [scenarioId]);
 
-  // C4.14 (D14) — the objective mode the current selection is LOCKED to: the
-  // mode of the first already-selected scenario that carries one. While a Chen
-  // coverage scenario is selected, only other coverage scenarios can join (and
-  // vice-versa for min_distance) — a different-mode scenario's objective is in
-  // an incompatible unit. Null (no selected scenario carries a mode — every
-  // non-Chen model) imposes NO restriction, so every existing model is
-  // byte-for-byte unaffected.
-  const lockedObjectiveMode =
-    selectedIds
-      .map(id => scenarioObjectiveMode(sameModelScenarios.find(x => x.id === id)))
-      .find((m): m is string => m != null) ?? null;
-
+  // CH4O-10 (decision 10) — cross-mode compare is now ALLOWED. The
+  // objective-mode lock this used to enforce (C4.14/D14: a coverage-mode
+  // Chapter 4 scenario and a min_distance-mode one couldn't be selected
+  // together) is removed wholesale — derivation, the toggleScenario
+  // refusal, the checkbox `disabled` clause, and the "(different
+  // objective)" hint are all gone. This is Chapter-4-only IN EFFECT with
+  // no per-model gate needed: `scenarioObjectiveMode` is `null` whenever
+  // no selected scenario carries an objective mode, and only Chapter 4's
+  // envelopes ever carry one — every other model is byte-for-byte
+  // unaffected by the removal.
   function toggleScenario(id: number, checked: boolean) {
     setSelectedIds(prev => {
       if (checked) {
         if (prev.includes(id) || prev.length >= MAX_COMPARE) return prev;
-        // Defense in depth — the checkbox is already `disabled` for a
-        // mode-mismatched scenario, but never let one slip into the selection.
-        const candidateMode = scenarioObjectiveMode(sameModelScenarios.find(x => x.id === id));
-        const anchorMode =
-          prev.map(pid => scenarioObjectiveMode(sameModelScenarios.find(x => x.id === pid))).find((m): m is string => m != null) ?? null;
-        if (anchorMode != null && candidateMode != null && candidateMode !== anchorMode) return prev;
         return [...prev, id];
       }
       if (prev.length <= 1) return prev; // at least one scenario always stays selected
@@ -314,18 +306,9 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         {sameModelScenarios.map(s => {
           const checked = selectedIds.includes(s.id);
           const eligible = s.result != null && !s.stale;
-          // C4.14 (D14) — a solved scenario of the WRONG objective mode can't
-          // be added to a selection already locked to another mode. Only ever
-          // fires for Chen (the only model with a mode discriminator); the
-          // currently-selected anchor stays checked and un-disabled.
-          const modeMismatch =
-            !checked &&
-            lockedObjectiveMode != null &&
-            scenarioObjectiveMode(s) != null &&
-            scenarioObjectiveMode(s) !== lockedObjectiveMode;
           const disabled =
             isBrowsingHistory ||
-            (!checked && (!eligible || modeMismatch || selectedIds.length >= MAX_COMPARE)) ||
+            (!checked && (!eligible || selectedIds.length >= MAX_COMPARE)) ||
             (checked && selectedIds.length <= 1);
           return (
             <label key={s.id} className="flex items-center gap-1 text-xs" data-testid={`cost-summary-compare-toggle-${s.id}`}>
@@ -334,11 +317,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               {!eligible && (
                 <span className="text-muted-foreground" data-testid={`cost-summary-compare-hint-${s.id}`}>
                   (solve first)
-                </span>
-              )}
-              {eligible && modeMismatch && (
-                <span className="text-muted-foreground" data-testid={`cost-summary-compare-mode-hint-${s.id}`}>
-                  (different objective)
                 </span>
               )}
             </label>
@@ -376,6 +354,24 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         ? formatObjective(modelId, objectiveMode, result.objective, canonicalDistanceUnit, unit)
         : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString();
     const rows: Array<[string, string, boolean, string?]> = [["Objective", objectiveText, true]];
+    // CH4O-10 (decisions 5-8) — Chapter 4's high-service-cutoff/coverage%/
+    // covered-demand rows, moved here from Service Stats. Envelope-shape
+    // gate, not a modelId check -- the convention this codebase already
+    // uses (supportsFacilityStatus/supportsReferenceDistances/
+    // supportsPlantProductCapability are all capability/shape checks), and
+    // the same test that selects the avg-distance label below.
+    const ch4 = result.details as { coveragePct?: number; coveredDemand?: number; highServiceDistMi?: number } | undefined;
+    const showCoverageRows = typeof ch4?.coveragePct === "number";
+    if (showCoverageRows) {
+      rows.push(
+        // The SOLVED SNAPSHOT's cutoff, never localInputs: a student who
+        // edits the cutoff without re-solving must still see which cutoff
+        // produced the numbers beside it.
+        ["High service cutoff", formatDistance(ch4!.highServiceDistMi!, canonicalDistanceUnit, unit), true, "cost-summary-high-service-cutoff"],
+        ["% of demand within high service", `${ch4!.coveragePct!.toFixed(2)} %`, true, "cost-summary-coverage-pct"],
+        ["Total demand within high service", (ch4!.coveredDemand ?? 0).toLocaleString(), true, "cost-summary-covered-demand"],
+      );
+    }
     if (result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
     }
@@ -383,7 +379,8 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
     }
     rows.push(
-      ["Weighted avg. distance", formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
+      [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
+       formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       // B4.1 — the truthful outcome (never the raw solver `result.quality`,
       // which was hardcoded "optimal" pre-B2 regardless of a gap/time-limit
@@ -465,6 +462,14 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // combined compare export is a later follow-up, not this bundle).
   const results = compareScenarios.map(s => s.result!);
   const sharedBands = scenariosShareBands(results);
+  // CH4O-10 (decisions 5-8/10) — same envelope-shape gate as the
+  // single-scenario view, evaluated across the WHOLE selection (mirrors the
+  // inboundCost/outboundCost PRESENCE-gated rows below): a selected column
+  // without `details.coveragePct` renders "—" rather than dropping the row
+  // for every column.
+  const compareShowCoverageRows = compareScenarios.some(
+    s => typeof (s.result!.details as { coveragePct?: number } | undefined)?.coveragePct === "number",
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -485,6 +490,11 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             </tr>
           </thead>
           <tbody>
+            {/* Asymmetric conversion is CORRECT, not a bug: objectiveDimension
+                maps coverage to "percent" (non-converting) and min_distance to
+                "demand-distance" (converting), so toggling the display unit
+                changes one column and leaves its neighbour frozen. Do not
+                "fix" this. */}
             <tr>
               <td className="p-2 text-muted-foreground">Objective</td>
               {compareScenarios.map(s => (
@@ -495,6 +505,47 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
+            {/* CH4O-10 (decisions 5-8) — Chapter 4's coverage rows, moved
+                here from Service Stats. Mirrors the single-scenario rows
+                added above; decision 10 is what makes a cross-mode
+                (coverage + min_distance) selection reach this block at all. */}
+            {compareShowCoverageRows && (
+              <>
+                <tr>
+                  <td className="p-2 text-muted-foreground">High service cutoff</td>
+                  {compareScenarios.map(s => {
+                    const d = s.result!.details as { highServiceDistMi?: number } | undefined;
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-high-service-cutoff-${s.id}`}>
+                        {typeof d?.highServiceDistMi === "number" ? formatDistance(d.highServiceDistMi, canonicalDistanceUnit, unit) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">% of demand within high service</td>
+                  {compareScenarios.map(s => {
+                    const d = s.result!.details as { coveragePct?: number } | undefined;
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-coverage-pct-${s.id}`}>
+                        {typeof d?.coveragePct === "number" ? `${d.coveragePct.toFixed(2)} %` : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="p-2 text-muted-foreground">Total demand within high service</td>
+                  {compareScenarios.map(s => {
+                    const d = s.result!.details as { coveredDemand?: number } | undefined;
+                    return (
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-covered-demand-${s.id}`}>
+                        {typeof d?.coveredDemand === "number" ? d.coveredDemand.toLocaleString() : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </>
+            )}
             {/* ch4-fixes item 3 — Chapter 9 (JADE) inbound/outbound cost split,
                 mirroring the single-scenario rows that already existed.
                 Gated on PRESENCE across the selection, never on modelId: a
@@ -585,7 +636,9 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               </>
             )}
             <tr>
-              <td className="p-2 text-muted-foreground">Weighted avg. distance{unitLabel ? ` (${unitLabel})` : ""}</td>
+              <td className="p-2 text-muted-foreground">
+                {compareShowCoverageRows ? "Avg distance to customers" : "Weighted avg. distance"}{unitLabel ? ` (${unitLabel})` : ""}
+              </td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-distance-${s.id}`}>
                   {formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit)}

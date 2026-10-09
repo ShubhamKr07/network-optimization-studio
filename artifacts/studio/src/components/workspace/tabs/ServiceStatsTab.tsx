@@ -180,10 +180,9 @@ const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductio
 // concept and thus no inbound leg to exclude). Never `plant_to_warehouse`
 // / `mine_to_refinery` — mixing legs would double-count throughput.
 // `max-coverage-us` (a distinct min-distance coverage concept) stays
-// frozen: gated both by the caller (Workspace.tsx never wires
-// `presentationBands` for it) and, belt-and-suspenders, here on the
-// envelope's own `showCoverageKpis` shape (see below) — never a
-// `modelId` check.
+// frozen: gated by the caller alone (Workspace.tsx never wires
+// `presentationBands` for it) — `bandCoverage` below branches on
+// `useLiveCoverage` alone, never a `modelId` check.
 // Workspace.tsx wires this for every distance-band model EXCEPT
 // `max-coverage-us` (a distinct min-distance coverage concept, stays
 // frozen) — model selection lives entirely in the caller now.
@@ -266,22 +265,13 @@ export function ServiceStatsTab({
     );
   }
 
-  // C4.14 (D14) — Chen's Cosmetics coverage KPIs, read off the envelope's
-  // `details`. Gated on the presence of `coveragePct` (a Chen-only field —
-  // absent for every other model's envelope), NOT a `modelId` ternary, so
-  // this block is purely additive and never appears for a non-Chen solve.
-  const details = result.details as
-    | { coveragePct?: number; coveredDemand?: number; uncoveredPct?: number }
-    | undefined;
-  const showCoverageKpis = typeof details?.coveragePct === "number";
-
   // chen-bands-units, Part A — Chen is now wired into the SAME live
   // `presentationBands` recompute as its five siblings; the deliberate
   // "stay frozen for Chen" guard that used to live here
-  // (`&& !showCoverageKpis`) is deleted. Chen's `details.coveragePct` KPI
-  // block above is a SEPARATE, untouched concept — this only changes
-  // which source the band-coverage BARS read from. A model that hasn't
-  // wired `presentationBands` (any pre-existing call site, or Chen before
+  // (`&& !showCoverageKpis`) is deleted — CH4O-10 removed the KPI block
+  // that guard referenced entirely (moved to Solution Summary), so this
+  // only ever branches on `useLiveCoverage`. A model that hasn't wired
+  // `presentationBands` (any pre-existing call site, or Chen before
   // Workspace.tsx wires it) is unaffected: `useLiveCoverage` is false and
   // this falls through to the frozen `result.metrics.bandCoverage` exactly
   // as before.
@@ -297,7 +287,6 @@ export function ServiceStatsTab({
         modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
       )
     : (result.metrics.bandCoverage ?? []);
-  const avgServiceDistance = result.metrics.weightedAvgDistance;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -314,38 +303,6 @@ export function ServiceStatsTab({
           Download CSV
         </button>
       </div>
-      {/* C4.14 (D14) — Chen coverage KPI summary above the band bars: coverage
-          %, covered demand (exact integer), uncovered %, and the achieved
-          demand-weighted average service distance in the model's unit (km).
-          Additive; only rendered when the envelope carries coverage details. */}
-      {showCoverageKpis && (
-        <dl className="p-2 border-b flex-shrink-0 space-y-1 text-sm" data-testid="service-stats-coverage-kpis">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Coverage</dt>
-            <dd className="font-medium font-mono" data-testid="service-stats-coverage-pct">{details!.coveragePct!.toFixed(2)} %</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Covered demand</dt>
-            <dd className="font-medium font-mono" data-testid="service-stats-covered-demand">
-              {typeof details!.coveredDemand === "number" ? details!.coveredDemand.toLocaleString() : "—"}
-            </dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Uncovered</dt>
-            <dd className="font-medium font-mono" data-testid="service-stats-uncovered-pct">
-              {typeof details!.uncoveredPct === "number" ? `${details!.uncoveredPct.toFixed(2)} %` : "—"}
-            </dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Avg service distance</dt>
-            <dd className="font-medium font-mono" data-testid="service-stats-avg-service-distance">
-              {avgServiceDistance != null
-                ? `${toDisplay(avgServiceDistance, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 1, useGrouping: false })} ${distanceUnit}`
-                : "—"}
-            </dd>
-          </div>
-        </dl>
-      )}
       {/* R9 — demand-weighted, not a customer count: metrics.bandCoverage[].percent
           is computed from flow/demand, so the label says so explicitly. */}
       <p className="px-2 pt-2 text-xs text-muted-foreground flex-shrink-0">
