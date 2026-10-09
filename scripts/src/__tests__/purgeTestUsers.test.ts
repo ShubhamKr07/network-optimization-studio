@@ -73,7 +73,18 @@ describe("countTestUsers — both halves of the conjunction are load-bearing", (
       { id: "pt-3", email: "diag1@example.com" },
     ]);
     const { userIds } = await countTestUsers();
-    expect(new Set(userIds)).toEqual(new Set(["pt-1", "pt-2", "pt-3"]));
+    // Subset, not an exact set. `countTestUsers()` reads the WHOLE database,
+    // and the dev database is shared — leftover matching rows from earlier
+    // e2e runs predate this test and are themselves legitimate purge targets.
+    // An exact-set assertion made this test fail on the state of the machine
+    // rather than on the predicate, and widening the expected set would only
+    // re-break on the next leftover. The contract this case owns is that each
+    // of these three shapes IS matched; the complementary "and nothing else"
+    // half is the three `not.toContain` cases below, which are equally
+    // indifferent to pre-existing rows.
+    expect(userIds).toContain("pt-1");
+    expect(userIds).toContain("pt-2");
+    expect(userIds).toContain("pt-3");
   });
 
   it("does NOT match a human prefix on a test domain", async () => {
