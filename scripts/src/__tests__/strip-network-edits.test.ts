@@ -14,6 +14,12 @@ vi.mock("@workspace/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
   inArray: vi.fn((col: unknown, vals: unknown) => ({ col, vals })),
+  // strip-network-edits.ts writes `inputsUpdatedAt: sql`now()`` (the DB clock,
+  // per HND-B). Same tagged-template stand-in the api-server suites use
+  // (routes.test.ts, auth.test.ts): it keeps the SQL text inspectable, which
+  // is what lets the real-run test below assert the DB clock rather than
+  // merely assert that *something* was written.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
 // Chainable drizzle mock — same pattern as artifacts/api-server's
@@ -155,7 +161,10 @@ describe("strip-network-edits — run()", () => {
       for (const key of NETWORK_EDIT_KEYS) {
         expect(payload.inputs).not.toHaveProperty(key);
       }
-      expect(payload.inputsUpdatedAt).toBeInstanceOf(Date);
+      // HND-B — the DB clock, not an app-side `new Date()`. The drizzle-orm
+      // mock renders a tagged template as `{ strings, values }`, so asserting
+      // the SQL text is what discriminates `sql`now()`` from a JS Date here.
+      expect(Array.from(payload.inputsUpdatedAt.strings)).toEqual(["now()"]);
     }
   });
 
