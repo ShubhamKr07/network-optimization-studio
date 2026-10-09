@@ -155,17 +155,29 @@ export function TransportCostsTab({
   const rateLabel = rateUnitLabel(canonicalUnit, unit);
 
   /**
-   * The semantic no-op guard (spec §2.4). It lives here, not in the hook:
-   * `commit()` fires for any complete draft and never compares against the
-   * stored value, and moving the comparison inside would change behaviour
-   * for every other caller.
-   *
-   * Compare in DISPLAY space, at the same 4 dp the field renders. A
-   * same-unit equivalent spelling ("0.0700") is already bit-identical
-   * through `fromDisplay`, but a cross-unit round trip lands on
+   * The semantic no-op guard (spec §2.4), in DISPLAY space at the same 4 dp
+   * the field renders. A same-unit equivalent spelling ("0.0700") is already
+   * bit-identical through `fromDisplay`, but a cross-unit round trip lands on
    * 0.069999…/0.070006…, and only the display-space comparison sees that as
    * unchanged. Raw string comparison is forbidden — "0.0700" and "0.07" are
    * the same value and must not stale the scenario.
+   *
+   * WF-6 correction: this comment used to say the guard lives here "not in
+   * the hook", because moving it inside would change behaviour for every
+   * caller. WF-6 did exactly that — `useDistanceDraft.commit()` now carries
+   * its own no-op guard, so all 15 call sites inherit one. This guard is
+   * therefore reached only after the hook's has already passed, and the two
+   * stack as an AND of two independent no-op detectors.
+   *
+   * It is kept because it is NOT equivalent to the hook's, despite looking
+   * like it. The hook compares `roundForFile` of two CANONICAL values (1e-4
+   * canonical); this compares `roundForFile` of two DISPLAY values, and for a
+   * rate `toDisplay` DIVIDES by the unit factor, so 1e-4 in display space is
+   * ~1.6e-4 in canonical space. This guard is strictly the coarser of the two
+   * for the rate fields and suppresses commits the hook's would let through.
+   * Deleting it would widen what counts as a change — a behaviour change, not
+   * a cleanup. (For the min-charge fields, which pass `IDENTITY_CONVERSION`,
+   * the two guards genuinely do coincide.)
    */
   function commitField(field: keyof TransportCosts, incoming: number, convert: DraftConversion) {
     if (canonicalUnit != null) {

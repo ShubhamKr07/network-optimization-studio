@@ -19,10 +19,26 @@ three behaviours came to be the default rather than the exception.
 
 | Path | On failure today |
 |---|---|
-| Run Optimizer | `toast(destructive)` + a persistent failure card + `setSolveError` |
+| Run Optimizer | ~~`toast(destructive)` + a persistent failure card + `setSolveError`~~ — **see the correction below: the toast text was a raw dump too** |
 | `DirtyNavPrompt`'s Save action | surfaced inline — **as a raw Zod dump**, see below |
 | The toolbar Save control | **nothing** — `saveWholeInputsAsync().catch(() => {})`, `Workspace.tsx:2124` |
 | Clone | no validation at all, so it cannot fail where it should |
+
+> **Correction (WF-9, measured during execution — this section was wrong about
+> the starting state).** The row above, and the "a correct toast (Run Optimizer)"
+> claim further down, both credited Run Optimizer with the one *correct* surface.
+> It was not correct. There were **three** error-message extractions in the
+> pre-branch code and **all three used `err.message`** — i.e.
+> `buildErrorMessage`'s `HTTP 422 …` prefix followed by the raw Zod body:
+> `DirtyNavPrompt.tsx:54`, `Workspace.tsx:2868` (`enqueueSolve`'s `onError`) and
+> `Workspace.tsx:2975` (the save-before-solve `onError`). Verified by reading all
+> three at the branch base `669d12a`, not inferred. Together with the six
+> `.mutate()` sites that had no `onError` at all (§4.2), the real starting state
+> was **six silent, three dumping JSON, zero correct** — so there was no working
+> surface to align the others to, and D1's "one mechanism" had to *build* the
+> correct one rather than propagate an existing one. The original claim is struck
+> rather than deleted, because "we thought one path already did this right" is the
+> reason the first draft of §4.2 scoped only four sites.
 
 **The inline path is worse than "inconsistent" — it is already broken, and this
 was found while self-reviewing this spec rather than in the original review.**
@@ -39,9 +55,10 @@ HTTP 422 Unprocessable Content: [{"code":"too_small","minimum":0,
 ```
 
 That makes three distinct failures of the same mechanism — silence (Save), a raw
-dump (DirtyNavPrompt), and a correct toast (Run Optimizer) — which is the
-strongest possible argument for D1. It also means §4.2's change to the inline
-path is a **bug fix**, not merely wording alignment.
+dump (DirtyNavPrompt), and ~~a correct toast (Run Optimizer)~~ **a third and
+fourth raw dump (`Workspace.tsx:2868`, `:2975`) — see the correction above** —
+which is the strongest possible argument for D1. It also means §4.2's change to
+the inline path is a **bug fix**, not merely wording alignment.
 
 The silence is deliberate and documented at `Workspace.tsx:2118-2121`: *"this
 path had no visible error handling before this bundle either"*. That is history,
@@ -238,6 +255,33 @@ reproduced the exact divergence this project exists to end — and `handleCloneS
 is one of them, so D4's server-side 422 would have landed on a call site that
 discards it.
 
+> **Correction (WF-9). The nine-site enumeration above was itself incomplete,
+> three separate times.** Correcting four → nine fixed the count and left the
+> *method* intact, and the method is what was wrong: the criterion is syntactic
+> (`.mutate(` call sites in `Workspace.tsx`) and the set it needed to name is
+> semantic (every path that can surface a write failure). What it missed, in the
+> order it was found:
+>
+> 1. **`handleSaveInputs` — FU-5 itself**, the single defect this project exists
+>    to fix. It is a `.catch()` *consumer* of `saveWholeInputsAsync`, not a
+>    `.mutate()` site, so the table skipped it and `mutationErrorSurface.test.ts`
+>    (which scans `.mutate(`) was **structurally incapable of seeing it**. WF-3's
+>    first commit shipped eight sites green, 2308 tests passing, with the headline
+>    bug and its "Intentionally silent" comment untouched.
+> 2. **`ImportDialog.tsx:134,238`** — a live path reachable from eight input tabs,
+>    rendering `HTTP 422 …` + the raw body on top of the clean sentence §3.2 had
+>    just built. Outside `Workspace.tsx`, so outside the grep.
+> 3. **`lib/exportEntity.ts:87`** — found only by the follow-up audit the user
+>    asked for after (2). Its pre-existing 422 test used a plain object literal
+>    where an `Error` was required, so it exercised the already-safe fallback and
+>    could never have caught it.
+>
+> The guard now also flags a `.catch(` whose body does nothing with the error, and
+> reads `DirtyNavPrompt.tsx`, `ImportDialog.tsx` and `lib/exportEntity.ts` as well
+> as `Workspace.tsx`, with a named allow-list (`OutputMapTab` ×2, `Studio.tsx` ×4)
+> rather than a loosened regex. The durable form of this lesson is in
+> `artifacts/studio/CLAUDE.md`.
+
 Every site gets `onError` routing through `describeWriteError`, with a title
 naming the action ("Couldn't save your changes", "Couldn't rename the scenario",
 "Couldn't delete the scenario", …) and the server's sentence as the description.
@@ -373,7 +417,28 @@ changed-row survives for that data. This is measured, not hypothetical:
 | local `nos_dev` | 0 | nothing to fix |
 | **production** | **1 scenario, 2 values** | scenario 40 (`p-median-us`): `6.2137119223733395` and `9.32056788356001`. Computed, not eyeballed: `10 / 1.609344` and `15 / 1.609344` reproduce both stored doubles exactly, confirming a km-sourced import rather than hand-entry |
 | production `laneCostOverrides` | 0 | — |
-| production `legDistanceOverrides` | 0 | — |
+| ~~production `legDistanceOverrides`~~ | ~~0~~ | **this key does not exist — see the correction below** |
+
+> **Correction (WF-9). `legDistanceOverrides` appears nowhere in the code, and
+> the measurement that "cleared" it was a null result misread as a benign zero.**
+> `services/import.ts`'s two `legDistances` branches read and write
+> **`distanceOverrides`** — `parseLegDistanceRows` takes
+> `currentOverrides.distanceOverrides ?? []` (`import.ts:515`), which settles it.
+> So there are **three import sites but only two stored override fields**
+> (`distanceOverrides[].distance` and `laneCostOverrides[].cost`); this section
+> and the FU-2 follow-up text both said three. The backfill's `OVERRIDE_FIELDS`
+> accordingly has **two** entries, not three, while still covering all three
+> import entities — leg distances land in `distanceOverrides` alongside ordinary
+> distances.
+>
+> The part worth keeping is *how* the row above got written. The production audit
+> ran a count over `inputs->'legDistanceOverrides'` and got `0`, and that was read
+> as "no affected rows" when the real reason was that **the key does not exist, so
+> the query could only ever return 0** — a null measurement misread as a benign
+> zero, which is the exact error class this branch spent its reviews flagging in
+> other people's work. A `0` from a query over a field name nobody verified is not
+> evidence of absence; it is evidence of nothing. The distilled rule is in root
+> `CLAUDE.md`.
 
 So completing D5 needs a **one-off backfill** rounding existing override values
 to 4 dp — two values in one row in production. Without it the fix is partial,
