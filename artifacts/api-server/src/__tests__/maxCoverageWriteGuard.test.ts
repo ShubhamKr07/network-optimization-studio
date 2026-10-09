@@ -58,6 +58,14 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     // the documented atomic field-scoped exception (preserves the epoch by
     // construction — see CH4-26's table)
     "routes/distanceBands.ts",
+    // CH4O-9 — the one-off km->mi scenario migration. Not a request-path
+    // route (no client ever reaches it), and it does not bypass the
+    // authority's invariant: `objective` is derived through the same
+    // `deriveMaxCoverageObjective` function scenarioInputWrite.ts uses, and
+    // every candidate is re-validated against `maxCoverageInputsSchema`
+    // before its UPDATE commits. Added deliberately per this test's own
+    // comment above.
+    "migrations/ch4ToMiles.ts",
   ]);
 
   it("no file outside the allow-list writes scenarios.inputs", () => {
