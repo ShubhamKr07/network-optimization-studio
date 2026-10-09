@@ -10,7 +10,7 @@
 // Postgres, real columns, real read-back. Requires a live DATABASE_URL.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
-import { db, usersTable, scenariosTable, solveJobsTable, resultCacheTable } from "@workspace/db";
+import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
 import { migrateAll, MAX_COVERAGE_MODEL_ID } from "../ch4ToMiles.js";
 
 const TEST_USER_ID = `ch4o9-migrate-all-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -24,7 +24,13 @@ afterAll(async () => {
   if (scenarioIds.length > 0) {
     await db.delete(scenariosTable).where(inArray(scenariosTable.id, scenarioIds));
   }
-  await db.delete(resultCacheTable).where(eq(resultCacheTable.modelId, MAX_COVERAGE_MODEL_ID));
+  // No result_cache teardown here: this test never inserts into that table
+  // itself (the real `migrateAll(db)` call does, as its own intentional
+  // production behaviour, deleting every max-coverage-us row -- not just
+  // this test's -- which belongs to the migration, not to this fixture's
+  // cleanup). A blanket `WHERE model_id = ...` delete here would additionally
+  // remove legitimate cache rows written by unrelated concurrent work on the
+  // shared local nos_dev, which is exactly what a narrow teardown must not do.
   await db.delete(usersTable).where(eq(usersTable.id, TEST_USER_ID));
 });
 
@@ -125,6 +131,13 @@ describe("migrateAll — real-Postgres round trip", () => {
     expect(skippedEntry).toBeDefined();
     expect(skippedEntry!.reason).toMatch(/missing required field/i);
     expect(skippedEntry!.reason).toContain("highServiceDistKm");
+
+    // The skipped row's core safety guarantee: it was never written. Proven
+    // by the control flow (`continue` on `!result.ok` precedes the
+    // `.update()` in the same loop iteration), but that proof evaporates the
+    // moment someone restructures the loop -- so read the row back for real.
+    const skippedAfter = (await db.select().from(scenariosTable).where(eq(scenariosTable.id, unmigratable!.id)))[0]!;
+    expect(skippedAfter.inputs).toEqual(unmigratableRow);
 
     // Independent SELECT off the real column — not the report's own
     // `result.inputs` (that's `migrateInputs`'s pure-function output, which

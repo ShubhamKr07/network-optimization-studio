@@ -124,10 +124,17 @@ all.
 
 ### Pre-run capture (mandatory, before step 2 below)
 
+The backup below captures all **seven** columns `migrateAll`'s `.set()`
+writes — `inputs`, `result`, `solved_at`, `result_run_id`,
+`inputs_updated_at`, `solve_input_revision`, and `updated_at`. The last of
+those, `updated_at`, is a display-only "last edited" timestamp — it is not
+read by any CAS check or by `isStale()` — captured here only so the
+restore below is complete, not because it is load-bearing.
+
 ```sql
 CREATE TABLE scenarios_ch4_km_backup AS
 SELECT id, inputs, result, solved_at, result_run_id, solve_input_revision,
-       inputs_updated_at
+       inputs_updated_at, updated_at
 FROM scenarios WHERE model_id = 'max-coverage-us';
 ```
 
@@ -149,7 +156,8 @@ UPDATE scenarios s
 SET inputs = b.inputs, result = b.result, solved_at = b.solved_at,
     result_run_id = b.result_run_id,
     solve_input_revision = b.solve_input_revision,
-    inputs_updated_at = b.inputs_updated_at
+    inputs_updated_at = b.inputs_updated_at,
+    updated_at = b.updated_at
 FROM scenarios_ch4_km_backup b
 WHERE s.id = b.id AND s.model_id = 'max-coverage-us';
 ```
