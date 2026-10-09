@@ -132,18 +132,19 @@ import { track } from "@/lib/analytics";
 
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
-    // C4.11 — Al's Athletics — Max Coverage (Chapter 4). Coverage mode by
-    // default, so avgServiceDistCapKm is present and coverageFloorDemand is
-    // absent (maxCoverageInputsSchema's discriminated superRefine). No
-    // capacity concept (capacityMode "none"); distanceBands is the D19
-    // derivation [high, max].
+    // C4.11 — Al's Athletics — Max Coverage (Chapter 4). CH4O-5 — BOTH
+    // avgServiceDistCapKm and coverageFloorDemand are unconditionally
+    // required, and `objective` is DERIVED server-side from the floor
+    // (`0` → coverage): sending one is a 422, so a default must not carry it.
+    // A zero floor is the coverage-mode default. No capacity concept
+    // (capacityMode "none").
     case "max-coverage-us":
       return {
-        objective: "coverage",
         p: 3,
         highServiceDistKm: 700,
         maxDistKm: 5500,
         avgServiceDistCapKm: 1000,
+        coverageFloorDemand: 0,
         gap: 0,
         timeLimitSec: 120,
         capacityMode: "none",
@@ -218,6 +219,28 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
   }
 }
 
+/**
+ * CH4O-5 — strips the SERVER-OWNED keys from an outbound whole-inputs body.
+ *
+ * `objective` is derived server-side from `coverageFloorDemand`, and the write
+ * routes 422 a body that merely CONTAINS the key (deliberately: a silent strip
+ * server-side would report success while ignoring a client's choice). But every
+ * persisted max-coverage-us row carries the derived value, `localInputs` is
+ * seeded from that row, and both whole-input writers (`buildWholeInputPayload`
+ * for PATCH, `handleSaveAsScenario` for CREATE-from-history) round-trip the
+ * whole blob — so without this, the FIRST save of any Chapter 4 scenario 422s.
+ * Model-scoped, because `objective` is server-owned for this model only.
+ */
+export function withoutServerOwnedInputs(
+  modelId: StudioModelType,
+  inputs: Record<string, unknown>,
+): Record<string, unknown> {
+  if (modelId !== "max-coverage-us") return inputs;
+  const { objective: _derived, ...rest } = inputs;
+  void _derived;
+  return rest;
+}
+
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
   return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
@@ -269,6 +292,14 @@ function pFromInputs(inputs: Record<string, unknown> | null): number | undefined
 
 function gapFromInputs(inputs: Record<string, unknown> | null): number {
   const raw = inputs?.gap;
+  return typeof raw === "number" ? raw : 0;
+}
+
+// CH4O-5 — max-coverage-us's coverage floor. 0 is both the real coverage-mode
+// value and the right reading of a legacy payload written before the field
+// became required, so the `gapFromInputs` fallback shape applies unchanged.
+function coverageFloorDemandFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = inputs?.coverageFloorDemand;
   return typeof raw === "number" ? raw : 0;
 }
 
@@ -2014,7 +2045,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // branch — a second whole-input writer that would otherwise persist a
   // stale `localInputs.distanceBands` over the active lens.
   function buildWholeInputPayload(): Record<string, unknown> {
-    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
+    return withoutServerOwnedInputs(modelId, { ...(localInputs ?? {}), distanceBands: activeBandLens });
   }
 
   // chen-bands-units, Task 14 Step 3/5 — the shared whole-input save,
@@ -3074,7 +3105,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // band edit on top of this historical entry's other inputs. Draft
     // rather than saved lens deliberately — the clone is a brand-new
     // scenario, so persisting an unsaved lens edit here is harmless.
-    const inputs = { ...entry.inputs, distanceBands: activeBandLens };
+    const inputs = withoutServerOwnedInputs(modelId, { ...entry.inputs, distanceBands: activeBandLens });
     createScenario.mutate(
       { data: { name, modelId, inputs } },
       {
@@ -3128,6 +3159,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined,
     avgServiceDistCapKm:
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined,
+    // CH4O-5 — the coverage floor is now a student-authored input (and the
+    // objective's discriminator), read with the same reader pattern as `gap`.
+    coverageFloorDemand: modelId === "max-coverage-us" ? coverageFloorDemandFromInputs(localInputs) : undefined,
     onServiceDistanceChange: updateChenServiceDistance,
     // ch5-del-10 (carried through the CH4UX merge) — delivery-teaching-us's
     // Adjust Cost Table fields. These live in the SHARED base object, so both

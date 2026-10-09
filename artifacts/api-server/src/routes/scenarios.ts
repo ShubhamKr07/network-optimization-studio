@@ -81,7 +81,7 @@ import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
-import { applyScenarioInputWrite, deriveServerOwnedInputs, assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
+import { applyScenarioInputWrite, deriveServerOwnedInputs, assertNoServerOwnedFields } from "../services/scenarioInputWrite.js";
 
 const router = Router();
 
@@ -208,7 +208,7 @@ router.post("/scenarios", async (req, res) => {
   // (exists but withheld).
   if (isModelLocked(body.modelId)) { respondLocked(res); return; }
   {
-    const guardError = assertNoServerOwnedStepFields(body.modelId, body.inputs);
+    const guardError = assertNoServerOwnedFields(body.modelId, body.inputs);
     if (guardError) { res.status(422).json({ error: guardError }); return; }
   }
   const validation = validateInputsForModel(body.modelId, body.inputs);
@@ -303,7 +303,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     if (!existing) { res.status(404).json({ error: "Not found" }); return; }
     if (isModelLocked(existing.modelId)) { respondLocked(res); return; }
 
-    const guardError = assertNoServerOwnedStepFields(existing.modelId, body.inputs);
+    const guardError = assertNoServerOwnedFields(existing.modelId, body.inputs);
     if (guardError) { res.status(422).json({ error: guardError }); return; }
 
     const outcome = await db.transaction(async (tx) => {

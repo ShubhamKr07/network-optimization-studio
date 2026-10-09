@@ -709,20 +709,20 @@ describe("buildPayload()", () => {
   // resolves status/exclusion/demand itself, direct-id DD-2). distanceBands
   // is already normalized to [high, max] by the schema's D19 transform
   // before it ever reaches buildPayload.
+  //
+  // CH4O-5 — `objective` is server-derived, so a fixture standing in for
+  // PERSISTED inputs legitimately carries it; both the cap and the floor are
+  // now unconditionally present.
   const maxCoverageBaseInputs = {
     objective: "coverage" as const,
     p: 3,
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
-    coverageFloorDemand: undefined,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 60,
     capacityMode: "none" as const,
-    // ch4-2s-1 — stepEpoch is required in MaxCoverageInputs' OUTPUT type
-    // (z.default() makes it optional on input, required on output); a
-    // hand-built fixture typed against that output type needs it explicit.
-    stepEpoch: 1,
     distanceBands: [600, 5000],
     warehouseOverrides: [],
     customerOverrides: [],
@@ -739,6 +739,8 @@ describe("buildPayload()", () => {
     expect(payload.highServiceDistKm).toBe(600);
     expect(payload.maxDistKm).toBe(5000);
     expect(payload.avgServiceDistCapKm).toBe(1000);
+    // CH4O-5 — both mode fields are passed unconditionally now.
+    expect(payload.coverageFloorDemand).toBe(0);
     expect(payload.gap).toBe(0);
     expect(payload.timeLimitSec).toBe(60);
   });

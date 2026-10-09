@@ -43,6 +43,6 @@
         "properties": { "fromId": { "type": "string", "minLength": 1 }, "toId": { "type": "string", "minLength": 1 }, "distance": { "type": "number", "exclusiveMinimum": 0 }, "estimated": { "type": "boolean" } },
         "required": ["fromId", "toId", "distance"] } }
     },
-    "required": ["objective", "p", "highServiceDistKm", "maxDistKm", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
+    "required": ["p", "highServiceDistKm", "maxDistKm", "avgServiceDistCapKm", "coverageFloorDemand", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
   }
 }

@@ -23,6 +23,9 @@ export const maxCoverageInputs = {
   highServiceDistKm: 200,
   maxDistKm: 400,
   avgServiceDistCapKm: 300,
+  // CH4O-5 — a zero floor IS coverage mode, and every persisted row now
+  // carries both the floor and the server-derived `objective`.
+  coverageFloorDemand: 0,
 };
 
 export function ch4Scenario(over: { id?: number; name?: string; result?: unknown; stale?: boolean } = {}) {

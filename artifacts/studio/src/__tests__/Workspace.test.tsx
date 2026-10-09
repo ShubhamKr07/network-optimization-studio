@@ -2583,15 +2583,17 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
 
 // C4.11 — defaultInputsForModel's max-coverage-us branch. This is
 // the concrete new-scenario default POSTed by handleCreateConfirm; it must
-// match maxCoverageInputsSchema's contract (coverage mode present, min-distance
-// field absent, high < max, distanceBands == [high, max], no capacity).
+// match maxCoverageInputsSchema's contract (BOTH mode fields present, high <
+// max, no capacity) and must NOT carry `objective` — CH4O-5 makes that field
+// server-derived and the write routes 422 a body that sends one, so shipping it
+// in the default would make every new Chapter 4 scenario un-creatable.
 describe("defaultInputsForModel — max-coverage-us", () => {
   const d = defaultInputsForModel("max-coverage-us");
 
-  it("uses coverage mode with avgServiceDistCapKm present and coverageFloorDemand absent", () => {
-    expect(d.objective).toBe("coverage");
+  it("carries both unconditionally-required mode fields and NO client-sent objective", () => {
     expect(d.avgServiceDistCapKm).toBe(1000);
-    expect(d.coverageFloorDemand).toBeUndefined();
+    expect(d.coverageFloorDemand).toBe(0);
+    expect(Object.prototype.hasOwnProperty.call(d, "objective")).toBe(false);
   });
 
   it("locks gap:0 / timeLimitSec:120 like every other model's default", () => {
@@ -2660,6 +2662,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -2691,12 +2694,11 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
   }
 
-  // CH4-17 — no toggle exists any more: `chen-objective-min_distance`/
-  // `chen-objective-coverage` are gone, and there is no client path that
-  // can write `coverageFloorDemand` or `objective: "min_distance"` into
-  // `localInputs`. The seeded scenario stays in coverage mode; the field
-  // that persists is exactly the field already there.
-  it("shows the avg-service-cap field only (no toggle, no floor field) and persists objective: coverage unchanged on save", () => {
+  // CH4-17 — no objective toggle exists any more. CH4O-5 — and the save
+  // payload must not carry the derived `objective` at all: the write route
+  // 422s a body containing it, while every persisted row (and therefore
+  // `localInputs`) does carry it, so `buildWholeInputPayload` strips it.
+  it("shows the avg-service-cap field only (no toggle) and strips the derived objective from the save payload", () => {
     renderChen();
     openParamsTab();
 
@@ -2716,8 +2718,8 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1200 });
-    expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
+    expect(args.data.inputs).toMatchObject({ avgServiceDistCapKm: 1200, coverageFloorDemand: 0 });
+    expect(args.data.inputs).not.toHaveProperty("objective");
   });
 
   // chen-bands-units — superseded (was "... resyncs distanceBands to
@@ -2888,6 +2890,7 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -3083,6 +3086,7 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -3142,18 +3146,21 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   });
 });
 
-// CH4-17 — no client path can author `coverageFloorDemand` or
-// `objective: "min_distance"` any more; the write-route guard (Task 3) 422s
-// either key present in a PATCH body. This is the save-path regression test
-// for that removal, self-contained (own fixture + helper) rather than
-// reaching into the "Chen inputs UI" describe block's locals above.
-describe("CH4-17 — no client-side floor authoring survives", () => {
+// CH4O-5 — the guard INVERTED: `coverageFloorDemand` is now student-authored
+// and must round-trip, while `objective` is server-derived and the write route
+// 422s any body containing it. Every persisted row carries the derived
+// `objective`, and `localInputs` is seeded straight from that row, so the save
+// path has to strip it — without that, the first save of ANY Chapter 4
+// scenario fails. Self-contained (own fixture + helper) rather than reaching
+// into the "Chen inputs UI" describe block's locals above.
+describe("CH4O-5 — the derived objective never leaves the client", () => {
   const coverageInputs = {
     objective: "coverage",
     p: 3,
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",
@@ -3196,10 +3203,10 @@ describe("CH4-17 — no client-side floor authoring survives", () => {
     return args.data as { inputs: Record<string, unknown> };
   }
 
-  it("never sends coverageFloorDemand or objective min_distance in a PATCH", async () => {
+  it("strips the derived objective from a PATCH while round-tripping the floor", async () => {
     const patched = await saveMaxCoverageScenarioAndCaptureBody();
-    expect("coverageFloorDemand" in patched.inputs).toBe(false);
-    expect(patched.inputs.objective).toBe("coverage");
+    expect("objective" in patched.inputs).toBe(false);
+    expect(patched.inputs.coverageFloorDemand).toBe(0);
   });
 });
 

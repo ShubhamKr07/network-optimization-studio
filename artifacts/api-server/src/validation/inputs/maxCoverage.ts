@@ -2,11 +2,15 @@ import { z } from "zod";
 
 // C4.6 — Al's Athletics — Max Coverage (`max-coverage-us`, Chapter 4) scenario
 // `inputs` validator. A US single-echelon warehouse->customer service-level
-// model with TWO coupled objectives behind one `objective` mode toggle:
-//   - "coverage"      maximize demand within highServiceDistKm, subject to a
-//                     weighted-average service-distance cap (avgServiceDistCapKm).
-//   - "min_distance"  minimize total demand-weighted distance, subject to a
-//                     demand-coverage floor (coverageFloorDemand).
+// model with TWO coupled objectives, selected by the COVERAGE FLOOR rather
+// than by any client-settable mode field (CH4O-5, §2.3):
+//   - floor == 0  ->  "coverage"      maximize demand within highServiceDistKm.
+//   - floor  > 0  ->  "min_distance"  minimize total demand-weighted distance,
+//                     subject to that demand-coverage floor.
+// The weighted-average service-distance cap (avgServiceDistCapKm) is a
+// constraint in BOTH modes (§2.4), so both it and the floor are now
+// UNCONDITIONALLY required, and `objective` is server-derived
+// (services/scenarioInputWrite.ts) — never client-authored.
 //
 // Mirrors the scenario-local-edit shape every other model already speaks
 // (warehouseOverrides / customerOverrides / addedWarehouses / addedCustomers /
@@ -93,50 +97,28 @@ const distanceBandsSchema = z
     message: "distanceBands must be strictly ascending and unique",
   });
 
-// CH4-6 — Step 2 owns exactly two parameters. `p`, `highServiceDistKm` and
-// `maxDistKm` are INHERITED from Step 1 (inheriting highServiceDistKm is
-// load-bearing: the floor must constrain demand within the same radius that
-// produced it), and `avgServiceDistCapKm` does not exist in min-distance mode.
-//
-// `.strict()` here is a DELIBERATE local exception to this repo's
-// non-strict convention (pMedian.ts:18, jadeInputs.ts:6, twoEchelon.ts:30,
-// transportLp.ts:6). That convention exists so an OLD payload missing a key
-// still validates; `step2` is new, so there is no legacy shape to be lenient
-// toward, and CH4-6 requires the inherited fields to be REJECTED rather than
-// silently stripped — a strip would accept a Step 2 payload that looks like
-// it re-parameterized the network and quietly ignore it.
-const step2ParamsSchema = z
-  .object({
-    gap: z.number().min(0),
-    timeLimitSec: z.number().int().min(1),
-  })
-  .strict();
-
 export const maxCoverageInputsSchema = z
   .object({
-    objective: z.enum(["coverage", "min_distance"]),
+    // CH4O-5 — DERIVED, never client-authored: the write routes refuse a
+    // client-sent `objective` outright (assertNoServerOwnedFields) and
+    // recompute it from `coverageFloorDemand`. Declared optional here so the
+    // server's own derived value round-trips through this validator instead
+    // of being stripped on the next read/write.
+    objective: z.enum(["coverage", "min_distance"]).optional(),
     p: z.number().int().min(1).max(26),
     // RAW km thresholds. The cross-field `highServiceDistKm < maxDistKm`
     // invariant (a solver-parameter constraint, independent of
     // `distanceBands`) is enforced in `.superRefine` below.
     highServiceDistKm: z.number().positive(),
     maxDistKm: z.number().positive(),
-    // Objective-discriminated: required iff coverage (superRefine below).
-    avgServiceDistCapKm: z.number().positive().optional(),
-    // Objective-discriminated: required iff min_distance (superRefine below).
+    // Both unconditionally required now: the cap binds in BOTH objectives
+    // (§2.4), and the floor is the mode discriminator (§2.3), so neither can be
+    // absent. The two objective-discriminated superRefine branches are gone.
+    avgServiceDistCapKm: z.number().positive(),
     // Integer demand domain (D30).
-    coverageFloorDemand: z.number().int().nonnegative().optional(),
+    coverageFloorDemand: z.number().int().nonnegative(),
     gap: z.number().min(0),
     timeLimitSec: z.number().int().min(1),
-    // CH4-7/CH4-23 — the step-validity marker. SERVER-AUTHORITATIVE: declared
-    // here so it round-trips instead of being stripped, but every write route
-    // discards whatever the client sent and recomputes it from the persisted
-    // row (services/scenarioInputWrite.ts). Declaring it without that guard
-    // would let a client submit an OLD epoch and resurrect a superseded job.
-    // Defaults to 1 so a payload written before this contract reads as epoch 1.
-    stepEpoch: z.number().int().min(1).default(1),
-    // Absent until Step 2 is first touched.
-    step2: step2ParamsSchema.optional(),
     // max-coverage-us has no capacity concept — persisted as "none"
     // (defaulted so an omitting client still stores it explicitly).
     capacityMode: z.literal("none").default("none"),
@@ -175,20 +157,6 @@ export const maxCoverageInputsSchema = z
         code: z.ZodIssueCode.custom,
         message: "highServiceDistKm must be less than maxDistKm",
         path: ["highServiceDistKm"],
-      });
-    }
-    if (v.objective === "coverage" && v.avgServiceDistCapKm == null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "avgServiceDistCapKm is required when objective is coverage",
-        path: ["avgServiceDistCapKm"],
-      });
-    }
-    if (v.objective === "min_distance" && v.coverageFloorDemand == null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "coverageFloorDemand is required when objective is min_distance",
-        path: ["coverageFloorDemand"],
       });
     }
   })

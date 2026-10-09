@@ -1421,19 +1421,18 @@ const MAX_COVERAGE_DATASET_FAKE: MaxCoveragePrecheckDataset = {
   },
 };
 
+// CH4O-5 — a ZERO floor is coverage mode (§2.3); the cap is required in both
+// modes (§2.4). `objective` is server-derived and deliberately absent here:
+// precheck must never read it.
 const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
-  objective: "coverage",
   p: 2,
   highServiceDistKm: 500,
   maxDistKm: 1000,
   avgServiceDistCapKm: 400,
+  coverageFloorDemand: 0,
   gap: 0.01,
   timeLimitSec: 60,
   capacityMode: "none",
-  // ch4-2s-1 — stepEpoch is required in MaxCoverageInputs' OUTPUT type
-  // (z.default() makes it optional on input, required on output); a
-  // hand-built fixture typed against that output type needs it explicit.
-  stepEpoch: 1,
   distanceBands: [500, 1000],
   warehouseOverrides: [],
   customerOverrides: [],
@@ -1442,10 +1441,10 @@ const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   distanceOverrides: [],
 };
 
+// A POSITIVE floor is what makes this min-distance mode — the cap is carried
+// over from the base because it binds here too.
 const MAX_COVERAGE_BASE_MIN_DISTANCE: MaxCoverageInputs = {
   ...MAX_COVERAGE_BASE_COVERAGE,
-  objective: "min_distance",
-  avgServiceDistCapKm: undefined,
   coverageFloorDemand: 100,
 };
 
@@ -1566,7 +1565,7 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     });
   });
 
-  describe("coverage_floor_infeasible (min_distance only, highServiceDistKm, MIG-6: raw km, no circuity)", () => {
+  describe("coverage_floor_infeasible (positive floor only, highServiceDistKm, MIG-6: raw km, no circuity)", () => {
     it("fires when excluding a customer drops coverable demand below coverageFloorDemand", () => {
       // Baseline coverable = 600 (all three within highServiceDistKm, raw).
       // Floor 350 is fine at baseline; excluding C-3 (demand 300) drops
@@ -1592,31 +1591,29 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
       expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
     });
 
-    it("does NOT fire in coverage mode (coverageFloorDemand absent)", () => {
+    it("does NOT fire on a ZERO floor (coverage mode) however small coverable demand gets", () => {
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
         customerOverrides: [{ id: "C-3", status: "excluded" }],
       };
-      // Excluding C-3 in coverage mode is fine — no coverage floor to violate,
-      // C-1/C-2 still have demand and routes.
+      // Excluding C-3 with a zero floor is fine — 0 can never exceed coverable
+      // demand, and C-1/C-2 still have demand and routes.
       expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
     });
 
-    it("does NOT fire in coverage mode even carrying a residual coverageFloorDemand that would exceed the coverable-demand upper bound", () => {
-      // D18/C4.8: coverage_floor_infeasible only applies in min_distance mode
-      // — coverage mode enforces the avg-distance cap instead, never the
-      // coverage floor. A coverage-mode scenario can carry a residual
-      // coverageFloorDemand (authorable via a direct API PATCH; the UI's
-      // clear-other-field prevents it normally) without being falsely
-      // 422-blocked against a constraint that never runs in this mode.
-      // Baseline coverable demand at highServiceDistKm 500 (raw) is
-      // 100+200+300=600 (all three customers coverable by some warehouse) —
-      // 999999 would exceed it by a wide margin if the check ran.
-      const inputs: MaxCoverageInputs = {
+    it("fires on a positive floor even when a STALE objective: coverage is carried alongside it", () => {
+      // CH4O-5 — the rule no longer gates on `objective`, because `objective`
+      // is DERIVED from this very field: gating on it would make the rule
+      // depend on its own output, and a persisted row written before the
+      // derivation landed can carry an `objective` that disagrees with its
+      // floor. Baseline coverable demand at highServiceDistKm 500 (raw) is
+      // 100+200+300=600, so 999999 exceeds it by a wide margin.
+      const inputs = {
         ...MAX_COVERAGE_BASE_COVERAGE,
+        objective: "coverage" as const,
         coverageFloorDemand: 999999,
-      };
-      expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+      } as MaxCoverageInputs;
+      expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
     });
   });
 

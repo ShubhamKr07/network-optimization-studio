@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { resolve, relative, sep, join } from "path";
-import { assertNoServerOwnedStepFields } from "../services/scenarioInputWrite.js";
+import { assertNoServerOwnedFields } from "../services/scenarioInputWrite.js";
 
 // R9 — plain recursive walk; no new dependency, and deliberately defined in
 // this file rather than imported, so the guard cannot be weakened by editing
@@ -15,31 +15,29 @@ function* walkTsFiles(dir: string): Generator<string> {
   }
 }
 
-describe("CH4-24/CH4-25 — the write-route narrowing guard", () => {
-  it("rejects objective min_distance for max-coverage-us", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "min_distance" })).toBeTruthy();
+describe("assertNoServerOwnedFields — the guard inverts", () => {
+  it("ACCEPTS a client-supplied coverageFloorDemand (now user-authored)", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 1000 })).toBeNull();
+    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 0, p: 3 })).toBeNull();
   });
 
-  it("rejects a coverageFloorDemand key at all — present, even when null", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: 1 })).toBeTruthy();
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: null })).toBeTruthy();
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", coverageFloorDemand: undefined })).toBeTruthy();
+  it("REFUSES a client-supplied objective", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "coverage" })).toMatch(/objective/);
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "min_distance" })).toMatch(/objective/);
   });
 
-  it("accepts an ordinary coverage payload", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", p: 3 })).toBeNull();
+  it("refuses objective when present even as null — `in`, not truthiness", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: null })).toMatch(/objective/);
+    expect(assertNoServerOwnedFields("max-coverage-us", { objective: undefined })).toMatch(/objective/);
   });
 
-  // stepEpoch is treated differently ON PURPOSE: stripped and overwritten by
-  // CH4-23, not rejected, because a client legitimately round-trips the whole
-  // inputs blob and would otherwise be unable to save anything. A floor has no
-  // such excuse — no well-behaved client ever sends one.
-  it("accepts a client-supplied stepEpoch rather than rejecting it", () => {
-    expect(assertNoServerOwnedStepFields("max-coverage-us", { objective: "coverage", stepEpoch: 9 })).toBeNull();
+  it("ignores every other model", () => {
+    expect(assertNoServerOwnedFields("p-median-us", { objective: "coverage" })).toBeNull();
   });
 
-  it("never constrains another model", () => {
-    expect(assertNoServerOwnedStepFields("p-median-us", { objective: "min_distance", coverageFloorDemand: 5 })).toBeNull();
+  it("ignores a non-object body rather than throwing", () => {
+    expect(assertNoServerOwnedFields("max-coverage-us", null)).toBeNull();
+    expect(assertNoServerOwnedFields("max-coverage-us", "nope")).toBeNull();
   });
 });
 

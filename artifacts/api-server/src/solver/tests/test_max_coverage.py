@@ -39,7 +39,15 @@ def run(payload):
     return json.loads(r.stdout)
 
 
+# CH4O-5 -- `avgServiceDistCapKm` and `coverageFloorDemand` are BOTH
+# unconditionally required (the cap binds in both objectives; the floor IS the
+# mode discriminator), and `objective` is never an input: solve_max_coverage
+# derives the mode locally from the floor. BASE is therefore the coverage case
+# (floor 0); the only tests that spread an `objective` in are
+# TestModeDerivedFromFloor's, which send a DELIBERATELY WRONG one to prove it
+# is ignored.
 BASE = {"modelType": "max_coverage_us", "p": 3, "highServiceDistKm": 700, "maxDistKm": 5500,
+        "avgServiceDistCapKm": 1000, "coverageFloorDemand": 0,
         "gap": 0.0, "timeLimitSec": 60, "warehouseOverrides": [], "customerOverrides": [],
         "addedWarehouses": [], "addedCustomers": [], "distanceOverrides": []}
 
@@ -53,7 +61,7 @@ def _assert_coverage_fields(r):                                      # D22 4-dp 
 
 
 def test_coverage_golden():
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000})
+    r = run(BASE)
     assert r["status"] == "optimal"
     assert r["details"]["coveredDemand"] == 53385024
     assert r["details"]["coveragePct"] == pytest.approx(68.4192, abs=1e-3)
@@ -69,7 +77,7 @@ def test_coverage_golden():
 
 
 def test_min_distance_golden():
-    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 53385024})
+    r = run({**BASE, "coverageFloorDemand": 53385024})
     assert r["status"] == "optimal"
     assert r["objective"] == pytest.approx(48714263031.75, abs=0.05)
     assert r["metrics"]["weightedAvgDistance"] == pytest.approx(624.33, abs=0.05)
@@ -78,14 +86,14 @@ def test_min_distance_golden():
 
 
 def test_floor_infeasible():
-    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 500100100})
+    r = run({**BASE, "coverageFloorDemand": 500100100})
     assert r["status"] == "infeasible"
 
 
 def test_edge_flow_is_integer_demand():
     # D30: demand is the integer domain -- edge flow is the exact integer
     # customer demand, and coveredDemand is an exact integer sum.
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000})
+    r = run(BASE)
     assert all(isinstance(e["flow"], int) for e in r["edges"])
     assert isinstance(r["details"]["coveredDemand"], int)
 
@@ -96,8 +104,7 @@ def test_forced_open_zero_demand_added_wh():
     # -- proves forced-open resolution AND that an added warehouse is openable.
     added = {"id": "wh-999", "displayCode": "NEW", "city": "Nowhere", "state": "",
              "lat": 35.0, "lng": 100.0, "status": "forced_open"}
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000, "p": 4,
-             "addedWarehouses": [added]})
+    r = run({**BASE, "p": 4, "addedWarehouses": [added]})
     assert r["status"] == "optimal"
     assert "wh-999" in r["details"]["openWarehouseIds"]
     assert "wh-999" in r["metrics"]["openFacilityIds"]
@@ -106,16 +113,14 @@ def test_forced_open_zero_demand_added_wh():
 
 def test_inactive_wh_absent():
     # A normally-open warehouse marked inactive is never opened.
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000,
-             "warehouseOverrides": [{"id": "DAL", "status": "inactive"}]})
+    r = run({**BASE, "warehouseOverrides": [{"id": "DAL", "status": "inactive"}]})
     assert r["status"] == "optimal"
     assert "DAL" not in r["details"]["openWarehouseIds"]
     assert not any(e["fromId"] == "DAL" for e in r["edges"])
 
 
 def test_excluded_customer_absent():
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000,
-             "customerOverrides": [{"id": "C1", "status": "excluded"}]})
+    r = run({**BASE, "customerOverrides": [{"id": "C1", "status": "excluded"}]})
     assert r["status"] == "optimal"
     assert not any(e["toId"] == "C1" for e in r["edges"])
     assert len(r["edges"]) == 199                                    # one fewer active customer
@@ -125,13 +130,13 @@ def test_customer_demand_override_changes_covered():
     # Overriding a covered customer's demand upward increases coveredDemand
     # (integer demand override folded into the merged customers dict).
     forced = [{"id": w, "status": "forced_open"} for w in ("DAL", "LA", "PIT")]
-    base = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 100000,
+    base = run({**BASE, "avgServiceDistCapKm": 100000,
                 "warehouseOverrides": forced})
     covered0 = base["details"]["coveredDemand"]
     served = next(e for e in base["edges"] if e["distance"] <= 700)   # a high-service (covered) customer
     cid = served["toId"]
     orig = next(e["flow"] for e in base["edges"] if e["toId"] == cid)
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 100000,
+    r = run({**BASE, "avgServiceDistCapKm": 100000,
              "warehouseOverrides": forced,
              "customerOverrides": [{"id": cid, "status": "active", "demand": orig + 1000000}]})
     assert r["status"] == "optimal"
@@ -142,12 +147,17 @@ def test_distance_override_changes_assignment():
     # With the open set pinned via forced-open, making an assigned pair cheaper
     # keeps it assigned but changes the reported edge distance. MIG-6: the
     # override's raw value survives UNMODIFIED (no circuity factor).
+    # CH4O-5 -- floor 1, not 0: a ZERO floor now derives COVERAGE mode, whose
+    # objective does not minimise distance, so the "cheapest stays assigned"
+    # assertion below would no longer be testing anything. 1 is slack against
+    # the ~53M demand any feasible assignment covers, so the problem solved is
+    # the same unconstrained min-distance one this test has always used.
     forced = [{"id": w, "status": "forced_open"} for w in ("DAL", "LA", "PIT")]
-    base = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 0,
+    base = run({**BASE, "coverageFloorDemand": 1,
                 "warehouseOverrides": forced})
     e0 = next(e for e in base["edges"] if e["toId"] == "C1")
     w0 = e0["fromId"]
-    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 0,
+    r = run({**BASE, "coverageFloorDemand": 1,
              "warehouseOverrides": forced,
              "distanceOverrides": [{"fromId": w0, "toId": "C1", "distance": 10}]})
     assert r["status"] == "optimal"
@@ -160,8 +170,7 @@ def test_distance_override_changes_assignment():
 def test_all_excluded_infeasible():
     # Zero effective demand -> infeasible (before any solver run).
     excl = [{"id": cid, "status": "excluded"} for cid in ALL_CUSTOMER_IDS]
-    r = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000,
-             "customerOverrides": excl})
+    r = run({**BASE, "customerOverrides": excl})
     assert r["status"] == "infeasible"
     assert "zero" in (r["infeasibilityReason"] or "").lower()
 
@@ -200,9 +209,9 @@ def test_max_coverage_load_failure_is_contained():
 
         # (1) max-coverage-us returns a schema-valid error envelope, not a crash.
         mc = solve.solve({
-            "modelType": "max_coverage_us", "objective": "coverage", "p": 3,
+            "modelType": "max_coverage_us", "p": 3,
             "highServiceDistKm": 700, "maxDistKm": 5500, "avgServiceDistCapKm": 1000,
-            "gap": 0.0, "timeLimitSec": 60,
+            "coverageFloorDemand": 0, "gap": 0.0, "timeLimitSec": 60,
         })
         _assert_envelope_shape(mc)
         assert mc["status"] == "error"
@@ -228,17 +237,23 @@ def test_max_coverage_load_failure_is_contained():
 MI2KM = 1.609344
 
 
-def test_floor_zero_equals_pmedian():
-    """MIG-11 -- min-distance with coverageFloorDemand=0 IS the p-median
+def test_slack_floor_equals_pmedian():
+    """MIG-11 -- min-distance with a SLACK coverage floor IS the p-median
     problem: same objective, same p, coverage constraint slack. The two
     reach it through different code and different dataset handling, so a
     mangled distance conversion breaks the equality.
+
+    CH4O-5 -- the floor is 1, not 0: a zero floor now derives COVERAGE mode,
+    so the p-median equivalence is only reachable at the smallest positive
+    floor. 1 is slack against the tens of millions of demand any feasible
+    assignment covers, and the loose 100000 km cap cannot bind either, so the
+    problem solved here is identical to the old floor-0 min-distance one.
 
     The assertion is unit-aware: Chapter 4 is km-canonical and Chapter 3 is
     mile-canonical, so the objectives differ by exactly 1.609344. Measured
     2026-09-27: relative difference 9.8e-15, so 1e-9 is ample.
     """
-    mc = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 0})
+    mc = run({**BASE, "coverageFloorDemand": 1, "avgServiceDistCapKm": 100000})
     pm = run({"modelType": "p_median", "pValue": 3, "distanceBands": [200, 400, 800, 1600],
               "capacityMode": "none", "uniformCapacity": None, "warehouseStatuses": [],
               "gap": 0.0, "timeLimitSec": 120, "singleSource": False,
@@ -254,27 +269,61 @@ def test_floor_zero_equals_pmedian():
     assert mc["objective"] / MI2KM == pytest.approx(pm["objective"], rel=1e-9)
 
 
-def test_step2_is_always_feasible():
-    """Step 1's own solution satisfies Step 2's constraints by construction:
-    same p, same maxDistKm, no average-distance cap, and a floor equal to the
-    coverage Step 1 actually achieved. An infeasible Step 2 is a defect.
+def test_min_distance_at_achieved_coverage_is_always_feasible():
+    """The coverage solution satisfies the min-distance model's constraints by
+    construction: same p, same maxDistKm, the SAME average-distance cap (CH4O-5
+    -- it now binds in both modes), and a floor equal to the coverage the
+    maximisation actually achieved. An infeasible result here is a defect.
 
-    Deviation from the task brief (hard rule #8): the brief's snippet reads
-    `step1 = run(BASE)`, but this file's `BASE` dict (unlike the brief's
-    apparent assumption) carries no default `objective` key -- every other
-    test in this file always spreads one in explicitly, and calling
-    solve.py with no `objective` at all raises an uncaught KeyError inside
-    solve_max_coverage (`mode = inp["objective"]`), which the process
-    boundary degrades to a bare `{failureReason, failureStage}` message with
-    no `details` key. That is a real "run(BASE) alone is underspecified"
-    gap in the brief, not a solver defect, so the smallest correct fix is to
-    spell out Step 1 as the "coverage" objective explicitly -- identical to
-    `test_coverage_golden`'s payload -- which is also the only reading that
-    reproduces the brief's own expected numbers (635.13 -> 624.33 km).
+    CH4O-5 -- both runs are plain `BASE` spreads now: the mode is derived from
+    the floor, so the only difference between them IS the floor.
     """
-    step1 = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000})
+    step1 = run(BASE)
     floor = step1["details"]["coveredDemand"]
-    step2 = run({**BASE, "objective": "min_distance", "coverageFloorDemand": floor})
+    step2 = run({**BASE, "coverageFloorDemand": floor})
     assert step2["status"] == "optimal"
     assert step2["details"]["coveredDemand"] >= floor
     assert step2["metrics"]["weightedAvgDistance"] <= step1["metrics"]["weightedAvgDistance"]
+
+
+class TestCapBindsInBothModes:
+    """The average-distance cap is a constraint in min_distance mode too.
+
+    A loose cap must leave the known min-distance optimum untouched -- its own
+    weighted average is 624.33 km, so a 1000 km cap cannot bind. That is the
+    sanity check distinguishing a real modelling error from an expected change.
+    """
+
+    def test_loose_cap_leaves_min_distance_optimum_unchanged(self):
+        r = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": 1000})
+        assert r["status"] == "optimal"
+        assert r["metrics"]["weightedAvgDistance"] == pytest.approx(624.33, abs=0.05)
+        assert set(r["details"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
+
+    def test_tight_cap_changes_the_min_distance_solution(self):
+        loose = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": 1000})
+        tight_cap = loose["metrics"]["weightedAvgDistance"] - 20
+        r = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": tight_cap})
+        if r["status"] == "optimal":
+            assert r["metrics"]["weightedAvgDistance"] <= tight_cap + 0.01
+        else:
+            assert r["status"] == "infeasible"
+
+    def test_cap_below_any_feasible_average_is_infeasible(self):
+        r = run({**BASE, "coverageFloorDemand": 53385024, "avgServiceDistCapKm": 1.0})
+        assert r["status"] == "infeasible"
+
+
+class TestModeDerivedFromFloor:
+    """`details.objective` reports what RAN, derived from the floor locally --
+    never forwarded from inp["objective"]. If the echo forwarded the input while
+    the math branched on the floor, a mismatch would label the envelope one model
+    and compute the other, invisibly."""
+
+    def test_zero_floor_runs_coverage(self):
+        r = run({**BASE, "coverageFloorDemand": 0, "objective": "min_distance"})
+        assert r["details"]["objective"] == "coverage"
+
+    def test_positive_floor_runs_min_distance(self):
+        r = run({**BASE, "coverageFloorDemand": 53385024, "objective": "coverage"})
+        assert r["details"]["objective"] == "min_distance"

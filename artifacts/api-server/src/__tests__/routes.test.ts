@@ -273,11 +273,11 @@ const jadeRow = {
 // this fixture proves the schema no longer treats a third boundary as a
 // stale value to overwrite back to [high, max].
 const maxCoverageInputs = {
-  objective: "coverage",
   p: 3,
   highServiceDistKm: 600,
   maxDistKm: 5000,
   avgServiceDistCapKm: 1000,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 60,
   capacityMode: "none",
@@ -1211,6 +1211,95 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "Max Coverage Invalid", modelId: "max-coverage-us", inputs: invalid });
     expect(res.status).toBe(422);
+  });
+});
+
+// CH4O-5 — the derived objective reaches all three write paths. `objective` is
+// server-owned: the routes 422 a body that carries it, and every persist path
+// recomputes it from `coverageFloorDemand` (0 -> coverage, > 0 -> min_distance)
+// AFTER validation. Asserted on what the route actually hands the DB (the
+// insert/update args), since this file's `db` is mocked and the response body
+// is whatever the mocked chain was told to return.
+describe("CH4O-5 — the derived objective reaches all three write paths", () => {
+  function insertedInputs(chain: ReturnType<typeof makeChain>): Record<string, unknown> {
+    const args = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    return args.inputs;
+  }
+
+  it("persists a derived objective on CREATE without the client sending one", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 coverage", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, coverageFloorDemand: 0 } });
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("coverage");
+  });
+
+  it("persists a derived objective on CREATE for a positive floor", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 mindist", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("min_distance");
+  });
+
+  it("422s a CREATE that sends objective itself", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 forbidden", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, objective: "coverage" } });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/objective/);
+  });
+
+  it("422s a CREATE whose inputs omit coverageFloorDemand", async () => {
+    const cookie = await loginAs(OWNER);
+    const { coverageFloorDemand: _omit, ...withoutFloor } = maxCoverageInputs;
+    void _omit;
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4 no floor", modelId: "max-coverage-us", inputs: withoutFloor });
+    expect(res.status).toBe(422);
+  });
+
+  it("persists a derived objective on CLONE", async () => {
+    const cookie = await loginAs(OWNER);
+    // The SOURCE row's own persisted floor is what the clone re-derives from.
+    mockDb.select.mockReturnValue(makeChain([
+      { ...maxCoverageRow, inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } },
+    ]));
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/13/clone").set("Cookie", cookie).send({});
+    expect(res.status).toBe(201);
+    expect(insertedInputs(chain).objective).toBe("min_distance");
+  });
+
+  it("re-derives on UPDATE when the floor changes", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));   // persisted floor 0
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
+      .send({ inputs: { ...maxCoverageInputs, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: Record<string, unknown>;
+    };
+    expect(setArgs.inputs.objective).toBe("min_distance");
+    expect(setArgs.inputs.coverageFloorDemand).toBe(500);
+  });
+
+  it("422s a PATCH that sends objective itself", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
+      .send({ inputs: { ...maxCoverageInputs, objective: "min_distance" } });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/objective/);
   });
 });
 

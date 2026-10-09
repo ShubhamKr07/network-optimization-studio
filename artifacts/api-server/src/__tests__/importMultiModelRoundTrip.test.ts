@@ -189,11 +189,11 @@ const jadeRow = {
 // describe block below for the assertions that actually pin dataset
 // identity.
 const maxCoverageInputs = {
-  objective: "coverage",
   p: 3,
   highServiceDistKm: 600,
   maxDistKm: 5000,
   avgServiceDistCapKm: 1000,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 120,
   capacityMode: "none",
@@ -551,8 +551,8 @@ describe("max-coverage-us — distanceBands preserved verbatim on every write pa
     mockDb.insert.mockReturnValue(chain);
     // A minimal-but-valid coverage input with no override/added/distance arrays.
     const minimalInputs = {
-      objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
-      avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 120,
+      p: 3, highServiceDistKm: 600, maxDistKm: 5000,
+      avgServiceDistCapKm: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 120,
     };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "Max Coverage Minimal", modelId: "max-coverage-us", inputs: minimalInputs });

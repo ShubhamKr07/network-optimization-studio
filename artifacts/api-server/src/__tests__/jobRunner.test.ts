@@ -312,8 +312,8 @@ describe("jobRunner", () => {
     const maxCoverageInput = {
       modelId: "max-coverage-us",
       inputs: {
-        objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 1000,
-        avgServiceDistCapKm: 800, gap: 0, timeLimitSec: 1,
+        p: 3, highServiceDistKm: 600, maxDistKm: 1000,
+        avgServiceDistCapKm: 800, coverageFloorDemand: 0, gap: 0, timeLimitSec: 1,
       },
     } as unknown as SolveInput;
     await enqueueSolveJob(1, "user-1", maxCoverageInput);

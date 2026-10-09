@@ -124,8 +124,17 @@ export interface OptimizationParametersTabProps {
    * generic `onChange`. */
   highServiceDistKm?: number;
   maxDistKm?: number;
-  /** Coverage-mode-only cap (present when `objective === "coverage"`). */
+  /** CH4O-5 — the weighted-average service-distance cap. No longer
+   * coverage-mode-only: it is a constraint in BOTH objectives (§2.4) and is
+   * unconditionally required on `inputs`. */
   avgServiceDistCapKm?: number;
+  /** CH4O-5 — the demand-coverage floor, now a student-authored input and the
+   * discriminator the server derives `objective` from (0 -> coverage, > 0 ->
+   * min_distance, §2.3). Plumbed through from `localInputs` here; the input
+   * control that renders it is Task 7's, so this value has no render site yet
+   * — the two land independently on purpose, because the write/derive contract
+   * (this task) must be correct before any UI can author the field. */
+  coverageFloorDemand?: number;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */
   onServiceDistanceChange?: (field: "highServiceDistKm" | "maxDistKm", value: number) => void;

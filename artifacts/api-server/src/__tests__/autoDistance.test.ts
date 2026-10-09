@@ -876,15 +876,16 @@ const MAX_COVERAGE_TEST_DATASET = {
   ],
 };
 
-// A full, valid max-coverage-us `inputs` (coverage mode) — the estimator
-// reparses through maxCoverageInputsSchema, so every required objective/threshold field
-// must be present or the parse throws.
+// A full, valid max-coverage-us `inputs` (zero floor == coverage mode) — the
+// estimator reparses through maxCoverageInputsSchema, so every required
+// threshold field must be present or the parse throws. CH4O-5: the cap and the
+// floor are BOTH unconditionally required now.
 const MAX_COVERAGE_BASE_INPUTS = {
-  objective: "coverage" as const,
   p: 2,
   highServiceDistKm: 600,
   maxDistKm: 5000,
   avgServiceDistCapKm: 1000,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 60,
   capacityMode: "none" as const,
@@ -978,19 +979,19 @@ describe("fillEstimatedMaxCoverageDistances (max-coverage-us)", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("max-coverage-us-only objective/threshold fields survive the maxCoverageInputsSchema reparse", () => {
+  it("max-coverage-us-only threshold fields survive the maxCoverageInputsSchema reparse", () => {
     const inputs = {
       ...MAX_COVERAGE_BASE_INPUTS,
-      objective: "min_distance" as const,
-      avgServiceDistCapKm: undefined,
+      // CH4O-5 — a positive floor IS min-distance mode, and the cap stays
+      // present because it binds in that mode too.
       coverageFloorDemand: 12345,
       highServiceDistKm: 700,
       maxDistKm: 4200,
       addedWarehouses: [{ id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" as const }],
     };
     const result = fillEstimatedMaxCoverageDistances(inputs as unknown as MaxCoverageInputs, MAX_COVERAGE_TEST_DATASET);
-    expect(result.objective).toBe("min_distance");
     expect(result.coverageFloorDemand).toBe(12345);
+    expect(result.avgServiceDistCapKm).toBe(1000);
     expect(result.highServiceDistKm).toBe(700);
     expect(result.maxDistKm).toBe(4200);
     // T3 (spec Part A, supersedes D19) — distanceBands is a free reporting

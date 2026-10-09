@@ -66,8 +66,9 @@ import { getManifest } from "../registry/modelRegistry.js";
 //                                  reachable within maxDistKm (MIG-6: rawKm ≤
 //                                  maxDistKm — no circuity factor, matching
 //                                  the solver).
-//   - "coverage_floor_infeasible"  min_distance mode's coverageFloorDemand
-//                                  exceeds a cheap NECESSARY upper bound on
+//   - "coverage_floor_infeasible"  a POSITIVE coverageFloorDemand (i.e.
+//                                  min-distance mode, §2.3) exceeds a cheap
+//                                  NECESSARY upper bound on
 //                                  coverable demand (Σ demand of customers with
 //                                  ≥1 active warehouse at rawKm ≤
 //                                  highServiceDistKm) — the solver stays
@@ -211,8 +212,8 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
  *                                rawKm ≤ maxDistKm (MIG-6: no circuity factor —
  *                                a hard assignment constraint in BOTH
  *                                objective modes).
- *   - coverage_floor_infeasible  (min_distance only) coverageFloorDemand
- *                                exceeds Σ demand of customers with ≥1 active
+ *   - coverage_floor_infeasible  a POSITIVE coverageFloorDemand (min-distance
+ *                                mode, §2.3) exceeds Σ demand of customers with ≥1 active
  *                                warehouse at rawKm ≤ highServiceDistKm
  *                                — a NECESSARY upper bound (the shared p limit
  *                                may still prevent covering them all together;
@@ -315,10 +316,13 @@ export function precheckMaxCoverageInputs(
     }
   }
 
-  // --- coverage_floor_infeasible (min_distance only): coverageFloorDemand vs
-  // a cheap NECESSARY upper bound on coverable demand. coverageFloorDemand is
-  // only present in min_distance mode (undefined in coverage mode → skipped).
-  if (inputs.objective === "min_distance" && inputs.coverageFloorDemand != null) {
+  // --- coverage_floor_infeasible: coverageFloorDemand vs a cheap NECESSARY
+  // upper bound on coverable demand.
+  //
+  // No `objective` guard: a non-zero floor IS min-distance mode (§2.3), and
+  // `objective` is server-derived FROM this value, so gating on it would make
+  // the rule depend on its own output.
+  if (inputs.coverageFloorDemand != null && inputs.coverageFloorDemand > 0) {
     let coverableDemand = 0;
     for (const custId of activeCustomerIds) {
       const coverable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.highServiceDistKm));

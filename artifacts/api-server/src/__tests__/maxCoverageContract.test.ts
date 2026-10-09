@@ -128,11 +128,11 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
   // while every other test in this file stays green.
   it("accepts p=26 and rejects p=27 (MIG-8, the Zod declaration)", () => {
     const base = {
-      objective: "coverage" as const,
       p: 3,
       highServiceDistKm: 700,
       maxDistKm: 5500,
       avgServiceDistCapKm: 1000,
+      coverageFloorDemand: 0,
       gap: 0,
       timeLimitSec: 120,
       capacityMode: "none" as const,

@@ -677,6 +677,7 @@ describe("Workspace tab coverage — max-coverage-us", () => {
     highServiceDistKm: 600,
     maxDistKm: 5000,
     avgServiceDistCapKm: 1000,
+    coverageFloorDemand: 0,
     gap: 0,
     timeLimitSec: 120,
     capacityMode: "none",

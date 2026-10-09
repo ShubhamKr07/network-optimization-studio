@@ -60,10 +60,12 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  it("max-coverage-us (coverage) emits an envelope that validates against the shared schema", () => {
+  // CH4O-5 — the mode is derived from the floor, so a ZERO floor is the
+  // coverage case and no `objective` is sent at all (solve.py ignores it).
+  it("max-coverage-us (zero floor == coverage) emits an envelope that validates against the shared schema", () => {
     const raw = runSolver({
-      modelType: "max_coverage_us", objective: "coverage", p: 3, highServiceDistKm: 600,
-      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+      modelType: "max_coverage_us", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
     }) as { status: string };
     expect(raw.status).toBe("optimal");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
@@ -71,8 +73,8 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
 
   it("max-coverage-us model-level infeasible (coverage floor) validates against the shared schema", () => {
     const raw = runSolver({
-      modelType: "max_coverage_us", objective: "min_distance", p: 3, highServiceDistKm: 600,
-      maxDistKm: 5000, coverageFloorDemand: 500100100, gap: 0, timeLimitSec: 60,
+      modelType: "max_coverage_us", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, coverageFloorDemand: 500100100, gap: 0, timeLimitSec: 60,
     }) as { status: string };
     expect(raw.status).toBe("infeasible");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
@@ -86,8 +88,8 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     );
     const customerIds = Object.keys(JSON.parse(readFileSync(customersPath, "utf8")));
     const raw = runSolver({
-      modelType: "max_coverage_us", objective: "coverage", p: 3, highServiceDistKm: 600,
-      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+      modelType: "max_coverage_us", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
       customerOverrides: customerIds.map((id) => ({ id, status: "excluded" })),
     }) as { status: string };
     expect(raw.status).toBe("infeasible");
@@ -106,8 +108,8 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
   // artifacts/api-server/src/solver/tests/test_fd3_protocol.py.)
   it("max-coverage-us unexpected error (valid JSON missing required field) is a FAILURE message, not an envelope", () => {
     const raw = runSolver({
-      modelType: "max_coverage_us", objective: "coverage", highServiceDistKm: 600,
-      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+      modelType: "max_coverage_us", highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
     }) as { status?: string; failureReason?: string; failureStage?: string };
     expect(raw.status).toBeUndefined();
     expect(raw.failureReason).toBe("internal_error");

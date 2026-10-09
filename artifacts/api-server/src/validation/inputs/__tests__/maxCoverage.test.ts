@@ -1,51 +1,61 @@
 import { describe, it, expect } from "vitest";
 import { maxCoverageInputsSchema } from "../maxCoverage.js";
 
-// A minimal valid coverage-mode base. distanceBands is intentionally omitted
-// from most tests — D19's transform derives it from the two thresholds.
+// A minimal valid base. distanceBands is intentionally omitted from most
+// tests — D19's transform derives it from the two thresholds. CH4O-5: both
+// `avgServiceDistCapKm` and `coverageFloorDemand` are unconditionally
+// required, and no `objective` is ever client-supplied (it is derived from the
+// floor by services/scenarioInputWrite.ts).
 const COVERAGE_BASE = {
-  objective: "coverage" as const,
   p: 3,
   highServiceDistKm: 600,
   maxDistKm: 5000,
   avgServiceDistCapKm: 1000,
+  coverageFloorDemand: 0,
   gap: 0,
   timeLimitSec: 60,
 };
 
+// Min-distance is the SAME shape with a positive floor — not a different
+// field set.
 const MIN_DISTANCE_BASE = {
-  objective: "min_distance" as const,
-  p: 3,
-  highServiceDistKm: 600,
-  maxDistKm: 5000,
+  ...COVERAGE_BASE,
   coverageFloorDemand: 131645389,
-  gap: 0,
-  timeLimitSec: 60,
 };
 
-describe("maxCoverageInputsSchema — objective discrimination", () => {
-  it("accepts coverage mode with avgServiceDistCapKm", () => {
-    const r = maxCoverageInputsSchema.safeParse(COVERAGE_BASE);
-    expect(r.success).toBe(true);
-  });
-
-  it("accepts min_distance mode with coverageFloorDemand", () => {
-    const r = maxCoverageInputsSchema.safeParse(MIN_DISTANCE_BASE);
-    expect(r.success).toBe(true);
-  });
-
-  it("rejects coverage mode without avgServiceDistCapKm", () => {
-    const { avgServiceDistCapKm, ...rest } = COVERAGE_BASE;
-    void avgServiceDistCapKm;
-    const r = maxCoverageInputsSchema.safeParse(rest);
+describe("maxCoverageInputsSchema — both mode fields unconditionally required", () => {
+  it("rejects a payload missing avgServiceDistCapKm, even with a zero floor", () => {
+    const r = maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, avgServiceDistCapKm: undefined, coverageFloorDemand: 0 });
     expect(r.success).toBe(false);
   });
 
-  it("rejects min_distance mode without coverageFloorDemand", () => {
-    const { coverageFloorDemand, ...rest } = MIN_DISTANCE_BASE;
-    void coverageFloorDemand;
-    const r = maxCoverageInputsSchema.safeParse(rest);
-    expect(r.success).toBe(false);
+  it("rejects a payload missing coverageFloorDemand", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, coverageFloorDemand: undefined }).success).toBe(false);
+  });
+
+  it("accepts a zero floor with a cap (Model 1)", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, coverageFloorDemand: 0 }).success).toBe(true);
+  });
+
+  it("accepts a positive floor with a cap (Model 2)", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, coverageFloorDemand: 53385024 }).success).toBe(true);
+  });
+
+  it("keeps the high < max invariant", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 5500, maxDistKm: 700 }).success).toBe(false);
+  });
+
+  it("no longer carries stepEpoch or step2", () => {
+    const r = maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, stepEpoch: 7, step2: { gap: 1, timeLimitSec: 9 } });
+    expect(r).not.toHaveProperty("stepEpoch");
+    expect(r).not.toHaveProperty("step2");
+  });
+
+  it("round-trips a SERVER-DERIVED objective instead of stripping it", () => {
+    // The write routes refuse a client-sent `objective`; this validator still
+    // has to let the server's own derived value survive a re-read.
+    expect(maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, objective: "coverage" }).objective).toBe("coverage");
+    expect(maxCoverageInputsSchema.parse({ ...MIN_DISTANCE_BASE, objective: "min_distance" }).objective).toBe("min_distance");
   });
 });
 
@@ -200,62 +210,3 @@ describe("maxCoverageInputsSchema — sparse network-edit arrays", () => {
   });
 });
 
-describe("two-step workflow keys (CH4-5, CH4-6, CH4-7)", () => {
-  function baseCoverageInputs(): Record<string, unknown> {
-    return {
-      objective: "coverage",
-      p: 3,
-      highServiceDistKm: 700,
-      maxDistKm: 5500,
-      avgServiceDistCapKm: 1000,
-      gap: 0,
-      timeLimitSec: 120,
-      capacityMode: "none",
-      distanceBands: [700, 1400, 2800, 5500],
-      warehouseOverrides: [],
-      customerOverrides: [],
-      addedWarehouses: [],
-      addedCustomers: [],
-      distanceOverrides: [],
-    };
-  }
-
-  it("round-trips stepEpoch and step2 without stripping them", () => {
-    const parsed = maxCoverageInputsSchema.parse({
-      ...baseCoverageInputs(),
-      stepEpoch: 4,
-      step2: { gap: 0.01, timeLimitSec: 60 },
-    });
-    expect(parsed.stepEpoch).toBe(4);
-    expect(parsed.step2).toEqual({ gap: 0.01, timeLimitSec: 60 });
-  });
-
-  it("defaults stepEpoch to 1 for a payload that predates the workflow", () => {
-    const parsed = maxCoverageInputsSchema.parse(baseCoverageInputs());
-    expect(parsed.stepEpoch).toBe(1);
-    expect(parsed.step2).toBeUndefined();
-  });
-
-  it("rejects stepEpoch below 1 and non-integer stepEpoch", () => {
-    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), stepEpoch: 0 }).success).toBe(false);
-    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), stepEpoch: 1.5 }).success).toBe(false);
-  });
-
-  // CH4-6 — these three are inherited from Step 1. Rejection, not stripping:
-  // step2 is `.strict()` precisely so a client cannot smuggle them in.
-  it.each(["p", "highServiceDistKm", "maxDistKm", "avgServiceDistCapKm"])(
-    "rejects %s inside step2",
-    (field) => {
-      const result = maxCoverageInputsSchema.safeParse({
-        ...baseCoverageInputs(),
-        step2: { gap: 0, timeLimitSec: 60, [field]: 1 },
-      });
-      expect(result.success).toBe(false);
-    },
-  );
-
-  it("requires both gap and timeLimitSec when step2 is present", () => {
-    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), step2: { gap: 0 } }).success).toBe(false);
-    expect(maxCoverageInputsSchema.safeParse({ ...baseCoverageInputs(), step2: { timeLimitSec: 60 } }).success).toBe(false);
-  });
-});
