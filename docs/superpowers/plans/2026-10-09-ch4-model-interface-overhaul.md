@@ -798,6 +798,31 @@ git commit -m "[CH4O-5] require the floor and cap unconditionally, derive the ob
 
 Both bounds live in precheck, not split with `solve.py`: `jobRunner` returns `precheck_failed` **before** Python is spawned, so a cap check inside `solve.py` could never run when the floor bound fires. `runNetworkEditsPrecheckForModel` returns an error **list**, so both causes report together with no precedence rule to invent.
 
+**The cap bound is NECESSARILY LOOSE in min-distance mode, and must not be
+"tightened".** Surfaced by Task 5's review; recorded here so it is not mistaken for
+an incomplete implementation.
+
+In min-distance mode the cap constrains the *same expression* the objective
+minimises — `sum(adj·dem·a) <= cap·total` against `minimize sum(adj·dem·a)`. Two
+consequences:
+
+1. A tight cap can only ever make the problem **infeasible**. It can never reshape
+   the optimum, since any solution satisfying it is already at least as good under
+   the objective. "The cap changed the answer" is not a reachable outcome in that
+   mode — only "the cap made it unsolvable".
+2. The exact necessary-and-sufficient bound would be "cap × total ≥ the
+   unconstrained minimum total weighted distance", which requires **solving the
+   p-median**. A precheck may not do that.
+
+So the nearest-active-warehouse relaxation specified above is valid but
+deliberately weak: it catches a cap below the relaxation and does NOT catch a cap
+sitting between that relaxation and the true optimum. Those fall through to
+`solve.py`'s generic infeasible message — which is exactly why that message names
+both the floor and the cap as candidates rather than guessing. **Do not attempt a
+tighter bound; there is no cheap one.** Coverage mode is unaffected: there the cap
+genuinely does reshape the solution, because the objective maximises a different
+expression.
+
 - [ ] **Step 1: Write the failing tests**
 
 Append to `precheck.test.ts`. The existing Chapter 4 fixtures in that file are
