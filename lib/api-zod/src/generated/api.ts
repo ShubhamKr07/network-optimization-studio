@@ -700,20 +700,23 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "flows": zod.number()
 }).describe('two-echelon-jade-us combined-leg flow row — band is the display-label string.')]))
 }).describe('v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.'),zod.object({
-  "templateVersion": zod.literal(3),
+  "templateVersion": zod.literal(4),
   "entity": zod.enum(['costSummary']),
   "unit": zod.enum(['km', 'mi']),
   "rows": zod.array(zod.object({
   "objective": zod.number().nullable(),
   "objectiveMode": zod.string().nullable(),
+  "highServiceDist": zod.number().nullish().describe('max-coverage-us only — the scenario\'s high-service distance threshold; a plain distance, so it DOES convert under `unit=`.'),
+  "coveragePct": zod.number().nullish().describe('max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.'),
+  "coveredDemand": zod.number().nullish().describe('max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.'),
   "weightedAvgDistance": zod.number().nullable(),
   "runTimeSec": zod.number().nullable(),
   "quality": zod.string(),
   "solutionStatus": zod.string().nullable(),
   "terminationReason": zod.string().nullable(),
   "solverUsed": zod.string()
-}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\".'))
-}).describe('v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.'),zod.object({
+}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\". CH4O — `highServiceDist`\/`coveragePct`\/`coveredDemand` are the v4 additions and are CONDITIONAL, not required: only max-coverage-us puts the three source fields on `details`, so for the other six models they are emitted as null (JSON) \/ blank (CSV). They are deliberately absent from `required` so a non-Chapter-4 producer that omits the keys entirely still satisfies this contract.'))
+}).describe('v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib\/units\/src\/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services\/templates.ts\'s COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments\/flows\/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['serviceStats']),
   "unit": zod.enum(['km', 'mi']),
@@ -721,7 +724,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "band": zod.number(),
   "percent": zod.number()
 }).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
-}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/costSummary\/serviceStats). Never a single global v3+unit shape.')
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
 
 
 /**

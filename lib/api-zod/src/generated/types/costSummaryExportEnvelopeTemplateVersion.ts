@@ -10,5 +10,5 @@ export type CostSummaryExportEnvelopeTemplateVersion = typeof CostSummaryExportE
 
 
 export const CostSummaryExportEnvelopeTemplateVersion = {
-  NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;

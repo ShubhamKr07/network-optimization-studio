@@ -89,10 +89,19 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     expect(offenders).toEqual([]);
   });
 
-  it("the allow-list is not vacuous — both allowed writers still exist and still write inputs", () => {
+  // CH4O-P1 (MINOR #4) — this used to assert only `/\binputs\b/`, which the
+  // bare word satisfies from a comment or from an identifier like
+  // `migrateInputs`/`nextInputs`, in all three files. It therefore passed
+  // even if a file stopped writing `scenarios.inputs` entirely — the exact
+  // regression the test's name claims to catch. It now reuses the same two
+  // regexes the offender loop above uses, so "still writes inputs" means the
+  // same thing on both sides of the allow-list.
+  it("the allow-list is not vacuous — every allowed writer still exists and still writes inputs", () => {
     for (const rel of ALLOWED_INPUTS_WRITERS) {
       const src = readFileSync(resolve(__dirname, "..", rel), "utf8");
-      expect(src).toMatch(/\binputs\b/);
+      const writesInputs =
+        /\.set\(\s*\{[^}]*\binputs\s*:/s.test(src) || /\.values\(\s*\{[^}]*\binputs\s*:/s.test(src);
+      expect(writesInputs, `${rel} is allow-listed but no longer writes scenarios.inputs — drop it from the allow-list`).toBe(true);
     }
   });
 

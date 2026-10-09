@@ -11,7 +11,7 @@ import type { CostSummaryExportEnvelopeUnit } from './costSummaryExportEnvelopeU
 import type { CostSummaryExportRow } from './costSummaryExportRow';
 
 /**
- * v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
+ * v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib/units/src/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services/templates.ts's COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments/flows/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.
  */
 export interface CostSummaryExportEnvelope {
   templateVersion: CostSummaryExportEnvelopeTemplateVersion;

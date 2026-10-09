@@ -1,5 +1,5 @@
-import { eq, sql } from "drizzle-orm";
-import { db, pool, scenariosTable, resultCacheTable } from "@workspace/db";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { db, pool, scenariosTable, resultCacheTable, solveJobsTable } from "@workspace/db";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import { deriveMaxCoverageObjective } from "@workspace/units";
 
@@ -102,18 +102,44 @@ export interface MigrateReport {
   // `deriveMaxCoverageObjective` always maps to "coverage"). The flip is
   // forced and correct; this is only visibility into how many rows it hit.
   objectiveFlipped: number[];
+  // CH4O-P1 (whole-branch review, IMPORTANT #3) — `solve_jobs.id`s whose
+  // `result` envelope was nulled. The runbook prints this so the operator
+  // sees exactly how much pre-migration solve history was destroyed; an
+  // empty array means no job carried a result.
+  solveJobResultsCleared: number[];
 }
 
 // `dryRun` performs the FULL analysis -- selects every row, runs migrateInputs,
 // classifies each -- and simply does not write. A dry run that reports zeros
 // without inspecting anything cannot reveal a bad row, which is its only job.
-export async function migrateAll(database: Db = db, dryRun = false): Promise<MigrateReport> {
+//
+// CH4O-P1 (whole-branch review, IMPORTANT #2) -- `scenarioIds` narrows the
+// scan to specific rows. The PRODUCTION entry point passes nothing and keeps
+// the runbook's full-table-scan semantics verbatim; the filter exists because
+// `migrateAllIntegration.test.ts` calls this function for real, so an
+// unfiltered call inside the vitest suite means a plain `pnpm --filter
+// api-server test` runs the one-off data migration against whatever
+// `DATABASE_URL` happens to be pointed at -- destroying every Chapter 4
+// scenario's cached result and `solvedAt` (and now its solve history) in that
+// database. Tests pass their own fixture ids.
+export async function migrateAll(
+  database: Db = db,
+  dryRun = false,
+  scenarioIds?: number[],
+): Promise<MigrateReport> {
+  const report: MigrateReport = {
+    migrated: [], skipped: [], alreadyMigrated: [], objectiveFlipped: [], solveJobResultsCleared: [],
+  };
+  // An explicit empty filter means "no rows in scope", not "every row" --
+  // without this, an empty `inArray` would be a WHERE clause that is easy to
+  // get wrong in exactly the direction that scans the whole table.
+  if (scenarioIds != null && scenarioIds.length === 0) return report;
+
+  const modelScope = eq(scenariosTable.modelId, MAX_COVERAGE_MODEL_ID);
   const rows = await database
     .select({ id: scenariosTable.id, inputs: scenariosTable.inputs })
     .from(scenariosTable)
-    .where(eq(scenariosTable.modelId, MAX_COVERAGE_MODEL_ID));
-
-  const report: MigrateReport = { migrated: [], skipped: [], alreadyMigrated: [], objectiveFlipped: [] };
+    .where(scenarioIds == null ? modelScope : and(modelScope, inArray(scenariosTable.id, scenarioIds)));
 
   for (const row of rows) {
     const inputs = (row.inputs ?? {}) as Record<string, unknown>;
@@ -160,10 +186,53 @@ export async function migrateAll(database: Db = db, dryRun = false): Promise<Mig
     report.migrated.push(row.id);
   }
 
+  // CH4O-P1 (IMPORTANT #3) -- every scenario that is now in MILES must not
+  // retain a KILOMETRE result envelope anywhere reachable by an export. The
+  // `scenarios.result` nulling above covers the current result; `solve_jobs.
+  // result` is the other reachable copy, because
+  // `GET /scenarios/:id/export?...&runId=<job>` serves a historical run's
+  // envelope while reading its unit from the CURRENT manifest (now "mi").
+  // Nothing in the envelope records which unit it was solved in, so a
+  // pre-migration run exported 601.89 labelled `mi` where the truth is 374.0,
+  // and `&unit=km` converted that again to 968.6. Decision (user, CH4O-P1):
+  // null the envelope. This permanently destroys Chapter 4's pre-migration
+  // solve history, which was accepted as the cost of never serving a
+  // mislabelled distance.
+  //
+  // The rows themselves are KEPT (an UPDATE, not a DELETE) -- the job record
+  // stays as history, it just no longer carries a result it cannot label.
+  //
+  // Scoped to max-coverage-us BY CONSTRUCTION: every id below came out of the
+  // model-filtered select above, so this cannot reach another model's jobs --
+  // the cross-model-predicate incident this repo already carries a gotcha for.
+  // Deliberately NOT scoped on `solve_jobs.model_id`: that column is nullable
+  // and null for every pre-A1 row, i.e. precisely the OLDEST km-era jobs this
+  // has to reach.
+  //
+  // `alreadyMigrated` is included alongside `migrated` so the runbook's
+  // re-run-after-deploy step repairs a row that an earlier run of this
+  // migration converted before this nulling existed. `isNotNull` keeps the
+  // report truthful -- it lists only jobs whose result was actually wiped.
+  const milesScenarioIds = [...report.migrated, ...report.alreadyMigrated];
+  if (!dryRun && milesScenarioIds.length > 0) {
+    const cleared = await database.update(solveJobsTable)
+      .set({ result: null })
+      .where(and(
+        inArray(solveJobsTable.scenarioId, milesScenarioIds),
+        isNotNull(solveJobsTable.result),
+      ))
+      .returning({ id: solveJobsTable.id });
+    report.solveJobResultsCleared = cleared.map((job) => job.id);
+  }
+
   // result_cache is NOT an FK child of scenarios (pk is inputs_hash plus a plain
   // model_id column), so its rows would otherwise strand km payloads forever.
-  // solve_jobs rows are deliberately left as history.
-  if (!dryRun) {
+  // It also carries NO scenario linkage, so when `scenarioIds` narrows the
+  // scan there is no correct subset to delete -- a model-wide delete would
+  // reach far outside the caller's stated scope (the whole point of the
+  // filter), so the purge is skipped entirely and left to the unfiltered
+  // production run.
+  if (!dryRun && scenarioIds == null) {
     await database.delete(resultCacheTable).where(eq(resultCacheTable.modelId, MAX_COVERAGE_MODEL_ID));
   }
 

@@ -2034,9 +2034,24 @@ components:
         (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/
         `terminationReason` are the evidence it's derived from; null on both
         for a legacy (pre-B2) result, where `quality` reads "Unverified".
+        CH4O — `highServiceDist`/`coveragePct`/`coveredDemand` are the v4
+        additions and are CONDITIONAL, not required: only max-coverage-us
+        puts the three source fields on `details`, so for the other six
+        models they are emitted as null (JSON) / blank (CSV). They are
+        deliberately absent from `required` so a non-Chapter-4 producer that
+        omits the keys entirely still satisfies this contract.
       properties:
         objective: { type: ["number", "null"] }
         objectiveMode: { type: ["string", "null"] }
+        highServiceDist:
+          type: ["number", "null"]
+          description: max-coverage-us only — the scenario's high-service distance threshold; a plain distance, so it DOES convert under `unit=`.
+        coveragePct:
+          type: ["number", "null"]
+          description: max-coverage-us only — percent of total demand inside the high-service threshold. A percent has no distance dimension and never converts under `unit=`.
+        coveredDemand:
+          type: ["number", "null"]
+          description: max-coverage-us only — absolute demand units inside the high-service threshold. A demand count has no distance dimension and never converts under `unit=`.
         weightedAvgDistance: { type: ["number", "null"] }
         runTimeSec: { type: ["number", "null"] }
         quality: { type: string }
@@ -2091,12 +2106,25 @@ components:
 
     CostSummaryExportEnvelope:
       type: object
-      description: v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
-      example: { templateVersion: 3, entity: costSummary, unit: km, rows: [] }
+      description: >-
+        v4 costSummary export. objective converts under `unit=` per the
+        shared seven-model objective-dimension mapping (lib/units/src/
+        objective.ts); jade monetary and Chen coverage-percent do not
+        convert. CH4O — costSummary is the one output grid on a GRID-LOCAL
+        template version (services/templates.ts's
+        COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three
+        max-coverage-us row additions while assignments/flows/serviceStats
+        stay on the shared v3. The enum is SINGLE-VALUED on purpose: the
+        route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is
+        computed per request and never persisted or re-imported, so a v3
+        costSummary envelope can no longer exist — admitting 3 here would
+        only let an emitter that drifted back off the constant pass
+        validation.
+      example: { templateVersion: 4, entity: costSummary, unit: km, rows: [] }
       properties:
         templateVersion:
           type: integer
-          enum: [3]
+          enum: [4]
         entity:
           type: string
           enum: [costSummary]
@@ -2135,8 +2163,9 @@ components:
         (warehouses/customers/mines/stations/refineries/plants/
         plantCapabilities/openWarehouses), v2 unit-bearing input
         (distances/legDistances/laneCosts), or v3 unit-bearing output
-        (assignments/flows/costSummary/serviceStats). Never a single global
-        v3+unit shape.
+        (assignments/flows/serviceStats — plus costSummary, which is the
+        same family but on its own grid-local version, v4 as of CH4O; see
+        CostSummaryExportEnvelope). Never a single global v3+unit shape.
       oneOf:
         - $ref: "#/components/schemas/ExportEnvelopeV1"
         - $ref: "#/components/schemas/ExportEnvelopeV2"

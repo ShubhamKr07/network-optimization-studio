@@ -48,7 +48,18 @@ describe("max-coverage-us dataset package", () => {
 
   it("version.json's sha256 equals computeSha256 over the package", () => {
     const v = read("version.json");
-    expect(v.version).toBe(1);
+    // CH4O-P1 (MINOR #5) — 1 -> 2, changed DELIBERATELY, not reflexively.
+    // The branch refreshed this package's content (the km->mi overhaul) and
+    // refreshed the sha256 with it, but left `version` at 1 — and `version`
+    // is the integer solver/jobRunner.ts mixes into the result-cache key, so
+    // an unchanged version over changed content is precisely
+    // model-integration-precheck.md's "my fix did nothing, the cache is
+    // keyed on dataset version". Nothing broke on this branch only because
+    // three unrelated protections happened to cover it (solve.py's bytes
+    // changed, every input field name changed, and the migration purges the
+    // cache). This pin is working as designed: it is what forces the bump to
+    // be an explicit decision, so it moves WITH the content, never after it.
+    expect(v.version).toBe(2);
     // A 64-hex-character check alone would let a STALE but well-formed hash
     // pass. Recompute and compare -- this is the assertion that catches a
     // dataset regenerated without refreshing version.json.

@@ -1929,15 +1929,21 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     nextInputs = revalidated.data;
   }
 
-  // CH4-26 — import/apply was the live hole: it wrote `inputs` and bumped
-  // solve_input_revision unconditionally but knew nothing about stepEpoch,
-  // and it never passes through the confirm-and-clear UI. Without the bump a
-  // student could import a new customer set and keep looking at results
-  // computed from the old one — the precise failure CH4-7 exists to prevent,
-  // arriving through the one door the freeze does not cover. The normalizer
-  // that used to run here directly (T1 / follow-up item 3) is now performed
-  // inside applyScenarioInputWrite, so every persist path stays consistent
-  // without a second, redundant call.
+  // CH4-26 — import/apply is an UPDATE-side `scenarios.inputs` writer, so it
+  // persists through `applyScenarioInputWrite` rather than composing its own
+  // `.set({ inputs, … })`. That routine owns everything this route used to do
+  // by hand: the ownership-scoped `SELECT … FOR UPDATE` (hard rule #5 — a row
+  // this user does not own comes back `not_found`, answered as 404, never
+  // 403), re-validation against the model's Zod schema, the added-entity
+  // distance normalizer, the derivation of server-owned inputs, and the
+  // epoch bump (`inputsUpdatedAt` + `solve_input_revision`, both DB-clock) so
+  // a student cannot import a new customer set and keep reading results
+  // computed from the old one. The bump is conditional in form — skipped when
+  // `distanceBands` is the only changed key — but unconditional in effect
+  // here, because distanceBands is never an imported entity.
+  // CH4O-P1 — this comment previously explained the route in terms of
+  // `stepEpoch` and "the precise failure CH4-7 exists to prevent"; the
+  // Chapter 4 overhaul deleted both branch-wide.
   const writeOutcome = await db.transaction(async (tx) =>
     applyScenarioInputWrite(tx, {
       scenarioId: id,
