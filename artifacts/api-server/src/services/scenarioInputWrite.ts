@@ -34,7 +34,7 @@ export interface ApplyScenarioInputWriteParams {
 /**
  * CH4-26 — the SINGLE place `scenarios.inputs` is updated. Every update-side
  * writer (PATCH, import/apply) calls this instead of composing its own
- * `.set({ inputs, … })`; create and clone use `initialInputsForInsert`.
+ * `.set({ inputs, … })`; create and clone use `deriveServerOwnedInputs`.
  * `routes/distanceBands.ts` is the one deliberate exception: it writes a
  * single `jsonb_set` on `{distanceBands}` alone, which preserves the epoch BY
  * CONSTRUCTION and must keep its atomic field-scoped write — that property is

@@ -1,5 +1,15 @@
 # Chapter 4 two-step workflow — rollout and rollback (`ch4-2s` Task 10)
 
+> **SUPERSEDED (2026-10-09).** The two-step workflow this runbook documents was
+> removed by the Chapter 4 model-interface overhaul (`ch4-model-upgrade`
+> branch, Task 3 / `CH4O-3`): `services/maxCoverageSteps.ts`, the `steps`
+> routes, and the Step 1→Step 2 synthesis in `jobRunner.ts` are all deleted.
+> See
+> [`docs/superpowers/specs/2026-10-09-ch4-model-interface-overhaul-design.md`](../superpowers/specs/2026-10-09-ch4-model-interface-overhaul-design.md)
+> for what replaced it. This file is retained for historical context only —
+> the commands, file paths, and code references below describe code that no
+> longer exists and must not be followed as a live procedure.
+
 Operator record for the Chapter 4 two-step solve workflow (Step 1 Max Coverage →
 Step 2 Min Distance, Step 2's coverage floor seeded by Step 1's covered demand).
 Design decisions (`CH4-n`) are in

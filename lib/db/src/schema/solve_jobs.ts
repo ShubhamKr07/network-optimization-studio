@@ -142,8 +142,8 @@ export const solveJobsTable = pgTable("solve_jobs", {
   // `1 of 2` means. Belt-and-braces with the in-transaction guard, the same
   // posture lockedModelGuards.test.ts applies to route guards.
   // R1 — SCOPED TO CHAPTER 4. The predicate carries `model_id` as well as
-  // status. An unscoped index would silently impose one-active-job on all six
-  // models, contradicting this plan's own "no change to the other five" scope
+  // status. An unscoped index would silently impose one-active-job on all seven
+  // models, contradicting this plan's own "no change to the other six" scope
   // line, and would break scenarioSolveAtomicity.test.ts, which deliberately
   // enqueues a second p-median-us job while the first is still queued (9 call
   // sites). A repo-wide policy is a separate decision with its own migration

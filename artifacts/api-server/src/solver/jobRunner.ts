@@ -381,8 +381,28 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
     // serialises two concurrent enqueues but does not make the second refuse;
     // this check plus UQ_solve_jobs_active_per_scenario is what does.
     //
+    // This is the LAST SURVIVING PIECE of the Chapter 4 two-step workflow
+    // (CH4O-3 deleted the rest: Step 1-derives-Step-2 synthesis, the steps
+    // routes, services/maxCoverageSteps.ts). It is retained deliberately, not
+    // an oversight left behind by that deletion. The original motivation —
+    // Step 2's inputs were derived from a succeeded Step 1 job, so a
+    // concurrent second solve could race that derivation — no longer applies
+    // (there is no Step 2 derivation left to race). What forces this check to
+    // stay is now purely a schema fact, not a workflow one:
+    // `UQ_solve_jobs_active_per_scenario` (lib/db/src/schema/solve_jobs.ts)
+    // is a partial unique index scoped to `model_id = 'max-coverage-us' AND
+    // status IN ('queued','running')`. As long as that index exists, a
+    // second insert for an already-active max-coverage-us scenario WILL be
+    // rejected by Postgres one way or another; this check is what turns that
+    // rejection into a clean `{kind:"conflict", jobId}` (a 409) instead of an
+    // unhandled unique-violation surfacing as a 500. Removing this check
+    // without first dropping the index would reintroduce exactly that 500.
+    // Dropping the index itself is a separate, human-approved schema
+    // migration (this plan's "zero migrations" guarantee) — not something to
+    // decide here.
+    //
     // R1 — GATED ON THE MODEL. Running this for every model would change
-    // enqueue behaviour for the other five, which this plan's scope line
+    // enqueue behaviour for the other six, which this plan's scope line
     // forbids, and would break scenarioSolveAtomicity.test.ts (it enqueues a
     // second p-median-us job on the same scenario while the first is queued).
     if (scenario.modelId === MAX_COVERAGE_MODEL_ID) {

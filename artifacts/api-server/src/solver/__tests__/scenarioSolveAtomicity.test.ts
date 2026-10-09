@@ -22,11 +22,15 @@ const validPmedianInputs = {
   addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
 };
 
-async function createScenario(userId: string, inputs: Record<string, unknown> = validPmedianInputs) {
+async function createScenario(
+  userId: string,
+  inputs: Record<string, unknown> = validPmedianInputs,
+  modelId: string = "p-median-us",
+) {
   const [row] = await db.insert(scenariosTable).values({
     name: "A1 atomicity fixture",
     userId,
-    modelId: "p-median-us",
+    modelId,
     inputs,
   }).returning();
   scenarioIds.push(row!.id);
@@ -239,6 +243,85 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
 
     const [afterLateA] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
     expect(afterLateA!.latestSolveJobId).toBe(outcomeB.jobId); // unchanged — B still wins
+  });
+});
+
+// CH4-11 — this is the ONLY surviving guard once the Chapter 4 two-step
+// workflow was deleted (CH4O-3), and it has a real teeth-baring reason to
+// stay covered: `UQ_solve_jobs_active_per_scenario`
+// (lib/db/src/schema/solve_jobs.ts) is a partial unique index scoped to
+// `model_id = 'max-coverage-us' AND status IN ('queued','running')`. The
+// in-transaction check in jobRunner.ts's enqueueScenarioSolve exists purely
+// to turn what would otherwise be a raw Postgres unique-violation (a 500)
+// into a graceful `{kind:"conflict", jobId}` (a 409). Deleting the app-level
+// check does NOT make the index go away — it just means the SECOND insert
+// throws instead of being caught early, which is exactly what the first
+// test below proves by construction: the only way `enqueueScenarioSolve`
+// resolves cleanly to `{kind:"conflict", ...}` a second time, rather than
+// rejecting, is because the check runs before the insert.
+describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", () => {
+  const maxCoverageInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 60,
+    capacityMode: "none",
+    distanceBands: [600, 3000, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+
+  // The guard's predicate is `status IN ('queued','running')` — both are
+  // "active" for this purpose. This process's own dispatcher is never
+  // started (initDispatcherForBoot is only called from index.ts, before
+  // app.listen — this file imports app.js directly), but a separate dev
+  // server process sharing this same local DATABASE_URL can pick the job up
+  // and advance it to "running" between the two enqueue calls below (seen
+  // live while writing this test) — so this asserts "still active", not
+  // "still literally queued".
+  it("a second enqueue on the same max-coverage-us scenario returns kind:'conflict' carrying the first job's id, and the first job is still active (queued or running, never gone)", async () => {
+    const scenario = await createScenario(TEST_USER_ID, maxCoverageInputs, "max-coverage-us");
+
+    const first = await enqueueScenarioSolve(scenario.id, TEST_USER_ID);
+    expect(first.kind).toBe("queued");
+    if (first.kind !== "queued") throw new Error("unreachable");
+
+    const second = await enqueueScenarioSolve(scenario.id, TEST_USER_ID);
+    expect(second).toEqual({ kind: "conflict", jobId: first.jobId });
+
+    const [job] = await db.select().from(solveJobsTable).where(eq(solveJobsTable.id, first.jobId));
+    expect(["queued", "running"]).toContain(job!.status);
+  });
+
+  // Same guard, proven at the HTTP boundary end-to-end (real register/login,
+  // real app, real DB) — this is the shape a client actually observes:
+  // 202 then 409, with the conflicting job's id in the body (routes/
+  // scenarios.ts's outcome-to-status mapping, `kind === "conflict"`).
+  it("POST /scenarios/:id/solve twice returns 202 then 409, with the first jobId in the second response body", async () => {
+    const email = `ch4-11-conflict-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    registeredUserIds.push(registerRes.body.user.id);
+    const setCookie = registerRes.headers["set-cookie"] as unknown as string[];
+    const cookie = setCookie[0]!.split(";")[0]!;
+
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "ch4-11 http fixture", modelId: "max-coverage-us", inputs: maxCoverageInputs });
+    expect(created.status).toBe(201);
+    scenarioIds.push(created.body.id);
+
+    const firstSolve = await request(app).post(`/api/scenarios/${created.body.id}/solve`).set("Cookie", cookie);
+    expect(firstSolve.status).toBe(202);
+    expect(firstSolve.body.jobId).toBeTypeOf("number");
+
+    const secondSolve = await request(app).post(`/api/scenarios/${created.body.id}/solve`).set("Cookie", cookie);
+    expect(secondSolve.status).toBe(409);
+    expect(secondSolve.body.jobId).toBe(firstSolve.body.jobId);
   });
 });
 

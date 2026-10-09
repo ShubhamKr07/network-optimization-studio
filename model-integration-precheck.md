@@ -32,7 +32,7 @@ Legend: **[BLOCKER]** stop and fix · **[VERIFY]** confirm before proceeding · 
 ## Gate 1 — The registration points
 
 Adding a model is **eighteen** registrations across five packages, not ten — the delivery-teaching-us
-(Chapter 5, modified) integration found nine more that the original ten missed. Each omission fails
+(Chapter 5, modified) integration found eight more that the original ten missed. Each omission fails
 differently; roughly half fail **silently** (the app looks fine, the new model just gets someone
 else's behavior — never an error, never a red test, until someone notices the wrong number on
 screen). Tick every row.
