@@ -88,4 +88,48 @@ describe("migrateInputs", () => {
     const once = expectOk(migrateInputs(kmRow));
     expect(expectOk(migrateInputs(once))).toEqual(once);
   });
+
+  // MINOR #3 — a row with no `highServiceDistKm` at all used to hit
+  // `toMi(undefined)` -> NaN -> a Zod "expected number, received nan"
+  // validation-failure reason, which gives no hint a field was simply
+  // ABSENT. Assert the reason NAMES the missing field instead.
+  it("names a missing required source field rather than reporting a NaN validation error", () => {
+    const { highServiceDistKm, ...withoutHigh } = kmRow;
+    const r = migrateInputs(withoutHigh);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toMatch(/missing required field/i);
+      expect(r.reason).toContain("highServiceDistKm");
+      expect(r.reason).not.toMatch(/nan/i);
+    }
+  });
+
+  it("names BOTH missing fields when both are absent", () => {
+    const { highServiceDistKm, maxDistKm, ...withoutEither } = kmRow;
+    const r = migrateInputs(withoutEither);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain("highServiceDistKm");
+      expect(r.reason).toContain("maxDistKm");
+    }
+  });
+
+  // MINOR #2 — an old min-distance row with `coverageFloorDemand: 0` always
+  // derives to "coverage" (deriveMaxCoverageObjective(0)), silently flipping
+  // which ILP runs. `objectiveFlipped` must surface that, not hide it.
+  it("flags objectiveFlipped when the incoming objective disagrees with the derived one", () => {
+    const { avgServiceDistCapKm, ...noCap } = kmRow;
+    const r = migrateInputs({ ...noCap, objective: "min_distance", coverageFloorDemand: 0 });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.objectiveFlipped).toBe(true);
+      expect(r.inputs.objective).toBe("coverage");
+    }
+  });
+
+  it("does NOT flag objectiveFlipped when the incoming objective already agrees", () => {
+    const r = migrateInputs(kmRow); // kmRow.objective === "coverage", no floor set
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.objectiveFlipped).toBe(false);
+  });
 });

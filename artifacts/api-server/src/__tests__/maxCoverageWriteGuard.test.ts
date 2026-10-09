@@ -61,9 +61,14 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     // CH4O-9 — the one-off km->mi scenario migration. Not a request-path
     // route (no client ever reaches it), and it does not bypass the
     // authority's invariant: `objective` is derived through the same
-    // `deriveMaxCoverageObjective` function scenarioInputWrite.ts uses, and
+    // `deriveMaxCoverageObjective` function scenarioInputWrite.ts uses,
     // every candidate is re-validated against `maxCoverageInputsSchema`
-    // before its UPDATE commits. Added deliberately per this test's own
+    // before its UPDATE commits, AND (review fix, Important #1) its
+    // `.set()` bumps `solveInputRevision` and advances `inputsUpdatedAt`
+    // itself, the same epoch-preservation currency `routes/distanceBands.ts`
+    // below is allow-listed for — a kilometre-era in-flight solve job's
+    // publication CAS can no longer land on the now-miles row it would
+    // otherwise silently overwrite. Added deliberately per this test's own
     // comment above.
     "migrations/ch4ToMiles.ts",
   ]);
