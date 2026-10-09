@@ -41,9 +41,21 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   costPerMileOver: "Cost per mile over threshold",
   // two-echelon
   bomRatio: "BOM ratio",
+  refineryOverrides: "Refinery overrides",
+  addedRefineries: "Added refineries",
   // two-echelon-jade-us (Chapter 9) — plant x product "can-make" toggle.
   // `distanceOverrides` above already covers this model's leg overrides.
   plantProductCapability: "Plant-product capability",
+  transportCosts: "Transportation costs",
+  addedPlants: "Added plants",
+  // transport-coal (Chapter 3) — mine/station capacity-demand overrides and
+  // scenario-local added entities. Not in any model's `required[]`, so only
+  // the all-`properties` guard (not the `required[]` one) catches a missing
+  // label here.
+  mineCapacities: "Mine capacities",
+  stationDemands: "Station demands",
+  addedMines: "Added mines",
+  addedStations: "Added stations",
 };
 
 /**

@@ -76,28 +76,38 @@ describe("formatInputIssues", () => {
     // Mid-sentence position: hand-built, because no real cross-field message
     // names either field from another field's issue today (same
     // not-reachable-via-a-real-schema justification as someFutureField above).
+    // Uses `refineryOverrides` as the issue's own (labelled) field to check
+    // that substitution of the OTHER field in the message body still works
+    // when the head field has a label too.
     expect(formatInputIssues([
       { code: "custom", message: "refineryOverrides must not exceed bomRatio", path: ["refineryOverrides"] } as z.ZodIssue,
-    ])).toBe("refineryOverrides must not exceed BOM ratio.");
+    ])).toBe("Refinery overrides must not exceed BOM ratio.");
     expect(formatInputIssues([
       { code: "custom", message: "refineryOverrides must not exceed maxDistMi", path: ["refineryOverrides"] } as z.ZodIssue,
-    ])).toBe("refineryOverrides must not exceed max distance.");
+    ])).toBe("Refinery overrides must not exceed max distance.");
   });
 
   it("never returns an empty string", () => {
     expect(formatInputIssues([])).toBe("The values could not be saved.");
   });
 
-  // Non-vacuity: a new required field must fail here rather than render a raw
-  // path to a student. This is the §9 risk mitigation.
-  it("has a label for every required field of every model", async () => {
+  // Non-vacuity: a new field — required or not — must fail here rather than
+  // render a raw path to a student. Scoped to `required[]` alone, this test
+  // missed eight real optional fields (added-entity arrays and
+  // capacity/demand override records across transport-coal and the
+  // two-echelon models) that are neither required nor labelled, so they fell
+  // through this guard AND the reverse one below. Checking every
+  // `properties` key, not just `required[]`, is what closes that gap. This
+  // is the §9 risk mitigation.
+  it("has a label for every real input field of every model", async () => {
     const { MODEL_IDS, readManifest } = await import("@workspace/dataset-schema");
     const missing: string[] = [];
     for (const id of MODEL_IDS) {
-      const req = (readManifest(id).inputsSchema as { required?: unknown }).required;
-      if (!Array.isArray(req)) continue;
-      for (const key of req) {
-        if (typeof key === "string" && !(key in INPUT_FIELD_LABELS)) missing.push(`${id}:${key}`);
+      const props = (readManifest(id).inputsSchema as { properties?: Record<string, unknown> })
+        .properties;
+      if (!props) continue;
+      for (const key of Object.keys(props)) {
+        if (!(key in INPUT_FIELD_LABELS)) missing.push(`${id}:${key}`);
       }
     }
     expect(missing).toEqual([]);
