@@ -397,10 +397,13 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
       // COSM-2 — this model's Save lives in the SHARED toolbar row
-      // (`workspace-toolbar-row`), outside the Input Map tab, beside the
-      // step toggle (now gone) — `saveInLayersRow` is only p-median-us/
-      // p-median-brazil (Workspace.tsx:2331-2332), so max-coverage-us was
-      // never in it.
+      // (`workspace-toolbar-row`), outside the Input Map tab, beside where
+      // the step toggle used to be. As of HEAD, `saveInLayersRow` is
+      // p-median-us/p-median-brazil only (Workspace.tsx:2331-2332), so
+      // max-coverage-us is not in it. That is a PRESENT-TENSE reading of the
+      // code; the COSM-2 history this comment replaced recorded that the
+      // gate did once list this model, so do not read "is not" as "never
+      // was" — the two are different claims and only the first is verified.
       const mapSave = page.locator('[data-testid="workspace-toolbar-row"] [data-testid="button-save"]');
       await expect(mapSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
       await mapSave.click();

@@ -16,7 +16,7 @@ a human operator with `psql` access.
 
 ---
 
-## Why this has to happen before (or with) the `nos-api` deploy
+## Ordering: migration → `nos-api` → `nos-studio`
 
 Tasks 5 and 8 made `coverageFloorDemand`, `avgServiceDistCapMi` required and
 renamed the three distance fields to their `Mi` suffix, with `objective`
@@ -47,6 +47,44 @@ unavoidable** — there is no ordering that makes it free. Minimise the window
 treat it as the same operational window that makes Important Finding #1(a)
 below reachable: an in-flight kilometre-era solve can only straddle the
 migration if some window exists at all.
+
+What does **not** happen in either direction is a silent wrong-unit answer:
+both failures land on the validator, so they **fail closed** with a 422. And
+the in-flight-solve hazard is genuinely closed by the migration's
+`solve_input_revision + 1` bump — `jobRunner`'s publication CAS stops
+matching, so a kilometre-era job that completes after the migration returns
+`superseded` instead of publishing a stale result. That is the part that
+would otherwise have been invisible.
+
+### There are THREE moving parts, not two — and `nos-studio` is one of them
+
+The ordering above reasons about the migration and `nos-api`. `nos-studio` is
+a **separately deployed static site**, and root `CLAUDE.md`'s Branch
+discipline records that a push to `main` can ship the frontend while leaving
+the API on the previous build (`nos-api`'s commit webhook has not been
+observed to fire). So the default outcome of a push is the one ordering
+nobody wrote down:
+
+> New studio + old API → the new frontend PATCHes
+> `{highServiceDistMi, maxDistMi, avgServiceDistCapMi, coverageFloorDemand}`
+> with no `objective`, at a server whose validator still requires the `...Km`
+> names **and** `objective`. **Every Chapter 4 save 422s** — for a cause this
+> runbook would not otherwise list, so it is easily misdiagnosed as a failed
+> migration.
+
+**The required order is: migration → `nos-api` → `nos-studio`.** `nos-studio`
+must not land before `nos-api`. Since a single push arms both, verify with
+`list_deploys` after pushing and trigger the two deploys explicitly in that
+order rather than relying on webhook timing.
+
+### Suspending the API is the recommended path, not one option among several
+
+The mitigation offered further down for the lost-update sub-case — running
+the migration with the API suspended — is in fact the only measure that
+collapses **all** of the above to zero: no 422 window in either direction, no
+in-flight solve to straddle the migration, and no lost update. Prefer it.
+Treat "migrate live and minimise the window" as the fallback for when a brief
+outage is unacceptable, not as the default.
 
 ---
 
@@ -138,6 +176,24 @@ SELECT id, inputs, result, solved_at, result_run_id, solve_input_revision,
 FROM scenarios WHERE model_id = 'max-coverage-us';
 ```
 
+> **If this errors with `relation "scenarios_ch4_km_backup" already exists`,
+> the existing table IS your backup. Do NOT drop and recreate it.**
+>
+> This matters because MINOR #4 below tells you a crashed run is safe to
+> re-run, so restarting this procedure from the top is an *expected* path —
+> and at that point some rows are already in miles. Dropping and recreating
+> the table captures those already-migrated **mile** rows under a name that
+> says km. The rollback `UPDATE` would then restore miles over miles, with no
+> error, no visible symptom, and no way to tell afterwards — and the original
+> km values would be gone permanently. This is the same silent
+> double-application shape as `timestamptz-migration.md`, the non-idempotent
+> runbook this document opens by distinguishing itself from.
+>
+> If you genuinely need a fresh capture (e.g. the first attempt aborted
+> before writing a single row and you want to be sure), verify that first:
+> `SELECT count(*) FROM scenarios WHERE model_id = 'max-coverage-us' AND inputs ? 'highServiceDistMi';`
+> must return `0`. Only then is dropping the table safe.
+
 Also take (or confirm Render already took, per its own retention schedule) a
 `nos-postgres` snapshot immediately before the real run — see the
 `render-postgres` skill for how to trigger/verify one. The backup table
@@ -171,6 +227,22 @@ the original km value only up to that same rounding, not exactly (e.g.
 table captures the ORIGINAL km-era row, not merely "a row to invert" — the
 restore path reads a value that was never rounded, rather than trying to
 undo rounding that already happened.
+
+**What the restore does NOT bring back, stated so the rollback is not
+over-trusted:**
+
+- **`result_cache` rows.** The backup captures seven `scenarios` columns;
+  the migration also deletes every `max-coverage-us` row from
+  `result_cache`, and the restore `UPDATE` above cannot undo that. Harmless
+  in effect — the cache is derivable, and a miss simply re-solves — but
+  "restoring the backup *is* the rollback" is true of `scenarios`, not of
+  the cache.
+- **`solve_jobs.result` envelopes.** The migration nulls these for
+  `max-coverage-us` (see step 3), and they are not captured here. This is
+  irreversible: pre-migration Chapter 4 solve history cannot be restored by
+  rolling back. If that history matters to you, capture it *before* step 3:
+  `CREATE TABLE solve_jobs_ch4_km_backup AS SELECT id, result FROM solve_jobs j JOIN scenarios s ON s.id = j.scenario_id WHERE s.model_id = 'max-coverage-us' AND j.result IS NOT NULL;`
+  (the same already-exists warning above applies to that table too).
 
 Drop `scenarios_ch4_km_backup` only after the deploy has been confirmed
 stable for the retention period your operational policy requires (this
@@ -212,10 +284,26 @@ database that has never had Tasks 5/8's code deployed to it).
 
 ### 2. Dry run
 
+From an allowlisted host (see the warning below — this is not optional for
+the `pnpm` steps either):
+
 ```bash
-DATABASE_URL="<production connection string>" \
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
   pnpm --filter api-server run migrate-ch4-to-miles -- --dry-run
 ```
+
+> **`NODE_ENV=production` is load-bearing, not decoration.** `lib/db/src/index.ts:15`
+> enables TLS only when `NODE_ENV === "production"` (`ssl: { rejectUnauthorized: false }`,
+> otherwise `undefined`). Render Postgres refuses non-TLS external connections, so
+> without it this step fails to connect at all — typically `no pg_hba.conf entry for
+> host …, SSL off` or `server does not support SSL connections`. Do **not** respond to
+> that error by widening the database's IP allowlist or by hand-editing the connection
+> string mid-window: the fix is the env var.
+>
+> **Every step below that runs `pnpm` needs an allowlisted host**, for the same reason
+> step 1's SQL does. `nos-postgres` only accepts connections from allowlisted
+> addresses, and these steps connect from *your* machine, not from Render.
 
 This performs the **full** analysis — selects every `max-coverage-us` row,
 runs `migrateInputs` on each, classifies it — and simply does not write.
@@ -248,7 +336,8 @@ silently.
 ### 3. Real run
 
 ```bash
-DATABASE_URL="<production connection string>" \
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
   pnpm --filter api-server run migrate-ch4-to-miles
 ```
 
@@ -262,8 +351,19 @@ cache slot) and, on every migrated scenario row, nulls `result`/`solved_at`/
 `inputs_updated_at` to `now()` (see "Concurrency and consistency
 guarantees" above for why those last three matter, not just `inputs`). Each
 migrated scenario re-solves under the new mile schema rather than
-displaying a kilometre-era cached result. `solve_jobs` rows are
-deliberately left as history — nothing deletes them.
+displaying a kilometre-era cached result.
+
+**It also nulls `solve_jobs.result` for `max-coverage-us`.** The job rows
+themselves survive as history; their stored result envelopes do not. This is
+deliberate and irreversible. Those envelopes hold kilometre distances, while
+the export route reads the unit from the *current* manifest — now miles — and
+nothing in an envelope distinguishes the two, so
+`GET /api/scenarios/:id/export?…&runId=<pre-migration job>` would emit a
+kilometre number labelled `mi` (601.89 where the truth is 374.0), and
+`&unit=km` would convert it a second time to 968.6. Nulling the envelopes is
+the chosen fix; the accepted cost is that Chapter 4 solve history from before
+this migration is gone. Capture it first if you need it (see the rollback
+section).
 
 **MINOR #4 — this run is not transactional.** Each row's `UPDATE` commits
 individually inside the loop; a process crash mid-run leaves some rows
@@ -285,7 +385,8 @@ Expect `0`. Every `max-coverage-us` row must now carry `highServiceDistMi`.
 ### 5. Re-run to confirm idempotency (optional, but cheap)
 
 ```bash
-DATABASE_URL="<production connection string>" \
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
   pnpm --filter api-server run migrate-ch4-to-miles
 ```
 
@@ -293,6 +394,27 @@ Expect `migrated: []`, `skipped: []`, and every id from step 3 now under
 `alreadyMigrated`. If this instead re-reports ids under `migrated`, stop and
 escalate — that would mean the presence-key guard failed, which is not an
 expected failure mode of this script.
+
+### 6. Re-run once more AFTER the `nos-api` deploy — not optional
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="<production EXTERNAL connection string>?sslmode=require" \
+  pnpm --filter api-server run migrate-ch4-to-miles
+```
+
+**This step exists because the clone path can create a new kilometre-shaped
+row during the window.** `routes/scenarios.ts`'s clone handler performs no
+`validateInputsForModel` (pre-existing), and `deriveServerOwnedInputs`
+returns the blob untouched when `coverageFloorDemand` is absent — so a
+student clicking **Duplicate** on an unmigrated Chapter 4 scenario inserts a
+fresh km-shaped row. If step 3 has already run by then, nothing revisits it
+and that scenario **422s on every save and solve forever**.
+
+Expect `migrated: []`. Any id reported under `migrated` here is exactly such
+a row, and converting it is the fix. If you took the recommended path and ran
+the migration with the API suspended, this step is a no-op — run it anyway,
+it costs one command.
 
 ---
 
