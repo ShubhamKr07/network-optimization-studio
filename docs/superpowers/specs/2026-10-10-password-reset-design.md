@@ -252,12 +252,18 @@ to work for up to its 7-day TTL. OWASP recommends otherwise, so this is a
 deliberate accepted risk, not an oversight. Revisit if the app ever holds
 anything more sensitive than coursework.
 
-**Resend verification is unconfirmed from this session.** DNS shows DKIM at
-`resend._domainkey.app.networkdesignbook.com` and a `send.forge.rmta.net` CNAME
-on `send.app.networkdesignbook.com`, which is strong evidence the domain is set
-up in Resend — but not the same as Resend reporting `verified`. The Resend key
-available here is send-only (`401 restricted_api_key` on `list-domains`). Confirm
-in the dashboard before relying on delivery to arbitrary recipients.
+**Resend verification — RESOLVED 2026-10-10.** The domain
+`app.networkdesignbook.com` is verified in Resend, confirmed by the user in the
+dashboard. Reset mail therefore delivers to any student address.
+
+This mattered more than it looked: until verification, Resend delivers only to
+the account owner's own address, so a student's reset email would have failed
+silently into Sentry while the endpoint still answered `200` — the
+anti-enumeration design means a successful HTTP response is not evidence of
+delivery. The original uncertainty was unavoidable from here: DNS showed DKIM
+and the `send.forge.rmta.net` CNAME, which is strong evidence of setup but not
+the same as Resend reporting `verified`, and the available key is send-only
+(`401 restricted_api_key` on `list-domains`).
 
 ## Testing
 

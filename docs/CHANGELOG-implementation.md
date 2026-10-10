@@ -3290,10 +3290,14 @@ would log everyone out once on deploy. Residual exposure: a cookie stolen before
 the reset keeps working for up to its 7-day TTL. OWASP recommends otherwise;
 this is a deliberate decision, not an oversight.
 
-**Resend's verified status was never confirmed in-session.** DNS shows DKIM at
-`resend._domainkey.app.networkdesignbook.com` and a `send.forge.rmta.net` CNAME,
-which is strong evidence but not the same as Resend reporting `verified`. The
-available key is send-only.
+**Resend's verified status — resolved before deploy.** The domain
+`app.networkdesignbook.com` is verified in Resend (user-confirmed in the
+dashboard, 2026-10-10), so reset mail delivers to any student address. It could
+not be confirmed from the session itself: the available key is send-only, and
+DNS evidence (DKIM plus the `send.forge.rmta.net` CNAME) shows setup rather than
+verification. Had it still been unverified at deploy, a student's reset email
+would have failed silently into Sentry while the endpoint answered `200` — the
+anti-enumeration design makes a successful response no evidence of delivery.
 
 ### Review findings — 16 across four passes, all real
 
