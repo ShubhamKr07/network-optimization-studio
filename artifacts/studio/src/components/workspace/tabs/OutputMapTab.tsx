@@ -11,6 +11,7 @@ import type { CountryBounds } from "@/lib/mapBounds";
 import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } from "@/lib/copyMapToClipboard";
 import { toast } from "@/hooks/use-toast";
 import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
+import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
 // timing. Optional/no default — when the caller (eventually INT) has no
@@ -368,6 +369,10 @@ export function OutputMapTab({
           </span>
         )}
       </div>
+
+      {/* CH4OS (spec §6.3) — same alert as Solution Summary, above the map so
+          it never covers it; self-gated, renders nothing otherwise. */}
+      <FloorExceedsMaxAlert result={result} formatDistance={showDistance} className="mx-2 mt-2" />
 
       <div className="flex-1 min-h-0 relative" ref={mapRef}>
         {/* B2.1-T2 (item 2) — floating objective/weighted-avg-distance card.
