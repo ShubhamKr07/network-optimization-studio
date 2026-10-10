@@ -3233,11 +3233,12 @@ Moved verbatim from `CLAUDE.md`'s Branch discipline section to keep the always-l
 (Recorded 2026-10-02, ch9-tc. HEAD had been parked on another session's branch since that morning; `git checkout main` failed with `'main' is already used by worktree at .worktrees/task-loop`; the merge then ran on **that** branch and conflicted in three files. Aborted with no commit, nothing lost. Three things had to line up: piping to `tail` was a session-long habit for trimming output, harmless on read-only commands and fatal on a gating one; the two state changes were fused into one shell line to save a tool call, so no observation point existed between them; and — the part worth internalising — **the pre-merge check could not have caught it.** `git rev-parse main origin/main`, `merge-base --is-ancestor` and a clean-tree check all read main's *content*, which is readable no matter which worktree holds the branch. Availability is a different question: `git worktree list | grep "\[main\]"`, or just not masking the exit code.)
 
 (Recorded 2026-10-02, ch9-tc, 13 minutes after the incident above. `git apply -3` **stages** what it applies — 3-way needs the index — so the later `git checkout -- .github/workflows/ci.yml` restored that file *from the index*, not from HEAD, and was a no-op against the intent. The subsequent `git add <other-file> && git commit` then committed the whole index, so a file the commit message explicitly said was excluded was in the commit. Caught by re-reading the commit, fixed with `git checkout HEAD~1 -- <file>` + `--amend`. Two contributing habits: `git status --short`'s staged/unstaged distinction is **column position** — `M ` is staged, ` M` is worktree — and reading the letter without the column makes staged changes invisible; and the commit message was written from intent before `git diff --cached --stat` was ever read, so the message asserted a state nobody had checked.)
+
 ---
 
 ## PWR — self-serve password reset (2026-10-10)
 
-Branch `password-reset`, off `main@f6fb558`. 18 commits, 29 files, +3807/-11.
+Branch `password-reset`, off `main@f6fb558`. 23 commits, 31 files, +4101/-11.
 Spec: `docs/superpowers/specs/2026-10-10-password-reset-design.md`.
 Plan: `docs/superpowers/plans/2026-10-10-password-reset.md`.
 
