@@ -3402,7 +3402,7 @@ discipline rule 7.
 
 **Cause:** PWR-1 (`5a43bdf`) added two nullable columns to `users`; the "Production still needs" list above named the env vars and omitted the schema change. Production schema is never applied by a deploy here (`drizzle-kit push` is dev-only — see the Bundle A prod-deploy record).
 
-**Fix (user-approved, applied via `psql` from this machine, ~11:2xZ):**
+**Fix (user-approved, applied via `psql` from this machine; after the 11:08:47Z diagnostic probe, exact time not recorded):**
 ```sql
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS reset_token_hash varchar,
