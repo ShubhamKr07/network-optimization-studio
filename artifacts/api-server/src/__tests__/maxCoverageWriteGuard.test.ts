@@ -68,6 +68,12 @@ describe("CH4-26 — no route writes scenarios.inputs outside the authority", ()
     // rather than writing it, leaving the re-solve decision to the operator.
     // Added deliberately per this test's own comment above.
     "migrations/roundOverridePrecision.ts",
+    // CH4OS-4 — the one-off floor-0 objective clear. Not a request-path
+    // route. Writes `inputs - 'objective'` and bumps the epoch exactly as the
+    // input writer does (solve_input_revision + 1, inputs_updated_at = now()),
+    // the same epoch-preservation currency ch4ToMiles.ts is allow-listed for.
+    // Added deliberately per this test's own comment above.
+    "migrations/clearFloorZeroObjective.ts",
   ]);
 
   it("no file outside the allow-list writes scenarios.inputs", () => {
