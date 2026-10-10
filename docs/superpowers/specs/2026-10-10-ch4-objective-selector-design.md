@@ -20,8 +20,8 @@ Model 1 = maximise demand within `highServiceDistMi`. Model 2 = minimise total d
 | 0 | `coverage` | Model 1 | covered demand / coverage % | weighted avg distance | Model 1 network |
 | 0 | `min_distance` | Model 2 with floor 0 | weighted avg distance | coverage % / covered demand | Model 2 network |
 | 0 | absent | nothing — Solve blocked by precheck `objective_required` | — | — | unchanged |
-| > 0, floor ≤ Model 1 max | absent or `min_distance` | Model 1, then Model 2 with the given floor | weighted avg distance (Model 2) | coverage % / covered demand (Model 2), **"Max coverable demand (Model 1): N"** | Model 2 network |
-| > 0, floor > Model 1 max | absent or `min_distance` | Model 1, then Model 2 (infeasible) | alert, see §6.3 | Model 1's sites, coverage %, covered demand, avg distance — inside the alert | status `infeasible`, no network, carries Model 1 summary |
+| > 0, floor ≤ Model 1 max | ignored; stored as `min_distance` | Model 1, then Model 2 with the given floor | weighted avg distance (Model 2) | coverage % / covered demand (Model 2), **"Max coverable demand (Model 1): N"** | Model 2 network |
+| > 0, floor > Model 1 max | ignored; stored as `min_distance` | Model 1, then Model 2 (infeasible) | alert, see §6.3 | Model 1's sites, coverage %, covered demand, avg distance — inside the alert | status `infeasible`, no network, carries Model 1 summary |
 
 The floor-too-high case follows the existing infeasible convention for every model. The infeasible result is published as the scenario's result, replacing the previous one (`jobRunner.ts:1850-1878`). No new job-runner path.
 
@@ -32,12 +32,12 @@ The floor-too-high case follows the existing infeasible convention for every mod
 Validation (`validation/inputs/maxCoverage.ts`, `superRefine`):
 
 - `coverageFloorDemand == 0`: `objective` is optional and may be `coverage` or `min_distance`. If absent, it is stored absent. Saving is allowed, but solving is not (§4).
-- `coverageFloorDemand > 0`: `objective` must be absent or `min_distance`. `coverage` returns 422 with the message "objective must be min_distance or omitted when coverageFloorDemand > 0". When absent, the server stores `min_distance`, so `details.objective`, `resultSummary.objectiveMode` and Compare keep their current meaning for every positive-floor row.
+- `coverageFloorDemand > 0`: whatever `objective` was sent, or none, the server stores `min_distance`. There is no rejection path. The form hides the selector and drops `objective` at a positive floor, so no studio save can send a conflicting value. Clone and save-as-from-history copy stored rows, which already pair a positive floor with `min_distance`. The value has no effect on what runs, because any positive floor runs Model 1 then Model 2. Storing `min_distance` means `details.objective`, `resultSummary.objectiveMode` and Compare keep their current meaning for every positive-floor row.
 
 Write path (`services/scenarioInputWrite.ts`):
 
 - `assertNoServerOwnedFields` no longer refuses `objective`. Delete it and its call sites at `routes/scenarios.ts` :212, :224, :307 and :1998, since `objective` is the only field it guards.
-- `deriveServerOwnedInputs` changes to: when the floor is above 0 and `objective` is absent, set `min_distance`. Otherwise, store what was sent.
+- `deriveServerOwnedInputs` changes to: when the floor is above 0, set `objective` to `min_distance`. Otherwise, store what was sent, or leave it absent.
 - `changed.delete("objective")` is removed. `objective` is now a real student input, so changing it is a geometric change that bumps `inputsUpdatedAt` and `solveInputRevision`, which makes an existing result stale.
 
 Shared rule (`lib/units/src/objective.ts`): replace `deriveMaxCoverageObjective(floor)` with one authority:
@@ -53,7 +53,7 @@ resolveMaxCoverageRun(floor: number, objective: "coverage" | "min_distance" | un
 
 `solve.py` carries its own copy. `test_max_coverage.py`'s `TestModeDerivedFromFloor` is rewritten to pin the two copies against each other over all five cases.
 
-Studio save path (`pages/Workspace.tsx`): `withoutServerOwnedInputs` no longer strips `objective` unconditionally. It strips it only when the floor is above 0, because the form hides the selector there and a stale `coverage` would 422. Rename it to `normalizeMaxCoverageObjective` to match what it now does.
+Studio save path (`pages/Workspace.tsx`): **delete** `withoutServerOwnedInputs` (:228-235) and its call sites. It existed only because the server refused `objective`. The server now accepts it and normalises a positive floor itself.
 
 The manifest `inputsSchema` keeps `objective` in `properties` and **not** in `required[]`. That avoids the scenario-blocking "missing required values" notice described in CLAUDE.md's Gotchas.
 
@@ -158,7 +158,7 @@ Every existing floor-0 `max-coverage-us` row carries a server-derived `objective
 
 **API (vitest)**:
 
-- Validation: the floor/objective matrix, including 422 for floor above 0 with `coverage`.
+- Validation and write path: the floor/objective matrix. A positive floor with `coverage` sent is stored as `min_distance` and is not rejected.
 - Write path: an objective change bumps the revision, and floor above 0 with no objective stores `min_distance`.
 - `objective` is accepted on create, update and clone.
 - Precheck: `objective_required` fires, and `coverage_floor_infeasible` no longer exists.
