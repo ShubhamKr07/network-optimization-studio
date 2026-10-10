@@ -1533,16 +1533,18 @@ def _cbc_evidence(cbc):
             "solver_best_bound": cbc.solverBestBound}
 
 
-def _max_coverage_no_network_envelope(cbc, run_time):
+def _max_coverage_no_network_envelope(cbc, run_time, floor):
     """A CBC run that produced no network -- pre-CH4OS semantics, unchanged:
     "Infeasible" is the truthful infeasible envelope (D17); any other
     non-"Optimal" status is a solver_error failure. `details` is a fresh copy
     so a sequential run can add Model 1's summary without mutating the shared
-    _EMPTY_DETAILS constant."""
+    _EMPTY_DETAILS constant. `floor` is the floor the infeasible LP was built
+    with: the message names the floor only when the LP carried a floor row."""
     if cbc.lpStatus == "Infeasible":
+        candidates = ("the coverage floor and the average-distance cap are both candidates" if floor > 0
+                      else "the average-distance cap is the candidate (with maxDistMi, p and site status)")
         return _envelope("infeasible", "infeasible", 0, run_time, [], _EMPTY_METRICS, dict(_EMPTY_DETAILS),
-                         "No feasible assignment under the constraints — the coverage "
-                         "floor and the average-distance cap are both candidates",
+                         f"No feasible assignment under the constraints — {candidates}",
                          **_cbc_evidence(cbc))
     env = _envelope("error", "error", 0, run_time, [], _EMPTY_METRICS, dict(_EMPTY_DETAILS),
                     f"Solver terminated with status: {cbc.lpStatus}", **_cbc_evidence(cbc))
@@ -1603,7 +1605,7 @@ def solve_max_coverage(inp):
         if cbc1.lpStatus != "Optimal":
             # Model 2 shares every Model 1 constraint, so it cannot be
             # feasible when Model 1 is not; return Model 1's envelope as is.
-            return _max_coverage_no_network_envelope(cbc1, round(time.time() - t, 2))
+            return _max_coverage_no_network_envelope(cbc1, round(time.time() - t, 2), 0)
         s1 = _read_max_coverage_solution(ctx, a1, o1)
         model1 = {"openWarehouseIds": s1["openIds"], "coveredDemand": s1["coveredDemand"],
                   "coveragePct": s1["coveragePct"], "weightedAvgDistance": s1["weightedAvgDistance"],
@@ -1614,7 +1616,7 @@ def solve_max_coverage(inp):
     sense, mode = _MAX_COVERAGE_FINAL_SOLVE[run]
     prob, a, o, cbc = _run_max_coverage_lp(ctx, sense, floor, gap, limit)
     if cbc.lpStatus != "Optimal":
-        env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2))
+        env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2), floor)
         # Spec §5: ONLY an infeasible Model 2 after a sequential Model 1 gets
         # Model 1's summary and the floor-too-high message. A no_solution/
         # error Model 2 returns its own envelope AS IS (it becomes an fd3

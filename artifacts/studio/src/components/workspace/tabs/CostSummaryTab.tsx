@@ -582,10 +582,13 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               <tr>
                 <td className="p-2 text-muted-foreground">Max coverable demand (Model 1)</td>
                 {compareScenarios.map(s => {
-                  const d = s.result!.details as { maxCoverableDemand?: number } | undefined;
+                  const d = s.result!.details as { maxCoverableDemand?: number; model1?: { optimal?: boolean } } | undefined;
                   return (
                     <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-max-coverable-demand-${s.id}`}>
-                      {typeof d?.maxCoverableDemand === "number" ? d.maxCoverableDemand.toLocaleString() : ""}
+                      {/* Spec §5: a not-proven Model 1 value is a lower bound, never "the maximum". */}
+                      {typeof d?.maxCoverableDemand === "number"
+                        ? `${d.maxCoverableDemand.toLocaleString()}${d.model1?.optimal === false ? " (best found)" : ""}`
+                        : ""}
                     </td>
                   );
                 })}
