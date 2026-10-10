@@ -52,11 +52,20 @@ const router: IRouter = Router();
  * case-insensitive.
  */
 async function findUserByEmail(email: string) {
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(sql`lower(${usersTable.email}) = ${email}`);
-  return user;
+  // No error binding: a failed drizzle query's message carries its params, i.e.
+  // the submitted email. Throws rather than returning undefined so an outage is
+  // never mistaken for "no such account". See api-server/CLAUDE.md on
+  // DrizzleQueryError.
+  try {
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(sql`lower(${usersTable.email}) = ${email}`);
+    return user;
+  } catch {
+    logger.error({ step: "user-lookup-by-email" }, "user lookup failed");
+    throw new Error("user lookup failed");
+  }
 }
 
 // Simple in-memory rate limit for login: 20 attempts/min/IP. Raised from 10
@@ -160,7 +169,14 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await findUserByEmail(email);
+  let user: Awaited<ReturnType<typeof findUserByEmail>>;
+  try {
+    user = await findUserByEmail(email);
+  } catch {
+    // Not a 401: that would tell the caller "wrong credentials" for a DB fault.
+    res.status(500).json({ error: "Could not sign in." });
+    return;
+  }
   // Identical failure path whether the email doesn't exist or the password is
   // wrong — never let a caller distinguish the two (no user enumeration).
   const passwordHash = user?.passwordHash ?? null;
@@ -209,7 +225,16 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.json(GetCurrentAuthUserResponse.parse({ user: null }));
     return;
   }
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  // No error binding: a failed drizzle query's message carries its params, i.e.
+  // the user id. See api-server/CLAUDE.md on DrizzleQueryError.
+  let user: typeof usersTable.$inferSelect | undefined;
+  try {
+    [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  } catch {
+    logger.error({ step: "auth-user-lookup" }, "current user lookup failed");
+    res.status(500).json({ error: "Could not load your account." });
+    return;
+  }
   res.json(GetCurrentAuthUserResponse.parse({ user: user ? toAuthUser(user) : null }));
 });
 
