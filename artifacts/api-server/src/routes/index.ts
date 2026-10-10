@@ -8,8 +8,6 @@ import scenariosRouter from "./scenarios.js";
 import solveHistoryRouter from "./solveHistory.js";
 import landingSummaryRouter from "./landingSummary.js";
 import authRouter from "./auth.js";
-// TEMPORARY (PWR-FU5a) -- remove with routes/diag.ts once the proxy hop count is known.
-import diagRouter from "./diag.js";
 // Chen-bands-units bundle, Part G / T9 — field-scoped distance-bands PATCH.
 // This repo's actual mounting convention is "every router registers here",
 // not directly in app.ts (app.ts mounts ONE combined router at /api) — the
@@ -26,7 +24,6 @@ import feedbackRouter from "./feedback.js";
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use(diagRouter);
 router.use(authRouter);
 router.use(datasetRouter);
 router.use(modelsRouter);
