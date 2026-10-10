@@ -732,7 +732,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/ForgotPasswordAccepted'
         '429':
-          description: Rate limit tripped (per IP or per address). Returned regardless of whether the account exists.
+          description: >-
+            Per-address limit (3/hour) or a global flood cap (120/minute across
+            all callers) tripped. Not per-IP: behind the proxy every caller
+            shares one address. Returned regardless of whether the account exists.
           content:
             application/json:
               schema:
@@ -770,8 +773,10 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '429':
           description: >-
-            Per-IP rate limit tripped. Caps argon2 cost on an unauthenticated
-            endpoint; checked before any hashing, so a 429 costs no CPU.
+            Global in-flight cap (4 concurrent resets) tripped. Bounds argon2
+            CPU on an unauthenticated endpoint; checked before any hashing or
+            body parsing, so a 429 costs no CPU. Not per-IP: behind the proxy
+            every caller shares one address.
           content:
             application/json:
               schema:

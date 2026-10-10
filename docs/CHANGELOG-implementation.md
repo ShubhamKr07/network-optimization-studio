@@ -3369,3 +3369,10 @@ returned against the same file.
 
 Not deployed. Setting these on a live service is its own approval under branch
 discipline rule 7.
+
+### PWR-review — whole-branch review fixes (findings 1, 2, 3, 6)
+
+- **3:** the `/auth/reset-password` password UPDATE and `issueResetToken`'s token UPDATE now use a `catch` with no error binding (drizzle's `DrizzleQueryError` message embeds the params: the new argon2 hash / token hash). Reset answers `500 "Could not set your new password."`; the token write logs `{ step: "reset-token-write" }` only. Tests assert the secret never reaches the logger, Sentry or the response.
+- **1:** no `trust proxy` is set, so `req.ip` is the proxy for everyone and the two per-IP limiters were one shared bucket. forgot-password: per-IP limiter replaced by `forgotGlobalLimiter` (120/min, constant key) beside the per-address limiter. reset-password: rate counter replaced by a global in-flight cap of 4 concurrent hashes, released in `finally`. OpenAPI 429 descriptions updated. Setting `trust proxy` is deliberately left as its own task.
+- **2:** route test for the per-address limiter (same address x4 -> 200,200,200,429); deleting the limiter clause fails exactly that one test.
+- **6:** the integration suite's `beforeEach` now also calls `resetLoginRateLimiterForTests()`.

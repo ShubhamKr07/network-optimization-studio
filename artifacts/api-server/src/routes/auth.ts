@@ -213,22 +213,28 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   res.json(GetCurrentAuthUserResponse.parse({ user: user ? toAuthUser(user) : null }));
 });
 
-// Reset-request limits. Per IP, lower than login's 20 because this endpoint
-// sends mail; per address, which is what stops someone mailbombing a known
-// student. Both answer 429 whether or not the account exists, so neither
-// becomes an existence oracle.
-const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
+// Reset-request limits. The per-ADDRESS limiter is the primary defence (what
+// stops someone mailbombing a known student) and is the only per-caller one:
+// the app sets no `trust proxy`, so behind Cloudflare + Render `req.ip` is the
+// proxy's address and a per-IP key would be ONE bucket shared by every student.
+// The global cap is therefore deliberately global, a flood ceiling on mail
+// sent, not a per-caller limit. Both answer 429 whether or not the account
+// exists, so neither becomes an existence oracle.
+const forgotGlobalLimiter = makeRateLimiter(120, 60 * 1000);
+const FORGOT_GLOBAL_KEY = "global";
 const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
 // reset-password is unauthenticated and runs argon2 before its conditional
 // UPDATE (hashing after a SELECT would reintroduce the race), so a garbage
-// token costs as much CPU as a real one. Capped per IP; checked first so a
-// 429 costs nothing.
-const resetIpLimiter = makeRateLimiter(10, 60 * 1000);
+// token costs as much CPU as a real one. What matters is argon2 CPU, so bound
+// concurrent hashes directly instead of a request rate (which would be a
+// shared bucket behind the proxy, see above). Checked first so a 429 is free.
+const RESET_MAX_IN_FLIGHT = 4;
+let resetInFlight = 0;
 
 export function resetForgotPasswordLimitersForTests(): void {
-  forgotIpLimiter.reset();
+  forgotGlobalLimiter.reset();
   forgotEmailLimiter.reset();
-  resetIpLimiter.reset();
+  resetInFlight = 0;
 }
 
 /**
@@ -246,13 +252,21 @@ async function issueResetToken(email: string): Promise<void> {
   if (!user || !user.passwordHash) return;
 
   const token = generateResetToken();
-  await db
-    .update(usersTable)
-    .set({
-      resetTokenHash: hashResetToken(token),
-      resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
-    })
-    .where(eq(usersTable.id, user.id));
+  // No error binding: a failed drizzle query's message carries its params (the
+  // token hash), and the caller logs and sends errors to Sentry. See
+  // api-server/CLAUDE.md on DrizzleQueryError.
+  try {
+    await db
+      .update(usersTable)
+      .set({
+        resetTokenHash: hashResetToken(token),
+        resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      })
+      .where(eq(usersTable.id, user.id));
+  } catch {
+    logger.error({ step: "reset-token-write" }, "password reset token write failed");
+    return;
+  }
 
   await sendEmail(email, resetEmailSubject, resetEmailHtml(token));
 
@@ -261,11 +275,10 @@ async function issueResetToken(email: string): Promise<void> {
 
 router.post("/auth/forgot-password", (req: Request, res: Response) => {
   const parsed = ForgotPasswordBody.safeParse(withNormalizedEmail(req.body));
-  const ip = req.ip ?? "unknown";
 
-  // `||` short-circuits, so a request already refused on IP does not also
-  // consume the address's hourly budget.
-  if (forgotIpLimiter.check(ip) || (parsed.success && forgotEmailLimiter.check(parsed.data.email))) {
+  // `||` short-circuits, so a request already refused by the global cap does
+  // not also consume the address's hourly budget.
+  if (forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) || (parsed.success && forgotEmailLimiter.check(parsed.data.email))) {
     res.status(429).json({ error: "Too many reset requests, try again shortly" });
     return;
   }
@@ -285,11 +298,19 @@ router.post("/auth/forgot-password", (req: Request, res: Response) => {
 });
 
 router.post("/auth/reset-password", async (req: Request, res: Response) => {
-  if (resetIpLimiter.check(req.ip ?? "unknown")) {
+  if (resetInFlight >= RESET_MAX_IN_FLIGHT) {
     res.status(429).json({ error: "Too many reset attempts, try again shortly" });
     return;
   }
+  resetInFlight++;
+  try {
+    await handleResetPassword(req, res);
+  } finally {
+    resetInFlight--;
+  }
+});
 
+async function handleResetPassword(req: Request, res: Response): Promise<void> {
   const parsed = ResetPasswordBody.safeParse(req.body);
   if (!parsed.success) {
     // A bad token shape gets the SAME generic string as a wrong token, so a
@@ -311,16 +332,24 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   // the read and both write, racing to set different passwords. Here Postgres
   // arbitrates, and nulling both columns in this same statement is what makes
   // the token single-use. Hashing first means a losing racer only spent CPU.
-  const [user] = await db
-    .update(usersTable)
-    .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null })
-    .where(
-      and(
-        eq(usersTable.resetTokenHash, hashResetToken(token)),
-        gt(usersTable.resetTokenExpiresAt, new Date()),
-      ),
-    )
-    .returning();
+  // No error binding: a failed drizzle query's message carries its params,
+  // i.e. the new argon2 hash. See api-server/CLAUDE.md on DrizzleQueryError.
+  let user: typeof usersTable.$inferSelect | undefined;
+  try {
+    [user] = await db
+      .update(usersTable)
+      .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null })
+      .where(
+        and(
+          eq(usersTable.resetTokenHash, hashResetToken(token)),
+          gt(usersTable.resetTokenExpiresAt, new Date()),
+        ),
+      )
+      .returning();
+  } catch {
+    res.status(500).json({ error: "Could not set your new password." });
+    return;
+  }
 
   if (!user) {
     // One message for unknown AND expired — distinct messages would tell a
@@ -338,6 +367,6 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   });
 
   res.json(ResetPasswordResponse.parse({ user: toAuthUser(user) }));
-});
+}
 
 export default router;
