@@ -3,9 +3,27 @@
 Operator runbook for `artifacts/api-server/src/migrations/clearFloorZeroObjective.ts`
 (spec `docs/superpowers/specs/2026-10-10-ch4-objective-selector-design.md` §8).
 
-**Do not run this against production from an agent session.** It is a separate,
-separately-approved operation performed by a human operator with `psql` access.
-Approving the branch merge, the push, or the deploy does NOT approve this run.
+**An agent session may run this against production — but only with the user's
+explicit approval, asked for and given in that session, for each production step
+separately.** It is a separate, separately-approved operation. Approving the branch
+merge, the push, or the deploy does NOT approve this run, and neither does approval
+given in an earlier session.
+
+The approval gates, in order (a human operator follows the same steps):
+
+- **Dry run** (step 3) needs its own yes. It writes nothing, but it connects to
+  production, so ask first.
+- **Write** (step 5) needs a **separate** yes, asked only after the dry run, quoting
+  the dry-run count, the matched ids and the backup id. "Go ahead" given before the
+  dry run is not approval for the write.
+- If a production precondition is missing (no backup id, the host is not on the
+  database's IP allowlist, no connection string), **stop and ask** — do not add an
+  allowlist entry, create a backup, or fetch a credential on your own. Each of those
+  is its own approval.
+- The production connection string is supplied by the user for the command only:
+  never echo it, write it to a file, or commit it.
+- Step 2's count and step 6's verification are read-only and need no extra approval
+  once the user has asked for this migration to proceed.
 
 ## What it does
 
@@ -49,7 +67,9 @@ Idempotent: a second run matches nothing.
    ```
    The dry-run count must equal step 2's. **That count, taken at run time, is the
    number quoted for approval.** No figure is assumed in this document.
-4. **Explicit human approval** citing the dry-run count and the backup id.
+4. **Explicit user approval for the write** citing the dry-run count, the matched
+   ids and the backup id (from an agent session: asked and answered in that
+   session, after the dry run — see the approval gates above).
 5. **Run:**
    ```bash
    DATABASE_URL=<production URL> pnpm --filter api-server run clear-floor-zero-objective
