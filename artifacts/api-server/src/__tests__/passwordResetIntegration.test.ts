@@ -6,8 +6,7 @@
  */
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
-import { eq } from "drizzle-orm";
-import argon2 from "argon2";
+import { eq, sql } from "drizzle-orm";
 
 // The ONLY mock in this file, and it is not the database: a real Resend call
 // from a test suite is unacceptable, and `vi.doMock` cannot help here because
@@ -17,7 +16,7 @@ import argon2 from "argon2";
 const mockSendEmail = vi.hoisted(() => vi.fn());
 vi.mock("../lib/email.js", () => ({ sendEmail: mockSendEmail }));
 
-import { db, usersTable } from "@workspace/db";
+import { db, pool, usersTable } from "@workspace/db";
 import app from "../app.js";
 import { hashResetToken, generateResetToken } from "../lib/resetTokens.js";
 import { resetForgotPasswordLimitersForTests } from "../routes/auth.js";
@@ -107,32 +106,49 @@ describe("password reset against a real database", () => {
     expect(res.body.error).toBe("This reset link is invalid or has expired.");
   });
 
-  // The race the conditional UPDATE exists for. Both handlers run argon2.hash
-  // BEFORE touching the database, and unaided they finish up to ~60ms apart,
-  // so a broken SELECT-then-UPDATE would often serialise by luck and still
-  // return [200, 400]. A two-party barrier on argon2.hash releases both
-  // handlers in the same tick so they reach the database together.
+  // The race the conditional UPDATE exists for. A SELECT-then-UPDATE pair
+  // lets both win; the query-level barrier inside forces the overlap.
   it("two concurrent confirms of one token produce exactly one 200", async () => {
     const user = await registerFreshUser();
     const token = await plantToken(user.id, inAnHour());
 
-    const realHash = argon2.hash.bind(argon2);
+    // Warm the pool to >=2 live connections. A cold pool opens the second
+    // connection lazily (several ms), during which the first handler's whole
+    // SELECT+UPDATE completes on the one idle connection and a broken
+    // implementation would again serialise by luck.
+    await Promise.all([1, 2, 3, 4].map(() => db.execute(sql`select pg_sleep(0.05)`)));
+
+    // Rendezvous at the first DATABASE statement that touches the token
+    // column, one per handler (SELECT in a broken read-then-write route, the
+    // conditional UPDATE in the correct one). Holding both until two have
+    // arrived guarantees a broken implementation has BOTH reads in flight
+    // before either write can be issued. A barrier on argon2.hash alone
+    // proved insufficient: mutation-testing showed the broken route still
+    // passed because hash jitter and lazy pool connections re-serialised it.
+    // Single-shot: once open, every later query passes straight through.
+    const realQuery = pool.query.bind(pool) as (...a: unknown[]) => unknown;
     let arrived = 0;
     let release!: () => void;
     const bothArrived = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const hashSpy = vi.spyOn(argon2, "hash").mockImplementation(async (...args: Parameters<typeof argon2.hash>) => {
+    let gateOpen = false;
+    const querySpy = vi.spyOn(pool, "query").mockImplementation(((...args: unknown[]) => {
+      const first = args[0];
+      const text = typeof first === "string" ? first : ((first as { text?: string } | undefined)?.text ?? "");
+      if (gateOpen || !/reset_token_hash/.test(text)) return realQuery(...args);
       arrived += 1;
-      if (arrived >= 2) release();
-      await Promise.race([
+      if (arrived >= 2) {
+        gateOpen = true;
+        release();
+      }
+      return Promise.race([
         bothArrived,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("barrier timeout: fewer than two argon2.hash calls arrived")), 5_000),
+          setTimeout(() => reject(new Error("barrier timeout: fewer than two token statements arrived")), 5_000),
         ),
-      ]);
-      return realHash(...args);
-    });
+      ]).then(() => realQuery(...args));
+    }) as unknown as typeof pool.query);
 
     try {
       const [a, b] = await Promise.all([
@@ -141,7 +157,7 @@ describe("password reset against a real database", () => {
       ]);
 
       // Both really hit the barrier (non-vacuity: the overlap happened).
-      expect(hashSpy).toHaveBeenCalledTimes(2);
+      expect(gateOpen).toBe(true);
       expect([a.status, b.status].sort()).toEqual([200, 400]);
 
       const [row] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
@@ -157,7 +173,7 @@ describe("password reset against a real database", () => {
       const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: loserPassword });
       expect(bad.status).toBe(401);
     } finally {
-      hashSpy.mockRestore();
+      querySpy.mockRestore();
     }
   });
 
