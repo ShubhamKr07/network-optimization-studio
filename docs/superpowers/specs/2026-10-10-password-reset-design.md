@@ -33,6 +33,10 @@ link on the login page, one transactional email.
 | Link host | `APP_BASE_URL`, default `https://app.networkdesignbook.com` | Sender domain and link host match, which helps deliverability and reads less like phishing. The env var keeps local dev links clickable. |
 | Session revocation | None | See Accepted risks. |
 | Response ordering on request | Respond `200` before any lookup or send | Removes a timing side-channel; see Flows. |
+| Token in the link | URL **fragment**, not query string | A fragment never reaches the server, so the token stays out of Render and Cloudflare access logs. |
+| Token resolution on confirm | One conditional `UPDATE … RETURNING` | `SELECT`-then-`UPDATE` lets two concurrent confirms both succeed. Also fewer statements. |
+| Repeat requests | Last-token-wins, stated in the email copy | Refusing while a live token exists strands a user whose first email failed to send. |
+| Reset for a null `password_hash` row | Refused | Keeps reset from becoming an unasked-for account-conversion path. |
 
 ## Schema
 
@@ -69,9 +73,11 @@ one commit per task (hard rules #1 and #4).
 1. Normalize the address with the existing `withNormalizedEmail`.
 2. Apply both rate limits (see Security). On trip, `429`.
 3. **Respond `200 { success: true }` immediately**, before any lookup or send.
-4. Off the response path: `findUserByEmail`. If a user exists, generate 32 bytes
-   via `crypto.randomBytes`, store `sha256(token)` and `now + 1h`, and send the
-   email. Any failure is logged via pino and reported to Sentry.
+4. Off the response path: `findUserByEmail`. Issue a token only when the row
+   exists **and** its `password_hash` is non-null (see *Accounts without a
+   password*). Generate 32 bytes via `crypto.randomBytes`, store `sha256(token)`
+   and `now + 1h`, and send the email. Any failure is logged via pino and
+   reported to Sentry.
 
 Responding first does two jobs. It removes a timing side-channel — a real lookup
 plus a ~200 ms Resend call is measurable against an instant miss, which leaks
@@ -80,16 +86,41 @@ endpoint fast. The cost is that a user whose email fails to send still sees
 success; that is the correct trade for an anti-enumeration endpoint, and the
 failure is visible in Sentry.
 
+**Repeat requests are last-token-wins.** A second request overwrites an
+unexpired token, so only the newest link works. The email copy says so in one
+line, because out-of-order delivery is exactly the case that wording exists for.
+The alternative — refusing to issue while a live token exists — was considered
+and rejected: it leaves a user whose first email failed to send locked out for
+the remainder of the hour, and costs a branch plus a failure-path cleanup to
+undo. Concurrent requests are safe under this rule by construction: two writers
+race, the last one wins, and the link in the surviving email is the one that
+works.
+
 ### Confirm — `POST /auth/reset-password`
 
 1. Validate the password against the existing `registerUserBodyPasswordMin` /
    `registerUserBodyPasswordMax` bounds — the same rules as registration, so
    there is no second password standard to drift.
-2. `SELECT` by `reset_token_hash = sha256(token)`. Reject when no row matches or
-   `resetTokenExpiresAt <= now`.
-3. `argon2.hash` the new password. In one `UPDATE`, write `passwordHash` and set
-   **both** token columns to null — that nulling is what makes the token
-   single-use.
+2. `argon2.hash` the new password.
+3. Resolve the token in **one** conditional statement:
+
+   ```sql
+   UPDATE users
+      SET password_hash = $newHash,
+          reset_token_hash = NULL,
+          reset_token_expires_at = NULL
+    WHERE reset_token_hash = $tokenHash
+      AND reset_token_expires_at > now()
+   RETURNING id, email, role
+   ```
+
+   The reset succeeded only if exactly one row comes back; zero rows is the
+   generic `400`. A `SELECT` followed by an `UPDATE` does **not** enforce
+   single use: two concurrent confirmations of the same token both pass the
+   read and both write, racing to set different passwords. The conditional
+   update makes Postgres the arbiter. Nulling both columns in that same
+   statement is what makes the token single-use, and hashing first means a
+   losing racer has only spent CPU.
 4. Set the session cookie via the existing `setSessionCookie` and return the
    user, so a successful reset lands the student in the app.
 
@@ -122,9 +153,13 @@ an account, a reset link is on its way"* and reveals nothing about whether the
 address matched — the wording has to stay vague here or the UI undoes the
 endpoint's anti-enumeration.
 
-**`ResetPassword`.** Reads `?token=` from the URL, then calls
-`history.replaceState` to strip it, keeping the token out of browser history and
-out of any later `Referer`. One new-password field.
+**`ResetPassword`.** The link carries the token in the URL **fragment** —
+`/reset-password#token=…`, not `?token=…`. A fragment is never sent to the
+server, so the token cannot reach Render or Cloudflare access logs; a query
+string reaches them on the very first request, before any client-side code could
+strip it. The page reads `location.hash`, clears it with `history.replaceState`
+(keeping the token out of browser history and any later `Referer`), and holds it
+in component state only. One new-password field.
 
 Both pages surface failures through `describeWriteError`
 (`artifacts/studio/src/lib/describeWriteError.ts:51`), never `err.message`.
@@ -156,9 +191,30 @@ attacker holding a guessed token whether it ever existed.
   sends mail — and **3/hour per email address**, which is what prevents
   mailbombing a known student. Both return `429` whether or not the account
   exists, so neither becomes an existence oracle.
+- **The email-keyed limiter must evict; login's IP-keyed one gets away without
+  it.** Its keys are attacker-supplied, so an unbounded `Map` is a memory leak
+  any unauthenticated caller can drive. Expired entries are swept on insert.
+  Both limits also stay per-process and do not survive a restart, which is
+  acceptable only while `nos-api` runs a single instance — scale it out and each
+  limit silently loosens per instance, at which point they need shared storage.
 - The request endpoint's identical-response guarantee mirrors the existing
   anti-enumeration pattern at `routes/auth.ts:147-154` and the repo's
   404-never-403 rule.
+
+## Accounts without a password
+
+`users.password_hash` is nullable, and login rejects a row whose hash is null
+(`routes/auth.ts:149-154`). Reset as first drafted would have silently given such
+a row its first password, turning this flow into an account-conversion path that
+nothing in scope asked for. Issuance therefore requires a non-null
+`password_hash`; a row without one gets the same `200` and no email.
+
+**Count the production rows in that state before implementing.** If it is
+non-zero, those users are already locked out of login and need a deliberate
+decision — instructor-assisted reset, or allowing conversion on purpose —
+rather than inheriting whichever behaviour falls out of the code. Do not assume
+the count is zero without running the query: an unverified probe returning `0`
+is the null-measurement trap CLAUDE.md records under Gotchas.
 
 ## Accepted risks
 
@@ -197,6 +253,14 @@ test reaches Resend.
 - password below and above bounds → `400`
 - rate limit: the 11th request in a minute from one IP → `429`; the 4th in an
   hour for one address → `429`
+- limiter eviction: keys from an elapsed window are gone after a later insert,
+  so the `Map` does not grow without bound across windows
+- two concurrent confirms of the same token → exactly one `200` and one `400`,
+  and the stored hash is null afterwards (the race finding 3 names)
+- a second request for the same address invalidates the first token: the older
+  link → `400`, the newer one → `200`
+- a row with a non-null email and a null `password_hash` → `200`, no token
+  written, no send attempted
 
 **studio vitest / RTL.**
 
