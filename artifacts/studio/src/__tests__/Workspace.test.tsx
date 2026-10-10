@@ -2729,7 +2729,7 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
 describe("defaultInputsForModel — max-coverage-us", () => {
   const d = defaultInputsForModel("max-coverage-us");
 
-  it("carries both unconditionally-required mode fields and NO client-sent objective", () => {
+  it("carries both unconditionally-required mode fields and starts with NO objective selected (CH4OS)", () => {
     expect(d.avgServiceDistCapMi).toBe(650);
     expect(d.coverageFloorDemand).toBe(0);
     expect(Object.prototype.hasOwnProperty.call(d, "objective")).toBe(false);
@@ -2838,14 +2838,8 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
   }
 
-  // CH4-17 — no objective toggle exists any more. CH4O-5 — and the save
-  // payload must not carry the derived `objective` at all: the write route
-  // 422s a body containing it, while every persisted row (and therefore
-  // `localInputs`) does carry it, so `buildWholeInputPayload` strips it.
-  // CH4O-7 — superseded (was "... the avg-service-cap field only (no
-  // toggle)"): the coverage floor is editable again now, since the server
-  // derives `objective` FROM it rather than the reverse.
-  it("shows the avg-service-cap AND the editable coverage floor (no toggle) and strips the derived objective from the save payload", () => {
+  // CH4OS — `objective` is a student input again, so the save body carries it as-is.
+  it("shows the avg-service-cap AND the editable coverage floor, and sends the student's objective in the save payload (CH4OS)", () => {
     renderChen();
     openParamsTab();
 
@@ -2866,7 +2860,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
     expect(args.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200, coverageFloorDemand: 0 });
-    expect(args.data.inputs).not.toHaveProperty("objective");
+    expect(args.data.inputs).toHaveProperty("objective", "coverage");
   });
 
   // chen-bands-units — superseded (was "... resyncs distanceBands to
@@ -2993,17 +2987,8 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
   });
 
-  // CH4O-5 review finding (Important 1) — `handleSaveAsScenario`'s CREATE
-  // body is the third of three `withoutServerOwnedInputs` call sites and had
-  // NO direct coverage: the two pre-existing `button-save-as-scenario` tests
-  // (Task 7, CH4UX-6 review) both use a p-median fixture, which never
-  // carries `objective` in the first place — so neither could ever fail if
-  // the strip at this call site regressed. `maxCoverageCoverageInputs` DOES
-  // carry `objective: "coverage"`, and it flows unchanged into the history
-  // entry's `inputs` (the solved scenario's own persisted inputs), so this
-  // genuinely exercises the strip rather than passing vacuously. If this
-  // regresses, Save-as-scenario 422s for the entire chapter.
-  it("strips the derived objective from the Save-as-scenario CREATE body (CH4O-5)", async () => {
+  // CH4OS — the history entry's own objective goes into the CREATE body unchanged; the server keeps it (floor 0) or normalises it (positive floor).
+  it("carries the history entry's objective into the Save-as-scenario CREATE body (CH4OS)", async () => {
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 11 }),
     );
@@ -3044,7 +3029,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     // the CREATE body must not.
     expect(maxCoverageCoverageInputs).toHaveProperty("objective", "coverage");
     expect(args.data.inputs).toMatchObject({ coverageFloorDemand: 0, avgServiceDistCapMi: 1000 });
-    expect(args.data.inputs).not.toHaveProperty("objective");
+    expect(args.data.inputs).toHaveProperty("objective", "coverage");
   });
 
   // CH4O-P1 (whole-branch review, Important 1) — `handleSolve`'s
@@ -3093,12 +3078,12 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
-    // The save-before-solve branch ran, stripped the body, and the solve was
+    // The save-before-solve branch ran (objective sent as-is), and the solve was
     // enqueued only after it resolved (the pre-existing contract).
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [solveSaveArgs] = mockUpdateScenario.mutate.mock.calls[0];
     expect(solveSaveArgs.data.inputs).toMatchObject({ avgServiceDistCapMi: 1200 });
-    expect(solveSaveArgs.data.inputs).not.toHaveProperty("objective");
+    expect(solveSaveArgs.data.inputs).toHaveProperty("objective", "coverage");
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
 
     // The fix itself: nothing is unsaved, so the toolbar must not say so and
@@ -3107,6 +3092,59 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
       expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+  // ── CH4OS (spec §6.1) — Solve is gated on the LOCAL draft ─────────────────
+  const OBJECTIVE_HINT = "Choose an objective — Max coverage or Min distance — before solving.";
+
+  it("floor 0 with no stored objective: nothing selected, Run Optimizer disabled with the hint; choosing re-enables it with no save", () => {
+    const { objective: _o, ...noObjective } = maxCoverageCoverageInputs;
+    void _o;
+    const unselected = { ...maxCoverageScenario, inputs: noObjective };
+    mockUseGetScenario.mockReturnValue({ data: unselected } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [unselected] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    openParamsTab();
+
+    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
+    expect(screen.getByTestId("objective-min-distance")).not.toBeChecked();
+    const run = screen.getByTestId("button-run-optimizer");
+    expect(run).toBeDisabled();
+    expect(run).toHaveAttribute("title", OBJECTIVE_HINT);
+
+    fireEvent.click(screen.getByTestId("objective-coverage"));
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  it("raising the floor drops the objective and hides the selector; returning to 0 shows it unselected and disables Solve", () => {
+    renderChen();   // stored objective "coverage", floor 0
+    openParamsTab();
+    expect(screen.getByTestId("objective-coverage")).toBeChecked();
+
+    fireEvent.change(screen.getByTestId("input-coverage-floor"), { target: { value: "5" } });
+    expect(screen.queryByTestId("objective-select")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();   // sequential needs no choice
+
+    fireEvent.change(screen.getByTestId("input-coverage-floor"), { target: { value: "0" } });
+    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
+    expect(screen.getByTestId("objective-min-distance")).not.toBeChecked();
+    expect(screen.getByTestId("button-run-optimizer")).toBeDisabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  it("the Solve dialog's own Solve button disables from the same local draft, with the hint, and re-enables on a choice", () => {
+    renderChen();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.change(screen.getByTestId("solve-dialog-input-coverage-floor"), { target: { value: "5" } });
+    fireEvent.change(screen.getByTestId("solve-dialog-input-coverage-floor"), { target: { value: "0" } });
+
+    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-blocked-hint")).toHaveTextContent(OBJECTIVE_HINT);
+
+    fireEvent.click(screen.getByTestId("solve-dialog-objective-min-distance"));
+    expect(screen.getByTestId("solve-dialog-solve")).toBeEnabled();
+    expect(screen.queryByTestId("solve-dialog-blocked-hint")).not.toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 });
 
@@ -3413,67 +3451,31 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   });
 });
 
-// CH4O-5 — the guard INVERTED: `coverageFloorDemand` is now student-authored
-// and must round-trip, while `objective` is server-derived and the write route
-// 422s any body containing it. Every persisted row carries the derived
-// `objective`, and `localInputs` is seeded straight from that row, so the save
-// path has to strip it — without that, the first save of ANY Chapter 4
-// scenario fails. Self-contained (own fixture + helper) rather than reaching
-// into the "Chen inputs UI" describe block's locals above.
-describe("CH4O-5 — the derived objective never leaves the client", () => {
-  const coverageInputs = {
-    objective: "coverage",
-    p: 3,
-    highServiceDistMi: 600,
-    maxDistMi: 5000,
-    avgServiceDistCapMi: 1000,
-    coverageFloorDemand: 0,
-    gap: 0,
-    timeLimitSec: 120,
-    capacityMode: "none",
-    distanceBands: [600, 5000],
-    warehouseOverrides: [],
-    customerOverrides: [],
-    addedWarehouses: [],
-    addedCustomers: [],
-    distanceOverrides: [],
+describe("CH4OS — the student's objective is sent as-is", () => {
+  const minDistanceInputs = {
+    objective: "min_distance",
+    p: 3, highServiceDistMi: 600, maxDistMi: 5000, avgServiceDistCapMi: 1000,
+    coverageFloorDemand: 0, gap: 0, timeLimitSec: 120, capacityMode: "none",
+    distanceBands: [600, 5000], warehouseOverrides: [], customerOverrides: [],
+    addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   };
   const seededScenario = {
-    id: 1,
-    name: "Chen coverage",
-    modelId: "max-coverage-us",
-    inputs: coverageInputs,
-    result: null,
-    stale: false,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
+    id: 1, name: "Chen min distance", modelId: "max-coverage-us", inputs: minDistanceInputs,
+    result: null, stale: false, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   };
 
-  // Renders the Workspace for max-coverage-us with one seeded scenario,
-  // makes a real (dirty) edit so Save is enabled, clicks the header Save
-  // control, and returns the JSON body the mocked `updateScenario` mutation
-  // received — following the mocking this file's existing save tests
-  // already use, not a new mock layer.
-  function saveMaxCoverageScenarioAndCaptureBody() {
+  it("a PATCH carries the chosen min_distance objective and the floor", () => {
     mockUseGetScenario.mockReturnValue({ data: seededScenario } as unknown as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [seededScenario] } as unknown as ReturnType<typeof useListScenarios>);
     render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    // This field commits on blur (Part D draft contract, canonicalUnit
-    // resolved) — a bare `fireEvent.change` only updates the draft text.
     const avgCap = screen.getByTestId("input-avg-service-cap");
     fireEvent.change(avgCap, { target: { value: "1200" } });
     fireEvent.blur(avgCap);
     fireEvent.click(screen.getByTestId("button-save"));
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
-    return args.data as { inputs: Record<string, unknown> };
-  }
-
-  it("strips the derived objective from a PATCH while round-tripping the floor", async () => {
-    const patched = await saveMaxCoverageScenarioAndCaptureBody();
-    expect("objective" in patched.inputs).toBe(false);
-    expect(patched.inputs.coverageFloorDemand).toBe(0);
+    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 0, avgServiceDistCapMi: 1200 });
   });
 });
 

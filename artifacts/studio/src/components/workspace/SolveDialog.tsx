@@ -98,6 +98,11 @@ interface SolveDialogProps {
    * truth for these three values, never a second copy that could drift. */
   onChange: (field: OptimizationParametersField, value: number | number[]) => void;
   onSolve: () => void;
+  /** CH4OS (spec §6.1) — when set, Solve is disabled and this sentence is
+   * shown beside it. Workspace.tsx derives it from the LOCAL draft
+   * (max-coverage-us at floor 0 with no objective chosen), so it reacts to the
+   * embedded selector immediately, before any save. */
+  solveBlockedReason?: string | null;
 }
 
 // A2.1 — "Run Optimizer" dialog: p / gap / max runtime, two-way synced with
@@ -131,6 +136,7 @@ export function SolveDialog({
   paramsSlot,
   onChange,
   onSolve,
+  solveBlockedReason,
 }: SolveDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,6 +229,11 @@ export function SolveDialog({
         </div>
 
         <DialogFooter>
+          {solveBlockedReason && (
+            <p className="text-xs text-muted-foreground self-center sm:mr-auto" data-testid="solve-dialog-blocked-hint">
+              {solveBlockedReason}
+            </p>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -234,7 +245,7 @@ export function SolveDialog({
           {/* CH4UX-6 — no busy state: pressing this closes the dialog and
               hands the run to SolveProgressOverlay, so there is no moment at
               which this button is mounted AND a solve is in flight. */}
-          <Button type="button" onClick={onSolve} data-testid="solve-dialog-solve">
+          <Button type="button" onClick={onSolve} disabled={!!solveBlockedReason} data-testid="solve-dialog-solve">
             Solve
           </Button>
         </DialogFooter>

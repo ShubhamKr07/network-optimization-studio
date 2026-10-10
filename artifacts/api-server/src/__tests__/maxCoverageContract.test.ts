@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   GetDatasetQueryParams,
   CreateScenarioBody,
@@ -61,11 +63,11 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
       "capacity",
       "zero_demand",
       "no_feasible_route",
-      "coverage_floor_infeasible",
+      "objective_required",
       // ch9-tc-2 (9e73f6b) added this to openapi.yaml's PrecheckError.code
       // enum; this test's hardcoded list wasn't updated in that commit.
       "coefficient_range",
-      // CH4O-6 — avg_distance_cap_infeasible's sibling to coverage_floor_infeasible.
+      // CH4O-6 — the average-distance cap bound.
       "avg_distance_cap_infeasible",
     ];
     for (const code of codes) {
@@ -85,6 +87,19 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
     expect([...(PrecheckScenarioResponse.shape.errors.element.shape.code.options as string[])].sort()).toEqual(
       [...codes].sort(),
     );
+  });
+
+  // CH4OS — the removed code is REJECTED by the client and absent from the
+  // published contract; reading the YAML catches a hand-edited generated file
+  // that the safeParse alone would miss.
+  it("publishes objective_required and no longer publishes coverage_floor_infeasible", () => {
+    expect(PrecheckScenarioResponse.safeParse({
+      ok: false, errors: [{ code: "coverage_floor_infeasible", message: "x" }],
+    }).success).toBe(false);
+    const yaml = readFileSync(resolve(__dirname, "../../../../lib/api-spec/openapi.yaml"), "utf8");
+    const enumLine = yaml.match(/PrecheckError:[\s\S]*?enum: \[([^\]]*)\]/)?.[1] ?? "";
+    expect(enumLine).toContain("objective_required");
+    expect(enumLine).not.toContain("coverage_floor_infeasible");
   });
 
   it("request<->response entity parity: every export request entity is accepted by ExportEnvelope.entity", () => {

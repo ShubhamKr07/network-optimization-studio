@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { scenariosTable } from "@workspace/db";
-import { deriveMaxCoverageObjective } from "@workspace/units";
+import { resolveMaxCoverageRun } from "@workspace/units";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { normalizeAddedEntityDistances } from "./autoDistance.js";
 
@@ -9,14 +9,15 @@ export type ScenarioRow = typeof scenariosTable.$inferSelect;
 export const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
 
 // The create/clone half of the write contract. `applyScenarioInputWrite`
-// below is the UPDATE half; both must derive the same server-owned fields, or
-// a field exists on updated rows and not on created ones.
+// below is the UPDATE half; both apply the same rule.
 //
-// CH4O-5 — `objective` is the ONE server-owned max-coverage-us input, derived
-// from `coverageFloorDemand` through `@workspace/units`'
-// `deriveMaxCoverageObjective` (the single TypeScript authority for the rule;
-// solve.py necessarily carries its own copy, pinned against this one by
-// solver/tests/test_max_coverage.py's TestModeDerivedFromFloor).
+// CH4OS (spec 2026-10-10-ch4-objective-selector-design.md §3) — max-coverage-us's
+// `objective` is CONDITIONALLY client-authored. At a zero floor the student's
+// choice is stored as sent, or left absent (precheck's `objective_required`
+// then blocks the solve). At a positive floor every run is Model 1 then
+// Model 2 whatever was sent, so the stored value is normalised to
+// "min_distance" — keeping details.objective, resultSummary.objectiveMode and
+// Compare's meaning for every positive-floor row. There is no rejection path.
 //
 // Ordering at every call site is fixed: validate -> derive -> persist. Only
 // validation guarantees the floor is an integer, and this reads it.
@@ -27,7 +28,8 @@ export function deriveServerOwnedInputs(
   if (modelId !== MAX_COVERAGE_MODEL_ID) return inputs;
   const floor = inputs.coverageFloorDemand;
   if (typeof floor !== "number") return inputs; // validation already guaranteed this; defensive only
-  return { ...inputs, objective: deriveMaxCoverageObjective(floor) };
+  if (resolveMaxCoverageRun(floor, undefined) !== "sequential") return inputs;
+  return { ...inputs, objective: "min_distance" };
 }
 
 export type ApplyInputWriteOutcome =
@@ -80,10 +82,8 @@ export async function applyScenarioInputWrite(
 
   const persistedInputs = (persisted.inputs ?? {}) as Record<string, unknown>;
 
-  // CH4O-5 — derive the server-owned `objective` from the VALIDATED candidate,
-  // after validation and before the write (validate -> derive -> persist).
-  // Nothing the client sent is consulted: the write routes refuse an
-  // `objective` key outright, and this recomputes it from the floor regardless.
+  // CH4OS — normalise the VALIDATED candidate (validate -> derive -> persist).
+  // At a zero floor the client's `objective` (or its absence) is kept as sent.
   const inputsToStore: Record<string, unknown> = deriveServerOwnedInputs(persisted.modelId, normalized);
 
   // Unchanged semantics for every model: a save is non-geometric (does not
@@ -101,10 +101,9 @@ export async function applyScenarioInputWrite(
     ...Object.keys(persistedInputs),
     ...Object.keys(inputsToStore),
   ].filter((k) => JSON.stringify(persistedInputs[k]) !== JSON.stringify(inputsToStore[k])));
-  // `objective` is derived from coverageFloorDemand, so it can never change
-  // alone -- but leaving it in would misclassify a bands-only save as geometric
-  // on the first write after the migration, which is where it first appears.
-  changed.delete("objective");
+  // CH4OS — `objective` is a real student input now: changing it alone is a
+  // geometric change (bumps inputsUpdatedAt + solve_input_revision), so an
+  // existing result goes stale. No key is exempted from the diff.
   const isBandsOnlyChange = [...changed].every((k) => k === "distanceBands");
 
   const [row] = await tx.update(scenariosTable)
@@ -129,24 +128,4 @@ export async function applyScenarioInputWrite(
     .returning();
 
   return { kind: "ok", row };
-}
-
-/**
- * The write-route narrowing guard, INVERTED from its two-step form.
- *
- * Under the old workflow `coverageFloorDemand` was server-produced and
- * un-typeable. It is now exactly what the student types, and `objective` is the
- * only server-owned field. Still reads the RAW body before Zod runs: these
- * validators are non-strict, so an unknown key is STRIPPED rather than refused,
- * and silently discarding a client-sent `objective` would report success while
- * ignoring it.
- */
-export function assertNoServerOwnedFields(modelId: string, rawInputs: unknown): string | null {
-  if (modelId !== MAX_COVERAGE_MODEL_ID) return null;
-  if (rawInputs === null || typeof rawInputs !== "object") return null;
-  // `in`, not truthiness: refused when PRESENT, even as null or undefined.
-  if ("objective" in (rawInputs as Record<string, unknown>)) {
-    return "objective is derived from coverageFloorDemand and cannot be set directly";
-  }
-  return null;
 }

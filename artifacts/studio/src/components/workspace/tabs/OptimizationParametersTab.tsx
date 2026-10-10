@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { type CanonicalUnit, deriveMaxCoverageObjective } from "@workspace/units";
+import { type CanonicalUnit, resolveMaxCoverageRun } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
@@ -107,10 +107,8 @@ export interface OptimizationParametersTabProps {
   // The whole Chen block is gated on `highServiceDistMi != null` (present
   // only for Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a
   // sibling model passing none of these renders none of it, so this stays
-  // generic. CH4O-7 — there is no `objective` prop any more: the mode is
-  // fully derived (both server- and client-side) from `coverageFloorDemand`
-  // via `deriveMaxCoverageObjective`, and displayed, never chosen, by the
-  // `derived-model-line` rendered below.
+  // generic. CH4OS — `objective` is the student's floor-0 choice (see the
+  // prop below); the derived-model-line reads `resolveMaxCoverageRun`.
   /** Chen's two service-distance thresholds (both always visible in the
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
    * via `onServiceDistanceChange` (D13/D19), so these do NOT flow through the
@@ -124,11 +122,15 @@ export interface OptimizationParametersTabProps {
    * to hide it is gone). */
   avgServiceDistCapMi?: number;
   /** CH4O-5 — the demand-coverage floor, now a student-authored input and the
-   * discriminator the server (and, via the same `deriveMaxCoverageObjective`
-   * rule, this component) derives `objective` from (0 -> coverage, > 0 ->
-   * min_distance, §2.3). CH4O-7 — this is the editable input rendered below,
+   * discriminator that (with `objective`) feeds `resolveMaxCoverageRun`: 0 ->
+   * the student's choice, > 0 -> Model 1 then Model 2. CH4O-7 — this is the editable input rendered below,
    * via the generic `onChange`; NOT a distance, never unit-converted. */
   coverageFloorDemand?: number;
+  /** CH4OS (spec §6.1) — the student's objective at a zero floor. Undefined =
+   * not chosen (Solve is blocked). Ignored and hidden at a positive floor. */
+  objective?: "coverage" | "min_distance";
+  /** CH4OS — a radio choice. Workspace.tsx writes it into `localInputs`. */
+  onObjectiveChange?: (objective: "coverage" | "min_distance") => void;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */
   onServiceDistanceChange?: (field: "highServiceDistMi" | "maxDistMi", value: number) => void;
@@ -250,6 +252,8 @@ export function OptimizationParametersTab({
   maxDistMi,
   avgServiceDistCapMi,
   coverageFloorDemand,
+  objective,
+  onObjectiveChange,
   onServiceDistanceChange,
   showBandEditor = true,
   costAdjustEnabled,
@@ -460,8 +464,39 @@ export function OptimizationParametersTab({
               className="h-8 text-sm mt-1 font-mono"
               data-testid={tid("input-coverage-floor")}
             />
+            {/* CH4OS (spec §6.1) — directly below the floor, only at floor 0,
+                nothing selected by default. Native radios: one `name` per
+                mount (pid) so the tab and the Solve dialog's copy never
+                share a group. */}
+            {(coverageFloorDemand ?? 0) === 0 && (
+              <fieldset className="mt-2 space-y-1" data-testid={tid("objective-select")}>
+                <legend className="text-xs text-muted-foreground">Objective</legend>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="radio"
+                    name={pid("objective-select")}
+                    value="coverage"
+                    checked={objective === "coverage"}
+                    onChange={() => onObjectiveChange?.("coverage")}
+                    data-testid={tid("objective-coverage")}
+                  />
+                  Max coverage (Model 1)
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="radio"
+                    name={pid("objective-select")}
+                    value="min_distance"
+                    checked={objective === "min_distance"}
+                    onChange={() => onObjectiveChange?.("min_distance")}
+                    data-testid={tid("objective-min-distance")}
+                  />
+                  Min distance (Model 2)
+                </label>
+              </fieldset>
+            )}
             {(() => {
-              // Reads the SAME derivation the server uses, so the label and the
+              // Reads the SAME rule (resolveMaxCoverageRun) the server and solve.py use, so the label and the
               // solve that runs cannot disagree. `UnitApi.format` converts AND
               // labels a distance in one call, so the number and the unit can
               // never drift apart -- printing canonical numbers under a
@@ -491,11 +526,19 @@ export function OptimizationParametersTab({
                 avgServiceDistCapMi != null
                   ? `, holding average distance at or under ${fmt(avgServiceDistCapMi)}`
                   : "";
+              const within = fmt(highServiceDistMi!);
+              const run = resolveMaxCoverageRun(floor, objective);
+              const text =
+                run === "model1"
+                  ? `Model 1 — maximize demand within ${within}${capClause}`
+                  : run === "model2"
+                    ? `Model 2 — minimize average distance${capClause}`
+                    : run === "sequential"
+                      ? `Model 1, then Model 2 — find the maximum demand coverable within ${within}, then minimize average distance covering at least ${floor.toLocaleString()}${capClause}`
+                      : "Choose an objective to solve.";
               return (
                 <p className="mt-1 text-[11px] text-muted-foreground" data-testid={tid("derived-model-line")}>
-                  {deriveMaxCoverageObjective(floor) === "coverage"
-                    ? `Model 1 — maximize demand within ${fmt(highServiceDistMi!)}${capClause}`
-                    : `Model 2 — minimize average distance, covering at least ${floor.toLocaleString()} demand within ${fmt(highServiceDistMi!)}${capClause}`}
+                  {text}
                 </p>
               );
             })()}

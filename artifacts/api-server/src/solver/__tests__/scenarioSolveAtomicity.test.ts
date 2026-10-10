@@ -261,6 +261,7 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
 // rejecting, is because the check runs before the insert.
 describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", () => {
   const maxCoverageInputs = {
+    objective: "coverage",
     p: 3,
     highServiceDistMi: 600,
     maxDistMi: 5000,

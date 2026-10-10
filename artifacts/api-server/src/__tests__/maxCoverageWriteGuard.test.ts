@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { resolve, relative, sep, join } from "path";
-import { assertNoServerOwnedFields } from "../services/scenarioInputWrite.js";
 
 // R9 — plain recursive walk; no new dependency, and deliberately defined in
 // this file rather than imported, so the guard cannot be weakened by editing
@@ -15,29 +14,14 @@ function* walkTsFiles(dir: string): Generator<string> {
   }
 }
 
-describe("assertNoServerOwnedFields — the guard inverts", () => {
-  it("ACCEPTS a client-supplied coverageFloorDemand (now user-authored)", () => {
-    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 1000 })).toBeNull();
-    expect(assertNoServerOwnedFields("max-coverage-us", { coverageFloorDemand: 0, p: 3 })).toBeNull();
-  });
-
-  it("REFUSES a client-supplied objective", () => {
-    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "coverage" })).toMatch(/objective/);
-    expect(assertNoServerOwnedFields("max-coverage-us", { objective: "min_distance" })).toMatch(/objective/);
-  });
-
-  it("refuses objective when present even as null — `in`, not truthiness", () => {
-    expect(assertNoServerOwnedFields("max-coverage-us", { objective: null })).toMatch(/objective/);
-    expect(assertNoServerOwnedFields("max-coverage-us", { objective: undefined })).toMatch(/objective/);
-  });
-
-  it("ignores every other model", () => {
-    expect(assertNoServerOwnedFields("p-median-us", { objective: "coverage" })).toBeNull();
-  });
-
-  it("ignores a non-object body rather than throwing", () => {
-    expect(assertNoServerOwnedFields("max-coverage-us", null)).toBeNull();
-    expect(assertNoServerOwnedFields("max-coverage-us", "nope")).toBeNull();
+// CH4OS — `objective` is a student input again, so no write route refuses it.
+// Source read (not behaviour): the guard function is deleted, and a stale
+// reference would mean a route still refusing the field.
+describe("CH4OS — no write route refuses objective", () => {
+  it("routes/scenarios.ts no longer references assertNoServerOwnedFields", () => {
+    const src = readFileSync(resolve(__dirname, "../routes/scenarios.ts"), "utf8");
+    expect(src).not.toContain("assertNoServerOwnedFields");
+    expect(src).toContain("deriveServerOwnedInputs("); // non-vacuity: the file is the one that writes
   });
 });
 

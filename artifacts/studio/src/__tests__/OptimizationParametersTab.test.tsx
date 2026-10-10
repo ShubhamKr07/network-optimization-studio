@@ -692,7 +692,7 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
 // CH4O-7 — the Optimization Parameters form rebuilt as ONE editable surface:
 // no `step`/`objective` concept any more, the avg-cap field unconditional in
 // both modes, and a new editable coverage-floor input plus a derived-model
-// line that reads the SAME `deriveMaxCoverageObjective` rule the server uses.
+// line that reads the SAME `resolveMaxCoverageRun` rule the server uses.
 // Same deliberate synthetic-km choice as chenUnitProps above: `canonicalUnit:
 // "km"` next to `...Mi`-named values is intentional, not a leftover mismatch
 // — it's what makes the display-conversion test below (~435 mi) able to
@@ -721,7 +721,7 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   });
 
   it("names Model 1 when the floor is zero", () => {
-    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} />);
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} objective="coverage" />);
     expect(screen.getByTestId("derived-model-line")).toHaveTextContent(/Model 1/);
   });
 
@@ -734,12 +734,11 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   // no on-screen statement of the constraint that actually caused it — while
   // the Model 1 line they saw a minute earlier did name it. Both clauses are
   // asserted in full, not just /Model 2/, so dropping either can't pass.
-  it("names Model 2 when the floor is positive, and states BOTH the floor and the avg-distance cap", () => {
+  it("names the sequential run when the floor is positive, stating the cutoff, the floor AND the cap", () => {
     render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} />);
-    const line = screen.getByTestId("derived-model-line");
-    expect(line).toHaveTextContent(/Model 2/);
-    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
-    expect(line).toHaveTextContent("holding average distance at or under 1,000 km");
+    expect(screen.getByTestId("derived-model-line")).toHaveTextContent(
+      "Model 1, then Model 2 — find the maximum demand coverable within 700 km, then minimize average distance covering at least 500, holding average distance at or under 1,000 km",
+    );
   });
 
   // CH4O-P1 — the absent-cap handling the Model 1 branch already had (review
@@ -750,8 +749,8 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     void _absent;
     render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={500} />);
     const line = screen.getByTestId("derived-model-line");
-    expect(line).toHaveTextContent(/Model 2/);
-    expect(line).toHaveTextContent("covering at least 500 demand within 700 km");
+    expect(line).toHaveTextContent("Model 1, then Model 2");
+    expect(line).toHaveTextContent("covering at least 500");
     expect(line).not.toHaveTextContent("at or under");
     expect(line).not.toHaveTextContent("holding average distance");
   });
@@ -765,7 +764,7 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
     // constant and a `render` helper that passes `{ wrapper: UnitProvider }`;
     // use them rather than inventing a prop.
     window.localStorage.setItem(STORAGE_KEY, "mi");
-    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistMi={700} />);
+    render(<OptimizationParametersTab {...ch4Props} canonicalUnit="km" highServiceDistMi={700} objective="coverage" />);
     const line = screen.getByTestId("derived-model-line");
     // Tightened (review F2): both branch strings contain "maxi**mi**ze" /
     // "**mi**nimize", so a bare /mi/ match passes no matter what -- it is
@@ -785,7 +784,7 @@ describe("OptimizationParametersTab — Chapter 4 single form", () => {
   it("omits the cap clause (never throws, never claims a false cap) when avgServiceDistCapMi is absent", () => {
     const { avgServiceDistCapMi, ...propsWithoutCap } = ch4Props;
     expect(() =>
-      render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={0} />),
+      render(<OptimizationParametersTab {...propsWithoutCap} coverageFloorDemand={0} objective="coverage" />),
     ).not.toThrow();
     const line = screen.getByTestId("derived-model-line");
     expect(line).not.toHaveTextContent("at or under");
@@ -910,5 +909,56 @@ describe("OptimizationParametersTab — MISSING_INPUT_LABELS completeness", () =
     }
     const dead = Object.keys(MISSING_INPUT_LABELS).filter(key => !realRequiredKeys.has(key));
     expect(dead).toEqual([]);
+  });
+});
+
+// CH4OS (spec §6.1) — the objective selector and the four-case model line.
+describe("OptimizationParametersTab — CH4OS objective selector", () => {
+  beforeEach(() => window.localStorage.removeItem(STORAGE_KEY));
+
+  it("at floor 0 shows the selector directly below the floor, nothing selected by default", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} onObjectiveChange={vi.fn()} />);
+    const select = screen.getByTestId("objective-select");
+    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
+    expect(screen.getByTestId("objective-min-distance")).not.toBeChecked();
+    expect(select).toHaveTextContent("Max coverage (Model 1)");
+    expect(select).toHaveTextContent("Min distance (Model 2)");
+    const floor = screen.getByTestId("input-coverage-floor");
+    const line = screen.getByTestId("derived-model-line");
+    expect(floor.compareDocumentPosition(select) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(select.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("reflects the stored objective", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} objective="min_distance" onObjectiveChange={vi.fn()} />);
+    expect(screen.getByTestId("objective-min-distance")).toBeChecked();
+    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
+  });
+
+  it("reports a choice through onObjectiveChange", () => {
+    const onObjectiveChange = vi.fn();
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} onObjectiveChange={onObjectiveChange} />);
+    fireEvent.click(screen.getByTestId("objective-min-distance"));
+    expect(onObjectiveChange).toHaveBeenCalledWith("min_distance");
+  });
+
+  it("is hidden at a positive floor", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} objective="min_distance" onObjectiveChange={vi.fn()} />);
+    expect(screen.queryByTestId("objective-select")).not.toBeInTheDocument();
+  });
+
+  it("namespaces its test ids and radio-group name inside the Solve dialog", () => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={0} idPrefix="solve-dialog-" testIdPrefix="solve-dialog-" onObjectiveChange={vi.fn()} />);
+    expect(screen.getByTestId("solve-dialog-objective-coverage")).toHaveAttribute("name", "solve-dialog-objective-select");
+    expect(screen.queryByTestId("objective-coverage")).toBeNull();
+  });
+
+  it.each([
+    [0, "coverage", "Model 1 — maximize demand within 700 km, holding average distance at or under 1,000 km"],
+    [0, "min_distance", "Model 2 — minimize average distance, holding average distance at or under 1,000 km"],
+    [0, undefined, "Choose an objective to solve."],
+  ] as const)("floor %s + objective %s -> the spec's line", (floor, objective, text) => {
+    render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={floor} objective={objective} />);
+    expect(screen.getByTestId("derived-model-line")).toHaveTextContent(text);
   });
 });

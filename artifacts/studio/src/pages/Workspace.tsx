@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import type { CanonicalUnit } from "@workspace/units";
+import { type CanonicalUnit, resolveMaxCoverageRun } from "@workspace/units";
 import {
   useListScenarios,
   useGetScenario,
@@ -135,9 +135,8 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
   switch (modelId) {
     // C4.11 — Al's Athletics — Max Coverage (Chapter 4). CH4O-5 — BOTH
     // avgServiceDistCapMi and coverageFloorDemand are unconditionally
-    // required, and `objective` is DERIVED server-side from the floor
-    // (`0` → coverage): sending one is a 422, so a default must not carry it.
-    // A zero floor is the coverage-mode default. No capacity concept
+    // required. CH4OS — no `objective`: a new scenario starts with nothing
+    // selected, so the student must choose before solving (spec §6.1). No capacity concept
     // (capacityMode "none").
     case "max-coverage-us":
       return {
@@ -213,28 +212,6 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
   }
 }
 
-/**
- * CH4O-5 — strips the SERVER-OWNED keys from an outbound whole-inputs body.
- *
- * `objective` is derived server-side from `coverageFloorDemand`, and the write
- * routes 422 a body that merely CONTAINS the key (deliberately: a silent strip
- * server-side would report success while ignoring a client's choice). But every
- * persisted max-coverage-us row carries the derived value, `localInputs` is
- * seeded from that row, and both whole-input writers (`buildWholeInputPayload`
- * for PATCH, `handleSaveAsScenario` for CREATE-from-history) round-trip the
- * whole blob — so without this, the FIRST save of any Chapter 4 scenario 422s.
- * Model-scoped, because `objective` is server-owned for this model only.
- */
-export function withoutServerOwnedInputs(
-  modelId: StudioModelType,
-  inputs: Record<string, unknown>,
-): Record<string, unknown> {
-  if (modelId !== "max-coverage-us") return inputs;
-  const { objective: _derived, ...rest } = inputs;
-  void _derived;
-  return rest;
-}
-
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
   return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
@@ -296,6 +273,15 @@ function coverageFloorDemandFromInputs(inputs: Record<string, unknown> | null): 
   const raw = inputs?.coverageFloorDemand;
   return typeof raw === "number" ? raw : 0;
 }
+
+// CH4OS — max-coverage-us's student-chosen objective. Anything but the two
+// valid strings (absent, or a malformed legacy value) reads as "not chosen".
+function objectiveFromInputs(inputs: Record<string, unknown> | null): "coverage" | "min_distance" | undefined {
+  const raw = inputs?.objective;
+  return raw === "coverage" || raw === "min_distance" ? raw : undefined;
+}
+
+const OBJECTIVE_REQUIRED_HINT = "Choose an objective — Max coverage or Min distance — before solving.";
 
 function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number {
   const raw = inputs?.timeLimitSec;
@@ -1515,7 +1501,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // Plants tabs' added-row precheck chips are the first frontend
       // consumer of precheckJadeInputs (T6).
       // C4.13 — max-coverage-us joins: C4.8 built precheckMaxCoverageInputs
-      // (zero_demand/no_feasible_route/coverage_floor_infeasible +
+      // (zero_demand/no_feasible_route/objective_required +
       // completeness), and this task's Input-Map/Warehouses/Customers add-row
       // chips are its first frontend consumer.
       enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us"),
@@ -1891,6 +1877,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function updateInputsField(key: string, value: unknown) {
     if (isBrowsingHistoryNow) return;
     if (!localInputs) return;
+    // CH4OS (spec §6.1) — crossing the zero-floor boundary in EITHER direction
+    // drops `objective` from the draft: above 0 the selector is hidden (any
+    // positive floor runs Model 1 then Model 2; the server stores
+    // min_distance), and back at 0 it must show with nothing selected.
+    if (key === "coverageFloorDemand" && (coverageFloorDemandFromInputs(localInputs) === 0) !== (value === 0)) {
+      const { objective: _dropped, ...rest } = localInputs;
+      void _dropped;
+      setLocalInputs({ ...rest, [key]: value });
+      return;
+    }
     setLocalInputs({ ...localInputs, [key]: value });
   }
 
@@ -1921,6 +1917,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return;
     }
     updateInputsField(field, value);
+  }
+
+  // CH4OS — the selector's write. Same history-read-only guard as every input.
+  function handleObjectiveChange(objective: "coverage" | "min_distance") {
+    updateInputsField("objective", objective);
   }
 
   // C4.12 — editing Chen's high-service / max distance.
@@ -2044,8 +2045,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // branch — a second whole-input writer that would otherwise persist a
   // stale `localInputs.distanceBands` over the active lens.
   function buildWholeInputPayload(): Record<string, unknown> {
-    return withoutServerOwnedInputs(modelId, { ...(localInputs ?? {}), distanceBands: activeBandLens });
+    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
   }
+
+  // CH4OS (spec §6.1) — Solve is gated on the LOCAL draft, not the persisted
+  // precheck query: GET .../precheck validates the SAVED row, while the
+  // selector edits only `localInputs`. The server's `objective_required`
+  // precheck stays the enqueue-time authority.
+  const objectiveRequired =
+    modelId === "max-coverage-us" &&
+    localInputs != null &&
+    resolveMaxCoverageRun(coverageFloorDemandFromInputs(localInputs), objectiveFromInputs(localInputs)) === null;
 
   // chen-bands-units, Task 14 Step 3/5 — the shared whole-input save,
   // Promise-wrapped so BOTH the plain Save control (`handleSaveInputs`,
@@ -2956,6 +2966,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // scope here. Do not read this comment as "the enqueue helper is
     // single-entry" — it is not; the guard lives here.
     if (
+      objectiveRequired ||
       !currentScenario ||
       isBrowsingHistoryNow ||
       solveInFlightRef.current ||
@@ -2990,18 +3001,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         {
           // CH4O-P1 — adopt the RESPONSE inputs, exactly as
           // `saveWholeInputsAsync` does (:2089), NEVER the pre-send `inputs`.
-          // `buildWholeInputPayload()` runs the body through
-          // `withoutServerOwnedInputs`, which STRIPS `objective` for
-          // max-coverage-us — so storing the request payload as the
-          // last-saved snapshot left `savedInputsRef` without a key
-          // `localInputs` still carries (every persisted Chapter 4 row has
-          // the server-derived `objective`, and the id-keyed seeding effect
-          // at :1568 never re-syncs it for the same scenario). `isDirty` is a
-          // JSON.stringify comparison, so every Chapter 4 scenario solved via
-          // Run Optimizer went permanently "Unsaved changes" for the rest of
-          // the session, and the dirty-nav prompt then blocked history
-          // browsing on a lie. Byte-identical for every other model (nothing
-          // is stripped there), so this is the one correct form for both.
+          // The response is the persisted row, which can differ from the
+          // request (CH4OS: a positive floor is normalised to
+          // objective "min_distance" server-side), and `isDirty` is a
+          // JSON.stringify comparison — so adopting the request would leave
+          // the draft permanently "Unsaved changes".
           onSuccess: updated => {
             setLocalInputs(updated.inputs);
             savedInputsRef.current = updated.inputs;
@@ -3160,7 +3164,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // band edit on top of this historical entry's other inputs. Draft
     // rather than saved lens deliberately — the clone is a brand-new
     // scenario, so persisting an unsaved lens edit here is harmless.
-    const inputs = withoutServerOwnedInputs(modelId, { ...entry.inputs, distanceBands: activeBandLens });
+    const inputs = { ...entry.inputs, distanceBands: activeBandLens };
     createScenario.mutate(
       { data: { name, modelId, inputs } },
       {
@@ -3237,9 +3241,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // max-coverage-us cap and would otherwise stop matching this
     // occurrence if it were split across lines.
     pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
-    // CH4O-7 — no `objective:` entry here any more: the mode is fully
-    // derived (client- and server-side) from `coverageFloorDemand` below,
-    // via the SAME `deriveMaxCoverageObjective` rule, never a second copy.
+    // CH4OS — the student's floor-0 objective and its writer; the model line
+    // and Solve gating both read `resolveMaxCoverageRun` (never a second copy).
+    objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
+    onObjectiveChange: handleObjectiveChange,
     highServiceDistMi:
       modelId === "max-coverage-us" ? optionalNumberFromInputs(localInputs, "highServiceDistMi") : undefined,
     maxDistMi:
@@ -4353,7 +4358,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 a keyboard user could still reach mid-run. */}
             <Button
               size="sm"
-              disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle"}
+              disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
+              title={objectiveRequired ? OBJECTIVE_REQUIRED_HINT : undefined}
               onClick={openSolveDialog}
               data-testid="button-run-optimizer"
             >
@@ -4506,6 +4512,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         canonicalUnit={canonicalUnit}
         onChange={handleOptimizationParamsChange}
         onSolve={handleSolve}
+        solveBlockedReason={objectiveRequired ? OBJECTIVE_REQUIRED_HINT : null}
       />
 
       {/* CH4UX-6 — mounted UNCONDITIONALLY from this component's single main

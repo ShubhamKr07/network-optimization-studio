@@ -3435,3 +3435,16 @@ Spec: `docs/superpowers/specs/2026-10-10-ch4-objective-selector-design.md`. Plan
 - Review: lead Opus correctness review — no findings (module-level pulp imports, `dispatch` failure stage in the fd3 enum, outcome matrix, floor-too-high message, time split verified). `ponytail-review` — lean already, net 0. Full solver pytest re-run bare by the lead: 352 passed, exit 0.
 - New golden (Model 2, floor 0), measured by Step 5's command: `optimal 29873735731.0 382.87 ['BAL', 'DAL', 'LA'] 52346880 67.0887` (matches the plan's pre-measured values).
 - Gate: `test_max_coverage.py` 40 passed; full solver pytest 352 passed; `e2e_accuracy.py` 99/99; `real_solve_smoke.py` `PASS: all 6 models solved for real via translate.to_solver_input`.
+
+### CH4OS-2 — objective contract (one commit: units, write path, precheck, OpenAPI, studio)
+
+- `@workspace/units` `resolveMaxCoverageRun` (pinned against solve.py via `maxCoverageRunCases.json`); `deriveMaxCoverageObjective` kept as the historical rule for `ch4ToMiles` only.
+- Write path: floor 0 stores `objective` as sent or absent; positive floor stores `min_distance`; `assertNoServerOwnedFields` + both route guards deleted (ownership filters untouched); `changed.delete("objective")` removed, so an objective change bumps the solve revision.
+- Precheck: `objective_required` added, `coverage_floor_infeasible` removed (TS union + `openapi.yaml` + regenerated Orval output).
+- Studio: `objective-select` radios (native fieldset/legend) at floor 0; four-case `derived-model-line`; Solve disabled from the local draft in the header button and `SolveDialog` (`solveBlockedReason`); `withoutServerOwnedInputs` deleted.
+- Validation rule unchanged (schema already accepted both values; spec defines no rejection path) — comments only.
+- Deviation: the floor-crossing branch that drops `objective` lives in `updateInputsField` (already guarded by `isBrowsingHistoryNow`) rather than `handleOptimizationParamsChange`, which must stay editable in history for band-lens edits; `historyReadOnlyGuards.test.ts`'s `setLocalInputs` count 16 → 17. Step 11's grep prints only the new negative assertions in api-server tests and a historical comment at `Workspace.test.tsx:3038`.
+- Known window: e2e floor-0 fixtures 422 on `objective_required` until CH4OS-5.
+- Extra fixtures touched by Step 12: `scenarioSolveAtomicity.test.ts` (`objective: "coverage"`), `historyReadOnlyGuards.test.ts`.
+- Review: lead Opus correctness review — no findings. `ponytail-review` — lean already, net 0.
+- Gate: typecheck exit 0; studio `Test Files 129 passed (129)`, `Tests 2355 passed (2355)`; units `Tests 39 passed (39)`; solver pytest `352 passed`; api-server `Test Files 67 passed (67)`, `Tests 1721 passed (1721)` on the backend half's second full run (api-server code unchanged after it). Two later full api-server runs had 5 and 4 failures in `cors`, `jobRunnerDispatcher`, `resultEnvelope` (brazil), `dispatcherRecovery` — all in `flake-registry.md`; those files passed 57/57 in isolation. New flake sighting recorded in `flake-registry.md` (`routes.test.ts` transport-coal no-op).
