@@ -15,6 +15,7 @@
 - Worktree is `/Users/shubhamkr/nos-password-reset`, branch `password-reset`. **Every task's first Bash command is `cd /Users/shubhamkr/nos-password-reset` followed by `git rev-parse --abbrev-ref HEAD`, which must print `password-reset`. If it prints anything else, STOP.**
 - Before any `git commit`: `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }`
 - Commit with an explicit pathspec (`git commit <paths> -m …`), never a bare `git commit`.
+- **A pathspec commit cannot name an untracked file** — `git commit new-file.ts` fails with "pathspec did not match". For a task that creates files, `git add <those exact paths>` first, then `git commit <the same paths>`. Staging exactly the paths you are about to commit keeps the explicit-pathspec protection intact; `git add -A` does not and is forbidden.
 - One task = one commit. Message format `[PWR-N] <imperative summary>`.
 - **Never edit generated code.** `lib/api-zod/src/generated/**` and `lib/api-client-react/src/generated/**` come from Orval. Change `lib/api-spec/openapi.yaml`, re-run codegen, commit spec + regenerated output together.
 - Local DB: no `DATABASE_URL` in the environment. Pass it inline per command: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"`.
@@ -462,7 +463,7 @@ export function makeRateLimiter(limit: number, windowMs: number) {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- emailTransport`
-Expected: PASS, 8 tests.
+Expected: PASS, 7 tests (3 for `sendEmail`, 4 for `makeRateLimiter`).
 
 - [ ] **Step 6: Commit**
 
