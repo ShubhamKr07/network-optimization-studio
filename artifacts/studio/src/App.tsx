@@ -62,7 +62,7 @@ export function Gate() {
       <Route path="/login">{user ? <Redirect to="/" /> : <Login />}</Route>
       <Route path="/register">{user ? <Redirect to="/" /> : <Register />}</Route>
       <Route path="/forgot-password">{user ? <Redirect to="/" /> : <ForgotPassword />}</Route>
-      <Route path="/reset-password">{user ? <Redirect to="/" /> : <ResetPassword />}</Route>
+      <Route path="/reset-password"><ResetPassword /></Route>
       <Route path="/">{authedOnly(<Landing />, "Network Design Labs", true)}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>

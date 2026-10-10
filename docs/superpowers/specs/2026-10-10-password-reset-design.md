@@ -137,8 +137,10 @@ and `password reset completed`.
 
 ```tsx
 <Route path="/forgot-password">{user ? <Redirect to="/" /> : <ForgotPassword />}</Route>
-<Route path="/reset-password">{user ? <Redirect to="/" /> : <ResetPassword />}</Route>
+<Route path="/reset-password"><ResetPassword /></Route>
 ```
+
+The two routes deliberately differ: `/forgot-password` redirects a logged-in user (nothing is lost), but `/reset-password` renders unconditionally. Reset does not revoke sessions, so a live cookie in the browser that opens the emailed link is normal, and redirecting it would silently waste the single-use token. A successful reset overwrites the session cookie, so the visitor ends up authenticated as themselves. Do not "fix" this inconsistency.
 
 Both wrap in the existing `AuthShell`, inheriting the tagline panel and styling.
 

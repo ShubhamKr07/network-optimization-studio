@@ -11,6 +11,8 @@ import * as analytics from "@/lib/analytics";
 // stubbed so this test is purely about routing, not their internals.
 vi.mock("@/pages/auth/Login", () => ({ Login: () => <div>LoginPage</div> }));
 vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div> }));
+vi.mock("@/pages/auth/ResetPassword", () => ({ ResetPassword: () => <div>ResetPasswordPage</div> }));
+vi.mock("@/pages/auth/ForgotPassword", () => ({ ForgotPassword: () => <div>ForgotPasswordPage</div> }));
 vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
 vi.mock("@/pages/Studio", () => ({ Studio: () => <div>StudioPage</div> }));
 vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
@@ -64,6 +66,17 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     renderAt("/register", { email: "student@example.com" });
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
     expect(screen.queryByText("RegisterPage")).not.toBeInTheDocument();
+  });
+
+  it("lets a logged-in visitor reach /reset-password (live session must not waste the emailed token)", () => {
+    renderAt("/reset-password", { email: "student@example.com" });
+    expect(screen.getByText("ResetPasswordPage")).toBeInTheDocument();
+  });
+
+  it("still redirects a logged-in visitor away from /forgot-password", () => {
+    renderAt("/forgot-password", { email: "student@example.com" });
+    expect(screen.getByText("LandingPage")).toBeInTheDocument();
+    expect(screen.queryByText("ForgotPasswordPage")).not.toBeInTheDocument();
   });
 
   it("shows Login at /login when unauthenticated", () => {
