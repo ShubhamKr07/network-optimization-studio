@@ -18,6 +18,11 @@ export const usersTable = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   passwordHash: varchar("password_hash"),
+  // Password reset (PWR). Both nullable: a row has a live token or it does
+  // not, and nulling the pair is what makes a token single-use. Nullable also
+  // means `drizzle-kit push` needs no two-step NOT NULL protocol.
+  resetTokenHash: varchar("reset_token_hash"),
+  resetTokenExpiresAt: timestamp("reset_token_expires_at", { withTimezone: true }),
   role: varchar("role").notNull().default("student"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
