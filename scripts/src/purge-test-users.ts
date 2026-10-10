@@ -42,6 +42,7 @@ export const TEST_LOCAL_PREFIXES = [
   "hnd-", // api-server vitest helpers (these DO clean up after themselves;
           // listed so a failed run's leftovers are still collectable)
   "ch4-2s-",
+  "pwr-", // passwordResetIntegration.test.ts
 ];
 
 /** Domains the suites use. A real address is never on one of these. */

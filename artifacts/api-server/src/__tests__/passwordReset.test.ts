@@ -187,6 +187,10 @@ describe("POST /api/auth/reset-password", () => {
     const where = JSON.stringify(updateChain.where.mock.calls[0]![0]);
     expect(where).toContain(hashResetToken("raw-token"));
     expect(where).not.toContain("raw-token");
+    // Expiry is enforced inside the UPDATE's WHERE, not in JS after a fetch.
+    expect(where).toMatch(/"op":"gt"[^}]*reset_token_expires_at|reset_token_expires_at[^}]*"op":"gt"/);
+    // Structural witness: the confirm path never SELECTs before updating.
+    expect(mockDb.select).not.toHaveBeenCalled();
   });
 
   it("returns the generic 400 when no row matches", async () => {

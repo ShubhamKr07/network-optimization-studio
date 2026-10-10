@@ -7,6 +7,7 @@
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
+import argon2 from "argon2";
 
 // The ONLY mock in this file, and it is not the database: a real Resend call
 // from a test suite is unacceptable, and `vi.doMock` cannot help here because
@@ -91,35 +92,97 @@ describe("password reset against a real database", () => {
 
     const res = await request(app).post("/api/auth/reset-password").send({ token, password: "newpassword1" });
     expect(res.status).toBe(400);
+    // Same body as an unknown token: a distinct "expired" message is an oracle.
+    expect(res.body.error).toBe("This reset link is invalid or has expired.");
 
     const stillWorks = await request(app).post("/api/auth/login").send({ email: user.email, password: "correcthorse1" });
     expect(stillWorks.status).toBe(200);
   });
 
-  // The race the conditional UPDATE exists for. A SELECT-then-UPDATE pair
-  // lets both of these win.
+  it("a never-issued token gets the identical error string as an expired one", async () => {
+    const res = await request(app)
+      .post("/api/auth/reset-password")
+      .send({ token: generateResetToken(), password: "newpassword1" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("This reset link is invalid or has expired.");
+  });
+
+  // The race the conditional UPDATE exists for. Both handlers run argon2.hash
+  // BEFORE touching the database, and unaided they finish up to ~60ms apart,
+  // so a broken SELECT-then-UPDATE would often serialise by luck and still
+  // return [200, 400]. A two-party barrier on argon2.hash releases both
+  // handlers in the same tick so they reach the database together.
   it("two concurrent confirms of one token produce exactly one 200", async () => {
     const user = await registerFreshUser();
     const token = await plantToken(user.id, inAnHour());
 
-    const [a, b] = await Promise.all([
-      request(app).post("/api/auth/reset-password").send({ token, password: "racepassword1" }),
-      request(app).post("/api/auth/reset-password").send({ token, password: "racepassword2" }),
-    ]);
+    const realHash = argon2.hash.bind(argon2);
+    let arrived = 0;
+    let release!: () => void;
+    const bothArrived = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const hashSpy = vi.spyOn(argon2, "hash").mockImplementation(async (...args: Parameters<typeof argon2.hash>) => {
+      arrived += 1;
+      if (arrived >= 2) release();
+      await Promise.race([
+        bothArrived,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("barrier timeout: fewer than two argon2.hash calls arrived")), 5_000),
+        ),
+      ]);
+      return realHash(...args);
+    });
 
-    const statuses = [a.status, b.status].sort();
-    expect(statuses).toEqual([200, 400]);
+    try {
+      const [a, b] = await Promise.all([
+        request(app).post("/api/auth/reset-password").send({ token, password: "racepassword1" }),
+        request(app).post("/api/auth/reset-password").send({ token, password: "racepassword2" }),
+      ]);
+
+      // Both really hit the barrier (non-vacuity: the overlap happened).
+      expect(hashSpy).toHaveBeenCalledTimes(2);
+      expect([a.status, b.status].sort()).toEqual([200, 400]);
+
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
+      expect(row!.resetTokenHash).toBeNull();
+
+      // The password that persisted is the winner's.
+      const winnerPassword = a.status === 200 ? "racepassword1" : "racepassword2";
+      const loserPassword = a.status === 200 ? "racepassword2" : "racepassword1";
+      resetForgotPasswordLimitersForTests();
+      const good = await request(app).post("/api/auth/login").send({ email: user.email, password: winnerPassword });
+      expect(good.status).toBe(200);
+      resetForgotPasswordLimitersForTests();
+      const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: loserPassword });
+      expect(bad.status).toBe(401);
+    } finally {
+      hashSpy.mockRestore();
+    }
   });
 
-  it("a second request invalidates the first token", async () => {
+  it("a second forgot-password request invalidates the first token (last token wins)", async () => {
     const user = await registerFreshUser();
-    const firstToken = await plantToken(user.id, inAnHour());
-    const secondToken = await plantToken(user.id, inAnHour());
+    mockSendEmail.mockClear();
+    mockSendEmail.mockResolvedValue(undefined);
+    process.env.RESEND_API_KEY = "re_test";
 
-    const stale = await request(app).post("/api/auth/reset-password").send({ token: firstToken, password: "newpassword1" });
+    const tokens: string[] = [];
+    for (let n = 0; n < 2; n++) {
+      const res = await request(app).post("/api/auth/forgot-password").send({ email: user.email });
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => expect(mockSendEmail).toHaveBeenCalledTimes(n + 1), { timeout: 5_000 });
+      const html = mockSendEmail.mock.calls[n]![2] as string;
+      const emailed = /#token=([A-Za-z0-9_-]+)/.exec(html)?.[1];
+      expect(emailed).toBeTruthy();
+      tokens.push(emailed!);
+    }
+    expect(tokens[0]).not.toBe(tokens[1]);
+
+    const stale = await request(app).post("/api/auth/reset-password").send({ token: tokens[0], password: "newpassword1" });
     expect(stale.status).toBe(400);
 
-    const fresh = await request(app).post("/api/auth/reset-password").send({ token: secondToken, password: "newpassword2" });
+    const fresh = await request(app).post("/api/auth/reset-password").send({ token: tokens[1], password: "newpassword2" });
     expect(fresh.status).toBe(200);
   });
 

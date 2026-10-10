@@ -44,11 +44,16 @@ test.describe("password reset (unauthenticated)", () => {
   test("a token in the fragment is consumed and removed from the URL", async ({ page }) => {
     await page.goto("/reset-password#token=not-a-real-token");
     await expect(page.getByTestId("input-new-password")).toBeVisible({ timeout: TIMEOUT });
-    // The page strips the fragment on mount.
-    expect(new URL(page.url()).hash).toBe("");
+    // The page strips the fragment on mount; auto-retrying, and it also
+    // catches a token leaking into the query string or path.
+    await expect(page).toHaveURL(/\/reset-password$/);
 
     await page.getByTestId("input-new-password").fill("brandnewpass1");
+    // The generic error is identical for empty/unknown/expired tokens, so
+    // assert on the request itself to prove WHICH token was sent.
+    const req = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/auth/reset-password"));
     await page.getByTestId("button-set-password").click();
+    expect((await req).postDataJSON().token).toBe("not-a-real-token");
     await expect(page.getByTestId("alert-reset-error")).toContainText(/invalid or has expired/i, { timeout: TIMEOUT });
   });
 });
