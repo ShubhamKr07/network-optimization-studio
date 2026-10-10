@@ -124,18 +124,33 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }
   const { email, password } = parsed.data;
 
-  const existing = await findUserByEmail(email);
+  let existing: Awaited<ReturnType<typeof findUserByEmail>>;
+  try {
+    existing = await findUserByEmail(email);
+  } catch {
+    res.status(500).json({ error: "Could not create your account." });
+    return;
+  }
   if (existing) {
     res.status(409).json({ error: "An account with this email already exists" });
     return;
   }
 
   const passwordHash = await argon2.hash(password);
-  const [user] = await db.insert(usersTable).values({
-    email,
-    passwordHash,
-    role: "student",
-  }).returning();
+  // No error binding: a failed drizzle insert's message carries its params, i.e.
+  // the email AND the argon2 hash. See api-server/CLAUDE.md on DrizzleQueryError.
+  let user: typeof usersTable.$inferSelect;
+  try {
+    [user] = await db.insert(usersTable).values({
+      email,
+      passwordHash,
+      role: "student",
+    }).returning();
+  } catch {
+    logger.error({ step: "register-insert" }, "user insert failed");
+    res.status(500).json({ error: "Could not create your account." });
+    return;
+  }
 
   setSessionCookie(res, user.id);
 

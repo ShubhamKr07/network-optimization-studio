@@ -3,7 +3,7 @@ import request from "supertest";
 import { createHmac } from "node:crypto";
 import { logger } from "../lib/logger.js";
 
-const mockDb = vi.hoisted(() => ({ select: vi.fn() }));
+const mockDb = vi.hoisted(() => ({ select: vi.fn(), insert: vi.fn() }));
 vi.mock("@workspace/db", () => ({
   db: mockDb,
   usersTable: { id: "id", email: "email" },
@@ -90,5 +90,40 @@ describe("a failed user lookup never carries its params into an error sink", () 
     expect(logSpy).toHaveBeenCalledWith({ step: "auth-user-lookup" }, "current user lookup failed");
     expect(dump([res.body, logSpy.mock.calls, mockCaptureException.mock.calls])).not.toContain("victim-user-id-123");
     logSpy.mockRestore();
+  });
+});
+
+describe("a failed register insert never carries its params into an error sink", () => {
+  it("/auth/register answers 500 and neither the email nor the password hash reaches any sink", async () => {
+    const hash = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaGhhc2hoYXNo";
+    // existence check finds no account
+    const empty: Record<string, unknown> = {};
+    ["select", "from", "where"].forEach((m) => (empty[m] = vi.fn(() => empty)));
+    (empty as { then: unknown }).then = (ok: (v: unknown[]) => void) => Promise.resolve([]).then(ok);
+    mockDb.select.mockReturnValue(empty);
+    const err = () =>
+      new Error(`Failed query: insert into "users" ("id", "email", "password_hash", "role") values (default, $1, $2, $3)\nparams: victim@example.com,${hash},student`);
+    const ins: Record<string, unknown> = {};
+    ["values", "returning"].forEach((m) => (ins[m] = vi.fn(() => ins)));
+    (ins as { then: unknown }).then = (_ok: unknown, fail: (e: Error) => void) => Promise.reject(err()).catch(fail);
+    mockDb.insert.mockReturnValue(ins);
+    const logSpy = vi.spyOn(logger, "error");
+
+    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw" });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Could not create your account." });
+    expect(logSpy).toHaveBeenCalledWith({ step: "register-insert" }, "user insert failed");
+    const sinks = dump([res.body, logSpy.mock.calls, mockCaptureException.mock.calls]);
+    expect(sinks).not.toContain("victim@example.com");
+    expect(sinks).not.toContain("argon2id");
+    logSpy.mockRestore();
+  });
+
+  it("/auth/register answers 500 when the existence check itself fails", async () => {
+    mockDb.select.mockReturnValue(failingSelect("victim@example.com", 'lower("users"."email")'));
+    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw" });
+    expect(res.status).toBe(500);
+    expect(dump([res.body, mockCaptureException.mock.calls])).not.toContain("victim@example.com");
   });
 });
