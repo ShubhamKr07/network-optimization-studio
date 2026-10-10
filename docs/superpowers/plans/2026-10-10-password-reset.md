@@ -1202,8 +1202,14 @@ The email transport is the one thing mocked in this file, hoisted at the top so 
 
 - [ ] **Step 3: Confirm it is not passing vacuously**
 
-Run the suite twice in a row; both must be green. Then temporarily change the handler's `gt(...)` to `eq(...)` and re-run: the expired-token case must FAIL. Revert the change.
-Expected: red with the sabotage, green without it. This is what proves the expiry filter is really being exercised.
+Run the suite twice in a row; both must be green. Then sabotage the expiry filter and confirm the right test — and **only** that test — goes red. Revert afterwards and prove the revert with an empty `git diff artifacts/api-server/src/routes/auth.ts`.
+
+**Use this mutation:** replace the `gt(usersTable.resetTokenExpiresAt, new Date())` clause with `sql\`true\``, so expiry checking is switched off and nothing else changes.
+Expected: exactly **1** failed — "refuses an expired token and leaves the password alone" — and 5 passed.
+
+**Do NOT use `gt` → `eq` as the mutation**, which is what this step originally said. It is non-discriminating: `eq(expiry, now())` matches *no* row, so every token is refused, 5 of the 6 tests fail, and the expired-token test *passes for the wrong reason* — the `400` it asserts arrives because everything is broken, not because expiry was checked. Measured in PWR-6: that mutation produced 5 failed / 1 passed, with the one passing test being the very one it was supposed to prove.
+
+**The general rule, which is why this step is written in this much detail:** a mutation test earns its keep only if it is *discriminating*. A mutation that reddens half the suite tells you the code is load-bearing in general; it tells you nothing about the specific property under test, and if the target test is among the survivors you have evidence of the opposite of what you concluded. Turn off exactly one property, expect exactly the test for that property to fail, and count the survivors.
 
 - [ ] **Step 4: Commit**
 
