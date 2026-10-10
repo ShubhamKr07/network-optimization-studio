@@ -3304,10 +3304,14 @@ would log everyone out once on deploy. Residual exposure: a cookie stolen before
 the reset keeps working for up to its 7-day TTL. OWASP recommends otherwise;
 this is a deliberate decision, not an oversight.
 
-**Resend's verified status was never confirmed in-session.** DNS shows DKIM at
-`resend._domainkey.app.networkdesignbook.com` and a `send.forge.rmta.net` CNAME,
-which is strong evidence but not the same as Resend reporting `verified`. The
-available key is send-only.
+**Resend's verified status — resolved before deploy.** The domain
+`app.networkdesignbook.com` is verified in Resend (user-confirmed in the
+dashboard, 2026-10-10), so reset mail delivers to any student address. It could
+not be confirmed from the session itself: the available key is send-only, and
+DNS evidence (DKIM plus the `send.forge.rmta.net` CNAME) shows setup rather than
+verification. Had it still been unverified at deploy, a student's reset email
+would have failed silently into Sentry while the endpoint answered `200` — the
+anti-enumeration design makes a successful response no evidence of delivery.
 
 ### Review findings — 16 across four passes, all real
 
@@ -3383,3 +3387,10 @@ returned against the same file.
 
 Not deployed. Setting these on a live service is its own approval under branch
 discipline rule 7.
+
+### PWR-review — whole-branch review fixes (findings 1, 2, 3, 6)
+
+- **3:** the `/auth/reset-password` password UPDATE and `issueResetToken`'s token UPDATE now use a `catch` with no error binding (drizzle's `DrizzleQueryError` message embeds the params: the new argon2 hash / token hash). Reset answers `500 "Could not set your new password."`; the token write logs `{ step: "reset-token-write" }` only. Tests assert the secret never reaches the logger, Sentry or the response.
+- **1:** no `trust proxy` is set, so `req.ip` is the proxy for everyone and the two per-IP limiters were one shared bucket. forgot-password: per-IP limiter replaced by `forgotGlobalLimiter` (120/min, constant key) beside the per-address limiter. reset-password: rate counter replaced by a global in-flight cap of 4 concurrent hashes, released in `finally`. OpenAPI 429 descriptions updated. Setting `trust proxy` is deliberately left as its own task.
+- **2:** route test for the per-address limiter (same address x4 -> 200,200,200,429); deleting the limiter clause fails exactly that one test.
+- **6:** the integration suite's `beforeEach` now also calls `resetLoginRateLimiterForTests()`.

@@ -19,7 +19,7 @@ vi.mock("../lib/email.js", () => ({ sendEmail: mockSendEmail }));
 import { db, pool, usersTable } from "@workspace/db";
 import app from "../app.js";
 import { hashResetToken, generateResetToken } from "../lib/resetTokens.js";
-import { resetForgotPasswordLimitersForTests } from "../routes/auth.js";
+import { resetForgotPasswordLimitersForTests, resetLoginRateLimiterForTests } from "../routes/auth.js";
 
 const createdUserIds: string[] = [];
 
@@ -31,6 +31,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetForgotPasswordLimitersForTests();
+  resetLoginRateLimiterForTests();
 });
 
 async function registerFreshUser(): Promise<{ id: string; email: string }> {
