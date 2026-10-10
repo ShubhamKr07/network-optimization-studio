@@ -96,7 +96,7 @@ The shared constraints are identical for both senses. The two senses differ only
 | optimal | infeasible | infeasible envelope, floor-too-high message ("maximum"), see below |
 | feasible | optimal / feasible | Model 2's envelope + `maxCoverableDemand` + `model1` (`optimal: false`) |
 | feasible | infeasible | infeasible envelope, floor-too-high message ("best found"), see below |
-| optimal / feasible | no_solution / error | Model 2's envelope as is, plus `maxCoverableDemand` + `model1` in `details` |
+| optimal / feasible | no_solution / error | Model 2's envelope as is. `solve.py`'s `__main__` turns error envelopes into fd3 failures, so their `details` are never published; no Model 1 data reaches the UI in this row. |
 | infeasible | not run | Model 1's existing infeasible envelope. Model 2 shares every Model 1 constraint, so it cannot be feasible. |
 | no_solution / error | not run | Model 1's envelope as is |
 
@@ -154,6 +154,7 @@ Every existing floor-0 `max-coverage-us` row carries a server-derived `objective
 - **Dry-run first**: the CLI prints matching row ids and the count without writing. That count, taken at run time, is the number quoted for approval. No figure is assumed here.
 - `result` and `result_cache` are left untouched (stale, not deleted).
 - Runbook `docs/ops/ch4-objective-clear-runbook.md`: snapshot or backup → dry run → explicit human approval → run → verify count of `inputs ? 'objective'` among floor-0 rows = 0.
+- **Deploy skew**: the API and studio must deploy back to back, API first. With an old studio on a new API, floor-0 rows without an objective cannot be solved and the old form has no selector. With a new studio on an old API, every save that sends `objective` is refused with a 422.
 - **Order**: deploy the API and studio first. Rows still holding `coverage` keep solving as Model 1 in the meantime, which is a valid choice. Then run the migration. It is not run as part of this branch's merge; it needs its own approval (CLAUDE.md branch discipline step 7).
 
 ## 9. Tests
