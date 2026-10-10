@@ -3395,3 +3395,21 @@ discipline rule 7.
 - **1:** no `trust proxy` is set, so `req.ip` is the proxy for everyone and the two per-IP limiters were one shared bucket. forgot-password: per-IP limiter replaced by `forgotGlobalLimiter` (120/min, constant key) beside the per-address limiter. reset-password: rate counter replaced by a global in-flight cap of 4 concurrent hashes, released in `finally`. OpenAPI 429 descriptions updated. Setting `trust proxy` is deliberately left as its own task.
 - **2:** route test for the per-address limiter (same address x4 -> 200,200,200,429); deleting the limiter clause fails exactly that one test.
 - **6:** the integration suite's `beforeEach` now also calls `resetLoginRateLimiterForTests()`.
+
+### PWR-prod-schema — production login outage: missing `reset_*` columns (2026-10-10)
+
+**Symptom:** after the PWR deploy (`nos-api` `dep-db51ivp42hec73fcsli0`, 10:54Z; env-var update 11:01Z) every login returned "Invalid email or password." for valid credentials, on every domain. Actually `POST /api/auth/login` answered **500** for any email: `column "reset_token_hash" does not exist`. Drizzle selects every `users` column, so login, register and forgot-password all failed. `Login.tsx` renders the same message for any `isError`, so a server crash read as a credential error — the second time that conflation has disguised an outage (see `cors-networkdesignbook-domain`).
+
+**Cause:** PWR-1 (`5a43bdf`) added two nullable columns to `users`; the "Production still needs" list above named the env vars and omitted the schema change. Production schema is never applied by a deploy here (`drizzle-kit push` is dev-only — see the Bundle A prod-deploy record).
+
+**Fix (user-approved, applied via `psql` from this machine, ~11:2xZ):**
+```sql
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS reset_token_hash varchar,
+  ADD COLUMN IF NOT EXISTS reset_token_expires_at timestamptz;
+```
+Pre-check: `nos_postgres`, 77 users, no `reset_*` columns. Post-check: both columns present and nullable, still 77 users; the unknown-email login probe returns `401` (was `500`). No redeploy.
+
+**Lesson:** a deploy checklist for a branch that touches `lib/db/src/schema/**` must list the production DDL alongside the env vars — diff the schema directory across the deploy range, not just the env-var list.
+
+**Follow-up:** the production DB password was pasted into a session transcript; rotate it via the Render Dashboard (not `ALTER ROLE`).
