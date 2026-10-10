@@ -11,6 +11,8 @@ import { Studio } from "@/pages/Studio";
 import { Workspace } from "@/pages/Workspace";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
+import { ForgotPassword } from "@/pages/auth/ForgotPassword";
+import { ResetPassword } from "@/pages/auth/ResetPassword";
 import { AppShell } from "@/components/AppShell";
 import { CHAPTERS } from "@/lib/chapters";
 import { identifyUser, track } from "@/lib/analytics";
@@ -59,6 +61,8 @@ export function Gate() {
     <Switch>
       <Route path="/login">{user ? <Redirect to="/" /> : <Login />}</Route>
       <Route path="/register">{user ? <Redirect to="/" /> : <Register />}</Route>
+      <Route path="/forgot-password">{user ? <Redirect to="/" /> : <ForgotPassword />}</Route>
+      <Route path="/reset-password">{user ? <Redirect to="/" /> : <ResetPassword />}</Route>
       <Route path="/">{authedOnly(<Landing />, "Network Design Labs", true)}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
