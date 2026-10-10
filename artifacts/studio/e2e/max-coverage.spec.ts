@@ -6,47 +6,18 @@
  *
  * CH4O-12 (ch4-model-upgrade, Task 12) — rewritten again for the SCN v0.3
  * single-form, miles-canonical Chapter 4: the two-step workflow (step
- * toggle, "Solve Step N" label, freeze-confirm dialog) is gone entirely
- * (CH4O-2/CH4O-7). `coverageFloorDemand` is a plain, always-editable
- * student-authored input and the server (and the UI, via the same
- * `deriveMaxCoverageObjective` rule) derives `objective` from it — floor 0
- * is "coverage", floor > 0 is "min_distance" (CH4O-5, §2.3). There is no
- * freeze/clear-on-edit mechanism left anywhere in this model: every edit is
- * an ordinary dirty draft, saved (if dirty) the instant Run Optimizer is
- * clicked, exactly like every other model.
+ * toggle, "Solve Step N" label, freeze-confirm dialog) is gone entirely.
  *
- * CH4O-8: this model is now MILES-canonical, with round teaching defaults
- * (p 3, highServiceDistMi 450, maxDistMi 3400, avgServiceDistCapMi 650) —
- * NOT conversions of the old km seeds. Every golden below is read off a
- * real `solve.py` invocation against those exact defaults
- * (`solver/tests/test_max_coverage.py::BASE`), never hand-converted.
+ * CH4OS (spec 2026-10-10) — at a zero floor the student CHOOSES the objective
+ * (the shared factory sends "coverage" → Model 1); any positive floor runs
+ * Model 1 then Model 2 and reports Model 1's max coverable demand. Steps:
+ *   1. coverage solve (floor 0, objective coverage) → golden
+ *   2. distance surfaces in mi; Model 1 line
+ *   3. floor := achieved covered demand → sequential line → solve → Model 2
+ *      golden + maxCoverableDemand
+ *   4–7. demand delta, distance override, map add, import round-trips
  *
- * IMPORTANT — `objective` is now a SERVER-OWNED field (CH4O-5): a
- * scenario-create/update payload that includes an `objective` key at all
- * (even `null`) is rejected by `assertNoServerOwnedFields`
- * (`services/scenarioInputWrite.ts`). The old pre-migration fixture used to
- * send `objective: "coverage"` on create — that would now 4xx. This file's
- * shared `maxCoverageInputs()` helper deliberately omits the field.
- *
- * Exercises the full max-coverage model through the Workspace UI against
- * local dev servers:
- *   1. register a fresh account → create a max-coverage scenario (Chapter 4)
- *   2. COVERAGE solve (floor 0) → assert coveragePct/coveredDemand/open set
- *      golden, and the derived-model line
- *   3. assert `mi` present / `km` absent on the model's distance surfaces,
- *      and that a Chen distance field (avg service distance cap) commits
- *      via blur and round-trips through the real backend
- *   4. edit the coverage floor to the achieved covered demand → MIN_DISTANCE
- *      mode is derived automatically → solve → objective/open-set golden,
- *      derived-model line flips to "Model 2"
- *   5. edit a customer demand (still min-distance mode) → re-solve →
- *      objective delta (server-verified)
- *   6. add a distance override (open-warehouse → customer @ 1 mi) →
- *      re-solve → that customer's assignment flips to the overridden
- *      warehouse
- *   7. Input-Map add a warehouse → save → its estimated mi distances
- *      surface in the Distances tab
- *   8. TWO distinct import flows, asserted separately:
+ * Step 8 detail — TWO distinct import flows, asserted separately:
  *      (a) the v1 `distances` CSV exports and re-imports UNCHANGED (round-trip
  *          identity — "No changes detected")
  *      (b) a `customers` CSV is exported, one demand edited, re-imported →
@@ -76,7 +47,7 @@ import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
 // FU-8 — was a local `coverageInputs()`, byte-identical to
 // `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
-// "no `objective` key" rationale the header comment above refers to.
+// `objective: "coverage"` rationale (CH4OS).
 import { maxCoverageInputs } from "./helpers/maxCoverageInputs";
 
 const HEADER_TIMEOUT = 10_000;
@@ -249,6 +220,8 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await expect(floorInput).toBeVisible();
       await expect(floorInput).toBeEnabled();
       await expect(floorInput).toHaveValue("0");
+      // CH4OS — floor 0 shows the selector, with the factory's "coverage" chosen.
+      await expect(page.getByTestId("objective-coverage")).toBeChecked();
 
       // Derived-model line (CH4O-7): floor 0 -> Model 1 (coverage).
       const derivedLine = page.getByTestId("derived-model-line");
@@ -286,19 +259,20 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
         timeout: HEADER_TIMEOUT,
       });
 
-      // ── 3. Edit the coverage floor to the achieved covered demand →
-      // MIN_DISTANCE mode is derived automatically (CH4O-5, §2.3). The
-      // derived-model line flips the INSTANT the floor is typed — a pure
-      // client-side re-render off the current draft, no save/solve needed —
-      // proving the mode derivation is live, not solve-dependent. ─────────
+      // ── 3. Floor := the achieved covered demand → the SEQUENTIAL run
+      // (CH4OS): the selector hides and the line names both models the
+      // INSTANT the floor is typed — a client-side re-render, no save. ──────
       await floorInput.fill(String(cov.details.coveredDemand));
-      await expect(derivedLine).toContainText("Model 2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("objective-select")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
       await expect(derivedLine).toContainText(
-        `covering at least ${cov.details.coveredDemand!.toLocaleString()} demand within 450 mi`,
+        `Model 1, then Model 2 — find the maximum demand coverable within 450 mi, then minimize average distance covering at least ${cov.details.coveredDemand!.toLocaleString()}`,
+        { timeout: HEADER_TIMEOUT },
       );
 
       const minDist = await solveViaUi(page, id);
       expect(minDist.details.objective).toBe("min_distance");
+      // CH4OS — Model 1's maximum rides along: equal to step 1's own run.
+      expect((minDist.details as { maxCoverableDemand?: number }).maxCoverableDemand).toBe(cov.details.coveredDemand);
       // Sacred min-distance golden (test_max_coverage.py::test_min_distance_golden).
       expect(minDist.objective).toBeCloseTo(30269639699.0, -3);
       expect(minDist.metrics.weightedAvgDistance).toBeCloseTo(387.94, 1);
@@ -307,6 +281,9 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await page.getByTestId("sidebar-output-cost-summary").click();
       await expect(page.getByTestId("cost-summary-value-objective")).toContainText("demand-mi", { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-value-objective")).not.toContainText("%");
+      await expect(page.getByTestId("cost-summary-max-coverable-demand")).toContainText(
+        cov.details.coveredDemand!.toLocaleString(), { timeout: HEADER_TIMEOUT },
+      );
 
       // ── 4. Demand edit (still min-distance mode) → re-solve → objective
       // delta (server-verified). No freeze guard exists any more — every
