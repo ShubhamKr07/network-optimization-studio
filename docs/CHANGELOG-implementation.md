@@ -3186,3 +3186,35 @@ pattern in either guard — which is how both the toolbar Save and this logout
 stayed hidden. Widening it needs a cross-file allow-list audit and was judged
 too large to force into a review fix round. It is the first follow-up this branch
 leaves behind.
+
+### WF retro (`/harness-retro WF`, 2026-10-10, branch `wf-retro`)
+
+`tasks.csv` row: 14 dispatch/fix cycles (9 implementers, 4 task fix waves, 1
+final-review fix wave), first gate pass **no**, cherry-pick conflict **no**,
+287 min wall-clock, `merged_sha` recorded as the **merge** commit `7fcf259`
+rather than the branch tip, because that is the sha a revert check has to read.
+`e2e_runs_to_green` is `unknown`, not `0`: `git diff main --stat` over `e2e/`
+was empty, so `e2e:gate` was correctly never run and there is no count to give.
+Permissions audit clean — 869 allow / 0 deny / 101 broad / **0 risky**, 0
+denials in the window, exit 0.
+
+Three `failures.csv` rows. The one worth reading is the `spec_gap` row: **eight
+separate findings on this branch were tests that could not fail, and every one
+originated in the controller's own brief rather than an implementer deviation.**
+No gate caught any of them; the per-task reviewer caught all eight. That cluster
+is appended to `docs/superpowers/gates/spec_gap.md` with a new **Part 3**,
+proposed and awaiting approval: *3a* diff coverage on changed lines (catches the
+WF-5 shape outright — a new computation whose only test hit the fails-closed
+branch, green at 2308 tests), *3b* generate schema-keyed maps from the schema
+instead of enumerating them, with one bidirectional test (two one-directional
+guards did not meet, and 8 real fields fell through both). The doc also records
+which four of the eight are **not** mechanically gateable, and that the only
+thing observed to catch those is running real mutations before accepting the
+test — WF-8 ran nine.
+
+Also fixed in this commit: the `SBR` `review_caught` row in `failures.csv` was
+missing a comma, so its `gate_proposed` value had been swallowed into `notes`
+and the field read as empty. That matters beyond tidiness — the
+second-occurrence rule scans exactly that field, so the malformed row was one
+blank away from firing a false gate proposal on a cause that by definition has
+no gate.
