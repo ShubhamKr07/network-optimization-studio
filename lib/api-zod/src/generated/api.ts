@@ -867,6 +867,43 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 /**
+ * Always answers 200, whether or not an account exists for the address, and answers before any lookup or send happens — a real lookup plus a Resend call is measurable against an instant miss, which would leak account existence even with an identical body. A failed send is therefore invisible to the caller and is reported to Sentry instead.
+ * @summary Request a password reset link
+ */
+export const ForgotPasswordBody = zod.object({
+  "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before lookup, the same as login.')
+})
+
+export const ForgotPasswordResponse = zod.object({
+  "success": zod.boolean()
+})
+
+
+/**
+ * On success the caller is logged in, so a student lands straight in the app. The token is consumed by the same statement that writes the new hash, which is what makes it single-use.
+ * @summary Set a new password using a reset token
+ */
+
+export const resetPasswordBodyPasswordMin = 8;
+export const resetPasswordBodyPasswordMax = 128;
+
+
+
+export const ResetPasswordBody = zod.object({
+  "token": zod.string().min(1).describe('The raw token from the reset link\'s URL fragment. Only its SHA-256 hash is ever stored.'),
+  "password": zod.string().min(resetPasswordBodyPasswordMin).max(resetPasswordBodyPasswordMax).describe('Same bounds as registration — deliberately one password standard, not two. The upper bound is the same argon2 cost guard described on RegisterRequest.password.')
+})
+
+export const ResetPasswordResponse = zod.object({
+  "user": zod.union([zod.object({
+  "id": zod.string(),
+  "email": zod.string().email(),
+  "role": zod.enum(['student', 'instructor'])
+}),zod.null()])
+})
+
+
+/**
  * Requires a session, which is used only to rate-limit the caller. No account identifier, session identifier, or client IP is persisted with the row — the stored record is body + timestamp and nothing else.
  * @summary Submit anonymous product feedback
  */

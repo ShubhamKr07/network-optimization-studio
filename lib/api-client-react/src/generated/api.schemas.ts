@@ -45,6 +45,30 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface ForgotPasswordRequest {
+  /** Normalized (trimmed + lowercased) by the server before lookup, the same as login. */
+  email: string;
+}
+
+export const ForgotPasswordAcceptedValue = {
+  success: true,
+} as const;
+export type ForgotPasswordAccepted = typeof ForgotPasswordAcceptedValue;
+
+export interface ResetPasswordRequest {
+  /**
+     * The raw token from the reset link's URL fragment. Only its SHA-256 hash is ever stored.
+     * @minLength 1
+     */
+  token: string;
+  /**
+     * Same bounds as registration — deliberately one password standard, not two. The upper bound is the same argon2 cost guard described on RegisterRequest.password.
+     * @minLength 8
+     * @maxLength 128
+     */
+  password: string;
+}
+
 export interface FeedbackRequest {
   /**
      * Free-text feedback. Trimmed by the server before validation and before storage, so a whitespace-only body is rejected.
