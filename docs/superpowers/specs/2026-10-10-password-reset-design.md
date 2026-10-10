@@ -307,11 +307,10 @@ inbox. Mailosaur is configured if a true end-to-end mail assertion is wanted
 later; keep it out of `e2e:gate`.
 
 **Flake expectation.** The new real-Postgres tests join the load-induced flake
-class catalogued under `## Gotchas` in `CLAUDE.md`. A first-run red needs the
-re-run-twice discipline before being treated as a regression, and a new sighting
-is added to that list rather than noted only in a changelog entry. (A dedicated
-`docs/superpowers/flake-registry.md` is in flight on the `docs/claude-md-trim`
-branch; retarget this reference once that lands.)
+class catalogued in `docs/superpowers/flake-registry.md`. A first-run red needs
+the re-run-twice discipline before being treated as a regression, and a new
+sighting belongs in that registry, matched by test **name** rather than line
+number, instead of being noted only in a changelog entry.
 
 ## Deployment
 
