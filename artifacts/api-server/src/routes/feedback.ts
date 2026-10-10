@@ -15,11 +15,13 @@ const router: IRouter = Router();
 const FEEDBACK_RATE_LIMIT = 5;
 const FEEDBACK_RATE_WINDOW_MS = 60 * 1000;
 
-// COSM-4 — keyed by authenticated user id, NOT req.ip. This app sets no
-// Express `trust proxy` policy and Render terminates TLS at its load
-// balancer, so req.ip is the proxy's address: an IP key would collapse into
-// one shared bucket and let a single abuser block every user. The key is
-// transient — it lives only in this map, ages out with the window, and is
+// COSM-4 — keyed by authenticated user id, NOT req.ip. (When this was written
+// the app set no `trust proxy`, so req.ip was Render's load-balancer address
+// and an IP key was one shared bucket; app.ts now sets `trust proxy: 2` and
+// req.ip is the real client.) The user id is still the right key: the route is
+// authenticated, and students on one campus NAT share an IP but not an
+// account, so an IP key would let one student's use block their neighbours.
+// The key is transient — it lives only in this map, ages out with the window, and is
 // never written to the database.
 // In-memory and single-instance, so it does not survive a restart and is not
 // shared across instances. Acceptable for a feedback box behind auth.
