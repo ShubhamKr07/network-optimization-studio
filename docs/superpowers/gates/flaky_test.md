@@ -6,6 +6,8 @@
 - 2026-09-29 `ch5-delivery` — api-server vitest, flaky at the merge gate.
 - 2026-09-30 `CH4UX` — studio suite: 15 failures, then 31 on a re-run (293s), against **2135/2135 in 81s** on a quiet machine. Every failure a bare `Test timed out in 5000ms` with a 5-9s duration. api-server: 6 failures across 4 files the branch **does not touch** (0 api-server files changed), all passing **54/54** in isolation.
 
+- 2026-10-10 `WF` — api-server red on **both** of WF-8's full runs with **different sets** (7 tests/4 files, then 4/2) at host load 3.17/28.25/74.10; `scenarioSolveAtomicity` was a new sighting. WF-9's run: 1673 passed / 3 failed, `collect` alone **171.46s against a 61.69s wall clock**, and **every** failure literally timeout-shaped (`cors` at 5077ms vs a 5000ms limit; `resultEnvelope` at 8006/6522ms). Direct evidence for Part 2 below: a refuse-any-timeout wrapper would have classified both runs correctly with no judgement call, where the human had to re-run four files twice each in isolation to reach the same answer.
+
 **Why this is more than noise.** On CH4UX the same load-sensitivity hid a **real** regression, not just invented fake ones. A cold-mount race snapped Chapter 4 to the wrong step on ~60% of reloads, and it survived **two full green gate runs** because 4-worker parallelism happened to favour the benign branch of the race. It was found only by an isolated-repeat probe (10/16 failing isolated vs 0/16 in the gate). A suite that is noisy under load is also a suite that can be *quiet* about something real.
 
 **Proposed automated gate — two parts, both cheap:**
