@@ -18,6 +18,7 @@
 - One task = one commit. Message format `[PWR-N] <imperative summary>`.
 - **Never edit generated code.** `lib/api-zod/src/generated/**` and `lib/api-client-react/src/generated/**` come from Orval. Change `lib/api-spec/openapi.yaml`, re-run codegen, commit spec + regenerated output together.
 - Local DB: no `DATABASE_URL` in the environment. Pass it inline per command: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"`.
+- **`api-server`'s `pretest` hook (`artifacts/api-server/package.json:11`) runs `scripts/preflight-db-url.mjs` and refuses to start vitest without `DATABASE_URL`** — so *every* api-server test command carries it, including the ones that only exercise mocked modules. A command without it fails before a single test runs.
 - Token TTL is exactly `60 * 60 * 1000` ms. Rate limits are exactly 10 per 60_000 ms per IP and 3 per 3_600_000 ms per email address.
 - Reset link format is exactly `${APP_BASE_URL}/reset-password#token=<token>` — a URL **fragment**, never a query string.
 - The invalid-token and expired-token error string is exactly `This reset link is invalid or has expired.` — one string for both cases.
@@ -248,12 +249,20 @@ Expected: orval writes files, then `typecheck:libs` passes. Exit 0.
 
 - [ ] **Step 4: Prove the expected names were generated**
 
-Run:
+Orval's casing is mixed and the difference matters: **schemas are PascalCase** (`export const RegisterUserBody = zod.object({…})`, `generated/api.ts:822`) while **the bound constants are camelCase** (`registerUserBodyPasswordMin`). Assert each symbol separately, so one hit cannot mask four misses:
+
 ```bash
-grep -n "resetPasswordBodyPasswordMin\|export const forgotPasswordBody\|export const resetPasswordBody" lib/api-zod/src/generated/api.ts
-grep -rn "useForgotPassword\|useResetPassword" lib/api-client-react/src/generated/ | head -4
+cd /Users/shubhamkr/nos-password-reset
+for sym in "export const ForgotPasswordBody" "export const ForgotPasswordResponse" \
+           "export const ResetPasswordBody" "export const ResetPasswordResponse" \
+           "export const resetPasswordBodyPasswordMin" "export const resetPasswordBodyPasswordMax"; do
+  grep -q "$sym" lib/api-zod/src/generated/api.ts && echo "OK   $sym" || echo "MISS $sym"
+done
+for hook in useForgotPassword useResetPassword; do
+  grep -rq "$hook" lib/api-client-react/src/generated/ && echo "OK   $hook" || echo "MISS $hook"
+done
 ```
-Expected: `resetPasswordBodyPasswordMin = 8`, both body schemas, and both hooks. If a name differs from what this plan predicts, use the generated name and note the deviation in the commit body — the generated output is authoritative.
+Expected: eight `OK` lines and no `MISS`. A single `grep -n "a\|b\|c"` is NOT acceptable here — it exits 0 on any one match, so it would report success while two schemas were absent, which is the can't-fail check class CLAUDE.md records under Gotchas. If a generated name differs from what this plan predicts, use the generated name and note the deviation in the commit body — the generated output is authoritative.
 
 - [ ] **Step 5: Commit spec and generated output together**
 
@@ -376,7 +385,7 @@ describe("makeRateLimiter", () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm --filter api-server test -- emailTransport`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- emailTransport`
 Expected: FAIL — cannot resolve `../lib/email.js` and `../lib/rateLimit.js`.
 
 - [ ] **Step 3: Write `lib/email.ts`**
@@ -452,7 +461,7 @@ export function makeRateLimiter(limit: number, windowMs: number) {
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm --filter api-server test -- emailTransport`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- emailTransport`
 Expected: PASS, 8 tests.
 
 - [ ] **Step 6: Commit**
@@ -539,7 +548,7 @@ describe("reset tokens", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter api-server test -- resetTokens`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- resetTokens`
 Expected: FAIL — cannot resolve `../lib/resetTokens.js`.
 
 - [ ] **Step 3: Write `lib/resetTokens.ts`**
@@ -583,7 +592,7 @@ export function resetEmailHtml(token: string): string {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `pnpm --filter api-server test -- resetTokens`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- resetTokens`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 5: Commit**
@@ -638,7 +647,11 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
-const mockSendEmail = vi.fn().mockResolvedValue(undefined);
+// vi.hoisted is mandatory, not stylistic: vitest hoists `vi.mock` and the
+// `import app from "../app.js"` below ABOVE a plain `const mockSendEmail =
+// vi.fn()`, so the factory would dereference it before initialization and
+// throw. This is why auth.test.ts's own mockDb uses vi.hoisted.
+const mockSendEmail = vi.hoisted(() => vi.fn());
 vi.mock("../lib/email.js", () => ({ sendEmail: mockSendEmail }));
 
 import app from "../app.js";
@@ -820,7 +833,7 @@ describe("POST /api/auth/reset-password", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter api-server test -- passwordReset`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- passwordReset`
 Expected: FAIL — `resetForgotPasswordLimitersForTests` is not exported, and both routes 404.
 
 - [ ] **Step 3: Extend the imports in `routes/auth.ts`**
@@ -984,12 +997,12 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `pnpm --filter api-server test -- passwordReset`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- passwordReset`
 Expected: PASS, 12 tests.
 
 - [ ] **Step 6: Confirm the existing auth suite still passes**
 
-Run: `pnpm --filter api-server test -- auth`
+Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- auth`
 Expected: PASS. If `auth.test.ts` now fails on a missing `and`/`gt` in its own drizzle mock, add them to that mock — that is a legitimate part of this task.
 
 - [ ] **Step 7: Commit**
@@ -1023,6 +1036,15 @@ Why this task exists separately: `passwordReset.test.ts` mocks the database, so 
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
+
+// The ONLY mock in this file, and it is not the database: a real Resend call
+// from a test suite is unacceptable, and `vi.doMock` cannot help here because
+// app.js has already imported lib/email.js by the time it would run. Hoisted
+// and static, so it is in place before the first import. Postgres stays real,
+// which is the entire point of this file.
+const mockSendEmail = vi.hoisted(() => vi.fn());
+vi.mock("../lib/email.js", () => ({ sendEmail: mockSendEmail }));
+
 import { db, usersTable } from "@workspace/db";
 import app from "../app.js";
 import { hashResetToken, generateResetToken } from "../lib/resetTokens.js";
@@ -1130,19 +1152,33 @@ describe("password reset against a real database", () => {
     expect(fresh.status).toBe(200);
   });
 
-  it("the full request path writes a hash, never the raw token", async () => {
+  // Closes the loop the mocked suite cannot: the token that reaches the
+  // reader's inbox must be the one whose hash landed in the real column.
+  it("the full request path emails a raw token whose hash is what the column holds", async () => {
     const user = await registerFreshUser();
-    const sendEmail = vi.fn().mockResolvedValue(undefined);
-    vi.doMock("../lib/email.js", () => ({ sendEmail }));
+    mockSendEmail.mockClear();
+    mockSendEmail.mockResolvedValue(undefined);
+    process.env.RESEND_API_KEY = "re_test";
 
     const res = await request(app).post("/api/auth/forgot-password").send({ email: user.email });
     expect(res.status).toBe(200);
-    await new Promise((r) => setTimeout(r, 300));
+
+    // The route answers before it sends, so wait for the tail to land.
+    await vi.waitFor(() => expect(mockSendEmail).toHaveBeenCalledTimes(1), { timeout: 5_000 });
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
     expect(row!.resetTokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(row!.resetTokenExpiresAt).not.toBeNull();
-    vi.doUnmock("../lib/email.js");
+
+    const html = mockSendEmail.mock.calls[0]![2] as string;
+    const emailed = /#token=([A-Za-z0-9_-]+)/.exec(html)?.[1];
+    expect(emailed).toBeTruthy();
+    expect(emailed).not.toBe(row!.resetTokenHash);
+    expect(hashResetToken(emailed!)).toBe(row!.resetTokenHash);
+
+    // And the emailed token actually works end to end.
+    const confirm = await request(app).post("/api/auth/reset-password").send({ token: emailed, password: "fromemail1" });
+    expect(confirm.status).toBe(200);
   });
 });
 ```
@@ -1152,7 +1188,7 @@ describe("password reset against a real database", () => {
 Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test -- passwordResetIntegration`
 Expected: the file is new, so it should now PASS if Task 5 is correct. If any case fails, the defect is in Task 5's handler, not here — fix the handler. **Do not relax an assertion to make this file pass.**
 
-If the last case ("full request path") cannot make `vi.doMock` take effect after `app.js` is already imported, replace it with a direct `issueResetToken`-equivalent check: stub `RESEND_API_KEY` to an obviously invalid value, accept that the send throws, and assert only on the row — the send failure is swallowed by design, so the row write is still observable.
+The email transport is the one thing mocked in this file, hoisted at the top so it is installed before `app.js` imports it. Everything else — Postgres, the routes, argon2 — is real.
 
 - [ ] **Step 3: Confirm it is not passing vacuously**
 
@@ -1338,14 +1374,31 @@ describe("ResetPassword", () => {
 });
 ```
 
-Add to `artifacts/studio/src/__tests__/Login.test.tsx`, inside the existing `describe("Login")`:
+In `artifacts/studio/src/__tests__/Login.test.tsx`, **first fix the `wouter` mock at `:6-9`** — it currently renders `<a>{children}</a>` and discards every other prop, so `data-testid` and `href` never reach the DOM and the new test below could not pass no matter how the page is written:
+
+```tsx
+vi.mock("wouter", () => ({
+  useLocation: () => ["/login", mockNavigate],
+  // Forward props: the forgot-password test asserts on data-testid and href,
+  // and the previous mock dropped both.
+  Link: ({ children, href, ...rest }: { children: React.ReactNode; href?: string } & Record<string, unknown>) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
+}));
+```
+
+Then add, inside the existing `describe("Login")`:
 
 ```tsx
   it("offers a forgot-password link pointing at /forgot-password", () => {
     render(<Login />);
-    expect(screen.getByTestId("link-forgot-password")).toBeInTheDocument();
+    const link = screen.getByTestId("link-forgot-password");
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/forgot-password");
   });
 ```
+
+Use the same props-forwarding `Link` mock in `ForgotPassword.test.tsx` and `ResetPassword.test.tsx`. Neither asserts on a link today, but the lossy mock is what made this finding possible and there is no reason to plant it twice more.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -1695,11 +1748,22 @@ Expected: every hit still valid — the change adds a wrapper div and a link, it
 - [ ] **Step 5: Real-browser QA pass**
 
 Dispatch the `qa-sdet` agent against the running local servers with this checklist, and have it report findings rather than fix them:
-1. Request a reset for a **real** account that exists locally; confirm the vague message and that a row gets `reset_token_hash` (check with psql).
-2. Take the token from the DB, build `/reset-password#token=<token>`, set a new password, confirm you land logged in on `/`.
+**The database stores only the SHA-256 hash, so there is no raw token to read out of it.** Any QA step needing a working link must *plant* a known pair instead — choose the raw token, compute its hash, and write that hash to the row:
+
+```bash
+# Pick a raw token, derive its hash, plant it with a one-hour expiry.
+TOKEN="qa-$(date +%s)"
+HASH=$(node -e 'console.log(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex"))' "$TOKEN")
+psql "postgresql://shubhamkr@localhost:5432/nos_dev" -c \
+  "UPDATE users SET reset_token_hash = '$HASH', reset_token_expires_at = now() + interval '1 hour' WHERE email = '<qa-account-email>';"
+echo "link: http://localhost:<studio-port>/reset-password#token=$TOKEN"
+```
+
+1. Request a reset for a **real** account that exists locally; confirm the vague message and that the row gains a `reset_token_hash` (psql). This step verifies issuance only — the token it writes is unusable by hand, which is the point.
+2. Plant a known pair with the snippet above, open the printed link, set a new password, confirm you land logged in on `/`.
 3. Log out, log in with the **new** password — works. With the old one — rejected.
-4. Reuse the same link — the generic expired message.
-5. Request twice in a row; confirm the older link now fails and the newer one works.
+4. Reopen the same planted link — the generic expired message (the confirm consumed it).
+5. Plant a pair, then plant a second one for the same account; the first link now fails and the second works.
 6. Submit the request form 11 times quickly — the 11th shows the rate-limit message, not a crash.
 7. Check the browser address bar and `history.length` after step 2 — the token must not be in the URL.
 8. Dark mode and phone width (390px) on all three screens.
