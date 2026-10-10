@@ -1164,6 +1164,16 @@ describe("Solution Summary — CH4OS sequential results", () => {
     expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${plainScenario.id}`).textContent).toBe("");
   });
 
+  it("Compare: a not-proven Model 1 max is marked 'best found', never presented as the maximum (spec §5)", () => {
+    const notProven = { ...sequentialResult, details: { ...(sequentialResult.details as object), model1: { ...model1, optimal: false } } } as unknown as SolveResult;
+    const provenScenario = scenario({ id: 72, name: "Proven", modelId: "max-coverage-us", result: sequentialResult });
+    const notProvenScenario = scenario({ id: 73, name: "Not proven", modelId: "max-coverage-us", result: notProven });
+    renderTab({ scenarios: [provenScenario, notProvenScenario], modelId: "max-coverage-us" });
+    fireEvent.click(screen.getByTestId(`cost-summary-compare-toggle-${notProvenScenario.id}`).querySelector("input")!);
+    expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${notProvenScenario.id}`).textContent).toBe("54,946,145 (best found)");
+    expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${provenScenario.id}`).textContent).toBe("54,946,145");
+  });
+
   it("leaves a non-Chapter-4 infeasible result's rendering untouched (spec §11)", () => {
     renderTab({ result: { ...infeasibleResult, details: {} } as unknown as SolveResult, modelId: "p-median-us" });
     expect(screen.getByTestId("cost-summary-value-objective")).not.toHaveTextContent("No incumbent");

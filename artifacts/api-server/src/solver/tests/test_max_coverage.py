@@ -605,3 +605,22 @@ class TestSequentialOutcomeMatrix:
         assert len(limits) == 1
         assert r["status"] == "error"
         assert "maxCoverableDemand" not in r["details"]
+
+
+class TestInfeasibleMessageNamesOnlyRealCandidates:
+    """Whole-branch review (CH4OS): the infeasible message may name the
+    coverage floor only when the infeasible LP actually carried a floor row
+    (the sequential Model 2). A floor-0 run, or a sequential Model 1 (built at
+    floor 0), that is infeasible through the cap must not send the student to
+    lower a floor that played no part."""
+
+    @pytest.mark.parametrize("payload", [
+        {**BASE, "objective": "coverage", "avgServiceDistCapMi": 1},
+        {**BASE, "objective": "min_distance", "avgServiceDistCapMi": 1},
+        {**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1},
+    ], ids=["model1", "model2", "sequential-model1"])
+    def test_cap_infeasible_does_not_blame_the_floor(self, payload):
+        r = run(payload)
+        assert r["status"] == "infeasible"
+        assert "floor" not in r["infeasibilityReason"].lower()
+        assert "cap" in r["infeasibilityReason"].lower()
