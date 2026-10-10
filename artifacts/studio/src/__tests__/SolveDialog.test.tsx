@@ -344,3 +344,21 @@ describe("CH4UX-3 — paramsSlot", () => {
     expect(screen.getByTestId("solve-dialog-cancel")).toBeInTheDocument();
   });
 });
+
+// CH4OS (spec §6.1) — Workspace derives this from the LOCAL draft.
+describe("SolveDialog — solveBlockedReason", () => {
+  const HINT = "Choose an objective — Max coverage or Min distance — before solving.";
+
+  it("disables Solve and shows the hint when set", () => {
+    renderDialog({ solveBlockedReason: HINT });
+    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-blocked-hint")).toHaveTextContent(HINT);
+  });
+
+  it("leaves Solve enabled with no hint when unset", () => {
+    const { onSolve } = renderDialog({ solveBlockedReason: null });
+    expect(screen.queryByTestId("solve-dialog-blocked-hint")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    expect(onSolve).toHaveBeenCalledTimes(1);
+  });
+});

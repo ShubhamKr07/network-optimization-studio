@@ -97,6 +97,11 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
     // own `isBrowsingHistoryNow` check is in the four-layer guard at the top
     // of the function), and guarding the response adoption itself would
     // reintroduce the permanently-dirty bug this change fixes.
-    ).toBe(16);
+    //
+    // CH4OS — was 16. `updateInputsField` (already in GUARDED_MUTATORS, its
+    // first statement is the history guard) gains a second `setLocalInputs`
+    // call for the zero-floor-crossing branch that drops `objective` (+1).
+    // A USER EDIT inside an already-guarded mutator, so no list change.
+    ).toBe(17);
   });
 });

@@ -42,17 +42,36 @@ export function objectiveDimension(modelId: string, objectiveMode: string | null
 }
 
 /**
- * The ONE rule mapping max-coverage-us's coverage floor to its objective mode.
- * Lives in @workspace/units because both artifacts/api-server (which derives
- * and persists it) and artifacts/studio (which displays which model will run)
- * depend on this package. A UI copy of this rule is how a label and the solve
- * that actually ran came to be able to disagree under the old two-step flow.
- *
- * solve.py derives the same rule independently (it cannot import TypeScript);
- * test_max_coverage.py pins the two against each other.
+ * HISTORICAL rule (pre-CH4OS): floor 0 -> coverage, floor > 0 -> min_distance.
+ * Used ONLY by artifacts/api-server/src/migrations/ch4ToMiles.ts, which must
+ * keep reproducing what it did when it ran. Every live consumer uses
+ * `resolveMaxCoverageRun` below. Do not delete; do not change.
  */
 export function deriveMaxCoverageObjective(coverageFloorDemand: number): "coverage" | "min_distance" {
   return coverageFloorDemand === 0 ? "coverage" : "min_distance";
+}
+
+export type MaxCoverageRun = "model1" | "model2" | "sequential";
+
+/**
+ * CH4OS — the ONE TypeScript rule for which Chapter 4 run a scenario asks for
+ * (spec 2026-10-10-ch4-objective-selector-design.md §3). Consumed by the
+ * api-server write path and precheck and by the studio form. solve.py carries
+ * a Python copy (`resolve_max_coverage_run`); both are tested against
+ * `__tests__/maxCoverageRunCases.json`.
+ *   floor > 0                         -> "sequential" (Model 1, then Model 2)
+ *   floor == 0, objective coverage     -> "model1"
+ *   floor == 0, objective min_distance -> "model2"
+ *   floor == 0, objective absent       -> null (cannot solve)
+ */
+export function resolveMaxCoverageRun(
+  coverageFloorDemand: number,
+  objective: "coverage" | "min_distance" | undefined,
+): MaxCoverageRun | null {
+  if (coverageFloorDemand > 0) return "sequential";
+  if (objective === "coverage") return "model1";
+  if (objective === "min_distance") return "model2";
+  return null;
 }
 
 const CONVERTING: ReadonlySet<ObjectiveDimension> = new Set([

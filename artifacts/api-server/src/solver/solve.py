@@ -1429,25 +1429,141 @@ def solve_jade(inp):
 
 # ---------------------------------------------------------------------------
 # Al's Athletics — Max Coverage solver (Chapter 4)
-# US single-echelon warehouse -> customer service-level model with two
-# coupled objectives behind one mode toggle (hard rule 6: ONE objective-sense
-# branch, everything else is a coefficient/constraint change, not a code path):
-#   coverage      -> MAXIMISE high-service-covered demand s.t. avg distance cap
-#   min_distance  -> MINIMISE total demand-weighted distance s.t. coverage floor
-# Distances are RAW MILES in DISTANCE_MAX_COVERAGE and ARE the effective
-# distances (miles-canonical, §2.1: no unit conversion and no circuity factor
-# -- this matrix IS Chapter 3's integer-mile matrix, used as-is), so the
-# highServiceDistMi/maxDistMi/avgServiceDistCapMi thresholds compare like
-# with like. Demand is the integer domain (D30) -- edge flow = integer
-# demand, details.coveredDemand is an exact integer sum.
+# US single-echelon warehouse -> customer service-level model. TWO models over
+# ONE LP builder (hard rule 6: the senses differ by a coefficient table, a
+# direction and one optional row -- no model code path):
+#   max_coverage  (Model 1) -> MAXIMISE high-service-covered demand
+#   min_distance  (Model 2) -> MINIMISE total demand-weighted distance,
+#                              covering at least `floor` when floor > 0
+# Both keep every shared constraint: exactly p open, forced-open/inactive,
+# assignment only within maxDistMi, and the average-distance cap.
+# The RUN PLAN (spec 2026-10-10-ch4-objective-selector-design.md §2/§5) picks
+# which models run: model1, model2, or sequential (Model 1, then Model 2, with
+# Model 1's covered demand reported as maxCoverableDemand).
+# Distances are RAW MILES and ARE the effective distances (§2.1 of the
+# 2026-10-09 spec: no unit conversion, no circuity factor). Demand is the
+# integer domain (D30).
 # ---------------------------------------------------------------------------
+def resolve_max_coverage_run(floor, objective):
+    """Which Chapter 4 run a (floor, objective) pair asks for.
+
+    Python copy of @workspace/units' resolveMaxCoverageRun
+    (lib/units/src/objective.ts) -- solve.py cannot import TypeScript. Both
+    copies are tested against ONE case table,
+    lib/units/src/__tests__/maxCoverageRunCases.json.
+      floor > 0                         -> "sequential"
+      floor == 0, objective coverage     -> "model1"
+      floor == 0, objective min_distance -> "model2"
+      floor == 0, objective absent       -> None (cannot solve)
+    """
+    if floor > 0:
+        return "sequential"
+    return {"coverage": "model1", "min_distance": "model2"}.get(objective)
+
+
+# The final solve of each run, as DATA: (LP sense, details.objective label).
+# "sequential" additionally runs Model 1 first -- that is the only difference.
+_MAX_COVERAGE_FINAL_SOLVE = {
+    "model1": ("max_coverage", "coverage"),
+    "model2": ("min_distance", "min_distance"),
+    "sequential": ("min_distance", "min_distance"),
+}
+
+
+def _build_max_coverage_lp(ctx, sense, floor):
+    """ONE LP for both Chapter 4 models. The floor row is added only when
+    floor > 0. Constraint ORDER is the pre-CH4OS order (cap, objective, floor,
+    assignment, p, forced/link), so the LP handed to CBC is byte-identical for
+    every pre-existing case and every pre-existing golden still holds."""
+    from pulp import LpMaximize, LpInteger
+    cand, custs, dem = ctx["cand"], ctx["custs"], ctx["dem"]
+    adj, hsp, mdp = ctx["adj"], ctx["hsp"], ctx["mdp"]
+    direction, coef = {"max_coverage": (LpMaximize, hsp), "min_distance": (LpMinimize, adj)}[sense]
+    prob = LpProblem("max_coverage", direction)
+    a = LpVariable.dicts("A", [(w, c) for w in cand for c in custs], 0, 1, LpInteger)
+    o = LpVariable.dicts("O", cand, 0, 1, LpInteger)
+    prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs) <= ctx["cap"] * ctx["total"]
+    prob += lpSum(coef[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
+    if floor > 0:
+        prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs) >= floor
+    for c in custs:
+        prob += lpSum(a[w, c] for w in cand) == 1
+    prob += lpSum(o[w] for w in cand) == ctx["p"]
+    for w in cand:
+        if w in ctx["forced"]:
+            prob += o[w] == 1
+        for c in custs:
+            prob += a[w, c] <= o[w]
+            prob += a[w, c] <= mdp[w, c]
+    return prob, a, o
+
+
+def _run_max_coverage_lp(ctx, sense, floor, gap, time_limit):
+    prob, a, o = _build_max_coverage_lp(ctx, sense, floor)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="max_coverage", msg=0)
+    return prob, a, o, cbc
+
+
+def _read_max_coverage_solution(ctx, a, o):
+    """Reads a solved LP back into the reported quantities. Rounding is D22,
+    unchanged: coveragePct 4 dp, weighted average 2 dp."""
+    edges, covered, tdd = [], 0.0, 0.0
+    for w in ctx["cand"]:
+        for c in ctx["custs"]:
+            v = a[w, c].varValue
+            if v and v > 0.5:
+                d = ctx["adj"][w, c]
+                edges.append({"fromId": w, "toId": c, "distance": round(d, 2), "flow": ctx["dem"][c]})
+                tdd += ctx["dem"][c] * d
+                if ctx["hsp"][w, c]:
+                    covered += ctx["dem"][c]
+    total = ctx["total"]
+    return {
+        "edges": edges,
+        "openIds": sorted(w for w in ctx["cand"] if o[w].varValue and o[w].varValue > 0.5),
+        "coveredDemand": int(covered),
+        "coveragePct": round(covered * 100 / total, 4),
+        "weightedAvgDistance": round(tdd / total, 2),
+    }
+
+
+def _cbc_evidence(cbc):
+    return {"termination_reason": cbc.terminationReason, "achieved_gap": cbc.achievedGap,
+            "solver_incumbent_objective": cbc.solverIncumbentObjective,
+            "solver_best_bound": cbc.solverBestBound}
+
+
+def _max_coverage_no_network_envelope(cbc, run_time):
+    """A CBC run that produced no network -- pre-CH4OS semantics, unchanged:
+    "Infeasible" is the truthful infeasible envelope (D17); any other
+    non-"Optimal" status is a solver_error failure. `details` is a fresh copy
+    so a sequential run can add Model 1's summary without mutating the shared
+    _EMPTY_DETAILS constant."""
+    if cbc.lpStatus == "Infeasible":
+        return _envelope("infeasible", "infeasible", 0, run_time, [], _EMPTY_METRICS, dict(_EMPTY_DETAILS),
+                         "No feasible assignment under the constraints — the coverage "
+                         "floor and the average-distance cap are both candidates",
+                         **_cbc_evidence(cbc))
+    env = _envelope("error", "error", 0, run_time, [], _EMPTY_METRICS, dict(_EMPTY_DETAILS),
+                    f"Solver terminated with status: {cbc.lpStatus}", **_cbc_evidence(cbc))
+    env["_failureReason"] = "solver_error"
+    env["_failureStage"] = "cbc_parse"
+    return env
+
+
+def _floor_exceeds_message(floor, model1):
+    m = model1["coveredDemand"]
+    if model1["optimal"]:
+        return (f"Coverage floor {floor} exceeds the maximum coverable demand {m} (Model 1). "
+                f"Lower the floor to at most {m}.")
+    return (f"Coverage floor {floor} could not be met. Model 1's best coverable demand found "
+            f"was {m}; the exact maximum was not proven within the time/gap limit.")
+
+
 def solve_max_coverage(inp):
-    # Dataset load-failure containment (H4): a corrupt/missing dataset is
-    # captured in _LOAD_ERRORS at import time, never crashing other models.
+    # Dataset load-failure containment (H4).
     if "max-coverage-us" in _LOAD_ERRORS:
         return _load_error_envelope("max-coverage-us")
-    from pulp import (LpProblem, LpMaximize, LpMinimize, LpVariable, lpSum,
-                      LpInteger, LpStatus, value, PULP_CBC_CMD)
     t = time.time()
     m = build_merged_max_coverage_dataset(inp, WAREHOUSES_MAX_COVERAGE, CUSTOMERS_MAX_COVERAGE, DISTANCE_MAX_COVERAGE)
     cand = [wid for wid in m["warehouses"] if wid not in m["inactive"]]
@@ -1456,99 +1572,73 @@ def solve_max_coverage(inp):
     total = sum(dem.values())
     hi, mx, p = inp["highServiceDistMi"], inp["maxDistMi"], inp["p"]
     if total <= 0:
-        # No CBC evidence exists -- this is a pure pre-solve, data-derived
-        # infeasibility (zero effective demand), detected before any solve
-        # is attempted. termination_reason mirrors the solution_status
-        # literal rather than fabricating CBC log evidence never produced.
+        # Pure pre-solve, data-derived infeasibility (zero effective demand).
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
                          _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero",
                          termination_reason="infeasible")
-    # §2.1: stored distances ARE the effective distances, in MILES. The matrix
-    # is Chapter 3's integer-mile matrix used as-is, so there is neither a unit
-    # conversion nor a circuity factor to apply here -- stored == solved ==
-    # displayed == exported. .get((w,c),
-    # 9999) sentinel matches every other model's missing-pair convention: an
-    # added entity with no distanceOverrides/estimate to some counterpart is
-    # simply unreachable (adj 9999 mi fails both hi and mx thresholds), never
-    # a KeyError crash -- the "solver never throws" contract. Numerically
-    # identical to a direct index for the base dataset (all 5200 pairs present).
+    # .get((w,c), 9999): an added entity with no distance to a counterpart is
+    # unreachable, never a KeyError (the "solver never throws" contract).
     adj = {(w, c): m["distance"].get((w, c), 9999) for w in cand for c in custs}
-    hsp = {k: (1 if v <= hi else 0) for k, v in adj.items()}
-    mdp = {k: (1 if v <= mx else 0) for k, v in adj.items()}
-    # The objective is DERIVED from the coverage floor, never read from
-    # inp["objective"] -- and details.objective echoes this locally-derived
-    # value. Forwarding the input while branching on the floor would let the
-    # envelope be labelled one model and computed as the other.
-    mode = "coverage" if inp["coverageFloorDemand"] == 0 else "min_distance"
-    prob = LpProblem("max_coverage", LpMaximize if mode == "coverage" else LpMinimize)
-    a = LpVariable.dicts("A", [(w, c) for w in cand for c in custs], 0, 1, LpInteger)
-    o = LpVariable.dicts("O", cand, 0, 1, LpInteger)
-    # The average-service-distance cap applies in BOTH modes. Hoisting it out of
-    # the branch below is the whole change: one constraint, no new code path
-    # (hard rule 6).
-    prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs) <= inp["avgServiceDistCapMi"] * total
-    if mode == "coverage":
-        prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
-    else:
-        prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
-        prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs) >= inp["coverageFloorDemand"]
-    for c in custs:
-        prob += lpSum(a[w, c] for w in cand) == 1
-    prob += lpSum(o[w] for w in cand) == p
-    for w in cand:
-        if w in m["forced"]:
-            prob += o[w] == 1
-        for c in custs:
-            prob += a[w, c] <= o[w]
-            prob += a[w, c] <= mdp[w, c]
-    cbc = _run_cbc(prob, inp["gap"], inp["timeLimitSec"], problem_uid="max_coverage", msg=0)
-    st = cbc.lpStatus
-    if st == "Infeasible":                                            # D17: mathematical infeasibility ONLY
-        return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
-                         _EMPTY_METRICS, _EMPTY_DETAILS,
-                         "No feasible assignment under the constraints — the coverage "
-                         "floor and the average-distance cap are both candidates",
-                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
-                         solver_incumbent_objective=cbc.solverIncumbentObjective,
-                         solver_best_bound=cbc.solverBestBound)
-    if st != "Optimal":                                              # Not Solved / Undefined / Unbounded / timeout → error
-        env = _envelope("error", "error", 0, round(time.time() - t, 2), [],
-                         _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}",
-                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
-                         solver_incumbent_objective=cbc.solverIncumbentObjective,
-                         solver_best_bound=cbc.solverBestBound)
-        # A CBC status we have no actionable branch for is the solver's own
-        # outcome, not a Python-side plumbing bug -- classified as
-        # solver_error, distinct from the internal_error stages above.
-        env["_failureReason"] = "solver_error"
-        env["_failureStage"] = "cbc_parse"
+    ctx = {"cand": cand, "custs": custs, "dem": dem, "total": total, "adj": adj,
+           "hsp": {k: (1 if v <= hi else 0) for k, v in adj.items()},
+           "mdp": {k: (1 if v <= mx else 0) for k, v in adj.items()},
+           "p": p, "forced": m["forced"], "cap": inp["avgServiceDistCapMi"]}
+    floor = inp["coverageFloorDemand"]
+    run = resolve_max_coverage_run(floor, inp.get("objective"))
+    if run is None:
+        # Defensive only: services/precheck.ts's `objective_required` blocks
+        # this before enqueue. A dispatch failure, never a published result.
+        env = _envelope("error", "error", 0, round(time.time() - t, 2), [], _EMPTY_METRICS,
+                        dict(_EMPTY_DETAILS), "objective is required when coverageFloorDemand is 0")
+        env["_failureReason"] = "internal_error"
+        env["_failureStage"] = "dispatch"
         return env
-    edges = []
-    covered = 0.0
-    tdd = 0.0
-    for w in cand:
-        for c in custs:
-            v = a[w, c].varValue
-            if v and v > 0.5:
-                d = adj[w, c]
-                edges.append({"fromId": w, "toId": c, "distance": round(d, 2), "flow": dem[c]})
-                tdd += dem[c] * d
-                if hsp[w, c]:
-                    covered += dem[c]
-    open_ids = sorted(w for w in cand if o[w].varValue and o[w].varValue > 0.5)
-    cov = round(covered * 100 / total, 4)                            # D22: coveragePct 4-dp
-    avg = round(tdd / total, 2)                                      # D22: avg 2-dp
-    metrics = {"openFacilityIds": open_ids, "weightedAvgDistance": avg, "utilizationByNode": [],
+    gap, limit = inp["gap"], inp["timeLimitSec"]
+    model1 = None
+    if run == "sequential":
+        # Budget split (§5): the job watchdog kills at timeLimitSec + 15 s
+        # grace, and each CBC call gets its own limit.
+        t1 = time.time()
+        _, a1, o1, cbc1 = _run_max_coverage_lp(ctx, "max_coverage", 0, gap, max(1, limit // 2))
+        if cbc1.lpStatus != "Optimal":
+            # Model 2 shares every Model 1 constraint, so it cannot be
+            # feasible when Model 1 is not; return Model 1's envelope as is.
+            return _max_coverage_no_network_envelope(cbc1, round(time.time() - t, 2))
+        s1 = _read_max_coverage_solution(ctx, a1, o1)
+        model1 = {"openWarehouseIds": s1["openIds"], "coveredDemand": s1["coveredDemand"],
+                  "coveragePct": s1["coveragePct"], "weightedAvgDistance": s1["weightedAvgDistance"],
+                  # Not proven optimal -> coveredDemand is only a lower bound
+                  # on the true maximum ("best found", never "maximum").
+                  "optimal": cbc1.solutionStatus == "optimal"}
+        limit = max(1, limit - (time.time() - t1))
+    sense, mode = _MAX_COVERAGE_FINAL_SOLVE[run]
+    prob, a, o, cbc = _run_max_coverage_lp(ctx, sense, floor, gap, limit)
+    if cbc.lpStatus != "Optimal":
+        env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2))
+        # Spec §5: ONLY an infeasible Model 2 after a sequential Model 1 gets
+        # Model 1's summary and the floor-too-high message. A no_solution/
+        # error Model 2 returns its own envelope AS IS (it becomes an fd3
+        # failure, so no details would ever be published anyway).
+        if model1 is not None and cbc.lpStatus == "Infeasible":
+            env["details"].update(objective="min_distance", coverageFloorDemand=floor,
+                                  maxCoverableDemand=model1["coveredDemand"], model1=model1)
+            env["infeasibilityReason"] = _floor_exceeds_message(floor, model1)
+        return env
+    s = _read_max_coverage_solution(ctx, a, o)
+    cov = s["coveragePct"]
+    metrics = {"openFacilityIds": s["openIds"], "weightedAvgDistance": s["weightedAvgDistance"],
+               "utilizationByNode": [],
                "bandCoverage": [{"band": hi, "percent": cov}, {"band": mx, "percent": 100.0}]}
     details = {"objective": mode, "p": p, "highServiceDistMi": hi, "maxDistMi": mx,
                "avgServiceDistCapMi": inp.get("avgServiceDistCapMi"), "coverageFloorDemand": inp.get("coverageFloorDemand"),
-               "openWarehouseIds": open_ids, "coveragePct": cov, "coveredDemand": int(covered),
+               "openWarehouseIds": s["openIds"], "coveragePct": cov, "coveredDemand": s["coveredDemand"],
                "uncoveredPct": round(100 - cov, 4), "assignments": []}
+    if model1 is not None:
+        details["maxCoverableDemand"] = model1["coveredDemand"]
+        details["model1"] = model1
     obj = cov if mode == "coverage" else round(value(prob.objective), 2)   # D22: min-dist objective 2-dp
-    return _envelope(cbc.solutionStatus, st, obj, round(time.time() - t, 2), edges, metrics, details,
-                      termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
-                      solver_incumbent_objective=cbc.solverIncumbentObjective,
-                      solver_best_bound=cbc.solverBestBound)
+    return _envelope(cbc.solutionStatus, cbc.lpStatus, obj, round(time.time() - t, 2), s["edges"], metrics, details,
+                     **_cbc_evidence(cbc))
 
 # Overflow sentinel shared with lib/units/src/bands.ts's OVERFLOW_BAND (-1) --
 # named, not a bare literal, so every overflow check reads as intentional.

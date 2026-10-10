@@ -2,15 +2,17 @@ import { z } from "zod";
 
 // C4.6 — Al's Athletics — Max Coverage (`max-coverage-us`, Chapter 4) scenario
 // `inputs` validator. A US single-echelon warehouse->customer service-level
-// model with TWO coupled objectives, selected by the COVERAGE FLOOR rather
-// than by any client-settable mode field (CH4O-5, §2.3):
-//   - floor == 0  ->  "coverage"      maximize demand within highServiceDistMi.
-//   - floor  > 0  ->  "min_distance"  minimize total demand-weighted distance,
-//                     subject to that demand-coverage floor.
+// model with TWO objectives (spec 2026-10-10-ch4-objective-selector-design.md):
+//   - floor == 0  ->  the student picks `objective`: "coverage" (Model 1,
+//                     maximize demand within highServiceDistMi) or
+//                     "min_distance" (Model 2, minimize demand-weighted
+//                     distance). Absent is storable but not solvable
+//                     (precheck `objective_required`).
+//   - floor  > 0  ->  Model 1, then Model 2 covering at least the floor; the
+//                     write path stores "min_distance" whatever was sent
+//                     (services/scenarioInputWrite.ts).
 // The weighted-average service-distance cap (avgServiceDistCapMi) is a
-// constraint in BOTH modes (§2.4), so both it and the floor are now
-// UNCONDITIONALLY required, and `objective` is server-derived
-// (services/scenarioInputWrite.ts) — never client-authored.
+// constraint in BOTH models, so it and the floor are unconditionally required.
 //
 // Mirrors the scenario-local-edit shape every other model already speaks
 // (warehouseOverrides / customerOverrides / addedWarehouses / addedCustomers /
@@ -99,11 +101,8 @@ const distanceBandsSchema = z
 
 export const maxCoverageInputsSchema = z
   .object({
-    // CH4O-5 — DERIVED, never client-authored: the write routes refuse a
-    // client-sent `objective` outright (assertNoServerOwnedFields) and
-    // recompute it from `coverageFloorDemand`. Declared optional here so the
-    // server's own derived value round-trips through this validator instead
-    // of being stripped on the next read/write.
+    // CH4OS — optional, client-authored at a zero floor; normalised to
+    // "min_distance" at a positive floor by deriveServerOwnedInputs.
     objective: z.enum(["coverage", "min_distance"]).optional(),
     p: z.number().int().min(1).max(26),
     // RAW MILE thresholds. The cross-field `highServiceDistMi < maxDistMi`

@@ -190,15 +190,14 @@ def _translate_max_coverage(i: dict[str, Any]) -> dict[str, Any]:
     # style renaming anywhere in solve_max_coverage). buildPayload's
     # max-coverage-us block (pmedian.ts) does this same no-op passthrough,
     # only adding `modelType`.
-    # CH4O-5 -- `avgServiceDistCapMi`/`coverageFloorDemand` are now
-    # UNCONDITIONALLY required (the mode is derived server-side from the
-    # floor: 0 -> coverage, >0 -> min_distance), so both are emitted
-    # unconditionally here too, matching the manifest's flat `required`
-    # list. `objective` is no longer part of the contract at all -- it is
-    # server-derived and refused if a client sends it -- so it is not
-    # translated/emitted here either.
+    # CH4O-5 -- `avgServiceDistCapMi`/`coverageFloorDemand` are
+    # UNCONDITIONALLY required, so both are emitted unconditionally. CH4OS --
+    # `objective` is forwarded as-is (None when absent), exactly as
+    # buildPayload does: at a zero floor it selects Model 1 or Model 2
+    # (solve.py's resolve_max_coverage_run); above zero it is ignored.
     out: dict[str, Any] = {
         "modelType": "max_coverage_us",
+        "objective": i.get("objective"),
         "p": i.get("p"),
         "highServiceDistMi": i.get("highServiceDistMi"),
         "maxDistMi": i.get("maxDistMi"),

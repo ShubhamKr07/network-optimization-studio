@@ -54,13 +54,10 @@ def test_weights_must_sum_to_one(tmp_path):
         load_manifest(str(p))
 
 # CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are
-# UNCONDITIONALLY required for max-coverage-us now, so the manifest's own flat
-# `required` list is the whole rule and the objective-discriminated
-# conditional-required hook is gone. These three tests kept their intent (a
-# case solve_max_coverage would KeyError on must be rejected at load time,
-# without ever driving a real solve) and changed only the mechanism they
-# assert through. `objective` is not an input any more and is absent from the
-# base case.
+# UNCONDITIONALLY required for max-coverage-us, so the manifest's flat
+# `required` list is the whole load-time rule. CH4OS -- `objective` is a
+# conditional input (chosen at floor 0, ignored above it) and deliberately
+# NOT in required[], so load-time validation never demands it.
 def _max_coverage_case(case_id, extra=None):
     # CH4O-8 -- miles (§2.1), matching defaultInputsForModel's seeds. These
     # tests only exercise load-time REQUIRED-key validation (no solve, no
@@ -103,12 +100,24 @@ def test_max_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
     with pytest.raises(ManifestError, match=r"missing \['avgServiceDistCapMi'\]"):
         load_manifest(str(p))
 
-def test_max_coverage_no_longer_requires_objective(tmp_path):
-    # The mode is derived from the floor server-side and re-derived inside
-    # solve_max_coverage; a corpus case that omits `objective` entirely (as
-    # every case now does) must load cleanly.
-    case = _max_coverage_case("mc-0")
-    assert "objective" not in case["inputs"]
-    p = tmp_path / "m.json"
-    p.write_text(json.dumps(_one_max_coverage_manifest(case)))
-    load_manifest(str(p))              # must not raise
+def test_max_coverage_objective_is_optional_at_load_time(tmp_path):
+    # CH4OS -- `objective` is a conditional input: chosen at floor 0, ignored
+    # at a positive floor. It is NOT in the manifest's required[] (spec §3), so
+    # load-time validation accepts a case with or without it; a floor-0 case
+    # without it is rejected later, by precheck (objective_required) / solve.py.
+    for extra in ({}, {"objective": "coverage"}, {"coverageFloorDemand": 1}):
+        case = _max_coverage_case("mc-0", extra)
+        p = tmp_path / "m.json"
+        p.write_text(json.dumps(_one_max_coverage_manifest(case)))
+        load_manifest(str(p))          # must not raise
+
+
+def test_translate_passes_max_coverage_objective_through():
+    # CH4OS -- at a zero floor `objective` selects Model 1 or Model 2, so the
+    # benchmark translator must forward it exactly as buildPayload (pmedian.ts)
+    # does; dropping it turns every floor-0 case into an error envelope.
+    from benchmark.translate import to_solver_input
+    case = _max_coverage_case("mc-0", {"objective": "min_distance"})["inputs"]
+    assert to_solver_input("max-coverage-us", case)["objective"] == "min_distance"
+    del case["objective"]
+    assert to_solver_input("max-coverage-us", case).get("objective") is None

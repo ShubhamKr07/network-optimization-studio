@@ -16,12 +16,11 @@
  * "away from auto" toggle is now `km` (not `mi`), since mi is what auto
  * already shows.
  *
- * Also fixes two scenario-creation defects this file carried into the
- * current schema (`validation/inputs/maxCoverage.ts`, CH4O-5): `objective`
- * is now a SERVER-OWNED field — a create/update payload that includes it AT
- * ALL (even the correct value) is rejected by `assertNoServerOwnedFields`
- * — and `coverageFloorDemand` is unconditionally REQUIRED with no schema
- * default, so omitting it (as this file's fixture used to) 422s. Every
+ * Also carries two scenario-creation rules of the current schema
+ * (`validation/inputs/maxCoverage.ts`): `coverageFloorDemand` is
+ * unconditionally REQUIRED with no schema default, so omitting it 422s; and
+ * (CH4OS, spec 2026-10-10) a zero floor needs a student-chosen `objective`,
+ * so the local factory sends `objective: "coverage"` (Model 1). Every
  * golden below involving `maxCoverageInputs()`'s own payload
  * (p=3, high=700mi, max=5500mi, avgCap=1000mi, floor=0) was re-read off a
  * real `solve.py` invocation against the current (post-CH4O-8) dataset —
@@ -67,9 +66,8 @@ async function registerAndGoHome(page: Page): Promise<void> {
 
 function maxCoverageInputs(overrides: Record<string, unknown> = {}) {
   return {
-    // CH4O-5 — NO `objective` key: it is server-derived from
-    // `coverageFloorDemand` and `assertNoServerOwnedFields` 4xxs a
-    // create/update payload that sends it at all.
+    // CH4OS — a zero floor needs an explicit objective; "coverage" is the Model 1 run every golden here was measured against.
+    objective: "coverage",
     p: 3,
     highServiceDistMi: 700,
     maxDistMi: 5500,

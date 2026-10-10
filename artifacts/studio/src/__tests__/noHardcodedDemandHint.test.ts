@@ -6,9 +6,9 @@ import path from "node:path";
 // used to live on the Chen coverage-floor input in both
 // OptimizationParametersTab and SolveDialog (see
 // docs/superpowers/specs/2026-09-19-chen-bands-units-design.md, Part C /
-// decision 3). The real feasibility guard is the server-side
-// `coverage_floor_infeasible` precheck — no client-side hint, static or
-// dynamic, should replace it.
+// decision 3). Since CH4OS the floor-too-high case is reported by the solver
+// itself (Model 1's exact maximum, spec 2026-10-10 §6.3) — no client-side
+// hint, static or dynamic, should replace it.
 //
 // This file necessarily contains the needles it searches for (in order to
 // search for them at all), so it excludes its own path from the walk. Each

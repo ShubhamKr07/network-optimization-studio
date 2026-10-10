@@ -13,6 +13,7 @@ import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import type { DeliveryInputs } from "../validation/inputs/delivery.js";
 import { getManifest } from "../registry/modelRegistry.js";
+import { resolveMaxCoverageRun } from "@workspace/units";
 
 /**
  * SCN v0.3 Phase B, task B2.1 - semantic precheck for p-median-us
@@ -66,13 +67,11 @@ import { getManifest } from "../registry/modelRegistry.js";
 //                                  reachable within maxDistMi (§2.1: raw miles ≤
 //                                  maxDistMi — no circuity factor, matching
 //                                  the solver).
-//   - "coverage_floor_infeasible"  a POSITIVE coverageFloorDemand (i.e.
-//                                  min-distance mode, §2.3) exceeds a cheap
-//                                  NECESSARY upper bound on
-//                                  coverable demand (Σ demand of customers with
-//                                  ≥1 active warehouse at raw miles ≤
-//                                  highServiceDistMi) — the solver stays
-//                                  authoritative for the sufficient case.
+//   - "objective_required"         a ZERO coverageFloorDemand with no
+//                                  `objective` chosen (CH4OS). The floor-too-
+//                                  high case is no longer a precheck: the
+//                                  solver runs Model 1 and reports the exact
+//                                  maximum coverable demand.
 // These are already present in openapi.yaml's PrecheckError.code enum (added
 // by C4.5) — this type is the api-server-side source of truth those codes
 // mirror.
@@ -84,7 +83,7 @@ export type PrecheckErrorCode =
   | "capacity"
   | "zero_demand"
   | "no_feasible_route"
-  | "coverage_floor_infeasible"
+  | "objective_required"
   | "coefficient_range"
   | "avg_distance_cap_infeasible";
 
@@ -213,12 +212,9 @@ export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
  *                                raw miles ≤ maxDistMi (no circuity factor —
  *                                a hard assignment constraint in BOTH
  *                                objective modes).
- *   - coverage_floor_infeasible  a POSITIVE coverageFloorDemand (min-distance
- *                                mode, §2.3) exceeds Σ demand of customers with ≥1 active
- *                                warehouse at raw miles ≤ highServiceDistMi
- *                                — a NECESSARY upper bound (the shared p limit
- *                                may still prevent covering them all together;
- *                                the solver stays authoritative).
+ *   - objective_required         floor 0 with no `objective` (CH4OS) — via
+ *                                @workspace/units' resolveMaxCoverageRun, the
+ *                                same rule the write path and studio use.
  *   - avg_distance_cap_infeasible avgServiceDistCapMi (§2.4, required in both
  *                                modes) is below the nearest-active-warehouse
  *                                weighted-average distance — a NECESSARY
@@ -252,6 +248,14 @@ export function precheckMaxCoverageInputs(
   // Structural checks (id_collision / reference_integrity / completeness) —
   // this model's edit shape is p-median's, so reuse rather than duplicate.
   const errors: PrecheckError[] = [...precheckPMedianInputs(inputs as unknown as PMedianInputs, dataset).errors];
+
+  // --- objective_required (CH4OS): a zero floor needs an explicit choice ----
+  if (resolveMaxCoverageRun(inputs.coverageFloorDemand, inputs.objective) === null) {
+    errors.push({
+      code: "objective_required",
+      message: "Choose an objective — Max coverage or Min distance — before solving.",
+    });
+  }
 
   const warehouseOverrides = inputs.warehouseOverrides ?? [];
   const addedWarehouses = inputs.addedWarehouses ?? [];
@@ -321,26 +325,6 @@ export function precheckMaxCoverageInputs(
       errors.push({
         code: "no_feasible_route",
         message: `Customer '${custId}' has no active warehouse within maxDistMi (${inputs.maxDistMi} mi)`,
-      });
-    }
-  }
-
-  // --- coverage_floor_infeasible: coverageFloorDemand vs a cheap NECESSARY
-  // upper bound on coverable demand.
-  //
-  // No `objective` guard: a non-zero floor IS min-distance mode (§2.3), and
-  // `objective` is server-derived FROM this value, so gating on it would make
-  // the rule depend on its own output.
-  if (inputs.coverageFloorDemand != null && inputs.coverageFloorDemand > 0) {
-    let coverableDemand = 0;
-    for (const custId of activeCustomerIds) {
-      const coverable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.highServiceDistMi));
-      if (coverable) coverableDemand += effectiveDemand(custId);
-    }
-    if (inputs.coverageFloorDemand > coverableDemand) {
-      errors.push({
-        code: "coverage_floor_infeasible",
-        message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistMi (${inputs.highServiceDistMi} mi)`,
       });
     }
   }

@@ -4,7 +4,8 @@ import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/
 import { useExport } from "@/contexts/ExportContext";
 import { formatChenObjective, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
-import { resultQualityText } from "@/lib/resultOutcome";
+import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
+import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
@@ -52,6 +53,7 @@ function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi):
 // Gated on `modelId`, deliberately NOT on presence — presence-only gating
 // cannot render a fallback when EVERY selected envelope is a legacy one.
 const JADE_MODEL_ID = "two-echelon-jade-us";
+const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
 
 interface SolvedAtRates {
   rates: TransportCosts;
@@ -348,9 +350,15 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // `modelId` or unit would silently mislabel the objective's DIMENSION
     // (not just its number), which is worse than briefly keeping the
     // pre-existing Chen-only/no-unit formatting while the manifest loads.
+    // CH4OS (spec §6.2) — a max-coverage result with no incumbent (infeasible/
+    // no_solution/unbounded/error) carries solve.py's sentinel objective 0 /
+    // weightedAvgDistance 0; show "No incumbent"/"—", never a fake 0. Scoped
+    // to max-coverage-us (spec §11: no change to other models).
+    const noIncumbent = modelId === MAX_COVERAGE_MODEL_ID && !hasIncumbent(classifyResultOutcome(result));
     const objectiveMode = objectiveModeOfDetails(result.details);
-    const objectiveText =
-      modelId != null && canonicalDistanceUnit != null
+    const objectiveText = noIncumbent
+      ? resultQualityText(result)
+      : modelId != null && canonicalDistanceUnit != null
         ? formatObjective(modelId, objectiveMode, result.objective, canonicalDistanceUnit, unit)
         : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString();
     const rows: Array<[string, string, boolean, string?]> = [["Objective", objectiveText, true]];
@@ -360,17 +368,30 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // uses (supportsFacilityStatus/supportsReferenceDistances/
     // supportsPlantProductCapability are all capability/shape checks), and
     // the same test that selects the avg-distance label below.
-    const ch4 = result.details as { coveragePct?: number; coveredDemand?: number; highServiceDistMi?: number } | undefined;
-    const showCoverageRows = typeof ch4?.coveragePct === "number";
+    const ch4 = result.details as {
+      coveragePct?: number; coveredDemand?: number; highServiceDistMi?: number;
+      maxCoverableDemand?: number; model1?: { optimal?: boolean };
+    } | undefined;
+    const showCoverageRows = typeof ch4?.coveragePct === "number" || noIncumbent;
     if (showCoverageRows) {
       rows.push(
         // The SOLVED SNAPSHOT's cutoff, never localInputs: a student who
         // edits the cutoff without re-solving must still see which cutoff
         // produced the numbers beside it.
-        ["High service cutoff", formatDistance(ch4!.highServiceDistMi!, canonicalDistanceUnit, unit), true, "cost-summary-high-service-cutoff"],
-        ["% of demand within high service", `${ch4!.coveragePct!.toFixed(2)} %`, true, "cost-summary-coverage-pct"],
-        ["Total demand within high service", (ch4!.coveredDemand ?? 0).toLocaleString(), true, "cost-summary-covered-demand"],
+        ["High service cutoff", formatDistance(ch4?.highServiceDistMi, canonicalDistanceUnit, unit), true, "cost-summary-high-service-cutoff"],
+        ["% of demand within high service", noIncumbent || ch4?.coveragePct == null ? "—" : `${ch4.coveragePct.toFixed(2)} %`, true, "cost-summary-coverage-pct"],
+        ["Total demand within high service", noIncumbent ? "—" : (ch4?.coveredDemand ?? 0).toLocaleString(), true, "cost-summary-covered-demand"],
       );
+    }
+    // CH4OS — Model 1's result rides along on a sequential run, including an
+    // infeasible one (it comes from Model 1, not Model 2).
+    if (typeof ch4?.maxCoverableDemand === "number") {
+      rows.push([
+        ch4.model1?.optimal === false ? "Best coverable demand found (Model 1)" : "Max coverable demand (Model 1)",
+        ch4.maxCoverableDemand.toLocaleString(),
+        true,
+        "cost-summary-max-coverable-demand",
+      ]);
     }
     if (result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
@@ -380,7 +401,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     }
     rows.push(
       [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
-       formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
+       noIncumbent ? "—" : formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       // B4.1 — the truthful outcome (never the raw solver `result.quality`,
       // which was hardcoded "optimal" pre-B2 regardless of a gap/time-limit
@@ -431,6 +452,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           </button>
         </div>
         <div className="overflow-auto flex-1 p-2">
+          <FloorExceedsMaxAlert
+            result={result}
+            formatDistance={v => formatDistance(v, canonicalDistanceUnit, unit)}
+          />
           <table className="w-full text-sm border-collapse" data-testid="cost-summary-list">
             <thead>
               <tr>
@@ -462,13 +487,16 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // combined compare export is a later follow-up, not this bundle).
   const results = compareScenarios.map(s => s.result!);
   const sharedBands = scenariosShareBands(results);
+  // CH4OS — same no-incumbent rule as the single view, per column.
+  const noIncumbentFor = (s: Scenario) =>
+    modelId === MAX_COVERAGE_MODEL_ID && !hasIncumbent(classifyResultOutcome(s.result!));
   // CH4O-10 (decisions 5-8/10) — same envelope-shape gate as the
   // single-scenario view, evaluated across the WHOLE selection (mirrors the
   // inboundCost/outboundCost PRESENCE-gated rows below): a selected column
   // without `details.coveragePct` renders "—" rather than dropping the row
   // for every column.
   const compareShowCoverageRows = compareScenarios.some(
-    s => typeof (s.result!.details as { coveragePct?: number } | undefined)?.coveragePct === "number",
+    s => typeof (s.result!.details as { coveragePct?: number } | undefined)?.coveragePct === "number" || noIncumbentFor(s),
   );
 
   return (
@@ -499,9 +527,11 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               <td className="p-2 text-muted-foreground">Objective</td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-objective-${s.id}`}>
-                  {modelId != null && canonicalDistanceUnit != null
-                    ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
-                    : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
+                  {noIncumbentFor(s)
+                    ? resultQualityText(s.result!)
+                    : modelId != null && canonicalDistanceUnit != null
+                      ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
+                      : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
                 </td>
               ))}
             </tr>
@@ -528,7 +558,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                     const d = s.result!.details as { coveragePct?: number } | undefined;
                     return (
                       <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-coverage-pct-${s.id}`}>
-                        {typeof d?.coveragePct === "number" ? `${d.coveragePct.toFixed(2)} %` : "—"}
+                        {typeof d?.coveragePct === "number" && !noIncumbentFor(s) ? `${d.coveragePct.toFixed(2)} %` : "—"}
                       </td>
                     );
                   })}
@@ -539,12 +569,27 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                     const d = s.result!.details as { coveredDemand?: number } | undefined;
                     return (
                       <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-covered-demand-${s.id}`}>
-                        {typeof d?.coveredDemand === "number" ? d.coveredDemand.toLocaleString() : "—"}
+                        {typeof d?.coveredDemand === "number" && !noIncumbentFor(s) ? d.coveredDemand.toLocaleString() : "—"}
                       </td>
                     );
                   })}
                 </tr>
               </>
+            )}
+            {/* CH4OS (spec §6.2) — Model 1's max coverable demand; blank for
+                scenarios whose envelope does not carry it. */}
+            {compareScenarios.some(s => typeof (s.result!.details as { maxCoverableDemand?: unknown } | undefined)?.maxCoverableDemand === "number") && (
+              <tr>
+                <td className="p-2 text-muted-foreground">Max coverable demand (Model 1)</td>
+                {compareScenarios.map(s => {
+                  const d = s.result!.details as { maxCoverableDemand?: number } | undefined;
+                  return (
+                    <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-max-coverable-demand-${s.id}`}>
+                      {typeof d?.maxCoverableDemand === "number" ? d.maxCoverableDemand.toLocaleString() : ""}
+                    </td>
+                  );
+                })}
+              </tr>
             )}
             {/* ch4-fixes item 3 — Chapter 9 (JADE) inbound/outbound cost split,
                 mirroring the single-scenario rows that already existed.
@@ -641,7 +686,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               </td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-distance-${s.id}`}>
-                  {formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit)}
+                  {noIncumbentFor(s) ? "—" : formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit)}
                 </td>
               ))}
             </tr>

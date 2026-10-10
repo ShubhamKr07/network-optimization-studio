@@ -8,12 +8,11 @@
  * the retired kilometre seeds, so do not "correct" them by converting
  * anything.
  *
- * NO `objective` key, deliberately. CH4O-5 made `objective` server-owned: it
- * is derived from `coverageFloorDemand` via `deriveMaxCoverageObjective`
- * (floor 0 → "coverage", floor > 0 → "min_distance"), and
- * `assertNoServerOwnedFields` (`services/scenarioInputWrite.ts`) rejects a
- * create/update payload that carries the key at all — even as `null`. A spec
- * that re-adds it gets a 4xx on create.
+ * `objective: "coverage"` (CH4OS, spec 2026-10-10 §3). At a zero floor the
+ * student must choose an objective before solving — without one, Solve is
+ * blocked (precheck `objective_required`). "coverage" keeps every golden
+ * these specs assert (Model 1: 70.42 %, {DAL, LA, PIT}). Pass
+ * `{ objective: undefined }` to create an unchosen scenario (JSON drops it).
  *
  * FU-8 — extracted from two byte-identical copies: `max-coverage.spec.ts`'s
  * `coverageInputs()` and `nonjade-servicestats-live-coverage.spec.ts`'s
@@ -45,6 +44,7 @@
  */
 export function maxCoverageInputs(overrides: Record<string, unknown> = {}) {
   return {
+    objective: "coverage",
     p: 3,
     highServiceDistMi: 450,
     maxDistMi: 3400,

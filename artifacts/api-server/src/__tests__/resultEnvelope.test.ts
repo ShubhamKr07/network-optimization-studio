@@ -60,11 +60,10 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  // CH4O-5 — the mode is derived from the floor, so a ZERO floor is the
-  // coverage case and no `objective` is sent at all (solve.py ignores it).
+  // CH4OS — a zero floor runs Model 1 only when objective "coverage" is sent.
   it("max-coverage-us (zero floor == coverage) emits an envelope that validates against the shared schema", () => {
     const raw = runSolver({
-      modelType: "max_coverage_us", p: 3, highServiceDistMi: 600,
+      modelType: "max_coverage_us", objective: "coverage", p: 3, highServiceDistMi: 600,
       maxDistMi: 5000, avgServiceDistCapMi: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
     }) as { status: string };
     expect(raw.status).toBe("optimal");
@@ -75,8 +74,12 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     const raw = runSolver({
       modelType: "max_coverage_us", p: 3, highServiceDistMi: 600,
       maxDistMi: 5000, avgServiceDistCapMi: 1000, coverageFloorDemand: 500100100, gap: 0, timeLimitSec: 60,
-    }) as { status: string };
+    }) as { status: string; details: Record<string, unknown> };
     expect(raw.status).toBe("infeasible");
+    // CH4OS — the sequential infeasible envelope carries Model 1's summary in
+    // `details` and still validates: details is z.record(z.string(), z.unknown()).
+    expect(typeof raw.details.maxCoverableDemand).toBe("number");
+    expect(raw.details.model1).toBeTypeOf("object");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
@@ -90,6 +93,7 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     const raw = runSolver({
       modelType: "max_coverage_us", p: 3, highServiceDistMi: 600,
       maxDistMi: 5000, avgServiceDistCapMi: 1000, coverageFloorDemand: 0, gap: 0, timeLimitSec: 60,
+      objective: "coverage",
       customerOverrides: customerIds.map((id) => ({ id, status: "excluded" })),
     }) as { status: string };
     expect(raw.status).toBe("infeasible");

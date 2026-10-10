@@ -1097,3 +1097,75 @@ describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
     }
   });
 });
+
+// CH4OS (spec §6.2/§6.3) — infeasible max-coverage results never show a fake 0;
+// Model 1's max coverable demand is shown whenever the envelope carries it.
+describe("Solution Summary — CH4OS sequential results", () => {
+  const model1 = { openWarehouseIds: ["DAL", "LA", "PIT"], coveredDemand: 54946145, coveragePct: 70.42, weightedAvgDistance: 394.6, optimal: true };
+  const infeasibleResult = {
+    ...optimalResult,
+    status: "infeasible" as const, solutionStatus: "infeasible" as const, terminationReason: "infeasible" as const,
+    objective: 0, edges: [],
+    metrics: { weightedAvgDistance: 0, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: [], assignments: [], objective: "min_distance", coverageFloorDemand: 500100100, maxCoverableDemand: 54946145, model1 },
+  } as unknown as SolveResult;
+  const sequentialResult = {
+    ...optimalResult,
+    objective: 30269639699,
+    metrics: { ...optimalResult.metrics, weightedAvgDistance: 387.9 },
+    details: { objective: "min_distance", coveragePct: 70.42, coveredDemand: 54946145, highServiceDistMi: 450, maxCoverableDemand: 54946145, model1 },
+  } as unknown as SolveResult;
+
+  it("an infeasible max-coverage result renders No incumbent / — and never a 0", () => {
+    renderTab({ result: infeasibleResult, modelId: "max-coverage-us" });
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("No incumbent");
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("—");
+    expect(screen.getByTestId("cost-summary-covered-demand")).toHaveTextContent("—");
+    expect(screen.getByTestId("cost-summary-value-avg-distance-to-customers")).toHaveTextContent("—");
+    for (const id of ["cost-summary-value-objective", "cost-summary-coverage-pct", "cost-summary-covered-demand", "cost-summary-value-avg-distance-to-customers"]) {
+      expect(screen.getByTestId(id).textContent).not.toMatch(/^0(\.0+)?( |$)/);
+    }
+  });
+
+  it("still shows Model 1's max coverable demand and the alert on an infeasible result", () => {
+    renderTab({ result: infeasibleResult, modelId: "max-coverage-us" });
+    expect(screen.getByTestId("cost-summary-max-coverable-demand")).toHaveTextContent("54,946,145");
+    expect(screen.getByText("Max coverable demand (Model 1)")).toBeInTheDocument();
+    expect(screen.getByTestId("floor-exceeds-max-alert")).toHaveTextContent("avg distance 394.6 mi");
+  });
+
+  it("a sequential optimal result keeps every coverage row and adds the max-coverable row", () => {
+    renderTab({ result: sequentialResult, modelId: "max-coverage-us" });
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("70.42 %");
+    expect(screen.getByTestId("cost-summary-max-coverable-demand")).toHaveTextContent("54,946,145");
+    expect(screen.queryByTestId("floor-exceeds-max-alert")).not.toBeInTheDocument();
+  });
+
+  it("labels it 'Best coverable demand found' when Model 1 was not proven optimal", () => {
+    const notProven = { ...sequentialResult, details: { ...(sequentialResult.details as object), model1: { ...model1, optimal: false } } } as unknown as SolveResult;
+    renderTab({ result: notProven, modelId: "max-coverage-us" });
+    expect(screen.getByText("Best coverable demand found (Model 1)")).toBeInTheDocument();
+    expect(screen.queryByText("Max coverable demand (Model 1)")).not.toBeInTheDocument();
+  });
+
+  it("Compare: the infeasible column reads No incumbent / —; the max-coverable column is blank where absent", () => {
+    const infeasibleScenario = scenario({ id: 70, name: "Too high", modelId: "max-coverage-us", result: infeasibleResult });
+    const plainScenario = scenario({
+      id: 71, name: "Model 1", modelId: "max-coverage-us",
+      result: { ...optimalResult, details: { objective: "coverage", coveragePct: 70.42, coveredDemand: 54946145, highServiceDistMi: 450 } } as unknown as SolveResult,
+    });
+    renderTab({ scenarios: [infeasibleScenario, plainScenario], modelId: "max-coverage-us" });
+    fireEvent.click(screen.getByTestId(`cost-summary-compare-toggle-${plainScenario.id}`).querySelector("input")!);
+    expect(screen.getByTestId(`cost-summary-compare-objective-${infeasibleScenario.id}`)).toHaveTextContent("No incumbent");
+    expect(screen.getByTestId(`cost-summary-compare-distance-${infeasibleScenario.id}`)).toHaveTextContent("—");
+    expect(screen.getByTestId(`cost-summary-compare-coverage-pct-${infeasibleScenario.id}`)).toHaveTextContent("—");
+    expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${infeasibleScenario.id}`)).toHaveTextContent("54,946,145");
+    expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${plainScenario.id}`)).toHaveTextContent("");
+    expect(screen.getByTestId(`cost-summary-compare-max-coverable-demand-${plainScenario.id}`).textContent).toBe("");
+  });
+
+  it("leaves a non-Chapter-4 infeasible result's rendering untouched (spec §11)", () => {
+    renderTab({ result: { ...infeasibleResult, details: {} } as unknown as SolveResult, modelId: "p-median-us" });
+    expect(screen.getByTestId("cost-summary-value-objective")).not.toHaveTextContent("No incumbent");
+  });
+});

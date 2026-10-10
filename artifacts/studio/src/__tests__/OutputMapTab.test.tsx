@@ -50,6 +50,7 @@ const mockUseListModels = vi.fn(() => ({
     { id: "p-median-us", distanceUnit: "mi" },
     { id: "two-echelon-fake-km", distanceUnit: "km" },
     { id: "delivery-teaching-us", distanceUnit: "mi" },
+    { id: "max-coverage-us", distanceUnit: "mi" },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -824,5 +825,30 @@ describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", (
       return container.textContent ?? "";
     });
     expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
+  });
+});
+
+describe("OutputMapTab — CH4OS floor-exceeds-max alert", () => {
+  const infeasibleWithModel1 = {
+    ...result,
+    status: "infeasible" as const, solutionStatus: "infeasible" as const, objective: 0, edges: [],
+    metrics: { weightedAvgDistance: 0, bandCoverage: [], utilizationByNode: [] },
+    details: {
+      openWarehouseIds: [], assignments: [], objective: "min_distance", coverageFloorDemand: 500100100, maxCoverableDemand: 54946145,
+      model1: { openWarehouseIds: ["DAL", "LA", "PIT"], coveredDemand: 54946145, coveragePct: 70.42, weightedAvgDistance: 394.6, optimal: true },
+    },
+  };
+
+  it("renders the alert above the map, in the display unit", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={infeasibleWithModel1} bands={[450, 3400]} modelId="max-coverage-us" />);
+    const alert = screen.getByTestId("floor-exceeds-max-alert");
+    expect(alert).toHaveTextContent("Coverage floor 500,100,100 exceeds the maximum coverable demand 54,946,145.");
+    expect(alert).toHaveTextContent("avg distance 394.6 mi");
+    expect(screen.getByTestId("output-map-no-incumbent")).toHaveTextContent("No incumbent");
+  });
+
+  it("renders no alert for an ordinary infeasible result", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={{ ...infeasibleWithModel1, details: {} }} bands={[450, 3400]} modelId="max-coverage-us" />);
+    expect(screen.queryByTestId("floor-exceeds-max-alert")).not.toBeInTheDocument();
   });
 });

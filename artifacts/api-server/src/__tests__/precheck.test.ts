@@ -1434,6 +1434,7 @@ const MAX_COVERAGE_DATASET_FAKE: MaxCoveragePrecheckDataset = {
 // want to exercise the cap itself override this field explicitly downward
 // (see the "infeasibility attribution" describe block below).
 const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
+  objective: "coverage",
   p: 2,
   highServiceDistMi: 500,
   maxDistMi: 1000,
@@ -1450,10 +1451,11 @@ const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   distanceOverrides: [],
 };
 
-// A POSITIVE floor is what makes this min-distance mode — the cap is carried
-// over from the base because it binds here too.
+// A POSITIVE floor runs Model 1 then Model 2; the write path stores
+// "min_distance" for it, so the fixture does too.
 const MAX_COVERAGE_BASE_MIN_DISTANCE: MaxCoverageInputs = {
   ...MAX_COVERAGE_BASE_COVERAGE,
+  objective: "min_distance",
   coverageFloorDemand: 100,
 };
 
@@ -1574,55 +1576,44 @@ describe("precheckMaxCoverageInputs — C4.8 semantic precheck", () => {
     });
   });
 
-  describe("coverage_floor_infeasible (positive floor only, highServiceDistMi, §2.1: raw miles, no circuity)", () => {
-    it("fires when excluding a customer drops coverable demand below coverageFloorDemand", () => {
-      // Baseline coverable = 600 (all three within highServiceDistMi, raw).
-      // Floor 350 is fine at baseline; excluding C-3 (demand 300) drops
-      // coverable to 300 < 350.
+  describe("objective_required (CH4OS — a zero floor needs an explicit objective)", () => {
+    const { objective: _absent, ...noObjective } = MAX_COVERAGE_BASE_COVERAGE;
+    void _absent;
+
+    it("fires at floor 0 with no objective, with the exact student-facing message", () => {
+      const result = precheckMaxCoverageInputs(noObjective as MaxCoverageInputs, MAX_COVERAGE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toEqual([
+        { code: "objective_required", message: "Choose an objective — Max coverage or Min distance — before solving." },
+      ]);
+    });
+
+    it.each(["coverage", "min_distance"] as const)("does not fire at floor 0 when objective is %s", (objective) => {
+      expect(precheckMaxCoverageInputs({ ...noObjective, objective } as MaxCoverageInputs, MAX_COVERAGE_DATASET_FAKE))
+        .toEqual({ ok: true, errors: [] });
+    });
+
+    it("does not fire at a positive floor with no objective — that run is sequential regardless", () => {
+      expect(precheckMaxCoverageInputs({ ...noObjective, coverageFloorDemand: 100 } as MaxCoverageInputs, MAX_COVERAGE_DATASET_FAKE))
+        .toEqual({ ok: true, errors: [] });
+    });
+  });
+
+  describe("coverage_floor_infeasible is gone (CH4OS — the solver reports the exact maximum)", () => {
+    it("a floor far above coverable demand passes precheck", () => {
+      // Coverable demand at highServiceDistMi 500 is 100+200+300 = 600. Before
+      // CH4OS this was coverage_floor_infeasible; now Model 1 runs and reports it.
+      const inputs: MaxCoverageInputs = { ...MAX_COVERAGE_BASE_MIN_DISTANCE, coverageFloorDemand: 999999 };
+      expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+    });
+
+    it("excluding coverable demand below a positive floor passes precheck too", () => {
       const inputs: MaxCoverageInputs = {
         ...MAX_COVERAGE_BASE_MIN_DISTANCE,
         coverageFloorDemand: 350,
         customerOverrides: [{ id: "C-3", status: "excluded" }],
       };
-      const result = precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE);
-      expect(result.ok).toBe(false);
-      expect(codes(result)).toEqual(["coverage_floor_infeasible"]);
-    });
-
-    it("fires when a demand override lowers coverable demand below coverageFloorDemand", () => {
-      // Floor 550 ≤ baseline coverable 600. Zeroing C-3's demand drops
-      // coverable to 300 < 550 (C-3 stays coverable but contributes 0).
-      const inputs: MaxCoverageInputs = {
-        ...MAX_COVERAGE_BASE_MIN_DISTANCE,
-        coverageFloorDemand: 550,
-        customerOverrides: [{ id: "C-3", status: "active", demand: 0 }],
-      };
-      expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
-    });
-
-    it("does NOT fire on a ZERO floor (coverage mode) however small coverable demand gets", () => {
-      const inputs: MaxCoverageInputs = {
-        ...MAX_COVERAGE_BASE_COVERAGE,
-        customerOverrides: [{ id: "C-3", status: "excluded" }],
-      };
-      // Excluding C-3 with a zero floor is fine — 0 can never exceed coverable
-      // demand, and C-1/C-2 still have demand and routes.
       expect(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
-    });
-
-    it("fires on a positive floor even when a STALE objective: coverage is carried alongside it", () => {
-      // CH4O-5 — the rule no longer gates on `objective`, because `objective`
-      // is DERIVED from this very field: gating on it would make the rule
-      // depend on its own output, and a persisted row written before the
-      // derivation landed can carry an `objective` that disagrees with its
-      // floor. Baseline coverable demand at highServiceDistMi 500 (raw) is
-      // 100+200+300=600, so 999999 exceeds it by a wide margin.
-      const inputs = {
-        ...MAX_COVERAGE_BASE_COVERAGE,
-        objective: "coverage" as const,
-        coverageFloorDemand: 999999,
-      } as MaxCoverageInputs;
-      expect(codes(precheckMaxCoverageInputs(inputs, MAX_COVERAGE_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
     });
   });
 
@@ -1691,22 +1682,22 @@ describe("max-coverage-us — infeasibility attribution", () => {
     expect(res.errors.map((e) => e.code)).toContain("avg_distance_cap_infeasible");
   });
 
-  it("names the floor when it exceeds coverable demand", () => {
+  it("no longer names the floor — a floor above coverable demand reaches the solver", () => {
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
       ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100,
     });
-    expect(res.errors.map((e) => e.code)).toContain("coverage_floor_infeasible");
+    expect(res.errors.map((e) => e.code)).not.toContain("coverage_floor_infeasible");
   });
 
-  // The regression guard for the contradiction review found: with the cap check
-  // in solve.py this was unreachable, because precheck short-circuits before
-  // Python runs, so a both-violating scenario was attributed to the floor alone.
-  it("names BOTH when both bounds are violated", () => {
+  // One list, no precedence rule (the solver/CLAUDE.md attribution gotcha).
+  it("reports objective_required and the cap TOGETHER", () => {
+    const { objective: _o, ...noObjective } = MAX_COVERAGE_BASE_COVERAGE;
+    void _o;
     const res = runNetworkEditsPrecheckForModel("max-coverage-us", {
-      ...MAX_COVERAGE_BASE_COVERAGE, coverageFloorDemand: 500_100_100, avgServiceDistCapMi: 1,
+      ...noObjective, coverageFloorDemand: 0, avgServiceDistCapMi: 1,
     });
     const codes = res.errors.map((e) => e.code);
-    expect(codes).toContain("coverage_floor_infeasible");
+    expect(codes).toContain("objective_required");
     expect(codes).toContain("avg_distance_cap_infeasible");
   });
 

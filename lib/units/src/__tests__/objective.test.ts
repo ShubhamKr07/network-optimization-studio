@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { objectiveDimension, objectiveConverts, convertObjective, deriveMaxCoverageObjective } from "../objective.js";
+import { readFileSync } from "node:fs";
+import { objectiveDimension, objectiveConverts, convertObjective, deriveMaxCoverageObjective, resolveMaxCoverageRun } from "../objective.js";
 
 describe("objectiveDimension — the seven-model contract", () => {
   const cases: Array<[string, string | null, string, boolean]> = [
@@ -49,5 +50,23 @@ describe("deriveMaxCoverageObjective", () => {
   it("produces modes objectiveDimension already understands", () => {
     expect(objectiveDimension("max-coverage-us", deriveMaxCoverageObjective(0))).toBe("percent");
     expect(objectiveDimension("max-coverage-us", deriveMaxCoverageObjective(100))).toBe("demand-distance");
+  });
+});
+
+// CH4OS — the live rule. Read from the SAME case table solve.py's
+// TestResolveMaxCoverageRun reads, so the two copies are pinned against each
+// other rather than against two hand-copied lists.
+describe("resolveMaxCoverageRun — the shared case table", () => {
+  const cases = JSON.parse(
+    readFileSync(new URL("./maxCoverageRunCases.json", import.meta.url), "utf8"),
+  ) as Array<{ floor: number; objective: "coverage" | "min_distance" | null; run: string | null }>;
+
+  it("the table is not vacuous", () => {
+    expect(cases).toHaveLength(5);
+    expect(new Set(cases.map((c) => c.run))).toEqual(new Set(["model1", "model2", "sequential", null]));
+  });
+
+  it.each(cases)("floor $floor, objective $objective -> $run", ({ floor, objective, run }) => {
+    expect(resolveMaxCoverageRun(floor, objective ?? undefined)).toBe(run);
   });
 });
