@@ -3419,3 +3419,19 @@ Pre-check: `nos_postgres`, 77 users, no `reset_*` columns. Post-check: both colu
 `findUserByEmail` (leaked the submitted email; Sentry NOS-API-8, 5 events) and the `/auth/user` lookup (leaked the user id; NOS-API-5, 6 events) were unwrapped drizzle calls, so `DrizzleQueryError`'s message (`params: …`) reached Sentry, PostHog and the logger via `app.ts`'s error handler. Both now use a binding-less `catch`. `findUserByEmail` throws a bare `Error("user lookup failed")` instead of returning `undefined`, so an outage cannot read as "no such account": `/auth/login` answers `500` (not `401`), `/auth/forgot-password`'s existing `.catch` absorbs it (the bare error carries no params, so its `Sentry.captureException` is now harmless and makes a DB outage visible), `/auth/user` answers `500`. Tests: `__tests__/authLookupLeak.test.ts` (3); they render `Error`s via a replacer because `JSON.stringify(new Error(..))` is `"{}"` and would pass with the leak intact. Bite check: 3/3 red against the unwrapped original. Gate: api-server 1718/1718, typecheck 0.
 
 **Known follow-up, deliberately not fixed:** `/auth/register`'s `db.insert` has the same exposure (email + argon2 hash in params). Its existence check now throws a bare error via `findUserByEmail` but the insert itself is still unwrapped.
+
+## CH4OS — Chapter 4 objective selector and sequential solve (2026-10-10 spec)
+
+Spec: `docs/superpowers/specs/2026-10-10-ch4-objective-selector-design.md`. Plan: `docs/superpowers/plans/2026-10-10-ch4-objective-selector.md`.
+
+### CH4OS-1 — solver: one LP builder, run plan, sequential Model 1 → Model 2
+
+- `solve_max_coverage` now builds both models through `_build_max_coverage_lp(ctx, sense, floor)` (hard rule #6: coefficient table + direction + one optional row, pre-CH4OS constraint order so existing LPs are byte-identical) and runs the plan from `resolve_max_coverage_run(floor, objective)`.
+- `sequential` adds `details.maxCoverableDemand` + `details.model1`; floor-too-high returns the standard infeasible envelope (raw objective 0) with the "maximum" / "best found" message.
+- Time budget: Model 1 `max(1, T // 2)`, Model 2 `max(1, T − elapsed)`.
+- Shared case table `lib/units/src/__tests__/maxCoverageRunCases.json` (TS consumer lands in CH4OS-2).
+- Own commit per spec §10 (amended): green alone because every stored floor-0 row still carries `objective: "coverage"`; every direct solver consumer updated here — `resultEnvelope.test.ts`, benchmark `translate.py` (now forwards `objective`), `corpus.py`/`test_corpus.py`. Corpus data unchanged: Step 8b(a) printed `Counter({(1, False): 1000})`.
+- Model 2 `no_solution`/`error` after Model 1 returns Model 2's envelope as is (spec §5).
+- Review: lead Opus correctness review — no findings (module-level pulp imports, `dispatch` failure stage in the fd3 enum, outcome matrix, floor-too-high message, time split verified). `ponytail-review` — lean already, net 0. Full solver pytest re-run bare by the lead: 352 passed, exit 0.
+- New golden (Model 2, floor 0), measured by Step 5's command: `optimal 29873735731.0 382.87 ['BAL', 'DAL', 'LA'] 52346880 67.0887` (matches the plan's pre-measured values).
+- Gate: `test_max_coverage.py` 40 passed; full solver pytest 352 passed; `e2e_accuracy.py` 99/99; `real_solve_smoke.py` `PASS: all 6 models solved for real via translate.to_solver_input`.

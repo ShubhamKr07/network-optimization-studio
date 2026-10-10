@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import solve  # noqa: E402
+from cbc_termination import CBCCaptureResult  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOLVE = os.path.join(HERE, "..", "solve.py")
@@ -46,14 +48,12 @@ def run(payload):
     return json.loads(r.stdout)
 
 
-# CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are BOTH
-# unconditionally required (the cap binds in both objectives; the floor IS the
-# mode discriminator), and `objective` is never an input: solve_max_coverage
-# derives the mode locally from the floor. BASE is therefore the coverage case
-# (floor 0); the only tests that spread an `objective` in are
-# TestModeDerivedFromFloor's, which send a DELIBERATELY WRONG one to prove it
-# is ignored.
-BASE = {"modelType": "max_coverage_us", "p": 3, "highServiceDistMi": 450, "maxDistMi": 3400,
+# CH4OS (spec 2026-10-10 §3) -- `objective` is a student input again at a ZERO
+# floor: floor 0 + "coverage" runs Model 1, floor 0 + "min_distance" runs
+# Model 2, floor 0 + no objective cannot solve, and ANY positive floor runs
+# Model 1 then Model 2 whatever objective is sent. BASE is the Model 1 case.
+BASE = {"modelType": "max_coverage_us", "objective": "coverage",
+        "p": 3, "highServiceDistMi": 450, "maxDistMi": 3400,
         "avgServiceDistCapMi": 650, "coverageFloorDemand": 0,
         "gap": 0.0, "timeLimitSec": 60, "warehouseOverrides": [], "customerOverrides": [],
         "addedWarehouses": [], "addedCustomers": [], "distanceOverrides": []}
@@ -107,9 +107,67 @@ def test_min_distance_golden():
     assert set(r["details"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
 
 
-def test_floor_infeasible():
+def test_floor_above_model1_max_is_infeasible_and_carries_model1():
+    # CH4OS §5 -- Model 2 is still built and solved at the given floor; CBC
+    # returns infeasible; the envelope is the standard infeasible one (raw
+    # objective 0, NOT null -- solverProcessMessage.ts requires a number) plus
+    # Model 1's summary. M is read off a real Model 1 run, never a literal.
+    m = run(BASE)["details"]["coveredDemand"]
     r = run({**BASE, "coverageFloorDemand": 500100100})
     assert r["status"] == "infeasible"
+    assert r["objective"] == 0
+    assert r["edges"] == []
+    d = r["details"]
+    assert d["openWarehouseIds"] == [] and d["assignments"] == []
+    assert d["objective"] == "min_distance"
+    assert d["coverageFloorDemand"] == 500100100
+    assert d["maxCoverableDemand"] == m
+    assert set(d["model1"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
+    assert d["model1"]["coveredDemand"] == m
+    assert d["model1"]["optimal"] is True
+    assert r["infeasibilityReason"] == (
+        f"Coverage floor 500100100 exceeds the maximum coverable demand {m} (Model 1). "
+        f"Lower the floor to at most {m}.")
+
+
+def test_model2_floor_zero_golden():
+    # CH4OS §2 row 2 -- floor 0 + min_distance runs Model 2 with NO floor row.
+    # Measured, not estimated: see CH4OS-1 Step 5 for the command. Pre-measured
+    # 2026-10-11 via the floor-1 equivalent on the old code (same LP plus one
+    # slack row): objective 29873735731.0, avg 382.87, open {BAL, DAL, LA},
+    # coveredDemand 52346880, coveragePct 67.0887 -- which is also MIG-11's
+    # p-median value, as it must be: a slack floor and a loose cap reduce
+    # Model 2 to the p-median.
+    r = run({**BASE, "objective": "min_distance"})
+    assert r["status"] == "optimal"
+    assert r["details"]["objective"] == "min_distance"
+    assert r["objective"] == pytest.approx(29873735731.0, abs=0.05)
+    assert r["metrics"]["weightedAvgDistance"] == pytest.approx(382.87, abs=0.05)
+    assert set(r["details"]["openWarehouseIds"]) == {"BAL", "DAL", "LA"}
+    assert r["details"]["coveredDemand"] == 52346880
+    assert r["details"]["coveragePct"] == pytest.approx(67.0887, abs=1e-3)
+    _assert_coverage_fields(r)
+
+
+def test_sequential_golden_reports_model1_max_alongside_model2():
+    # CH4OS §2 row 4 -- Model 2's golden is unchanged (same LP as
+    # test_min_distance_golden); maxCoverableDemand equals the Model 1
+    # golden's coveredDemand, asserted by RUNNING Model 1, not a literal copy.
+    model1 = run(BASE)
+    r = run({**BASE, "coverageFloorDemand": 54946145})
+    assert r["status"] == "optimal"
+    assert r["objective"] == pytest.approx(30269639699.0, abs=0.05)
+    assert r["metrics"]["weightedAvgDistance"] == pytest.approx(387.94, abs=0.05)
+    assert set(r["details"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
+    assert r["details"]["maxCoverableDemand"] == model1["details"]["coveredDemand"]
+    m1 = r["details"]["model1"]
+    assert m1["coveredDemand"] == model1["details"]["coveredDemand"]
+    assert set(m1["openWarehouseIds"]) == set(model1["details"]["openWarehouseIds"])
+    assert m1["coveragePct"] == pytest.approx(model1["details"]["coveragePct"], abs=1e-3)
+    assert m1["weightedAvgDistance"] == pytest.approx(model1["metrics"]["weightedAvgDistance"], abs=0.05)
+    assert m1["optimal"] is True
+
+
 
 
 def test_edge_flow_is_integer_demand():
@@ -353,16 +411,197 @@ class TestCapBindsInBothModes:
         assert r["status"] == "infeasible"
 
 
-class TestModeDerivedFromFloor:
-    """`details.objective` reports what RAN, derived from the floor locally --
-    never forwarded from inp["objective"]. If the echo forwarded the input while
-    the math branched on the floor, a mismatch would label the envelope one model
-    and compute the other, invisibly."""
+# ---------------------------------------------------------------------------
+# CH4OS -- the run plan. resolve_max_coverage_run is the Python copy of
+# @workspace/units' resolveMaxCoverageRun; both are tested against ONE case
+# table, so the two copies cannot drift without one of the two suites failing.
+# ---------------------------------------------------------------------------
+_RUN_CASES_PATH = os.path.abspath(os.path.join(HERE, "..", "..", "..", "..", "..",
+                                               "lib", "units", "src", "__tests__",
+                                               "maxCoverageRunCases.json"))
+with open(_RUN_CASES_PATH) as _f:
+    RUN_CASES = json.load(_f)
 
-    def test_zero_floor_runs_coverage(self):
-        r = run({**BASE, "coverageFloorDemand": 0, "objective": "min_distance"})
+
+class TestResolveMaxCoverageRun:
+    def test_case_table_is_not_vacuous(self):
+        assert len(RUN_CASES) == 5
+        assert {c["run"] for c in RUN_CASES} == {"model1", "model2", "sequential", None}
+
+    @pytest.mark.parametrize("case", RUN_CASES, ids=lambda c: f'{c["floor"]}-{c["objective"]}')
+    def test_matches_the_shared_case_table(self, case):
+        assert solve.resolve_max_coverage_run(case["floor"], case["objective"]) == case["run"]
+
+
+class TestRunPlanReportsWhatRan:
+    """details.objective reports what RAN; maxCoverableDemand/model1 are the
+    sequential discriminator (spec §5: no separate details.run field)."""
+
+    def test_model1(self):
+        r = run(BASE)
         assert r["details"]["objective"] == "coverage"
+        assert "maxCoverableDemand" not in r["details"]
+        assert "model1" not in r["details"]
 
-    def test_positive_floor_runs_min_distance(self):
+    def test_model2(self):
+        r = run({**BASE, "objective": "min_distance"})
+        assert r["details"]["objective"] == "min_distance"
+        assert "maxCoverableDemand" not in r["details"]
+
+    def test_positive_floor_ignores_a_sent_objective_and_runs_sequentially(self):
         r = run({**BASE, "coverageFloorDemand": 54946145, "objective": "coverage"})
         assert r["details"]["objective"] == "min_distance"
+        assert isinstance(r["details"]["maxCoverableDemand"], int)
+
+    def test_absent_objective_at_floor_zero_is_an_error_envelope(self):
+        payload = {k: v for k, v in BASE.items() if k != "objective"}
+        r = solve.solve(payload)
+        assert r["status"] == "error"
+        assert r["infeasibilityReason"] == "objective is required when coverageFloorDemand is 0"
+        assert r["_failureReason"] == "internal_error"
+        assert r["_failureStage"] == "dispatch"
+
+
+def _no_network(lp_status, solution_status, reason):
+    return CBCCaptureResult(solutionStatus=solution_status, terminationReason=reason,
+                            achievedGap=None, solverIncumbentObjective=None,
+                            solverBestBound=None, lpStatus=lp_status)
+
+
+class TestSequentialTimeBudget:
+    """Spec §5: Model 1 gets max(1, T // 2); Model 2 gets max(1, T - Model 1
+    elapsed). CBC is fully stubbed and solve.py's `time` is replaced IN ITS OWN
+    NAMESPACE ONLY (never the global module), so elapsed time is exact."""
+
+    def _stub(self, monkeypatch, step_sec, first_solved=True):
+        clock = [1000.0]
+        monkeypatch.setattr(solve, "time", types.SimpleNamespace(time=lambda: clock[0]))
+        limits = []
+
+        def fake(prob, gap, time_limit, **kw):
+            limits.append(time_limit)
+            clock[0] += step_sec
+            # first_solved: call 1 is "Optimal" with no variable values -> an
+            # empty Model 1 network, which is all the budget split needs. Every
+            # other call is no_solution, so solve.py never reads an (absent)
+            # objective value off an unsolved LP.
+            if first_solved and len(limits) == 1:
+                return _no_network("Optimal", "optimal", "optimality_proven")
+            return _no_network("Not Solved", "no_solution", "time_limit")
+
+        monkeypatch.setattr(solve, "_run_cbc", fake)
+        return limits
+
+    def test_model1_gets_half_and_model2_gets_the_remainder(self, monkeypatch):
+        limits = self._stub(monkeypatch, 25.0)
+        solve.solve({**BASE, "coverageFloorDemand": 54946145, "timeLimitSec": 60})
+        assert limits == [30, 35.0]
+
+    def test_both_limits_floor_at_one_second(self, monkeypatch):
+        limits = self._stub(monkeypatch, 25.0)
+        solve.solve({**BASE, "coverageFloorDemand": 54946145, "timeLimitSec": 3})
+        assert limits == [1, 1]
+
+    @pytest.mark.parametrize("objective", ["coverage", "min_distance"])
+    def test_single_model_runs_keep_the_full_limit(self, monkeypatch, objective):
+        limits = self._stub(monkeypatch, 25.0, first_solved=False)
+        solve.solve({**BASE, "objective": objective, "timeLimitSec": 60})
+        assert limits == [60]
+
+
+def _script_cbc(monkeypatch, script):
+    """Wraps the REAL _run_cbc. script[i] decides call i: None = real result
+    untouched; "feasible" = real result relabelled not-proven-optimal (CBC
+    stopped on a limit WITH an incumbent); "infeasible" / "no_solution" =
+    synthetic results CBC can return but this dataset cannot be made to
+    produce on demand. Returns the list of time limits, one per call."""
+    real = solve._run_cbc
+    limits = []
+
+    def fake(prob, gap, time_limit, **kw):
+        step = script[len(limits)] if len(limits) < len(script) else None
+        limits.append(time_limit)
+        if step == "infeasible":
+            return _no_network("Infeasible", "infeasible", "infeasible")
+        if step == "no_solution":
+            return _no_network("Not Solved", "no_solution", "time_limit")
+        r = real(prob, gap, time_limit, **kw)
+        if step == "feasible":
+            r.solutionStatus = "feasible"
+            r.terminationReason = "time_limit"
+        return r
+
+    monkeypatch.setattr(solve, "_run_cbc", fake)
+    return limits
+
+
+class TestSequentialOutcomeMatrix:
+    """Spec §5's seven-row outcome matrix, one test per row."""
+    FEASIBLE = 54946145
+    TOO_HIGH = 500100100
+
+    def test_m1_optimal_m2_solved_returns_model2_with_model1(self, monkeypatch):
+        limits = _script_cbc(monkeypatch, [])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert len(limits) == 2
+        assert r["status"] == "optimal"
+        assert r["details"]["model1"]["optimal"] is True
+        assert isinstance(r["details"]["maxCoverableDemand"], int)
+
+    def test_m1_optimal_m2_infeasible_says_maximum(self, monkeypatch):
+        m = solve.solve(BASE)["details"]["coveredDemand"]
+        _script_cbc(monkeypatch, [])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.TOO_HIGH})
+        assert r["status"] == "infeasible"
+        assert r["objective"] == 0
+        assert r["infeasibilityReason"] == (
+            f"Coverage floor {self.TOO_HIGH} exceeds the maximum coverable demand {m} (Model 1). "
+            f"Lower the floor to at most {m}.")
+
+    def test_m1_feasible_m2_solved_flags_model1_not_optimal(self, monkeypatch):
+        _script_cbc(monkeypatch, ["feasible"])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert r["status"] == "optimal"
+        assert r["details"]["model1"]["optimal"] is False
+        assert isinstance(r["details"]["maxCoverableDemand"], int)
+
+    def test_m1_feasible_m2_infeasible_says_best_found_never_maximum(self, monkeypatch):
+        m = solve.solve(BASE)["details"]["coveredDemand"]
+        _script_cbc(monkeypatch, ["feasible"])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.TOO_HIGH})
+        assert r["status"] == "infeasible"
+        assert r["details"]["model1"]["optimal"] is False
+        assert r["infeasibilityReason"] == (
+            f"Coverage floor {self.TOO_HIGH} could not be met. Model 1's best coverable demand "
+            f"found was {m}; the exact maximum was not proven within the time/gap limit.")
+        assert "maximum coverable" not in r["infeasibilityReason"]
+        assert "Lower the floor" not in r["infeasibilityReason"]
+
+    @pytest.mark.parametrize("m1", [None, "feasible"])
+    def test_m1_solved_m2_no_solution_returns_model2_envelope_as_is(self, monkeypatch, m1):
+        # Spec §5: Model 2's envelope AS IS -- no model1, no maxCoverableDemand,
+        # Model 2's own generic message (an error envelope becomes an fd3
+        # failure; nothing in it is published).
+        limits = _script_cbc(monkeypatch, [m1, "no_solution"])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert len(limits) == 2
+        assert r["status"] == "error"
+        assert r["_failureReason"] == "solver_error"
+        assert "maxCoverableDemand" not in r["details"]
+        assert "model1" not in r["details"]
+        assert r["infeasibilityReason"] == "Solver terminated with status: Not Solved"
+
+    def test_m1_infeasible_returns_model1_envelope_and_never_runs_model2(self, monkeypatch):
+        limits = _script_cbc(monkeypatch, ["infeasible"])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert len(limits) == 1
+        assert r["status"] == "infeasible"
+        assert "maxCoverableDemand" not in r["details"]
+        assert r["infeasibilityReason"].startswith("No feasible assignment under the constraints")
+
+    def test_m1_no_solution_returns_model1_envelope_and_never_runs_model2(self, monkeypatch):
+        limits = _script_cbc(monkeypatch, ["no_solution"])
+        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert len(limits) == 1
+        assert r["status"] == "error"
+        assert "maxCoverableDemand" not in r["details"]

@@ -159,8 +159,8 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
     // UNCONDITIONALLY required by maxCoverageInputsSchema (the cap binds in
     // both objectives; the floor is the mode discriminator), so both are
     // always present on validated inputs and are passed unconditionally.
-    // `objective` is still forwarded for traceability, but solve.py ignores
-    // it and re-derives the mode from the floor itself.
+    // CH4OS — `objective` is forwarded and READ: at a zero floor it selects
+    // Model 1 or Model 2 (solve.py's resolve_max_coverage_run).
     return {
       modelType: "max_coverage_us",
       objective: i.objective,

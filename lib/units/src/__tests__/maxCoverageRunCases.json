@@ -1,0 +1,7 @@
+[
+  { "floor": 0, "objective": "coverage", "run": "model1" },
+  { "floor": 0, "objective": "min_distance", "run": "model2" },
+  { "floor": 0, "objective": null, "run": null },
+  { "floor": 1, "objective": null, "run": "sequential" },
+  { "floor": 54946145, "objective": "coverage", "run": "sequential" }
+]
