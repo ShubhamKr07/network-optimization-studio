@@ -200,7 +200,9 @@ Every existing floor-0 `max-coverage-us` row carries a server-derived `objective
 
 ## 10. Commit slicing
 
-The objective contract crosses validation, write path, the shared rule, solver, precheck, OpenAPI and studio. Per CLAUDE.md ("a change crossing a layer boundary is ONE commit"), the contract change is **one** task and one commit, with codegen in it. The migration, its runbook, the e2e rewrites and the changelog entry can each be their own task.
+The objective contract crosses validation, write path, the shared rule, precheck, OpenAPI and studio. Per CLAUDE.md ("a change crossing a layer boundary is ONE commit"), that contract change is **one** task and one commit, with codegen in it. The migration, its runbook, the e2e rewrites and the changelog entry can each be their own task.
+
+**The solver lands first, as its own commit** (amended 2026-10-11 after the Codex plan review). It is green on its own. Until the contract commit, every stored floor-0 row carries the server-derived `objective: "coverage"`, and `pmedian.ts` forwards it. So the new run plan sends every live floor-0 solve to `model1`, with the same LP and envelope as today. Positive floors become `sequential`, and their envelopes only gain new `details` keys. The solver commit also updates every *direct* solver consumer in the same change: the `resultEnvelope` tests that spawn `solve.py`, and the benchmark translator, corpus-loader tests and real-solve smoke script under `solver/tests/benchmark/`.
 
 ## 11. Out of scope
 

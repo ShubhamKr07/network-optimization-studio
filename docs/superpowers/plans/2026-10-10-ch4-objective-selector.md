@@ -14,6 +14,8 @@
 
 - **Workdir / branch:** `/Users/shubhamkr/nos-ch4-upgrade-v2`, branch `ch4-upgrade-v2`. Never touch `/Users/shubhamkr/network-optimization-studio`. First command of every task: `cd /Users/shubhamkr/nos-ch4-upgrade-v2 && git rev-parse --abbrev-ref HEAD` — must print `ch4-upgrade-v2`, else STOP.
 - **Before every `git commit`:** `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }` — run it alone, read its output, then commit **with an explicit pathspec** (`git commit <paths> -m …`). Never pipe a state-changing git command.
+- **Slicing (spec §10, amended 2026-10-11):** CH4OS-1 (solver + every direct solver consumer) is its own commit because it is green alone; the rest of the objective contract is ONE commit (CH4OS-2).
+- **Review before every commit:** CH4OS-1…4 — latest-Opus correctness review + `ponytail:ponytail-review`; CH4OS-5/6 — a separate `fable` reviewer (AGENTS.md "Model policy"). Findings fixed and that task's gates re-run before the commit.
 - **One task = one commit**, message `[CH4OS-<n>] <imperative summary>`, body ending with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **Every task appends its own entry to `docs/CHANGELOG-implementation.md` in the SAME commit** (hard rule #9). CH4OS-1 creates the section heading `## CH4OS — Chapter 4 objective selector and sequential solve (2026-10-10 spec)` at the bottom; each later task appends a `### CH4OS-<n>` subsection under it. Changelog numbers are **measured in that task's own run** — an underivable value is the literal string `unknown`, never an estimate.
 - **Hard rule #12:** each engineering task (CH4OS-1…4) begins with Step 0: invoke `andrej-karpathy-skills:karpathy-guidelines` and `ponytail:ponytail` via the Skill tool. qa-sdet tasks (CH4OS-5, CH4OS-6) are exempt. Engineering reviews run `ponytail:ponytail-review` on Opus; qa-sdet reviews run on a separate `fable` reviewer (AGENTS.md).
@@ -21,6 +23,7 @@
 - **`e2e_accuracy.py` is sacred** and has no Chapter 4 section. Run it unmodified (`cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py`); expected `99/99`.
 - **Hard rule #6:** the solver change is one LP builder whose two senses differ by a coefficient table, a direction and one optional row. No new model code path.
 - **Local DB:** `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"` passed inline on every command that needs it. `nos_dev` is **shared with other sessions**: another session's dispatcher can claim a `queued` row this session inserted (assert "either active status" where a test needs an active job); load-induced flakes are routine — check `docs/superpowers/flake-registry.md` by test **name** and re-run a failing file twice in isolation before calling it a regression.
+- **Gate commands run bare: no `| tail`, no pipe of any kind on a gate command; judge each by its own exit status and full output.** (The prescribed concurrent-vitest check below is the one pipeline, and it gates nothing by exit-through-pipe — it is read by value.)
 - **Gate commands run separately, never chained with `&&`.** Before trusting a full suite: `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — run alone, not chained.
 - **Spec values, verbatim:**
   - Selector: radio group `objective-select`, options `objective-coverage` "Max coverage (Model 1)" and `objective-min-distance` "Min distance (Model 2)"; nothing selected by default; shown only at floor 0, directly below `input-coverage-floor`.
@@ -75,10 +78,15 @@
 
 ## Task 1 (CH4OS-1): Solver — one LP builder, run plan, sequential solve
 
-**Role:** solver-engineer. **Spec:** §2, §5, §9 (Solver).
+**Role:** solver-engineer. **Spec:** §2, §5, §9 (Solver), §10 (slicing).
+
+**Why the solver is its own commit (spec §10, as amended):** CH4OS-1 is green in isolation. Until CH4OS-2, every stored floor-0 row carries the server-derived `objective: "coverage"`, so the new run plan resolves every live floor-0 solve to `model1` — the same LP and envelope as today. And CH4OS-1 updates every *direct* solver consumer in the same commit: `resultEnvelope.test.ts` (spawns `solve.py`), the benchmark translator `tests/benchmark/translate.py`, the corpus loader's tests/comments, and the real-solve smoke script. The rest of the objective contract (shared rule, write path, precheck, OpenAPI, studio) stays ONE commit in CH4OS-2.
 
 **Files:**
 - Modify: `artifacts/api-server/src/solver/solve.py:1430-1553` (the `solve_max_coverage` block)
+- Modify: `artifacts/api-server/src/solver/tests/benchmark/translate.py:183-215` (`_translate_max_coverage`)
+- Modify: `artifacts/api-server/src/solver/tests/benchmark/corpus.py:25-33` (comment)
+- Modify: `artifacts/api-server/src/solver/tests/benchmark/test_corpus.py:56-63,106-112`
 - Modify: `artifacts/api-server/src/solver/tests/test_max_coverage.py`
 - Create: `lib/units/src/__tests__/maxCoverageRunCases.json`
 - Modify: `artifacts/api-server/src/__tests__/resultEnvelope.test.ts:63-81,83-96`
@@ -87,9 +95,11 @@
 
 **Interfaces:**
 - Consumes: `_run_cbc(prob, gap, time_limit, *, problem_uid=None, msg=False)` → `CBCCaptureResult` (`solve.py:208`); `_envelope(...)` (`solve.py:247`); `_EMPTY_METRICS`, `_EMPTY_DETAILS` (`solve.py:272-273`); `CBCCaptureResult(solutionStatus=, terminationReason=, achievedGap=, solverIncumbentObjective=, solverBestBound=, lpStatus=)` (`cbc_termination.py:463`).
-- Produces: `resolve_max_coverage_run(floor, objective) -> "model1" | "model2" | "sequential" | None`. On a `sequential` run, `details.maxCoverableDemand: int` and `details.model1 = {openWarehouseIds: list[str], coveredDemand: int, coveragePct: float, weightedAvgDistance: float, optimal: bool}`. Floor-too-high: `status "infeasible"`, raw `objective 0`, `edges []`, `details = {openWarehouseIds: [], assignments: [], objective: "min_distance", coverageFloorDemand, maxCoverableDemand, model1}`, `infeasibilityReason` = the spec message. `lib/units/src/__tests__/maxCoverageRunCases.json`: `Array<{floor: number, objective: "coverage"|"min_distance"|null, run: "model1"|"model2"|"sequential"|null}>` — CH4OS-2's TS test reads the same file.
+- Produces: `resolve_max_coverage_run(floor, objective) -> "model1" | "model2" | "sequential" | None`. On a `sequential` run that publishes a network, `details.maxCoverableDemand: int` and `details.model1 = {openWarehouseIds: list[str], coveredDemand: int, coveragePct: float, weightedAvgDistance: float, optimal: bool}`. Floor-too-high: `status "infeasible"`, raw `objective 0`, `edges []`, `details = {openWarehouseIds: [], assignments: [], objective: "min_distance", coverageFloorDemand, maxCoverableDemand, model1}`, `infeasibilityReason` = the spec message. A Model 2 `no_solution`/`error` after Model 1 returns Model 2's envelope as is (no Model 1 keys). `lib/units/src/__tests__/maxCoverageRunCases.json`: `Array<{floor: number, objective: "coverage"|"min_distance"|null, run: "model1"|"model2"|"sequential"|null}>` — CH4OS-2's TS test reads the same file.
 
 **Backward compatibility (why this commit is green alone):** the server today stores `objective: "coverage"` on every floor-0 row and `pmedian.ts:166` forwards it, so floor-0 solves resolve to `model1` — byte-identical LP and envelope. Positive floors become `sequential`: Model 2's LP is unchanged (same constraint order), and the envelope gains only additive `details` keys; `coverage_floor_infeasible` precheck still blocks too-high floors until CH4OS-2.
+
+**Benchmark corpus — no data change needed (verified at plan time):** `tests/benchmark/corpus/manifest.json` (3.2 MB, regenerated by commits, not by a CLI subcommand — `cli.py` only has `run`) holds 1000 `max-coverage-us` cases across 5 strata, and **every one has `coverageFloorDemand: 1`** — i.e. `sequential`, which needs no objective. So the corpus is not edited; only the translator must stop dropping `objective`. Step 8b re-verifies the count before relying on it.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -369,13 +379,19 @@ class TestSequentialOutcomeMatrix:
         assert "maximum coverable" not in r["infeasibilityReason"]
         assert "Lower the floor" not in r["infeasibilityReason"]
 
-    def test_m1_solved_m2_no_solution_keeps_model2_envelope_plus_model1(self, monkeypatch):
-        _script_cbc(monkeypatch, [None, "no_solution"])
+    @pytest.mark.parametrize("m1", [None, "feasible"])
+    def test_m1_solved_m2_no_solution_returns_model2_envelope_as_is(self, monkeypatch, m1):
+        # Spec §5: Model 2's envelope AS IS -- no model1, no maxCoverableDemand,
+        # Model 2's own generic message (an error envelope becomes an fd3
+        # failure; nothing in it is published).
+        limits = _script_cbc(monkeypatch, [m1, "no_solution"])
         r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        assert len(limits) == 2
         assert r["status"] == "error"
         assert r["_failureReason"] == "solver_error"
-        assert isinstance(r["details"]["maxCoverableDemand"], int)
-        assert r["details"]["model1"]["optimal"] is True
+        assert "maxCoverableDemand" not in r["details"]
+        assert "model1" not in r["details"]
+        assert r["infeasibilityReason"] == "Solver terminated with status: Not Solved"
 
     def test_m1_infeasible_returns_model1_envelope_and_never_runs_model2(self, monkeypatch):
         limits = _script_cbc(monkeypatch, ["infeasible"])
@@ -395,7 +411,7 @@ class TestSequentialOutcomeMatrix:
 
 - [ ] **Step 3: Run the new tests to verify they fail**
 
-Run: `cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/test_max_coverage.py -x -q 2>&1 | tail -5`
+Run: `cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/test_max_coverage.py -x -q`
 Expected: FAIL — first failure is `AttributeError: module 'solve' has no attribute 'resolve_max_coverage_run'` or an assertion on `maxCoverableDemand`.
 
 - [ ] **Step 4: Implement the solver**
@@ -591,11 +607,14 @@ def solve_max_coverage(inp):
     prob, a, o, cbc = _run_max_coverage_lp(ctx, sense, floor, gap, limit)
     if cbc.lpStatus != "Optimal":
         env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2))
-        if model1 is not None:
+        # Spec §5: ONLY an infeasible Model 2 after a sequential Model 1 gets
+        # Model 1's summary and the floor-too-high message. A no_solution/
+        # error Model 2 returns its own envelope AS IS (it becomes an fd3
+        # failure, so no details would ever be published anyway).
+        if model1 is not None and cbc.lpStatus == "Infeasible":
             env["details"].update(objective="min_distance", coverageFloorDemand=floor,
                                   maxCoverableDemand=model1["coveredDemand"], model1=model1)
-            if cbc.lpStatus == "Infeasible":
-                env["infeasibilityReason"] = _floor_exceeds_message(floor, model1)
+            env["infeasibilityReason"] = _floor_exceeds_message(floor, model1)
         return env
     s = _read_max_coverage_solution(ctx, a, o)
     cov = s["coveragePct"]
@@ -618,15 +637,18 @@ def solve_max_coverage(inp):
 
 - [ ] **Step 5: Measure the new golden on the new code**
 
-Run:
+Write the payload to a scratch file (`$SCRATCH` = the session scratchpad directory), then run the solver on it bare — no pipes:
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && echo '{"modelType":"max_coverage_us","objective":"min_distance","p":3,"highServiceDistMi":450,"maxDistMi":3400,"avgServiceDistCapMi":650,"coverageFloorDemand":0,"gap":0.0,"timeLimitSec":60,"warehouseOverrides":[],"customerOverrides":[],"addedWarehouses":[],"addedCustomers":[],"distanceOverrides":[]}' | python3 solve.py | python3 -c "import json,sys; r=json.load(sys.stdin); print(r['status'], r['objective'], r['metrics']['weightedAvgDistance'], sorted(r['details']['openWarehouseIds']), r['details']['coveredDemand'], r['details']['coveragePct'])"
+printf '%s' '{"modelType":"max_coverage_us","objective":"min_distance","p":3,"highServiceDistMi":450,"maxDistMi":3400,"avgServiceDistCapMi":650,"coverageFloorDemand":0,"gap":0.0,"timeLimitSec":60,"warehouseOverrides":[],"customerOverrides":[],"addedWarehouses":[],"addedCustomers":[],"distanceOverrides":[]}' > "$SCRATCH/m2-floor0.json"
 ```
-Expected: `optimal 29873735731.0 382.87 ['BAL', 'DAL', 'LA'] 52346880 67.0887`. If any value differs, the measured value wins: paste it into `test_model2_floor_zero_golden` and record both numbers in the changelog entry.
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 solve.py < "$SCRATCH/m2-floor0.json"
+```
+Expected (read off the printed envelope): `status` `optimal`, `objective` `29873735731.0`, `metrics.weightedAvgDistance` `382.87`, `details.openWarehouseIds` {BAL, DAL, LA}, `details.coveredDemand` `52346880`, `details.coveragePct` `67.0887`. If any value differs, the measured value wins: paste it into `test_model2_floor_zero_golden` and record both numbers in the changelog entry.
 
 - [ ] **Step 6: Run the Chapter 4 suite**
 
-Run: `cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/test_max_coverage.py -q 2>&1 | tail -3`
+Run: `cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/test_max_coverage.py -q`
 Expected: all PASS (the pre-existing goldens — coverage 70.42/394.65, min-distance 30269639699.0, MIG-11's 29873735731 — pass unmodified).
 
 - [ ] **Step 7: Update the api-server envelope test that spawns solve.py**
@@ -654,14 +676,90 @@ In `artifacts/api-server/src/solver/pmedian.ts`, replace the two lines `// \`obj
     // Model 1 or Model 2 (solve.py's resolve_max_coverage_run).
 ```
 
+- [ ] **Step 8b: Benchmark translator — stop dropping `objective`**
+
+The benchmark harness translates corpus cases (API-schema inputs) to solver wire input independently of `pmedian.ts`, and today drops `objective` (`translate.py:183-215`). After this commit a floor-0 case without `objective` is an error envelope, so the translator must pass it through exactly as `buildPayload` does.
+
+(a) Re-verify the corpus needs no data change (expected: 1000 cases, all `coverageFloorDemand` 1, none with `objective`):
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests/benchmark && python3 -c "import json; from collections import Counter; m=json.load(open('corpus/manifest.json')); print(Counter((c['inputs'].get('coverageFloorDemand'), 'objective' in c['inputs']) for st in m['strata'] if st['model_id']=='max-coverage-us' for c in st['cases']))"
+```
+Expected: `Counter({(1, False): 1000})`. If any floor-0 case appears, STOP and report: the corpus has no generator subcommand (`cli.py` exposes only `run`), so such cases would need a deliberate, reviewed data edit — not a hand-edit of the 3.2 MB file inside this task.
+
+(b) Failing test — append to `tests/benchmark/test_corpus.py`:
+```python
+def test_translate_passes_max_coverage_objective_through():
+    # CH4OS -- at a zero floor `objective` selects Model 1 or Model 2, so the
+    # benchmark translator must forward it exactly as buildPayload (pmedian.ts)
+    # does; dropping it turns every floor-0 case into an error envelope.
+    from benchmark.translate import to_solver_input
+    case = _max_coverage_case("mc-0", {"objective": "min_distance"})["inputs"]
+    assert to_solver_input("max-coverage-us", case)["objective"] == "min_distance"
+    del case["objective"]
+    assert to_solver_input("max-coverage-us", case).get("objective") is None
+```
+and replace `test_max_coverage_no_longer_requires_objective` (`:106-112`) with:
+```python
+def test_max_coverage_objective_is_optional_at_load_time(tmp_path):
+    # CH4OS -- `objective` is a conditional input: chosen at floor 0, ignored
+    # at a positive floor. It is NOT in the manifest's required[] (spec §3), so
+    # load-time validation accepts a case with or without it; a floor-0 case
+    # without it is rejected later, by precheck (objective_required) / solve.py.
+    for extra in ({}, {"objective": "coverage"}, {"coverageFloorDemand": 1}):
+        case = _max_coverage_case("mc-0", extra)
+        p = tmp_path / "m.json"
+        p.write_text(json.dumps(_one_max_coverage_manifest(case)))
+        load_manifest(str(p))          # must not raise
+```
+Replace the comment block above `_max_coverage_case` (`:56-63`, from `# CH4O-5 -- \`avgServiceDistCapMi\`` through `# base case.`) with:
+```python
+# CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are
+# UNCONDITIONALLY required for max-coverage-us, so the manifest's flat
+# `required` list is the whole load-time rule. CH4OS -- `objective` is a
+# conditional input (chosen at floor 0, ignored above it) and deliberately
+# NOT in required[], so load-time validation never demands it.
+```
+Run: `cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_corpus.py -q`
+Expected: FAIL — `KeyError: 'objective'` in `test_translate_passes_max_coverage_objective_through`.
+
+(c) Implement — in `tests/benchmark/translate.py` `_translate_max_coverage`, replace the comment lines from `# CH4O-5 -- \`avgServiceDistCapMi\`/\`coverageFloorDemand\` are now` through `# translated/emitted here either.` with:
+```python
+    # CH4O-5 -- `avgServiceDistCapMi`/`coverageFloorDemand` are
+    # UNCONDITIONALLY required, so both are emitted unconditionally. CH4OS --
+    # `objective` is forwarded as-is (None when absent), exactly as
+    # buildPayload does: at a zero floor it selects Model 1 or Model 2
+    # (solve.py's resolve_max_coverage_run); above zero it is ignored.
+```
+and add `"objective": i.get("objective"),` immediately after `"modelType": "max_coverage_us",` in `out`.
+
+In `tests/benchmark/corpus.py`, replace the three lines `# enforces it. \`objective\` is no longer an input at all -- solve_max_coverage` / `# derives the mode from the floor -- so there is nothing left to discriminate` / `# on.` with:
+```python
+# enforces it. CH4OS -- `objective` is a conditional input (chosen at floor 0,
+# ignored above it) and is not in required[], so there is still nothing to
+# discriminate on at load time.
+```
+Run the (b) command again. Expected: PASS.
+
 - [ ] **Step 9: Full solver suite + sacred accuracy gate**
 
-Run, separately:
+Run each bare and separately; judge each by its own exit status and output:
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q 2>&1 | tail -3
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py 2>&1 | tail -3
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q
 ```
-Expected: pytest all PASS (a `test_transport.py::TestSingleSource` timeout is the known load flake — re-run that class alone); `e2e_accuracy.py` `99/99`, file unmodified (`git diff --stat -- artifacts/api-server/src/solver/tests/e2e_accuracy.py` prints nothing).
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py
+```
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests/benchmark && python3 real_solve_smoke.py
+```
+Expected: pytest all PASS (a `test_transport.py::TestSingleSource` timeout is the known load flake — re-run that class alone); `e2e_accuracy.py` `99/99`, file unmodified (`git diff --stat -- artifacts/api-server/src/solver/tests/e2e_accuracy.py` prints nothing); `real_solve_smoke.py` (standalone, not pytest-discovered; one real CBC solve per model via `translate.to_solver_input`) exits 0 printing `PASS: all 6 models solved for real via translate.to_solver_input` — its max-coverage case is floor 1, so it exercises the sequential run.
+
+- [ ] **Step 9b: Review before commit (AGENTS.md model policy)**
+
+AGENTS.md, "Model policy": this role is reviewed on **latest Opus** — "pass `model: opus` to the `Agent` tool … Review inline on the lead's own model only when that model IS an Opus; otherwise dispatch a reviewer with `model: opus`" — and "The four engineering roles' review pass also runs `ponytail-review`".
+1. Correctness review on latest Opus of this task's uncommitted diff (`git diff` plus the new files in this task's **Files** list): the spec sections cited in the task header, hard rules #1/#5/#6, and whether every new test can fail.
+2. Skill tool: `ponytail:ponytail-review` on the same diff.
+3. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run this task's gate commands (Steps 6, 7, 8b and 9) bare and confirm they pass before committing.
 
 - [ ] **Step 10: Append the changelog entry**
 
@@ -678,8 +776,11 @@ Spec: `docs/superpowers/specs/2026-10-10-ch4-objective-selector-design.md`. Plan
 - `sequential` adds `details.maxCoverableDemand` + `details.model1`; floor-too-high returns the standard infeasible envelope (raw objective 0) with the "maximum" / "best found" message.
 - Time budget: Model 1 `max(1, T // 2)`, Model 2 `max(1, T − elapsed)`.
 - Shared case table `lib/units/src/__tests__/maxCoverageRunCases.json` (TS consumer lands in CH4OS-2).
+- Own commit per spec §10 (amended): green alone because every stored floor-0 row still carries `objective: "coverage"`; every direct solver consumer updated here — `resultEnvelope.test.ts`, benchmark `translate.py` (now forwards `objective`), `corpus.py`/`test_corpus.py`. Corpus data unchanged: Step 8b(a) printed <its Counter line>.
+- Model 2 `no_solution`/`error` after Model 1 returns Model 2's envelope as is (spec §5).
+- Review: Opus correctness + `ponytail-review` findings and dispositions: <list, or "none">.
 - New golden (Model 2, floor 0), measured by Step 5's command: <the line Step 5 printed>.
-- Gate: `test_max_coverage.py` <pytest summary line>; full solver pytest <summary line>; `e2e_accuracy.py` <N/N>.
+- Gate: `test_max_coverage.py` <pytest summary line>; full solver pytest <summary line>; `e2e_accuracy.py` <N/N>; `real_solve_smoke.py` <its final PASS/FAIL line>.
 ```
 
 Fill each `<…>` with the exact text the named step printed in this task's own run (or `unknown`).
@@ -692,8 +793,8 @@ cd /Users/shubhamkr/nos-ch4-upgrade-v2
 ```
 then:
 ```bash
-git add artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_max_coverage.py lib/units/src/__tests__/maxCoverageRunCases.json artifacts/api-server/src/__tests__/resultEnvelope.test.ts artifacts/api-server/src/solver/pmedian.ts docs/CHANGELOG-implementation.md
-git commit artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_max_coverage.py lib/units/src/__tests__/maxCoverageRunCases.json artifacts/api-server/src/__tests__/resultEnvelope.test.ts artifacts/api-server/src/solver/pmedian.ts docs/CHANGELOG-implementation.md -m "[CH4OS-1] build both Chapter 4 models from one LP and run Model 1 then Model 2 at a positive floor" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_max_coverage.py lib/units/src/__tests__/maxCoverageRunCases.json artifacts/api-server/src/__tests__/resultEnvelope.test.ts artifacts/api-server/src/solver/pmedian.ts artifacts/api-server/src/solver/tests/benchmark/translate.py artifacts/api-server/src/solver/tests/benchmark/corpus.py artifacts/api-server/src/solver/tests/benchmark/test_corpus.py docs/CHANGELOG-implementation.md
+git commit artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_max_coverage.py lib/units/src/__tests__/maxCoverageRunCases.json artifacts/api-server/src/__tests__/resultEnvelope.test.ts artifacts/api-server/src/solver/pmedian.ts artifacts/api-server/src/solver/tests/benchmark/translate.py artifacts/api-server/src/solver/tests/benchmark/corpus.py artifacts/api-server/src/solver/tests/benchmark/test_corpus.py docs/CHANGELOG-implementation.md -m "[CH4OS-1] build both Chapter 4 models from one LP and run Model 1 then Model 2 at a positive floor" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1593,11 +1694,15 @@ Run the Step 9 command, then the Step 7 command. Expected: both PASS.
 
 - [ ] **Step 11: Grep for leftovers**
 
-Run:
+Run (bare, no pipes; `artifacts/studio/e2e` is excluded ON PURPOSE — see below):
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2 && grep -rn "assertNoServerOwnedFields\|withoutServerOwnedInputs\|coverage_floor_infeasible" artifacts lib --include=*.ts --include=*.tsx --include=*.yaml | grep -v node_modules
-grep -rn "deriveMaxCoverageObjective" artifacts lib --include=*.ts --include=*.tsx | grep -v node_modules
+cd /Users/shubhamkr/nos-ch4-upgrade-v2 && grep -rn --exclude-dir=node_modules --exclude-dir=e2e "assertNoServerOwnedFields\|withoutServerOwnedInputs\|coverage_floor_infeasible" artifacts lib --include=*.ts --include=*.tsx --include=*.yaml
 ```
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2 && grep -rn --exclude-dir=node_modules --exclude-dir=e2e "deriveMaxCoverageObjective" artifacts lib --include=*.ts --include=*.tsx
+```
+`--exclude-dir=e2e` matches only `artifacts/studio/e2e` (no other directory in `artifacts`/`lib` is named `e2e`). **Intentional window:** the e2e files still mention the old symbols and contract until CH4OS-5 rewrites them — `artifacts/studio/e2e/helpers/maxCoverageInputs.ts:11`, `artifacts/studio/e2e/max-coverage.spec.ts:12`, `artifacts/studio/e2e/chen-bands-units-qa.spec.ts:70`. CH4OS-5 Step 1's grep covers them.
+
 Expected: first prints nothing. Second prints only `lib/units/src/objective.ts`, `lib/units/src/__tests__/objective.test.ts`, `artifacts/api-server/src/migrations/ch4ToMiles.ts` (+ its tests) and comment mentions in `maxCoverageWriteGuard.test.ts` (ch4ToMiles allow-list reason — still accurate: that migration uses the historical rule).
 
 - [ ] **Step 12: Full gate (commands separately)**
@@ -1618,9 +1723,16 @@ cd /Users/shubhamkr/nos-ch4-upgrade-v2 && pnpm --filter studio test
 cd /Users/shubhamkr/nos-ch4-upgrade-v2 && pnpm --filter @workspace/units test
 ```
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q 2>&1 | tail -3
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q
 ```
 Expected: all PASS. If an api-server test outside the files above fails because a floor-0 max-coverage fixture now hits `objective_required` (the only new failure mode this task introduces), add `objective: "coverage"` to that fixture, re-run, and name the file in the changelog entry. Any other failure: check `docs/superpowers/flake-registry.md` by test name; re-run the file twice in isolation before treating it as real.
+
+- [ ] **Step 12b: Review before commit (AGENTS.md model policy)**
+
+AGENTS.md, "Model policy": this role is reviewed on **latest Opus** — "pass `model: opus` to the `Agent` tool … Review inline on the lead's own model only when that model IS an Opus; otherwise dispatch a reviewer with `model: opus`" — and "The four engineering roles' review pass also runs `ponytail-review`".
+1. Correctness review on latest Opus of this task's uncommitted diff (`git diff` plus the new files in this task's **Files** list): the spec sections cited in the task header, hard rules #1/#5/#6, and whether every new test can fail.
+2. Skill tool: `ponytail:ponytail-review` on the same diff.
+3. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run this task's gate commands (Steps 11 and 12) bare and confirm they pass before committing.
 
 - [ ] **Step 13: Append the changelog entry**
 
@@ -1634,6 +1746,7 @@ Expected: all PASS. If an api-server test outside the files above fails because 
 - Validation rule unchanged (schema already accepted both values; spec defines no rejection path) — comments only.
 - Known window: e2e floor-0 fixtures 422 on `objective_required` until CH4OS-5.
 - Extra fixtures touched by Step 12: <file list, or "none">.
+- Review: Opus correctness + `ponytail-review` findings and dispositions: <list, or "none">.
 - Gate: typecheck <result>; api-server <summary line>; studio <summary line>; units <summary line>; solver pytest <summary line>.
 ```
 
@@ -2017,6 +2130,13 @@ cd /Users/shubhamkr/nos-ch4-upgrade-v2 && pnpm --filter studio test
 ```
 Expected: PASS (`rawErrorMessageSurface`/`mutationErrorSurface` guards untouched — the new component renders no error message).
 
+- [ ] **Step 5b: Review before commit (AGENTS.md model policy)**
+
+AGENTS.md, "Model policy": this role is reviewed on **latest Opus** — "pass `model: opus` to the `Agent` tool … Review inline on the lead's own model only when that model IS an Opus; otherwise dispatch a reviewer with `model: opus`" — and "The four engineering roles' review pass also runs `ponytail-review`".
+1. Correctness review on latest Opus of this task's uncommitted diff (`git diff` plus the new files in this task's **Files** list): the spec sections cited in the task header, hard rules #1/#5/#6, and whether every new test can fail.
+2. Skill tool: `ponytail:ponytail-review` on the same diff.
+3. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run this task's gate commands (Step 1's targeted run and Step 5) bare and confirm they pass before committing.
+
 - [ ] **Step 6: Changelog + commit**
 
 Append:
@@ -2026,6 +2146,7 @@ Append:
 - `CostSummaryTab`: max-coverage results without an incumbent render "No incumbent" (Objective) and "—" (coverage, distance) in single and Compare views; new `cost-summary-max-coverable-demand` row ("Best coverable demand found (Model 1)" when Model 1 not proven) and Compare row `cost-summary-compare-max-coverable-demand-${id}` (blank where absent).
 - New shared `FloorExceedsMaxAlert` (`floor-exceeds-max-alert`) in Solution Summary and Output Map.
 - Interpretation: "blank with the No incumbent label" = Objective cell shows `resultQualityText`, other cells `—`; scoped to max-coverage-us.
+- Review: Opus correctness + `ponytail-review` findings and dispositions: <list, or "none">.
 - Gate: studio typecheck <result>; studio <summary line>.
 ```
 ```bash
@@ -2371,6 +2492,13 @@ WHERE id = ANY(ARRAY[<ids>]) AND model_id = 'max-coverage-us';
 
 Replace the final placeholder line with the actual Step 3 output and the date before committing (measured, never estimated).
 
+- [ ] **Step 4b: Review before commit (AGENTS.md model policy)**
+
+AGENTS.md, "Model policy": this role is reviewed on **latest Opus** — "pass `model: opus` to the `Agent` tool … Review inline on the lead's own model only when that model IS an Opus; otherwise dispatch a reviewer with `model: opus`" — and "The four engineering roles' review pass also runs `ponytail-review`".
+1. Correctness review on latest Opus of this task's uncommitted diff (`git diff` plus the new files in this task's **Files** list): the spec sections cited in the task header, hard rules #1/#5/#6, and whether every new test can fail.
+2. Skill tool: `ponytail:ponytail-review` on the same diff.
+3. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run this task's gate commands (Step 2's two vitest runs) bare and confirm they pass before committing.
+
 - [ ] **Step 5: Changelog + commit**
 
 Append:
@@ -2381,6 +2509,7 @@ Append:
 - Real-Postgres test on fixture ids only (clears / leaves others / idempotent / dry run writes nothing / empty filter = no rows).
 - Allow-listed in `maxCoverageWriteGuard.test.ts`. Runbook: `docs/ops/ch4-objective-clear-runbook.md` (deploy API + studio back to back first; separate approval to run).
 - Local dry run (nos_dev): <count from Step 3>, independent psql count <count>.
+- Review: Opus correctness + `ponytail-review` findings and dispositions: <list, or "none">.
 - Production: not run. Requires its own approval.
 ```
 ```bash
@@ -2411,7 +2540,7 @@ git commit $FILES -m "[CH4OS-4] add a scoped, idempotent migration that clears t
 - [ ] **Step 1: Grep every changed contract in e2e**
 
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/studio && grep -rn "derived-model-line\|input-coverage-floor\|coverage_floor_infeasible\|objective\|Model 1\|Model 2\|maxCoverageInputs\|covering at least\|maximize demand within" e2e | grep -v "^e2e/labs.spec.ts"
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/studio && grep -rn --exclude=labs.spec.ts "derived-model-line\|input-coverage-floor\|coverage_floor_infeasible\|objective\|Model 1\|Model 2\|maxCoverageInputs\|covering at least\|maximize demand within" e2e
 ```
 Expected hits to handle (verified at plan time): `helpers/maxCoverageInputs.ts` (factory, floor 0, no objective → every Chapter 4 floor-0 create 422s on solve); `chen-bands-units-qa.spec.ts` (own factory, same problem; asserts `details.objective === "coverage"` at `:787`); `max-coverage.spec.ts` (`:253-256` Model 1 line, `:293-298` Model 2 line text); `nonjade-servicestats-live-coverage.spec.ts` (uses the shared helper — fixed by the helper change). Any additional hit: rewrite it to the CH4OS contract and list it in the changelog.
 
@@ -2656,6 +2785,12 @@ cd /Users/shubhamkr/nos-ch4-upgrade-v2 && E2E_BASE_URL=http://localhost:5174 pnp
 ```
 Expected: PASS. **`E2E_BASE_URL` is mandatory** — without it the gate silently tests a remote Replit deployment. A failure in a spec this branch did not touch: check `docs/superpowers/flake-registry.md` by test name (`chen-bands-units-qa.spec.ts` is the most load-sensitive file) and re-run it twice in isolation before treating it as real.
 
+- [ ] **Step 6b: Independent review before commit (AGENTS.md model policy)**
+
+AGENTS.md: qa-sdet "is the one role where review is *not* done by the lead inline — dispatch a `fable`-model reviewer subagent against qa-sdet's diff … model parameter set explicitly to `fable`". No `ponytail-review` (qa-sdet is exempt from both simplicity skills).
+1. Dispatch the `fable` reviewer on this task's uncommitted diff (the four e2e files).
+2. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run Step 6 (targeted specs, then `E2E_BASE_URL=http://localhost:<port> pnpm e2e:gate`) bare and confirm they pass before committing.
+
 - [ ] **Step 7: Changelog + commit**
 
 Append:
@@ -2664,6 +2799,7 @@ Append:
 
 - Grep (Step 1) hits handled: `helpers/maxCoverageInputs.ts` and `chen-bands-units-qa.spec.ts` factories now send `objective: "coverage"`; `max-coverage.spec.ts` asserts the sequential line, `maxCoverableDemand` and the max-coverable row; <any other hit, or "no others">.
 - New `max-coverage-objective.spec.ts`: unchosen → blocked, Model 1, Model 2, floor-too-high alert; results seeded, writes real.
+- Review: `fable` reviewer findings and dispositions: <list, or "none">.
 - Gate: targeted specs <result>; `E2E_BASE_URL=http://localhost:<port> pnpm e2e:gate` <passed/failed counts>; flakes re-run: <names or "none">.
 ```
 ```bash
@@ -2710,10 +2846,24 @@ Expected: PASS. Open every screenshot with the Read tool and confirm the visible
 - [ ] **Step 3: Clean up**
 
 ```bash
+mkdir -p /Users/shubhamkr/nos-ch4-upgrade-v2/.harness/ch4os-qa
+```
+```bash
+cp /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/studio/e2e/ch4os-qa.local.spec.ts /Users/shubhamkr/nos-ch4-upgrade-v2/.harness/ch4os-qa/
+```
+```bash
 rm /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/studio/e2e/ch4os-qa.local.spec.ts
+```
+```bash
 cd /Users/shubhamkr/nos-ch4-upgrade-v2 && git status --short artifacts/studio/e2e
 ```
 Expected: no `ch4os-qa.local.spec.ts` listed. Stop both dev servers.
+
+- [ ] **Step 3b: Independent review before commit (AGENTS.md model policy)**
+
+AGENTS.md: qa-sdet "is the one role where review is *not* done by the lead inline — dispatch a `fable`-model reviewer subagent against qa-sdet's diff … model parameter set explicitly to `fable`". No `ponytail-review` (qa-sdet is exempt from both simplicity skills).
+1. Dispatch the `fable` reviewer on this task's uncommitted diff — here the QA driver script (review it BEFORE Step 3 deletes it, or keep a copy under `.harness/ch4os-qa/`), the screenshots, and the draft changelog table.
+2. Fix every finding, or record in this task's changelog entry why it was rejected. Then re-run Step 2's driver for any row a finding touches bare and confirm they pass before committing.
 
 - [ ] **Step 4: Changelog + commit**
 
@@ -2730,7 +2880,7 @@ Append:
 | 5 floor > max | … | … |
 | Compare | … | … |
 
-Findings: <list, or "none">. Driver script not committed (deleted after the run).
+Findings: <list, or "none">. `fable` review findings and dispositions: <list, or "none">. Driver script not committed (deleted after the run; copy kept under `.harness/ch4os-qa/`).
 ```
 ```bash
 cd /Users/shubhamkr/nos-ch4-upgrade-v2
@@ -2743,7 +2893,7 @@ git commit docs/CHANGELOG-implementation.md -m "[CH4OS-6] record real-browser QA
 
 ---
 
-## Task 7 (CH4OS-7): Finish — full gate, finishing skill, retro, STOP
+## Task 7 (CH4OS-7): Finish — full gate, retro, commit, finishing skill, STOP
 
 **Role:** lead.
 
@@ -2769,41 +2919,56 @@ cd /Users/shubhamkr/nos-ch4-upgrade-v2 && pnpm --filter studio test
 cd /Users/shubhamkr/nos-ch4-upgrade-v2 && pnpm --filter @workspace/units test
 ```
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q 2>&1 | tail -3
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver && python3 -m pytest tests/ -x -q
 ```
 ```bash
-cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py 2>&1 | tail -3
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py
+```
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2/artifacts/api-server/src/solver/tests/benchmark && python3 real_solve_smoke.py
 ```
 ```bash
 cd /Users/shubhamkr/nos-ch4-upgrade-v2 && git diff --stat main...HEAD -- artifacts/api-server/src/solver/tests/e2e_accuracy.py
 ```
-Expected: all PASS; `e2e_accuracy.py` `99/99`; the last command prints nothing (sacred file unmodified). With the CH4OS-5 stack running, also: `cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:3001 auth` → PASS (standalone script, not pytest-discovered).
+Expected: each command exits 0 on its own; `e2e_accuracy.py` `99/99`; `real_solve_smoke.py` ends `PASS: all 6 models solved for real via translate.to_solver_input`; the `git diff --stat` prints nothing (sacred file unmodified). With the CH4OS-5 stack running, also: `cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:3001 auth` → PASS (standalone script, not pytest-discovered).
 
-- [ ] **Step 3: Changelog + commit**
+- [ ] **Step 3: Run the retro BEFORE the final commit**
+
+`/harness-retro CH4OS` (`.claude/skills/harness-retro/SKILL.md`). It writes, on this branch:
+- `docs/superpowers/metrics/tasks.csv` (step 1, `pnpm harness:record --task CH4OS --branch ch4-upgrade-v2 …` — omit any flag whose value cannot be derived, so it records `unknown`);
+- `docs/superpowers/metrics/permissions.csv` (step 2, `pnpm harness:permissions --task CH4OS`; exit code 3 = PERMISSION GATE → STOP and surface it to the human);
+- `docs/superpowers/metrics/failures.csv` (step 3, one row per gate failure on this branch, if any);
+- `docs/superpowers/gates/<cause>.md` (step 4, only if a cause now appears twice with no proposed gate).
+
+**If the retro drafts a gate proposal or hits the permission gate and stops for approval, the branch is NOT finished** — stop here, report, and wait; do not commit around it. Then list exactly what it changed:
+```bash
+cd /Users/shubhamkr/nos-ch4-upgrade-v2 && git status --short docs/superpowers
+```
+
+- [ ] **Step 4: Changelog + commit (with every retro file)**
 
 Append:
 ```markdown
-### CH4OS-7 — branch gate
+### CH4OS-7 — branch gate + retro
 
-- typecheck <result>; api-server <summary>; studio <summary>; units <summary>; solver pytest <summary>; `e2e_accuracy.py` <N/N>, unmodified; `e2e_journey.py auth` <result>.
+- typecheck <result>; api-server <summary>; studio <summary>; units <summary>; solver pytest <summary>; `e2e_accuracy.py` <N/N>, unmodified; `real_solve_smoke.py` <final line>; `e2e_journey.py auth` <result>.
+- `/harness-retro CH4OS`: rows written to <files>; gate proposals: <none, or the file>.
 - Not done in this branch (each needs its own approval): merge to `main`, whole-branch review, push, deploy of `nos-api` + `nos-studio` (back to back — see the runbook's skew note), production run of `clearFloorZeroObjective`.
 ```
 ```bash
 cd /Users/shubhamkr/nos-ch4-upgrade-v2
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
 ```
+Commit the changelog plus exactly the files Step 3's `git status` listed (explicit pathspec; drop any of the three CSVs the retro did not touch, add any `docs/superpowers/gates/*.md` it wrote):
 ```bash
-git add docs/CHANGELOG-implementation.md
-git commit docs/CHANGELOG-implementation.md -m "[CH4OS-7] record the Chapter 4 objective-selector branch gate" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+FILES="docs/CHANGELOG-implementation.md docs/superpowers/metrics/tasks.csv docs/superpowers/metrics/permissions.csv docs/superpowers/metrics/failures.csv"
+git add $FILES
+git commit $FILES -m "[CH4OS-7] record the Chapter 4 objective-selector branch gate and retro" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 4: Invoke the finishing skill**
+- [ ] **Step 5: Invoke the finishing skill**
 
 Skill tool: `superpowers:finishing-a-development-branch`. Its output is a recommendation to put to the user, never a licence to act.
-
-- [ ] **Step 5: Run the retro**
-
-`/harness-retro CH4OS` — records the metrics row, logs each gate failure by cause, fires the second-occurrence gate rule (if it drafts `docs/superpowers/gates/<cause>.md`, stop for approval). The branch is not finished until this has run.
 
 - [ ] **Step 6: STOP — prompt for merge approval**
 
@@ -2814,6 +2979,7 @@ Hard stop. Ask the user for approval to merge `ch4-upgrade-v2` into local `main`
 
 ## Self-review (run at plan-writing time)
 
-- **Spec coverage:** §2 rows 1–5 → CH4OS-1 (solver), CH4OS-2 (gating/precheck), CH4OS-3 (results), CH4OS-6 (QA). §3 → CH4OS-2 (units, write path, routes, studio save path; manifest untouched). §4 → CH4OS-2. §5 (builder, run plan, time budget, outcome matrix, result fields, infeasible envelope, messages) → CH4OS-1. §6.1 → CH4OS-2; §6.2/§6.3 → CH4OS-3. §7 → no-op, stated in Global Constraints. §8 → CH4OS-4. §9 tests → every task. §10 slicing → CH4OS-2 is the one cross-layer commit. §11 → Global Constraints.
-- **Placeholders:** the only `<…>` slots are changelog fields that must carry values measured in that task's own run (hard invariant: never fabricate a metric) and the runbook's local-output section filled from CH4OS-4 Step 3.
+- **Codex review folded (2026-10-11):** solver kept as its own commit with spec §10 amended; benchmark translator/corpus tests added to CH4OS-1; retro before CH4OS-7's final commit; every gate run bare (no `| tail`); review step before every commit (Opus + `ponytail-review` for CH4OS-1…4, `fable` for CH4OS-5/6); CH4OS-2's leftover grep excludes `artifacts/studio/e2e`; Model 2 `no_solution`/`error` returns its envelope as is.
+- **Spec coverage:** §2 rows 1–5 → CH4OS-1 (solver), CH4OS-2 (gating/precheck), CH4OS-3 (results), CH4OS-6 (QA). §3 → CH4OS-2 (units, write path, routes, studio save path; manifest untouched). §4 → CH4OS-2. §5 (builder, run plan, time budget, outcome matrix, result fields, infeasible envelope, messages) → CH4OS-1. §6.1 → CH4OS-2; §6.2/§6.3 → CH4OS-3. §7 → no-op, stated in Global Constraints. §8 → CH4OS-4. §9 tests → every task. §10 slicing (amended) → CH4OS-1 solver alone, CH4OS-2 the one cross-layer contract commit. §11 → Global Constraints.
+- **Placeholders:** the only `<…>` slots are changelog fields that must carry values measured in that task's own run (hard invariant: never fabricate a metric) the runbook's local-output section filled from CH4OS-4 Step 3, and review-finding lists.
 - **Type consistency:** `resolveMaxCoverageRun` / `resolve_max_coverage_run`, `MaxCoverageRun`, `objective-select` / `objective-coverage` / `objective-min-distance`, `solveBlockedReason` / `solve-dialog-blocked-hint`, `floorExceedsMax` / `FloorExceedsMaxAlert`, `clearFloorZeroObjective` → `{ matched, dryRun }` are used identically in every task that names them.
