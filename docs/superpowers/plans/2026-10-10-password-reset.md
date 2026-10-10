@@ -1015,6 +1015,15 @@ git commit artifacts/api-server/src/routes/auth.ts artifacts/api-server/src/__te
 
 ---
 
+> **Post-execution note (PWR-5 review).** Task 5 shipped as written in commit
+> `24ca45f`, and review then found two gaps in this plan's own specification of
+> it, fixed in `c5adb1b`: `/auth/reset-password` had no rate limit despite being
+> unauthenticated and hashing with argon2 before validating the token, and its
+> parse-error `400` blamed password length even when the `token` was what failed.
+> The design doc's Security section now carries both. A third limiter
+> (10/min/IP) is checked first in that handler, and `openapi.yaml` declares the
+> `429`.
+
 ### Task 6: Real-Postgres integration tests
 
 **Files:**

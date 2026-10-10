@@ -37,6 +37,7 @@ link on the login page, one transactional email.
 | Token resolution on confirm | One conditional `UPDATE … RETURNING` | `SELECT`-then-`UPDATE` lets two concurrent confirms both succeed. Also fewer statements. |
 | Repeat requests | Last-token-wins, stated in the email copy | Refusing while a live token exists strands a user whose first email failed to send. |
 | Reset for a null `password_hash` row | Refused | Keeps reset from becoming an unasked-for account-conversion path. |
+| Rate limit on `/auth/reset-password` | 10/min per IP, checked first | The endpoint is unauthenticated and hashes with argon2 *before* validating the token, so a garbage token costs as much CPU as a real one. |
 
 ## Schema
 
@@ -60,7 +61,7 @@ Naming follows the existing flat `/auth/*` shape (`register`, `login`, `logout`,
 | Route | Body | Success | Failure |
 |---|---|---|---|
 | `POST /auth/forgot-password` | `{ email }` | `200 { success: true }` — always | `429` when rate-limited |
-| `POST /auth/reset-password` | `{ token, password }` | `200 { user }`, session cookie set | `400 { error }` |
+| `POST /auth/reset-password` | `{ token, password }` | `200 { user }`, session cookie set | `400 { error }`, `429` when rate-limited |
 
 Both go into `lib/api-spec/openapi.yaml`; Orval regenerates the Zod validators
 and the React Query client. Spec, generated output, and implementation land in
@@ -197,6 +198,23 @@ attacker holding a guessed token whether it ever existed.
   Both limits also stay per-process and do not survive a restart, which is
   acceptable only while `nos-api` runs a single instance — scale it out and each
   limit silently loosens per instance, at which point they need shared storage.
+- **A third limiter, 10/min per IP, on `/auth/reset-password`, checked before
+  anything else in the handler.** This endpoint is unauthenticated and runs
+  `argon2.hash` *before* its conditional `UPDATE` — hashing after a cheap
+  lookup would reintroduce the very race the single conditional statement
+  exists to prevent — so a request carrying a garbage token costs exactly as
+  much CPU as a legitimate one. `openapi.yaml`'s own `RegisterRequest.password`
+  description already states the underlying hazard: argon2 is deliberately
+  CPU-expensive and the API runs on a 0.5-CPU instance, so one request can
+  starve others. `/auth/login` has been capped at 20/min/IP for that reason
+  since before this feature existed. The limit is checked ahead of the body
+  parse as well, so a `429` costs neither hashing nor parsing. Found in review
+  of PWR-5, which had implemented this spec faithfully — the omission was in
+  the spec, not the code.
+- A body that fails to parse returns the **same** generic
+  `This reset link is invalid or has expired.` string whenever the failure is
+  anything other than password length. An error naming the token specifically
+  would make the endpoint an oracle for whether a token ever existed.
 - The request endpoint's identical-response guarantee mirrors the existing
   anti-enumeration pattern at `routes/auth.ts:147-154` and the repo's
   404-never-403 rule.
@@ -251,8 +269,14 @@ test reaches Resend.
 - the same token replayed → `400` (single-use)
 - expired token → `400`
 - password below and above bounds → `400`
-- rate limit: the 11th request in a minute from one IP → `429`; the 4th in an
-  hour for one address → `429`
+- rate limit on the request endpoint: the 11th request in a minute from one IP
+  → `429`; the 4th in an hour for one address → `429`
+- rate limit on the confirm endpoint: the 11th request in a minute from one IP
+  → `429`, **and `argon2.hash` is not called on that request** — a test that
+  only checks the status would pass even if the limiter ran after the hash,
+  which is the whole defect
+- a malformed `token` with a valid-length password → `400` carrying the generic
+  invalid-or-expired string, not the password-length message
 - limiter eviction: keys from an elapsed window are gone after a later insert,
   so the `Map` does not grow without bound across windows
 - two concurrent confirms of the same token → exactly one `200` and one `400`,
