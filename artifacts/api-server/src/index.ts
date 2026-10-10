@@ -9,6 +9,7 @@ import {
   parsePositiveIntEnv,
 } from "./solver/jobRunner.js";
 import { posthog } from "./lib/posthog.js";
+import { warnOnMissingEmailConfig } from "./lib/email.js";
 
 const rawPort = process.env["PORT"];
 
@@ -50,6 +51,8 @@ try {
   await Sentry.close(2000).catch(() => {});
   process.exit(1);
 }
+
+warnOnMissingEmailConfig();
 
 // A2 — Phase 2: asynchronous, one-shot, off the request path. Null-lease/
 // historical-row cleanup is scheduled to run once 180s (A14a's shutdown
