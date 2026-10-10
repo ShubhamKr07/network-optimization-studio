@@ -68,34 +68,30 @@ async function findUserByEmail(email: string) {
   }
 }
 
-// Simple in-memory rate limit for login: 20 attempts/min/IP. Raised from 10
-// (2026-09-25) for the co-located pilot cohort — ~50 students behind one campus
-// NAT IP can re-login (after the 7-day session expires / logout / new device)
-// without the limiter hard-blocking; at 20/min a 50-student re-login wave clears
-// over ~2-3 min via client retries. Still per-IP + in-memory (single-instance,
-// no restart survival) — if a co-located cohort must ALL re-login within one
-// minute, key this per-account instead of per-IP (distinct accounts, shared IP).
+// Login rate limit: 20 attempts/min per client IP (in-memory, single-instance,
+// no restart survival). History of the number: raised from 10 to 20 on
+// 2026-09-25 for the co-located pilot cohort (~50 students re-logging in after
+// session expiry). That reasoning assumed `req.ip` was the client address; it
+// was not, because the app set no `trust proxy` and every caller shared Render's
+// load-balancer address, i.e. ONE bucket for the whole internet. app.ts now sets
+// `trust proxy: 2` (measured 2026-10-10), so students on one campus NAT still
+// share a key, but everyone else gets their own. 20 is kept so nothing changes
+// for them. If a NAT'd cohort must all re-login within a minute, key per-account.
+// Keys are now real client IPs (unbounded), hence makeRateLimiter's eviction.
 const LOGIN_RATE_LIMIT = 20;
 const LOGIN_RATE_WINDOW_MS = 60 * 1000;
-const loginAttempts = new Map<string, { count: number; windowStart: number }>();
+const loginLimiter = makeRateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
 
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-  if (!entry || now - entry.windowStart > LOGIN_RATE_WINDOW_MS) {
-    loginAttempts.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > LOGIN_RATE_LIMIT;
+// Test-only escape hatch: the counter is module-level and otherwise persists for
+// the process lifetime, which a suite calling login dozens of times (from one
+// loopback IP) would trip. Not used by any production code path.
+export function resetLoginRateLimiterForTests(): void {
+  loginLimiter.reset();
 }
 
-// Test-only escape hatch: the counter above is module-level and otherwise
-// persists for the lifetime of the process, which a test suite calling login
-// dozens of times (from a single loopback IP) would trip. Not used by any
-// production code path.
-export function resetLoginRateLimiterForTests(): void {
-  loginAttempts.clear();
+/** Test-only: live key count, to prove eviction bounds memory. */
+export function loginLimiterSizeForTests(): number {
+  return loginLimiter.size();
 }
 
 function setSessionCookie(res: Response, userId: string) {
@@ -179,7 +175,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   const { email, password } = parsed.data;
 
   const ip = req.ip ?? "unknown";
-  if (isRateLimited(ip)) {
+  if (loginLimiter.check(ip)) {
     res.status(429).json({ error: "Too many login attempts, try again shortly" });
     return;
   }
@@ -255,9 +251,8 @@ router.get("/auth/user", async (req: Request, res: Response) => {
 
 // Reset-request limits. The per-ADDRESS limiter is the primary defence (what
 // stops someone mailbombing a known student) and is the only per-caller one:
-// the app sets no `trust proxy`, so behind Cloudflare + Render `req.ip` is the
-// proxy's address and a per-IP key would be ONE bucket shared by every student.
-// The global cap is therefore deliberately global, a flood ceiling on mail
+// this limiter predates `trust proxy: 2` (app.ts) and stays keyed by address;
+// the global cap is deliberately global, a flood ceiling on mail
 // sent, not a per-caller limit. Both answer 429 whether or not the account
 // exists, so neither becomes an existence oracle.
 const forgotGlobalLimiter = makeRateLimiter(120, 60 * 1000);

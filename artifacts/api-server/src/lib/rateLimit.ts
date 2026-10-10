@@ -1,11 +1,8 @@
 type Entry = { count: number; windowStart: number };
 
 /**
- * Fixed-window counter, per process. Deliberately NOT a refactor of login's
- * inline limiter in routes/auth.ts — that one is load-bearing with its own
- * documented tuning history, and this one needs something it does not: key
- * eviction, because the forgot-password limiter is keyed by caller-supplied
- * email rather than by IP.
+ * Fixed-window counter, per process, with key eviction — needed because keys
+ * are caller-controlled (login: client IP; forgot-password: email).
  *
  * Per-process and restart-resettable, which is acceptable only while nos-api
  * runs a single instance. Scaled out, each limit loosens per instance and this

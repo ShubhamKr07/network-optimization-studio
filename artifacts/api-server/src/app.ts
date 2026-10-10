@@ -18,6 +18,16 @@ const app: Express = express();
 // as an error, not "reuse your cached data" — corrupting the poll loop.
 app.set("etag", false);
 
+// Measured in production 2026-10-10 (PWR-FU5a): chain nearest-to-farthest is
+// socket (Render LB, private 10.x) -> Cloudflare edge -> client, i.e.
+// X-Forwarded-For "<client>, <cloudflare>". Two trusted hops puts req.ip on the
+// real client. Not `true`: that trusts the whole chain and makes
+// X-Forwarded-For fully attacker-controlled. With 2, a spoofed leading entry
+// lands in the untrusted part, because Cloudflare appends the sender's real
+// address to the right of whatever they sent. This is the value for
+// Cloudflare-in-front-of-Render; re-measure if the infrastructure changes.
+app.set("trust proxy", 2);
+
 app.use(
   pinoHttp({
     logger,
