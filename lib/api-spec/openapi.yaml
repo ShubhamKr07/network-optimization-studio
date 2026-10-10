@@ -768,6 +768,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: >-
+            Per-IP rate limit tripped. Caps argon2 cost on an unauthenticated
+            endpoint; checked before any hashing, so a 429 costs no CPU.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /feedback:
     post:
       tags: [Feedback]

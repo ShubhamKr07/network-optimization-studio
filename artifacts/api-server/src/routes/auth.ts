@@ -219,10 +219,16 @@ router.get("/auth/user", async (req: Request, res: Response) => {
 // becomes an existence oracle.
 const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
 const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
+// reset-password is unauthenticated and runs argon2 before its conditional
+// UPDATE (hashing after a SELECT would reintroduce the race), so a garbage
+// token costs as much CPU as a real one. Capped per IP; checked first so a
+// 429 costs nothing.
+const resetIpLimiter = makeRateLimiter(10, 60 * 1000);
 
 export function resetForgotPasswordLimitersForTests(): void {
   forgotIpLimiter.reset();
   forgotEmailLimiter.reset();
+  resetIpLimiter.reset();
 }
 
 /**
@@ -279,10 +285,20 @@ router.post("/auth/forgot-password", (req: Request, res: Response) => {
 });
 
 router.post("/auth/reset-password", async (req: Request, res: Response) => {
+  if (resetIpLimiter.check(req.ip ?? "unknown")) {
+    res.status(429).json({ error: "Too many reset attempts, try again shortly" });
+    return;
+  }
+
   const parsed = ResetPasswordBody.safeParse(req.body);
   if (!parsed.success) {
+    // A bad token shape gets the SAME generic string as a wrong token, so a
+    // malformed and a well-formed-but-unknown token stay indistinguishable.
+    const passwordFailed = parsed.error.issues.some((i) => i.path[0] === "password");
     res.status(400).json({
-      error: `password must be ${resetPasswordBodyPasswordMin}-${resetPasswordBodyPasswordMax} characters`,
+      error: passwordFailed
+        ? `password must be ${resetPasswordBodyPasswordMin}-${resetPasswordBodyPasswordMax} characters`
+        : "This reset link is invalid or has expired.",
     });
     return;
   }

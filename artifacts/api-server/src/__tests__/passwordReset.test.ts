@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
+import argon2 from "argon2";
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
@@ -206,5 +207,34 @@ describe("POST /api/auth/reset-password", () => {
     const res = await request(app).post("/api/auth/reset-password").send({ token: "t", password: "a".repeat(129) });
     expect(res.status).toBe(400);
     expect(updateChain.set).not.toHaveBeenCalled();
+  });
+
+  it("returns the generic 400, not the password message, for a missing or empty token", async () => {
+    for (const body of [{ password: "correcthorse1" }, { token: "", password: "correcthorse1" }]) {
+      const res = await request(app).post("/api/auth/reset-password").send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("This reset link is invalid or has expired.");
+    }
+  });
+
+  it("keeps the password-length message for a good token and a 7-char password", async () => {
+    const res = await request(app).post("/api/auth/reset-password").send({ token: "t", password: "1234567" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/^password must be \d+-\d+ characters$/);
+  });
+
+  it("trips at the 11th request from one IP and a 429 never reaches argon2", async () => {
+    mockDb.update.mockReturnValue(makeChain([]));
+    const hashSpy = vi.spyOn(argon2, "hash");
+    for (let i = 0; i < 10; i++) {
+      const ok = await request(app).post("/api/auth/reset-password").send({ token: "t", password: "correcthorse1" });
+      expect(ok.status).toBe(400);
+    }
+    expect(hashSpy).toHaveBeenCalledTimes(10);
+    const tripped = await request(app).post("/api/auth/reset-password").send({ token: "t", password: "correcthorse1" });
+    expect(tripped.status).toBe(429);
+    expect(tripped.body.error).toBe("Too many reset attempts, try again shortly");
+    expect(hashSpy).toHaveBeenCalledTimes(10);
+    hashSpy.mockRestore();
   });
 });
