@@ -3413,3 +3413,9 @@ Pre-check: `nos_postgres`, 77 users, no `reset_*` columns. Post-check: both colu
 **Lesson:** a deploy checklist for a branch that touches `lib/db/src/schema/**` must list the production DDL alongside the env vars — diff the schema directory across the deploy range, not just the env-var list.
 
 **Follow-up:** the production DB password was pasted into a session transcript; rotate it via the Render Dashboard (not `ALTER ROLE`).
+
+## PWR-FU1 — two pre-existing user lookups stop leaking their params into error sinks
+
+`findUserByEmail` (leaked the submitted email; Sentry NOS-API-8, 5 events) and the `/auth/user` lookup (leaked the user id; NOS-API-5, 6 events) were unwrapped drizzle calls, so `DrizzleQueryError`'s message (`params: …`) reached Sentry, PostHog and the logger via `app.ts`'s error handler. Both now use a binding-less `catch`. `findUserByEmail` throws a bare `Error("user lookup failed")` instead of returning `undefined`, so an outage cannot read as "no such account": `/auth/login` answers `500` (not `401`), `/auth/forgot-password`'s existing `.catch` absorbs it (the bare error carries no params, so its `Sentry.captureException` is now harmless and makes a DB outage visible), `/auth/user` answers `500`. Tests: `__tests__/authLookupLeak.test.ts` (3); they render `Error`s via a replacer because `JSON.stringify(new Error(..))` is `"{}"` and would pass with the leak intact. Bite check: 3/3 red against the unwrapped original. Gate: api-server 1718/1718, typecheck 0.
+
+**Known follow-up, deliberately not fixed:** `/auth/register`'s `db.insert` has the same exposure (email + argon2 hash in params). Its existence check now throws a bare error via `findUserByEmail` but the insert itself is still unwrapped.

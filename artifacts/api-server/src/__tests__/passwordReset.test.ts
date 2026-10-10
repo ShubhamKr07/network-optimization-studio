@@ -56,6 +56,22 @@ function makeChain(returnValue: unknown): Chain {
   return chain as Chain;
 }
 
+// PWR-FU1 audit: `JSON.stringify(new Error("x"))` is `"{}"` — message and stack
+// are non-enumerable — so a `not.toContain(secret)` over raw mock calls CANNOT
+// FAIL when the secret leaks inside an Error, which is exactly how a
+// DrizzleQueryError leaks its params. Render Errors explicitly. Mirrors the
+// same helper in authLookupLeak.test.ts; duplicated on purpose rather than
+// shared, so neither file's guard can be weakened by editing the other's.
+const dump = (v: unknown) =>
+  JSON.stringify(v, (_k, x) => (x instanceof Error ? `${x.message}\n${x.stack}` : x));
+
+// Non-vacuity of the helper itself: if this ever fails, every absence
+// assertion below is meaningless.
+it("dump() renders an Error's message, so the absence checks below can fail", () => {
+  expect(dump(new Error("SECRET-PW-HASH"))).toContain("SECRET-PW-HASH");
+  expect(JSON.stringify(new Error("SECRET-PW-HASH"))).not.toContain("SECRET-PW-HASH");
+});
+
 const USER = { id: "u1", email: "student@example.test", role: "student", passwordHash: "argon2-hash" };
 
 /** The route answers before it sends, so tests must let the tail run. */
@@ -192,7 +208,7 @@ describe("POST /api/auth/forgot-password", () => {
     await flush();
 
     expect(logSpy).toHaveBeenCalledWith({ step: "reset-token-write" }, "password reset token write failed");
-    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("SECRET-TOKEN-HASH");
+    expect(dump(logSpy.mock.calls)).not.toContain("SECRET-TOKEN-HASH");
     expect(mockCaptureException).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
     logSpy.mockRestore();
@@ -315,7 +331,7 @@ describe("POST /api/auth/reset-password", () => {
     expect(res.body).toEqual({ error: "Could not set your new password." });
     expect(logSpy).not.toHaveBeenCalled();
     expect(mockCaptureException).not.toHaveBeenCalled();
-    expect(JSON.stringify([res.body, logSpy.mock.calls])).not.toContain("SECRET-PW-HASH");
+    expect(dump([res.body, logSpy.mock.calls])).not.toContain("SECRET-PW-HASH");
     logSpy.mockRestore();
   });
 });
