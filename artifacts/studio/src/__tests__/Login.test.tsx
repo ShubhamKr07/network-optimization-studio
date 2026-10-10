@@ -5,7 +5,11 @@ import userEvent from "@testing-library/user-event";
 const mockNavigate = vi.fn();
 vi.mock("wouter", () => ({
   useLocation: () => ["/login", mockNavigate],
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  // Forward props: the forgot-password test asserts on data-testid and href,
+  // and the previous mock dropped both.
+  Link: ({ children, href, ...rest }: { children: React.ReactNode; href?: string } & Record<string, unknown>) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
 }));
 
 const mockSetQueryData = vi.fn();
@@ -28,6 +32,13 @@ beforeEach(() => {
 });
 
 describe("Login", () => {
+  it("offers a forgot-password link pointing at /forgot-password", () => {
+    render(<Login />);
+    const link = screen.getByTestId("link-forgot-password");
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/forgot-password");
+  });
+
   it("submits email and password", async () => {
     render(<Login />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");

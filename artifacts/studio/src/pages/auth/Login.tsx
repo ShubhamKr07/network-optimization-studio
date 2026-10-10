@@ -49,7 +49,13 @@ export function Login() {
           <Input id="email" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            {/* One word, so the label row cannot wrap at phone width. */}
+            <Link href="/forgot-password" className="underline" style={{ fontSize: "12.5px", color: "var(--link)" }} data-testid="link-forgot-password">
+              Forgot?
+            </Link>
+          </div>
           {/* Mirrors LoginRequest.password's maxLength in openapi.yaml. */}
           <Input id="password" type="password" required maxLength={128} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
         </div>

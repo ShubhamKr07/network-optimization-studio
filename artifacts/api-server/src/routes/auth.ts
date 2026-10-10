@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import argon2 from "argon2";
 import { db, usersTable } from "@workspace/db";
 import {
@@ -10,10 +10,27 @@ import {
   GetCurrentAuthUserResponse,
   registerUserBodyPasswordMin,
   registerUserBodyPasswordMax,
+  ForgotPasswordBody,
+  ForgotPasswordResponse,
+  ResetPasswordBody,
+  ResetPasswordResponse,
+  resetPasswordBodyPasswordMin,
+  resetPasswordBodyPasswordMax,
 } from "@workspace/api-zod";
 import { SESSION_COOKIE, SESSION_TTL_MS } from "../middlewares/auth.js";
 import { posthog } from "../lib/posthog.js";
 import { withNormalizedEmail } from "../lib/normalizeEmail.js";
+import { sendEmail } from "../lib/email.js";
+import { makeRateLimiter } from "../lib/rateLimit.js";
+import {
+  RESET_TOKEN_TTL_MS,
+  generateResetToken,
+  hashResetToken,
+  resetEmailHtml,
+  resetEmailSubject,
+} from "../lib/resetTokens.js";
+import * as Sentry from "@sentry/node";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
@@ -194,6 +211,133 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   res.json(GetCurrentAuthUserResponse.parse({ user: user ? toAuthUser(user) : null }));
+});
+
+// Reset-request limits. Per IP, lower than login's 20 because this endpoint
+// sends mail; per address, which is what stops someone mailbombing a known
+// student. Both answer 429 whether or not the account exists, so neither
+// becomes an existence oracle.
+const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
+const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
+// reset-password is unauthenticated and runs argon2 before its conditional
+// UPDATE (hashing after a SELECT would reintroduce the race), so a garbage
+// token costs as much CPU as a real one. Capped per IP; checked first so a
+// 429 costs nothing.
+const resetIpLimiter = makeRateLimiter(10, 60 * 1000);
+
+export function resetForgotPasswordLimitersForTests(): void {
+  forgotIpLimiter.reset();
+  forgotEmailLimiter.reset();
+  resetIpLimiter.reset();
+}
+
+/**
+ * Everything that happens AFTER the 200 has already gone out. Issues a token
+ * only for a row that can actually log in: `password_hash` is nullable, login
+ * rejects a null one, and provisioning a first password here would quietly
+ * turn reset into an account-conversion path nothing asked for.
+ *
+ * Repeat requests are last-token-wins — the newest overwrites an unexpired
+ * one, and the email copy says so. Refusing while a live token exists would
+ * strand a user whose first email failed to send for the rest of the hour.
+ */
+async function issueResetToken(email: string): Promise<void> {
+  const user = await findUserByEmail(email);
+  if (!user || !user.passwordHash) return;
+
+  const token = generateResetToken();
+  await db
+    .update(usersTable)
+    .set({
+      resetTokenHash: hashResetToken(token),
+      resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+    })
+    .where(eq(usersTable.id, user.id));
+
+  await sendEmail(email, resetEmailSubject, resetEmailHtml(token));
+
+  posthog?.capture({ distinctId: user.id, event: "password reset requested" });
+}
+
+router.post("/auth/forgot-password", (req: Request, res: Response) => {
+  const parsed = ForgotPasswordBody.safeParse(withNormalizedEmail(req.body));
+  const ip = req.ip ?? "unknown";
+
+  // `||` short-circuits, so a request already refused on IP does not also
+  // consume the address's hourly budget.
+  if (forgotIpLimiter.check(ip) || (parsed.success && forgotEmailLimiter.check(parsed.data.email))) {
+    res.status(429).json({ error: "Too many reset requests, try again shortly" });
+    return;
+  }
+
+  // Answer BEFORE any lookup or send. A real lookup plus a ~200ms Resend call
+  // is measurable against an instant miss, which leaks account existence even
+  // though the body is identical either way. The cost is that a failed send is
+  // invisible to the caller — it goes to Sentry instead.
+  res.json(ForgotPasswordResponse.parse({ success: true }));
+
+  if (!parsed.success) return;
+
+  void issueResetToken(parsed.data.email).catch((err: unknown) => {
+    logger.error({ err }, "password reset email failed");
+    Sentry.captureException(err);
+  });
+});
+
+router.post("/auth/reset-password", async (req: Request, res: Response) => {
+  if (resetIpLimiter.check(req.ip ?? "unknown")) {
+    res.status(429).json({ error: "Too many reset attempts, try again shortly" });
+    return;
+  }
+
+  const parsed = ResetPasswordBody.safeParse(req.body);
+  if (!parsed.success) {
+    // A bad token shape gets the SAME generic string as a wrong token, so a
+    // malformed and a well-formed-but-unknown token stay indistinguishable.
+    const passwordFailed = parsed.error.issues.some((i) => i.path[0] === "password");
+    res.status(400).json({
+      error: passwordFailed
+        ? `password must be ${resetPasswordBodyPasswordMin}-${resetPasswordBodyPasswordMax} characters`
+        : "This reset link is invalid or has expired.",
+    });
+    return;
+  }
+  const { token, password } = parsed.data;
+
+  const passwordHash = await argon2.hash(password);
+
+  // ONE conditional statement, not SELECT-then-UPDATE. The pair does not
+  // enforce single use: two concurrent confirms of the same token both pass
+  // the read and both write, racing to set different passwords. Here Postgres
+  // arbitrates, and nulling both columns in this same statement is what makes
+  // the token single-use. Hashing first means a losing racer only spent CPU.
+  const [user] = await db
+    .update(usersTable)
+    .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null })
+    .where(
+      and(
+        eq(usersTable.resetTokenHash, hashResetToken(token)),
+        gt(usersTable.resetTokenExpiresAt, new Date()),
+      ),
+    )
+    .returning();
+
+  if (!user) {
+    // One message for unknown AND expired — distinct messages would tell a
+    // caller holding a guessed token whether it ever existed.
+    res.status(400).json({ error: "This reset link is invalid or has expired." });
+    return;
+  }
+
+  setSessionCookie(res, user.id);
+
+  posthog?.capture({
+    distinctId: user.id,
+    event: "password reset completed",
+    properties: { role: user.role, $set: { email: user.email, role: user.role } },
+  });
+
+  res.json(ResetPasswordResponse.parse({ user: toAuthUser(user) }));
 });
 
 export default router;

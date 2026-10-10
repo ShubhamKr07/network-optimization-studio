@@ -707,6 +707,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Request a password reset link
+      description: >-
+        Always answers 200, whether or not an account exists for the address,
+        and answers before any lookup or send happens — a real lookup plus a
+        Resend call is measurable against an instant miss, which would leak
+        account existence even with an identical body. A failed send is
+        therefore invisible to the caller and is reported to Sentry instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Request accepted. Reveals nothing about whether the account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForgotPasswordAccepted'
+        '429':
+          description: Rate limit tripped (per IP or per address). Returned regardless of whether the account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set a new password using a reset token
+      description: >-
+        On success the caller is logged in, so a student lands straight in the
+        app. The token is consumed by the same statement that writes the new
+        hash, which is what makes it single-use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password changed; caller is logged in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+        '400':
+          description: >-
+            Token unknown or expired (one message for both — distinct messages
+            would tell a caller holding a guessed token whether it ever
+            existed), or the password is outside the length bounds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: >-
+            Per-IP rate limit tripped. Caps argon2 cost on an unauthenticated
+            endpoint; checked before any hashing, so a 429 costs no CPU.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /feedback:
     post:
       tags: [Feedback]
@@ -809,6 +878,41 @@ components:
             Same cost guard as registration — an over-length password is
             rejected before argon2 ever runs, and (per the no-enumeration rule)
             is indistinguishable from any other bad credential.
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          description: >-
+            Normalized (trimmed + lowercased) by the server before lookup, the
+            same as login.
+    ForgotPasswordAccepted:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: >-
+            The raw token from the reset link's URL fragment. Only its SHA-256
+            hash is ever stored.
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: >-
+            Same bounds as registration — deliberately one password standard,
+            not two. The upper bound is the same argon2 cost guard described on
+            RegisterRequest.password.
     FeedbackRequest:
       type: object
       required: [body]

@@ -9,7 +9,15 @@ import { resolve } from "node:path";
  * is how it would recur, and no behavioural test can see a handler that was
  * never written.
  */
-const SRC = resolve(__dirname, "../pages/Workspace.tsx");
+// PWR-7: this guard read ONE file, so any new page's mutations fell outside
+// it by construction — the same pattern-scoped blind spot that let
+// handleSaveInputs, ImportDialog.tsx and lib/exportEntity.ts through. Adding
+// a page here is cheaper than rediscovering the gap.
+const SRCS: { path: string; minSites: number }[] = [
+  { path: resolve(__dirname, "../pages/Workspace.tsx"), minSites: 9 },
+  { path: resolve(__dirname, "../pages/auth/ForgotPassword.tsx"), minSites: 1 },
+  { path: resolve(__dirname, "../pages/auth/ResetPassword.tsx"), minSites: 1 },
+];
 
 // Ignore commented-out code so a `// foo.mutate(` note is not an offender,
 // AND so a commented-out `onError:`/`toast(` inside an otherwise-real
@@ -21,13 +29,14 @@ const stripComments = (text: string) => text.split("\n").filter(isCode).join("\n
 
 describe("Workspace mutation error surface", () => {
   it("every .mutate( call site has an onError before the next one begins", () => {
+    const offenders: string[] = [];
+    for (const { path: SRC } of SRCS) {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
     const sites = lines
       .map((line, i) => ({ line, i }))
       .filter(({ line }) => /\.mutate(Async)?\(/.test(line) && isCode(line));
 
-    const offenders: string[] = [];
     sites.forEach(({ line, i }, n) => {
       // Scope each site's window to where the NEXT site starts, so a
       // neighbour's handler can never be mistaken for this one's. A fixed
@@ -37,20 +46,24 @@ describe("Workspace mutation error surface", () => {
       const own = stripComments(lines.slice(i, end).join("\n"));
       if (!/onError\s*:/.test(own)) offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
     });
+    }
     expect(offenders).toEqual([]);
   });
 
   it("is not vacuous — it really finds the mutate sites", () => {
-    const src = readFileSync(SRC, "utf8");
-    const count = (src.match(/\.mutate(Async)?\(/g) ?? []).length;
-    expect(count).toBeGreaterThanOrEqual(9);
+    for (const { path, minSites } of SRCS) {
+      const src = readFileSync(path, "utf8");
+      const count = (src.match(/\.mutate(Async)?\(/g) ?? []).length;
+      expect(count, path).toBeGreaterThanOrEqual(minSites);
+    }
   });
 
   it("no handler shows a raw error message instead of describeWriteError", () => {
-    const src = readFileSync(SRC, "utf8");
     // The three pre-existing extractions all used `err.message`, which carries
     // buildErrorMessage's "HTTP 422 …" prefix plus the raw body.
-    expect(src).not.toMatch(/err instanceof Error \? err\.message/);
+    for (const { path } of SRCS) {
+      expect(readFileSync(path, "utf8"), path).not.toMatch(/err instanceof Error \? err\.message/);
+    }
   });
 
   // WF-3 gap fix — `.mutate(` isn't the only way to drop a write failure on
@@ -93,6 +106,8 @@ describe("Workspace mutation error surface", () => {
   }
 
   it("every .catch( handler in this file does something with the error it catches", () => {
+    const offenders: string[] = [];
+    for (const { path: SRC } of SRCS) {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
     const sites = lines
@@ -108,7 +123,6 @@ describe("Workspace mutation error surface", () => {
       running += l.length + 1; // +1 for the stripped "\n"
     }
 
-    const offenders: string[] = [];
     sites.forEach(({ line, i }) => {
       const charOffset = lineStartChar[i] + line.indexOf(".catch(");
       const own = stripComments(catchCallText(src, charOffset));
@@ -120,6 +134,7 @@ describe("Workspace mutation error surface", () => {
         offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
       }
     });
+    }
     expect(offenders).toEqual([]);
   });
 });

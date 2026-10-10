@@ -3233,3 +3233,153 @@ Moved verbatim from `CLAUDE.md`'s Branch discipline section to keep the always-l
 (Recorded 2026-10-02, ch9-tc. HEAD had been parked on another session's branch since that morning; `git checkout main` failed with `'main' is already used by worktree at .worktrees/task-loop`; the merge then ran on **that** branch and conflicted in three files. Aborted with no commit, nothing lost. Three things had to line up: piping to `tail` was a session-long habit for trimming output, harmless on read-only commands and fatal on a gating one; the two state changes were fused into one shell line to save a tool call, so no observation point existed between them; and — the part worth internalising — **the pre-merge check could not have caught it.** `git rev-parse main origin/main`, `merge-base --is-ancestor` and a clean-tree check all read main's *content*, which is readable no matter which worktree holds the branch. Availability is a different question: `git worktree list | grep "\[main\]"`, or just not masking the exit code.)
 
 (Recorded 2026-10-02, ch9-tc, 13 minutes after the incident above. `git apply -3` **stages** what it applies — 3-way needs the index — so the later `git checkout -- .github/workflows/ci.yml` restored that file *from the index*, not from HEAD, and was a no-op against the intent. The subsequent `git add <other-file> && git commit` then committed the whole index, so a file the commit message explicitly said was excluded was in the commit. Caught by re-reading the commit, fixed with `git checkout HEAD~1 -- <file>` + `--amend`. Two contributing habits: `git status --short`'s staged/unstaged distinction is **column position** — `M ` is staged, ` M` is worktree — and reading the letter without the column makes staged changes invisible; and the commit message was written from intent before `git diff --cached --stat` was ever read, so the message asserted a state nobody had checked.)
+---
+
+## PWR — self-serve password reset (2026-10-10)
+
+Branch `password-reset`, off `main@f6fb558`. 18 commits, 29 files, +3807/-11.
+Spec: `docs/superpowers/specs/2026-10-10-password-reset-design.md`.
+Plan: `docs/superpowers/plans/2026-10-10-password-reset.md`.
+
+A student who cannot log in requests a reset by email, follows a one-hour
+single-use link, and sets a new password. Transport is Resend over native
+`fetch`. Token state is two nullable columns on `users`.
+
+### What landed
+
+| Commit | Task |
+|---|---|
+| `795bc71`, `9de41b8` | Design doc, then the Codex spec-review fold |
+| `ab40e01`, `b466344` | Implementation plan, then the Codex plan-review fold |
+| `5a43bdf` | PWR-1 — `reset_token_hash`, `reset_token_expires_at` on `users`, both nullable |
+| `30e4960` | PWR-2 — two `/auth/*` paths, three schemas, Orval regen |
+| `a246f0b` | PWR-3 — `lib/email.ts` (Resend via `fetch`), `lib/rateLimit.ts` (evicting factory) |
+| `4f0bcf6` | Plan fixes found during execution |
+| `26195fe` | PWR-4 — `lib/resetTokens.ts`: 32-byte token, SHA-256 hash, fragment link, email copy |
+| `24ca45f`, `c5adb1b`, `4e386c8` | PWR-5 — both handlers, then the rate-limit fix, then the spec update |
+| `01b0354`, `efe5830` | PWR-6 — real-Postgres integration suite, and a plan mutation correction |
+| `74bcb6a` | PWR-7 — `ForgotPassword`/`ResetPassword` pages, two routes, login link, widened guard |
+| `1b57e6c`, `d0caea9`, `1657aaf` | PWR-8 — e2e spec, then two rounds of test-determinism fixes |
+
+### Gate
+
+- `pnpm run typecheck` — exit 0
+- api-server vitest — **1711/1711, 66 files**. The first run had 1 failure,
+  `jobRunnerDispatcher.test.ts:291` (`jobUpdateChain.set`), which is on the
+  documented load-flake list; 11/11 twice in isolation, and the second full run
+  was clean.
+- studio vitest — **2340/2340, 129 files**, with 0 concurrent vitest processes
+  confirmed before the run
+- solver pytest — **329 passed**
+- `e2e_accuracy.py` — **99/99**, unchanged, file untouched (hard rule #2)
+- Full `pnpm e2e:gate` — **74 expected, 0 unexpected, 0 flaky, 0 skipped** in
+  145s, read from `e2e/report/results.json` rather than the console summary
+  (which folds retried failures away silently). Nothing was absorbed by a
+  retry. `labs.spec.ts` confirmed excluded via `testIgnore`, and `@flaky`-tagged
+  tests via `--grep-invert`.
+
+### Production pre-flight
+
+Counted before shipping the null-`password_hash` refusal:
+`total_users=77, email_but_no_password=0, no_email=0, has_password=77`.
+Zero affected rows. The query carried its own non-vacuity proof — the inverse
+predicate returned 77, so the zero is a measurement rather than a probe that
+could only ever answer zero. The margin is structural, not luck: `/auth/register`
+always writes an argon2 hash and no other path creates a user row.
+
+Getting that number cost two wrong turns worth recording. `query_render_postgres`
+failed, and the error's resolved address (`35.227.164.209`) was read as the MCP
+server's egress when it is in fact the **database's** own address — so the user
+was asked to allowlist the database's IP, which could never have helped. The
+`render-ops` skill makes the same claim about that address and is wrong; left
+unedited pending approval. The working route was `psql` from this machine after
+allowlisting its real IP (`49.36.168.217`).
+
+### Accepted risks
+
+**A reset does not revoke existing sessions.** The session is a signed cookie
+holding the raw `userId` and `requireAuth` does zero DB reads, so revocation
+would mean a credential-epoch column compared on every authenticated request and
+would log everyone out once on deploy. Residual exposure: a cookie stolen before
+the reset keeps working for up to its 7-day TTL. OWASP recommends otherwise;
+this is a deliberate decision, not an oversight.
+
+**Resend's verified status was never confirmed in-session.** DNS shows DKIM at
+`resend._domainkey.app.networkdesignbook.com` and a `send.forge.rmta.net` CNAME,
+which is strong evidence but not the same as Resend reporting `verified`. The
+available key is send-only.
+
+### Review findings — 16 across four passes, all real
+
+- **Codex on the spec (5):** token moved from query string to URL fragment;
+  `SELECT`-then-`UPDATE` replaced with one conditional `UPDATE ... RETURNING`;
+  rate-limiter key eviction; issuance refused for null `password_hash`; repeat
+  requests defined as last-token-wins.
+- **Codex on the plan (6):** every api-server test command was missing
+  `DATABASE_URL` (the `pretest` hook refuses vitest without it); the codegen
+  check was a single alternation grep that exits 0 on one match and would pass
+  with two schemas absent; `vi.mock` referencing a non-hoisted const; a
+  `vi.doMock` that ran after `app.js` had already imported its target; a `Link`
+  test mock that discarded `data-testid` and `href`; and a QA checklist that told
+  the tester to read a raw token out of a column storing only its hash.
+- **Lead review of PWR-5 (2):** `/auth/reset-password` was an unauthenticated
+  argon2 amplifier with no rate limit — it hashes before validating the token, so
+  a garbage token costs as much CPU as a real one on a 0.5-CPU instance. Fixed
+  with a third limiter (10/min/IP) checked ahead of both the hash and the body
+  parse. Also, its parse-error `400` blamed password length even when `token` was
+  what failed.
+- **Independent fable review of the qa-sdet suites (7):** four Important. The
+  concurrency test observed its race only ~30% of the time (measured: two
+  concurrent argon2 hashes finish 0.06–62.97 ms apart against a ~1-2 ms
+  SELECT+UPDATE); "a second request invalidates the first token" planted both
+  tokens directly and never called the route, so it passed regardless of the
+  route's behaviour; the expired-token case asserted a status but not the error
+  string that is the entire anti-enumeration constraint; and the e2e
+  "token is consumed" test closed on a message the server returns identically for
+  empty, unknown and expired tokens.
+
+### Lessons
+
+**A check is only evidence if its pass signal depends on the property being
+checked.** Three separate instances in one branch: an alternation grep that
+matched one correctly-cased constant and would have reported success with two
+schemas missing; a `gt`→`eq` mutation that reddened 5 of 6 tests while leaving
+its own target green, so "it went red" would have confirmed nothing; and a
+concurrency barrier accepted on three green runs that a mutation then proved did
+not discriminate at all — the broken route passed 7/7 three times. The working
+barrier rendezvouses on the first `pool.query` touching `reset_token_hash`, and
+is red 5/5 under the mutation with exactly 1 failure and 6 survivors.
+
+**The rule that follows:** turn off exactly one property, expect exactly the test
+for that property to fail, and count the survivors. A mutation that reddens half
+the suite tells you the code is load-bearing in general and nothing about the
+specific property — and if the target test is among the survivors, you have
+evidence of the opposite of what you concluded.
+
+**The independent-reviewer rule in `AGENTS.md` earned itself.** The lead's own
+inline review of PWR-6 found none of the seven findings the fable reviewer
+returned against the same file.
+
+### Deferred
+
+- Session revocation on reset (accepted risk above).
+- A `_dmarc` record for `app.networkdesignbook.com` — absent today.
+- Authenticated change-password; instructor-initiated reset.
+- Shared-storage rate limiting — needed only if `nos-api` scales past one instance.
+- Dark-mode contrast on the auth pages: title, subtitle and link text are low
+  contrast, `/login` included, so it predates this branch and lives in the shared
+  `AuthShell`. A real accessibility defect, out of scope here.
+- `TEST_LOCAL_PREFIXES` still misses 10 test-domain accounts
+  (`ov-*@test.com`, `bands*@example.com`). `pwr-` was added.
+- The `render-ops` skill's claim about `35.227.164.209` is wrong (see above).
+
+### Production still needs
+
+| Variable | Value |
+|---|---|
+| `RESEND_API_KEY` | secret, full-send key |
+| `EMAIL_FROM` | `noreply@app.networkdesignbook.com` |
+| `APP_BASE_URL` | `https://app.networkdesignbook.com` |
+
+Not deployed. Setting these on a live service is its own approval under branch
+discipline rule 7.
