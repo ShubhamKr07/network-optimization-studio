@@ -113,4 +113,12 @@ so a new root input does not reopen this gap.
 reports; it must not trigger deploys itself, since deploying is a separately
 approved action.
 
-**Status:** proposed — awaiting human approval (not enabled)
+**Approved scope (2026-10-12).** The trimmed version is built as `pnpm deploy:preflight -- <base>..<head>`
+(`scripts/src/deploy/preflight.ts`): check 1 (with the root-file fix above, from a fixed list guarded by a
+test that each file exists), 1a (schema diff, comment-only detection), 2 (added migration files), 4 (as
+`--verify-studio <url>`, exit non-zero on failure) and 5 (new `process.env.X` / `import.meta.env.VITE_X` /
+Python `os.environ.get("X")` / `os.environ["X"]` / `os.getenv("X")` reads, per service). Check 3 (order) is printed as an operator step, not enforced. Dropped from the proposal: "exits
+non-zero until confirmed" (it keeps no persisted state, so there is nothing to confirm against) and the
+Render API (no new credential). It reports only and never deploys.
+
+**Status:** approved (trimmed version) 2026-10-12 — enabled as pnpm deploy:preflight
