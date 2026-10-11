@@ -84,6 +84,29 @@ that prints a required-action list and exits non-zero until each is confirmed:**
    degrades a non-core feature. It is not a substitute for check 5, because
    nobody reads boot logs on a green deploy.
 
+**Review note (2026-10-11, CH4OS-ship) — gap in check 1's path→service map.**
+The map above covers source directories only. Root build inputs are missing, so
+a change to any of them would be reported as "no deploy needed":
+
+- `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc` → **both**
+  services. Both builds run `pnpm install --frozen-lockfile` from the repo root
+  (`Dockerfile:18` for `nos-api`; `render.yaml:76` buildCommand for `nos-studio`),
+  so a dependency or workspace change alters both built artefacts.
+- `tsconfig.base.json` → **both** services. It is extended by both
+  `artifacts/api-server/tsconfig.json` and `artifacts/studio/tsconfig.json` (and
+  every `lib/*` package they build), so a compiler-option change alters both builds.
+- `Dockerfile` → **`nos-api` only** (`render.yaml:5` `dockerfilePath`; `nos-studio`
+  is `runtime: static` and never reads it).
+- `render.yaml` → **not a code deploy but a config sync**, and asymmetric:
+  `nos-api` follows the Blueprint, while `nos-studio` is Dashboard-managed
+  (`render.yaml:72`), so a `render.yaml` change for it must be repeated by hand in
+  the Dashboard or it silently does nothing. The preflight should print that as
+  its own required action rather than mapping the file to a deploy.
+
+The rule is "every file the two build commands read", not a fixed list — derive
+it from `Dockerfile` and `render.yaml`'s `buildCommand` when the script is written,
+so a new root input does not reopen this gap.
+
 **How to enable:** new script under `scripts/harness/`, exposed as
 `pnpm deploy:preflight`, referenced from the Branch discipline section of
 `CLAUDE.md` as a required step before any deploy approval is requested. It
