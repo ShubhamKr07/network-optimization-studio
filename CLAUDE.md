@@ -93,6 +93,7 @@ Three invariants bind everyday work, so they stay here:
 5. **Then run the whole-branch review**, on the merged state. It reviews what will actually ship, including anything the merge pulled in or changed.
 6. **Only then push to `origin/main`.**
 7. **Deploying is a SEPARATE approval. Always ask first — merge approval is not deploy approval.** No `mcp__render__trigger_deploy`, no Dashboard deploy, no env-var change on a live service, without an explicit yes for *that deploy*.
+   Every deploy approval request must include the checklist from `pnpm deploy:preflight -- <deployed-sha>..HEAD` (deploy surface, schema, migrations, new env vars; gate: `docs/superpowers/gates/deploy_config.md`).
 
 **Always invoke `superpowers:finishing-a-development-branch` when the development work is finished — at step 3, before prompting for merge approval.** "Finished" means implementation complete and the gates green; that is the appropriate time, not after the merge and not after the push. The skill owns the end-of-branch decision (merge / PR / cleanup / retire) and running it is what makes that decision deliberate rather than improvised. Invoking it does **not** grant any of the approvals above: steps 3–7 still each need their own explicit yes, and the skill's output is a recommendation to put to the user, never a licence to act.
 
