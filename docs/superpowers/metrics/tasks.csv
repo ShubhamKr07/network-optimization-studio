@@ -31,3 +31,4 @@ agents-opus-ponytail,agents-opus-ponytail,2026-10-05T04:55:57+05:30,2026-10-05T0
 CH4O,ch4-model-upgrade,2026-10-09T03:55:07+05:30,2026-10-09T19:13:41+05:30,unknown,no,no,unknown,919,unknown,cf2b2c16a92e9b46572a337e952fc2ed75a216b2,no,0
 WF,write-feedback,2026-10-10T00:24:06+05:30,2026-10-10T05:11:07+05:30,14,no,no,unknown,287,unknown,7fcf259bbe544643b6d9d139c4868ac551b1cb0b,no,0
 CH4OS,ch4-upgrade-v2,2026-10-10T18:13:01+05:30,2026-10-11T03:38:28+05:30,unknown,no,yes,1,565,unknown,c0bc0381cb14acc9a62358fafd6b3cfe88c95fbd,no,unknown
+CH4OS-ship,docs/ch4os-ship-record,unknown,unknown,unknown,no,yes,unknown,unknown,unknown,unknown,unknown,unknown

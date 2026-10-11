@@ -18,3 +18,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-09T15:58:31.425Z,CH4O,869,0,0,0,,101,0,
 2026-10-10T07:22:17.217Z,WF,869,0,0,0,,101,0,
 2026-10-10T22:19:24.818Z,CH4OS,869,869,0,0,,101,0,
+2026-10-11T00:17:54.479Z,CH4OS-ship,869,869,0,0,,101,0,
