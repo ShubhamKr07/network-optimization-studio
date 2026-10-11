@@ -18,6 +18,24 @@ repo checks and nothing in the deploy tooling enforces.
   is a 422 window on every Chapter 4 save, with a cause the runbook did not
   list, so it would have been misdiagnosed as a failed migration.
 
+- 2026-10-10 `PWR` — **a required environment variable was absent and nothing
+  noticed.** `RESEND_API_KEY` was never set on `nos-api`, so password reset
+  shipped broken. The endpoint still answered `200` by design (anti-enumeration
+  means a success response is deliberately not evidence of delivery), the
+  student was told "a reset link is on its way", and the only trace was a single
+  Sentry event. It stayed invisible until a human tried to reset a password.
+  Nothing in this proposal's existing four checks would have caught it, because
+  they all reason about *which services and migrations* the diff requires, not
+  about *whether the target service has the configuration the new code reads*.
+- 2026-10-10 `PWR` — **a schema push ran against local dev and never against
+  production.** This one IS covered by check 1 below, which was drafted on
+  2026-10-09 and is still not enabled. The deploy shipped code whose
+  `select()` enumerates every schema column against a table missing two, and
+  **every** `users` query 500'd for ~13 minutes — `GET /api/auth/user` runs on
+  every page load, so the whole app, not the new feature. A gate that exists as
+  an unapproved draft is worth exactly as much as no gate, and this is the
+  evidence.
+
 **The common mechanism:** the deploy surface is **inferred rather than
 measured**, and the ordering constraint lives only in prose. Two concrete
 inference failures are already on record in `CLAUDE.md`: deciding
@@ -47,6 +65,24 @@ that prints a required-action list and exits non-zero until each is confirmed:**
    matching file regardless of rewrite config, so a root-only check cannot catch
    a missing SPA fallback — the R0.9 lesson. Require at least one nested route
    returning 200 with `#root`.
+
+5. **Assert that required environment variables exist on the target service,
+   derived from the code rather than from a hand-kept list.** Grep the deploy
+   range for newly-read `process.env.X` keys, and refuse to report "ready" until
+   each is confirmed present on the service it is read by. The PWR occurrence is
+   the argument for deriving it: a hand-maintained list would not have contained
+   `RESEND_API_KEY` either, because the person who forgot to set the variable is
+   the same person who would have had to add it to the list. Note the Render MCP
+   has no read path for env-var values (only a merge-write), so the check can
+   confirm presence via the Dashboard or by an operator attestation — but it must
+   name the specific variables rather than asking "is config done?".
+
+   A cheaper partial that does not need the preflight script and is already
+   shipped as `PWR-FU4`: a **boot-time** log naming each missing variable and its
+   consequence. That turns an invisible gap into a visible one at deploy time
+   without blocking a deploy, and is the right severity for config whose absence
+   degrades a non-core feature. It is not a substitute for check 5, because
+   nobody reads boot logs on a green deploy.
 
 **How to enable:** new script under `scripts/harness/`, exposed as
 `pnpm deploy:preflight`, referenced from the Branch discipline section of
