@@ -1,0 +1,20 @@
+# Harness metrics CSVs are LF, enforced at commit time rather than by convention.
+#
+# Why this exists (2026-10-11): two sessions independently appended rows to these
+# files with Python's `csv.writer`, whose `lineterminator` defaults to "\r\n".
+# That rewrites every line, so a one-row append becomes a whole-file diff and the
+# next LF writer gets a whole-file merge conflict with markers at line 1 — which
+# reads like an append conflict and is NOT one. Resolving it as "keep both halves"
+# produces a corrupt file.
+#
+# A writer-side fix (passing lineterminator="\n") does not hold: the writers are
+# ad-hoc, there were already at least two, and `deploys.csv` was found in a MIXED
+# state, meaning an earlier manual cleanup did not stick. This rule cannot be
+# forgotten by the next person reaching for csv.writer.
+#
+# Deliberately scoped to this directory, NOT `*.csv` repo-wide: the import
+# fixtures under artifacts/api-server/src/__tests__/fixtures/imports/ exercise
+# CSV parsing edge cases, and a repo-wide rule would silently convert a future
+# deliberately-CRLF fixture on commit and break the premise of the test needing
+# it. All ten of those fixtures are LF today; this leaves them free to change.
+docs/superpowers/metrics/*.csv text eol=lf
