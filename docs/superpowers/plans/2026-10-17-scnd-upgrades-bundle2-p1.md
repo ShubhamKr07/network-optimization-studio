@@ -4,7 +4,7 @@
 
 **Goal:** Build the Bundle 2 shared table shell — `DataTable`, its column/testid/section/focus contract, filter auto-derivation, `usePagedRows` + `TablePager`, and `FormattedNumberInput` — with its own tests and **no consumers**, plus the B2.10 migration matrix that P3/P4 migrate against.
 
-**Architecture:** A new folder `artifacts/studio/src/components/data-table/` holds five focused files. `types.ts` is the public contract every P3/P4 adapter is written against. `deriveFilterDescriptors.ts` turns columns into `useTableFilters` descriptors. `usePagedRows.ts` + `TablePager.tsx` replace the four local `PAGE_SIZE = 50` pagers. `DataTable.tsx` composes them over the existing `components/ui/table.tsx` primitives and the existing `FilterMenu` + `useTableFilters` (reused, not rewritten; `FilterMenu` gains one optional `triggerTestId` prop). `FormattedNumberInput.tsx` is the B2.9 demand input. No Workspace tab changes in P1; a test-only adapter proves the API reproduces `DistancesTab`'s real testid map.
+**Architecture:** A new folder `artifacts/studio/src/components/data-table/` holds five focused files. `types.ts` is the public contract every P3/P4 adapter is written against. `deriveFilterDescriptors.ts` turns columns into `useTableFilters` descriptors. `usePagedRows.ts` + `TablePager.tsx` replace the four local `PAGE_SIZE = 50` pagers. `DataTable.tsx` composes them over the existing `components/ui/table.tsx` primitives and the existing `FilterMenu` + `useTableFilters` (reused, not rewritten: `useTableFilters.ts` gains two constants for the empty-option token, and `FilterMenu` gains an optional `triggerTestId` prop and shows that token as "(empty)"). `FormattedNumberInput.tsx` is the B2.9 demand input. No Workspace tab changes in P1; a test-only adapter proves the API reproduces `DistancesTab`'s real testid map.
 
 **Tech Stack:** React 18 + TypeScript + Vite (`artifacts/studio`), Tailwind classes, Radix popover (inside `FilterMenu`), vitest 3 + React Testing Library 16 + `@testing-library/user-event` 14, jsdom.
 
@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- **Workdir / branch:** bundle branch `scnd-upgrades` in `/Users/shubhamkr/nos-scnd-upgrades`; Bundle 2 runs after every Bundle 1 task is on that branch. Each task runs in its own pre-created locked worktree (see "Execution topology"). The task's first Bash command is `cd <its worktree> && git rev-parse --abbrev-ref HEAD`; it must print `scu-2.p1.N-work`, otherwise STOP. Never touch `/Users/shubhamkr/network-optimization-studio`.
+- **Workdir / branch / base:** bundle branch `scnd-upgrades` in `/Users/shubhamkr/nos-scnd-upgrades`. **Bundle 1 executes elsewhere** — branch `scnd-upgrades-b1`, worktree `/Users/shubhamkr/nos-scnd-b1`, base `d3d4ee2`. P1 starts only after the lead has merged the **finished** Bundle 1 tip into `scnd-upgrades` (Step L0 under "Execution topology") and recorded that SHA as `B1_TIP`. Each task runs in its own pre-created locked worktree. The task's first Bash command is `cd <its worktree> && git rev-parse --abbrev-ref HEAD`; it must print `scu-2.p1.N-work`, otherwise STOP. Never touch `/Users/shubhamkr/network-optimization-studio`.
+- **Base guard (every task, right after the branch check):** `B1_TIP=<the SHA recorded in L0>; git merge-base --is-ancestor "$B1_TIP" HEAD || exit 1` — a P1 task never runs on a base that lacks Bundle 1.
 - **Dependencies:** a fresh worktree has no `node_modules` (measured: `/Users/shubhamkr/nos-scnd-upgrades/artifacts/studio/node_modules` does not exist). Run `pnpm install --frozen-lockfile` once in the task worktree before Step 1. pnpm only.
 - **Before every `git commit`:** run `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1` **alone**, read its output, then commit **with an explicit pathspec** (`git commit <paths> -m …`). An untracked new file needs `git add <that file>` first (a pathspec commit cannot pick up an untracked file). Never pipe a state-changing git command.
 - **One task = one commit.** Message `[SCU-2.P1.N] <imperative summary>`; the body ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -24,12 +25,13 @@
 - **Spec values, verbatim (B2.1, B2.2, B2.9):**
   - Page size **50**; the pager is rendered **only when filtered rows > 50**; Prev / "Page X of Y" / Next.
   - Filter menu top-right **when effective rows > 10** (all models); descriptors generated from `columns`; precedence: explicit `filter` → `kind: number` → range → `kind: enum` → select → `kind: text` → select if **≤ 20** distinct non-null values, else text.
-  - `null`/`NaN` values match only an **"(empty)"** select option and are **excluded from ranges**. Filtering uses `value()`, never display text. Descriptor ids = column ids. Base and added sections share **one** menu. Trigger testid `button-filter-menu-trigger` kept.
-  - Pipeline order: effective rows (adapter) → filter → clamp page → slice 50. Filter change or row-set change resets to page 1; a page beyond the end clamps to the last page; newly added rows append after base rows.
+  - `null`/`NaN` values match only an **"(empty)"** select option (internal token; display text "(empty)") and are **excluded from ranges**. Filtering uses `value()`, never display text. Descriptor ids = column ids. Base and added sections share **one** menu. Trigger testid `button-filter-menu-trigger` kept.
+  - Pipeline order: effective rows (adapter) → filter → clamp page → slice 50. Filter change or row-set change resets to page 1 — rev 4: the row set is the order-insensitive key set of ALL effective rows and the filter state is canonicalised; a cell edit or reorder does not reset; a page beyond the end clamps to the last page; newly added rows append after base rows. Page size fixed, no override.
+  - Focus jump (rev 4): clear every filter, then compute the page against the now-unfiltered effective list, navigate, scroll the row into view.
   - Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `px-3 py-1.5`; `whitespace-nowrap` headers; **`kind: "number"` header + cell centre-aligned**; no fixed widths.
   - `testIds` are an **explicit literal mapping per table — no auto-generated prefixes**.
-  - `ctx: CellContext` = `{ readOnly, demandEditable, isOverridden(row), isChanged(row), isAdded(row) }`; `readOnly` applies to every editable cell in base, added and JADE rows (D2).
-  - `FormattedNumberInput`: `<input type="text" inputMode="decimal">`; en-US grouping (`1,234.5`), reformats on each keystroke; caret preserved by counting significant characters (digits + decimal point); paste strips grouping commas and spaces and rejects other characters; no reformat during IME composition until `compositionend`; select-all + type replaces; leading zeros normalised; values above `Number.MAX_SAFE_INTEGER` rejected; `onChange(value: number | null)` with **`null` = empty = clear override (D3)**; negatives rejected; **decimals allowed**; visible suffix (e.g. "Units") **outside** the input, linked via `aria-describedby`; the input's `aria-label` unchanged.
+  - `ctx: CellContext` = `{ readOnly, demandEditable, isOverridden(row), isChanged(row), isAdded(row) }`; the `ctx` prop is required (rev 4); `readOnly` applies to every editable cell in base, added and JADE rows (D2).
+  - `FormattedNumberInput`: `<input type="text" inputMode="decimal">`; en-US grouping (`1,234.5`), reformats on each keystroke; caret preserved by counting significant characters (digits + decimal point); paste strips grouping commas and spaces and rejects other characters; no reformat during IME composition until `compositionend`; select-all + type replaces; leading zeros normalised; values above `Number.MAX_SAFE_INTEGER` rejected; `onChange(value: number | null)` with **`null` = empty = clear override (D3)**; negatives rejected; **decimals allowed**; visible suffix (e.g. "Units") **outside** the input, linked via `aria-describedby`; the input's `aria-label` unchanged — **none is added** (user decision 2026-10-17); `integer` mode for station demand.
 - **Gate (every task; each script verified to exist: root `package.json:10` `typecheck`, `artifacts/studio/package.json:11` `typecheck:e2e`, `:12` `test`, `artifacts/api-server/package.json:12` `test`; `artifacts/api-server/src/solver/tests/` exists):**
   `pnpm run typecheck && pnpm --filter studio typecheck:e2e && pnpm --filter api-server test && pnpm --filter studio test && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)`
   Run each command separately and judge it by its own exit status. Before trusting a full suite, run `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` alone; never chain it with `&&`. `pnpm --filter @workspace/import-schema test` joins the gate only once P2 creates that package.
@@ -41,17 +43,19 @@
 
 Each is the smallest correct reading where the spec's text and the repo disagree (hard rule #8). The commit implementing it names it in its body. Evidence is in the matrix doc (§4 "API-gap resolution", §5 "Behaviour changes and open questions").
 
-1. **The B2.1 prop list is extended, additively, so it can reproduce today's testids.** Measured against 30 table instances, the spec's `testIds { table?, row?(row), pager?, pageIndicator?, filterTrigger? }` cannot express Prev/Next button testids (`DistancesTab.tsx:225,238`, clicked by `bundle5-homepage-distances.spec.ts:180-183`), header-cell testids (`CostSummaryTab.tsx:463,514`), wrapper testids that contain the toolbar and `thead` (`JadeFlowsTab.tsx:435`, `CustomersTab.tsx:677`), toolbar testids (`chen-bands-units-qa.spec.ts:268`), always-on "X of Y" counters (`JadeAssignmentsTab.tsx:305`) or the in-tbody "No rows match" row (`DistancesTab.tsx:840-845`). P1 adds `testIds.{root, toolbar, scroll, count, pagerPrev, pagerNext, empty, noMatch}`, `ColumnDef.{filterLabel, headerTestId, cellClassName, hidden, filterResetKey}`, `DataTableSection` (spec named `sections` without a shape), `focus`, `scrollClassName`, `noMatchText` and `footer`. Nothing in the spec's list is renamed or removed. Matrix §4 maps each field to its evidence (G1–G19).
-2. **Focus jump keeps today's semantics.** B2.2 says the jump "computes its page against the **filtered** list", but also that "existing focus-jump behaviour is preserved", and today's behaviour (`DistancesTab.tsx:459-467`, `JadeDistancesTab.tsx:494-503`) **clears the filters first** and pages against the unfiltered list. P1 implements today's behaviour: on a new `focus.token`, clear every filter, then page against the now-unfiltered (= filtered) list. Both sentences of the spec hold after the clear.
-3. **"Row-set identity change resets to page 1" is implemented as a row-KEY-set change, plus any filter-state change.** Array identity changes on every cell edit (the adapter rebuilds effective rows), so an identity rule would throw the user back to page 1 on each keystroke. The reset key is `JSON.stringify(filterState)` + the filtered row keys.
+1. **The B2.1 prop list is extended, additively, so it can reproduce today's testids.** Measured against 30 table instances, the spec's `testIds { table?, row?(row), pager?, pageIndicator?, filterTrigger? }` cannot express Prev/Next button testids (`DistancesTab.tsx:225,238`, clicked by `bundle5-homepage-distances.spec.ts:180-183`), header-cell testids (`CostSummaryTab.tsx:463,514`), wrapper testids that contain the toolbar and `thead` (`JadeFlowsTab.tsx:435`, `CustomersTab.tsx:677`), toolbar testids (`chen-bands-units-qa.spec.ts:268`), always-on "X of Y" counters (`JadeAssignmentsTab.tsx:305`) or the in-tbody "No rows match" row (`DistancesTab.tsx:840-845`). P1 adds `testIds.{root, toolbar, scroll, count, pagerPrev, pagerNext, empty, noMatch}`, `ColumnDef.{filterLabel, headerTestId, cellClassName, hidden, filterResetKey}`, a `DataTableSection` shape (the spec names `sections` without one), `focus`, `scrollClassName`, `noMatchText` and `footer`. Nothing in the spec's list is renamed or removed; spec rev 4 (B2.1) points here for the authoritative signatures. Matrix §4 maps each field to its evidence (G1–G21).
+2. **Focus jump = today's behaviour, and the spec now says so.** Rev 2's B2.2 said the page is computed "against the **filtered** list" while also requiring "existing behaviour is preserved"; today's code clears the filters first (`DistancesTab.tsx:459-467`, `JadeDistancesTab.tsx:494-503`). Spec rev 4 amended B2.2 to "clear every filter, then compute the page against the (now unfiltered) effective list". P1 implements and tests exactly that. Not a deviation any more; kept here for traceability.
+3. **Page reset key = canonical filter state + the sorted key set of ALL effective rows** (`pageResetKey`, spec rev 4 B2.2). Adding/deleting any row — filtered in or out — resets; a cell edit (even one that moves a row in/out of the filter) or a reorder does not; equivalent filter states (key order, select-value order, `max: undefined` vs absent) produce the same key. Array identity is not used: the adapter rebuilds effective rows on every edit.
 4. **`CellContext` is generic (`CellContext<T>`).** The spec writes `isOverridden(row)` etc. without a row type; a generic is the only way to type them.
-5. **`ctx.demandEditable` stays table-wide.** The Brazil lock is base-only (`CustomersTab.tsx:80-83`); the P4 demand cell checks `ctx.isAdded(row)`. No per-section ctx.
+5. **`ctx` is required** (`DataTableContext<T>` with required `readOnly` and `demandEditable`; row predicates optional, default "never"). An input adapter that forgot `ctx` would otherwise silently get `readOnly: false` and drop D2 or the Brazil lock. Enforced by a `@ts-expect-error` test under `pnpm run typecheck`. `demandEditable` stays table-wide: the Brazil lock is base-only (`CustomersTab.tsx:80-83`) and the P4 demand cell checks `ctx.isAdded(row)`.
 6. **Filter-only columns.** `CapabilityMatrixTab.tsx:65` filters on `state`, which has no column; `ColumnDef.hidden` renders nothing but still derives a descriptor.
-7. **`FilterMenu` gains `triggerTestId?: string`** (default `"button-filter-menu-trigger"`) so `testIds.filterTrigger` can be honoured. It is the only change to an existing source file in P1.
-8. **B2.9's Brazil-lock and history-disabled tests belong to P4.** P1 builds `FormattedNumberInput` with a pass-through `disabled`, and tests that pass-through. "Brazil base locked vs added editable" and "history disabled for base, added and JADE" are properties of the customer tables, which P4 migrates; P4 carries those two tests.
-9. **`FormattedNumberInput` emits `onChange` only when the parsed number changes.** Typing `12` → `12.` keeps the text `12.` and does not call `onChange(12)` twice. This prevents a spurious dirty flag; it is how the spec's "reformats on each keystroke" and "`onChange(value)`" combine without a duplicate write.
-10. **The spec's B2.1 text cites "the migration matrix, B2.9"; the matrix is §B2.10.** The matrix doc follows §B2.10's field list.
-11. **Open questions are deferred to P4, not decided here** (matrix §5, Q1–Q4): station demand in B2.9 scope; added-row empty demand (`0` today, `CustomersTab.tsx:547-557`) vs `null`; the current customer demand input has **no** `aria-label` (`CustomerTable.tsx:163-173`), so "aria-label unchanged" has nothing to keep; Plants base/added sharing one menu. None blocks P1.
+7. **Empty-option token.** `null`/`NaN` cells map to `EMPTY_FILTER_VALUE = "\u0000empty"` (new export of `lib/useTableFilters.ts`), not to the literal string `(empty)`, because `useTableFilters` compares select values by `String(value)` and a real cell reading `(empty)` would otherwise match the empty option. `FilterMenu` displays the token as `EMPTY_FILTER_LABEL = "(empty)"` and uses `__empty__` in `option-filter-*` / `checkbox-filter-*` testids.
+8. **`FilterMenu` gains `triggerTestId?: string`** (default `"button-filter-menu-trigger"`) so `testIds.filterTrigger` can be honoured. With the empty-option label (7), these are the only changes to existing source files in P1.
+9. **Page size is fixed.** `usePagedRows(rows, resetKey)` has no page-size parameter (spec rev 4: "fixed at 50; no override").
+10. **B2.9's table-level tests belong to P4.** P1 builds `FormattedNumberInput` (with a pass-through `disabled` and an `integer` mode) and tests the component. "Brazil base locked vs added editable", "history disabled for base, added and JADE", "empty demand blocks add-customer submit" and the station-demand application are properties of the tables P4 migrates; see "Hand-off to P4".
+11. **`FormattedNumberInput` emits `onChange` only when the parsed number changes.** Typing `12` → `12.` keeps the text `12.` and does not call `onChange(12)` twice — no spurious dirty flag.
+12. **No aria-label is added** (user decision 2026-10-17, spec rev 4 B2.9). The P1 harness passes none, exactly like today's demand inputs (`CustomerTable.tsx:163-173`), and asserts the absence plus the `aria-describedby` link to the "Units" suffix.
+13. **The spec's B2.1 text cited "the migration matrix, B2.9"**; the matrix is §B2.10 (fixed in spec rev 4).
 
 ## File Structure
 
@@ -59,13 +63,14 @@ Each is the smallest correct reading where the spec's text and the repo disagree
 |---|---|---|
 | `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md` | **new** (already written at plan time; re-verified + committed) — the B2.10 matrix | P1.1 |
 | `artifacts/studio/src/components/data-table/types.ts` | **new** — `ColumnKind`, `ColumnFilterKind`, `CellValue`, `CellContext<T>`, `ColumnDef<T>`, `DataTableTestIds<T>`, `DataTableToolbar`, `DataTableSection<T>`, `DataTableFocus<T>`, `DataTableProps<T>` | P1.2 |
-| `artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts` | **new** — `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_OPTION` | P1.2 |
+| `artifacts/studio/src/lib/useTableFilters.ts` | add `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL` (nothing else changes) | P1.2 |
+| `artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts` | **new** — `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX` | P1.2 |
 | `artifacts/studio/src/__tests__/deriveFilterDescriptors.test.ts` | **new** | P1.2 |
-| `artifacts/studio/src/components/data-table/usePagedRows.ts` | **new** — `PAGE_SIZE`, `PagedRows<T>`, `usePagedRows` | P1.3 |
+| `artifacts/studio/src/components/data-table/usePagedRows.ts` | **new** — `PAGE_SIZE`, `PagedRows<T>`, `pageResetKey`, `usePagedRows` | P1.3 |
 | `artifacts/studio/src/components/data-table/TablePager.tsx` | **new** — `TablePager`, `TablePagerProps`, `TablePagerTestIds` | P1.3 |
 | `artifacts/studio/src/__tests__/usePagedRows.test.tsx` | **new** | P1.3 |
-| `artifacts/studio/src/components/tables/FilterMenu.tsx` | add optional `triggerTestId` prop | P1.4 |
-| `artifacts/studio/src/components/tables/FilterMenu.test.tsx` | append 2 tests | P1.4 |
+| `artifacts/studio/src/components/tables/FilterMenu.tsx` | add optional `triggerTestId` prop; show the empty token as "(empty)" / `__empty__` | P1.4 |
+| `artifacts/studio/src/components/tables/FilterMenu.test.tsx` | import `EMPTY_FILTER_VALUE`; append 3 tests | P1.4 |
 | `artifacts/studio/src/components/data-table/DataTable.tsx` | **new** — the shell | P1.4 |
 | `artifacts/studio/src/__tests__/DataTable.test.tsx` | **new** | P1.4 |
 | `artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx` | **new** — real `DistancesTab` vs DataTable adapter testid parity | P1.5 |
@@ -97,7 +102,18 @@ export type ColumnFilterKind = "text" | "select" | "range";
 /** Raw value used for filtering and client export — never display text. */
 export type CellValue = string | number | null;
 
-/** Passed to every `cell` and `rowClassName` call. */
+/** What an adapter passes as `ctx`. `readOnly` and `demandEditable` are REQUIRED so an
+ * adapter can never silently drop D2 history protection or the Brazil demand lock;
+ * the row predicates default to "never" (no highlighting). */
+export interface DataTableContext<T> {
+  readOnly: boolean;
+  demandEditable: boolean;
+  isOverridden?: (row: T) => boolean;
+  isChanged?: (row: T) => boolean;
+  isAdded?: (row: T) => boolean;
+}
+
+/** Passed to every `cell` and `rowClassName` call (the adapter's ctx with predicates filled). */
 export interface CellContext<T> {
   /** History browsing: every editable cell in base, added and JADE rows is disabled (D2). */
   readOnly: boolean;
@@ -206,8 +222,8 @@ export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
   testIds?: DataTableTestIds<T>;
   rowClassName?: (row: T, ctx: CellContext<T>) => string | undefined;
-  /** Missing fields default to readOnly false, demandEditable true, predicates → false. */
-  ctx?: Partial<CellContext<T>>;
+  /** Required. Output tables pass `{ readOnly: true, demandEditable: false }` or the live flags. */
+  ctx: DataTableContext<T>;
   toolbar?: DataTableToolbar;
   /** Rendered INSTEAD of table(s)/pager when `rows` is empty (toolbar slots still render).
    * With `sections` and no top-level emptyState, each section's own emptyState renders instead. */
@@ -224,16 +240,20 @@ export interface DataTableProps<T> {
 ```
 
 ```ts
-// deriveFilterDescriptors.ts — consumes ColumnFilterDescriptor<T> / ColumnFilterType from "@/lib/useTableFilters" (unchanged)
+// lib/useTableFilters.ts (existing; two additive exports)
+export const EMPTY_FILTER_VALUE = "\u0000empty"; // select-option value for null/NaN cells
+export const EMPTY_FILTER_LABEL = "(empty)";      // what FilterMenu displays for it
+
+// deriveFilterDescriptors.ts — consumes ColumnFilterDescriptor<T> / ColumnFilterType / EMPTY_FILTER_VALUE from "@/lib/useTableFilters"
 export const FILTER_ROW_THRESHOLD = 10;
 export const SELECT_DISTINCT_MAX = 20;
-export const EMPTY_FILTER_OPTION = "(empty)";
 export function deriveFilterDescriptors<T>(columns: ColumnDef<T>[], rows: T[]): ColumnFilterDescriptor<T>[];
 
 // usePagedRows.ts
 export const PAGE_SIZE = 50;
 export interface PagedRows<T> { page: number; pageCount: number; pageRows: T[]; showPager: boolean; setPage: (page: number, forResetKey?: string) => void; }
-export function usePagedRows<T>(rows: T[], resetKey: string, pageSize?: number): PagedRows<T>;
+export function pageResetKey<T>(rows: T[], rowKey: (row: T) => string, filterState: FilterState): string;
+export function usePagedRows<T>(rows: T[], resetKey: string): PagedRows<T>; // page size fixed at 50
 
 // TablePager.tsx
 export interface TablePagerTestIds { pager?: string; prev?: string; next?: string; indicator?: string; }
@@ -249,15 +269,17 @@ export interface FormattedNumberInputProps
   value: number | null;
   onChange: (value: number | null) => void;
   suffix?: string;
+  integer?: boolean; // station demand: "." rejected, inputMode "numeric"
   "data-testid"?: string;
 }
 export const FormattedNumberInput: React.ForwardRefExoticComponent<FormattedNumberInputProps & React.RefAttributes<HTMLInputElement>>;
-export function sanitizeNumberText(raw: string): string | null;
+export function sanitizeNumberText(raw: string, integer?: boolean): string | null;
 export function groupNumberText(s: string): string;
 export function formatNumberValue(value: number | null): string;
 
-// components/tables/FilterMenu.tsx (existing; one additive prop)
+// components/tables/FilterMenu.tsx (existing; one additive prop + empty-option display)
 export interface FilterMenuProps<T> { /* …existing… */ triggerTestId?: string; } // default "button-filter-menu-trigger"
+// option whose value === EMPTY_FILTER_VALUE renders text "(empty)", testids option-filter-{key}-__empty__ / checkbox-filter-{key}-__empty__
 ```
 
 **Adapter rules P3/P4 rely on (enforced by P1 tests):**
@@ -266,6 +288,7 @@ export interface FilterMenuProps<T> { /* …existing… */ triggerTestId?: strin
 - Each `<tr>` carries `data-row-key={rowKey(row)}` (used for the focus scroll; not a testid).
 - Toolbar order: `upload`, `download`, `add`, `extra`, then right-aligned `count` and the filter trigger. The toolbar row renders when any slot, `testIds.toolbar`, `testIds.count` or the filter menu is present.
 - `columns` must be memoised by the adapter (descriptors are derived per `columns`/`rows` identity).
+- `ctx` is required: input adapters pass the live `{ readOnly: isBrowsingHistoryNow, demandEditable, isOverridden, isChanged, isAdded }`; output adapters pass `{ readOnly: true, demandEditable: false }`.
 - Editable cells with draft state are components returned from `cell()` (matrix G16).
 - Inputs rendered inside cells carry `w-full` and no fixed width (B2.1 rendering); `FormattedNumberInput` already does.
 
@@ -278,9 +301,22 @@ Dependency graph:
 - **P1.5** (replica harness) depends on P1.4.
 - **P1.6** (FormattedNumberInput) depends on nothing.
 
+**Step L0 (lead, once, before wave A) — bring the finished Bundle 1 onto the bundle branch:**
+
+```bash
+git -C /Users/shubhamkr/nos-scnd-b1 status --short            # must be empty
+git -C /Users/shubhamkr/nos-scnd-upgrades log --oneline d3d4ee2..scnd-upgrades-b1   # every [SCU-1.N] commit present, N = 1…11
+B1_TIP=$(git -C /Users/shubhamkr/nos-scnd-upgrades rev-parse scnd-upgrades-b1)
+cd /Users/shubhamkr/nos-scnd-upgrades && git rev-parse --abbrev-ref HEAD     # must print scnd-upgrades
+git merge --ff-only "$B1_TIP" || git merge --no-ff "$B1_TIP" -m "[scnd-upgrades] merge Bundle 1 (scnd-upgrades-b1 @ ${B1_TIP:0:7}) before Bundle 2 P1"
+git merge-base --is-ancestor "$B1_TIP" HEAD && echo "B1 on bundle branch"
+```
+
+`scnd-upgrades` carries planning commits Bundle 1 does not (this plan, P2's), so expect `--ff-only` to fail and the `--no-ff` merge to run; any conflict outside `docs/` is a STOP-and-ask. Record `B1_TIP` (full SHA) in the dispatch brief of every P1 task and in SCU-2.P1.1's changelog entry. Then run the full gate once on the merged tip.
+
 | Wave | Tasks | Base |
 |---|---|---|
-| A | P1.1, P1.2, P1.3, P1.6 | `scnd-upgrades` tip at dispatch (after Bundle 1) |
+| A | P1.1, P1.2, P1.3, P1.6 | `scnd-upgrades` tip after L0 |
 | B | P1.4 | tip after wave A is cherry-picked |
 | C | P1.5 | tip after P1.4 |
 
@@ -293,38 +329,249 @@ BASE=$(git -C /Users/shubhamkr/nos-scnd-upgrades rev-parse scnd-upgrades)
 git -C /Users/shubhamkr/nos-scnd-upgrades worktree add --lock /Users/shubhamkr/nos-scu-2.p1.N -b scu-2.p1.N-work "$BASE"
 ```
 
-The controller dispatches **without** `isolation`. The agent's first Bash command is `cd /Users/shubhamkr/nos-scu-2.p1.N && git rev-parse --abbrev-ref HEAD` (must print `scu-2.p1.N-work`), then `git merge-base --is-ancestor "$BASE" HEAD` as the base guard. The controller cherry-picks each task commit onto `scnd-upgrades` in task-id order and re-runs the gate on the bundle branch before the next wave.
+The controller dispatches **without** `isolation`. The agent's first Bash command is `cd /Users/shubhamkr/nos-scu-2.p1.N && git rev-parse --abbrev-ref HEAD` (must print `scu-2.p1.N-work`), then the two base guards, each alone: `git merge-base --is-ancestor "$BASE" HEAD || exit 1` and `git merge-base --is-ancestor "$B1_TIP" HEAD || exit 1`. The controller cherry-picks each task commit onto `scnd-upgrades` in task-id order and re-runs the gate on the bundle branch before the next wave.
 
 ---
 
-## Task SCU-2.P1.1: Migration matrix — re-verify at base and commit (B2.10)
+## Task SCU-2.P1.1: Migration matrix — regenerate every reference at the Bundle 1 tip and commit (B2.10)
 
-**Owner role:** frontend-engineer (read-only verification of studio code; edits docs only). **Spec:** §B2.10, "Risks and mitigations — e2e breakage". **Deviations:** 10, 11.
+**Owner role:** frontend-engineer (read-only verification of studio code; edits docs only). **Spec:** §B2.10, "Risks and mitigations — e2e breakage". **Deviations:** 13.
 
 **Files:**
-- Commit: `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md` (written at plan time against `46d2f98`; this task refreshes line numbers Bundle 1 shifted and regenerates §3)
+- Modify + commit: `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md` (measured at `46d2f98`; this task moves it to `B1_TIP`)
 - Modify: `docs/CHANGELOG-implementation.md` (append `## SCU-B2` heading + `### SCU-2.P1.1`)
+- Scratch only (never committed): three scripts under `$TMPDIR`
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: the matrix doc with sections §1 Summary (30 rows), §2 Instance records, §3 e2e selector inventory, §4 API-gap resolution (G1–G19), §5 Behaviour changes + Q1–Q4. P3/P4 plans cite it by section and instance name.
+- Consumes: `B1_TIP` from Step L0.
+- Produces: the matrix with §1 Summary (30 rows), §2 Instance records, §3 e2e selector inventory, §4 API-gap resolution (G1–G21), §5 behaviour changes + user decisions Q1–Q4, every `file:line` valid at `B1_TIP`. P3/P4 plans cite it by section and instance name.
+
+**Why mechanical:** Bundle 1 edits nine studio source files and several e2e specs that the matrix cites by line. Re-typing ~900 references by hand is how stale ones survive. `git diff -U0 46d2f98 B1_TIP` gives, for every file, exactly which old lines moved and which were edited: references into unchanged files are exact by construction, moved lines follow their code, and only references to edited/deleted lines need a human — each is re-located by the quoted text the matrix carries next to it.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
 Skill tool: `andrej-karpathy-skills:karpathy-guidelines`, then `ponytail:ponytail`. Record in the report that both ran.
 
-- [ ] **Step 1: List the files Bundle 1 changed since the matrix was measured**
+- [ ] **Step 1: List what Bundle 1 changed**
 
-Run: `git diff --name-only 46d2f98..HEAD -- artifacts/studio/src artifacts/studio/e2e`
-Expected: a list including (at least) `components/workspace/tabs/{ServiceStatsTab,CostSummaryTab,OpenWarehousesTab,AssignmentsTab,JadeAssignmentsTab,FlowsTab,JadeFlowsTab,InputMapTab}.tsx` and `pages/Workspace.tsx`. Every matrix line reference into a file on this list is suspect; every other reference is still exact.
+Run: `git diff --name-only 46d2f98 "$B1_TIP" -- artifacts/studio/src artifacts/studio/e2e`
+Expected: a non-empty list including `components/workspace/tabs/{ServiceStatsTab,CostSummaryTab,OpenWarehousesTab,AssignmentsTab,JadeAssignmentsTab,FlowsTab,JadeFlowsTab,InputMapTab}.tsx`, `pages/Workspace.tsx` and the e2e specs Bundle 1 rewrote. **An empty list means `B1_TIP` is wrong — STOP.**
 
-- [ ] **Step 2: Re-verify each instance record's testid map in the changed files**
+- [ ] **Step 2: Remap every line reference in §1, §2, §4, §5**
 
-For each changed tab file in Step 1, run `grep -n 'data-testid' <file>` and compare it with that file's testid tables in matrix §2 (`2a` Outputs for the output tabs). For every row whose testid still exists, update the line number to the grep result. For a testid Bundle 1 removed (e.g. a deleted tab-level title) or added (e.g. `button-toggle-compare`, `output-map-narrative`), delete or add the row and say "(Bundle 1 SCU-1.N)" in the element column. For `pages/Workspace.tsx` references (mount and gate lines in §1 and §2), re-locate each by its quoted text (`grep -n '<quoted text>' artifacts/studio/src/pages/Workspace.tsx`) and update the number. Then update the "Measured at" paragraph at the top to name both commits: `46d2f98` for unchanged files and `<this task's base SHA>` for the refreshed ones.
+Write this script to `$TMPDIR/scu-remap.py`:
 
-- [ ] **Step 3: Regenerate §3 (e2e inventory) mechanically**
+```python
+# SCU-2.P1.1 — remaps every line reference in the matrix from OLD to NEW
+# through `git diff -U0 OLD NEW`, so references into files that did not
+# change stay exact and references into changed files move with their code.
+# A reference whose line was itself edited or deleted is left as-is and
+# REPORTED on stderr for manual re-location by its quoted text.
+#
+# Usage: python3 scu-remap.py <matrix.md> <OLD> <NEW> > matrix.new.md 2> remap-report.txt
+#
+# Reference forms handled (outside §3, which is regenerated separately):
+#   `path/File.tsx:123`, `File.tsx:12-34`, `File.tsx:1,5-9`   explicit file
+#   `:123`, `:12-34`                                           bare, bound to the most recent explicit
+#                                                              file on the same line, else the record's
+#                                                              default file
+#   | testid | element | 752 |  /  | … | 667 / 674 / 689 |    testid-table line column (record's default file)
+# Default file: the first explicit file on a §1 summary row; else the first file on the record's
+# "- **File:**" line (a `#### ` record in §2).
+import re, subprocess, sys
 
-Write this script to a scratch path (not the repo), e.g. `$TMPDIR/scu-inv.py`:
+matrix_path, OLD, NEW = sys.argv[1], sys.argv[2], sys.argv[3]
+ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+PREFIXES = ["", "artifacts/studio/src/", "artifacts/studio/", "artifacts/studio/e2e/",
+            "artifacts/studio/src/components/workspace/tabs/", "artifacts/studio/src/components/tables/",
+            "artifacts/studio/src/pages/", "artifacts/studio/src/__tests__/"]
+FILES = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", OLD], text=True, cwd=ROOT).split("\n")
+FILESET = set(FILES)
+_resolved, _hunks = {}, {}
+
+def resolve(p):
+    if p in _resolved:
+        return _resolved[p]
+    hit = next((pre + p for pre in PREFIXES if pre + p in FILESET), None)
+    if hit is None:
+        cands = [f for f in FILES if f.endswith("/" + p)]
+        hit = cands[0] if len(cands) == 1 else None
+    _resolved[p] = hit
+    return hit
+
+def hunks(path):
+    if path not in _hunks:
+        out = subprocess.check_output(["git", "diff", "-U0", OLD, NEW, "--", path], text=True, cwd=ROOT)
+        hs = []
+        for m in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", out, re.M):
+            a, b = int(m.group(1)), int(m.group(2) or 1)
+            c, d = int(m.group(3)), int(m.group(4) or 1)
+            hs.append((a, b, c, d))
+        _hunks[path] = hs
+    return _hunks[path]
+
+report = []
+
+def map_line(path, n, docline):
+    shift = 0
+    for a, b, c, d in hunks(path):
+        if b == 0:            # pure insertion after old line a
+            if n > a:
+                shift += d
+            continue
+        if a <= n < a + b:    # the referenced line itself was edited/deleted
+            report.append(f"{docline}: {path}:{n} — line changed between {OLD[:7]}..{NEW[:7]}; re-locate by its quoted text")
+            return n
+        if n >= a + b:
+            shift += d - b
+    return n + shift
+
+def map_nums(path, nums, docline):
+    def one(m):
+        return str(map_line(path, int(m.group(0)), docline))
+    return re.sub(r"\d+", one, nums)
+
+EXPLICIT = re.compile(r"`([A-Za-z0-9_./-]+\.(?:tsx|ts|py|json|yaml|md)):(\d+(?:[-–]\d+)?(?:,\s?\d+(?:[-–]\d+)?)*)")
+BARE = re.compile(r"(?<![A-Za-z0-9_.])`:(\d+(?:[-–]\d+)?(?:,\s?\d+(?:[-–]\d+)?)*)`|\(:(\d+(?:[-–]\d+)?(?:,\s?\d+(?:[-–]\d+)?)*)\)|(?<=[\s(,])`?:(\d+(?:[-–]\d+)?(?:,\d+(?:[-–]\d+)?)*)(?=[`),;\s])")
+
+lines = open(matrix_path).read().split("\n")
+out, default, section = [], None, None
+for i, line in enumerate(lines, 1):
+    if line.startswith("## "):
+        section = line[3:5]
+    if section == "3.":
+        out.append(line)
+        continue
+    if line.startswith("#### "):
+        default = None
+    if line.startswith("- **File:**"):
+        m = EXPLICIT.search(line) or re.search(r"`([A-Za-z0-9_./-]+\.tsx?)", line)
+        default = resolve(m.group(1)) if m else default
+    row_default = default
+    if section == "1." and re.match(r"^\| \d+ \|", line):
+        m = EXPLICIT.search(line)
+        row_default = resolve(m.group(1)) if m else None
+
+    # Walk the line, rewriting explicit and bare refs in order.
+    pos, buf, current = 0, [], row_default
+    tokens = sorted(
+        [(m.start(), m.end(), "x", m) for m in EXPLICIT.finditer(line)]
+        + [(m.start(), m.end(), "b", m) for m in BARE.finditer(line)],
+        key=lambda t: t[0],
+    )
+    last_end = -1
+    for start, end, kind, m in tokens:
+        if start < last_end:
+            continue
+        buf.append(line[pos:start])
+        seg = line[start:end]
+        if kind == "x":
+            path = resolve(m.group(1))
+            if path:
+                current = path
+                seg = seg[: m.start(2) - start] + map_nums(path, m.group(2), i) + seg[m.end(2) - start:]
+        else:
+            g = next(k for k in (1, 2, 3) if m.group(k))
+            if current:
+                seg = seg[: m.start(g) - start] + map_nums(current, m.group(g), i) + seg[m.end(g) - start:]
+        buf.append(seg)
+        pos = last_end = end
+    buf.append(line[pos:])
+    new = "".join(buf)
+
+    # Testid-table line column (last cell of a 3-column §2 table row).
+    cells = new.split("|")
+    if section == "2." and len(cells) == 5 and default and re.fullmatch(r"\s*\d+(?:\s*(?:/|,|[-–])\s*\d+)*\s*", cells[3]):
+        cells[3] = map_nums(default, cells[3], i)
+        new = "|".join(cells)
+    out.append(new)
+
+sys.stdout.write("\n".join(out))
+sys.stderr.write("\n".join(report) + ("\n" if report else ""))
+sys.stderr.write(f"{len(report)} reference(s) need manual re-location\n")
+```
+
+Run (from the worktree root):
+`python3 $TMPDIR/scu-remap.py docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md 46d2f98 "$B1_TIP" > $TMPDIR/matrix.remapped.md 2> $TMPDIR/remap-report.txt; tail -1 $TMPDIR/remap-report.txt`
+Expected: `N reference(s) need manual re-location` (N ≥ 0). Sanity check run at plan time: `46d2f98 → 46d2f98` printed `0 reference(s)` and reproduced the file byte-for-byte; `46d2f98 → 917bc88` (an older DistancesTab) mapped `row-distance-*` 752 → 749, and `git show 917bc88:…/DistancesTab.tsx | sed -n 749p` is that testid's line.
+Then `cp $TMPDIR/matrix.remapped.md docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md`.
+
+- [ ] **Step 3: Resolve every reported reference by its quoted text**
+
+For each line of `$TMPDIR/remap-report.txt` (`<doc line>: <path>:<old line> — line changed…`): open the matrix at `<doc line>`, read the quoted text/testid it cites, find it at `B1_TIP` (`git show "$B1_TIP":<path> | grep -n '<quoted text>'`), and write the new line number. If Bundle 1 deleted the thing (e.g. a removed tab-level title), delete the reference or the testid-table row and write "(removed by Bundle 1 SCU-1.N)"; if Bundle 1 added a testid the instance now emits (e.g. `button-toggle-compare`, `output-map-narrative`), add a row with "(Bundle 1 SCU-1.N)". Count what you resolved; it must equal N from Step 2.
+
+- [ ] **Step 4: Check every §2 testid-table row against the code at `B1_TIP`**
+
+Write this script to `$TMPDIR/scu-check.py`:
+
+```python
+# SCU-2.P1.1 — checks every §2 testid-table row against the code at REV: the
+# testid's static prefix (text before the first `{`, `${` or `|`) must appear on
+# the cited line of the record's default file (or of the file the element cell names).
+# Usage: python3 scu-check.py <matrix.md> <REV>   → prints mismatches; exit 1 if any.
+# Known, legitimate mismatches (10 at 46d2f98): a row citing a `<FilterMenu` mount line for
+# `button-filter-menu-trigger`, a row citing an `idPrefix`/template line (`button-${idPrefix}-prev`),
+# and an abbreviated testid ending in `…`. Every other mismatch is a stale reference.
+import re, subprocess, sys
+
+matrix_path, REV = sys.argv[1], sys.argv[2]
+ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+FILES = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", REV], text=True, cwd=ROOT).split("\n")
+PREFIXES = ["", "artifacts/studio/src/", "artifacts/studio/", "artifacts/studio/e2e/",
+            "artifacts/studio/src/components/workspace/tabs/", "artifacts/studio/src/components/tables/",
+            "artifacts/studio/src/pages/"]
+cache = {}
+
+def resolve(p):
+    hit = next((pre + p for pre in PREFIXES if pre + p in FILES), None)
+    if hit is None:
+        c = [f for f in FILES if f.endswith("/" + p)]
+        hit = c[0] if len(c) == 1 else None
+    return hit
+
+def text(path):
+    if path not in cache:
+        cache[path] = subprocess.check_output(["git", "show", f"{REV}:{path}"], text=True, cwd=ROOT).split("\n")
+    return cache[path]
+
+bad, checked, default, section = [], 0, None, None
+for i, line in enumerate(open(matrix_path).read().split("\n"), 1):
+    if line.startswith("## "):
+        section = line[3:5]
+    if section != "2.":
+        continue
+    if line.startswith("#### "):
+        default = None
+    if line.startswith("- **File:**"):
+        m = re.search(r"`([A-Za-z0-9_./-]+\.tsx?)", line)
+        default = resolve(m.group(1)) if m else None
+    cells = line.split("|")
+    if len(cells) != 5 or not default or not re.fullmatch(r"\s*\d+\s*", cells[3]):
+        continue
+    ids = re.findall(r"`([^`]+)`", cells[1])
+    if not ids:
+        continue
+    named = re.search(r"`([A-Za-z0-9_./-]+\.tsx?)", cells[2])
+    path = resolve(named.group(1)) if named and resolve(named.group(1)) else default
+    n = int(cells[3])
+    prefix = re.split(r"[{$|]", ids[0])[0].rstrip("-")
+    src = text(path)
+    checked += 1
+    window = src[n - 1] if 0 < n <= len(src) else ""
+    if prefix and prefix not in window:
+        got = src[n - 1].strip()[:90] if n - 1 < len(src) else "EOF"
+        bad.append(f"{i}: {path}:{n} does not contain `{prefix}` → {got}")
+print("\n".join(bad))
+print(f"checked {checked} testid-table rows, {len(bad)} mismatch(es)")
+sys.exit(1 if bad else 0)
+```
+
+Run: `python3 $TMPDIR/scu-check.py docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md "$B1_TIP"`
+Expected: the last line is `checked 152 testid-table rows, M mismatch(es)` (152 at plan time; ± the rows Step 3 added or removed), and every printed mismatch is one of the three legitimate kinds named in the script header (a `<FilterMenu` mount line, an `idPrefix`/template line, an abbreviated `…` testid). At `46d2f98` there were exactly 10, all of those kinds. Fix every other mismatch, then re-run until only those remain.
+
+- [ ] **Step 5: Regenerate §3 (e2e inventory)**
+
+Write this script to `$TMPDIR/scu-inv.py`:
 
 ```python
 # SCU-2.P1.1 — regenerates matrix §3 from the testid maps in matrix §2.
@@ -390,19 +637,19 @@ for sec, prefs in prefixes.items():
 ```
 
 Run: `python3 $TMPDIR/scu-inv.py docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md artifacts/studio/e2e > $TMPDIR/inv.md && grep -c '^#### ' $TMPDIR/inv.md`
-Expected: `30` (29 instances with testids — Refineries-added shares Warehouses-added's — plus the shared FilterMenu group). Replace the body of §3 from its first `#### ` line up to the line before `## 4.` with the contents of `$TMPDIR/inv.md`.
+Expected: `30` (29 instances with testids — Refineries-added shares Warehouses-added's — plus the shared FilterMenu group; at `46d2f98` this reproduced §3 exactly). Replace the body of §3 from its first `#### ` line up to the line before `## 4.` with `$TMPDIR/inv.md`.
 
-- [ ] **Step 4: Confirm the counts quoted in the doc**
+- [ ] **Step 6: Update the provenance line and confirm the counts**
 
-Run each and compare with the doc's "Counts" paragraph:
-- `grep -c '^| [0-9]' docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md` → `30` (summary rows)
-- `ls artifacts/studio/e2e/*.spec.ts | wc -l` → the number of spec files (30 at `46d2f98`; update the doc if Bundle 1 added one)
+Replace the "**Measured at `46d2f98`**" opening of the document with "**Measured at `46d2f98`, every reference regenerated at `<B1_TIP short SHA>` by SCU-2.P1.1**". Then run each and compare with the "Counts" paragraph:
+- `grep -c '^| [0-9]* | P[34] |' docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md` → `30`
+- `ls artifacts/studio/e2e/*.spec.ts | wc -l` → the spec-file count (30 at `46d2f98`; update the doc if Bundle 1 added one)
 
-- [ ] **Step 5: e2e sweep**
+- [ ] **Step 7: e2e sweep**
 
 This task changes no source file. Record `e2e: n/a (docs only)` in the changelog.
 
-- [ ] **Step 6: Gate**
+- [ ] **Step 8: Gate**
 
 Docs-only change; the gate still runs so the task's base is proven green. Run each separately:
 1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
@@ -414,7 +661,7 @@ Docs-only change; the gate still runs so the task's base is proven green. Run ea
 
 Expected: every command exits 0.
 
-- [ ] **Step 7: Changelog**
+- [ ] **Step 9: Changelog**
 
 Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
@@ -422,46 +669,43 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ## SCU-B2 — SCND upgrades Bundle 2 (2026-10-16 spec)
 
-Plans: P1 `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p1.md`; matrix `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md`. Spec: `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` (rev 2), Bundle 2 + D1–D6.
+Plans: P1 `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p1.md`; matrix `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md`. Spec: `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` (rev 4), Bundle 2 + D1–D6. Bundle 1 merged onto `scnd-upgrades` by the lead (Step L0): `scnd-upgrades-b1` @ <B1_TIP>, merge commit <SHA or "fast-forward">.
 
 ### SCU-2.P1.1 — B2.10 migration matrix
 
-- 30 table instances (9 outputs, 7 distance/cost inputs, 14 entity inputs) + 2 excluded surface groups; complete testid maps; e2e inventory regenerated at <base SHA> (<N> `####` groups).
-- API gaps G1–G19 resolved additively in the P1 interfaces (plan deviation 1). Open questions Q1–Q4 deferred to P4.
+- 30 table instances (9 outputs, 7 distance/cost inputs, 14 entity inputs) + 2 excluded surface groups; complete testid maps; every reference regenerated 46d2f98 → <B1_TIP short>: <N> remapped automatically, <K> re-located by quoted text; testid-row check <checked>/<mismatches, all legitimate>; e2e inventory <groups> groups.
+- API gaps G1–G21 resolved additively in the P1 interfaces (plan deviation 1). User decisions Q1–Q4 (2026-10-17) recorded in §5.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (docs only).
 ```
 
 Replace each `<…>` with the value measured in this run, or the literal `unknown`.
 
-- [ ] **Step 8: Commit**
-
-```bash
-git add docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md
-```
+- [ ] **Step 10: Commit**
 
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1
 ```
 
 ```bash
-git commit docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md docs/CHANGELOG-implementation.md -m "[SCU-2.P1.1] add Bundle 2 migration matrix" -m "30 instances, testid maps, e2e inventory; line refs refreshed after Bundle 1. Deviations 10, 11." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-matrix.md docs/CHANGELOG-implementation.md -m "[SCU-2.P1.1] regenerate Bundle 2 migration matrix at the Bundle 1 tip" -m "Every file:line remapped 46d2f98..B1_TIP via git diff; edited lines re-located by quoted text; §3 regenerated. Deviation 13." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P1.2: DataTable contract types + filter auto-derivation (B2.1 types, B2.2 "Filter")
 
-**Owner role:** frontend-engineer. **Spec:** B2.1 props; B2.2 "Filter". **Deviations:** 1, 4, 6.
+**Owner role:** frontend-engineer. **Spec:** B2.1 props; B2.2 "Filter". **Deviations:** 1, 4, 5, 6, 7.
 
 **Files:**
+- Modify: `artifacts/studio/src/lib/useTableFilters.ts:14` (insert two constants after `export type ColumnFilterType …`; nothing else changes)
 - Create: `artifacts/studio/src/components/data-table/types.ts`
 - Create: `artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts`
 - Test: `artifacts/studio/src/__tests__/deriveFilterDescriptors.test.ts`
 - Modify: `docs/CHANGELOG-implementation.md` (append `### SCU-2.P1.2`)
 
 **Interfaces:**
-- Consumes (unchanged, `artifacts/studio/src/lib/useTableFilters.ts`): `ColumnFilterDescriptor<T> = { key: string; label: string; type: ColumnFilterType; accessor: (row: T) => string | number | undefined }`, `ColumnFilterType = "text" | "select" | "number"`, `useTableFilters<T>(rows, descriptors): UseTableFiltersResult<T>`. Note `useTableFilters` excludes `undefined` from select options and from active ranges, and treats it as `""` for text.
-- Produces: everything in `types.ts` (see "Interfaces" above, verbatim), and `deriveFilterDescriptors<T>(columns: ColumnDef<T>[], rows: T[]): ColumnFilterDescriptor<T>[]`, `FILTER_ROW_THRESHOLD = 10`, `SELECT_DISTINCT_MAX = 20`, `EMPTY_FILTER_OPTION = "(empty)"`.
+- Consumes (`artifacts/studio/src/lib/useTableFilters.ts`, otherwise unchanged): `ColumnFilterDescriptor<T> = { key: string; label: string; type: ColumnFilterType; accessor: (row: T) => string | number | undefined }`, `ColumnFilterType = "text" | "select" | "number"`, `useTableFilters<T>(rows, descriptors): UseTableFiltersResult<T>`. Note `useTableFilters` excludes `undefined` from select options and from active ranges, and treats it as `""` for text.
+- Produces: everything in `types.ts` (see "Interfaces" above, verbatim), and `deriveFilterDescriptors<T>(columns: ColumnDef<T>[], rows: T[]): ColumnFilterDescriptor<T>[]`, `FILTER_ROW_THRESHOLD = 10`, `SELECT_DISTINCT_MAX = 20`; in `useTableFilters.ts`: `EMPTY_FILTER_VALUE = "\u0000empty"`, `EMPTY_FILTER_LABEL = "(empty)"`.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -476,12 +720,11 @@ import { describe, expect, it } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import {
   deriveFilterDescriptors,
-  EMPTY_FILTER_OPTION,
   FILTER_ROW_THRESHOLD,
   SELECT_DISTINCT_MAX,
 } from "@/components/data-table/deriveFilterDescriptors";
 import type { ColumnDef } from "@/components/data-table/types";
-import { useTableFilters } from "@/lib/useTableFilters";
+import { EMPTY_FILTER_LABEL, EMPTY_FILTER_VALUE, useTableFilters } from "@/lib/useTableFilters";
 
 interface Row {
   id: string;
@@ -506,7 +749,12 @@ describe("deriveFilterDescriptors — spec constants", () => {
   it("pins the spec's thresholds", () => {
     expect(FILTER_ROW_THRESHOLD).toBe(10);
     expect(SELECT_DISTINCT_MAX).toBe(20);
-    expect(EMPTY_FILTER_OPTION).toBe("(empty)");
+    expect(EMPTY_FILTER_LABEL).toBe("(empty)");
+  });
+
+  it("the empty token is not a printable string any cell could hold", () => {
+    expect(EMPTY_FILTER_VALUE).not.toBe(EMPTY_FILTER_LABEL);
+    expect(EMPTY_FILTER_VALUE.charCodeAt(0)).toBe(0);
   });
 });
 
@@ -569,7 +817,7 @@ describe("deriveFilterDescriptors — ids, labels, accessors", () => {
       ],
       rows,
     );
-    expect(rows.map(sel.accessor)).toEqual([10, EMPTY_FILTER_OPTION, EMPTY_FILTER_OPTION]);
+    expect(rows.map(sel.accessor)).toEqual([10, EMPTY_FILTER_VALUE, EMPTY_FILTER_VALUE]);
     expect(rows.map(rng.accessor)).toEqual([10, undefined, undefined]);
     expect(rows.map(txt.accessor)).toEqual(["Austin", undefined, "Boston"]);
   });
@@ -584,9 +832,20 @@ describe("deriveFilterDescriptors + useTableFilters", () => {
 
   it("(empty) select option matches only null rows", () => {
     const { result } = renderHook(() => useTableFilters(rows, descriptors));
-    expect(result.current.distinctValuesByKey.city).toEqual(["Austin", EMPTY_FILTER_OPTION, "Boston"]);
-    act(() => result.current.setFilter("city", { type: "select", values: [EMPTY_FILTER_OPTION] }));
+    expect(result.current.distinctValuesByKey.city).toEqual(["Austin", EMPTY_FILTER_VALUE, "Boston"]);
+    act(() => result.current.setFilter("city", { type: "select", values: [EMPTY_FILTER_VALUE] }));
     expect(result.current.filteredRows.map(r => r.id)).toEqual(["W2"]);
+  });
+
+  it("a real cell whose text is literally '(empty)' is its own option and never matches the empty option", () => {
+    const withLiteral: Row[] = [...rows, { id: "W4", city: "(empty)", distance: 1, status: "open" }];
+    const d = deriveFilterDescriptors(columns, withLiteral);
+    const { result } = renderHook(() => useTableFilters(withLiteral, d));
+    expect(result.current.distinctValuesByKey.city).toEqual(["Austin", EMPTY_FILTER_VALUE, "Boston", "(empty)"]);
+    act(() => result.current.setFilter("city", { type: "select", values: [EMPTY_FILTER_VALUE] }));
+    expect(result.current.filteredRows.map(r => r.id)).toEqual(["W2"]);
+    act(() => result.current.setFilter("city", { type: "select", values: ["(empty)"] }));
+    expect(result.current.filteredRows.map(r => r.id)).toEqual(["W4"]);
   });
 
   it("an active range excludes null and NaN rows; no range keeps them", () => {
@@ -603,7 +862,28 @@ describe("deriveFilterDescriptors + useTableFilters", () => {
 Run: `pnpm --filter studio exec vitest run src/__tests__/deriveFilterDescriptors.test.ts`
 Expected: FAIL — `Error: Failed to resolve import "@/components/data-table/deriveFilterDescriptors" from "src/__tests__/deriveFilterDescriptors.test.ts". Does the file exist?`
 
-- [ ] **Step 3: Write the contract types**
+- [ ] **Step 3: Add the empty-option token to `useTableFilters.ts`**
+
+In `artifacts/studio/src/lib/useTableFilters.ts`, replace:
+
+```ts
+export type ColumnFilterType = "text" | "select" | "number";
+```
+
+with:
+
+```ts
+export type ColumnFilterType = "text" | "select" | "number";
+
+/** SCU-2.P1 (B2.2) — the internal select-option value an accessor returns for an
+ * empty (null/NaN) cell. NUL-prefixed, so no real cell text can equal it (a raw
+ * "(empty)" string stays its own option). FilterMenu displays it as
+ * `EMPTY_FILTER_LABEL` and uses `__empty__` in its option testids. */
+export const EMPTY_FILTER_VALUE = "\u0000empty";
+export const EMPTY_FILTER_LABEL = "(empty)";
+```
+
+- [ ] **Step 3b: Write the contract types**
 
 Create `artifacts/studio/src/components/data-table/types.ts`:
 
@@ -624,7 +904,18 @@ export type ColumnFilterKind = "text" | "select" | "range";
 /** Raw value used for filtering and client export — never display text. */
 export type CellValue = string | number | null;
 
-/** Passed to every `cell` and `rowClassName` call. */
+/** What an adapter passes as `ctx`. `readOnly` and `demandEditable` are REQUIRED so an
+ * adapter can never silently drop D2 history protection or the Brazil demand lock;
+ * the row predicates default to "never" (no highlighting). */
+export interface DataTableContext<T> {
+  readOnly: boolean;
+  demandEditable: boolean;
+  isOverridden?: (row: T) => boolean;
+  isChanged?: (row: T) => boolean;
+  isAdded?: (row: T) => boolean;
+}
+
+/** Passed to every `cell` and `rowClassName` call (the adapter's ctx with predicates filled). */
 export interface CellContext<T> {
   /** History browsing: every editable cell in base, added and JADE rows is disabled (D2). */
   readOnly: boolean;
@@ -733,8 +1024,8 @@ export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
   testIds?: DataTableTestIds<T>;
   rowClassName?: (row: T, ctx: CellContext<T>) => string | undefined;
-  /** Missing fields default to readOnly false, demandEditable true, predicates → false. */
-  ctx?: Partial<CellContext<T>>;
+  /** Required. Output tables pass `{ readOnly: true, demandEditable: false }` or the live flags. */
+  ctx: DataTableContext<T>;
   toolbar?: DataTableToolbar;
   /** Rendered INSTEAD of table(s)/pager when `rows` is empty (toolbar slots still render).
    * With `sections` and no top-level emptyState, each section's own emptyState renders instead. */
@@ -759,14 +1050,15 @@ Create `artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts`:
 // DataTable's columns. Precedence: explicit `filter` → kind number = range →
 // kind enum = select → kind text = select when ≤ 20 distinct non-null values,
 // else text. Filtering reads `value()`, never display text. null/NaN match
-// only the "(empty)" select option and are excluded from ranges.
+// only the "(empty)" select option — an internal token, `EMPTY_FILTER_VALUE`,
+// that no real value can equal — and are excluded from ranges.
 
+import { EMPTY_FILTER_VALUE } from "@/lib/useTableFilters";
 import type { ColumnFilterDescriptor, ColumnFilterType } from "@/lib/useTableFilters";
 import type { CellValue, ColumnDef } from "./types";
 
 export const FILTER_ROW_THRESHOLD = 10;
 export const SELECT_DISTINCT_MAX = 20;
-export const EMPTY_FILTER_OPTION = "(empty)";
 
 function isEmpty(v: CellValue): boolean {
   return v === null || (typeof v === "number" && Number.isNaN(v));
@@ -795,7 +1087,7 @@ export function deriveFilterDescriptors<T>(columns: ColumnDef<T>[], rows: T[]): 
       const label = c.filterLabel ?? (typeof c.header === "string" ? c.header : c.id);
       const accessor = (row: T): string | number | undefined => {
         const v = c.value(row);
-        if (isEmpty(v)) return type === "select" ? EMPTY_FILTER_OPTION : undefined;
+        if (isEmpty(v)) return type === "select" ? EMPTY_FILTER_VALUE : undefined;
         return v as string | number;
       };
       return { key: c.id, label, type, accessor };
@@ -806,11 +1098,11 @@ export function deriveFilterDescriptors<T>(columns: ColumnDef<T>[], rows: T[]): 
 - [ ] **Step 5: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/deriveFilterDescriptors.test.ts`
-Expected: PASS — 9 tests (measured at plan time).
+Expected: PASS — 11 tests (measured at plan time).
 
 - [ ] **Step 6: e2e sweep**
 
-New files only; no rendered UI changes. Run `git diff --name-only HEAD -- artifacts/studio/e2e` → empty. Record `e2e: n/a (no UI change)`.
+New files plus two unused constants; no rendered UI changes. Run `git diff --name-only HEAD -- artifacts/studio/e2e` → empty. Record `e2e: n/a (no UI change)`.
 
 - [ ] **Step 7: Gate**
 
@@ -832,8 +1124,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P1.2 — DataTable contract types + filter auto-derivation
 
-- `components/data-table/types.ts` (the P3/P4 adapter contract) and `deriveFilterDescriptors.ts` (explicit → number=range → enum=select → text ≤ 20 distinct = select else text; null/NaN → "(empty)" option, excluded from ranges).
-- Deviations 1 (additive props), 4 (`CellContext<T>`), 6 (`hidden` filter-only column).
+- `components/data-table/types.ts` (the P3/P4 adapter contract; `ctx` required) and `deriveFilterDescriptors.ts` (explicit → number=range → enum=select → text ≤ 20 distinct = select else text; null/NaN → the internal `EMPTY_FILTER_VALUE` option, excluded from ranges). `useTableFilters.ts` gains `EMPTY_FILTER_VALUE` / `EMPTY_FILTER_LABEL`.
+- Deviations 1 (additive props), 4 (`CellContext<T>`), 5 (required `ctx`), 6 (`hidden` filter-only column), 7 (empty token).
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (no UI change).
 ```
 
@@ -848,14 +1140,14 @@ git add artifacts/studio/src/components/data-table/types.ts artifacts/studio/src
 ```
 
 ```bash
-git commit artifacts/studio/src/components/data-table/types.ts artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts artifacts/studio/src/__tests__/deriveFilterDescriptors.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P1.2] add DataTable contract types and filter derivation" -m "Deviations 1, 4, 6: additive testId/column fields, generic CellContext, filter-only hidden columns." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/lib/useTableFilters.ts artifacts/studio/src/components/data-table/types.ts artifacts/studio/src/components/data-table/deriveFilterDescriptors.ts artifacts/studio/src/__tests__/deriveFilterDescriptors.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P1.2] add DataTable contract types and filter derivation" -m "Deviations 1, 4, 5, 6, 7: additive testId/column fields, generic CellContext, required ctx, filter-only hidden columns, internal empty-option token." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P1.3: `usePagedRows` + `TablePager` (B2.2 "Paging")
 
-**Owner role:** frontend-engineer. **Spec:** B2.2 "Pipeline", "Paging". **Deviation:** 3.
+**Owner role:** frontend-engineer. **Spec:** B2.2 "Pipeline", "Paging" (rev 4 reset rule). **Deviations:** 3, 9.
 
 **Files:**
 - Create: `artifacts/studio/src/components/data-table/usePagedRows.ts`
@@ -864,8 +1156,8 @@ git commit artifacts/studio/src/components/data-table/types.ts artifacts/studio/
 - Modify: `docs/CHANGELOG-implementation.md` (append `### SCU-2.P1.3`)
 
 **Interfaces:**
-- Consumes: `Button` from `@/components/ui/button` (existing). Markup and classes copy `DistancesTab.tsx:203-246`'s local `Pager` so migrated tables look the same.
-- Produces: `PAGE_SIZE = 50`; `PagedRows<T>`; `usePagedRows<T>(rows: T[], resetKey: string, pageSize?: number): PagedRows<T>`; `TablePager(props: TablePagerProps)`; `TablePagerTestIds { pager?, prev?, next?, indicator? }`. The four local pagers (`DistancesTab.tsx:330`, `JadeDistancesTab.tsx:335`, `DeliveryCostsTab.tsx:59`, `JadeAssignmentsTab.tsx:166`) are **not** touched in P1; P3/P4 replace them when they migrate those tables.
+- Consumes: `Button` from `@/components/ui/button` (existing); `FilterState`, `FilterValue` types from `@/lib/useTableFilters`. Markup and classes copy `DistancesTab.tsx:203-246`'s local `Pager` so migrated tables look the same.
+- Produces: `PAGE_SIZE = 50`; `PagedRows<T>`; `pageResetKey<T>(rows: T[], rowKey: (row: T) => string, filterState: FilterState): string`; `usePagedRows<T>(rows: T[], resetKey: string): PagedRows<T>` (no page-size parameter); `TablePager(props: TablePagerProps)`; `TablePagerTestIds { pager?, prev?, next?, indicator? }`. The four local pagers (`DistancesTab.tsx:330`, `JadeDistancesTab.tsx:335`, `DeliveryCostsTab.tsx:59`, `JadeAssignmentsTab.tsx:166`) are **not** touched in P1; P3/P4 replace them when they migrate those tables.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -879,7 +1171,7 @@ Create `artifacts/studio/src/__tests__/usePagedRows.test.tsx`:
 import { describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PAGE_SIZE, usePagedRows } from "@/components/data-table/usePagedRows";
+import { PAGE_SIZE, pageResetKey, usePagedRows } from "@/components/data-table/usePagedRows";
 import { TablePager } from "@/components/data-table/TablePager";
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i);
@@ -944,6 +1236,38 @@ describe("usePagedRows", () => {
   });
 });
 
+describe("pageResetKey", () => {
+  const key = (r: { id: string }) => r.id;
+  const a = [{ id: "a" }, { id: "b" }, { id: "c" }];
+
+  it("is order-insensitive in rows", () => {
+    expect(pageResetKey([...a].reverse(), key, {})).toBe(pageResetKey(a, key, {}));
+  });
+
+  it("changes when a row key is added or removed", () => {
+    expect(pageResetKey([...a, { id: "d" }], key, {})).not.toBe(pageResetKey(a, key, {}));
+    expect(pageResetKey(a.slice(1), key, {})).not.toBe(pageResetKey(a, key, {}));
+  });
+
+  it("is insensitive to filter-state key order and select-value order", () => {
+    const one = pageResetKey(a, key, {
+      city: { type: "select", values: ["x", "y"] },
+      dist: { type: "number", min: 1 },
+    });
+    const two = pageResetKey(a, key, {
+      dist: { type: "number", min: 1, max: undefined },
+      city: { type: "select", values: ["y", "x"] },
+    });
+    expect(two).toBe(one);
+  });
+
+  it("changes when any filter value changes", () => {
+    const base = pageResetKey(a, key, { t: { type: "text", value: "a" } });
+    expect(pageResetKey(a, key, { t: { type: "text", value: "ab" } })).not.toBe(base);
+    expect(pageResetKey(a, key, {})).not.toBe(base);
+  });
+});
+
 describe("TablePager", () => {
   it("renders the literal testids and Page X of Y", () => {
     render(
@@ -992,17 +1316,22 @@ Create `artifacts/studio/src/components/data-table/usePagedRows.ts`:
 ```ts
 // SCU-2.P1 (spec B2.2 "Paging") — replaces the four local `PAGE_SIZE = 50`
 // pagers (DistancesTab, JadeDistancesTab, DeliveryCostsTab,
-// JadeAssignmentsTab). Pure client paging over already-filtered rows.
+// JadeAssignmentsTab). Pure client paging over already-filtered rows. The
+// page size is fixed at 50 by the spec; there is deliberately no override.
 //
-// Reset rule: a change of `resetKey` returns to page 1. DataTable passes the
-// active filter state + the filtered row keys, so any filter change or
-// row-set change resets, while a cell edit (same keys, new array) does not.
+// Reset rule (B2.2): a change of `resetKey` returns to page 1. DataTable
+// builds it with `pageResetKey`: the canonical filter state + the SORTED key
+// set of ALL effective rows (not just the filtered ones). So any filter
+// change, and any add/delete — even of a row the filter hides — resets;
+// editing a cell (same keys) or reordering rows does not, even when the edit
+// moves a row in or out of the filter (the page then only clamps).
 // A page beyond the end clamps to the last page (derived, no effect).
-// `setPage(page, forResetKey)` pre-claims the key the rows are ABOUT to have
+// `setPage(page, forResetKey)` pre-claims the key the table is ABOUT to have
 // (a focus jump clears the filters in the same tick), so the reset rule
 // adopts that page instead of undoing the jump.
 
 import { useState } from "react";
+import type { FilterState, FilterValue } from "@/lib/useTableFilters";
 
 export const PAGE_SIZE = 50;
 
@@ -1017,19 +1346,35 @@ export interface PagedRows<T> {
   setPage: (page: number, forResetKey?: string) => void;
 }
 
-export function usePagedRows<T>(rows: T[], resetKey: string, pageSize: number = PAGE_SIZE): PagedRows<T> {
+const SEP = "\u0000";
+
+function canonicalFilterValue(v: FilterValue): unknown {
+  if (v.type === "select") return { type: "select", values: [...v.values].sort() };
+  if (v.type === "number") return { type: "number", min: v.min ?? null, max: v.max ?? null };
+  return { type: "text", value: v.value };
+}
+
+/** Order-insensitive identity of (filter state, effective row-key set). */
+export function pageResetKey<T>(rows: T[], rowKey: (row: T) => string, filterState: FilterState): string {
+  const filters = Object.keys(filterState)
+    .sort()
+    .map(k => [k, canonicalFilterValue(filterState[k])]);
+  return JSON.stringify(filters) + SEP + rows.map(rowKey).sort().join(SEP);
+}
+
+export function usePagedRows<T>(rows: T[], resetKey: string): PagedRows<T> {
   const [state, setState] = useState<{ page: number; key: string; claim?: string }>({ page: 1, key: resetKey });
   // Render-phase state adjustment (React-sanctioned) — no effect, no flash of the old page.
   if (state.key !== resetKey) {
     setState(state.claim === resetKey ? { page: state.page, key: resetKey } : { page: 1, key: resetKey });
   }
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const raw = state.key === resetKey || state.claim === resetKey ? state.page : 1;
   const page = Math.min(Math.max(1, raw), pageCount);
-  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const setPage = (next: number, forResetKey?: string) =>
     setState(prev => ({ page: Math.max(1, Math.floor(next)), key: prev.key, claim: forResetKey }));
-  return { page, pageCount, pageRows, showPager: rows.length > pageSize, setPage };
+  return { page, pageCount, pageRows, showPager: rows.length > PAGE_SIZE, setPage };
 }
 ```
 
@@ -1092,7 +1437,7 @@ export function TablePager({ page, pageCount, onPageChange, testIds = {} }: Tabl
 - [ ] **Step 5: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/usePagedRows.test.tsx`
-Expected: PASS — 11 tests (8 hook, 3 pager; measured at plan time).
+Expected: PASS — 15 tests (8 hook, 4 `pageResetKey`, 3 pager; measured at plan time). The DataTable-level reset cases (filtered-out/-in add and delete, filter-column edit, reorder) are in P1.4.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -1118,8 +1463,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P1.3 — usePagedRows + TablePager
 
-- `PAGE_SIZE = 50`, pager only when rows > 50; derived clamp; reset on resetKey change; `setPage(page, forResetKey)` claim for focus jumps. `TablePager` = DistancesTab's Pager markup with literal testids.
-- Deviation 3: reset is keyed on the row-key set + filter state, not array identity, so a cell edit keeps the page.
+- `PAGE_SIZE = 50` (fixed, no override), pager only when rows > 50; derived clamp; reset on resetKey change; `setPage(page, forResetKey)` claim for focus jumps. `pageResetKey` = canonical filter state + sorted key set of ALL effective rows. `TablePager` = DistancesTab's Pager markup with literal testids.
+- Deviations 3 (reset key per spec rev 4), 9 (no page-size override).
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (no UI change).
 ```
 
@@ -1134,25 +1479,25 @@ git add artifacts/studio/src/components/data-table/usePagedRows.ts artifacts/stu
 ```
 
 ```bash
-git commit artifacts/studio/src/components/data-table/usePagedRows.ts artifacts/studio/src/components/data-table/TablePager.tsx artifacts/studio/src/__tests__/usePagedRows.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.3] add usePagedRows and TablePager" -m "Deviation 3: page reset keyed on row-key set + filter state, not array identity." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/data-table/usePagedRows.ts artifacts/studio/src/components/data-table/TablePager.tsx artifacts/studio/src/__tests__/usePagedRows.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.3] add usePagedRows and TablePager" -m "Deviations 3, 9: reset key = canonical filters + sorted all-row key set; page size fixed at 50." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task SCU-2.P1.4: `DataTable` shell + `FilterMenu.triggerTestId` (B2.1 rendering, B2.2 pipeline)
+## Task SCU-2.P1.4: `DataTable` shell + `FilterMenu` trigger testid and empty option (B2.1 rendering, B2.2 pipeline)
 
-**Owner role:** frontend-engineer. **Spec:** B2.1 (props, rendering, `readOnly`), B2.2 (pipeline, filter, paging, focus jump). **Deviations:** 1, 2, 3, 7.
+**Owner role:** frontend-engineer. **Spec:** B2.1 (props, rendering, `readOnly`), B2.2 rev 4 (pipeline, reset rule, filter, paging, focus jump). **Deviations:** 1, 2, 3, 5, 7, 8.
 
 **Files:**
-- Modify: `artifacts/studio/src/components/tables/FilterMenu.tsx:23-36` (props interface), `:49` (signature), `:56` (trigger `data-testid`)
-- Test: `artifacts/studio/src/components/tables/FilterMenu.test.tsx` (append at EOF, after line 116)
+- Modify: `artifacts/studio/src/components/tables/FilterMenu.tsx:21` (import), `:23-36` (props interface), `:49` (signature), `:56` (trigger `data-testid`), `:103-125` (select-option rendering)
+- Test: `artifacts/studio/src/components/tables/FilterMenu.test.tsx` (`:5` import line; append after the last line, `:116`, which closes the existing `describe`)
 - Create: `artifacts/studio/src/components/data-table/DataTable.tsx`
 - Test: `artifacts/studio/src/__tests__/DataTable.test.tsx`
 - Modify: `docs/CHANGELOG-implementation.md` (append `### SCU-2.P1.4`)
 
 **Interfaces:**
-- Consumes: `types.ts` + `deriveFilterDescriptors` (P1.2); `usePagedRows`, `PAGE_SIZE`, `TablePager` (P1.3); `Table, TableHeader, TableBody, TableRow, TableHead, TableCell` from `@/components/ui/table` (existing; `TableHead` default classes `h-10 px-2 text-left …`, `TableCell` `p-2 …` — the shell overrides padding/height via `cn`, which uses tailwind-merge); `useTableFilters` from `@/lib/useTableFilters` (existing); `cn` from `@/lib/utils`.
-- Produces: `DataTable<T>(props: DataTableProps<T>)`; `FilterMenuProps<T>.triggerTestId?: string` (default `"button-filter-menu-trigger"`).
+- Consumes: `types.ts` + `deriveFilterDescriptors` (P1.2); `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL` (P1.2, `@/lib/useTableFilters`); `usePagedRows`, `pageResetKey`, `PAGE_SIZE`, `TablePager` (P1.3); `Table, TableHeader, TableBody, TableRow, TableHead, TableCell` from `@/components/ui/table` (existing; `TableHead` default classes `h-10 px-2 text-left …`, `TableCell` `p-2 …` — the shell overrides padding/height via `cn`, which is `twMerge(clsx(…))`, `lib/utils.ts:4-6`); `useTableFilters` (existing); `cn`.
+- Produces: `DataTable<T>(props: DataTableProps<T>)`; `FilterMenuProps<T>.triggerTestId?: string` (default `"button-filter-menu-trigger"`); FilterMenu renders an option whose value is `EMPTY_FILTER_VALUE` as "(empty)" with testids `option-filter-{key}-__empty__` / `checkbox-filter-{key}-__empty__`.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -1160,11 +1505,21 @@ Skill tool: `andrej-karpathy-skills:karpathy-guidelines`, then `ponytail:ponytai
 
 - [ ] **Step 1: Write the failing FilterMenu tests**
 
-Append at EOF of `artifacts/studio/src/components/tables/FilterMenu.test.tsx` (it already imports `describe/expect/it`, `render/screen`, `FilterMenu`, `useTableFilters`, and defines `rows` and `descriptors`):
+In `artifacts/studio/src/components/tables/FilterMenu.test.tsx`, replace the import line (`:5`):
 
 ```tsx
-});
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+```
 
+with:
+
+```tsx
+import { EMPTY_FILTER_VALUE, useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+```
+
+Then append **after** the file's last line (`:116`, the `});` that closes the existing `describe("FilterMenu", …)`) — the block below opens two new top-level `describe`s and contains no stray closing brace:
+
+```tsx
 describe("FilterMenu — triggerTestId (SCU-2.P1)", () => {
   function Mapped({ triggerTestId }: { triggerTestId?: string }) {
     const tableFilters = useTableFilters(rows, descriptors);
@@ -1182,16 +1537,55 @@ describe("FilterMenu — triggerTestId (SCU-2.P1)", () => {
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
   });
 });
+
+describe("FilterMenu — empty option (SCU-2.P1)", () => {
+  interface E { id: string; v: string }
+  const eRows: E[] = [{ id: "1", v: "a" }, { id: "2", v: EMPTY_FILTER_VALUE }];
+  const eDescriptors: ColumnFilterDescriptor<E>[] = [{ key: "v", label: "V", type: "select", accessor: r => r.v }];
+  function EmptyHarness() {
+    const tableFilters = useTableFilters(eRows, eDescriptors);
+    return (
+      <div>
+        <FilterMenu descriptors={eDescriptors} tableFilters={tableFilters} />
+        <div data-testid="visible-rows">{tableFilters.filteredRows.map(r => r.id).join(",")}</div>
+      </div>
+    );
+  }
+
+  it("shows the empty token as '(empty)' with a __empty__ testid suffix, and selecting it filters", async () => {
+    const user = userEvent.setup();
+    render(<EmptyHarness />);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    expect(screen.getByTestId("option-filter-v-__empty__")).toHaveTextContent("(empty)");
+    await user.click(screen.getByTestId("checkbox-filter-v-__empty__"));
+    expect(screen.getByTestId("visible-rows")).toHaveTextContent("2");
+  });
+});
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/components/tables/FilterMenu.test.tsx`
-Expected: FAIL — `Tests  1 failed | 10 passed (11)`; the failure is "uses a mapped trigger testid when given" with `TestingLibraryElementError: Unable to find an element by: [data-testid="button-filter-jade-flows-pw"]` (measured at plan time). `pnpm --filter studio typecheck` would also reject the unknown `triggerTestId` prop.
+Expected: FAIL — `Tests  2 failed | 10 passed (12)`: "uses a mapped trigger testid when given" (`TestingLibraryElementError: Unable to find an element by: [data-testid="button-filter-jade-flows-pw"]`) and "shows the empty token as '(empty)' …" (`Unable to find an element by: [data-testid="option-filter-v-__empty__"]`). Measured at plan time against the unmodified `FilterMenu.tsx`.
 
-- [ ] **Step 3: Add the prop to FilterMenu**
+- [ ] **Step 3: Change FilterMenu**
 
-In `artifacts/studio/src/components/tables/FilterMenu.tsx`, replace:
+In `artifacts/studio/src/components/tables/FilterMenu.tsx`:
+
+(a) Replace the type-only import line
+
+```tsx
+import type { ColumnFilterDescriptor, FilterState, FilterValue, UseTableFiltersResult } from "@/lib/useTableFilters";
+```
+
+with:
+
+```tsx
+import { EMPTY_FILTER_LABEL, EMPTY_FILTER_VALUE } from "@/lib/useTableFilters";
+import type { ColumnFilterDescriptor, FilterState, FilterValue, UseTableFiltersResult } from "@/lib/useTableFilters";
+```
+
+(b) Replace:
 
 ```tsx
   /** Trigger button label. Defaults to "Filter". */
@@ -1209,7 +1603,7 @@ with:
 }
 ```
 
-Replace:
+(c) Replace:
 
 ```tsx
 export function FilterMenu<T>({ descriptors, tableFilters, label = "Filter" }: FilterMenuProps<T>) {
@@ -1226,7 +1620,7 @@ export function FilterMenu<T>({
 }: FilterMenuProps<T>) {
 ```
 
-Replace (the only occurrence):
+(d) Replace (the only occurrence):
 
 ```tsx
         <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid="button-filter-menu-trigger">
@@ -1238,10 +1632,29 @@ with:
         <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid={triggerTestId}>
 ```
 
+(e) In the select-option `map`, replace:
+
+```tsx
+                    const stringValue = String(value);
+                    const selected
+```
+
+with:
+
+```tsx
+                    const stringValue = String(value);
+                    const isEmptyOption = stringValue === EMPTY_FILTER_VALUE;
+                    const optionLabel = isEmptyOption ? EMPTY_FILTER_LABEL : stringValue;
+                    const optionId = isEmptyOption ? "__empty__" : stringValue;
+                    const selected
+```
+
+then replace ``data-testid={`option-filter-${descriptor.key}-${stringValue}`}`` with ``data-testid={`option-filter-${descriptor.key}-${optionId}`}``, ``data-testid={`checkbox-filter-${descriptor.key}-${stringValue}`}`` with ``data-testid={`checkbox-filter-${descriptor.key}-${optionId}`}``, and `<span>{stringValue}</span>` with `<span>{optionLabel}</span>`. Selection still stores `stringValue` (the token), so filtering is unchanged.
+
 - [ ] **Step 4: Run it to verify it passes**
 
-Run: `pnpm --filter studio exec vitest run src/components/tables/FilterMenu.test.tsx`
-Expected: PASS — 11 tests.
+Run: `pnpm --filter studio exec vitest run src/components/tables/FilterMenu.test.tsx src/__tests__/ImportDialog.test.tsx`
+Expected: PASS — `FilterMenu.test.tsx` 12 tests, `ImportDialog.test.tsx` 10 tests (the other FilterMenu consumer; measured at plan time).
 
 - [ ] **Step 5: Write the failing DataTable test**
 
@@ -1253,7 +1666,7 @@ import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataTable } from "@/components/data-table/DataTable";
-import type { ColumnDef, DataTableFocus, DataTableProps } from "@/components/data-table/types";
+import type { ColumnDef, DataTableContext, DataTableFocus, DataTableProps } from "@/components/data-table/types";
 
 interface Row {
   id: string;
@@ -1264,6 +1677,9 @@ interface Row {
 
 const makeRows = (n: number, prefix = "C"): Row[] =>
   Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i + 1}`, city: `City${i + 1}`, demand: (i + 1) * 10 }));
+
+// Editable-table default; output tables would pass readOnly: true.
+const CTX: DataTableContext<Row> = { readOnly: false, demandEditable: true };
 
 const columns: ColumnDef<Row>[] = [
   { id: "id", header: "ID", kind: "text", value: r => r.id, cell: r => <span data-testid={`id-${r.id}`}>{r.id}</span>, filter: "text" },
@@ -1283,6 +1699,7 @@ const columns: ColumnDef<Row>[] = [
 function renderTable(props: Partial<DataTableProps<Row>> = {}) {
   return render(
     <DataTable<Row>
+      ctx={CTX}
       rows={makeRows(3)}
       rowKey={r => r.id}
       columns={columns}
@@ -1324,6 +1741,7 @@ describe("DataTable — markup", () => {
   it("emits exactly the mapped testids and nothing else", () => {
     const { container } = render(
       <DataTable<Row>
+      ctx={CTX}
         rows={makeRows(2)}
         rowKey={r => r.id}
         columns={[{ id: "city", header: "City", kind: "text", value: r => r.city, cell: r => r.city }]}
@@ -1348,7 +1766,7 @@ describe("DataTable — markup", () => {
   it("passes ctx (with defaults) to cell and rowClassName", () => {
     const seen: unknown[] = [];
     renderTable({
-      ctx: { readOnly: true, isChanged: r => r.id === "C2" },
+      ctx: { readOnly: true, demandEditable: true, isChanged: r => r.id === "C2" },
       rowClassName: (r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : undefined),
       columns: [
         {
@@ -1366,6 +1784,29 @@ describe("DataTable — markup", () => {
     expect(screen.getByTestId("row-C2")).toHaveClass("bg-amber-50");
     expect(screen.getByTestId("row-C1")).not.toHaveClass("bg-amber-50");
     expect(seen[0]).toEqual([true, true, false, false]);
+  });
+});
+
+describe("DataTable — ctx is required (D2 safety)", () => {
+  it("omitting ctx is a compile error, so an adapter cannot silently default readOnly to false", () => {
+    const element = (
+      // @ts-expect-error — `ctx` is required: readOnly and demandEditable must be passed explicitly.
+      <DataTable<Row> rows={[]} rowKey={r => r.id} columns={columns} />
+    );
+    expect(element).toBeTruthy(); // not rendered; the assertion is the @ts-expect-error under `pnpm run typecheck`
+  });
+
+  it("an adapter's readOnly reaches every cell", () => {
+    const seen: boolean[] = [];
+    render(
+      <DataTable<Row>
+        ctx={{ readOnly: true, demandEditable: false }}
+        rows={makeRows(3)}
+        rowKey={r => r.id}
+        columns={[{ id: "x", header: "X", kind: "text", value: r => r.id, cell: (_r, ctx) => (seen.push(ctx.readOnly && !ctx.demandEditable), null) }]}
+      />,
+    );
+    expect(seen).toEqual([true, true, true]);
   });
 });
 
@@ -1414,13 +1855,15 @@ describe("DataTable — filter", () => {
       { ...columns[2], filterResetKey: k },
     ];
     const { rerender } = render(
-      <DataTable<Row> rows={makeRows(12)} rowKey={r => r.id} columns={cols(1)} testIds={{ row: r => `row-${r.id}` }} />,
+      <DataTable<Row>
+      ctx={CTX} rows={makeRows(12)} rowKey={r => r.id} columns={cols(1)} testIds={{ row: r => `row-${r.id}` }} />,
     );
     await user.click(screen.getByTestId("button-filter-menu-trigger"));
     await user.type(screen.getByTestId("input-filter-demand-min"), "100");
     await user.type(screen.getByTestId("input-filter-id"), "C1");
     expect(visibleIds()).toEqual(["row-C10", "row-C11", "row-C12"]);
-    rerender(<DataTable<Row> rows={makeRows(12)} rowKey={r => r.id} columns={cols(2)} testIds={{ row: r => `row-${r.id}` }} />);
+    rerender(<DataTable<Row>
+      ctx={CTX} rows={makeRows(12)} rowKey={r => r.id} columns={cols(2)} testIds={{ row: r => `row-${r.id}` }} />);
     // demand range cleared, id text filter "C1" kept → C1, C10, C11, C12
     expect(visibleIds()).toEqual(["row-C1", "row-C10", "row-C11", "row-C12"]);
   });
@@ -1477,7 +1920,8 @@ describe("DataTable — paging", () => {
       return (
         <>
           <button onClick={() => setRows(rs => rs.map(r => (r.id === "C55" ? { ...r, demand: 1 } : r)))}>edit</button>
-          <DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />
+          <DataTable<Row>
+      ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />
         </>
       );
     }
@@ -1486,6 +1930,52 @@ describe("DataTable — paging", () => {
     await user.click(screen.getByText("edit"));
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 2");
     expect(screen.getByTestId("cell-demand-C55")).toHaveTextContent("1");
+  });
+});
+
+describe("DataTable — page reset semantics (B2.2)", () => {
+  const ids = { row: (r: Row) => `row-${r.id}`, pagerNext: "t-next", pageIndicator: "t-ind" };
+  // 120 rows, demand 10…1200; the filter "demand ≤ 1000" keeps C1…C100 (2 pages).
+  function Mutable({ mutate }: { mutate: (rows: Row[]) => Row[] }) {
+    const [rows, setRows] = useState(makeRows(120));
+    return (
+      <>
+        <button onClick={() => setRows(mutate)}>mutate</button>
+        <DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={ids} />
+      </>
+    );
+  }
+  async function onFilteredPage2(mutate: (rows: Row[]) => Row[]) {
+    const user = userEvent.setup();
+    render(<Mutable mutate={mutate} />);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-demand-max"), "1000");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("t-next"));
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 2");
+    await user.click(screen.getByText("mutate"));
+    return screen.getByTestId("t-ind").textContent;
+  }
+  const extra: Row = { id: "X1", city: "X", demand: 5 };
+
+  it("adding a row the filter HIDES resets to page 1", async () => {
+    expect(await onFilteredPage2(rs => [...rs, { ...extra, demand: 5000 }])).toBe("Page 1 of 2");
+  });
+  it("deleting a row the filter HIDES resets to page 1", async () => {
+    expect(await onFilteredPage2(rs => rs.filter(r => r.id !== "C120"))).toBe("Page 1 of 2");
+  });
+  it("adding a row the filter SHOWS resets to page 1", async () => {
+    expect(await onFilteredPage2(rs => [...rs, extra])).toBe("Page 1 of 3");
+  });
+  it("deleting a row the filter SHOWS resets to page 1", async () => {
+    expect(await onFilteredPage2(rs => rs.filter(r => r.id !== "C1"))).toBe("Page 1 of 2");
+  });
+  it("editing a filtered column so a row leaves the filter keeps the page (same key set)", async () => {
+    expect(await onFilteredPage2(rs => rs.map(r => (r.id === "C60" ? { ...r, demand: 5000 } : r)))).toBe("Page 2 of 2");
+    expect(screen.queryByTestId("row-C60")).toBeNull();
+  });
+  it("reordering the rows keeps the page", async () => {
+    expect(await onFilteredPage2(rs => [...rs].reverse())).toBe("Page 2 of 2");
   });
 });
 
@@ -1528,6 +2018,7 @@ describe("DataTable — sections", () => {
   const sectioned = (rows: Row[]) =>
     render(
       <DataTable<Row>
+      ctx={CTX}
         rows={rows}
         rowKey={r => r.id}
         columns={columns}
@@ -1580,6 +2071,7 @@ describe("DataTable — sections", () => {
     const user = userEvent.setup();
     render(
       <DataTable<Row>
+      ctx={CTX}
         rows={[...makeRows(50), ...added]}
         rowKey={r => r.id}
         columns={columns}
@@ -1603,7 +2095,8 @@ describe("DataTable — focus jump", () => {
     return (
       <>
         <button onClick={() => setFocus({ token: Date.now(), matches: r => r.id === "C75" })}>jump</button>
-        <DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ row: r => `row-${r.id}`, pageIndicator: "t-ind" }} />
+        <DataTable<Row>
+      ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ row: r => `row-${r.id}`, pageIndicator: "t-ind" }} />
       </>
     );
   }
@@ -1628,7 +2121,8 @@ describe("DataTable — focus jump", () => {
       return (
         <>
           <button onClick={() => setFocus({ token: 1, matches: () => false })}>jump</button>
-          <DataTable<Row> rows={makeRows(120)} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ pagerNext: "t-next", pageIndicator: "t-ind" }} />
+          <DataTable<Row>
+      ctx={CTX} rows={makeRows(120)} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ pagerNext: "t-next", pageIndicator: "t-ind" }} />
         </>
       );
     }
@@ -1664,7 +2158,7 @@ import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters } from "@/lib/useTableFilters";
 import { cn } from "@/lib/utils";
 import { deriveFilterDescriptors, FILTER_ROW_THRESHOLD } from "./deriveFilterDescriptors";
-import { PAGE_SIZE, usePagedRows } from "./usePagedRows";
+import { PAGE_SIZE, pageResetKey, usePagedRows } from "./usePagedRows";
 import { TablePager } from "./TablePager";
 import type { CellContext, ColumnDef, DataTableProps, DataTableSection } from "./types";
 
@@ -1687,26 +2181,24 @@ export function DataTable<T>({
   footer,
 }: DataTableProps<T>) {
   const ctx: CellContext<T> = {
-    readOnly: ctxIn?.readOnly ?? false,
-    demandEditable: ctxIn?.demandEditable ?? true,
-    isOverridden: ctxIn?.isOverridden ?? never,
-    isChanged: ctxIn?.isChanged ?? never,
-    isAdded: ctxIn?.isAdded ?? never,
+    readOnly: ctxIn.readOnly,
+    demandEditable: ctxIn.demandEditable,
+    isOverridden: ctxIn.isOverridden ?? never,
+    isChanged: ctxIn.isChanged ?? never,
+    isAdded: ctxIn.isAdded ?? never,
   };
 
   // Pipeline (B2.2, fixed order): effective rows (adapter) → filter → clamp page → slice 50.
   const descriptors = useMemo(() => deriveFilterDescriptors(columns, rows), [columns, rows]);
   const tableFilters = useTableFilters(rows, descriptors);
   const { filteredRows, filterState, setFilter, clearAll } = tableFilters;
-  // Reset key = active filters + filtered row-key set: any filter change or row-set
-  // change returns to page 1; a cell edit (same keys) does not.
-  const filteredKey = useMemo(
-    () => JSON.stringify(filterState) + KEY_SEP + filteredRows.map(rowKey).join(KEY_SEP),
-    [filterState, filteredRows, rowKey],
-  );
-  // The key the rows will have once a focus jump has cleared every filter.
-  const allKey = useMemo(() => "{}" + KEY_SEP + rows.map(rowKey).join(KEY_SEP), [rows, rowKey]);
-  const paged = usePagedRows(filteredRows, filteredKey);
+  // Reset key = canonical filter state + sorted key set of ALL effective rows
+  // (pageResetKey): any filter change or add/delete resets to page 1; a cell
+  // edit or a reorder does not.
+  const resetKey = useMemo(() => pageResetKey(rows, rowKey, filterState), [rows, rowKey, filterState]);
+  // The key the table will have once a focus jump has cleared every filter.
+  const clearedKey = useMemo(() => pageResetKey(rows, rowKey, {}), [rows, rowKey]);
+  const paged = usePagedRows(filteredRows, resetKey);
 
   // Per-column filter reset: a changed `filterResetKey` clears only that column's filter.
   const resetSignature = columns.map(c => `${c.id}=${c.filterResetKey ?? ""}`).join(KEY_SEP);
@@ -1731,7 +2223,7 @@ export function DataTable<T>({
     const idx = rows.findIndex(focus.matches);
     if (idx < 0) return;
     clearAll();
-    paged.setPage(Math.floor(idx / PAGE_SIZE) + 1, allKey);
+    paged.setPage(Math.floor(idx / PAGE_SIZE) + 1, clearedKey);
     pendingScrollKey.current = rowKey(rows[idx]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.token]);
@@ -1893,11 +2385,11 @@ export function DataTable<T>({
 - [ ] **Step 8: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DataTable.test.tsx src/components/tables/FilterMenu.test.tsx src/__tests__/ImportDialog.test.tsx`
-Expected: PASS — `DataTable.test.tsx` 26 tests, `FilterMenu.test.tsx` 11 (measured at plan time); `ImportDialog.test.tsx` (the other FilterMenu consumer) unchanged and green.
+Expected: PASS — `DataTable.test.tsx` 34 tests, `FilterMenu.test.tsx` 12, `ImportDialog.test.tsx` 10 (measured at plan time). Then `pnpm --filter studio typecheck` must exit 0: it is what enforces the `@ts-expect-error` "ctx is required" test (an unused directive is itself a type error).
 
 - [ ] **Step 9: e2e sweep**
 
-`FilterMenu`'s default testid is unchanged and no tab renders `DataTable`, so no rendered testid changes. Prove it: `grep -rn 'button-filter-menu-trigger' artifacts/studio/src --include='*.tsx' | grep -v __tests__ | grep -v '\.test\.'` → only `FilterMenu.tsx` (the default). Record `e2e: n/a (no rendered testid changes)`.
+`FilterMenu`'s default trigger testid is unchanged, no tab renders `DataTable`, and no existing accessor returns `EMPTY_FILTER_VALUE` (it is new), so no rendered testid or text changes. Prove it: `grep -rn 'button-filter-menu-trigger' artifacts/studio/src --include='*.tsx' | grep -v __tests__ | grep -v '\.test\.'` → only `FilterMenu.tsx` (the default), and `grep -rn 'EMPTY_FILTER_VALUE' artifacts/studio/src --include='*.ts' --include='*.tsx' | grep -v __tests__ | grep -v '\.test\.'` → only `useTableFilters.ts`, `FilterMenu.tsx`, `deriveFilterDescriptors.ts`. Record `e2e: n/a (no rendered testid changes)`.
 
 - [ ] **Step 10: Gate**
 
@@ -1919,8 +2411,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P1.4 — DataTable shell
 
-- `components/data-table/DataTable.tsx`: effective rows → filter (FilterMenu > 10 rows, descriptors from columns) → clamp → slice 50 (pager > 50); sections share one menu/pager; focus jump; per-column filter reset; literal testids, `cell()` placed directly in the `<td>`, number columns centred. `FilterMenu` gains optional `triggerTestId` (default unchanged).
-- Deviations 1, 2 (focus jump clears filters first, as today), 3, 7. No consumers yet.
+- `components/data-table/DataTable.tsx`: effective rows → filter (FilterMenu > 10 rows, descriptors from columns) → clamp → slice 50 (pager > 50); reset key = canonical filters + sorted all-row keys (filtered-out/-in add/delete reset; filter-column edit and reorder keep the page); sections share one menu/pager; focus jump (clear filters, then index the unfiltered list — spec rev 4); per-column filter reset; required `ctx`; literal testids, `cell()` placed directly in the `<td>`, number columns centred. `FilterMenu` gains optional `triggerTestId` (default unchanged) and displays the empty token as "(empty)".
+- Deviations 1, 2, 3, 5, 7, 8. No consumers yet.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (no rendered testid changes).
 ```
 
@@ -1935,12 +2427,12 @@ git add artifacts/studio/src/components/data-table/DataTable.tsx artifacts/studi
 ```
 
 ```bash
-git commit artifacts/studio/src/components/data-table/DataTable.tsx artifacts/studio/src/__tests__/DataTable.test.tsx artifacts/studio/src/components/tables/FilterMenu.tsx artifacts/studio/src/components/tables/FilterMenu.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.4] add DataTable shell and FilterMenu trigger testid" -m "Deviations 1, 2, 3, 7. No table migrated; FilterMenu default testid unchanged." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/data-table/DataTable.tsx artifacts/studio/src/__tests__/DataTable.test.tsx artifacts/studio/src/components/tables/FilterMenu.tsx artifacts/studio/src/components/tables/FilterMenu.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.4] add DataTable shell and FilterMenu trigger testid" -m "Deviations 1, 2, 3, 5, 7, 8. No table migrated; FilterMenu default testid unchanged." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task SCU-2.P1.5: Replica harness — DataTable reproduces DistancesTab's testid map (B2.1 "explicit literal mapping")
+## Task SCU-2.P1.5: Replica harness — DataTable reproduces DistancesTab's complete testid map (B2.1 "explicit literal mapping")
 
 **Owner role:** frontend-engineer. **Spec:** B2.1 `testIds` ("each adapter maps to the testids that table emits today"), B2.2 (From/To boxes removed, pager > 50). **Deviation:** 1.
 
@@ -1952,7 +2444,7 @@ git commit artifacts/studio/src/components/data-table/DataTable.tsx artifacts/st
 - Consumes: `DataTable`, `ColumnDef`, `DataTableTestIds` (P1.2/P1.4); the real `DistancesTab` and its exported `DistanceOverride` type (`components/workspace/tabs/DistancesTab.tsx:17-27`, unchanged); `EntityIdCell` (`components/tables/EntityIdCell.tsx`, emits no testid); `AllProviders` (`src/__tests__/helpers/renderWithExportProvider.tsx` — `UnitProvider` + `ExportProvider`, which `DistancesTab`'s export buttons and unit draft need) plus a `QueryClientProvider`.
 - Produces: no production code. The adapter in the test is the documented starting point for the P4 Distances migration.
 
-**What it proves:** with a 60-row fixture (no reference matrix, so no fetch; WH03 and C020 unknown → warning icons; one estimated row; two changed rows on page 2), the set of testids inside the `<table>` and pager emitted by the **real** `DistancesTab` equals the set emitted by a `DataTable` adapter on page 1 **and** page 2, with identical header text and order and identical amber highlighting; the only differences are the spec-mandated ones (From/To boxes gone, FilterMenu trigger present). The test is non-vacuous: it asserts > 150 testids on page 1 and a `badge-distance-changed-*` on page 2, and any single wrong mapping breaks the `toEqual`.
+**What it proves:** with a 60-row fixture (no reference matrix, so no fetch; WH03 and C020 unknown → warning icons; one estimated row; two changed rows on page 2), the **complete** testid multiset under the root `distances-tab` — root, toolbar and its buttons, table, rows, cells, pager, empty state, filter trigger, add-row trigger — emitted by the **real** `DistancesTab` equals the set emitted by a `DataTable` adapter on page 1, on page 2 and in the empty state, after applying only B2.2's two deliberate changes (From/To boxes removed; FilterMenu trigger added when > 10 rows). Headers, row order and amber highlighting also match. The filter trigger is asserted inside the **replica's** own toolbar. Five built-in deliberate breaks — wrong `root`, `toolbar`, `filterTrigger`, an extra `table` id, wrong `row` — must each make the complete-set comparison fail, so the comparison provably detects each mapping. Non-vacuity: > 150 ids on page 1, and `badge-distance-changed-WH03-C020` on page 2. Toolbar buttons in the replica are inert stand-ins carrying the real testids (their behaviour is P2/P4's).
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -1969,10 +2461,15 @@ Create `artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx`:
 // No production table is migrated here; the adapter below is test-only and
 // is the template the P4 DistancesTab migration starts from.
 //
-// Expected, spec-mandated differences (B2.2), asserted explicitly below:
+// The comparison is the COMPLETE testid multiset under each root
+// (`distances-tab`): root, toolbar, scroll/table, rows, cells, pager, empty
+// state, filter trigger and the add-row trigger. Expected, spec-mandated
+// differences (B2.2), applied to the real set before comparing:
 //   - `input-filter-from` / `input-filter-to` boxes are removed;
 //   - the FilterMenu trigger `button-filter-menu-trigger` appears (> 10 rows).
 // The fixture has 60 rows so both pagers render (DataTable: > 50 only).
+// Toolbar buttons are inert stand-ins with the real testids (their behaviour
+// is P2/P4's); only the testid contract is under test here.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
@@ -2101,110 +2598,149 @@ function Providers({ children }: { children: ReactNode }) {
   );
 }
 
-/** Every data-testid inside the table(s) and the pager — the region DataTable owns. */
-function tableRegionTestIds(root: HTMLElement): string[] {
-  const ids: string[] = [];
-  for (const table of Array.from(root.querySelectorAll("table"))) {
-    for (const el of Array.from(table.querySelectorAll("[data-testid]"))) ids.push(el.getAttribute("data-testid")!);
-  }
-  for (const id of ["button-distances-prev", "distances-page-indicator", "button-distances-next"]) {
-    if (within(root).queryByTestId(id)) ids.push(id);
-  }
-  return ids.sort();
+/** Every data-testid at or under `root`, sorted (a multiset: duplicates are kept). */
+function allTestIds(root: HTMLElement): string[] {
+  return [root, ...Array.from(root.querySelectorAll("[data-testid]"))]
+    .map(el => el.getAttribute("data-testid"))
+    .filter((id): id is string => id !== null)
+    .sort();
+}
+
+/** The real set after B2.2's two deliberate changes. */
+function expectedFromReal(realIds: string[], filterShown: boolean): string[] {
+  const kept = realIds.filter(id => id !== "input-filter-from" && id !== "input-filter-to");
+  return (filterShown ? [...kept, "button-filter-menu-trigger"] : kept).sort();
+}
+
+const EMPTY_TEXT = "No distance overrides yet — add one below, or upload a CSV/JSON file.";
+
+function Replica({ data, ids = testIds }: { data: MergedRow[]; ids?: DataTableTestIds<MergedRow> }) {
+  return (
+    <DataTable<MergedRow>
+      rows={data}
+      rowKey={r => `${r.fromId}|${r.toId}`}
+      columns={columns}
+      testIds={ids}
+      ctx={{ readOnly: false, demandEditable: true, isChanged }}
+      rowClassName={(r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
+      scrollClassName="max-h-[55vh] overflow-y-auto"
+      emptyState={EMPTY_TEXT}
+      toolbar={{
+        download: (
+          <>
+            <button type="button" data-testid="button-export-distances-csv">CSV</button>
+            <button type="button" data-testid="button-export-distances-json">JSON</button>
+          </>
+        ),
+        upload: <button type="button" data-testid="button-import-distances">Upload</button>,
+      }}
+      footer={<button type="button" data-testid="button-add-distance-row">+ Add row</button>}
+    />
+  );
 }
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
+function renderReal(overrides: DistanceOverride[], savedOverrides: DistanceOverride[]) {
+  const real = render(
+    <DistancesTab
+      distanceOverrides={overrides}
+      savedDistanceOverrides={savedOverrides}
+      warehouseIds={warehouseIds}
+      customerIds={customerIds}
+      onChange={vi.fn()}
+      canonicalUnit="mi"
+    />,
+    { wrapper: Providers },
+  );
+  return { real, realRoot: real.getByTestId("distances-tab") };
+}
+
 describe("DataTable reproduces DistancesTab's testid map (P1 replica harness)", () => {
-  function renderBoth() {
-    const real = render(
-      <DistancesTab
-        distanceOverrides={current}
-        savedDistanceOverrides={saved}
-        warehouseIds={warehouseIds}
-        customerIds={customerIds}
-        onChange={vi.fn()}
-        canonicalUnit="mi"
-      />,
-      { wrapper: Providers },
-    );
-    const realRoot = real.getByTestId("distances-tab");
-    const realIds = tableRegionTestIds(realRoot);
-    fireEvent.click(within(realRoot).getByTestId("button-distances-next"));
-    const realIdsPage2 = tableRegionTestIds(realRoot);
-    fireEvent.click(within(realRoot).getByTestId("button-distances-prev"));
-    const realHeaders = within(realRoot).getAllByRole("columnheader").map(th => th.textContent);
-    const realRowClasses = within(realRoot)
+  function measureReal() {
+    const { real, realRoot } = renderReal(current, saved);
+    const page1 = allTestIds(realRoot);
+    const headers = within(realRoot).getAllByRole("columnheader").map(th => th.textContent);
+    const rowClasses = within(realRoot)
       .getAllByTestId(/^row-distance-/)
       .map(tr => [tr.getAttribute("data-testid"), tr.className.includes("bg-amber-50")]);
+    fireEvent.click(within(realRoot).getByTestId("button-distances-next"));
+    const page2 = allTestIds(realRoot);
     real.unmount();
-
-    const replica = render(
-      <DataTable<MergedRow>
-        rows={rows}
-        rowKey={r => `${r.fromId}|${r.toId}`}
-        columns={columns}
-        testIds={testIds}
-        rowClassName={(r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
-        ctx={{ isChanged }}
-        scrollClassName="max-h-[55vh] overflow-y-auto"
-        emptyState="No distance overrides yet — add one below, or upload a CSV/JSON file."
-      />,
-    );
-    const replicaRoot = replica.getByTestId("distances-tab");
-    return { realIds, realIdsPage2, realHeaders, realRowClasses, replicaRoot };
+    return { page1, page2, headers, rowClasses };
   }
 
-  it("emits the identical set of table + pager testids on page 1 and page 2", () => {
-    const { realIds, realIdsPage2, replicaRoot } = renderBoth();
-    // Non-vacuity: 50 rows × (row + input + remove) = 150, plus warnings, badges and pager.
-    expect(realIds.length).toBeGreaterThan(150);
-    expect(realIdsPage2).toContain("badge-distance-changed-WH03-C020");
-    expect(tableRegionTestIds(replicaRoot)).toEqual(realIds);
+  it("emits the identical complete testid set under the root, on page 1 and page 2", () => {
+    const real = measureReal();
+    // Non-vacuity: 50 rows × (row + input + remove) = 150, plus warnings, badges, toolbar and pager.
+    expect(real.page1.length).toBeGreaterThan(150);
+    expect(real.page1).toEqual(expect.arrayContaining(["distances-tab", "distances-tab-toolbar", "button-add-distance-row"]));
+    expect(real.page2).toContain("badge-distance-changed-WH03-C020");
+    const { getByTestId } = render(<Replica data={rows} />);
+    const replicaRoot = getByTestId("distances-tab");
+    expect(allTestIds(replicaRoot)).toEqual(expectedFromReal(real.page1, true));
     fireEvent.click(within(replicaRoot).getByTestId("button-distances-next"));
-    expect(tableRegionTestIds(replicaRoot)).toEqual(realIdsPage2);
+    expect(allTestIds(replicaRoot)).toEqual(expectedFromReal(real.page2, true));
+  });
+
+  it("the filter trigger is the REPLICA's own, inside its toolbar", () => {
+    const { getByTestId } = render(<Replica data={rows} />);
+    const toolbar = within(getByTestId("distances-tab")).getByTestId("distances-tab-toolbar");
+    expect(within(toolbar).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(within(getByTestId("distances-tab")).getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 2");
+  });
+
+  it("empty state: identical complete testid set (no filter trigger at 0 rows)", () => {
+    const { real, realRoot } = renderReal([], []);
+    const realEmpty = allTestIds(realRoot);
+    real.unmount();
+    expect(realEmpty).toContain("distances-tab-empty");
+    const { getByTestId } = render(<Replica data={[]} />);
+    expect(allTestIds(getByTestId("distances-tab"))).toEqual(expectedFromReal(realEmpty, false));
+    expect(screen.getByTestId("distances-tab-empty")).toHaveTextContent("No distance overrides yet");
   });
 
   it("renders the same headers in the same order", () => {
-    const { realHeaders, replicaRoot } = renderBoth();
-    expect(within(replicaRoot).getAllByRole("columnheader").map(th => th.textContent)).toEqual(realHeaders);
+    const real = measureReal();
+    const { getByTestId } = render(<Replica data={rows} />);
+    expect(within(getByTestId("distances-tab")).getAllByRole("columnheader").map(th => th.textContent)).toEqual(real.headers);
   });
 
   it("renders the same rows in the same order with the same amber 'changed' highlighting", () => {
-    const { realRowClasses, replicaRoot } = renderBoth();
-    const replicaRowClasses = within(replicaRoot)
+    const real = measureReal();
+    const { getByTestId } = render(<Replica data={rows} />);
+    const replicaRowClasses = within(getByTestId("distances-tab"))
       .getAllByTestId(/^row-distance-/)
       .map(tr => [tr.getAttribute("data-testid"), tr.className.includes("bg-amber-50")]);
-    expect(replicaRowClasses).toEqual(realRowClasses);
+    expect(replicaRowClasses).toEqual(real.rowClasses);
   });
 
-  it("spec-mandated differences only: From/To boxes gone, FilterMenu trigger present, same page indicator", () => {
-    const { replicaRoot } = renderBoth();
-    expect(within(replicaRoot).queryByTestId("input-filter-from")).toBeNull();
-    expect(within(replicaRoot).queryByTestId("input-filter-to")).toBeNull();
-    expect(within(screen.getByTestId("distances-tab-toolbar")).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
-    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 2");
-  });
-
-  it("empty rows map to distances-tab-empty, like DistancesTab.tsx:727", () => {
-    render(<DataTable<MergedRow> rows={[]} rowKey={r => `${r.fromId}|${r.toId}`} columns={columns} testIds={testIds} emptyState="No distance overrides yet — add one below, or upload a CSV/JSON file." />);
-    expect(screen.getByTestId("distances-tab-empty")).toHaveTextContent("No distance overrides yet");
+  // Deliberate breaks: each wrong mapping must make the complete-set comparison fail.
+  it.each<[string, DataTableTestIds<MergedRow>]>([
+    ["root", { ...testIds, root: "distances-tab-x" }],
+    ["toolbar", { ...testIds, toolbar: "distances-tab-toolbar-x" }],
+    ["filter trigger", { ...testIds, filterTrigger: "button-filter-x" }],
+    ["table (an id the real table does not emit)", { ...testIds, table: "distances-table" }],
+    ["row", { ...testIds, row: r => `row-dist-${r.fromId}-${r.toId}` }],
+  ])("a wrong %s mapping is detected", (_name, broken) => {
+    const real = measureReal();
+    const { container } = render(<Replica data={rows} ids={broken} />);
+    const replicaRoot = container.firstElementChild as HTMLElement;
+    expect(allTestIds(replicaRoot)).not.toEqual(expectedFromReal(real.page1, true));
   });
 });
 ```
 
-- [ ] **Step 2: Prove the parity test can fail**
-
-In the test's `testIds` object, temporarily change the `row` template's literal prefix from `row-distance-` to `row-dist-`, then run:
-`pnpm --filter studio exec vitest run src/__tests__/DataTable.distancesReplica.test.tsx`
-Expected: FAIL — "emits the identical set of table + pager testids on page 1 and page 2" fails on `toEqual` (and the row-order test fails to find `row-distance-*`). Revert the change.
-
-- [ ] **Step 3: Run it to verify it passes**
+- [ ] **Step 2: Run it to verify it passes (the deliberate breaks are part of it)**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DataTable.distancesReplica.test.tsx src/__tests__/DistancesTab.test.tsx`
-Expected: PASS — replica 5 tests (measured at plan time); `DistancesTab.test.tsx` unchanged and green.
+Expected: PASS — replica 10 tests (5 parity/scoping/empty/header/row tests + 5 "a wrong … mapping is detected"); `DistancesTab.test.tsx` 64 tests unchanged (measured at plan time). The replica file renders the real tab repeatedly and took ~14–22 s in isolation at plan time; if it times out under load, check `docs/superpowers/flake-registry.md` and re-run in isolation before changing anything.
+
+- [ ] **Step 3: Prove a parity break is caught outside the it.each too**
+
+In the test's top-level `testIds` object, temporarily change `toolbar: "distances-tab-toolbar"` to `toolbar: "distances-toolbar"` and re-run the file. Expected: FAIL — `Tests  3 failed | 7 passed (10)`: "emits the identical complete testid set …", "the filter trigger is the REPLICA's own …" and "empty state: identical complete testid set …" (measured at plan time). Revert the change and re-run → PASS.
 
 - [ ] **Step 4: e2e sweep**
 
@@ -2230,7 +2766,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P1.5 — DistancesTab replica harness
 
-- `__tests__/DataTable.distancesReplica.test.tsx`: real `DistancesTab` vs a DataTable adapter on a 60-row fixture — identical table + pager testid sets on pages 1 and 2 (<N> ids on page 1), identical headers and amber rows; only differences are B2.2's (From/To boxes removed, FilterMenu trigger added). Mutation check (wrong row testid) fails the test as expected.
+- `__tests__/DataTable.distancesReplica.test.tsx`: real `DistancesTab` vs a DataTable adapter on a 60-row fixture — identical COMPLETE testid multisets under `distances-tab` on pages 1 and 2 and in the empty state (<N> ids on page 1), identical headers and amber rows, filter trigger scoped to the replica's toolbar; only differences are B2.2's (From/To boxes removed, FilterMenu trigger added). Five built-in deliberate breaks (root, toolbar, filter trigger, table, row) each fail the comparison.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (test only).
 ```
 
@@ -2245,14 +2781,14 @@ git add artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.5] prove DataTable reproduces DistancesTab testids" -m "Test-only; adapter is the P4 Distances migration template." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.5] prove DataTable reproduces DistancesTab testids" -m "Complete scoped testid sets, pages 1/2 + empty; built-in breaks for root/toolbar/filter/table/row. Test-only; adapter is the P4 Distances migration template." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P1.6: `FormattedNumberInput` (B2.9)
 
-**Owner role:** frontend-engineer. **Spec:** B2.9 (all bullets), D3. **Deviations:** 8, 9, 11.
+**Owner role:** frontend-engineer. **Spec:** B2.9 rev 4 (all component bullets), D3. **Deviations:** 10, 11, 12.
 
 **Files:**
 - Create: `artifacts/studio/src/components/data-table/FormattedNumberInput.tsx`
@@ -2261,7 +2797,7 @@ git commit artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx do
 
 **Interfaces:**
 - Consumes: `Input` from `@/components/ui/input` (existing; `React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>`, default classes include `w-full`); `cn` from `@/lib/utils`.
-- Produces: `FormattedNumberInput` (forwardRef), `FormattedNumberInputProps`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue` (signatures in "Interfaces" above). P4 applies it to `input-customer-demand-{id}` (base, `CustomerTable.tsx:163-173`, today `type="number"`, per-keystroke commit, empty → `null`), the added scalar demand and JADE per-product demand, with `suffix="Units"`; P4 owns the Brazil-lock and history tests (deviation 8) and the e2e rewrites listed in matrix §5 item 9.
+- Produces: `FormattedNumberInput` (forwardRef, with `integer` mode), `FormattedNumberInputProps`, `sanitizeNumberText(raw, integer?)`, `groupNumberText`, `formatNumberValue` (signatures in "Interfaces" above). P4 applies it (see "Hand-off to P4"): customer demand `input-customer-demand-{id}` (base, `CustomerTable.tsx:163-173`, today `type="number"`, per-keystroke commit, empty → `null`), added scalar demand, JADE per-product demand, all with `suffix="Units"`; station demand (base + added) with `integer`.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -2284,8 +2820,15 @@ import {
 } from "@/components/data-table/FormattedNumberInput";
 
 // A controlled harness: the parent stores what onChange reports, exactly like
-// a demand-override handler would.
-function Harness({ initial = null as number | null, onValue = (_: number | null) => {}, disabled = false }) {
+// a demand-override handler would. Like today's demand inputs
+// (CustomerTable.tsx:163-173) it passes NO aria-label — the user decided
+// (2026-10-17) that none is added.
+function Harness({
+  initial = null as number | null,
+  onValue = (_: number | null) => {},
+  disabled = false,
+  integer = false,
+}) {
   const [value, setValue] = useState<number | null>(initial);
   return (
     <FormattedNumberInput
@@ -2295,8 +2838,8 @@ function Harness({ initial = null as number | null, onValue = (_: number | null)
         onValue(v);
       }}
       suffix="Units"
-      aria-label="Demand for C1"
       disabled={disabled}
+      integer={integer}
       data-testid="input-customer-demand-C1"
     />
   );
@@ -2331,16 +2874,39 @@ describe("pure helpers", () => {
 });
 
 describe("FormattedNumberInput", () => {
-  it("is a text input with decimal inputMode, keeps aria-label, links the visible suffix", () => {
+  it("is a text input with decimal inputMode and links the visible 'Units' suffix via aria-describedby", () => {
     render(<Harness initial={1234} />);
     const el = input();
     expect(el).toHaveAttribute("type", "text");
     expect(el).toHaveAttribute("inputmode", "decimal");
-    expect(el).toHaveAccessibleName("Demand for C1");
     expect(el.value).toBe("1,234");
     const suffix = screen.getByText("Units");
     expect(el.getAttribute("aria-describedby")).toBe(suffix.id);
     expect(el).not.toContainElement(suffix);
+  });
+
+  it("adds no aria-label: a consumer without one (today's demand cells) stays without one", () => {
+    render(<Harness initial={1} />);
+    expect(input()).not.toHaveAttribute("aria-label");
+  });
+
+  it("a consumer's own aria-describedby is kept alongside the suffix id", () => {
+    render(<FormattedNumberInput value={1} onChange={() => {}} suffix="Units" aria-describedby="hint" data-testid="x" />);
+    const ids = (screen.getByTestId("x").getAttribute("aria-describedby") ?? "").split(" ");
+    expect(ids[0]).toBe("hint");
+    expect(ids[1]).toBe(screen.getByText("Units").id);
+  });
+
+  it("integer mode (station demand): numeric inputMode, '.' rejected, digits accepted", async () => {
+    const onValue = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness integer onValue={onValue} />);
+    expect(input()).toHaveAttribute("inputmode", "numeric");
+    await user.type(input(), "12.5");
+    expect(input().value).toBe("125");
+    expect(onValue).toHaveBeenLastCalledWith(125);
+    expect(sanitizeNumberText("1.5", true)).toBeNull();
+    expect(sanitizeNumberText("1,500", true)).toBe("1500");
   });
 
   it("reformats live on each keystroke and reports numbers", async () => {
@@ -2483,8 +3049,10 @@ Create `artifacts/studio/src/components/data-table/FormattedNumberInput.tsx`:
 // so also "-" and exponents) and values above Number.MAX_SAFE_INTEGER leave
 // the field and the value unchanged. IME composition is passed through raw
 // and only formatted on `compositionend`. A visible suffix (e.g. "Units")
-// sits OUTSIDE the input and is linked via aria-describedby; the caller's
-// aria-label is untouched.
+// sits OUTSIDE the input and is linked via aria-describedby. The component
+// never adds an aria-label: whatever accessible name the caller gives the
+// input today (none, for the demand cells) is passed through unchanged.
+// `integer` (station demand) also rejects ".".
 
 import * as React from "react";
 import { Input } from "@/components/ui/input";
@@ -2496,15 +3064,18 @@ export interface FormattedNumberInputProps
   onChange: (value: number | null) => void;
   /** Visible text after the input, e.g. "Units". */
   suffix?: string;
+  /** Integers only (station demand): "." is rejected like any other non-digit; inputMode "numeric". */
+  integer?: boolean;
   "data-testid"?: string;
 }
 
 const isSig = (ch: string) => (ch >= "0" && ch <= "9") || ch === ".";
 
-/** Strips grouping commas and spaces; returns null when anything else is invalid. */
-export function sanitizeNumberText(raw: string): string | null {
+/** Strips grouping commas and spaces; returns null when anything else is invalid
+ * (with `integer`, a "." is invalid too). */
+export function sanitizeNumberText(raw: string, integer = false): string | null {
   const s = raw.replace(/[,\s]/g, "");
-  if (!/^\d*\.?\d*$/.test(s)) return null;
+  if (!(integer ? /^\d*$/ : /^\d*\.?\d*$/).test(s)) return null;
   return s;
 }
 
@@ -2544,7 +3115,10 @@ function caretAfterSig(text: string, n: number): number {
 }
 
 export const FormattedNumberInput = React.forwardRef<HTMLInputElement, FormattedNumberInputProps>(
-  function FormattedNumberInput({ value, onChange, suffix, className, onCompositionStart, onCompositionEnd, ...rest }, forwardedRef) {
+  function FormattedNumberInput(
+    { value, onChange, suffix, integer = false, className, onCompositionStart, onCompositionEnd, ...rest },
+    forwardedRef,
+  ) {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const composing = React.useRef(false);
     const pendingCaret = React.useRef<number | null>(null);
@@ -2556,7 +3130,7 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
     // current text already means that value (e.g. "12." while typing 12.5).
     if (value !== seenValue) {
       setSeenValue(value);
-      const current = sanitizeNumberText(text);
+      const current = sanitizeNumberText(text, integer);
       if (current === null || parse(current) !== value) setText(formatNumberValue(value));
     }
 
@@ -2569,7 +3143,7 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
     });
 
     const accept = (raw: string, caret: number) => {
-      const clean = sanitizeNumberText(raw);
+      const clean = sanitizeNumberText(raw, integer);
       const next = clean === null ? null : parse(clean);
       // Rejected: no state change, so React restores the controlled value to `text`.
       if (clean === null || (next !== null && next > Number.MAX_SAFE_INTEGER)) return;
@@ -2596,7 +3170,7 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
             else if (forwardedRef) forwardedRef.current = el;
           }}
           type="text"
-          inputMode="decimal"
+          inputMode={integer ? "numeric" : "decimal"}
           value={text}
           aria-describedby={describedBy}
           className={cn("w-full", className)}
@@ -2633,7 +3207,7 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
 - [ ] **Step 4: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/FormattedNumberInput.test.tsx`
-Expected: PASS — 17 tests (measured at plan time). Coverage map to B2.9's list: caret mid-number ✓, paste ✓ (strip + reject), empty → null ✓, decimals ✓, max-safe ✓, IME ✓, select-all + type ✓, leading zeros ✓, negatives ✓, aria-label kept + suffix linked ✓; Brazil base locked vs added editable and history disabled for base/added/JADE → P4 (deviation 8; P1 covers the `disabled` pass-through).
+Expected: PASS — 20 tests (measured at plan time). Coverage map to B2.9's list: caret mid-number ✓, paste ✓ (strip + reject), empty → null ✓, decimals ✓, max-safe ✓, IME ✓, select-all + type ✓, leading zeros ✓, negatives ✓, integer mode ✓, **no aria-label added** + "Units" suffix linked via `aria-describedby` (merged with a consumer's own) ✓, `disabled` pass-through ✓. Brazil base locked vs added editable, history disabled for base/added/JADE, and empty demand blocking the add-customer submit → P4 (deviation 10).
 
 - [ ] **Step 5: e2e sweep**
 
@@ -2659,8 +3233,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P1.6 — FormattedNumberInput
 
-- `components/data-table/FormattedNumberInput.tsx`: text/decimal input, en-US grouping live, caret kept by significant-character count, paste strip/reject, IME-safe, leading zeros normalised, > MAX_SAFE_INTEGER and negatives rejected, `onChange(number | null)` (null = clear override, D3), suffix outside the input via aria-describedby.
-- Deviations 8 (Brazil/history tests move to P4), 9 (onChange only when the number changes). Open questions Q1–Q3 (matrix §5) deferred to P4.
+- `components/data-table/FormattedNumberInput.tsx`: text/decimal input, en-US grouping live, caret kept by significant-character count, paste strip/reject, IME-safe, leading zeros normalised, > MAX_SAFE_INTEGER and negatives rejected, `onChange(number | null)` (null = clear override, D3), "Units" suffix outside the input via aria-describedby, no aria-label added, `integer` mode for station demand.
+- Deviations 10 (table-level B2.9 tests move to P4), 11 (onChange only when the number changes), 12 (no aria-label, user decision 2026-10-17).
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>. e2e: n/a (no UI change).
 ```
 
@@ -2675,21 +3249,37 @@ git add artifacts/studio/src/components/data-table/FormattedNumberInput.tsx arti
 ```
 
 ```bash
-git commit artifacts/studio/src/components/data-table/FormattedNumberInput.tsx artifacts/studio/src/__tests__/FormattedNumberInput.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.6] add FormattedNumberInput" -m "Deviations 8, 9; no consumer yet (applied to demand cells in P4)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/data-table/FormattedNumberInput.tsx artifacts/studio/src/__tests__/FormattedNumberInput.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P1.6] add FormattedNumberInput" -m "Deviations 10, 11, 12; integer mode for station demand; no consumer yet (applied in P4)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Phase P1 exit (controller, after P1.6 is cherry-picked)
 
-- [ ] `git log --oneline <P1 base>..scnd-upgrades` shows exactly six `[SCU-2.P1.N]` commits, N = 1…6.
+- [ ] `git log --oneline <P1 base>..scnd-upgrades` shows exactly six `[SCU-2.P1.N]` commits, N = 1…6, on top of the L0 Bundle 1 merge; `git merge-base --is-ancestor "$B1_TIP" scnd-upgrades` succeeds.
 - [ ] `git diff --stat <P1 base>..scnd-upgrades -- artifacts/studio/e2e artifacts/studio/src/pages artifacts/studio/src/components/workspace lib artifacts/api-server` → empty (P1 has no consumers and no server change).
 - [ ] Re-run the full gate on the bundle tip (each command separately, with the vitest-quiet check first).
-- [ ] Hand P2/P3/P4 plan authors: this plan's "Interfaces" section and matrix §4–§5. Q1–Q4 go to the user before the P4 task that hits each.
+- [ ] Hand P2/P3/P4 plan authors: this plan's "Interfaces" section, the "Hand-off to P4" section below and matrix §4–§5.
 - [ ] No `/harness-retro`, merge, push or deploy here: the branch finishes after P4 (root CLAUDE.md branch pipeline).
+
+## Hand-off to P4 (and P3) — obligations P1 deliberately leaves to the consumer phases
+
+- **Real-browser focus check (Codex finding 6).** P1 proves in jsdom only that the focus jump selects the right page and calls `scrollIntoView`; jsdom has no layout (`artifacts/studio/CLAUDE.md`, "A test that cannot fail…"). The P4 Distances and JadeDistances migration commits each add a Playwright check: trigger the post-Save precheck "jump to it" on a target on page ≥ 2 with a filter active, then assert the filter was cleared, the page indicator shows the target's page, and the target row is **in the viewport** (`await expect(row).toBeInViewport()`).
+- **B2.9 application (spec rev 4, user decisions 2026-10-17).**
+  - Customer demand — base `input-customer-demand-{id}`, added `input-added-customer-demand-{id}`, JADE `input-customer-demand-{c}-{p}` / `input-added-customer-demand-{id}-{p}` — uses `FormattedNumberInput` with `suffix="Units"`; testids unchanged.
+  - **No aria-label is added** anywhere; the P4 RTL tests assert the demand inputs still have none and that `aria-describedby` points at the "Units" suffix.
+  - **Station demand** (`input-station-demand-{id}`, `input-added-station-demand-{id}`) uses `FormattedNumberInput` with `integer` (today `parseInt`, `StationTable.tsx:50-62`).
+  - **The add-customer form blocks submit when a demand field is empty** (scalar already does, `CustomersTab.tsx:348-351`; the JADE per-product blank→0 at `:330-333` changes), with a validation message, in the inline form and in the B2.8 modal.
+  - Still to ask the user in P4: what emptying an existing **added** row's demand cell means (today it commits `0`, `CustomersTab.tsx:547-557`; the component reports `null`).
+  - P4 carries the table-level B2.9 tests: Brazil base locked vs added editable; history disabled for base, added and JADE; empty demand blocks add-customer submit.
+  - e2e that reads demand with `Number(...)` must be rewritten in that commit (matrix §5 item 9).
+- **JADE Plants** base + added share ONE filter menu (spec rev 4 B2.2); the `id` column's `value()` covers both accessors (`name ?? id`, `displayCode ?? id`).
+- **`ctx`** is required: every input adapter passes the live history flag as `readOnly` (D2 — matrix §5 item 8 lists the tabs that have no disabled prop today); output adapters pass `{ readOnly: true, demandEditable: false }`.
+- **Filter-type pins and ids** (matrix §5 items 3–5): column ids equal today's descriptor keys; pin `filter` where auto-derivation would change today's control type.
 
 ## Self-review (run at plan time)
 
-- **Spec coverage.** B2.1 props → P1.2 (types) + P1.4 (render) — rendering rules (primitives, `table-auto`, `px-3 py-1.5`, `whitespace-nowrap`, number centring, no fixed widths) asserted in `DataTable.test.tsx` "markup"; `readOnly`/`ctx` → P1.4 ctx test (application to cells is P3/P4). B2.2 pipeline/filter precedence/null handling/descriptor ids/shared menu/trigger testid → P1.2 + P1.4; paging 50 / pager > 50 / reset / clamp / added rows appended → P1.3 + P1.4; focus jump → P1.4 (deviation 2); From/To removal → proven in P1.5 (actual removal happens per table in P4). B2.9 → P1.6 (Brazil/history tests → P4, deviation 8). B2.10 matrix → P1.1. B2.3–B2.8 → P2/P4 (toolbar slots exist in P1.4).
-- **Placeholder scan.** The only `<…>` tokens are changelog values the task must measure (rule: measured or `unknown`) and the worktree index `N` in the topology template.
-- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_OPTION`, `PAGE_SIZE`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0) and run under vitest (79 tests across the six test files: 9 + 11 + 26 + 11 + 5 + 17, all passing) in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written.
+- **Spec coverage (rev 4).** B2.1 props → P1.2 (types, required `ctx`) + P1.4 (render) — rendering rules (primitives, `table-auto`, `px-3 py-1.5`, `whitespace-nowrap`, number centring, no fixed widths) asserted in `DataTable.test.tsx` "markup"; `readOnly` reaching every cell → P1.4. B2.2 pipeline / filter precedence / null handling with the internal empty token / descriptor ids / shared menu / trigger testid → P1.2 + P1.4; paging fixed at 50, pager > 50, rev 4 reset rule (all six cases), clamp, added rows appended → P1.3 + P1.4; focus jump (rev 4 wording) → P1.4, browser check → P4 hand-off; From/To removal → proven in P1.5 (actual removal per table in P4). B2.9 component bullets incl. integer mode and no-aria-label → P1.6; table-level B2.9 tests → P4 hand-off. B2.10 matrix → P1.1 (every reference regenerated at `B1_TIP`). B2.3–B2.8 → P2/P4 (toolbar slots exist in P1.4).
+- **Codex deep review (11 findings) folded:** 1 topology + L0 + `B1_TIP` base guard; 2 P1.1 remaps every reference (scripts); 3 FilterMenu append starts after line 116 with no stray `});`, re-run; 4 `pageResetKey` + six DataTable reset tests + key-order tests; 5 spec B2.2 amended; 6 P4 browser check; 7 complete scoped sets + built-in breaks; 8 matrix row #9; 9 internal empty token; 10 no aria-label, tests assert absence + describedby; 11 no page-size override, `ctx` required.
+- **Placeholder scan.** The only `<…>` tokens are changelog values the task must measure (rule: measured or `unknown`), `B1_TIP`/`BASE` (set by L0 / the topology commands) and the worktree index `N`.
+- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL`, `PAGE_SIZE`, `pageResetKey`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0, which also proves the `@ts-expect-error` is consumed) and run under vitest — 102 tests across the six test files (11 + 15 + 12 + 34 + 10 + 20), all passing, plus `ImportDialog.test.tsx` 10, `DistancesTab.test.tsx` 64 and `useTableFilters.test.ts` 16 unchanged and green — in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written. The three P1.1 scripts were run against the matrix at plan time (identity remap byte-exact; checker 152 rows / 10 legitimate mismatches; inventory reproduces §3).

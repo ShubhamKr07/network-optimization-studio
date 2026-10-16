@@ -1,7 +1,7 @@
 # SCND Upgrades — design
 
 Date: 2026-10-16 · Branch: `scnd-upgrades` (worktree `/Users/shubhamkr/nos-scnd-upgrades`, base `main` @ `5ba7c4c`)
-Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
+Revision 4 — folds the Codex deep review of the Bundle 2 P1 plan (11 findings) and the user's 2026-10-17 answers on demand inputs and Plants filtering (B2.1, B2.2, B2.9 edited in place). Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
 
 Sixteen user-requested Workspace (model page) changes, split into two bundles executed in order on one branch:
 
@@ -148,9 +148,9 @@ Props:
   - `value(row) => string | number | null` — raw value for filtering and client export
   - `filter?: false | "text" | "select" | "range"` — overrides auto-derivation
   - `cellTestId?(row) => string`
-- `testIds: { table?, row?(row), pager?, pageIndicator?, filterTrigger? }` — **explicit literal mapping per table**, no auto-generated prefixes. Each adapter maps to the testids that table emits today (inventory in the migration matrix, B2.9).
+- `testIds: { table?, row?(row), pager?, pageIndicator?, filterTrigger? }` — **explicit literal mapping per table**, no auto-generated prefixes. Each adapter maps to the testids that table emits today (inventory in the migration matrix, B2.10). The P1 plan extends this list and `ColumnDef` **additively** (root/toolbar/scroll/count/pagerPrev/pagerNext/empty/noMatch testids, header testids, filter-only columns, per-column filter reset, a `sections` shape, a focus input), because 30 measured tables need them; the P1 plan's "Interfaces" section is the authoritative signature list.
 - `rowClassName?(row, ctx)` — for override/changed/added highlighting (amber rows in Distances/LaneCosts/DeliveryCosts today).
-- `ctx: CellContext` passed to `cell`/`rowClassName`: `{ readOnly, demandEditable, isOverridden(row), isChanged(row), isAdded(row) }`.
+- `ctx: CellContext` passed to `cell`/`rowClassName`: `{ readOnly, demandEditable, isOverridden(row), isChanged(row), isAdded(row) }`. The adapter's `ctx` prop is **required**, with `readOnly` and `demandEditable` required (no silent default that would drop D2 or the Brazil lock); only the row predicates default to "never".
 - `toolbar?: { upload?, download?, add?, extra? }` (B2.3–B2.6), `emptyState?`, `sections?` (base rows + added rows rendered as two titled groups under one toolbar, where a tab has both today).
 
 Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `px-3 py-1.5`; `whitespace-nowrap` headers; **`kind: "number"` header + cell centre-aligned**; cell inputs `w-full`; no fixed widths.
@@ -159,9 +159,9 @@ Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `
 
 ### B2.2 Row pipeline, filter, paging
 **Pipeline (fixed order).** Adapter derives effective rows (base ⊕ saved overrides ⊕ current edits ⊕ added rows, retaining inactive rows that carry overrides — as `DistancesTab.tsx:390-403` does today) → filter → clamp page → slice 50.
-- Filter change or row-set identity change resets to page 1; a page beyond the end clamps to the last page.
+- Filter change or row-set identity change resets to page 1; a page beyond the end clamps to the last page. "Row-set identity" is the **order-insensitive key set of ALL effective rows** (filtered or not), and "filter change" is a change of the **canonicalised** filter state (key and select-value order ignored). So adding or deleting any row — even one the filter hides — resets; a cell edit or a reorder does not, even when the edit moves a row in or out of the filter (the page then only clamps).
 - Newly added rows append after base rows.
-- Existing focus-jump behaviour (`DistancesTab.tsx:455-467`, `JadeDistancesTab.tsx:441-505`) is preserved: jump-to-row computes its page against the **filtered** list and navigates there.
+- Existing focus-jump behaviour (`DistancesTab.tsx:459-479`, `JadeDistancesTab.tsx:441-505`) is preserved: jump-to-row **clears every filter, then computes its page against the (now unfiltered) effective list** and navigates there, scrolling the row into view. (Rev 4: rev 2 said "against the filtered list", which contradicted "preserved" — today's code clears the filters first.) The scroll is verified in a real browser in P4; jsdom only proves the page selection.
 
 **Filter** (`FilterMenu` + `useTableFilters`, reused) top-right when effective rows > 10. Descriptors are generated from `columns`; precedence:
 1. explicit `filter`
@@ -169,9 +169,9 @@ Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `
 3. `kind: enum` → select
 4. `kind: text` → select if ≤ 20 distinct non-null values, else text
 
-`null`/`NaN` values match only an "(empty)" select option and are excluded from ranges. Filtering uses `value()`, never display text. Descriptor ids = column ids (stable). Base and added sections share one menu. Trigger testid `button-filter-menu-trigger` kept. The four From/To boxes (`input-filter-from/to` in Distances, LegDistances, LaneCosts, DeliveryCosts) are removed.
+`null`/`NaN` values match only an "(empty)" select option and are excluded from ranges. The option's value is an internal token that no real cell value can equal (a cell whose text is literally `(empty)` is its own option); only its display text is "(empty)". Filtering uses `value()`, never display text. Descriptor ids = column ids (stable). Base and added sections share one menu — including JADE Plants base + added, which have two independent menus today (user decision, 2026-10-17). Trigger testid `button-filter-menu-trigger` kept. The four From/To boxes (`input-filter-from/to` in Distances, LegDistances, LaneCosts, DeliveryCosts) are removed.
 
-**Paging.** `usePagedRows(rows, 50)` + `TablePager` (Prev / "Page X of Y" / Next), rendered only when filtered rows > 50 (Delivery's always-on pager, `DeliveryCostsTab.tsx:427-451`, changes accordingly). Replaces the four local `PAGE_SIZE = 50` implementations. Pager/indicator testids mapped per table (e.g. `delivery-costs-page-indicator`, `jadeassignments-page-indicator` kept).
+**Paging.** `usePagedRows` (page size fixed at 50; no override) + `TablePager` (Prev / "Page X of Y" / Next), rendered only when filtered rows > 50 (Delivery's always-on pager, `DeliveryCostsTab.tsx:427-451`, changes accordingly). Replaces the four local `PAGE_SIZE = 50` implementations. Pager/indicator testids mapped per table (e.g. `delivery-costs-page-indicator`, `jadeassignments-page-indicator` kept).
 
 ### B2.3 Upload ▾ (CSV / JSON)
 - Dropdown → existing `ImportDialog` with chosen format; preview / apply / all-or-nothing flow unchanged. File accept `.csv,text/csv` or `.json,application/json`. Client guard: file > 2 MB rejected before upload with the limit named.
@@ -207,25 +207,30 @@ Server switches to importing it with **no column change**; existing import tests
 ### B2.6 JSON import contract (one task: spec + Orval regen in one commit)
 **Request.** Body stays `application/json`. `ImportRequest` becomes `oneOf`:
 - `{ entity, format: "csv", csvText }` — today's shape; `format` optional, defaults to `csv` for backward compatibility
-- `{ entity, format: "json", document }`, where `document` is the **same envelope the JSON export emits**: `{ templateVersion, entity, unit?, rows }` with JSON keys. An exported JSON file round-trips unchanged.
+- `{ entity, format: "json", document }`, where `document` is the **same envelope the JSON export emits**: `{ templateVersion, entity, unit?, rows }` with JSON keys.
+- **Strict:** `additionalProperties: false` on both request variants and on `document` (only `templateVersion`, `entity`, `unit`, `rows`); `document.entity` uses the shared `ImportEntity` schema; `format: null` is rejected. The import operations get Orval's per-operation `strict.body` so the generated Zod enforces the same contract the server's hand parser does.
+- **Round trip, scoped:** exporting JSON and importing it back yields a structurally equal (JSON-equal) export. This holds across scenarios for **base** rows and overrides; **added** (scenario-local, opaque-id) entities round-trip only into the **same** scenario — in another scenario their ids are unknown by design. Distances already pass through the existing 4-dp `roundForFile`.
 
 **Validation.** Server maps `document.rows` to the same internal records the CSV parser yields, then the existing validator.
 - `document.entity` must equal `entity`; `templateVersion` must be supported.
 - Unknown keys → error; duplicate ids → existing duplicate rule.
-- Malformed JSON → 400 with `errorClass: "malformed"`.
+- Malformed JSON → 400 with `errorClass: "malformed"` (and optional `field`): an unparseable body, or a `document` that violates the schema (not an object, unknown top-level key, `entity` not an `ImportEntity`, `unit` not km/mi, `rows` not an array of objects). Request-envelope violations (entity, format, unknown request key, `csvText`, `mode`) → 422.
 
-**Errors.** `ImportError` gains optional `rowIndex` (0-based, JSON) and `field`; CSV keeps `line`. Preview and all-or-nothing apply return the same error envelope; the current 422 `{ error, preview }` on apply (`scenarios.ts:1743-1750`) is documented in OpenAPI as-is.
+**Errors.** `ImportError` gains optional `rowIndex` (0-based, JSON) and `field`; CSV keeps `line` (JSON errors carry `line: null`). `ImportRowChange` also gains optional `rowIndex`; a JSON change's `line` is `rowIndex + 2`. Preview and all-or-nothing apply return the same error envelope; the current 422 `{ error, preview }` on apply (`scenarios.ts:1743-1750`) is documented in OpenAPI as-is.
 
-**Limits.** `express.json({ limit: "2mb" })` (today's default is 100 kb, `app.ts:68`); over-limit → 413 `{ error: "payload_too_large" }`, documented. Max rows 20,000 per import.
+**Limits.** One **2 MiB wire limit** (`MAX_IMPORT_BYTES` = 2,097,152 bytes, what body-parser parses `"2mb"` to) on the **two import routes only**, via a route-scoped JSON parser; every other route keeps today's global `express.json()` (100 kB default, `app.ts:68`) unchanged. Over-limit → 413 `{ error: "payload_too_large" }`, documented. The client measures the **serialized request body** (`new Blob([JSON.stringify(payload)]).size`), not the file size, and shows the same plain sentence as a 413. Max rows 20,000 per import (20,000 accepted, 20,001 rejected).
 
-**Ownership.** Unchanged: both routes scope by `userId`, non-owned → 404 (`scenarios.ts:1612-1615, 1696-1699`).
+**Ownership.** Both routes scope by `userId`, non-owned → 404 (`scenarios.ts:1612-1615, 1696-1699`). Auth and the ownership lookup run **before** the route-scoped body parser, so a non-owned scenario is 404 whatever the body (never 400/413).
+
 
 **Tests:**
 - JSON preview + apply
-- export→import round-trip with a populated row for every entity
-- non-owner JSON → 404
-- 413
-- malformed JSON
+- export→import round-trip with a populated row for every entity (base rows across scenarios; added entities same-scenario)
+- edge values: quotes/commas/newlines, `false`, nulls, envelope-backed fields omitted, km and mi
+- non-owner JSON → 404 (also when the body is malformed or oversized)
+- 413; a non-import route keeps today's body handling
+- malformed JSON; unknown top-level document key; strict oneOf (omitted/csv/json/mixed/unknown/null format) in generated Zod and server alike
+- 20,000 / 20,001 row boundary
 - entity mismatch
 - `format` omitted = CSV
 - contract test pinned to the version constants, not literals
@@ -234,7 +239,8 @@ Server switches to importing it with **no column change**; existing import tests
 **Representation (D1).**
 - Sparse overrides of `inputs.laneCostOverrides` (`solvers/delivery-teaching-us/manifest.json:33-43`).
 - Rows `{ fromId, toId, cost }`; `cost` = billable miles, **no unit conversion and no `unit` field**. Separate metadata from transport `laneCosts`, whose cost is a geographic distance with unit conversion (`templates.ts:1171-1191`).
-- Export emits only overridden pairs. Import upserts overrides, pairs must exist in the base matrix, and a row whose cost equals base removes the override.
+- Export emits only overridden pairs whose cost differs from base (a stored override equal to base is redundant and filtered). Import upserts overrides, pairs must exist in the base matrix, and a row whose cost equals base removes the override — decided by the override's **presence**, so it also removes a redundant override whose value already equals base. A blank cost is an error (0 is a legal cost).
+- A real change advances `inputsUpdatedAt` + `solveInputRevision` (via `applyScenarioInputWrite`), so a solved delivery scenario turns stale; a no-op import does not advance the revision.
 
 **Change checklist:**
 - OpenAPI import + export entity enums
@@ -261,8 +267,9 @@ Delivery Costs keeps its inline "+ Add row" (`DeliveryCostsTab.tsx:224-341`); it
 - Paste: strips grouping commas and spaces, rejects other characters. IME composition: no reformat until `compositionend`. Select-all + type replaces. Leading zeros normalised.
 - Values above `Number.MAX_SAFE_INTEGER` rejected.
 - `onChange(value: number | null)`: `null` = empty = clear override (D3); negatives rejected; decimals allowed.
-- "Units" is a visible suffix **outside** the input, linked via `aria-describedby`; the input's `aria-label` is unchanged.
-- Applied to base, added, and JADE per-product demand. Brazil `!demandEditable` applies to base demand only (today's rule); history read-only applies everywhere (D2). Testids `input-customer-demand-*` kept.
+- "Units" is a visible suffix **outside** the input, linked via `aria-describedby`; the input's `aria-label` is unchanged. Today's demand inputs have **no** `aria-label` (`CustomerTable.tsx:163-173`), and **none is added** (user decision, 2026-10-17): tests assert the absence plus the `aria-describedby` link.
+- Applied to base, added, and JADE per-product demand, and to **station demand** (base `input-station-demand-*` and added `input-added-station-demand-*`) in an **integer mode** (`integer` prop: "." rejected, `inputMode="numeric"`) — user decision, 2026-10-17.
+- The add-customer form (inline today, the B2.8 modal later) **blocks submit when a demand field is empty**, with a validation message — no silent `0`. Today the scalar field already blocks; the JADE per-product fields turn a blank into `0` (`CustomersTab.tsx:330-333`) and change (user decision, 2026-10-17). Brazil `!demandEditable` applies to base demand only (today's rule); history read-only applies everywhere (D2). Testids `input-customer-demand-*` kept.
 - Tests:
   - caret mid-number
   - paste
@@ -270,6 +277,9 @@ Delivery Costs keeps its inline "+ Add row" (`DeliveryCostsTab.tsx:224-341`); it
   - decimals
   - max-safe
   - IME
+  - integer mode (station demand)
+  - no aria-label added; suffix linked via `aria-describedby`
+  - empty demand blocks add-customer submit (P4)
   - Brazil base locked vs added editable
   - history disabled for base, added and JADE
 
