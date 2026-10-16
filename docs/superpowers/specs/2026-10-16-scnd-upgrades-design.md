@@ -1,7 +1,7 @@
 # SCND Upgrades — design
 
 Date: 2026-10-16 · Branch: `scnd-upgrades` (worktree `/Users/shubhamkr/nos-scnd-upgrades`, base `main` @ `5ba7c4c`)
-Revision 5 — folds the user's 2026-10-17 answers for Bundle 2 P3 (B2.1 output Download alignment, B2.2 metric-table filter exception, B2.4 JADE Flows downloads). Revision 4 — folds the Codex deep review of the Bundle 2 P1 plan (11 findings) and the user's 2026-10-17 answers on demand inputs and Plants filtering (B2.1, B2.2, B2.9 edited in place). Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
+Revision 6 — folds the user's 2026-10-17 answers for Bundle 2 P4 (B2.3 Upload disabled in history, B2.8 display code always generated, B2.9 per-adapter suffix — stations "tons") and the P4 plan's commit granularity (B2.10: base + added sections migrate together, 21 instances → 12 commits). Revision 5 — folds the user's 2026-10-17 answers for Bundle 2 P3 (B2.1 output Download alignment, B2.2 metric-table filter exception, B2.4 JADE Flows downloads). Revision 4 — folds the Codex deep review of the Bundle 2 P1 plan (11 findings) and the user's 2026-10-17 answers on demand inputs and Plants filtering (B2.1, B2.2, B2.9 edited in place). Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
 
 Sixteen user-requested Workspace (model page) changes, split into two bundles executed in order on one branch:
 
@@ -23,7 +23,7 @@ All paths below are under `artifacts/studio/src/` unless shown otherwise. Line n
 | +Add form | Modal for **entities only** (warehouse, customer, plant, mine, station, refinery). Distance/cost tables — **including Delivery Costs** — keep their inline "+ Add row". Delivery gets no *entity* adds (`fixedGeography`) |
 | Filter | Every table > 10 rows, all models; replaces the ad-hoc From/To boxes |
 | Paging | 50 rows; pager shown only when filtered rows > 50 |
-| Demand cell | Always formatted (`1,234`), reformats live while typing, fixed "Units" suffix |
+| Demand cell | Always formatted (`1,234`), reformats live while typing, fixed suffix: "Units" (customers), "tons" (stations) |
 | Column cleanup | All tables; **numbers centre-aligned** |
 
 ### Decisions taken while folding the reviews (flagged to the user)
@@ -175,6 +175,7 @@ Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `
 
 ### B2.3 Upload ▾ (CSV / JSON)
 - Dropdown → existing `ImportDialog` with chosen format; preview / apply / all-or-nothing flow unchanged. File accept `.csv,text/csv` or `.json,application/json`. Client guard: file > 2 MB rejected before upload with the limit named.
+- Disabled while browsing result history, with the same reason Download ▾ shows there ("Input exports reflect the current scenario") — user decision, 2026-10-17.
 - Expected-fields panel (from `@workspace/import-schema`): CSV header / JSON key, type, required (add vs update), enum values, numeric bounds, unit, example CSV header line + example JSON envelope.
 - Tables: Warehouses/Refineries, Customers, Plants, Mines, Stations, Distances, Leg Distances (two-echelon-gold-au), JADE Distances (same API entity `legDistances`), Lane Costs, **Delivery Costs**. Not: Plant Capability Matrix, JADE Transport Costs.
 
@@ -257,6 +258,7 @@ Delivery Costs keeps its inline "+ Add row" (`DeliveryCostsTab.tsx:224-341`); it
 - Extend `CreateEntityDialog` (`components/workspace/map/dialogs/CreateEntityDialog.tsx:40-78`):
   - discriminated submit union for six kinds: warehouse, customer, plant, mine, station, refinery (role configs exist in `map/types.ts:152-245`)
   - `lat`/`lng` become **editable inputs** when opened from a table, still prefilled and read-only when opened from the map
+  - the display code is **always** generated with `nextDisplayCode` (`lib/entityId.ts:49`) from City/State, for a known or unknown city; the user can overwrite it (user decision, 2026-10-17)
   - per-kind fields: refinery no capacity, plant no value/status, mine capacity, station demand
 - Replaces the inline add rows for those six entities only. Submit writes through the existing `onAdded*Change` handlers, with the same validation messages as the inline forms.
 - Trigger testids keep today's literals: `button-add-{warehouse|customer|plant|mine|station}-row`; refinery keeps `button-add-warehouse-row` (D4). Form fields use `create-entity-*`.
@@ -267,7 +269,7 @@ Delivery Costs keeps its inline "+ Add row" (`DeliveryCostsTab.tsx:224-341`); it
 - Paste: strips grouping commas and spaces, rejects other characters. IME composition: no reformat until `compositionend`. Select-all + type replaces. Leading zeros normalised.
 - Values above `Number.MAX_SAFE_INTEGER` rejected.
 - `onChange(value: number | null)`: `null` = empty = clear override (D3); negatives rejected; decimals allowed.
-- "Units" is a visible suffix **outside** the input, linked via `aria-describedby`; the input's `aria-label` is unchanged. Today's demand inputs have **no** `aria-label` (`CustomerTable.tsx:163-173`), and **none is added** (user decision, 2026-10-17): tests assert the absence plus the `aria-describedby` link.
+- A visible suffix **outside** the input, linked via `aria-describedby` — a per-adapter prop value: "Units" for customer demand, "tons" for station demand (user decision, 2026-10-17); the input's `aria-label` is unchanged. Today's demand inputs have **no** `aria-label` (`CustomerTable.tsx:163-173`), and **none is added** (user decision, 2026-10-17): tests assert the absence plus the `aria-describedby` link.
 - Applied to base, added, and JADE per-product demand, and to **station demand** (base `input-station-demand-*` and added `input-added-station-demand-*`) in an **integer mode** (`integer` prop: "." rejected, `inputMode="numeric"`) — user decision, 2026-10-17.
 - The add-customer form (inline today, the B2.8 modal later) **blocks submit when a demand field is empty**, with a validation message — no silent `0`. Today the scalar field already blocks; the JADE per-product fields turn a blank into `0` (`CustomersTab.tsx:330-333`) and change (user decision, 2026-10-17). Brazil `!demandEditable` applies to base demand only (today's rule); history read-only applies everywhere (D2). Testids `input-customer-demand-*` kept.
 - Tests:
@@ -284,6 +286,8 @@ Delivery Costs keeps its inline "+ Add row" (`DeliveryCostsTab.tsx:224-341`); it
   - history disabled for base, added and JADE
 
 ### B2.10 Migration matrix (P1-P4) — one table instance per commit
+A tab's base and added rows are ONE `DataTable` instance (two `sections` under one toolbar, filter menu and pager, B2.2), so they migrate in one commit: the 21 P4 matrix instances land as 12 migration commits (P4 plan deviation 1).
+
 The P1 plan produces the full matrix as its first artefact. For every table instance it records:
 - tab file, model gate, row source/pipeline
 - filter columns, paging, upload/download entity
@@ -297,7 +301,7 @@ Known instances:
 | P1 | `DataTable`, `usePagedRows`, `TablePager`, `FormattedNumberInput`, filter derivation — own tests, no consumers |
 | P2 | `lib/import-schema` (B2.5), JSON import (B2.6), `deliveryCosts` (B2.7) — server + contract only |
 | P3 outputs | OpenWarehouses; Assignments; JadeAssignments; Flows; JadeFlows P→W; JadeFlows W→C; CostSummary single; CostSummary compare; ServiceStats Plant Production |
-| P4 inputs | Distances; LegDistances; JadeDistances; LaneCosts; DeliveryCosts; TransportCosts; CapabilityMatrix; Warehouses base + added (incl. refineries); Customers base + added; JADE per-product customers; Plants base + added; Mines base + added; Stations base + added; then B2.8 modal + B2.9 demand |
+| P4 inputs | Distances; LegDistances; JadeDistances; LaneCosts; DeliveryCosts; TransportCosts; CapabilityMatrix; Warehouses base + added (incl. refineries); Customers base + added; JADE per-product customers; Plants base + added; Mines base + added; Stations base + added; B2.8 modal component first, then wired per entity; B2.9 demand folded into the Customers and Stations commits |
 
 **Excluded:** ServiceStats band bars (non-tabular divs), `ImportDialog` preview/error grids (dialog-internal, not Workspace tables).
 
