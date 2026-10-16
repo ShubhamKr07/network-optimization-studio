@@ -65,13 +65,16 @@ export function FeedbackWidget() {
     // centred text. Only the PANEL is absolute — anchored `bottom-full` to
     // this wrapper so opening it floats upward over the content instead of
     // resizing the footer and shifting the page under the user's cursor.
-    <div className="relative flex justify-center mb-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    // SCU-1.7 (spec B1.6) — launcher right-aligned (bottom-right of the
+    // homepage, directly above DeveloperCredit); the panel anchors `right-0`
+    // so it opens upward from the launcher and stays inside the viewport.
+    <div className="relative flex justify-end mb-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       {open && (
         <div
           id="feedback-panel"
           role="group"
           aria-label="Send feedback"
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-20 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background p-3 shadow-lg text-left"
+          className="absolute bottom-full right-0 mb-2 z-20 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background p-3 shadow-lg text-left"
           onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           {status === "sent" ? (
