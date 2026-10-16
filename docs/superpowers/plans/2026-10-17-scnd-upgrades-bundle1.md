@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- **Every `Expected:` result in this plan is provisional.** That covers each RED/GREEN outcome, each failure message and each pass count that depends on installed dependencies. This worktree had no `node_modules` when the plan was written, so none of them were executed. Confirm each one after `pnpm install`. If the observed result differs, believe the observation and record it in the changelog. Grep counts (e.g. `40` toggle lookups, `28` e2e lines) were measured at `46d2f98` and are not provisional.
 - **Workdir / branch:** bundle branch `scnd-upgrades` in `/Users/shubhamkr/nos-scnd-upgrades`. Never touch `/Users/shubhamkr/network-optimization-studio`. Each task runs in its own pre-created locked worktree (see "Execution topology"). The task's first Bash command is `cd <its worktree> && git rev-parse --abbrev-ref HEAD`, and it must print `scu-1.N-work`; otherwise STOP.
 - **Before every `git commit`:** `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1`. Run it alone, read its output, then commit **with an explicit pathspec** (`git commit <paths> -m …`). Never pipe a state-changing git command.
 - **One task = one commit.** Message `[SCU-1.N] <imperative summary>`; the body ends with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -42,7 +43,7 @@
 
 ## Spec deviations and grounding facts (read before any task)
 
-These come from reading the code at `46d2f98` and from running `solve.py` locally. Each one is the smallest correct reading of the repo where the spec text and the code disagree (hard rule #8). Every commit that implements one names it in its body.
+These come from reading the code at `46d2f98` and from running `solve.py` locally. **All of them are now folded into the spec's Bundle 1 sections**, edited in place in rev 3. Where an item below says "the spec's …", it means the rev 2 text it replaced. Each one is the smallest correct reading of the repo where the spec text and the code disagree (hard rule #8). Every commit that implements one names it in its body.
 
 1. **JADE's frozen `bandCoverage` is already EXCLUSIVE, not cumulative.** `solve_jade` buckets each outbound lane once (`_band_exclusive`, `solve.py:1320-1327`; `band_flow[distance_bands[band_idx]] += …`, `solve.py:1381-1385`). A local run of `test_jade.GROUND_TRUTH_INPUTS` with bands `[200,400,800,1200]` returned `[{200:21},{400:12},{800:31},{1200:25},{-1:12}]`, which sums to 101 and is non-monotonic. Every other model's frozen coverage is cumulative: `solve.py:497-501` p-median, `:670-673` transport, `:863-868` brazil, `:1052-1076` gold-au, `:1633` max-coverage, `:1842-1845` delivery. The spec's single `cumulativeToExclusive` would mis-difference JADE. **Plan:** `frozenBandCoverageToExclusive(bandCoverage, decimals, shape)` with `shape: "cumulative" | "exclusive"`, plus a studio map `frozenBandShape(modelId)` that returns `"exclusive"` for `two-echelon-jade-us` only. The spec's cumulative algorithm is the `"cumulative"` branch, unchanged.
 2. **Narrative open-facility fields.** `two-echelon-gold-au` emits **no** `metrics.openFacilityIds`; its open refineries are `details.openWarehouseIds` (`solve.py:1081-1090`, `open_ids` = refineries at `:1011`). JADE's `metrics.openFacilityIds` holds **warehouses only** (`open_ids` at `solve.py:1316`, emitted at `:1418`). Plants are not decisions. **Plan:** the two-echelon adapter reads `metrics.openFacilityIds ?? details.openWarehouseIds`, uses the noun "refinery/refineries" for gold-au and "warehouse(s)" for JADE, and never calls plants "open".
@@ -50,11 +51,11 @@ These come from reading the code at `46d2f98` and from running `solve.py` locall
 4. **"Overflow row, always" changes existing e2e.** `nonjade-servicestats-live-coverage.spec.ts:233,353,436` assert `service-stats-band--1` has count 0. They are rewritten to assert the row reads `0%` (SCU-1.2).
 5. **Compare "shared bands"** now compares real boundaries only (the `-1` row is dropped in `bandBoundaries`, `CostSummaryTab.tsx:150-152`). Without this, two delivery scenarios with identical boundaries would count as "different bands" whenever only one of them had overflow, and the bands note would print a `-1` boundary.
 6. **No boundaries means no rows.** `computeExclusiveBandCoverage(edges, [], d)` returns `[]`, which matches `computeCumulativeBandCoverage` (`bands.ts:53`). Service Stats then keeps its existing `service-stats-no-bands` message.
-7. **B1.8 has no e2e text to update.** `workspace-fixups.spec.ts:246-283` addresses the tab only by testid (`sidebar-input-capability-matrix`). `grep -rn "Capability Matrix" artifacts/studio/e2e` matches only comments and a test title. The label gets a unit assertion instead (`Workspace.Jade.test.tsx:149-152`).
+7. **B1.8 has no e2e assertion to update.** `workspace-fixups.spec.ts:246-283` addresses the tab only by testid (`sidebar-input-capability-matrix`). The old label appears only in comments and test titles, which SCU-1.4 renames. The label gets a unit assertion instead (`Workspace.Jade.test.tsx:149-152`).
 8. **B1.2:** after the change, no caller passes `showInlineSave={false}`, so the prop is **deleted** (`InputMapTab.tsx:160-169,765,1052`; `Workspace.tsx:3424-3431`) rather than set to `true`.
 9. **B1.3 auto-open:** `selectedIds` is initialised to `[scenarioId]` (`CostSummaryTab.tsx:269`), so "2+ already selected" is false at every mount today. The rule is implemented literally as the picker's lazy initial state, `useState(() => selectedIds.length >= 2)`. The commit body records that it is unreachable today.
 10. **B1.5 changes the default from collapsed to expanded.** Specs that hover the collapsed rail's `button-open-scenarios-flyout` therefore change: `two-echelon.spec.ts:135`, `empty-first-run-workspace.spec.ts:61-69,161`, and `sidebar-rail.spec.ts` (whole file).
-11. **The compare CSV `Objective` is the solver's raw `result.objective`** (canonical units). The on-screen cell may be unit-formatted by `formatObjective`. The spec says "raw numbers", so the CSV takes the stored value. Distance-bearing rows are exported in the active **display** unit, and their label names that unit, because the label must state the unit the number is in.
+11. **The compare CSV `Objective` is the solver's raw `result.objective`** (canonical units). The CSV `Open facilities` cell is the **same display labels the on-screen cell shows**: `City - ST` via `facilityCityLabel`/`openFacilityCityList`, falling back exactly as the table does, and `"; "`-joined in the JADE chip layout. It is not raw ids. Every other value is raw. The on-screen cell may be unit-formatted by `formatObjective`. The spec says "raw numbers", so the CSV takes the stored value. Distance-bearing rows are exported in the active **display** unit, and their label names that unit, because the label must state the unit the number is in.
 
 ## File Structure
 
@@ -312,7 +313,7 @@ describe("frozenBandCoverageToExclusive", () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter @workspace/units exec vitest run src/__tests__/bands.test.ts`
-Expected: FAIL. The new `describe` blocks error with `TypeError: computeExclusiveBandCoverage is not a function` (and the same for `frozenBandCoverageToExclusive`). The pre-existing tests still pass.
+Expected (provisional; confirm after `pnpm install`): FAIL. The new `describe` blocks error with `TypeError: computeExclusiveBandCoverage is not a function` (and the same for `frozenBandCoverageToExclusive`). The pre-existing tests still pass.
 
 - [ ] **Step 3: Implement in `lib/units/src/bands.ts`** (append after line 68)
 
@@ -393,7 +394,7 @@ export function frozenBandCoverageToExclusive(
 - [ ] **Step 4: Run them to verify they pass**
 
 Run: `pnpm --filter @workspace/units exec vitest run src/__tests__/bands.test.ts`
-Expected: PASS (every test in the file, old and new).
+Expected (provisional; confirm after `pnpm install`): PASS (every test in the file, old and new).
 
 - [ ] **Step 5: Write the failing studio tests**
 
@@ -484,7 +485,7 @@ describe("frozenBandShape", () => {
 - [ ] **Step 6: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/bandsSingleSource.test.ts src/__tests__/exclusiveBands.test.ts`
-Expected: FAIL. `bandsSingleSource` fails `expected undefined to be [Function computeExclusiveBandCoverage]` for the two new names. `exclusiveBands` fails `exclusiveBandLabels is not a function` (and likewise for `bandDecimals` and `frozenBandShape`).
+Expected (provisional; confirm after `pnpm install`): FAIL. `bandsSingleSource` fails `expected undefined to be [Function computeExclusiveBandCoverage]` for the two new names. `exclusiveBands` fails `exclusiveBandLabels is not a function` (and likewise for `bandDecimals` and `frozenBandShape`).
 
 - [ ] **Step 7: Implement in `artifacts/studio/src/lib/bands.ts`**
 
@@ -560,7 +561,7 @@ export function exclusiveBandLabels(boundaries: number[], format: (canonical: nu
 - [ ] **Step 8: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/bandsSingleSource.test.ts src/__tests__/exclusiveBands.test.ts src/__tests__/bands.test.ts`
-Expected: PASS (all three files; `bands.test.ts` is unchanged and proves the legacy helpers are untouched, D6).
+Expected (provisional; confirm after `pnpm install`): PASS (all three files; `bands.test.ts` is unchanged and proves the legacy helpers are untouched, D6).
 
 - [ ] **Step 9: e2e sweep**
 
@@ -573,7 +574,7 @@ Run each separately, judging each by its own exit status:
 2. `pnpm --filter @workspace/units test`
 3. `pnpm run typecheck && pnpm --filter studio typecheck:e2e && pnpm --filter api-server test && pnpm --filter studio test && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)`
 
-Expected: every command exits 0. On any failure, check `docs/superpowers/flake-registry.md` by test name before treating it as a regression.
+Expected (provisional; confirm after `pnpm install`): every command exits 0. On any failure, check `docs/superpowers/flake-registry.md` by test name before treating it as a regression.
 
 - [ ] **Step 11: Changelog**
 
@@ -738,6 +739,44 @@ Also rename the test title at line 535 from "recomputes cumulative coverage …"
     expect(percentOf("service-stats-band--1")).toBe("34%");
 ```
 
+(k) Review fold 2 — most rewritten fixtures above use `edges: []` (the frozen path). Append a focused **live** block with populated edges at EOF:
+
+```tsx
+
+// SCU-1.2 (review fold 2) — LIVE exclusive rows from populated edges: every
+// edge classified by assignBandOrOverflow, rows + always-present overflow,
+// range labels; two-echelon excludes the inbound leg yet shows real
+// (non-zero) overflow from the outbound leg.
+describe("ServiceStatsTab — live exclusive rows from populated edges (SCU-1.2)", () => {
+  const ids = (bands: string[]) => bands.map(b => `service-stats-band-${b}`);
+
+  it("single-echelon: boundary-equal and zero-distance edges land low; overflow carries the far edge", () => {
+    const edges = [
+      { fromId: "w1", toId: "c1", flow: 250, distance: 0 },
+      { fromId: "w1", toId: "c2", flow: 250, distance: 200 },
+      { fromId: "w2", toId: "c3", flow: 300, distance: 350 },
+      { fromId: "w2", toId: "c4", flow: 200, distance: 5000 },
+    ];
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="p-median-us" presentationBands={[200, 400, 800]} />);
+    const rows = ids(["200", "400", "800", "-1"]);
+    expect(rows.map(percentOf)).toEqual(["50%", "30%", "0%", "20%"]);
+    expect(rows.map(id => screen.getByTestId(id).querySelector("span")!.textContent)).toEqual(["0–200 mi", "200–400 mi", "400–800 mi", "> 800 mi"]);
+  });
+
+  it("two-echelon: the inbound mine_to_refinery leg is excluded; outbound rows + non-zero overflow", () => {
+    const edges = [
+      { fromId: "m1", toId: "r1", leg: "mine_to_refinery" as const, flow: 99_999, distance: 10 },
+      { fromId: "r1", toId: "c1", leg: "refinery_to_customer" as const, flow: 100, distance: 50 },
+      { fromId: "r1", toId: "c2", leg: "refinery_to_customer" as const, flow: 900, distance: 250 },
+      { fromId: "r1", toId: "c3", leg: "refinery_to_customer" as const, flow: 300, distance: 2000 },
+    ];
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="two-echelon-gold-au" presentationBands={[100, 300]} />);
+    // outbound total 1300: 100/1300 -> 8, 900/1300 -> 69, 300/1300 -> 23 (sum 100; computed)
+    expect(ids(["100", "300", "-1"]).map(percentOf)).toEqual(["8%", "69%", "23%"]);
+  });
+});
+```
+
 Every other ServiceStatsTab assertion is already true under the exclusive contract. Verified values: `:178` and `:186-188` are replaced by (d); `:221`, `:226` (66%), `:548` (10%), `:563-564`, `:586` (30%), `:592` (30%), `:643` (10%), `:662` (50%), `:673` (100%), `:704-709` (0/0/0/100), `:730` (10%), `:754` (33.33%) and `:766-767` (33%) are unchanged.
 
 In `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, replace lines 894-896 with:
@@ -760,7 +799,7 @@ and rename that test (line 891) to `"shows exclusive per-band coverage rows (plu
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/ServiceStatsTab.test.tsx src/__tests__/CostSummaryTab.test.tsx`
-Expected: FAIL. For example, `expected '45%' to be '15%'`, `Unable to find an element by: [data-testid="service-stats-band--1"]`, and `expected element to have text content "0–200 mi"` (received `≤ 200 mi…`).
+Expected (provisional; confirm after `pnpm install`): FAIL. For example, `expected '45%' to be '15%'`, `Unable to find an element by: [data-testid="service-stats-band--1"]`, and `expected element to have text content "0–200 mi"` (received `≤ 200 mi…`).
 
 - [ ] **Step 3: Implement — Service Stats**
 
@@ -889,7 +928,7 @@ Replace lines 751-766 (`{sharedBands &&` through the matching `))}`) with:
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/ServiceStatsTab.test.tsx src/__tests__/CostSummaryTab.test.tsx src/__tests__/Workspace.test.tsx`
-Expected: PASS. `Workspace.test.tsx:3381` (`band-999` 100%) and `:3448-3449` (`band-111` 0%, overflow 100%) still hold under exclusive rows; both were computed (`[100,0]` and `[0,100]`).
+Expected (provisional; confirm after `pnpm install`): PASS. `Workspace.test.tsx:3381` (`band-999` 100%) and `:3448-3449` (`band-111` 0%, overflow 100%) still hold under exclusive rows; both were computed (`[100,0]` and `[0,100]`).
 
 - [ ] **Step 6: e2e sweep**
 
@@ -942,16 +981,39 @@ function expectedTwoRowPercents(inBandFlow: number, overflowFlow: number): [numb
       const [expectedInBandPct, expectedOverflowPct] = expectedTwoRowPercents(inBandFlow, overflowFlow);
 ```
 
-- Fix the stale comments at 228-231, 331-337 and 430-433. They claim the overflow row is omitted when overflow is 0. Replace each with `// SCU-1.2 — the overflow row always renders; 0% here proves no out-of-band flow.`
+- Stale comments and titles (review fold 3; the list comes from `grep -rn -i "cumulative\|omits the overflow\|no overflow row" artifacts/studio/e2e/` at `46d2f98`). Lines 228-230 (`// ── Baseline: … no overflow row shown (all 4 default bands present, no -1 row is asserted implicitly by the absence check below).`) and 432-433 (`// ── Baseline: … no overflow row shown.`) each become `// ── Baseline: Service Stats bars reflect the solved (default) bands; SCU-1.2 — the overflow row always renders, and 0% proves no out-of-band flow.` Lines 340-348 (the `// ── Service Stats: 100% in-band, overflow row ABSENT ENTIRELY — … render.` block) become:
+
+```ts
+      // ── Service Stats: 100% in-band, overflow row at 0% — proves the
+      // inbound mine_to_refinery edge is excluded from the coverage calc
+      // (SCU-1.2: computeExclusiveBandCoverage always emits the overflow
+      // row). If the inbound leg (~1464.5 mi, > BOUNDARY) had leaked in,
+      // the overflow row would read non-zero. ─────────────────────────
+```
+
+  The "cumulative" wording at lines 22, 46, 210, 390 and 414 goes too:
+
+```bash
+sed -i '' -e 's/cumulative + overflow labels\.\.\./exclusive rows + overflow (SCU-1.2).../' -e 's/generic cumulative-coverage-bar rows/generic exclusive coverage-bar rows/' -e 's/(computeCumulativeBand$/(computeExclusiveBand/' -e 's/(computeCumulativeBandCoverage$/(computeExclusiveBandCoverage/' artifacts/studio/e2e/nonjade-servicestats-live-coverage.spec.ts
+```
+
+  Verify: `grep -n -i "cumulative" artifacts/studio/e2e/nonjade-servicestats-live-coverage.spec.ts` returns nothing.
+- `delivery-teaching.spec.ts` header comment (lines 22-26): replace `Service Stats 81.45%` / `at the 800mi band.` with `Service Stats 22.07%` / `in the 400–800 mi band (exclusive, SCU-1.2).`, and `800mi coverage rises to` / `97.19%.` with `the 400–800 mi band rises to` / `70.76%.`.
 
 If the local two-server setup is up (recipe in `artifacts/studio/e2e/CLAUDE.md`), run:
 `E2E_BASE_URL=http://localhost:<studio-port> pnpm --filter studio exec playwright test e2e/delivery-teaching.spec.ts e2e/nonjade-servicestats-live-coverage.spec.ts`
-Expected: both pass. Otherwise record `e2e: not run — deferred to SCU-1.10`.
+Expected (provisional; confirm after `pnpm install`): both pass. Otherwise record `e2e: not run — deferred to SCU-1.10`.
 
 - [ ] **Step 7: `e2e_accuracy.py` (sacred, unmodified)**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py`
-Expected: exit 0, no `FAIL` line. `solve.py` was not touched; this run proves it (spec B1.9 "Untouched").
+Expected (provisional; confirm after `pnpm install`): exit 0, no `FAIL` line. This shows the solver still matches the textbook answers. It does **not** show that `solve.py` is unchanged. That is a separate read-only check (review fold 4):
+
+```bash
+git diff --name-only 46d2f98..HEAD -- artifacts/api-server/src/solver/solve.py
+```
+
+Expected: empty output. Non-empty output means the task touched the solver, which violates spec B1.9 "Untouched". STOP and escalate.
 
 - [ ] **Step 8: Gate**
 
@@ -1140,13 +1202,19 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     const bar = screen.getByTestId("cost-summary-bar");
     expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary-csv"));
     fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
-    // Raw values, on-screen row order, units in the labels; bands are the
+    // Facilities: the CSV carries the SAME label text the table cell shows
+    // (review fold 1) — read from the rendered cell, then pinned concretely
+    // against the mocked dataset (WH1 Chicago IL, WH2 Dallas TX).
+    const fac = (id: number) => screen.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`).textContent!;
+    expect(fac(1)).toBe("Chicago - IL, Dallas - TX");
+    expect(fac(2)).toBe("Chicago - IL");
+    // Raw numbers, on-screen row order, units in the labels; bands are the
     // exclusive rows (s1 40/40/20, s2 60/30/10).
     expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Weighted avg. distance (mi),300,250",
-      "Open facilities,WH1; WH2,WH1",
+      ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
       "0–200 mi (%),40,60",
@@ -1166,15 +1234,41 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     enterCompare();
     expect(screen.getByTestId("cost-summary-compare-bands-note")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    const fac = (id: number) => screen.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`).textContent!;
     expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Inbound cost,,5",
       "Weighted avg. distance (mi),300,250",
-      "Open facilities,WH1; WH2,WH1",
+      ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
     ].join("\n"), "text/csv");
+    spy.mockRestore();
+  });
+
+  // Review fold 1 — contract: the CSV IS the table's row model. Same row
+  // count, same order (each CSV metric label starts with the table's row
+  // label; units/(%)/(s) are appended), and every text-valued cell is the
+  // on-screen text verbatim.
+  it("compare CSV rows are the compare table's rows, in order, with identical text cells", () => {
+    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
+    enterCompare();
+    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    const csv = spy.mock.calls[0][1] as string;
+    const dataRows = csv.split("\n").slice(1);
+    const tableRows = [...screen.getByTestId("cost-summary-compare-table").querySelectorAll("tbody tr")];
+    expect(dataRows).toHaveLength(tableRows.length);
+    tableRows.forEach((tr, i) => {
+      const label = tr.querySelector("td")!.textContent!;
+      expect(dataRows[i].replace(/^"/, "").startsWith(label), `row ${i}: ${label}`).toBe(true);
+    });
+    for (const key of ["open-facilities-cities", "quality"]) {
+      for (const id of [1, 2]) {
+        expect(csv).toContain(clientCsv.csvCell(screen.getByTestId(`cost-summary-compare-${key}-${id}`).textContent!));
+      }
+    }
     spy.mockRestore();
   });
 });
@@ -1183,7 +1277,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
 - [ ] **Step 3: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/compareCsv.test.ts src/__tests__/CostSummaryTab.test.tsx`
-Expected: FAIL. `compareCsv.test.ts` fails with `Failed to resolve import "@/lib/compareCsv"`. `CostSummaryTab.test.tsx` fails with `Failed to resolve import "@/lib/clientCsv"`. Once that resolves, the compare tests fail with `Unable to find an element by: [data-testid="button-toggle-compare"]`.
+Expected (provisional; confirm after `pnpm install`): FAIL. `compareCsv.test.ts` fails with `Failed to resolve import "@/lib/compareCsv"`. `CostSummaryTab.test.tsx` fails with `Failed to resolve import "@/lib/clientCsv"`. Once that resolves, the compare tests fail with `Unable to find an element by: [data-testid="button-toggle-compare"]`.
 
 - [ ] **Step 4: Implement the CSV helpers**
 
@@ -1531,32 +1625,36 @@ Replace the compare branch. That is everything from the comment `// Compare mode
   // T5 (B5) — open-facility set by city, gated on supportsFacilityStatus.
   // T11 (critical fix) — PER-SCENARIO identity, resolved from THIS column's
   // own `s.inputs`; `locationById`'s mere presence selects the layout (its
-  // VALUES are ignored). CSV value: the sorted open ids, "; "-joined.
+  // VALUES are ignored). CSV value (review fold 1): the SAME labels the cell
+  // shows — never raw ids — so the export reads like the table.
   if (supportsFacilityStatus) {
     pushRow(
       { key: "open-facilities", label: "Open facilities", csvLabel: "Open facilities", cellClassName: "p-2", testId: id => `cost-summary-compare-open-facilities-cities-${id}` },
       s => {
         const ids = [...openFacilityIds(s.result!)].sort();
         const identity = locationById ? buildEntityIdentityById(modelId, dataset, s.inputs) : null;
-        const display = identity ? (
+        if (!identity) {
+          const text = openFacilityCityList(s.result!, s.inputs, baseFacilities); // "—" when none
+          return { raw: text === "—" ? null : text, display: text };
+        }
+        const labels = ids.map(id => {
+          const entry = identity[id];
+          return entry && (entry.city || entry.state)
+            ? `${entry.city}, ${entry.state}`
+            : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs));
+        });
+        const display = (
           <div className="flex flex-wrap gap-x-3 gap-y-1">
-            {ids.map(id => {
-              const entry = identity[id];
-              const loc = entry && (entry.city || entry.state) ? { city: entry.city, state: entry.state } : undefined;
-              const displayId = entry?.displayId ?? id;
-              return (
-                <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
-                  <span>{loc ? `${loc.city}, ${loc.state}` : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs))}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">{displayId}</span>
-                </span>
-              );
-            })}
+            {ids.map((id, i) => (
+              <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
+                <span>{labels[i]}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{identity[id]?.displayId ?? id}</span>
+              </span>
+            ))}
             {ids.length === 0 && "—"}
           </div>
-        ) : (
-          openFacilityCityList(s.result!, s.inputs, baseFacilities)
         );
-        return { raw: ids.length > 0 ? ids.join("; ") : null, display };
+        return { raw: labels.length > 0 ? labels.join("; ") : null, display };
       },
     );
   }
@@ -1652,7 +1750,7 @@ This replacement deletes the old comment `// Download CSV is hidden here (compar
 - [ ] **Step 6: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/compareCsv.test.ts src/__tests__/CostSummaryTab.test.tsx src/__tests__/JadeFlowsTab.test.tsx`
-Expected: PASS. `JadeFlowsTab.test.tsx:274-320` proves the moved `downloadClientCsv` is byte-identical, because it spies on the same `new Blob([text], …)`.
+Expected (provisional; confirm after `pnpm install`): PASS. `JadeFlowsTab.test.tsx:274-320` proves the moved `downloadClientCsv` is byte-identical, because it spies on the same `new Blob([text], …)`.
 
 - [ ] **Step 7: e2e sweep**
 
@@ -1810,7 +1908,7 @@ In `Workspace.Jade.test.tsx`, change the test title at line 149 to `"shows Plant
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/OpenWarehousesTab.test.tsx src/__tests__/AssignmentsTab.test.tsx src/__tests__/JadeAssignmentsTab.test.tsx src/__tests__/FlowsTab.test.tsx src/__tests__/JadeFlowsTab.test.tsx src/__tests__/ServiceStatsTab.test.tsx src/__tests__/Workspace.Jade.test.tsx`
-Expected: FAIL in every new test. Examples: `expected document not to contain element, found <span class="text-sm font-medium">Open Warehouses</span>`; `expected element to have text content "Plant Capability Matrix"`, received `Capability Matrix`.
+Expected (provisional; confirm after `pnpm install`): FAIL in every new test. Examples: `expected document not to contain element, found <span class="text-sm font-medium">Open Warehouses</span>`; `expected element to have text content "Plant Capability Matrix"`, received `Capability Matrix`.
 
 - [ ] **Step 3: Implement**
 
@@ -1914,7 +2012,13 @@ grep -rn "Open Warehouses\|Customer Assignments\|Service Stats\|Capability Matri
 grep -rn "getByText(\"Flows\"\|hasText: \"Flows\"" artifacts/studio/e2e/
 ```
 
-At `46d2f98` the first grep finds 28 lines, all of them comments or `test`/`describe` titles: `workspace-fixups.spec.ts:8,246,247,281,312,326`, `workspace-fixups-2.spec.ts:9,10,292,301,302`, `nonjade-servicestats-live-coverage.spec.ts:228,245,340,432,448`, `chen-bands-units-qa.spec.ts:357`, `bundle2-fastfollow.spec.ts:309`, `delivery-teaching.spec.ts:22,34,260`, `max-coverage.spec.ts:179`, `jade-ch9-workspace-bundle.spec.ts:9,10,330,396,434,527`. Every Capability Matrix interaction uses `sidebar-input-capability-matrix` / `capability-matrix-tab` (deviation 7). The second grep finds nothing. **No spec asserts any removed title or the old label, so there is nothing to rewrite.** Record that in the changelog. When the servers are up, run `E2E_BASE_URL=… pnpm --filter studio exec playwright test e2e/workspace-fixups.spec.ts e2e/jade-ch9-workspace-bundle.spec.ts`. They exercise the renamed entry and the JADE output tabs.
+At `46d2f98` the first grep finds 28 lines, all of them comments or `test`/`describe` titles: `workspace-fixups.spec.ts:8,246,247,281,312,326`, `workspace-fixups-2.spec.ts:9,10,292,301,302`, `nonjade-servicestats-live-coverage.spec.ts:228,245,340,432,448`, `chen-bands-units-qa.spec.ts:357`, `bundle2-fastfollow.spec.ts:309`, `delivery-teaching.spec.ts:22,34,260`, `max-coverage.spec.ts:179`, `jade-ch9-workspace-bundle.spec.ts:9,10,330,396,434,527`. Every Capability Matrix interaction uses `sidebar-input-capability-matrix` / `capability-matrix-tab` (deviation 7). The second grep finds nothing. No spec **asserts** any removed title or the old label. The comments and test titles that name the old label are still renamed, so they do not describe a UI that no longer exists (review fold 3):
+
+```bash
+sed -i '' 's/Capability Matrix/Plant Capability Matrix/g' artifacts/studio/e2e/workspace-fixups.spec.ts artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts
+```
+
+At `46d2f98` neither file contains `Plant Capability Matrix`: `grep -c` printed `0` for both, so the sed cannot double-prefix. It changes `workspace-fixups.spec.ts:8,246,247,281` and `jade-ch9-workspace-bundle.spec.ts:10,434,527`. Add both specs to this task's commit pathspec. When the servers are up, run `E2E_BASE_URL=… pnpm --filter studio exec playwright test e2e/workspace-fixups.spec.ts e2e/jade-ch9-workspace-bundle.spec.ts`. They exercise the renamed entry and the JADE output tabs.
 
 - [ ] **Step 6: Gate**
 
@@ -1931,7 +2035,7 @@ Append `### SCU-1.4 — duplicate titles removed, Plant Capability Matrix`. Reco
 ```
 
 ```bash
-git commit artifacts/studio/src/components/workspace/tabs/OpenWarehousesTab.tsx artifacts/studio/src/components/workspace/tabs/AssignmentsTab.tsx artifacts/studio/src/components/workspace/tabs/JadeAssignmentsTab.tsx artifacts/studio/src/components/workspace/tabs/FlowsTab.tsx artifacts/studio/src/components/workspace/tabs/JadeFlowsTab.tsx artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/OpenWarehousesTab.test.tsx artifacts/studio/src/__tests__/AssignmentsTab.test.tsx artifacts/studio/src/__tests__/JadeAssignmentsTab.test.tsx artifacts/studio/src/__tests__/FlowsTab.test.tsx artifacts/studio/src/__tests__/JadeFlowsTab.test.tsx artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx artifacts/studio/src/__tests__/Workspace.Jade.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-1.4] remove duplicate output-tab titles and rename Plant Capability Matrix" -m "Deviation 7: no e2e asserts the old label (testid-only), so no spec rewrite." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/workspace/tabs/OpenWarehousesTab.tsx artifacts/studio/src/components/workspace/tabs/AssignmentsTab.tsx artifacts/studio/src/components/workspace/tabs/JadeAssignmentsTab.tsx artifacts/studio/src/components/workspace/tabs/FlowsTab.tsx artifacts/studio/src/components/workspace/tabs/JadeFlowsTab.tsx artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/OpenWarehousesTab.test.tsx artifacts/studio/src/__tests__/AssignmentsTab.test.tsx artifacts/studio/src/__tests__/JadeAssignmentsTab.test.tsx artifacts/studio/src/__tests__/FlowsTab.test.tsx artifacts/studio/src/__tests__/JadeFlowsTab.test.tsx artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx artifacts/studio/src/__tests__/Workspace.Jade.test.tsx artifacts/studio/e2e/workspace-fixups.spec.ts artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-1.4] remove duplicate output-tab titles and rename Plant Capability Matrix" -m "Deviation 7: no e2e asserts the old label (testid-only); comments/titles renamed." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2029,7 +2133,7 @@ The Chen Warehouses and Customers gate tests that follow (`:3255-3274`) still ex
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/InputMapTab.deliveryFixedGeography.test.tsx src/__tests__/Workspace.test.tsx`
-Expected: FAIL. You will see `Unable to find an element by: [data-testid="button-save"]` within `pmedian-map-toolbar` (delivery and Chen), and for Chen `expected document not to contain element … workspace-toolbar-row`.
+Expected (provisional; confirm after `pnpm install`): FAIL. You will see `Unable to find an element by: [data-testid="button-save"]` within `pmedian-map-toolbar` (delivery and Chen), and for Chen `expected document not to contain element … workspace-toolbar-row`.
 
 - [ ] **Step 3: Implement — `InputMapTab.tsx`**
 
@@ -2098,7 +2202,7 @@ Lines 3424-3431: delete the comment `// COSM-2 — max-coverage-us's Save moved 
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/InputMapTab.deliveryFixedGeography.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/inputMapSaveWiring.test.ts src/__tests__/InputMapTab.maxCoverage.test.tsx src/__tests__/deliveryEditableInputs.test.tsx`
-Expected: PASS. `inputMapSaveWiring.test.ts` still counts 4 `isDirty={saveEnabled}` mounts, because no mount was added or removed.
+Expected (provisional; confirm after `pnpm install`): PASS. `inputMapSaveWiring.test.ts` still counts 4 `isDirty={saveEnabled}` mounts, because no mount was added or removed.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -2142,6 +2246,12 @@ Lines 365-367 (`toBeEnabled` / `click` / `toBeDisabled`) are unchanged.
     await expect(inputMap.getByTestId("button-input-map-place-cs")).toHaveCount(0);
     await expect(page.getByTestId("pmedian-map-toolbar").getByTestId("button-save")).toHaveCount(1);
     await expect(page.getByTestId("workspace-toolbar-row")).toHaveCount(0);
+```
+
+Also fix the header comment of `delivery-teaching.spec.ts`. Item 3 there (line 15) says the Input Map has `no add/move/delete/Save` (review fold 3):
+
+```bash
+sed -i '' 's|renders `fixedGeography`: no add/move/delete/Save|renders `fixedGeography`: no add/move/delete (Save is inline in the Layers row, SCU-1.5)|' artifacts/studio/e2e/delivery-teaching.spec.ts
 ```
 
 When the servers are up: `E2E_BASE_URL=… pnpm --filter studio exec playwright test e2e/max-coverage.spec.ts e2e/delivery-teaching.spec.ts e2e/workspace-ux-r1-r9.spec.ts`. `delivery-teaching.spec.ts` is also rewritten by SCU-1.2. Those hunks (`:211,225`) do not overlap this one (`:191-200`).
@@ -2305,7 +2415,7 @@ describe("Workspace — sidebar auto open/close (SCU-1.6)", () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/SidebarTree.test.tsx src/__tests__/Workspace.test.tsx`
-Expected: FAIL. Examples: `expected [Function spy] to have been called with [ false ]` (no call), and `expected element to have attribute data-collapsed="false"` (received `"true"`, the old default). `pnpm run typecheck` also fails at this point, because `collapsed`/`onCollapsedChange` are not yet props of `SidebarTree`.
+Expected (provisional; confirm after `pnpm install`): FAIL. Examples: `expected [Function spy] to have been called with [ false ]` (no call), and `expected element to have attribute data-collapsed="false"` (received `"true"`, the old default). `pnpm run typecheck` also fails at this point, because `collapsed`/`onCollapsedChange` are not yet props of `SidebarTree`.
 
 - [ ] **Step 3: Implement — `SidebarTree.tsx`**
 
@@ -2401,7 +2511,7 @@ In the `<SidebarTree … />` mount (lines 4373-4395), add after `hasSolvedRun={h
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/SidebarTree.test.tsx src/__tests__/Workspace.test.tsx`
-Expected: PASS.
+Expected (provisional; confirm after `pnpm install`): PASS.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -2653,7 +2763,7 @@ Append inside `describe("FeedbackWidget", …)` in `FeedbackWidget.test.tsx` (be
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/FeedbackWidget.test.tsx`
-Expected: FAIL with `expected element to have class "justify-end"` (received `relative flex justify-center mb-2`).
+Expected (provisional; confirm after `pnpm install`): FAIL with `expected element to have class "justify-end"` (received `relative flex justify-center mb-2`).
 
 - [ ] **Step 3: Implement**
 
@@ -2692,7 +2802,7 @@ Append to the comment block above it (after line 67, `// resizing the footer and
 - [ ] **Step 4: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/FeedbackWidget.test.tsx src/__tests__/AppShell.test.tsx`
-Expected: PASS. `AppShell.test.tsx:195-209` still proves the launcher is in the footer, not the scroll region.
+Expected (provisional; confirm after `pnpm install`): PASS. `AppShell.test.tsx:195-209` still proves the launcher is in the footer, not the scroll region.
 
 - [ ] **Step 5: e2e sweep + layout assertion**
 
@@ -2830,7 +2940,7 @@ describe("NetworkMap — Output Map tooltips are opaque nos-map-tooltip (SCU-1.8
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/NetworkMap.test.tsx`
-Expected: FAIL with `expected 0.85 to be 1` (route) and `expected undefined to contain "nos-map-tooltip"` (markers).
+Expected (provisional; confirm after `pnpm install`): FAIL with `expected 0.85 to be 1` (route) and `expected undefined to contain "nos-map-tooltip"` (markers).
 
 - [ ] **Step 3: Implement**
 
@@ -2880,7 +2990,7 @@ Warehouse (line 848) and plant (line 866). Each is `<Tooltip direction="top" off
 - [ ] **Step 4: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/NetworkMap.test.tsx src/__tests__/OutputMapTab.test.tsx`
-Expected: PASS.
+Expected (provisional; confirm after `pnpm install`): PASS.
 
 - [ ] **Step 5: e2e sweep**
 
@@ -3172,7 +3282,7 @@ describe("legLabel (moved from OutputMapTab)", () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/resultNarrative.test.ts`
-Expected: FAIL with `Failed to resolve import "@/lib/resultNarrative"`.
+Expected (provisional; confirm after `pnpm install`): FAIL with `Failed to resolve import "@/lib/resultNarrative"`.
 
 - [ ] **Step 3: Implement `lib/resultNarrative.ts`**
 
@@ -3358,7 +3468,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
 - [ ] **Step 4: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/resultNarrative.test.ts`
-Expected: PASS.
+Expected (provisional; confirm after `pnpm install`): PASS.
 
 - [ ] **Step 5: Write the failing OutputMapTab tests**
 
@@ -3398,7 +3508,7 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
 ```
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/OutputMapTab.test.tsx`
-Expected: FAIL with `Unable to find an element by: [data-testid="output-map-narrative"]`.
+Expected (provisional; confirm after `pnpm install`): FAIL with `Unable to find an element by: [data-testid="output-map-narrative"]`.
 
 - [ ] **Step 6: Implement the component and mount it**
 
@@ -3466,7 +3576,7 @@ The narrative sits outside `mapRef`, so Copy and Download PNG capture the map on
 - [ ] **Step 7: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/OutputMapTab.test.tsx src/__tests__/resultNarrative.test.ts src/__tests__/Workspace.OutputMap.test.tsx src/__tests__/Workspace.StaleOutputs.test.tsx`
-Expected: PASS. `Workspace.StaleOutputs.test.tsx` covers D5: a stale scenario still renders `StaleOutputBanner`, never the tab.
+Expected (provisional; confirm after `pnpm install`): PASS. `Workspace.StaleOutputs.test.tsx` covers D5: a stale scenario still renders `StaleOutputBanner`, never the tab.
 
 - [ ] **Step 8: e2e sweep**
 
@@ -3543,7 +3653,7 @@ Drive a real Chromium (Playwright headed, or the claude-in-chrome tools) against
 |---|---|---|
 | B1.1 narrative | p-median-us, p-median-brazil, transport-coal, max-coverage-us, delivery-teaching-us, two-echelon-gold-au, two-echelon-jade-us | Solve, then open Output Map. `output-map-narrative` sits below the map. Its open-facility noun is right: refineries for gold-au; mines → stations for transport; never "plants open" for JADE. Its band percentages match the Service Stats rows for the same bands. Edit an input and save without re-solving: `StaleOutputBanner` shows and there is no narrative (D5). |
 | B1.2 Save inline | delivery-teaching-us, max-coverage-us (+ p-median-us regression) | On the Input Map, `button-save` sits at the right end of the `Layers:` row, vertically centred with the checkboxes, and `workspace-toolbar-row` is absent. Edit a warehouse status via the map: Save enables, a click persists it, and a reload shows the status kept. Delivery still offers no add/move/copy/delete. |
-| B1.3 Summary bar | p-median-us (2 scenarios), two-echelon-jade-us (2 scenarios) | No "Solution Summary" title. A green `Compare Scenario` button sits left and Download CSV right. The picker is hidden until the button is clicked. Select a second scenario: Download CSV downloads `cost-summary-compare.csv` (capture the Playwright `download` event). Its rows equal the on-screen rows in order, its values are raw, and a row missing for one scenario is an empty cell. |
+| B1.3 Summary bar | p-median-us (2 scenarios), two-echelon-jade-us (2 scenarios) | No "Solution Summary" title. A green `Compare Scenario` button sits left and Download CSV right. The picker is hidden until the button is clicked. Select a second scenario: Download CSV downloads `cost-summary-compare.csv` (capture the Playwright `download` event). Its rows equal the on-screen rows in order. Numbers are raw, the `Open facilities` cells carry the same `City - ST` labels the table shows, and a row missing for one scenario is an empty cell. |
 | B1.4 titles | p-median-us (Open Warehouses, Customer Assignments, Service Stats), transport-coal (Flows), two-echelon-jade-us (Customer Assignments, Flows) | No title that repeats the tab name. Download sits right-aligned. The JADE Flows segmented control is still at the left. |
 | B1.5 sidebar | p-median-us, then switch to two-echelon-jade-us | The sidebar is expanded on load. Run Optimizer collapses it as the solve dialog opens. The hamburger toggles both ways. A reload, and a switch to another chapter, both load expanded again. |
 | B1.6 feedback | homepage `/`, at 1280×720 and at 375×812 | The launcher's right edge is within 32 px of the viewport's right edge, above "Developed by Shubham". The panel opens upward and stays fully inside the viewport at both widths. |
@@ -3559,7 +3669,7 @@ Before running, confirm that no other vitest or Playwright run is active on this
 E2E_BASE_URL=http://localhost:5180 pnpm e2e:gate
 ```
 
-Expected: 0 failures. For each failure: (1) look the test **name** up in `docs/superpowers/flake-registry.md`; (2) re-run that file twice in isolation with the same `E2E_BASE_URL`; (3) a failure that reproduces is a regression. If the spec asserts the pre-B1 contract and was missed by a task's sweep, rewrite it here and record which task missed it. If it is a product defect, report it. Record every new flake sighting in the registry.
+Expected (provisional; confirm after `pnpm install`): 0 failures. For each failure: (1) look the test **name** up in `docs/superpowers/flake-registry.md`; (2) re-run that file twice in isolation with the same `E2E_BASE_URL`; (3) a failure that reproduces is a regression. If the spec asserts the pre-B1 contract and was missed by a task's sweep, rewrite it here and record which task missed it. If it is a product defect, report it. Record every new flake sighting in the registry.
 
 - [ ] **Step 5: Solver scripts** (spec "After B1.9")
 
@@ -3575,7 +3685,15 @@ cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localh
 cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:3001 transport
 ```
 
-Expected: each exits 0 with no `FAIL` line. `solve.py` was untouched, so any failure here is environmental or pre-existing. Record it verbatim and do not "fix" the scripts. `e2e_accuracy.py` is sacred.
+Then the read-only untouched check (review fold 4). The scripts above test behaviour; this proves the file:
+
+```bash
+git diff --name-only 46d2f98..HEAD -- artifacts/api-server/src/solver/solve.py
+```
+
+Expected: empty output.
+
+Expected (provisional; confirm after `pnpm install`): each script exits 0 with no `FAIL` line. With the diff empty, any script failure is environmental or pre-existing. Record it verbatim and do not "fix" the scripts. `e2e_accuracy.py` is sacred.
 
 - [ ] **Step 6: Unit gate on the bundle tip**
 
@@ -3671,6 +3789,13 @@ Merge approval is not push approval, and push approval is not deploy approval. T
 | B1.9 untouched: `solve.py`, server exports, legacy `computeBandCoverage` (D6); run `e2e_accuracy.py` | Global Constraints; 1.1 Step 8 (`bands.test.ts`); 1.2 Step 7; 1.10 Step 5 |
 | Verification: gate every task; `e2e_accuracy.py` + `e2e_journey.py` after B1.9; full `e2e:gate`, real-browser QA before merge | every task's gate; 1.2 Step 7; 1.10 |
 | Risks: behaviour changes recorded in changelog | 1.2, 1.3, 1.6 changelog steps; 1.11 summary |
+
+Codex review folds (gpt-5.6-luna, medium, "minor clarifications, no critical"):
+1. HIGH: compare CSV facility cells use the table's display labels, and a contract test pins CSV == table row model (SCU-1.3; deviation 11).
+2. MED: live, populated-edge ServiceStats RTL tests, single- and two-echelon including an inbound leg (SCU-1.2 Step 1(k)).
+3. MED: stale e2e comments and titles cleaned: cumulative wording and absent-overflow claims (SCU-1.2), the delivery header (SCU-1.2/1.5), the old Capability Matrix label (SCU-1.4). The collapsed-by-default comments were already replaced in SCU-1.6.
+4. LOW: read-only `git diff --name-only 46d2f98..HEAD -- …/solve.py` (expect empty) beside every `e2e_accuracy.py` run (SCU-1.2 Step 7, SCU-1.10 Step 5).
+5. LOW: every `Expected:` is marked provisional until confirmed after `pnpm install` (Global Constraints, first bullet).
 
 Gaps found and fixed while writing:
 - The spec's `cumulativeToExclusive` would mis-read JADE. Fixed by the `shape` parameter (deviation 1), found by running `solve_jade`.

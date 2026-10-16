@@ -1,7 +1,7 @@
 # SCND Upgrades — design
 
 Date: 2026-10-16 · Branch: `scnd-upgrades` (worktree `/Users/shubhamkr/nos-scnd-upgrades`, base `main` @ `5ba7c4c`)
-Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
+Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
 
 Sixteen user-requested Workspace (model page) changes, split into two bundles executed in order on one branch:
 
@@ -39,7 +39,13 @@ All paths below are under `artifacts/studio/src/` unless shown otherwise. Line n
 ### B1.1 Output Map result text
 - New `components/workspace/tabs/OutputMapNarrative.tsx`, rendered below the map inside `OutputMapTab.tsx`. Testid `output-map-narrative`.
 - Rendered only when `OutputMapTab` renders a result. Unsolved → nothing. Stale → the parent gate already shows `StaleOutputBanner` instead of the tab (D5), so no narrative.
-- Pure `buildResultNarrative(modelId, result, unit)` in `lib/resultNarrative.ts`, backed by a **per-family adapter** that reads each family's real fields:
+- Pure `buildResultNarrative(modelId, result, ctx)` in `lib/resultNarrative.ts` returns `{ summary: string[], howToRead: string } | null` (`null` for a model with no adapter). `ctx = { bands, distance, solveTimeSec?, displayIdById? }`:
+  - `bands` is the band lens the map colours lanes with (`effectiveBands`).
+  - `distance` is `{ toDisplay, unit } | null`; `null` while the canonical unit is unresolved, which drops every distance sentence.
+  - `solveTimeSec` is the overlay's `timing.totalSec`.
+  - `displayIdById` holds the display ids.
+
+  It is backed by a **per-family adapter** that reads each family's real fields:
 
 | Family (models) | Open facilities | Coverage / service | Distance |
 |---|---|---|---|
@@ -47,27 +53,30 @@ All paths below are under `artifacts/studio/src/` unless shown otherwise. Line n
 | transport (`transport-coal`) | none narrated as "warehouses"; narrate mines → stations flows | band coverage | weighted avg |
 | max-coverage (`max-coverage-us`) | `details.openWarehouseIds` | `details.coveragePct` / `coveredDemand` | weighted avg |
 | delivery (`delivery-teaching-us`) | `details.openWarehouseIds` | band coverage; no capacity/utilisation text | weighted avg |
-| two-echelon (`two-echelon-gold-au`, `two-echelon-jade-us`) | `metrics.openFacilityIds` (plants/refineries + warehouses) | per-leg band coverage | `avgDistanceByLeg` per leg |
+| two-echelon (`two-echelon-gold-au`, `two-echelon-jade-us`) | `metrics.openFacilityIds ?? details.openWarehouseIds`. Gold-au emits no `metrics.openFacilityIds`, so its open refineries come from `details.openWarehouseIds` (`solve.py:1081-1090`); narrated as "refineries". JADE's `metrics.openFacilityIds` holds warehouses only (`solve.py:1316,1418`); narrated as "warehouses". Plants/mines are never narrated as "open". | per-leg exclusive band coverage over `edges[].leg` | `avgDistanceByLeg` per leg |
 
-  Missing field → that sentence is omitted, never invented. Objective + solve time from the same source as `output-map-metric-overlay`.
+  Missing field → that sentence is omitted, never invented. Objective (`result.objective.toLocaleString()`) and solve time (`timing.totalSec.toFixed(1)`) come from the same source as `output-map-metric-overlay`. A no-incumbent result gets one truthful sentence (its quality text) and nothing derived from its sentinel zeros. `legLabel` moves from `OutputMapTab.tsx` into `lib/resultNarrative.ts` (one copy). The narrative renders outside `mapRef`, so Copy and Download PNG still capture only the map.
 - Second paragraph: fixed per-model "How to read this map" text (markers, lane colours, band legend).
 - Tests: one adapter/narrative unit test per family using a populated fixture taken from a real solver output shape; one RTL test for unsolved → hidden.
 
 ### B1.2 Save inline with Layers (delivery-teaching-us, max-coverage-us)
 - Split the `fixedGeography` flag's two meanings in `InputMapTab.tsx` (~1039-1052): **geometry editing disabled** (kept for delivery) vs **inline Save allowed** (now allowed for delivery, which has real status/demand edits wired at `Workspace.tsx:3394-3411`).
-- Max-coverage: `showInlineSave` true (was `false`, `Workspace.tsx:3425-3431`).
+- `fixedGeography` now governs geometry only. The inline Save is gated on `onSave` alone.
+- Max-coverage: the `showInlineSave` prop is **deleted** (`InputMapTab.tsx:160-169,765,1052`; `Workspace.tsx:3424-3431`). Its only `false` caller was max-coverage, so once that caller is gone the prop has no caller at all.
 - For both, suppress the separate `workspace-toolbar-row` Save (`saveInLayersRow`/`showToolbarSave`, ~2355-2379). Inline Save sits at the right of the Layers row, vertically centred with the checkboxes. Testid `button-save` preserved.
-- e2e: `max-coverage.spec.ts:356-367` and the delivery Save assertions rewritten to scope `button-save` within `pmedian-map-toolbar`.
+- e2e: `max-coverage.spec.ts:356-367` and the delivery Save assertions (`delivery-teaching.spec.ts:191-200`, plus its header comment) are rewritten to scope `button-save` within `pmedian-map-toolbar`, and to assert that `workspace-toolbar-row` is absent on that view.
 
 ### B1.3 Solution Summary bar (`CostSummaryTab.tsx`)
 - Remove "Solution Summary" and "Solution Summary — Compare" titles.
-- Left: green "Compare Scenario" button (`button-toggle-compare`, existing success/primary green token) shows/hides the existing checkbox picker (`cost-summary-compare-toggle-{id}` preserved). Picker starts hidden; it opens automatically if 2+ scenarios are already selected.
+- Left: green "Compare Scenario" button (`button-toggle-compare`, the default `Button` variant = primary green token) shows/hides the existing checkbox picker (`cost-summary-compare-toggle-{id}` preserved). Picker starts hidden. The rule "open if 2+ are already selected at mount" is the picker's lazy initial state (`useState(() => selectedIds.length >= 2)`). It is unreachable today, because the selection always starts at `[scenarioId]` (`CostSummaryTab.tsx:269`).
 - Right: "Download CSV". Single mode: unchanged server export. **Compare mode: downloads the comparison table** via pure `buildCompareCsv(rows, scenarios)`:
   - Columns: `metric`, then one column per compared scenario in the on-screen order (header = scenario name).
   - Rows: exactly the metric rows the compare table renders (cost lines, coverage, max-coverable demand, JADE rates, facilities, runtime, quality, exclusive band rows), in on-screen order; a row absent for a scenario is an empty cell (the on-screen `—` is display-only).
-  - Values are raw numbers (no currency/thousands formatting); units go in the metric label (e.g. `Avg distance (mi)`).
+  - Values are raw numbers (no currency/thousands formatting); units go in the metric label (e.g. `Avg distance (mi)`, `Runtime (s)`, `0–200 mi (%)`). Distance-bearing values are in the active display unit. `Objective` is the solver's raw `result.objective`.
+  - `Open facilities` is the exception to "raw". It carries the **same display labels the on-screen cell shows** (`City - ST`, falling back exactly as the table does; `"; "`-joined in the JADE chip layout), never raw ids.
   - Filename `cost-summary-compare.csv`. Built from the same row model the table renders, not DOM text.
-  - Test: mixed optional rows + scenarios with differing band sets.
+  - Tests: mixed optional rows; scenarios with differing band sets (no band rows exported); and a contract test pinning CSV == table row model (same row count and order, text cells verbatim). The facility expectation is read from the rendered cell, not hand-written.
+  - `csvCell`/`downloadClientCsv` move from `JadeFlowsTab.tsx` to `lib/clientCsv.ts` (one copy), which gains `downloadTextFile`.
 
 ### B1.4 Remove duplicate titles
 - Drop the title equal to the tab name in `OpenWarehousesTab.tsx:202`, `AssignmentsTab.tsx:171`, `JadeAssignmentsTab.tsx:303`, `FlowsTab.tsx:113`, `JadeFlowsTab.tsx:396` (tab-level only), `ServiceStatsTab.tsx:298`. Download stays right-aligned in the same row. JADE Flows sub-table titles stay.
@@ -77,7 +86,9 @@ All paths below are under `artifacts/studio/src/` unless shown otherwise. Line n
 - `Workspace.tsx` owns `sidebarCollapsed`, initialised `false` on Workspace mount (every model-page load, including model switches that remount).
 - The Run Optimizer click handler (~2883-2888) sets it `true` when it opens `SolveDialog`.
 - Hamburger `button-toggle-sidebar` still toggles.
-- Tests rewritten: `SidebarTree.test.tsx:195-217` (localStorage) → controlled-prop tests; `sidebar-rail.spec.ts:65-139` (collapsed-by-default + persistence) → expanded on load, collapsed after Run Optimizer, not persisted across reload.
+- `openSolveDialog` does the collapse, so `StaleOutputBanner`'s Run Optimizer collapses the sidebar too. `reopenSolveDialog` ("Adjust & re-solve") does not.
+- Tests rewritten: `SidebarTree.test.tsx:189-218,320-325` (localStorage) → controlled-prop tests; `sidebar-rail.spec.ts:65-209` (collapsed-by-default + persistence) → expanded on load, collapsed after Run Optimizer, not persisted across reload. The flyout test collapses first, via the hamburger.
+- Specs that hovered the collapsed rail's `button-open-scenarios-flyout` because they assumed a collapsed default use the expanded panel directly: `two-echelon.spec.ts:133-135`, `empty-first-run-workspace.spec.ts:53-68,156-161`.
 
 ### B1.6 Feedback icon (`AppShell.tsx:110-124`, `FeedbackWidget.tsx:68-75`)
 - Homepage hero footer only. Replace the centred launcher (`left-1/2 -translate-x-1/2`) with right alignment in the footer wrapper, directly above `DeveloperCredit`. Panel keeps opening upward, anchored right, width constrained to viewport.
@@ -89,29 +100,40 @@ All paths below are under `artifacts/studio/src/` unless shown otherwise. Line n
 - Test: RTL/DOM assertion that each Output Map tooltip carries the class and opacity 1.
 
 ### B1.8 Rename
-- Sidebar label `Capability Matrix` → `Plant Capability Matrix` (`Workspace.tsx:1277`). Ids/testids unchanged; e2e text assertions (e.g. `workspace-fixups.spec.ts:246-283`) updated.
+- Sidebar label `Capability Matrix` → `Plant Capability Matrix` (`Workspace.tsx:1277`). Ids/testids unchanged. No e2e **asserts** the label (`workspace-fixups.spec.ts:246-283` uses testids only), so the e2e change is limited to comments and test titles (`workspace-fixups.spec.ts`, `jade-ch9-workspace-bundle.spec.ts`). A unit assertion pins the label (`Workspace.Jade.test.tsx`).
 
 ### B1.9 Exclusive service bands
 **Semantics.** Band 0 = `0 ≤ d ≤ b[0]`; band *i* = `b[i-1] < d ≤ b[i]`; overflow = `d > b[max]`. Classification is **always** `assignBandOrOverflow` (`lib/units/src/bands.ts:20-25`) so rows match map colours and table cells.
 
 **Live helper.** New `computeExclusiveBandCoverage(edges, bands, decimals)` in `@workspace/units`, distinct from `computeCumulativeBandCoverage` (which is left unchanged — server export still uses it).
-- Returns one row per sorted boundary **plus an overflow row, always**.
+- Returns one row per sorted boundary **plus an overflow row, always**. No boundaries → `[]`, matching `computeCumulativeBandCoverage`.
 - Total flow 0 → every row 0 (no residual applied).
 - Algorithm: raw exclusive % per row → round to `decimals` → residual `100 − Σ` added to the row with the largest positive share (ties → lowest band). A 0 row never receives residual.
 - `decimals`: delivery 2, all other models 0 — same precision the models use today.
-- Tests: zero-distance edge lands in band 0; boundary-equal distance lands in the lower band; overflow present at 0; residual sums to exactly 100; all-zero flow. Extend `bandsSingleSource.test.ts` to pin the helper to `assignBandOrOverflow`.
+- Tests: zero-distance edge lands in band 0; boundary-equal distance lands in the lower band; overflow present at 0; residual sums to exactly 100; all-zero flow. Extend `bandsSingleSource.test.ts` to pin the helper to `assignBandOrOverflow`. Add a focused Service Stats RTL test with **populated** live edges: one single-echelon, one two-echelon that includes an inbound leg and asserts the exclusive rows plus a non-zero overflow.
 
-**Compare helper.** Pure `cumulativeToExclusive(bandCoverage, decimals)` for frozen `metrics.bandCoverage`:
-- `bandCoverage` absent/empty → returns `null`; compare renders no band rows for that scenario (empty CSV cells).
-- Drop rows with `band === OVERFLOW_BAND (-1)` before differencing (delivery/JADE/two-echelon emit an explicit `-1` row, `solve.py:1072-1076, 1401-1406, 1842-1845`); never treat `-1` as a boundary.
-- Sort by boundary; exclusive[i] = cum[i] − cum[i-1] (cum[-1] = 0); negative differences (non-monotonic rounded data) clamp to 0; overflow = max(0, 100 − cum[last]).
-- Then the same round + residual rule as the live helper.
-- Max-coverage's two-row `[highService, 100%]` shape works through the same path.
-- Fixtures: p-median integer, delivery 2-dp with `-1` row, JADE with `-1` row, max-coverage two-row, absent coverage.
+**Compare helper.** Pure `frozenBandCoverageToExclusive(bandCoverage, decimals, shape)` in `@workspace/units` for frozen `metrics.bandCoverage`, with `shape: "cumulative" | "exclusive"`. The shape is a fact about `solve.py`'s output, so the studio maps it per model with `frozenBandShape(modelId)`:
+- `"exclusive"` for `two-echelon-jade-us` only. JADE buckets each outbound lane exactly once (`solve.py:1320-1327, 1381-1385`). A measured run returned `[21,12,31,25,12]` for bands 200/400/800/1200, which sums to 101.
+- `"cumulative"` for every other model (`solve.py:497-501, 670-673, 863-868, 1052-1076, 1633, 1842-1845`).
 
-**Display.** Service Stats (`ServiceStatsTab.tsx:287-343`) and Compare (`CostSummaryTab.tsx` ~755) labels: `0–200 mi`, `200–400 mi`, `> 1600 mi` (unit-aware).
+Precision lives in one place too: `bandDecimals(modelId)` returns 2 for delivery and 0 otherwise.
 
-**Untouched.** `solve.py`, server exports, legacy `computeBandCoverage` (D6). `e2e_accuracy.py` must still be run.
+The algorithm:
+- `bandCoverage` absent/empty (or only a `-1` row) → returns `null`; compare renders no band rows for that scenario (empty CSV cells).
+- Rows with `band === OVERFLOW_BAND (-1)` are never boundaries (delivery/JADE/two-echelon emit an explicit `-1` row, `solve.py:1072-1076, 1401-1406, 1842-1845`).
+- `"cumulative"`: drop `-1` rows, sort by boundary; exclusive[i] = cum[i] − cum[i-1] (cum[-1] = 0); negative differences (non-monotonic rounded data) clamp to 0; overflow = max(0, 100 − cum[last]).
+- `"exclusive"`: keep the rows as they are, sorted; overflow = the explicit `-1` row if present, else 0.
+- Then the same round + residual rule as the live helper. That rule is a private helper shared by both functions.
+- Max-coverage's two-row `[highService, 100%]` shape works through the cumulative path.
+- The compare "shared bands" check compares real boundaries only (`-1` excluded). Otherwise two scenarios with the same boundaries would count as "different" whenever only one of them had overflow.
+- Fixtures: p-median integer, delivery 2-dp with `-1` row, JADE (exclusive) with `-1` row, max-coverage two-row, absent coverage, non-monotonic clamp.
+
+**Display.** Service Stats (`ServiceStatsTab.tsx:287-343`) and Compare (`CostSummaryTab.tsx` ~755) labels: `0–200 mi`, `200–400 mi`, `> 1600 mi` (unit-aware, from the studio's `exclusiveBandLabels(boundaries, format, unit)`). The overflow row now always renders, which reverses existing tests:
+- e2e asserting `service-stats-band--1` count 0 (`nonjade-servicestats-live-coverage.spec.ts:233,353,436`) now assert `0%`, with an exact two-row residual expectation in place of `Math.round` per row.
+- The delivery golden band values become exclusive: 81.45% → 22.07% and 97.19% → 70.76% in the 400–800 mi band, computed from real `solve_delivery` edges.
+- Stale comments and titles describing cumulative rows or an absent overflow row are rewritten.
+
+**Untouched.** `solve.py`, server exports, legacy `computeBandCoverage` (D6). `e2e_accuracy.py` must still be run. It shows the solver still matches the textbook answers, not that the file is unchanged. That is proven separately by a read-only `git diff --name-only <base>..HEAD -- artifacts/api-server/src/solver/solve.py`, which must be empty.
 
 ## Bundle 2 — shared DataTable
 
