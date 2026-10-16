@@ -3543,3 +3543,13 @@ Whole-branch review of the merged `bdf29b9..b5d3792` (Opus): verdict ship, no bl
 ### jade-ledger-t17 — close the stale T17 row in the Ch9 JADE ledger (2026-10-16)
 
 `docs/superpowers/plans/2026-09-13-chapter-9-jade-LEDGER.md` row T17 flipped 🟡 "AWAITING USER" → ✅ with the rollout record, recovered from the 2026-09-19 `leftover-ledger` stash (never committed; its branch `workspace-fixups-2026-09-19` is gone). Facts re-verified 2026-10-16: `38f10bd`, `8d4c21d`, `0ad21cf` are ancestors of `main` and `origin/main`; `nos-studio` `/chapter-9/jade` returns 200. Docs only, no deploy surface. The other two leftover stashes (`ch4-mig-7-wip-check`, superseded by `d2c7edb` + CH4O-8; `permission-review-loop` WIP, superseded by the approved chen-bands spec) hold no unlanded content; dropping them is left to the user.
+
+## SCU-B1 — SCND upgrades Bundle 1 (2026-10-16 spec)
+
+Plan: `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle1.md`. Spec: `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` (rev 2), Bundle 1 + D5/D6.
+
+### SCU-1.1 — exclusive band helpers
+
+- `@workspace/units`: `computeExclusiveBandCoverage`, `frozenBandCoverageToExclusive` (+ private `withResidual`); `computeCumulativeBandCoverage` unchanged. Studio `lib/bands.ts`: `bandDecimals`, `frozenBandShape`, `exclusiveBandLabels`; re-exports pinned in `bandsSingleSource.test.ts`.
+- Deviation (plan §"Spec deviations" 1): JADE's frozen coverage is exclusive (solve.py:1320-1327, :1381-1385; measured `[21,12,31,25,12]` for bands 200/400/800/1200), so the compare helper takes a `shape` instead of being cumulative-only.
+- Gate: units 57 passed (3 files); `pnpm run typecheck` and `typecheck:e2e` exit 0; studio full run 2322 passed / 54 failed in 17 files under 4 concurrent sibling-task vitest runs (load flakes, none touch bands code); all 16 distinct failing files pass when re-run in isolation (5 stragglers: 2 re-runs, second 336/336); api-server and pytest skipped (no server/solver change; run on the integration branch). e2e: not run — deferred to SCU-1.10 (no UI change).

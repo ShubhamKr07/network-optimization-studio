@@ -66,3 +66,72 @@ export function computeCumulativeBandCoverage(
   }
   return rows;
 }
+
+// SCU-1.1 (spec B1.9) — the two EXCLUSIVE helpers. `computeCumulativeBandCoverage`
+// above is unchanged: the server's exports still use it.
+export type FrozenBandShape = "cumulative" | "exclusive";
+
+/** Round each share to `decimals`, then give `100 - sum` to the row with the
+ *  largest positive RAW share (ties -> lowest index). A 0 row never receives
+ *  it, and an all-zero input gets no residual at all. */
+function withResidual(keys: number[], raw: number[], decimals: number): BandCoverageEntry[] {
+  const rounded = raw.map(p => roundTo(p, decimals));
+  let target = -1;
+  raw.forEach((p, i) => {
+    if (p > 0 && (target === -1 || p > raw[target])) target = i;
+  });
+  if (target !== -1) {
+    const residual = 100 - rounded.reduce((s, p) => s + p, 0);
+    rounded[target] = roundTo(rounded[target] + residual, decimals);
+  }
+  return keys.map((band, i) => ({ band, percent: rounded[i] }));
+}
+
+/**
+ * EXCLUSIVE rollup from live edges: one row per sorted boundary (keyed by the
+ * boundary value) plus an OVERFLOW_BAND row, always. Every edge is classified
+ * by `assignBandOrOverflow`, so these rows always agree with map colours and
+ * table cells. `[]` when there are no boundaries.
+ */
+export function computeExclusiveBandCoverage(edges: BandEdge[], bands: number[], decimals = 0): BandCoverageEntry[] {
+  const sorted = [...bands].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const flows = new Array<number>(sorted.length + 1).fill(0);
+  for (const e of edges) {
+    const i = assignBandOrOverflow(e.distance, sorted);
+    flows[i === OVERFLOW_BAND ? sorted.length : i] += e.flow;
+  }
+  const keys = [...sorted, OVERFLOW_BAND];
+  const total = flows.reduce((s, f) => s + f, 0);
+  if (total === 0) return keys.map(band => ({ band, percent: 0 }));
+  return withResidual(keys, flows.map(f => (f * 100) / total), decimals);
+}
+
+/**
+ * A solved result's frozen `metrics.bandCoverage` -> the same exclusive rows.
+ * `-1` rows are never boundaries. "cumulative" (every model except JADE):
+ * exclusive[i] = cum[i] - cum[i-1], clamped at 0; overflow = max(0, 100 -
+ * cum[last]). "exclusive" (JADE, solve.py:1320-1327): rows are kept; the
+ * explicit -1 row, if any, is the overflow (else 0). Then the same round +
+ * residual rule. `null` when there is no real boundary row.
+ */
+export function frozenBandCoverageToExclusive(
+  bandCoverage: BandCoverageEntry[] | null | undefined,
+  decimals: number,
+  shape: FrozenBandShape,
+): BandCoverageEntry[] | null {
+  const all = bandCoverage ?? [];
+  const rows = all.filter(r => r.band !== OVERFLOW_BAND).sort((a, b) => a.band - b.band);
+  if (rows.length === 0) return null;
+  const keys = [...rows.map(r => r.band), OVERFLOW_BAND];
+  let raw: number[];
+  if (shape === "cumulative") {
+    raw = rows.map((r, i) => Math.max(0, r.percent - (i === 0 ? 0 : rows[i - 1].percent)));
+    raw.push(Math.max(0, 100 - rows[rows.length - 1].percent));
+  } else {
+    raw = rows.map(r => Math.max(0, r.percent));
+    const overflow = all.find(r => r.band === OVERFLOW_BAND);
+    raw.push(overflow ? Math.max(0, overflow.percent) : 0);
+  }
+  return withResidual(keys, raw, decimals);
+}
