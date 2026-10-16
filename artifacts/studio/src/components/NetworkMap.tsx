@@ -737,8 +737,8 @@ export function NetworkMap({
                       click-based CustomerPopup above. */}
                   <Tooltip
                     direction="center"
-                    opacity={0.85}
-                    className="pointer-events-none"
+                    opacity={1}
+                    className="nos-map-tooltip pointer-events-none"
                     sticky
                   >
                     <span className="text-xs">
@@ -798,7 +798,7 @@ export function NetworkMap({
                 },
               }}
             >
-              <Tooltip direction="top" offset={[0, -4]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
                   {customerTypeLabel(modelId)} · {displayIdById[c.id] ?? c.id} · {formatCityState(
                     (c as unknown as { city?: string }).city ?? "",
@@ -845,7 +845,7 @@ export function NetworkMap({
                   pre-solve) or the fixed mine (never in openWarehouseIds,
                   since it's not a facility-location choice — so isOpen was
                   always false for it) showed nothing on hover at all. */}
-              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
                   {warehouseTypeLabel(w.kind, modelId)} · {displayIdById[w.id] ?? w.id} · {formatCityState(w.city, w.state)}
                   {result && isOpen ? (
@@ -863,7 +863,7 @@ export function NetworkMap({
             on the independent showPlantMarkers toggle. */}
         {showPlantMarkers && plants.map((p) => (
           <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
-            <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+            <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
               <span className="font-semibold text-xs">
                 Plant · {displayIdById[p.id] ?? p.id} · {formatCityState(p.city, p.state)}
               </span>

@@ -17,6 +17,18 @@
   z-index: 0;
 }
 
+/* SCU-1.8 (spec B1.7) — Output Map tooltips: a solid card surface instead of
+   Leaflet's default, so a lane/marker label stays readable over a dense map.
+   Applied ONLY via NetworkMap's four Output Map <Tooltip className> sites —
+   the Input Map's tooltips are deliberately untouched. */
+.leaflet-tooltip.nos-map-tooltip {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  opacity: 1;
+}
+
 /* ===== ARCADIA DESIGN TOKENS ===== */
 :root {
   --arc-ink: #0B1F2A;
