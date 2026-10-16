@@ -21,6 +21,10 @@ function baseProps() {
       { id: "flows", label: "Flows" },
     ],
     hasSolvedRun: false,
+    // SCU-1.6 — controlled. `true` keeps every pre-existing test on the
+    // collapsed rail it rendered before (the old no-preference default).
+    collapsed: true,
+    onCollapsedChange: vi.fn(),
     activeEntityId: null as string | null,
     onOpenInput: vi.fn(),
     onOpenOutput: vi.fn(),
@@ -186,34 +190,39 @@ describe("SidebarTree — collapsed rail", () => {
     window.localStorage.clear();
   });
 
-  it("renders collapsed when there is no stored preference and no prop", () => {
-    render(<SidebarTree {...baseProps()} />);
+  // SCU-1.6 (spec B1.5) — collapsed state is CONTROLLED by the parent; the
+  // in-component triggers only request a change, and nothing persists.
+  it("renders whatever the controlled collapsed prop says", () => {
+    const view = render(<SidebarTree {...baseProps()} collapsed={true} />);
     expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
     expect(screen.getByTestId("button-toggle-sidebar")).toHaveAttribute("aria-expanded", "false");
+    view.rerender(<SidebarTree {...baseProps()} collapsed={false} />);
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+    expect(screen.getByTestId("button-toggle-sidebar")).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("lets an explicit defaultCollapsed prop win over the stored preference", () => {
-    window.localStorage.setItem("nos:sidebar-collapsed", "true");
-    render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
-    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
-  });
-
-  it("uses the stored preference when no prop is supplied", () => {
-    window.localStorage.setItem("nos:sidebar-collapsed", "false");
-    render(<SidebarTree {...baseProps()} />);
-    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
-  });
-
-  it("toggles both ways from the hamburger and persists the choice", async () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
-    const toggle = screen.getByTestId("button-toggle-sidebar");
-
-    await userEvent.click(toggle);
-    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
-    expect(window.localStorage.getItem("nos:sidebar-collapsed")).toBe("false");
-
-    await userEvent.click(toggle);
+  it("the hamburger requests expansion from the rail via onCollapsedChange, without changing state itself", async () => {
+    const onCollapsedChange = vi.fn();
+    render(<SidebarTree {...baseProps()} collapsed={true} onCollapsedChange={onCollapsedChange} />);
+    await userEvent.click(screen.getByTestId("button-toggle-sidebar"));
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
     expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("the hamburger requests collapse from the expanded panel", async () => {
+    const onCollapsedChange = vi.fn();
+    render(<SidebarTree {...baseProps()} collapsed={false} onCollapsedChange={onCollapsedChange} />);
+    await userEvent.click(screen.getByTestId("button-toggle-sidebar"));
+    expect(onCollapsedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("never reads or writes the retired nos:sidebar-collapsed preference", async () => {
+    window.localStorage.setItem("nos:sidebar-collapsed", "true");
+    render(<SidebarTree {...baseProps()} collapsed={false} />);
+    // A stored "true" no longer wins over (or even reaches) the prop...
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+    await userEvent.click(screen.getByTestId("button-toggle-sidebar"));
+    // ...and a toggle no longer writes it.
     expect(window.localStorage.getItem("nos:sidebar-collapsed")).toBe("true");
   });
 
@@ -225,23 +234,23 @@ describe("SidebarTree — collapsed rail", () => {
       "sidebar-output-flows",
     ];
 
-    const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const collapsed = render(<SidebarTree {...baseProps()} collapsed={true} />);
     for (const id of ids) expect(collapsed.container.querySelectorAll(`[data-testid="${id}"]`)).toHaveLength(1);
     collapsed.unmount();
 
-    const expanded = render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
+    const expanded = render(<SidebarTree {...baseProps()} collapsed={false} />);
     for (const id of ids) expect(expanded.container.querySelectorAll(`[data-testid="${id}"]`)).toHaveLength(1);
   });
 
   it("keeps all three section wrappers in the collapsed rail", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     expect(screen.getByTestId("sidebar-section-scenarios")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-section-inputs")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-section-outputs")).toBeInTheDocument();
   });
 
   it("keeps each entry label in the DOM inside its own button while collapsed", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     // toHaveTextContent reads the button's OWN subtree — this is what the four
     // pre-existing assertions in this file and Workspace.test.tsx depend on.
     expect(screen.getByTestId("sidebar-input-warehouses")).toHaveTextContent("Warehouses");
@@ -249,30 +258,30 @@ describe("SidebarTree — collapsed rail", () => {
   });
 
   it("renders an icon in every entry row in both states", () => {
-    const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const collapsed = render(<SidebarTree {...baseProps()} collapsed={true} />);
     expect(screen.getByTestId("sidebar-input-warehouses").querySelector("svg")).not.toBeNull();
     collapsed.unmount();
 
-    render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
+    render(<SidebarTree {...baseProps()} collapsed={false} />);
     expect(screen.getByTestId("sidebar-input-warehouses").querySelector("svg")).not.toBeNull();
   });
 
   it("still disables unsolved outputs in the collapsed rail", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} hasSolvedRun={false} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} hasSolvedRun={false} />);
     const output = screen.getByTestId("sidebar-output-flows");
     expect(output).toBeDisabled();
     expect(output).toHaveAttribute("aria-disabled", "true");
   });
 
   it("never applies truncate to a collapsed entry button (it would clip the label pill)", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     expect(screen.getByTestId("sidebar-input-warehouses").className).not.toContain("truncate");
   });
 
   it("stacks the nav above the map, which carries an explicit z-index", () => {
     // .leaflet-container has z-index:0 (index.css:16-18) and the nav precedes the
     // content column in DOM order, so without this the pills paint under the map.
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     const nav = screen.getByTestId("sidebar-tree");
     expect(nav.className).toContain("relative");
     expect(nav.className).toContain("z-50");
@@ -283,7 +292,7 @@ describe("SidebarTree — collapsed rail", () => {
     // e2e/empty-first-run-workspace.spec.ts:53 calls .toBeVisible() on sidebar
     // content; `invisible`/`hidden` would break it. pointer-events-none is what
     // actually stops a click landing on a non-hovered pill.
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     const pill = screen.getByTestId("sidebar-input-warehouses").querySelector("span");
     expect(pill?.className).toContain("opacity-0");
     expect(pill?.className).toContain("pointer-events-none");
@@ -291,13 +300,13 @@ describe("SidebarTree — collapsed rail", () => {
   });
 
   it("drops the scroll container when collapsed and restores it when expanded", () => {
-    const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const collapsed = render(<SidebarTree {...baseProps()} collapsed={true} />);
     // An overflow-y-auto ancestor also clips horizontally, which would eat the
     // left-full label pill — see the spec's §4.5 constraint 3.
     expect(screen.getByTestId("sidebar-tree").className).not.toContain("overflow-y-auto");
     collapsed.unmount();
 
-    render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
+    render(<SidebarTree {...baseProps()} collapsed={false} />);
     expect(screen.getByTestId("sidebar-tree").className).toContain("overflow-y-auto");
   });
 });
@@ -309,30 +318,30 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
   });
 
   it("renders a Scenarios rail trigger when collapsed and none when expanded", () => {
-    const collapsed = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const collapsed = render(<SidebarTree {...baseProps()} collapsed={true} />);
     expect(screen.getByTestId("button-open-scenarios-flyout")).toBeInTheDocument();
     collapsed.unmount();
 
-    render(<SidebarTree {...baseProps()} defaultCollapsed={false} />);
+    render(<SidebarTree {...baseProps()} collapsed={false} />);
     expect(screen.queryByTestId("button-open-scenarios-flyout")).not.toBeInTheDocument();
   });
 
-  it("expands the whole sidebar when the Scenarios rail icon is activated (D7)", async () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+  it("requests expansion of the whole sidebar when the Scenarios rail icon is activated (D7)", async () => {
+    const onCollapsedChange = vi.fn();
+    render(<SidebarTree {...baseProps()} collapsed={true} onCollapsedChange={onCollapsedChange} />);
     await userEvent.click(screen.getByTestId("button-open-scenarios-flyout"));
-    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
-    expect(window.localStorage.getItem("nos:sidebar-collapsed")).toBe("false");
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
   });
 
   it("mounts every scenario row exactly once while collapsed", () => {
-    const { container } = render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    const { container } = render(<SidebarTree {...baseProps()} collapsed={true} />);
     for (const id of ["sidebar-scenario-1", "sidebar-scenario-2", "button-delete-scenario-1"]) {
       expect(container.querySelectorAll(`[data-testid="${id}"]`), id).toHaveLength(1);
     }
   });
 
   it("keeps the create button and the empty row inside the scenarios section while collapsed", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} scenarios={[]} activeScenarioId={null} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} scenarios={[]} activeScenarioId={null} />);
     const section = screen.getByTestId("sidebar-section-scenarios");
     expect(section).toContainElement(screen.getByTestId("button-create-scenario"));
     // e2e/empty-first-run-workspace.spec.ts:53,95 scope this string to the
@@ -342,14 +351,14 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
 
   it("scenario rows are still interactive inside the collapsed flyout", async () => {
     const props = baseProps();
-    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    render(<SidebarTree {...props} collapsed={true} />);
     await userEvent.click(screen.getByTestId("button-clone-scenario-2"));
     expect(props.onCloneScenario).toHaveBeenCalledWith(2);
   });
 
   it("latches the flyout open while a row is renaming, and releases it on commit (D6)", async () => {
     const props = baseProps();
-    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    render(<SidebarTree {...props} collapsed={true} />);
     const flyout = screen.getByTestId("sidebar-scenarios-flyout");
 
     expect(flyout).toHaveAttribute("data-pinned", "false");
@@ -361,7 +370,7 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
   });
 
   it("latches the flyout open while a delete is awaiting confirmation, and releases it on cancel (D6)", async () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
 
@@ -371,12 +380,12 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
 
   it("releases the latch when a row unmounts mid-rename (a list refetch dropping it)", async () => {
     const props = baseProps();
-    const view = render(<SidebarTree {...props} defaultCollapsed={true} />);
+    const view = render(<SidebarTree {...props} collapsed={true} />);
     await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
 
     // Scenario 1 disappears from the list while its rename is open.
-    view.rerender(<SidebarTree {...props} defaultCollapsed={true} scenarios={[{ id: 2, name: "Best 3-4 DCs" }]} />);
+    view.rerender(<SidebarTree {...props} collapsed={true} scenarios={[{ id: 2, name: "Best 3-4 DCs" }]} />);
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "false");
   });
 
@@ -387,7 +396,7 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
     // map and grids beneath it. A rename self-heals via the input's onBlur; a
     // started-then-abandoned delete has no equivalent release.
     const props = baseProps();
-    render(<SidebarTree {...props} defaultCollapsed={true} />);
+    render(<SidebarTree {...props} collapsed={true} />);
     await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
     expect(screen.getByTestId("sidebar-scenarios-flyout")).toHaveAttribute("data-pinned", "true");
 
@@ -400,14 +409,14 @@ describe("SidebarTree — collapsed Scenarios flyout", () => {
   it("leaving the flyout does NOT cancel an in-progress rename", async () => {
     // Renames are deliberately exempt: blur already commits them, and clearing
     // one on mouse-leave could discard what the user typed.
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
     await userEvent.unhover(screen.getByTestId("sidebar-section-scenarios"));
     expect(screen.getByTestId("input-rename-scenario-1")).toBeInTheDocument();
   });
 
   it("gives the flyout its own scroll box so a long list cannot clip", () => {
-    render(<SidebarTree {...baseProps()} defaultCollapsed={true} />);
+    render(<SidebarTree {...baseProps()} collapsed={true} />);
     const scroller = screen.getByTestId("sidebar-scenarios-flyout-scroll");
     expect(scroller.className).toContain("overflow-y-auto");
     expect(scroller.className).toContain("max-h-");

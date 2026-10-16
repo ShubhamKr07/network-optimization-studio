@@ -3782,3 +3782,43 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
   });
 });
+
+// SCU-1.6 (spec B1.5) — Workspace owns the sidebar's collapsed state:
+// expanded on every model-page mount, collapsed when Run Optimizer opens the
+// solve dialog, hamburger still toggles, nothing persisted.
+describe("Workspace — sidebar auto open/close (SCU-1.6)", () => {
+  it("loads with the sidebar EXPANDED and never touches the retired localStorage key", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+    expect(getItem.mock.calls.some(([key]) => key === "nos:sidebar-collapsed")).toBe(false);
+    expect(setItem.mock.calls.some(([key]) => key === "nos:sidebar-collapsed")).toBe(false);
+    getItem.mockRestore();
+    setItem.mockRestore();
+  });
+
+  it("collapses the sidebar when Run Optimizer opens the solve dialog", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("the hamburger still toggles both ways", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-toggle-sidebar"));
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
+    fireEvent.click(screen.getByTestId("button-toggle-sidebar"));
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+  });
+
+  it("a fresh mount (model-page load / model switch) starts expanded again after Run Optimizer collapsed it", () => {
+    const view = renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
+    view.unmount();
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+  });
+});

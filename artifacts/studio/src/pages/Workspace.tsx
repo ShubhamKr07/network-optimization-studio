@@ -2819,6 +2819,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // reinvented.
   const solveScenario = useSolveScenario();
   const [solveDialogOpen, setSolveDialogOpen] = useState(false);
+  // SCU-1.6 (spec B1.5) — the sidebar opens EXPANDED on every model-page
+  // mount (App.tsx keys each chapter <Route> by path, so a model switch
+  // remounts Workspace and resets this) and collapses when Run Optimizer
+  // opens the solve dialog. Not persisted.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [solvePhase, setSolvePhase] = useState<SolvePhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
@@ -2867,6 +2872,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // Enter reaching the header Run button mid-job would otherwise cancel the
     // in-flight guard and permit a second enqueue.
     if (solvePhase !== "idle") return;
+    // SCU-1.6 — give the solve flow the width; the hamburger reopens it.
+    setSidebarCollapsed(true);
     reopenSolveDialog();
   }
 
@@ -4364,6 +4371,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
           )}
           hasSolvedRun={hasFreshSolvedRun}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
           activeEntityId={activeView?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
