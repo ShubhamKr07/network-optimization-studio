@@ -44,6 +44,8 @@ Status key: ⬜ todo · 🟡 in-progress · ✅ done+gated · ⛔ blocked
 | Task | Owner | Status | Commit | Notes |
 |------|-------|--------|--------|-------|
 | T16 QA Playwright + full gate | qa-sdet | ✅ | `8c762d1` | (orig `f6eba7c`) Playwright 3× green, obj `254060828.6157` exact. Full gate: typecheck ✅, studio 1388, solver 165, e2e_accuracy 99/99, api 866 (flakes isolated 8/8). No product bugs. |
-| T17 verify gate → unhide + deploy | controller | 🟡 | | AWAITING USER: unhide + merge-to-main + deploy decision |
+| T17 verify gate → unhide + deploy | controller | ✅ | `38f10bd` | unhide Ch9 (Landing/Login/chapters/bundle4 assertions flipped). Merged jade-ch9→main (`8d4c21d`), integrated origin/main BD series, pushed `0ad21cf`. Deployed nos-api+nos-studio via render CLI (Render MCP was down). LIVE-VERIFIED: /api/models=5, /chapter-9/jade 200, prod solve=254060828.6157 optimal (wh-11+wh-14). Test acct cleaned. |
+
+**T17 / rollout COMPLETE.** Chapter 9 JADE live in production. NOTE: this deploy also shipped the full ~35-commit backlog (Bundles 1–6.1, book-cover design system, auth/landing reskins) that had been merged-local-only since ~Ch10.
 
 **Whole-branch review (pre-T17):** Ready to merge, 0 Critical / 0 Important, 2 Minor (both non-issues: deleted-doc = false alarm/absent both refs; p_range/capacity TS-only enum = deferred by design).
