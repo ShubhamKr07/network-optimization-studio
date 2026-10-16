@@ -846,3 +846,11 @@ describe("ServiceStatsTab — live exclusive rows from populated edges (SCU-1.2)
     expect(ids(["100", "300", "-1"]).map(percentOf)).toEqual(["8%", "69%", "23%"]);
   });
 });
+
+describe("ServiceStatsTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Service Stats' title and keeps Download right-aligned", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.queryByText("Service Stats")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-service-stats-csv").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});

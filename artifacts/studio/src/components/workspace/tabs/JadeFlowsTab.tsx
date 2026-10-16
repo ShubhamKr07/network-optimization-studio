@@ -373,7 +373,6 @@ export function JadeFlowsTab({
     <div className="flex flex-col h-full overflow-hidden" data-testid="jade-flows-tab">
       <div className="flex items-center justify-between gap-2 p-2 border-b flex-shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Flows</span>
           {segmentedControl}
         </div>
         {innerTab === "plant-warehouse" ? (

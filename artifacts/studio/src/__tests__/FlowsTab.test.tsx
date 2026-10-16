@@ -241,3 +241,11 @@ describe("FlowsTab", () => {
     });
   });
 });
+
+describe("FlowsTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Flows' title and keeps Download right-aligned", () => {
+    render(<FlowsTab result={transportResult} scenarioId={1} />);
+    expect(screen.queryByText("Flows", { selector: "span" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-flows-csv").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});

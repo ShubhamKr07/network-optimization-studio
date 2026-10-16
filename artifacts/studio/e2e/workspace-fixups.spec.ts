@@ -5,7 +5,7 @@
  * `docs/superpowers/specs/2026-09-19-workspace-fixups-bundle-design.md` §7:
  *   1. Plant markers render as the factory icon (Input Map, Output Map, legend).
  *   2. A plant-bearing table shows plant id + City, State.
- *   3. Capability Matrix info line is single-line at desktop width; capacity
+ *   3. Plant Capability Matrix info line is single-line at desktop width; capacity
  *      readouts end in "Units".
  *   4. [Updated post workspace-fixups-2, item 1 — the "Added Entities" tab
  *      was REMOVED; adding an entity now happens inline inside each base
@@ -243,8 +243,8 @@ function emptyMapOffset(box: { width: number; height: number }): { x: number; y:
 // Items 1, 2, 3, 5 — JADE (two-echelon-jade-us)
 // ══════════════════════════════════════════════════════════════════════
 
-test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability Matrix, live band filters)", () => {
-  test("plant factory markers on Input/Output map + legend; Capability Matrix id+City,State/single-line/Units; band-range filter re-ranges live via Run Optimizer without unmounting the report", async ({ page }) => {
+test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capability Matrix, live band filters)", () => {
+  test("plant factory markers on Input/Output map + legend; Plant Capability Matrix id+City,State/single-line/Units; band-range filter re-ranges live via Run Optimizer without unmounting the report", async ({ page }) => {
     test.setTimeout(180_000);
     await skipIfJadeLocked(page);
     await registerAndGoHome(page, "wfx-jade");
@@ -278,7 +278,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
       await expect(page.getByTestId("legend-plant")).toBeVisible();
       await expect(plantFactoryLegendSwatch(page, "legend-plant")).toHaveCount(1);
 
-      // ── Item 3 — Capability Matrix: id+City,State, single-line info,
+      // ── Item 3 — Plant Capability Matrix: id+City,State, single-line info,
       // "Units" suffix (checked before solving — an input-surface tab). ──
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });

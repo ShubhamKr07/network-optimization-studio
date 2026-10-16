@@ -650,3 +650,14 @@ describe("JadeFlowsTab", () => {
     });
   });
 });
+
+// SCU-1.4 — only the TAB-level "Flows" title goes; the segmented control
+// (left) and the per-leg sub-table headers stay (spec B1.4).
+describe("JadeFlowsTab — no duplicate tab-level title (SCU-1.4)", () => {
+  it("renders no tab-level 'Flows' title but keeps the segmented control and the Download button", () => {
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+    expect(screen.queryByText("Flows", { selector: "span" })).not.toBeInTheDocument();
+    expect(screen.getByText("Warehouse → Customer")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-jade-flows-pw-csv")).toBeInTheDocument();
+  });
+});

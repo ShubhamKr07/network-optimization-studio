@@ -3611,3 +3611,12 @@ Task SCU-1.9 (B1.1, D5), branch `scu-1.9-work`, frontend-engineer (Claude Sonnet
 - Observed vs plan: the plan's expected `compareToggle(` count of 41 ignores the deleted "hides Download CSV in compare mode" test; observed 40 (39 call sites + definition). RED was observed first (`Failed to resolve import "@/lib/compareCsv"` / `"@/lib/clientCsv"`).
 - e2e specs rewritten to open the picker first: `two-echelon.spec.ts`, `bundle6-ui-tweaks.spec.ts`, `jade-transport-costs.spec.ts`, `workspace-ux-r1-r9.spec.ts` (x2). A grep for the changed testids/strings in `e2e/` found no other spec reaching the picker. e2e: not run — deferred to SCU-1.10 (no local servers).
 - Gate: `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; `pnpm --filter studio test` exit 0, 133 files / 2412 tests passed. api-server tests and pytest not run (out of scope for this task).
+
+### SCU-1.4 — duplicate titles removed, Plant Capability Matrix
+
+- B1.4: removed the title span equal to the tab name from six output-tab headers: `OpenWarehousesTab`, `AssignmentsTab`, `JadeAssignmentsTab`, `FlowsTab`, `ServiceStatsTab` (header switched `justify-between` to `justify-end` so Download stays right-aligned) and `JadeFlowsTab` (tab-level title only; header keeps `justify-between` because the segmented control stays left). JADE Plant Production sub-title and per-leg sub-table headers untouched.
+- B1.8: `Workspace.tsx` sidebar label `Capability Matrix` -> `Plant Capability Matrix` (id/testid unchanged).
+- Deviation 7: no e2e spec asserts any removed title or the old label (testid-only); `grep` of `artifacts/studio/e2e/` for the four title strings = 28 lines (comments/test titles), 0 for the `Flows` text locators. Comments/titles in `workspace-fixups.spec.ts` and `jade-ch9-workspace-bundle.spec.ts` renamed to `Plant Capability Matrix` (7 lines changed).
+- RED observed first: 7 new tests failed (6 title/justify-end tests + `Workspace.Jade` label test). GREEN: 7 files, 203 tests passed.
+- Gate: `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; `pnpm --filter studio test` all passed (132 files, 2408 tests). api-server tests and pytest not run (frontend-only).
+- e2e: not run — deferred to SCU-1.10.

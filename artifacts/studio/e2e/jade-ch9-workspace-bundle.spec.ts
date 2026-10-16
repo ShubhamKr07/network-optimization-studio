@@ -7,7 +7,7 @@
  * task QA): overflow band color/label consistency, plant markers on the
  * Output Map, the three weighted-average-distance lines, the restructured
  * Customer Assignments/Flows reports, the Plant Production section, capacity
- * in the Capability Matrix, the "no 10M warehouse-capacity leak" audit, the
+ * in the Plant Capability Matrix, the "no 10M warehouse-capacity leak" audit, the
  * running solve clock, and FilterMenu on >10-row JADE tables. Also a
  * cross-model regression on `p-median-us` for requirement #1's all-models
  * scope (live band recolor + a bands-only save not going stale).
@@ -431,7 +431,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(disabledRow).toContainText("0");
       await expect(disabledRow).toContainText("—");
 
-      // ── Item #6 — Capability Matrix: read-only capacity, flips live ─────
+      // ── Item #6 — Plant Capability Matrix: read-only capacity, flips live ─────
       // [Fixed pre-existing stale assertion — unrelated to workspace-
       // fixups-2: the "workspace-fixups" bundle (2026-09-19, predates this
       // spec's own 2026-09-17 authoring) already appended " Units" to every
@@ -524,7 +524,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("text-filter-count")).toHaveText("25 of 25");
       await expect(page.locator('[data-testid^="button-wh-"][data-testid$="-active"]')).toHaveCount(25);
 
-      // A ≤10-row table (Capability Matrix — 4 plant rows) shows no
+      // A ≤10-row table (Plant Capability Matrix — 4 plant rows) shows no
       // FilterMenu at all.
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });

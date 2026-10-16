@@ -1274,7 +1274,7 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       return [
         { id: "input-map", label: "Input Map" },
         { id: "plants", label: "Plants" },
-        { id: "capability-matrix", label: "Capability Matrix" },
+        { id: "capability-matrix", label: "Plant Capability Matrix" },
         { id: "warehouses", label: "Warehouses" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },

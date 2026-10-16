@@ -146,10 +146,12 @@ beforeEach(() => {
 });
 
 describe("Workspace — two-echelon-jade-us tab registry (jade-T15.5)", () => {
-  it("shows Plants and Capability Matrix sidebar entries alongside the reused Warehouses/Customers/Distances", () => {
+  it("shows Plants and Plant Capability Matrix sidebar entries alongside the reused Warehouses/Customers/Distances", () => {
     renderWorkspace();
     expect(screen.getByTestId("sidebar-input-plants")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-input-capability-matrix")).toBeInTheDocument();
+    // SCU-1.4 (spec B1.8) — label renamed; id/testid unchanged.
+    expect(screen.getByTestId("sidebar-input-capability-matrix")).toHaveTextContent("Plant Capability Matrix");
     expect(screen.getByTestId("sidebar-input-warehouses")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-input-customers")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-input-distances")).toBeInTheDocument();
