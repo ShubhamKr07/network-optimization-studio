@@ -3,8 +3,10 @@
 // JadeFlowsTab.tsx (SCU-1.3) so there is exactly one copy; behaviour is
 // byte-identical (same escaping, same `new Blob([text], { type })`).
 export function csvCell(value: string | number): string {
-  const s = String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = String(value);
+  // Spreadsheet formula injection: only STRING cells (names, labels). Numbers stay raw.
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(s) && !(s.trim() !== "" && Number.isFinite(Number(s)))) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function downloadTextFile(filename: string, text: string, mimeType: string): void {

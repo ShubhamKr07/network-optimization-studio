@@ -179,6 +179,14 @@ describe("frozenBandCoverageToExclusive", () => {
     ]);
   });
 
+  it("zero total flow (every cumulative row 0, no positive overflow row) -> every row 0, not overflow 100", () => {
+    const rows = frozenBandCoverageToExclusive([{ band: 200, percent: 0 }, { band: 400, percent: 0 }], 0, "cumulative");
+    expect(pct(rows)).toEqual([0, 0, 0]);
+    // all flow beyond the last boundary is NOT zero flow: the explicit -1 row says so.
+    expect(pct(frozenBandCoverageToExclusive(
+      [{ band: 200, percent: 0 }, { band: 400, percent: 0 }, { band: OVERFLOW_BAND, percent: 100 }], 0, "cumulative"))).toEqual([0, 0, 100]);
+  });
+
   it("JADE frozen coverage is ALREADY exclusive: kept as-is, explicit -1 is the overflow, residual fixes the 101", () => {
     const rows = frozenBandCoverageToExclusive([
       { band: 200, percent: 21 }, { band: 400, percent: 12 }, { band: 800, percent: 31 },

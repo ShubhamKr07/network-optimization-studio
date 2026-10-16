@@ -139,7 +139,7 @@ interface CompareRow {
   key: string;
   label: ReactNode;
   /** The CSV metric label — carries the unit when the value has one. */
-  csvLabel: string;
+  csvLabel: string | null;
   labelClassName?: string;
   cellClassName: string;
   testId: (scenarioId: number) => string;
@@ -745,7 +745,8 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       compareRows.push({
         key: `band-${band}`,
         label: labels[i],
-        csvLabel: `${labels[i]} (%)`,
+        // Unit unresolved -> every label is "—"; omit rather than emit duplicate metric cells.
+        csvLabel: unitLabel == null ? null : `${labels[i]} (%)`,
         labelClassName: "font-mono",
         cellClassName: MONO,
         testId: id => `cost-summary-compare-band-${band}-${id}`,

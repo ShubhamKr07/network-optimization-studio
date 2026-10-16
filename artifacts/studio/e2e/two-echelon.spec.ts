@@ -130,8 +130,10 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       // clone mutation's onSuccess navigate() ever fires — assert the id
       // specifically DIFFERS from originalId, so this genuinely waits for
       // the real navigation.
-      // SCU-1.6 (spec B1.5) — the sidebar loads EXPANDED, so the per-row clone
-      // button is directly visible in the Scenarios section.
+      // SCU-1.6 (spec B1.5) — Run Optimizer (solveAndWait above) collapses the
+      // sidebar to the rail, so the per-row clone button lives in the hover
+      // flyout: hover its rail trigger first.
+      await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
       await page.getByTestId(`button-clone-scenario-${originalId}`).click({ timeout: HEADER_TIMEOUT });
       await expect(page).toHaveURL(new RegExp(`[?&]scenario=(?!${originalId}\\b)\\d+`), { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });

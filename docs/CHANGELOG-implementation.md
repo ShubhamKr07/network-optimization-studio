@@ -3620,3 +3620,16 @@ Task SCU-1.9 (B1.1, D5), branch `scu-1.9-work`, frontend-engineer (Claude Sonnet
 - RED observed first: 7 new tests failed (6 title/justify-end tests + `Workspace.Jade` label test). GREEN: 7 files, 203 tests passed.
 - Gate: `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; `pnpm --filter studio test` all passed (132 files, 2408 tests). api-server tests and pytest not run (frontend-only).
 - e2e: not run — deferred to SCU-1.10.
+
+### SCU-1.R — whole-branch review fold
+
+Reviewers: Opus general-purpose review + ponytail-review (1 HIGH, 3 LOW, cleanups); Codex gpt-5.6-luna branch review (no actionable findings). One commit `[SCU-1.R] fold Bundle 1 whole-branch review findings`.
+
+- HIGH (fixed): `e2e/two-echelon.spec.ts` — `solveAndWait` clicks Run Optimizer, which collapses the sidebar (SCU-1.6), so `button-clone-scenario-<id>` sits in the hidden Scenarios flyout. Restored `button-open-scenarios-flyout` hover before the clone click and corrected the comment. Grep of all e2e specs for scenario-row/flyout touches after a Run Optimizer: no other affected site (`sidebar-rail.spec.ts` already collapses + hovers explicitly; `bundle6-ui-tweaks`/`empty-first-run-workspace` do not solve through the dialog first).
+- LOW (fixed): `lib/units/src/bands.ts` `frozenBandCoverageToExclusive` cumulative branch — zero total flow (every real row 0, no positive `-1` row) now yields all-zero rows (spec B1.9) instead of overflow 100; an explicit positive `-1` row (all flow beyond the last boundary) is preserved. Exclusive branch already returned 0 overflow. RED observed first, then unit test added.
+- LOW (fixed): `CostSummaryTab.tsx` / `lib/compareCsv.ts` — while the unit label is unresolved band rows carry `csvLabel: null` and are omitted from the compare CSV (no duplicate `— (%)` metric cells; the table still shows them). RED observed first.
+- LOW (fixed): `lib/clientCsv.ts` `csvCell` — `\r` joins the quote triggers; STRING cells starting `= + - @ \t \r` that are not plain numbers get a leading `'`. Numbers and numeric strings stay raw. New `src/__tests__/clientCsv.test.ts`.
+- Cleanups (done, behaviour identical): `lib/bands.ts` `frozenBandShape` one-member Set -> `===`; `lib/resultNarrative.ts` `distinctLegs` -> `[...new Set(...)]`.
+- Declined: JADE "City, ST" chip labels (info only; CSV mirrors the table, per user decision); the unreachable `useState(() => selectedIds.length >= 2)` (spec pins it); the `null` return of `frozenBandCoverageToExclusive` (unchanged).
+- Gate: `pnpm --filter @workspace/units test` exit 0 (58 tests); `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; concurrent vitest processes = 0; `pnpm --filter studio test` exit 0 (134 files, 2422 tests).
+- e2e: not run — deferred to SCU-1.10.

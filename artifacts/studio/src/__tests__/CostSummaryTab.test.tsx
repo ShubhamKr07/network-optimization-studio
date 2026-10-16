@@ -1296,6 +1296,25 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     spy.mockRestore();
   });
 
+  it("compare CSV: band rows are omitted (no duplicate '— (%)' labels) while the distance unit is unresolved", () => {
+    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const defaultImpl = mockUseListModels.getMockImplementation();
+    mockUseListModels.mockReturnValue({ data: [] }); // manifest not loaded -> unit unresolved
+    try {
+      renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
+      enterCompare();
+      expect(screen.getByTestId("cost-summary-compare-band-200-1")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+      const csv = spy.mock.calls[0][1] as string;
+      expect(csv).not.toContain("— (%)");
+      expect(csv).not.toContain("(%)");
+    } finally {
+      mockUseListModels.mockReset();
+      if (defaultImpl) mockUseListModels.mockImplementation(defaultImpl);
+      spy.mockRestore();
+    }
+  });
+
   // Review fold 1 — contract: the CSV IS the table's row model. Same row
   // count, same order (each CSV metric label starts with the table's row
   // label; units/(%)/(s) are appended), and every text-valued cell is the

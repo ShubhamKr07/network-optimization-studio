@@ -141,10 +141,8 @@ export function bandDecimals(modelId: string | undefined): number {
 // outbound lane exactly once (solve.py:1320-1327, :1381-1385); every other
 // model accumulates cumulatively (solve.py:497-501, :670-673, :863-868,
 // :1052-1076, :1633, :1842-1845).
-const EXCLUSIVE_FROZEN_BAND_MODELS: ReadonlySet<string> = new Set(["two-echelon-jade-us"]);
-
 export function frozenBandShape(modelId: string | undefined): FrozenBandShape {
-  return modelId != null && EXCLUSIVE_FROZEN_BAND_MODELS.has(modelId) ? "exclusive" : "cumulative";
+  return modelId === "two-echelon-jade-us" ? "exclusive" : "cumulative";
 }
 
 // SCU-1.1 (spec B1.9 "Display") — one label per exclusive row, aligned with

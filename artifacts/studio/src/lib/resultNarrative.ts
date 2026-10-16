@@ -86,9 +86,7 @@ function formatDistance(canonical: number, d: NarrativeDistance): string {
 }
 
 function distinctLegs(edges: Edge[]): string[] {
-  const seen: string[] = [];
-  for (const e of edges) if (e.leg != null && !seen.includes(e.leg)) seen.push(e.leg);
-  return seen;
+  return [...new Set(edges.flatMap(e => (e.leg != null ? [e.leg] : [])))];
 }
 
 function bandSentence(prefix: string, edges: Edge[], bands: number[], decimals: number, d: NarrativeDistance): string | null {
