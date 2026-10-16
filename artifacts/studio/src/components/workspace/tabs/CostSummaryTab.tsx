@@ -9,6 +9,7 @@ import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAler
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
+import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
 
 // chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
 // `distanceUnitLabel` below are this file's single choke point for turning a
@@ -27,11 +28,6 @@ function formatDistance(raw: number | null | undefined, canonical: CanonicalUnit
 function formatDistanceValueOnly(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (raw == null || canonical == null) return "—";
   return unit.toDisplay(raw, canonical).toFixed(1);
-}
-
-function formatBandBoundary(raw: number, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
-  if (canonical == null) return "—";
-  return `${unit.toDisplay(raw, canonical).toLocaleString()} ${unit.effectiveUnit(canonical)}`;
 }
 
 function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefined, unit: UnitApi): string {
@@ -147,8 +143,11 @@ function openFacilityIds(result: SolveResult): Set<string> {
   return ids;
 }
 
+// SCU-1.2 (deviation 5) — REAL boundaries only. A `-1` overflow row is not a
+// boundary: comparing it would make two scenarios with identical boundaries
+// "different" whenever only one had overflow, and print "-1 mi" in the note.
 function bandBoundaries(result: SolveResult): number[] {
-  return (result.metrics.bandCoverage ?? []).map(b => b.band);
+  return (result.metrics.bandCoverage ?? []).filter(b => b.band !== OVERFLOW_BAND).map(b => b.band);
 }
 
 // C4.14 (D14) — a solved scenario's objective MODE, read off its own envelope
@@ -748,14 +747,25 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
-            {sharedBands &&
-              bandBoundaries(results[0]).map(band => (
+            {/* SCU-1.2 (spec B1.9) — EXCLUSIVE rows from each column's own
+                frozen bandCoverage (converted per its stored shape), plus the
+                overflow row. Only rendered when every column shares the same
+                real boundaries (scenariosShareBands). */}
+            {sharedBands && (() => {
+              const boundaries = bandBoundaries(results[0]);
+              const fmt = (v: number) =>
+                unit.toDisplay(v, canonicalDistanceUnit!).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
+              const labels = unitLabel == null
+                ? [...boundaries, OVERFLOW_BAND].map(() => "—")
+                : exclusiveBandLabels(boundaries, fmt, unitLabel);
+              const exclusiveByColumn = compareScenarios.map(s =>
+                frozenBandCoverageToExclusive(s.result!.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId)),
+              );
+              return [...boundaries, OVERFLOW_BAND].map((band, i) => (
                 <tr key={band}>
-                  <td className="p-2 text-muted-foreground font-mono">
-                    ≤ {formatBandBoundary(band, canonicalDistanceUnit, unit)}
-                  </td>
-                  {compareScenarios.map(s => {
-                    const coverage = (s.result!.metrics.bandCoverage ?? []).find(b => b.band === band);
+                  <td className="p-2 text-muted-foreground font-mono">{labels[i]}</td>
+                  {compareScenarios.map((s, col) => {
+                    const coverage = exclusiveByColumn[col]?.find(b => b.band === band);
                     return (
                       <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-band-${band}-${s.id}`}>
                         {coverage ? `${coverage.percent}%` : "—"}
@@ -763,7 +773,8 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                     );
                   })}
                 </tr>
-              ))}
+              ));
+            })()}
           </tbody>
         </table>
         {!sharedBands && (

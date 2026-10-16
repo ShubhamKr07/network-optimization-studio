@@ -888,11 +888,18 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
   });
 
-  it("shows per-band coverage rows when all selected scenarios share identical bands", () => {
+  it("shows exclusive per-band coverage rows (plus overflow) when all selected scenarios share identical bands", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    // frozen cumulative s1 [200:40,400:80] -> 40/40/20; s2 [200:60,400:90] -> 60/30/10
     expect(screen.getByTestId("cost-summary-compare-band-200-1")).toHaveTextContent("40%");
     expect(screen.getByTestId("cost-summary-compare-band-200-2")).toHaveTextContent("60%");
+    expect(screen.getByTestId("cost-summary-compare-band-400-1")).toHaveTextContent("40%");
+    expect(screen.getByTestId("cost-summary-compare-band-400-2")).toHaveTextContent("30%");
+    expect(screen.getByTestId("cost-summary-compare-band--1-1")).toHaveTextContent("20%");
+    expect(screen.getByTestId("cost-summary-compare-band--1-2")).toHaveTextContent("10%");
+    const labels = ["200", "400", "-1"].map(b => screen.getByTestId(`cost-summary-compare-band-${b}-1`).closest("tr")!.querySelector("td")!.textContent);
+    expect(labels).toEqual(["0–200 mi", "200–400 mi", "> 400 mi"]);
     expect(screen.queryByTestId("cost-summary-compare-bands-note")).not.toBeInTheDocument();
   });
 
