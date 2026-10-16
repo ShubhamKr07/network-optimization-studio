@@ -1,7 +1,7 @@
 # SCND Upgrades — design
 
 Date: 2026-10-16 · Branch: `scnd-upgrades` (worktree `/Users/shubhamkr/nos-scnd-upgrades`, base `main` @ `5ba7c4c`)
-Revision 4 — folds the Codex deep review of the Bundle 2 P1 plan (11 findings) and the user's 2026-10-17 answers on demand inputs and Plants filtering (B2.1, B2.2, B2.9 edited in place). Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
+Revision 5 — folds the user's 2026-10-17 answers for Bundle 2 P3 (B2.1 output Download alignment, B2.2 metric-table filter exception, B2.4 JADE Flows downloads). Revision 4 — folds the Codex deep review of the Bundle 2 P1 plan (11 findings) and the user's 2026-10-17 answers on demand inputs and Plants filtering (B2.1, B2.2, B2.9 edited in place). Revision 3 — folds the Bundle 1 plan's grounding deviations and the Codex review of that plan (Bundle 1 sections edited in place). Revision 2 — folds the Codex reviews (Bundle 1 medium, 13 findings; Bundle 2 deep, 18 findings; model `gpt-5.6-luna`).
 
 Sixteen user-requested Workspace (model page) changes, split into two bundles executed in order on one branch:
 
@@ -151,7 +151,7 @@ Props:
 - `testIds: { table?, row?(row), pager?, pageIndicator?, filterTrigger? }` — **explicit literal mapping per table**, no auto-generated prefixes. Each adapter maps to the testids that table emits today (inventory in the migration matrix, B2.10). The P1 plan extends this list and `ColumnDef` **additively** (root/toolbar/scroll/count/pagerPrev/pagerNext/empty/noMatch testids, header testids, filter-only columns, per-column filter reset, a `sections` shape, a focus input), because 30 measured tables need them; the P1 plan's "Interfaces" section is the authoritative signature list.
 - `rowClassName?(row, ctx)` — for override/changed/added highlighting (amber rows in Distances/LaneCosts/DeliveryCosts today).
 - `ctx: CellContext` passed to `cell`/`rowClassName`: `{ readOnly, demandEditable, isOverridden(row), isChanged(row), isAdded(row) }`. The adapter's `ctx` prop is **required**, with `readOnly` and `demandEditable` required (no silent default that would drop D2 or the Brazil lock); only the row predicates default to "never".
-- `toolbar?: { upload?, download?, add?, extra? }` (B2.3–B2.6), `emptyState?`, `sections?` (base rows + added rows rendered as two titled groups under one toolbar, where a tab has both today).
+- `toolbar?: { upload?, download?, add?, extra?, downloadAlign? }` (B2.3–B2.6) — `downloadAlign: "right"` renders Download last, after the filter trigger: used by every **output** table (user decision 2026-10-17); input tables keep the default left slot; `emptyState?`, `sections?` (base rows + added rows rendered as two titled groups under one toolbar, where a tab has both today).
 
 Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `px-3 py-1.5`; `whitespace-nowrap` headers; **`kind: "number"` header + cell centre-aligned**; cell inputs `w-full`; no fixed widths.
 
@@ -163,7 +163,7 @@ Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `
 - Newly added rows append after base rows.
 - Existing focus-jump behaviour (`DistancesTab.tsx:459-479`, `JadeDistancesTab.tsx:441-505`) is preserved: jump-to-row **clears every filter, then computes its page against the (now unfiltered) effective list** and navigates there, scrolling the row into view. (Rev 4: rev 2 said "against the filtered list", which contradicted "preserved" — today's code clears the filters first.) The scroll is verified in a real browser in P4; jsdom only proves the page selection.
 
-**Filter** (`FilterMenu` + `useTableFilters`, reused) top-right when effective rows > 10. Descriptors are generated from `columns`; precedence:
+**Filter** (`FilterMenu` + `useTableFilters`, reused) top-right when effective rows > 10 — **except the Solution Summary metric tables (single and compare), which never get a filter whatever their row count** (user decision 2026-10-17). Descriptors are generated from `columns`; precedence:
 1. explicit `filter`
 2. `kind: number` → range
 3. `kind: enum` → select
@@ -182,7 +182,7 @@ Rendering: `components/ui/table.tsx` primitives; `table-layout: auto`; uniform `
 - Inputs: existing `useExport().download(entity, format)` (server; JSON = existing envelope). Same expected-fields panel.
 - Outputs, server-exported (`assignments`, `openWarehouses`, `costSummary`, `serviceStats`, `flows`): CSV + JSON via the server.
 - Outputs, client-built (JADE Flows P→W and W→C, Cost Summary compare): typed row builders, not rendered column values:
-  - JADE Flows: `{ plantId|warehouseId, toId, product, flow, distance }` with distance in the active unit and `unit` in the envelope.
+  - JADE Flows: **exactly the on-screen table** — same columns (Plant/Warehouse or Warehouse/Customer, Distance, Flow(s) summed over products, Distance Band) and same rows, no product column (user decision 2026-10-17); distance in the active unit, `unit` in the envelope and in the CSV's Distance header.
   - Compare: same row model as B1.3's CSV.
   - JSON shape `{ entity, unit?, rows }`; filenames `jade-flows-plant-warehouse.{csv,json}`, `jade-flows-warehouse-customer.{csv,json}`, `cost-summary-compare.{csv,json}`.
   - Scope = all rows (not filtered/paged), matching server exports.

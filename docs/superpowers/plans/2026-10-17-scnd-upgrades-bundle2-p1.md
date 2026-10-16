@@ -179,6 +179,9 @@ export interface DataTableToolbar {
   download?: ReactNode;
   add?: ReactNode;
   extra?: ReactNode;
+  /** Where `download` renders: "left" (default, in slot order) or "right" (last,
+   *  after the count and the filter trigger — output tables, user decision 2026-10-17). */
+  downloadAlign?: "left" | "right";
 }
 
 /** Base + added rows rendered as titled groups under ONE toolbar, filter menu and pager. */
@@ -286,7 +289,7 @@ export interface FilterMenuProps<T> { /* …existing… */ triggerTestId?: strin
 - `cell()` output is placed **directly** in the `<td>` (no wrapper). `cellTestId` goes on the `<td>`; `headerTestId` on the `<th>`; `testIds.row` on the `<tr>`; `testIds.table` on the `<table>`; `testIds.scroll` on the scroll `<div>`; `testIds.root` on the outermost `<div>` (holds toolbar, table(s), pager, footer).
 - An omitted testid emits **no** `data-testid` attribute. Nothing is derived from `rowKey`.
 - Each `<tr>` carries `data-row-key={rowKey(row)}` (used for the focus scroll; not a testid).
-- Toolbar order: `upload`, `download`, `add`, `extra`, then right-aligned `count` and the filter trigger. The toolbar row renders when any slot, `testIds.toolbar`, `testIds.count` or the filter menu is present.
+- Toolbar order: `upload`, `download`, `add`, `extra`, then right-aligned `count` and the filter trigger; with `toolbar.downloadAlign: "right"` (output tables) `download` renders last, after the filter trigger. The toolbar row renders when any slot, `testIds.toolbar`, `testIds.count` or the filter menu is present.
 - `columns` must be memoised by the adapter (descriptors are derived per `columns`/`rows` identity).
 - `ctx` is required: input adapters pass the live `{ readOnly: isBrowsingHistoryNow, demandEditable, isOverridden, isChanged, isAdded }`; output adapters pass `{ readOnly: true, demandEditable: false }`.
 - Editable cells with draft state are components returned from `cell()` (matrix G16).
@@ -981,6 +984,9 @@ export interface DataTableToolbar {
   download?: ReactNode;
   add?: ReactNode;
   extra?: ReactNode;
+  /** Where `download` renders: "left" (default, in slot order) or "right" (last,
+   *  after the count and the filter trigger — output tables, user decision 2026-10-17). */
+  downloadAlign?: "left" | "right";
 }
 
 /** Base + added rows rendered as titled groups under ONE toolbar, filter menu and pager. */
@@ -2008,6 +2014,19 @@ describe("DataTable — empty, toolbar, footer", () => {
     }
     expect(screen.getByRole("table").compareDocumentPosition(screen.getByTestId("t-footer")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("downloadAlign 'right' renders download last — after the count and the filter trigger", () => {
+    renderTable({
+      rows: makeRows(11),
+      testIds: { row: r => `row-${r.id}`, count: "t-count" },
+      toolbar: { upload: <span>upload</span>, download: <span data-testid="dl">download</span>, downloadAlign: "right" },
+    });
+    const dl = screen.getByTestId("dl");
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+    for (const before of [screen.getByText("upload"), screen.getByTestId("t-count"), screen.getByTestId("button-filter-menu-trigger")]) {
+      expect(before.compareDocumentPosition(dl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
 });
 
 describe("DataTable — sections", () => {
@@ -2362,7 +2381,7 @@ export function DataTable<T>({
       {hasToolbar && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" data-testid={testIds.toolbar}>
           {toolbar?.upload}
-          {toolbar?.download}
+          {toolbar?.downloadAlign !== "right" && toolbar?.download}
           {toolbar?.add}
           {toolbar?.extra}
           <div className="ml-auto flex items-center gap-2">
@@ -2372,6 +2391,7 @@ export function DataTable<T>({
               </span>
             )}
             {showFilter && <FilterMenu descriptors={descriptors} tableFilters={tableFilters} triggerTestId={testIds.filterTrigger} />}
+            {toolbar?.downloadAlign === "right" && toolbar?.download}
           </div>
         </div>
       )}
@@ -2385,7 +2405,7 @@ export function DataTable<T>({
 - [ ] **Step 8: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DataTable.test.tsx src/components/tables/FilterMenu.test.tsx src/__tests__/ImportDialog.test.tsx`
-Expected: PASS — `DataTable.test.tsx` 34 tests, `FilterMenu.test.tsx` 12, `ImportDialog.test.tsx` 10 (measured at plan time). Then `pnpm --filter studio typecheck` must exit 0: it is what enforces the `@ts-expect-error` "ctx is required" test (an unused directive is itself a type error).
+Expected: PASS — `DataTable.test.tsx` 35 tests, `FilterMenu.test.tsx` 12, `ImportDialog.test.tsx` 10 (measured at plan time). Then `pnpm --filter studio typecheck` must exit 0: it is what enforces the `@ts-expect-error` "ctx is required" test (an unused directive is itself a type error).
 
 - [ ] **Step 9: e2e sweep**
 
@@ -3282,4 +3302,4 @@ git commit artifacts/studio/src/components/data-table/FormattedNumberInput.tsx a
 - **Spec coverage (rev 4).** B2.1 props → P1.2 (types, required `ctx`) + P1.4 (render) — rendering rules (primitives, `table-auto`, `px-3 py-1.5`, `whitespace-nowrap`, number centring, no fixed widths) asserted in `DataTable.test.tsx` "markup"; `readOnly` reaching every cell → P1.4. B2.2 pipeline / filter precedence / null handling with the internal empty token / descriptor ids / shared menu / trigger testid → P1.2 + P1.4; paging fixed at 50, pager > 50, rev 4 reset rule (all six cases), clamp, added rows appended → P1.3 + P1.4; focus jump (rev 4 wording) → P1.4, browser check → P4 hand-off; From/To removal → proven in P1.5 (actual removal per table in P4). B2.9 component bullets incl. integer mode and no-aria-label → P1.6; table-level B2.9 tests → P4 hand-off. B2.10 matrix → P1.1 (every reference regenerated at `B1_TIP`). B2.3–B2.8 → P2/P4 (toolbar slots exist in P1.4).
 - **Codex deep review (11 findings) folded:** 1 topology + L0 + `B1_TIP` base guard; 2 P1.1 remaps every reference (scripts); 3 FilterMenu append starts after line 116 with no stray `});`, re-run; 4 `pageResetKey` + six DataTable reset tests + key-order tests; 5 spec B2.2 amended; 6 P4 browser check; 7 complete scoped sets + built-in breaks; 8 matrix row #9; 9 internal empty token; 10 no aria-label, tests assert absence + describedby; 11 no page-size override, `ctx` required.
 - **Placeholder scan.** The only `<…>` tokens are changelog values the task must measure (rule: measured or `unknown`), `B1_TIP`/`BASE` (set by L0 / the topology commands) and the worktree index `N`.
-- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL`, `PAGE_SIZE`, `pageResetKey`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0, which also proves the `@ts-expect-error` is consumed) and run under vitest — 102 tests across the six test files (11 + 15 + 12 + 34 + 10 + 20), all passing, plus `ImportDialog.test.tsx` 10, `DistancesTab.test.tsx` 64 and `useTableFilters.test.ts` 16 unchanged and green — in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written. The three P1.1 scripts were run against the matrix at plan time (identity remap byte-exact; checker 152 rows / 10 legitimate mismatches; inventory reproduces §3).
+- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL`, `PAGE_SIZE`, `pageResetKey`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0, which also proves the `@ts-expect-error` is consumed) and run under vitest — 103 tests across the six test files (11 + 15 + 12 + 35 + 10 + 20; the 35th is the `downloadAlign` test folded in with the P3 review), all passing, plus `ImportDialog.test.tsx` 10, `DistancesTab.test.tsx` 64 and `useTableFilters.test.ts` 16 unchanged and green — in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written. The three P1.1 scripts were run against the matrix at plan time (identity remap byte-exact; checker 152 rows / 10 legitimate mismatches; inventory reproduces §3).
