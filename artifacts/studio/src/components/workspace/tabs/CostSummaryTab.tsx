@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
@@ -10,6 +10,9 @@ import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
 import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
+import { Button } from "@/components/ui/button";
+import { buildCompareCsv } from "@/lib/compareCsv";
+import { downloadTextFile } from "@/lib/clientCsv";
 
 // chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
 // `distanceUnitLabel` below are this file's single choke point for turning a
@@ -122,6 +125,29 @@ interface CostSummaryTabProps {
 }
 
 const MAX_COMPARE = 4;
+
+// SCU-1.3 (spec B1.3) — ONE row model drives both the compare <table> and its
+// CSV, so the two can never disagree. `display` is the on-screen cell
+// (formatted, may be JSX); `raw` is the CSV value (unformatted number or
+// string; null -> empty cell, the on-screen "—" is display-only).
+interface CompareCell {
+  raw: number | string | null;
+  display: ReactNode;
+}
+
+interface CompareRow {
+  key: string;
+  label: ReactNode;
+  /** The CSV metric label — carries the unit when the value has one. */
+  csvLabel: string;
+  labelClassName?: string;
+  cellClassName: string;
+  testId: (scenarioId: number) => string;
+  cells: CompareCell[];
+}
+
+const DOWNLOAD_BUTTON_CLASS =
+  "text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none";
 
 // Mirrors OpenWarehousesTab.tsx's/templates.ts's own `buildOpenWarehouseRows`
 // derivation (distinct `fromId` across non-source->facility-leg edges) so
@@ -267,6 +293,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   const [selectedIds, setSelectedIds] = useState<number[]>(() => [scenarioId]);
 
+  // SCU-1.3 (spec B1.3, deviation 9) — the picker starts hidden and opens on
+  // its own when 2+ scenarios are already selected at mount. Today the
+  // selection always starts at [scenarioId], so that branch is unreachable;
+  // it is the spec's rule written down, not a code path anything exercises.
+  const [pickerOpen, setPickerOpen] = useState(() => selectedIds.length >= 2);
+
   // CH4O-10 (decision 10) — cross-mode compare is now ALLOWED. The
   // objective-mode lock this used to enforce (C4.14/D14: a coverage-mode
   // Chapter 4 scenario and a min_distance-mode one couldn't be selected
@@ -296,7 +328,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   const compareMode = !isBrowsingHistory && compareScenarios.length >= 2;
 
   const toggleList = sameModelScenarios.length > 0 && (
-    <div className="p-2 border-b flex-shrink-0" data-testid="cost-summary-compare-toggles">
+    <div id="cost-summary-compare-toggles" className="p-2 border-b flex-shrink-0" data-testid="cost-summary-compare-toggles">
       <div className="text-xs font-medium mb-1">Compare scenarios (2–4)</div>
       {isBrowsingHistory && (
         <p className="text-xs text-muted-foreground mb-1" data-testid="cost-summary-history-hint">
@@ -327,11 +359,36 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     </div>
   );
 
+  // SCU-1.3 (spec B1.3) — the bar replaces both titles: Compare toggle left,
+  // Download right (null = no download in this state), picker beneath.
+  const summaryBar = (download: ReactNode) => (
+    <>
+      <div className="flex items-center justify-between gap-2 p-2 border-b flex-shrink-0" data-testid="cost-summary-bar">
+        {sameModelScenarios.length > 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            data-testid="button-toggle-compare"
+            aria-expanded={pickerOpen}
+            aria-controls="cost-summary-compare-toggles"
+            onClick={() => setPickerOpen(open => !open)}
+          >
+            Compare Scenario
+          </Button>
+        ) : (
+          <span />
+        )}
+        {download}
+      </div>
+      {pickerOpen && toggleList}
+    </>
+  );
+
   if (!compareMode) {
     if (!result) {
       return (
         <div className="flex flex-col h-full overflow-hidden">
-          {toggleList}
+          {summaryBar(null)}
           <div className="p-4 text-sm text-muted-foreground" data-testid="cost-summary-empty">No solved result yet.</div>
         </div>
       );
@@ -436,20 +493,18 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        {toggleList}
-        <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-          <span className="text-sm font-medium">Solution Summary</span>
+        {summaryBar(
           <button
             type="button"
             data-testid="button-download-cost-summary-csv"
-            className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+            className={DOWNLOAD_BUTTON_CLASS}
             onClick={() => download("costSummary", "csv")}
             disabled={disabledReasonFor("costSummary") != null}
             title={disabledReasonFor("costSummary")}
           >
             Download CSV
-          </button>
-        </div>
+          </button>,
+        )}
         <div className="overflow-auto flex-1 p-2">
           <FloorExceedsMaxAlert
             result={result}
@@ -482,28 +537,238 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   }
 
   // Compare mode: 2-4 solved, non-stale, same-model scenarios selected.
-  // Download CSV is hidden here (compare is a read-only side-by-side; a
-  // combined compare export is a later follow-up, not this bundle).
+  // SCU-1.3 — Download CSV now exports this table (spec B1.3).
   const results = compareScenarios.map(s => s.result!);
   const sharedBands = scenariosShareBands(results);
   // CH4OS — same no-incumbent rule as the single view, per column.
   const noIncumbentFor = (s: Scenario) =>
     modelId === MAX_COVERAGE_MODEL_ID && !hasIncumbent(classifyResultOutcome(s.result!));
   // CH4O-10 (decisions 5-8/10) — same envelope-shape gate as the
-  // single-scenario view, evaluated across the WHOLE selection (mirrors the
-  // inboundCost/outboundCost PRESENCE-gated rows below): a selected column
-  // without `details.coveragePct` renders "—" rather than dropping the row
-  // for every column.
+  // single-scenario view, evaluated across the WHOLE selection: a selected
+  // column without `details.coveragePct` renders "—" rather than dropping the
+  // row for every column.
   const compareShowCoverageRows = compareScenarios.some(
     s => typeof (s.result!.details as { coveragePct?: number } | undefined)?.coveragePct === "number" || noIncumbentFor(s),
   );
 
+  // Raw CSV values for distance-bearing rows are in the DISPLAY unit, named
+  // in the label (deviation 11). null while the canonical unit is unresolved.
+  const toDisplayOrNull = (v: number | null | undefined): number | null =>
+    v == null || canonicalDistanceUnit == null ? null : unit.toDisplay(v, canonicalDistanceUnit);
+  const unitSuffix = unitLabel ? ` (${unitLabel})` : "";
+  const rateLabel = rateUnitLabel(canonicalDistanceUnit, unit);
+  const rateSuffix = rateLabel ? ` (${rateLabel})` : "";
+  const MONO = "p-2 font-mono";
+  const legacyNote = <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>;
+  const EMPTY: CompareCell = { raw: null, display: "—" };
+
+  const compareRows: CompareRow[] = [];
+  const pushRow = (row: Omit<CompareRow, "cells">, cell: (s: Scenario) => CompareCell) =>
+    compareRows.push({ ...row, cells: compareScenarios.map(cell) });
+
+  // Asymmetric conversion is CORRECT, not a bug: objectiveDimension maps
+  // coverage to "percent" (non-converting) and min_distance to
+  // "demand-distance" (converting), so toggling the display unit changes one
+  // column and leaves its neighbour frozen. Do not "fix" this. The CSV takes
+  // the solver's raw objective (deviation 11).
+  pushRow(
+    { key: "objective", label: "Objective", csvLabel: "Objective", cellClassName: MONO, testId: id => `cost-summary-compare-objective-${id}` },
+    s => noIncumbentFor(s)
+      ? { raw: null, display: resultQualityText(s.result!) }
+      : {
+          raw: s.result!.objective,
+          display: modelId != null && canonicalDistanceUnit != null
+            ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
+            : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString(),
+        },
+  );
+
+  // CH4O-10 (decisions 5-8) — Chapter 4's coverage rows; decision 10 is what
+  // lets a cross-mode (coverage + min_distance) selection reach them.
+  if (compareShowCoverageRows) {
+    pushRow(
+      { key: "high-service-cutoff", label: "High service cutoff", csvLabel: `High service cutoff${unitSuffix}`, cellClassName: MONO, testId: id => `cost-summary-compare-high-service-cutoff-${id}` },
+      s => {
+        const v = (s.result!.details as { highServiceDistMi?: number } | undefined)?.highServiceDistMi;
+        return typeof v === "number" ? { raw: toDisplayOrNull(v), display: formatDistance(v, canonicalDistanceUnit, unit) } : EMPTY;
+      },
+    );
+    pushRow(
+      { key: "coverage-pct", label: "% of demand within high service", csvLabel: "% of demand within high service", cellClassName: MONO, testId: id => `cost-summary-compare-coverage-pct-${id}` },
+      s => {
+        const v = (s.result!.details as { coveragePct?: number } | undefined)?.coveragePct;
+        return typeof v === "number" && !noIncumbentFor(s) ? { raw: v, display: `${v.toFixed(2)} %` } : EMPTY;
+      },
+    );
+    pushRow(
+      { key: "covered-demand", label: "Total demand within high service", csvLabel: "Total demand within high service", cellClassName: MONO, testId: id => `cost-summary-compare-covered-demand-${id}` },
+      s => {
+        const v = (s.result!.details as { coveredDemand?: number } | undefined)?.coveredDemand;
+        return typeof v === "number" && !noIncumbentFor(s) ? { raw: v, display: v.toLocaleString() } : EMPTY;
+      },
+    );
+  }
+
+  // CH4OS (spec §6.2) — Model 1's max coverable demand; blank for scenarios
+  // whose envelope does not carry it. A not-proven value is a lower bound,
+  // never "the maximum" (spec §5) — the "(best found)" suffix is display-only.
+  if (compareScenarios.some(s => typeof (s.result!.details as { maxCoverableDemand?: unknown } | undefined)?.maxCoverableDemand === "number")) {
+    pushRow(
+      { key: "max-coverable-demand", label: "Max coverable demand (Model 1)", csvLabel: "Max coverable demand (Model 1)", cellClassName: MONO, testId: id => `cost-summary-compare-max-coverable-demand-${id}` },
+      s => {
+        const d = s.result!.details as { maxCoverableDemand?: number; model1?: { optimal?: boolean } } | undefined;
+        return typeof d?.maxCoverableDemand === "number"
+          ? { raw: d.maxCoverableDemand, display: `${d.maxCoverableDemand.toLocaleString()}${d.model1?.optimal === false ? " (best found)" : ""}` }
+          : { raw: null, display: "" };
+      },
+    );
+  }
+
+  // ch4-fixes item 3 — JADE inbound/outbound cost split, gated on PRESENCE
+  // across the selection, never on modelId; a column lacking it shows "—".
+  if (compareScenarios.some(s => s.result!.metrics.inboundCost != null)) {
+    pushRow(
+      { key: "inbound", label: "Inbound cost", csvLabel: "Inbound cost", cellClassName: MONO, testId: id => `cost-summary-compare-inbound-${id}` },
+      s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: s.result!.metrics.inboundCost.toLocaleString() } : EMPTY,
+    );
+  }
+  if (compareScenarios.some(s => s.result!.metrics.outboundCost != null)) {
+    pushRow(
+      { key: "outbound", label: "Outbound cost", csvLabel: "Outbound cost", cellClassName: MONO, testId: id => `cost-summary-compare-outbound-${id}` },
+      s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: s.result!.metrics.outboundCost.toLocaleString() } : EMPTY,
+    );
+  }
+
+  // ch9-tc-9 (point 12) — the four rates EACH column's own result was SOLVED
+  // AT. Gated on modelId, not metric presence — an all-legacy selection still
+  // renders these rows with a labelled fallback.
+  if (modelId === JADE_MODEL_ID) {
+    const rateRaw = (rate: number) =>
+      canonicalDistanceUnit == null ? null : rateConversion(unit).toDisplay(rate, canonicalDistanceUnit);
+    pushRow(
+      { key: "rate-ic", label: `Inbound rate${rateSuffix}`, csvLabel: `Inbound rate${rateSuffix}`, cellClassName: MONO, testId: id => `cost-summary-compare-rate-ic-${id}` },
+      s => {
+        const { rates, legacy } = solvedAtRates(s.result);
+        return { raw: rateRaw(rates.icTransCost), display: <>{formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}{legacy && legacyNote}</> };
+      },
+    );
+    pushRow(
+      { key: "min-ic", label: "Inbound min ($/ton)", csvLabel: "Inbound min ($/ton)", cellClassName: MONO, testId: id => `cost-summary-compare-min-ic-${id}` },
+      s => {
+        const { rates, legacy } = solvedAtRates(s.result);
+        return { raw: rates.icMinTrans, display: <>{rates.icMinTrans.toLocaleString()}{legacy && legacyNote}</> };
+      },
+    );
+    pushRow(
+      { key: "rate-ob", label: `Outbound rate${rateSuffix}`, csvLabel: `Outbound rate${rateSuffix}`, cellClassName: MONO, testId: id => `cost-summary-compare-rate-ob-${id}` },
+      s => {
+        const { rates, legacy } = solvedAtRates(s.result);
+        return { raw: rateRaw(rates.obTransCost), display: <>{formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}{legacy && legacyNote}</> };
+      },
+    );
+    pushRow(
+      { key: "min-ob", label: "Outbound min ($/ton)", csvLabel: "Outbound min ($/ton)", cellClassName: MONO, testId: id => `cost-summary-compare-min-ob-${id}` },
+      s => {
+        const { rates, legacy } = solvedAtRates(s.result);
+        return { raw: rates.obMinTrans, display: <>{rates.obMinTrans.toLocaleString()}{legacy && legacyNote}</> };
+      },
+    );
+  }
+
+  const distanceLabel = `${compareShowCoverageRows ? "Avg distance to customers" : "Weighted avg. distance"}${unitSuffix}`;
+  pushRow(
+    { key: "distance", label: distanceLabel, csvLabel: distanceLabel, cellClassName: MONO, testId: id => `cost-summary-compare-distance-${id}` },
+    s => noIncumbentFor(s)
+      ? EMPTY
+      : { raw: toDisplayOrNull(s.result!.metrics.weightedAvgDistance), display: formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit) },
+  );
+
+  // T5 (B5) — open-facility set by city, gated on supportsFacilityStatus.
+  // T11 (critical fix) — PER-SCENARIO identity, resolved from THIS column's
+  // own `s.inputs`; `locationById`'s mere presence selects the layout (its
+  // VALUES are ignored). CSV value (review fold 1): the SAME labels the cell
+  // shows — never raw ids — so the export reads like the table.
+  if (supportsFacilityStatus) {
+    pushRow(
+      { key: "open-facilities", label: "Open facilities", csvLabel: "Open facilities", cellClassName: "p-2", testId: id => `cost-summary-compare-open-facilities-cities-${id}` },
+      s => {
+        const ids = [...openFacilityIds(s.result!)].sort();
+        const identity = locationById ? buildEntityIdentityById(modelId, dataset, s.inputs) : null;
+        if (!identity) {
+          const text = openFacilityCityList(s.result!, s.inputs, baseFacilities); // "—" when none
+          return { raw: text === "—" ? null : text, display: text };
+        }
+        const labels = ids.map(id => {
+          const entry = identity[id];
+          return entry && (entry.city || entry.state)
+            ? `${entry.city}, ${entry.state}`
+            : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs));
+        });
+        const display = (
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {ids.map((id, i) => (
+              <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
+                <span>{labels[i]}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{identity[id]?.displayId ?? id}</span>
+              </span>
+            ))}
+            {ids.length === 0 && "—"}
+          </div>
+        );
+        return { raw: labels.length > 0 ? labels.join("; ") : null, display };
+      },
+    );
+  }
+
+  pushRow(
+    { key: "runtime", label: "Runtime", csvLabel: "Runtime (s)", cellClassName: MONO, testId: id => `cost-summary-compare-runtime-${id}` },
+    s => ({ raw: s.result!.runTimeSec, display: `${s.result!.runTimeSec.toFixed(2)}s` }),
+  );
+  pushRow(
+    { key: "quality", label: "Quality", csvLabel: "Quality", cellClassName: "p-2", testId: id => `cost-summary-compare-quality-${id}` },
+    s => ({ raw: resultQualityText(s.result!), display: resultQualityText(s.result!) }),
+  );
+
+  // SCU-1.2/1.3 (spec B1.9) — EXCLUSIVE band rows + overflow, only when every
+  // column shares the same real boundaries.
+  if (sharedBands) {
+    const boundaries = bandBoundaries(results[0]);
+    const fmt = (v: number) =>
+      unit.toDisplay(v, canonicalDistanceUnit!).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
+    const labels = unitLabel == null
+      ? [...boundaries, OVERFLOW_BAND].map(() => "—")
+      : exclusiveBandLabels(boundaries, fmt, unitLabel);
+    const exclusiveByColumn = compareScenarios.map(s =>
+      frozenBandCoverageToExclusive(s.result!.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId)),
+    );
+    [...boundaries, OVERFLOW_BAND].forEach((band, i) => {
+      compareRows.push({
+        key: `band-${band}`,
+        label: labels[i],
+        csvLabel: `${labels[i]} (%)`,
+        labelClassName: "font-mono",
+        cellClassName: MONO,
+        testId: id => `cost-summary-compare-band-${band}-${id}`,
+        cells: exclusiveByColumn.map(rows => {
+          const coverage = rows?.find(b => b.band === band);
+          return coverage ? { raw: coverage.percent, display: `${coverage.percent}%` } : EMPTY;
+        }),
+      });
+    });
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {toggleList}
-      <div className="p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Solution Summary — Compare</span>
-      </div>
+      {summaryBar(
+        <button
+          type="button"
+          data-testid="button-download-cost-summary-csv"
+          className={DOWNLOAD_BUTTON_CLASS}
+          onClick={() => downloadTextFile("cost-summary-compare.csv", buildCompareCsv(compareRows, compareScenarios), "text/csv")}
+        >
+          Download CSV
+        </button>,
+      )}
       <div className="overflow-auto flex-1 p-2" data-testid="cost-summary-compare-table">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -517,264 +782,16 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             </tr>
           </thead>
           <tbody>
-            {/* Asymmetric conversion is CORRECT, not a bug: objectiveDimension
-                maps coverage to "percent" (non-converting) and min_distance to
-                "demand-distance" (converting), so toggling the display unit
-                changes one column and leaves its neighbour frozen. Do not
-                "fix" this. */}
-            <tr>
-              <td className="p-2 text-muted-foreground">Objective</td>
-              {compareScenarios.map(s => (
-                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-objective-${s.id}`}>
-                  {noIncumbentFor(s)
-                    ? resultQualityText(s.result!)
-                    : modelId != null && canonicalDistanceUnit != null
-                      ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
-                      : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
-                </td>
-              ))}
-            </tr>
-            {/* CH4O-10 (decisions 5-8) — Chapter 4's coverage rows, moved
-                here from Service Stats. Mirrors the single-scenario rows
-                added above; decision 10 is what makes a cross-mode
-                (coverage + min_distance) selection reach this block at all. */}
-            {compareShowCoverageRows && (
-              <>
-                <tr>
-                  <td className="p-2 text-muted-foreground">High service cutoff</td>
-                  {compareScenarios.map(s => {
-                    const d = s.result!.details as { highServiceDistMi?: number } | undefined;
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-high-service-cutoff-${s.id}`}>
-                        {typeof d?.highServiceDistMi === "number" ? formatDistance(d.highServiceDistMi, canonicalDistanceUnit, unit) : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">% of demand within high service</td>
-                  {compareScenarios.map(s => {
-                    const d = s.result!.details as { coveragePct?: number } | undefined;
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-coverage-pct-${s.id}`}>
-                        {typeof d?.coveragePct === "number" && !noIncumbentFor(s) ? `${d.coveragePct.toFixed(2)} %` : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">Total demand within high service</td>
-                  {compareScenarios.map(s => {
-                    const d = s.result!.details as { coveredDemand?: number } | undefined;
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-covered-demand-${s.id}`}>
-                        {typeof d?.coveredDemand === "number" && !noIncumbentFor(s) ? d.coveredDemand.toLocaleString() : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </>
-            )}
-            {/* CH4OS (spec §6.2) — Model 1's max coverable demand; blank for
-                scenarios whose envelope does not carry it. */}
-            {compareScenarios.some(s => typeof (s.result!.details as { maxCoverableDemand?: unknown } | undefined)?.maxCoverableDemand === "number") && (
-              <tr>
-                <td className="p-2 text-muted-foreground">Max coverable demand (Model 1)</td>
-                {compareScenarios.map(s => {
-                  const d = s.result!.details as { maxCoverableDemand?: number; model1?: { optimal?: boolean } } | undefined;
-                  return (
-                    <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-max-coverable-demand-${s.id}`}>
-                      {/* Spec §5: a not-proven Model 1 value is a lower bound, never "the maximum". */}
-                      {typeof d?.maxCoverableDemand === "number"
-                        ? `${d.maxCoverableDemand.toLocaleString()}${d.model1?.optimal === false ? " (best found)" : ""}`
-                        : ""}
-                    </td>
-                  );
-                })}
-              </tr>
-            )}
-            {/* ch4-fixes item 3 — Chapter 9 (JADE) inbound/outbound cost split,
-                mirroring the single-scenario rows that already existed.
-                Gated on PRESENCE across the selection, never on modelId: a
-                model whose envelope omits the metric simply never shows the
-                row (byte-identical to before for all five other models). A
-                selected scenario that lacks the metric while a sibling has it
-                renders "—" rather than dropping the whole row. */}
-            {compareScenarios.some(s => s.result!.metrics.inboundCost != null) && (
-              <tr>
-                <td className="p-2 text-muted-foreground">Inbound cost</td>
-                {compareScenarios.map(s => (
-                  <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-inbound-${s.id}`}>
-                    {s.result!.metrics.inboundCost != null ? s.result!.metrics.inboundCost.toLocaleString() : "—"}
+            {compareRows.map(row => (
+              <tr key={row.key}>
+                <td className={`p-2 text-muted-foreground${row.labelClassName ? ` ${row.labelClassName}` : ""}`}>{row.label}</td>
+                {compareScenarios.map((s, col) => (
+                  <td key={s.id} className={row.cellClassName} data-testid={row.testId(s.id)}>
+                    {row.cells[col].display}
                   </td>
                 ))}
               </tr>
-            )}
-            {compareScenarios.some(s => s.result!.metrics.outboundCost != null) && (
-              <tr>
-                <td className="p-2 text-muted-foreground">Outbound cost</td>
-                {compareScenarios.map(s => (
-                  <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-outbound-${s.id}`}>
-                    {s.result!.metrics.outboundCost != null ? s.result!.metrics.outboundCost.toLocaleString() : "—"}
-                  </td>
-                ))}
-              </tr>
-            )}
-            {/* ch9-tc-9 (point 12) — the four rates EACH column's own result
-                was SOLVED AT. All four are required (not just the two rates):
-                a cost delta can be caused entirely by minimum charges, and
-                showing only rates would leave it unexplained. Gated on
-                modelId, not metric presence — an all-legacy selection still
-                renders these rows with a labelled fallback. */}
-            {modelId === JADE_MODEL_ID && (
-              <>
-                <tr>
-                  <td className="p-2 text-muted-foreground">
-                    Inbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
-                  </td>
-                  {compareScenarios.map(s => {
-                    const { rates, legacy } = solvedAtRates(s.result);
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-rate-ic-${s.id}`}>
-                        {formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}
-                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">Inbound min ($/ton)</td>
-                  {compareScenarios.map(s => {
-                    const { rates, legacy } = solvedAtRates(s.result);
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ic-${s.id}`}>
-                        {rates.icMinTrans.toLocaleString()}
-                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">
-                    Outbound rate{rateUnitLabel(canonicalDistanceUnit, unit) ? ` (${rateUnitLabel(canonicalDistanceUnit, unit)})` : ""}
-                  </td>
-                  {compareScenarios.map(s => {
-                    const { rates, legacy } = solvedAtRates(s.result);
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-rate-ob-${s.id}`}>
-                        {formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}
-                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">Outbound min ($/ton)</td>
-                  {compareScenarios.map(s => {
-                    const { rates, legacy } = solvedAtRates(s.result);
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-min-ob-${s.id}`}>
-                        {rates.obMinTrans.toLocaleString()}
-                        {legacy && <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </>
-            )}
-            <tr>
-              <td className="p-2 text-muted-foreground">
-                {compareShowCoverageRows ? "Avg distance to customers" : "Weighted avg. distance"}{unitLabel ? ` (${unitLabel})` : ""}
-              </td>
-              {compareScenarios.map(s => (
-                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-distance-${s.id}`}>
-                  {noIncumbentFor(s) ? "—" : formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit)}
-                </td>
-              ))}
-            </tr>
-            {/* T5 (B5) — open-facility set by city, gated on
-                supportsFacilityStatus (present for p-median-us/brazil AND
-                two-echelon, absent for transport-coal — no facility-location
-                concept there). */}
-            {supportsFacilityStatus && (
-              <tr>
-                <td className="p-2 text-muted-foreground">Open facilities</td>
-                {compareScenarios.map(s => {
-                  // T11 (critical fix) — PER-SCENARIO identity, resolved from
-                  // THIS column's own `s.inputs`, never a single map shared
-                  // across every column. `locationById`'s mere presence still
-                  // selects which of the two layouts to render (Workspace.tsx's
-                  // existing JADE-only gate) — its VALUES are ignored.
-                  const identity = locationById ? buildEntityIdentityById(modelId, dataset, s.inputs) : null;
-                  return (
-                    <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-cities-${s.id}`}>
-                      {identity ? (
-                        <div className="flex flex-wrap gap-x-3 gap-y-1">
-                          {[...openFacilityIds(s.result!)].sort().map(id => {
-                            const entry = identity[id];
-                            const loc = entry && (entry.city || entry.state) ? { city: entry.city, state: entry.state } : undefined;
-                            const displayId = entry?.displayId ?? id;
-                            return (
-                              <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
-                                <span>{loc ? `${loc.city}, ${loc.state}` : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs))}</span>
-                                <span className="font-mono text-[10px] text-muted-foreground">{displayId}</span>
-                              </span>
-                            );
-                          })}
-                          {openFacilityIds(s.result!).size === 0 && "—"}
-                        </div>
-                      ) : (
-                        openFacilityCityList(s.result!, s.inputs, baseFacilities)
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            )}
-            <tr>
-              <td className="p-2 text-muted-foreground">Runtime</td>
-              {compareScenarios.map(s => (
-                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-runtime-${s.id}`}>
-                  {s.result!.runTimeSec.toFixed(2)}s
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="p-2 text-muted-foreground">Quality</td>
-              {compareScenarios.map(s => (
-                <td key={s.id} className="p-2" data-testid={`cost-summary-compare-quality-${s.id}`}>
-                  {resultQualityText(s.result!)}
-                </td>
-              ))}
-            </tr>
-            {/* SCU-1.2 (spec B1.9) — EXCLUSIVE rows from each column's own
-                frozen bandCoverage (converted per its stored shape), plus the
-                overflow row. Only rendered when every column shares the same
-                real boundaries (scenariosShareBands). */}
-            {sharedBands && (() => {
-              const boundaries = bandBoundaries(results[0]);
-              const fmt = (v: number) =>
-                unit.toDisplay(v, canonicalDistanceUnit!).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
-              const labels = unitLabel == null
-                ? [...boundaries, OVERFLOW_BAND].map(() => "—")
-                : exclusiveBandLabels(boundaries, fmt, unitLabel);
-              const exclusiveByColumn = compareScenarios.map(s =>
-                frozenBandCoverageToExclusive(s.result!.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId)),
-              );
-              return [...boundaries, OVERFLOW_BAND].map((band, i) => (
-                <tr key={band}>
-                  <td className="p-2 text-muted-foreground font-mono">{labels[i]}</td>
-                  {compareScenarios.map((s, col) => {
-                    const coverage = exclusiveByColumn[col]?.find(b => b.band === band);
-                    return (
-                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-band-${band}-${s.id}`}>
-                        {coverage ? `${coverage.percent}%` : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ));
-            })()}
+            ))}
           </tbody>
         </table>
         {!sharedBands && (

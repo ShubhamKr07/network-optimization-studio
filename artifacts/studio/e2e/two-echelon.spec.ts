@@ -170,6 +170,7 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       // toggles (the current in-tab replacement for the old /compare page —
       // Bundle 6 removed the standalone route entirely). ──────────────────
       await page.getByTestId("sidebar-output-cost-summary").click();
+      await page.getByTestId("button-toggle-compare").click({ timeout: HEADER_TIMEOUT }); // SCU-1.3 — picker is hidden by default
       await expect(page.getByTestId("cost-summary-compare-toggles")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Default selection is just the CURRENT scenario (the clone, BOM 2.0)
       // — check the original (BOM 1.1) scenario's own toggle to enter

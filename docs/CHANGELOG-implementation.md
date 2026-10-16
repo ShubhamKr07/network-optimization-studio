@@ -3600,3 +3600,14 @@ Task SCU-1.9 (B1.1, D5), branch `scu-1.9-work`, frontend-engineer (Claude Sonnet
 - RED observed first: `Failed to resolve import "@/lib/resultNarrative"` and `Unable to find an element by: [data-testid="output-map-narrative"]`.
 - Gate: `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; `pnpm --filter studio test` exit 0 (132 files, 2400 tests). api-server tests and pytest not run (frontend-only task, per controller).
 - e2e: grep of `artifacts/studio/e2e/` for `output-map-narrative` / `output-map-metric-overlay` = 0 matches; no existing testid/string changed. e2e: not run — deferred to SCU-1.10 (layout risk: narrative takes up to 160 px below the map).
+
+### SCU-1.3 — Solution Summary bar and compare CSV
+
+- Both "Solution Summary" titles are gone. One bar (`cost-summary-bar`) holds the green `button-toggle-compare` ("Compare Scenario", left) and `button-download-cost-summary-csv` (right). The picker is hidden until the toggle is clicked.
+- Download CSV now shows in both modes. Compare mode downloads `cost-summary-compare.csv` built from the same `CompareRow` model the table renders (new `lib/compareCsv.ts`), so table and CSV cannot disagree. The compare branch of `CostSummaryTab.tsx` was moved onto that row model; every `cost-summary-compare-*` testid and displayed string is unchanged.
+- `lib/clientCsv.ts` is new and now holds `csvCell`/`downloadClientCsv` (moved out of `JadeFlowsTab.tsx`) plus `downloadTextFile`.
+- Deviation 9: the picker auto-open (`useState(() => selectedIds.length >= 2)`) is unreachable today, because `selectedIds` starts at `[scenarioId]`.
+- Deviation 11: the CSV `Objective` is the raw `result.objective`; `Open facilities` cells use the same `City - ST` labels the table shows; distance rows are in the display unit and their label names it.
+- Observed vs plan: the plan's expected `compareToggle(` count of 41 ignores the deleted "hides Download CSV in compare mode" test; observed 40 (39 call sites + definition). RED was observed first (`Failed to resolve import "@/lib/compareCsv"` / `"@/lib/clientCsv"`).
+- e2e specs rewritten to open the picker first: `two-echelon.spec.ts`, `bundle6-ui-tweaks.spec.ts`, `jade-transport-costs.spec.ts`, `workspace-ux-r1-r9.spec.ts` (x2). A grep for the changed testids/strings in `e2e/` found no other spec reaching the picker. e2e: not run — deferred to SCU-1.10 (no local servers).
+- Gate: `pnpm run typecheck` exit 0; `pnpm --filter studio typecheck:e2e` exit 0; `pnpm --filter studio test` exit 0, 133 files / 2412 tests passed. api-server tests and pytest not run (out of scope for this task).
