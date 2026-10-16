@@ -852,3 +852,34 @@ describe("OutputMapTab — CH4OS floor-exceeds-max alert", () => {
     expect(screen.queryByTestId("floor-exceeds-max-alert")).not.toBeInTheDocument();
   });
 });
+
+
+// SCU-1.9 (spec B1.1, D5) — the narrative renders below the map only when the
+// tab renders a result. (Stale never reaches this component: Workspace's
+// StaleOutputBanner gate, Workspace.tsx:3934-3936, is unchanged — D5.)
+describe("OutputMapTab — result narrative (SCU-1.9)", () => {
+  it("renders no narrative when there is no solved result", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[]} modelId="p-median-us" />);
+    expect(screen.queryByTestId("output-map-narrative")).not.toBeInTheDocument();
+  });
+
+  it("renders the narrative below the map for a solved result, over the map's own band lens", () => {
+    const { container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us" />,
+    );
+    const narrative = screen.getByTestId("output-map-narrative");
+    // fixture: W1 open; 50 flow at 100 mi (band 0) + 50 flow at 900 mi (overflow).
+    expect(narrative).toHaveTextContent("1 warehouse open: W1.");
+    expect(narrative).toHaveTextContent("Demand by distance band: 0–250 mi 50%, 250–500 mi 0%, 500–750 mi 0%, > 750 mi 50%.");
+    expect(narrative).toHaveTextContent("Weighted average distance: 500.0 mi.");
+    expect(screen.getByTestId("output-map-narrative-how-to-read")).toHaveTextContent("How to read this map:");
+    const map = container.querySelector(".leaflet-container")!;
+    expect(map.contains(narrative)).toBe(false);
+    expect(map.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders no narrative for a model with no adapter", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} />);
+    expect(screen.queryByTestId("output-map-narrative")).not.toBeInTheDocument();
+  });
+});
