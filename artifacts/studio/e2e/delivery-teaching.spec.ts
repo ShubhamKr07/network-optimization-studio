@@ -13,7 +13,7 @@
  *      cost table is no longer this model's only editable surface; facility
  *      status and customer demand/exclusion are also editable, geometry
  *      stays fixed).
- *   3. The Input Map renders `fixedGeography`: no add/move/delete/Save
+ *   3. The Input Map renders `fixedGeography`: no add/move/delete (Save is inline in the Layers row, SCU-1.5)
  *      affordance (geometry stays fixed — Task 6's inversion only lifted
  *      status/demand editing, not the map's own add/move/delete controls;
  *      the map's right-click action menu shows an Edit action only, proven
@@ -189,15 +189,17 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     await expect(page.getByTestId("sidebar-input-optimization-parameters")).toBeVisible();
     expect(await page.locator('[data-testid^="sidebar-input-"]').count()).toBe(5);
 
-    // ── 3. Input Map renders fixedGeography: no add/move/delete/Save
-    // affordance — geometry stays fixed even though status/demand editing
-    // moved to the Warehouses/Customers tabs (Task 6's inversion) ─────────
+    // ── 3. Input Map renders fixedGeography: no add/move/delete affordance —
+    // geometry stays fixed. SCU-1.5 (spec B1.2) — Save IS here now, inline
+    // in the Layers row (status/demand edits are real), and the separate
+    // shared toolbar row is suppressed on this view ─────────────────────
     await page.getByTestId("sidebar-input-input-map").click();
     const inputMap = page.getByTestId("input-map-tab");
     await expect(inputMap).toBeVisible({ timeout: HEADER_TIMEOUT });
     await expect(inputMap.getByTestId("button-input-map-place-wh")).toHaveCount(0);
     await expect(inputMap.getByTestId("button-input-map-place-cs")).toHaveCount(0);
-    await expect(inputMap.getByTestId("button-save")).toHaveCount(0);
+    await expect(page.getByTestId("pmedian-map-toolbar").getByTestId("button-save")).toHaveCount(1);
+    await expect(page.getByTestId("workspace-toolbar-row")).toHaveCount(0);
 
     // ── 4. Solve (real CBC) → Scenario 1 golden ──────────────────────────────
     const scenario1 = await solveViaUi(page, id);

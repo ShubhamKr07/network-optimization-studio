@@ -1322,7 +1322,7 @@ describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6/6b
   // toolbar Save is DISABLED before any edit, becomes ENABLED the instant a
   // status edit is made on the map — no tab switch required — and Saving
   // PATCHes the real warehouseOverrides payload via useUpdateScenario.
-  it("a warehouse status edit on the Input Map enables the shared toolbar Save without switching tabs, and Save PATCHes warehouseOverrides", () => {
+  it("a warehouse status edit on the Input Map enables the inline Layers-row Save without switching tabs, and Save PATCHes warehouseOverrides", () => {
     renderDeliveryWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
 
@@ -1357,22 +1357,19 @@ describe("Workspace — delivery-teaching-us Input Map fixedGeography (Task 6/6b
     });
   });
 
-  // §14.5 still requires the map's OWN inline Save (InputMapTab.tsx's
-  // Layers-row `onSave`, gated on `fixedGeography`) to stay hidden — only
-  // the SHARED toolbar gained one in ch5-edit-6b. Scoping the query to
-  // `pmedian-map-toolbar` (the Layers row's own container) is what makes
-  // this assertion actually test that, rather than just re-testing that
-  // some "button-save" exists somewhere on the page.
-  it("the Input Map's own Layers-row Save stays hidden — only the shared toolbar Save renders", () => {
+  // SCU-1.5 (spec B1.2) — delivery-teaching-us's Save now sits INLINE in the
+  // Layers row (status/demand edits are real; `fixedGeography` governs
+  // geometry only), and the separate shared toolbar row is suppressed on
+  // this view. Scoped to `pmedian-map-toolbar`, so this asserts WHERE the
+  // single Save lives, not merely that one exists.
+  it("the Input Map's Save renders inline in the Layers row and the shared toolbar row is suppressed", () => {
     renderDeliveryWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
 
     const layersRow = screen.getByTestId("pmedian-map-toolbar");
-    expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
-
-    // Exactly one Save button on the whole page — the shared toolbar's.
     expect(screen.getAllByTestId("button-save")).toHaveLength(1);
-    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+    expect(within(layersRow).getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-toolbar-row")).not.toBeInTheDocument();
   });
 });
 
@@ -3222,34 +3219,19 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
 
   // GATE: isEditableInputTab (input-map branch) + the InputMapTab
   // "pmedian"-mode render branch (Chen uses the fallback, no separate mode).
-  //
-  // COSM-2 — this test used to be titled "…with an inline Save in its Layers
-  // row" and asserted only that `pmedian-map-toolbar` exists and that exactly
-  // one global `button-save` is present. Both of those stayed TRUE after
-  // COSM-2 relocated Chen's Save into the shared toolbar row, so it would
-  // have gone false-green with its name and comments lying. It now asserts
-  // WHERE the Save is by containment: present, and NOT inside the Layers
-  // row. `showInlineSave={false}` (passed only for max-coverage-us) is what
-  // suppresses the Layers-row copy, and `saveInLayersRow` no longer lists
-  // this model so the shared row renders.
-  //
-  // CH4O-2 — the step toggle this test used to also assert containment of
-  // is deleted along with the rest of the two-step workflow; the shared
-  // toolbar row now renders solely for `showToolbarSave`.
-  it("input-map gate: renders the pmedian-mode Input Map with its Save in the shared toolbar row, NOT the Layers row, for a Chen scenario", () => {
+  // SCU-1.5 (spec B1.2) — inverts COSM-2: Chen's Save is back INLINE in the
+  // Layers row (`showInlineSave` is deleted; `saveInLayersRow` lists
+  // max-coverage-us), so the shared toolbar row does not render on this view.
+  it("input-map gate: renders the pmedian-mode Input Map with its Save inline in the Layers row, and no shared toolbar row, for a Chen scenario", () => {
     renderChen();
 
     // Input Map is one-shot seeded active on mount (didSeedTabRef).
     expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
     const layersRow = screen.getByTestId("pmedian-map-toolbar");
-    expect(layersRow).toBeInTheDocument();
 
-    // Exactly one Save, and it is the shared toolbar's — not the Layers row's.
     expect(screen.getAllByTestId("button-save")).toHaveLength(1);
-    const save = screen.getByTestId("button-save");
-    expect(within(layersRow).queryByTestId("button-save")).not.toBeInTheDocument();
-    const toolbarRow = screen.getByTestId("workspace-toolbar-row");
-    expect(toolbarRow).toContainElement(save);
+    expect(within(layersRow).getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-toolbar-row")).not.toBeInTheDocument();
   });
 
   // GATE: isEditableInputTab (warehouses branch) + the Warehouses render branch.
