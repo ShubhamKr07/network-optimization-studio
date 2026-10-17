@@ -38,7 +38,7 @@
   - `PORT=520N BASE_PATH=/ API_PROXY_TARGET=http://localhost:310N VITE_POSTHOG_KEY=phc_local_dummy_key VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 pnpm --filter studio run dev`
   - then, from `artifacts/studio`: `E2E_BASE_URL=http://localhost:520N pnpm exec playwright test <specs>` (quarantined specs: `E2E_BASE_URL=http://localhost:520N pnpm e2e:quarantine`). **`E2E_BASE_URL` is never optional** — without it Playwright silently tests a remote Replit deployment. Stop both servers when the step ends. If a server cannot start, record `e2e: not run — <reason>, deferred to SCU-2.P3.10` in the changelog; never claim green.
 - **Flakes:** before calling a failure a regression, check `docs/superpowers/flake-registry.md` by test **name** and re-run the failing file twice in isolation. Record any new sighting there.
-- **Every `Expected:` count below is a scratch-tree number and provisional — the real numbers come from Step 1.** Step 1 of every task re-anchors against the **real** post-Bundle-1/P1/P2 tip and records a baseline run of that task's test files; the task's expected counts are then *baseline − deleted + added* (each task lists its deleted/added tests), never the scratch number. The code blocks were compiled (`tsc --noEmit`, exit 0, both `tsconfig.json` and `tsconfig.e2e.json`) and run under vitest in a scratch copy of `artifacts/studio` at `5ba7c4c` with the **committed P1 rev-4 code** (byte-identical `types.ts`, `DataTable.tsx`, `usePagedRows.ts`, `deriveFilterDescriptors.ts`, `TablePager.tsx`) and a **simulated Bundle 1** (SCU-1.4 title removals and tests; SCU-1.3's `lib/clientCsv.ts`, `lib/compareCsv.ts`, CostSummary bar + compare row model and its tests, copied verbatim from the Bundle 1 plan; SCU-1.1 helpers stubbed with the Bundle 1 plan's code). Real Bundle 1 output may differ in detail; Step 1 of every task re-verifies the anchors this plan edits, and an observed count that differs is recorded, not argued with.
+- **Every `Expected:` count below comes from a plan-time dry run on the REAL Bundle 1 tip and is still provisional — the binding numbers come from Step 1.** Step 1 of every task re-anchors against the real post-Bundle-1/P1/P2 tip and records a baseline run of that task's test files; the task's expected counts are then *baseline − deleted + added* (each task lists its deleted/added tests). Plan-time verification: a monorepo-shaped scratch copy of `artifacts/studio` + `lib/units` **at Bundle 1's real tip `aa7141a`** (node_modules from the main checkout; `@workspace/units` pointed at the `aa7141a` copy) plus the committed P1 rev-4 shell files (byte-identical) and this plan's `downloadAlign` addition. **P2 was not applied** in the scratch tree: P2 changes only the import path (`ImportDialog`, `ExportContext`/`exportEntity` entity lists, server) and no P3 file, so the P3 counts cannot depend on it — Step 1's real baseline at the P2 tip is what proves that.
 - **No merge, no push, no deploy.** Bundle 2 continues on this branch (P3 → P4).
 
 ## Grounding facts and deviations (read before any task)
@@ -46,7 +46,7 @@
 Each deviation is the smallest correct reading where spec text and repo disagree, or where the spec leaves a choice open (hard rule #8). The commit implementing it names it in its body. Items marked "user decision" record the user's 2026-10-17 answers (see "Decisions folded" at the end); no P3 question is open.
 
 - **G-1 Server JSON export already exists for all five output entities — no contract change.** `routes/scenarios.ts:622-625` accepts `format` `csv|json` for every entity; the JADE branch emits JSON at `:809-813`, the generic branch at `:837-869`; OpenAPI `exportScenario` declares `format: enum [csv, json]` (`lib/api-spec/openapi.yaml:523-528`) and `application/json` → `ExportEnvelope` (`:560-562`); covered by `__tests__/routes.test.ts:2098-2404` and `__tests__/solveExportIntegration.test.ts:90-97`. The studio already forwards `format` (`lib/exportEntity.ts:51-62`, `contexts/ExportContext.tsx:106-119`); the JSON file name is `${entity}.json`.
-- **G-2 Bundle 1 changed every P3 file.** SCU-1.4 removed the tab titles (`justify-end` header rows), SCU-1.3 rebuilt `CostSummaryTab.tsx` around `summaryBar()` + the `CompareRow` row model and moved `csvCell`/`downloadTextFile`/`downloadClientCsv` into `lib/clientCsv.ts`, SCU-1.2 made band rows exclusive. Every code step below is written against that state; the old header rows are deleted wholesale, so their exact Bundle 1 classes do not matter.
+- **G-2 Bundle 1 changed every P3 file — reconciled against its real tip `aa7141a`** (`git -C /Users/shubhamkr/nos-scnd-b1 show aa7141a:<path>`). SCU-1.4 removed the tab titles and left `justify-end` header rows in OpenWarehouses/Assignments/JadeAssignments/Flows/ServiceStats (JADE Flows keeps its `justify-between` header with the segmented control); SCU-1.3 rebuilt `CostSummaryTab.tsx` around `summaryBar()` + the `CompareRow` row model (`csvLabel: string | null` — `null` = row omitted from the CSV, used by the band rows while the unit is unresolved) and moved `csvCell`/`downloadTextFile`/`downloadClientCsv` into `lib/clientCsv.ts` (`csvCell` now escapes `\r` and guards spreadsheet formula injection on string cells); `buildCompareCsv` lives in `lib/compareCsv.ts` and drops `csvLabel: null` rows; SCU-1.2 made Service Stats use `computeExclusiveBandCoverage` / `frozenBandCoverageToExclusive` / `exclusiveBandLabels`; SCU-1.6 made `SidebarTree` controlled (no P3 file touches it). Measured: the real `OpenWarehousesTab`, `AssignmentsTab`, `JadeAssignmentsTab`, `FlowsTab`, `JadeFlowsTab` are byte-identical to what this plan was first written against, and `CostSummaryTab.tsx` differs only in comments, `csvLabel: string | null` and the band rows' `csvLabel: unitLabel == null ? null : …` — none inside a region P3 replaces. Real Bundle 1 tests P3 must also edit: `CostSummaryTab.test.tsx` "compare CSV: band rows are omitted (no duplicate '— (%)' labels) while the distance unit is unresolved" (P3.8 Step 2). Real baselines at `aa7141a` (+ P1): OpenWarehouses 34, Assignments 23, JadeAssignments 28, Flows 21, JadeFlows 38, CostSummary 77, ServiceStats 48, compareCsv 5, clientCsv 3, TabCoverage 8, Integration 15, DataTable 35.
 - **Deviation 1 — Download ▾ testids.** One trigger + two items per table: trigger `button-download-{x}`, items `button-download-{x}-csv` / `button-download-{x}-json`, where `{x}` is today's stem (`open-warehouses`, `assignments`, `jadeassignments`, `flows`, `jade-flows-pw`, `jade-flows-wc`, `cost-summary`, `service-stats`). Today's `button-download-{x}-csv` literal therefore moves from a button to the CSV **menu item** (only rendered while the menu is open). Unit tests that clicked it now open the menu first (`chooseDownload` helper); disabled-state tests assert on the trigger. No e2e spec references any output download button (grep run on every literal), so no e2e breaks; each task adds one e2e assertion for its menu.
 - **Deviation 2 (user decision A) — Download ▾ on the RIGHT of output toolbars.** P1's toolbar renders `upload, download, add, extra`, then right-aligned `count` + filter trigger. Outputs keep B1.4's right-aligned Download through one additive P1 prop, `DataTableToolbar.downloadAlign?: "left" | "right"` (default `"left"`; `"right"` renders `download` last, after the filter trigger), folded into the P1 plan (types + one DataTable test) and spec B2.1. Every output adapter passes `downloadAlign: "right"`; inputs (P4) keep the default. Bundle 1's SCU-1.4 "keeps Download right-aligned" tests are **kept** and retargeted from the vanished `justify-end` header row to the toolbar's right-aligned group (`closest("div.ml-auto")` + last child).
 - **Deviation 3 — JADE Flows legs stay mounted.** Today both legs' `useTableFilters` live in the parent, so a filter on P→W survives switching to W→C and back (unit test "selecting a range in EACH inner table…"). A DataTable owns its filter state, so conditional rendering would reset it on every leg switch. Both leg DataTables are therefore always mounted; the inactive one sits in a `hidden` wrapper. Two FilterMenus then coexist in the DOM, so each leg maps its own trigger testid (`button-filter-jade-flows-pw`, `button-filter-jade-flows-wc`; matrix G14 — exactly the literal P1's FilterMenu test uses). No e2e uses a JADE Flows filter trigger (grep run). Unit tests that addressed `button-filter-menu-trigger` on this tab are rewritten per leg; "`jade-flows-pw-table` not in document" becomes "not visible". The `hidden` attribute is proven in a real browser by P3.6's e2e line (`toBeHidden()`), because jsdom cannot prove CSS (`artifacts/studio/CLAUDE.md`). **Menus do not leak across a leg switch (Codex finding 3):** both the filter popover and Download ▾ are Radix `Popover`s rendered in a portal; the leg buttons are outside them, so a pointer-down/focus on a leg button dismisses the open one (Radix `DismissableLayer`), and because the dismissal came from an outside interaction Radix does **not** return focus to the (now hidden) trigger. That is the "or equivalent" of explicitly closing them; it is pinned by RTL tests (P3.5: open Download ▾, switch leg → no menu item in the DOM, focus on the leg button; P3.6: same for the filter popover) and by the same checks in a real browser (P3.5/P3.6 e2e, `toHaveCount(0)` + `toBeFocused()`).
@@ -58,6 +58,7 @@ Each deviation is the smallest correct reading where spec text and repo disagree
 - **Deviation 9 — filter types pinned where auto-derivation would change today's control** (matrix §5.5): OpenWarehouses `warehouse` text; JadeAssignments `customer` text, `warehouse` select; JADE W→C `customer` text. Plant Production gains a Remaining-capacity range (spec-derived; matrix §5.5 lists it).
 - **Deviation 10 — behaviour changes recorded in the changelog** (spec "Behaviour changes users will notice", matrix §5): filter menus appear on Assignments, Flows and OpenWarehouses (non-JADE) when > 10 rows (never on the Solution Summary metric tables); pagers appear at > 50 rows (p-median-us Customer Assignments: 200 → 4 pages; JADE W→C: 100 → 2 pages; JADE Customer Assignments keeps 8); number columns centre (were right-aligned, Plant Production left); a JadeAssignments filter change now returns to page 1 (today it only clamped); the tables' `sticky top-0` header is gone (the shell has none; pages are ≤ 50 rows); JADE Flows download file names change to the spec's and their distance cells become numbers with the unit in the header; Download ▾ stays right-aligned on outputs; transport-coal/gold-au Flows now show distances (G-3).
 - **Deviation 11 — `downloadClientCsv` is deleted** in P3.6: after W→C moves to `downloadJadeFlows`, nothing calls it (grep in that task).
+- **Deviation 14 (user decision 2026-10-17) — km band labels round like every other displayed distance.** Bundle 1's band labels print each boundary with `toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })`, so a mi-canonical model shown in km reads `0–321.8688 km`. The app's existing distance display formatter is `formatDistanceDisplay` (`lib/formatDistanceDisplay.ts:17`, "the ONE display formatter for a distance shown in a Distances-tab grid": ≤ 2 dp, thousands-grouped). P3.9 moves the formatting **into** `exclusiveBandLabels` (signature `(boundaries, toDisplay, unit)` instead of `(boundaries, format, unit)`), so Service Stats, the Compare band rows and the Output Map narrative — its three callers — all print `0–321.87 km`. Consequence, accepted and recorded: boundaries ≥ 1,000 gain the thousands separator that formatter applies everywhere else (`800–1,600 mi`, `> 1,600 mi`); five existing unit-test expectations and the narrative sentences are rewritten accordingly (P3.9 Step 2). No e2e asserted a 4-digit boundary. Owner: P3.9 (the band-label helper's home table), after P3.8.
 - **Deviation 13 — the shell renders no filter menu when no column is filterable.** P1's `DataTable` decides `showFilter` on the row count alone (`rows.length > FILTER_ROW_THRESHOLD`, P1 plan Step 7), so a table whose columns are all `filter: false` would still render an empty FilterMenu above 10 rows. Decision B needs it gone; the smallest correct fix is one condition in the shell, `&& descriptors.length > 0`, made **in P3.7** (with one DataTable test) rather than by editing the P1 plan again (the P1 plan is kept to the single `downloadAlign` addition). No P1 test changes: none asserts a menu for an all-unfilterable table.
 - **Deviation 12 (Codex finding 2) — client-built JADE downloads share the server exports' guard.** Both legs' Download ▾ take `disabledReason = useExport().disabledReasonFor("flows") ?? (canonical unit unresolved ? "Loading…" : undefined)`: an unaddressable history entry (`resultDisabledReason`) and an unresolved export unit disable it exactly as they disable every server download; the tab's own canonical-unit resolution covers the rest. `JadeFlowsTab` therefore reads `useExport()` and its tests render through `AllProviders`. The compare download needs no history guard: compare mode is unreachable while browsing history (`compareMode = !isBrowsingHistory && …`, Bundle 1).
 - **G-3 (user decision D) — fix the non-JADE Flows distance gap in P3.4.** `Workspace.tsx` mounts `FlowsTab` without `distanceUnit` (matrix §2a "Flows"; `Workspace.tsx:4205` at `46d2f98`), so transport-coal and two-echelon-gold-au show "Distance" / "—". P3.4 passes `distanceUnit={canonicalUnit}`, the value the sibling output mounts already pass (`Workspace.tsx:4148,4164,4199` at `46d2f98`), and pins it with an RTL test (Workspace-level header + value; FlowsTab unit toggle) and an e2e (gold-au header, value, km↔mi toggle).
@@ -92,7 +93,7 @@ Each deviation is the smallest correct reading where spec text and repo disagree
 
 **Consumed (P1 rev 4, verbatim — `@/components/data-table/*`):** `DataTable<T>(props: DataTableProps<T>)`; `DataTableProps<T>` (`rows`, `rowKey`, `columns`, `testIds?`, `rowClassName?`, **`ctx: DataTableContext<T>`**, `toolbar?`, `emptyState?`, `noMatchText?`, `sections?`, `focus?`, `scrollClassName?`, `footer?`); `ColumnDef<T>` (`id`, `header`, `filterLabel?`, `kind: "text" | "number" | "enum"`, `cell(row, ctx)`, `value(row): string | number | null`, `filter?: false | "text" | "select" | "range"`, `cellTestId?`, `headerTestId?`, `cellClassName?`, `hidden?`, `filterResetKey?`); `DataTableTestIds<T>` (`root`, `toolbar`, `table`, `scroll`, `count`, `row`, `pager`, `pagerPrev`, `pagerNext`, `pageIndicator`, `filterTrigger`, `empty`, `noMatch`); `DataTableToolbar` (`upload`, `download`, `add`, `extra`, **`downloadAlign?: "left" | "right"`** — default `"left"`; `"right"` renders `download` last, after the count and the filter trigger). Adapter rules relied on: `cell()` output goes directly in the `<td>`; `cellTestId` on the `<td>`, `headerTestId` on the `<th>`, `testIds.row` on the `<tr>`, `testIds.table` on the `<table>`, `testIds.root` on the outer `<div>` that holds toolbar + table + pager + footer; omitted testids emit nothing; columns memoised; toolbar order `upload, download, add, extra`, then right-aligned `count` + filter trigger (+ `download` when `downloadAlign: "right"`). **Every output adapter passes `downloadAlign: "right"`.**
 
-**Consumed (Bundle 1, `lib/clientCsv.ts`, `lib/compareCsv.ts`, `CostSummaryTab.tsx`):** `csvCell(value: string | number): string`; `downloadTextFile(filename, text, mimeType): void`; `downloadClientCsv(filename, headers, rows)` (deleted by P3.6); `CompareCsvRow { csvLabel; cells: Array<{ raw: number | string | null }> }`; `buildCompareCsv(rows, scenarios): string`; the private `CompareRow`/`CompareCell` row model, `summaryBar(download: ReactNode)` and `compareRows` inside `CostSummaryTab`.
+**Consumed (Bundle 1 at `aa7141a`: `lib/clientCsv.ts`, `lib/compareCsv.ts`, `lib/bands.ts`, `CostSummaryTab.tsx`):** `csvCell(value: string | number): string` (escapes `"`, `,`, `\r`, `\n`; prefixes `'` to a string cell starting `=`, `+`, `-`, `@`, tab or CR unless it is a number); `downloadTextFile(filename, text, mimeType): void`; `downloadClientCsv(filename, headers, rows)` (deleted by P3.6); `CompareCsvRow { csvLabel: string | null; cells: Array<{ raw: number | string | null }> }`; `buildCompareCsv(rows, scenarios): string` (omits `csvLabel: null` rows); `exclusiveBandLabels(boundaries, format, unit)` (signature changed by P3.9, Deviation 14); the private `CompareRow`/`CompareCell` row model, `summaryBar(download: ReactNode)` and `compareRows` inside `CostSummaryTab`.
 
 **Consumed (existing):** `useExport()` → `{ download(entity, format: "csv" | "json"), disabledReasonFor(entity) }` (`contexts/ExportContext.tsx`); `Popover`, `PopoverTrigger`, `PopoverContent` (`components/ui/popover.tsx`); `Button` (`components/ui/button.tsx`).
 
@@ -165,7 +166,8 @@ cd /Users/shubhamkr/nos-scnd-upgrades && git rev-parse --abbrev-ref HEAD      # 
 git status --short                                                             # must be empty (tracked files)
 git log --format=%s scnd-upgrades | grep -c '^\[SCU-2\.P1\.'                    # must print 6
 git log --format=%s scnd-upgrades | grep -c '^\[SCU-2\.P2\.'                    # must print 3
-B1_TIP=<full SHA recorded by P1 Step L0>; git merge-base --is-ancestor "$B1_TIP" scnd-upgrades && echo B1-ok
+B1_TIP=$(git -C /Users/shubhamkr/nos-scnd-upgrades rev-parse aa7141a); echo "$B1_TIP"   # Bundle 1's real tip (branch scnd-upgrades-b1)
+git merge-base --is-ancestor "$B1_TIP" scnd-upgrades && echo B1-ok
 P2_TIP=$(git rev-parse scnd-upgrades); echo "$P2_TIP"
 ```
 
@@ -716,12 +718,12 @@ The Warehouses input mount's `enableFilters` (the other grep hit) is P4's and st
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: the Step 3 command, then `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx`.
-Expected (provisional): PASS — scratch-tree counts `DownloadMenu.test.tsx` 4 (new), `OpenWarehousesTab.test.tsx` 39 (baseline − 4 deleted B6 tests + 3 filter tests + 6 testid-map tests; the SCU-1.4 test kept), `Workspace.Integration.test.tsx` 15 (baseline, 2 assertions changed), `Workspace.TabCoverage.test.tsx` 8 (baseline); `Workspace.test.tsx` unchanged and green (it uses the `open-warehouse-row-` prefix only).
+Expected (provisional): PASS — real-tree dry run: `DownloadMenu.test.tsx` 4 (new), `OpenWarehousesTab.test.tsx` 39 (baseline 34 − 4 deleted B6 tests + 3 filter tests + 6 testid-map tests; the SCU-1.4 test kept), `Workspace.Integration.test.tsx` 15 (baseline, 2 assertions changed), `Workspace.TabCoverage.test.tsx` 8 (baseline); `Workspace.test.tsx` unchanged and green (it uses the `open-warehouse-row-` prefix only).
 
 - [ ] **Step 6: Prove the testid-map test can fail (non-vacuity)**
 
 In `OpenWarehousesTab.tsx`, temporarily change `` row: r => `open-warehouse-row-${r.warehouseId}`, `` to `` row: r => `open-warehouse-rowX-${r.warehouseId}`, ``. Run `pnpm --filter studio exec vitest run src/__tests__/OpenWarehousesTab.test.tsx`.
-Expected: FAIL — scratch-tree: `Tests  23 failed | 16 passed (39)`, first error `Unable to find an element by: [data-testid="open-warehouse-row-ALN"]`. Revert the change, re-run, PASS. Record both results in the changelog.
+Expected: FAIL — real-tree dry run: `Tests  23 failed | 16 passed (39)`, first error `Unable to find an element by: [data-testid="open-warehouse-row-ALN"]`. Revert the change, re-run, PASS. Record both results in the changelog.
 
 - [ ] **Step 7: e2e sweep**
 
@@ -1040,7 +1042,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: the Step 3 command, then `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx`.
-Expected (provisional): PASS — scratch-tree `AssignmentsTab.test.tsx` 28 (baseline + 5 testid-map tests), `Workspace.TabCoverage.test.tsx` 8 (baseline).
+Expected (provisional): PASS — real-tree dry run `AssignmentsTab.test.tsx` 28 (baseline 23 + 5 testid-map tests), `Workspace.TabCoverage.test.tsx` 8 (baseline).
 
 - [ ] **Step 6: e2e sweep**
 
@@ -1367,7 +1369,7 @@ export function JadeAssignmentsTab({
 - [ ] **Step 5: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/JadeAssignmentsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx`
-Expected (provisional): PASS — scratch-tree 33 (baseline + 5) + TabCoverage 8. The pre-existing band tests ("rerendering with changed bands updates the filter options live", "selecting a band range then editing bands clears only the band filter…") pass unchanged: that is `filterResetKey` reproducing today's effect.
+Expected (provisional): PASS — real-tree dry run `JadeAssignmentsTab.test.tsx` 33 (baseline 28 + 5). The pre-existing band tests ("rerendering with changed bands updates the filter options live", "selecting a band range then editing bands clears only the band filter…") pass unchanged: that is `filterResetKey` reproducing today's effect.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -1664,7 +1666,7 @@ with (the same `canonicalUnit` the Assignments/JADE mounts pass)
 
 - [ ] **Step 5: Run them to verify they pass**
 
-Run: the Step 3 command. Expected (provisional): PASS — scratch-tree `FlowsTab.test.tsx` 27 (baseline + 6), `Workspace.TabCoverage.test.tsx` 9 (baseline + 1, the G-3 test).
+Run: the Step 3 command. Expected (provisional): PASS — real-tree dry run `FlowsTab.test.tsx` 27 (baseline 21 + 6), `Workspace.TabCoverage.test.tsx` 9 (baseline + 1, the G-3 test).
 
 - [ ] **Step 6: e2e sweep**
 
@@ -2274,7 +2276,7 @@ with
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/jadeFlowsExport.test.ts src/__tests__/JadeFlowsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx`
-Expected (provisional): PASS — scratch-tree `jadeFlowsExport.test.ts` 4 + `JadeFlowsTab.test.tsx` 43 + TabCoverage 9 (baseline − 1 deleted + 6 added in `JadeFlowsTab.test.tsx`).
+Expected (provisional): PASS — real-tree dry run `jadeFlowsExport.test.ts` 4, `JadeFlowsTab.test.tsx` 43 (baseline 38 − 1 deleted + 6 added).
 
 - [ ] **Step 6: e2e sweep**
 
@@ -2684,7 +2686,7 @@ Verify: `grep -rn 'downloadClientCsv' artifacts/studio/src` → no hits (the onl
 - [ ] **Step 5: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/JadeFlowsTab.test.tsx src/__tests__/jadeFlowsExport.test.ts src/__tests__/compareCsv.test.ts src/__tests__/CostSummaryTab.test.tsx`
-Expected (provisional): PASS — scratch-tree `JadeFlowsTab.test.tsx` 48 (P3.5's count − 1 deleted + 6 added); the CostSummary files prove Bundle 1's other `clientCsv` consumers are unaffected.
+Expected (provisional): PASS — real-tree dry run `JadeFlowsTab.test.tsx` 48 (P3.5's count − 1 deleted + 6 added), `CostSummaryTab.test.tsx` 77, `compareCsv.test.ts` 5; the CostSummary files prove Bundle 1's other `clientCsv` consumers are unaffected.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -3003,7 +3005,7 @@ with
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: the Step 3 command, then `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx src/__tests__/compareCsv.test.ts`.
-Expected (provisional): PASS — scratch-tree `CostSummaryTab.test.tsx` 82 (baseline + 6), `compareCsv.test.ts` 5, TabCoverage 9, `DataTable.test.tsx` 36 (P1's 35 + 1). Bundle 1's compare tests still click the compare-mode `button-download-cost-summary-csv` button directly and pass.
+Expected (provisional): PASS — real-tree dry run `CostSummaryTab.test.tsx` 83 (baseline 77 + 6), `compareCsv.test.ts` 5, TabCoverage 9, `DataTable.test.tsx` 36 (P1's 35 + 1). Bundle 1's compare tests still click the compare-mode `button-download-cost-summary-csv` button directly and pass.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -3088,6 +3090,7 @@ python3 $H/scoped-replace.py $T "in compare mode, Download CSV (right of the bar
 python3 $H/scoped-replace.py $T "in compare mode, Download CSV (right of the bar)" 'fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));' 'chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");'
 python3 $H/scoped-replace.py $T "compare CSV: an optional row one scenario lacks is an empty cell" 'fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));' 'chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");'
 python3 $H/scoped-replace.py $T "compare CSV rows are the compare table's rows" 'fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));' 'chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");'
+python3 $H/scoped-replace.py $T "compare CSV: band rows are omitted" 'fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));' 'chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");'
 perl -pi -e 's/^import \{ render as rtlRender, screen, fireEvent, cleanup \} from "\@testing-library\/react";/import { render as rtlRender, screen, fireEvent, cleanup, within } from "\@testing-library\/react";/' $T
 grep -c ', within } from "@testing-library/react"' $T     # → 1 (if the import line differs, add `within` to it by hand)
 ```
@@ -3236,6 +3239,13 @@ describe("buildCompareJson", () => {
     expect("unit" in buildCompareJson(rows, scenarios, null)).toBe(false);
   });
 });
+
+describe("buildCompareJson — rows the CSV omits", () => {
+  it("drops a csvLabel: null row exactly as buildCompareCsv does", () => {
+    const doc = buildCompareJson([{ csvLabel: null, cells: [{ raw: 1 }] }, { csvLabel: "Objective", cells: [{ raw: 2 }] }], [{ id: 1, name: "A" }], "mi");
+    expect(doc.rows.map(r => r.metric)).toEqual(["Objective"]);
+  });
+});
 ```
 
 - [ ] **Step 3: Run them to verify they fail**
@@ -3250,9 +3260,10 @@ Append to `artifacts/studio/src/lib/compareCsv.ts`:
 ```ts
 
 // SCU-2.P3.8 (spec B2.4) — the compare JSON download: the SAME row model as
-// the CSV, as `{ entity, unit?, rows }`. One row per metric; `values` holds one
-// entry per compared scenario in on-screen order, keyed by id (scenario names
-// are not unique). `unit` is the active display unit (omitted while unresolved).
+// the CSV, as `{ entity, unit?, rows }`. One row per metric the CSV exports
+// (a `csvLabel: null` row is omitted from both); `values` holds one entry per
+// compared scenario in on-screen order, keyed by id (scenario names are not
+// unique). `unit` is the active display unit (omitted while unresolved).
 export interface CompareJsonDocument {
   entity: "costSummaryCompare";
   unit?: string;
@@ -3267,10 +3278,10 @@ export function buildCompareJson(
   return {
     entity: "costSummaryCompare",
     ...(unit != null ? { unit } : {}),
-    rows: rows.map(r => ({
+    rows: rows.flatMap(r => (r.csvLabel == null ? [] : [{
       metric: r.csvLabel,
       values: scenarios.map((s, i) => ({ scenarioId: s.id, scenario: s.name, value: r.cells[i].raw })),
-    })),
+    }])),
   };
 }
 ```
@@ -3389,7 +3400,7 @@ grep -c 'MONO\|cellClassName: "p-2"\|labelClassName' $F   # → 0
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/CostSummaryTab.test.tsx src/__tests__/compareCsv.test.ts src/__tests__/Workspace.TabCoverage.test.tsx`
-Expected (provisional): PASS — scratch-tree `CostSummaryTab.test.tsx` 89 (P3.7's + 7), `compareCsv.test.ts` 7 (+ 2). Bundle 1's contract test ("compare CSV rows are the compare table's rows, in order, with identical text cells") passes unchanged apart from opening the menu: the DataTable renders exactly `compareRows`, label first.
+Expected (provisional): PASS — real-tree dry run `CostSummaryTab.test.tsx` 90 (P3.7's + 7), `compareCsv.test.ts` 8 (+ 3). Bundle 1's contract test ("compare CSV rows are the compare table's rows, in order, with identical text cells") passes unchanged apart from opening the menu: the DataTable renders exactly `compareRows`, label first.
 
 - [ ] **Step 6: e2e sweep**
 
@@ -3442,19 +3453,21 @@ git commit artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx art
 
 ---
 
-## Task SCU-2.P3.9: Service Stats Plant Production on DataTable + tab-level Download ▾ (B2.1, B2.2, B2.4)
+## Task SCU-2.P3.9: Service Stats Plant Production on DataTable + tab-level Download ▾ + km band-label rounding (B2.1, B2.2, B2.4, B1.9 display)
 
-**Owner role:** frontend-engineer. **Spec:** B2.1, B2.2, B2.4 (server `serviceStats`), B2.10 ("Excluded: ServiceStats band bars"). **Matrix:** §1 row 9, §2a "ServiceStats Plant Production" (incl. the four tab-level testids kept **outside** the DataTable), §3, §5.5 (Remaining filter). **Deviations:** 1, 9, 10. **Depends on:** P3.1.
+**Owner role:** frontend-engineer. **Spec:** B2.1, B2.2, B2.4 (server `serviceStats`), B2.10 ("Excluded: ServiceStats band bars"). **Matrix:** §1 row 9, §2a "ServiceStats Plant Production" (incl. the four tab-level testids kept **outside** the DataTable), §3, §5.5 (Remaining filter). **Deviations:** 1, 9, 10, 14 (km band-label rounding, user decision). **Depends on:** P3.8 (the band-label helper's callers include the compare band rows P3.8 leaves in place).
 
 **Files:**
 - Modify: `artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx`
-- Test: `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, `Workspace.TabCoverage.test.tsx`
-- e2e: `artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts`
+- Modify (Deviation 14): `artifacts/studio/src/lib/bands.ts` (`exclusiveBandLabels`), its two other callers `artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx` (compare band rows) and `artifacts/studio/src/lib/resultNarrative.ts` (`bandSentence`)
+- Test: `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, `Workspace.TabCoverage.test.tsx`, `exclusiveBands.test.ts`, `resultNarrative.test.ts`
+- e2e: `artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts`, `artifacts/studio/e2e/chen-bands-units-qa.spec.ts` (km label)
 - Modify: `docs/CHANGELOG-implementation.md`
 
 **Interfaces:**
 - Consumes: `buildPlantProductionRows`, `renderPlantCell` (unchanged); P1 `DataTable`, `ColumnDef`; `DownloadMenu`.
-- Produces: module-private `plantProductionColumns(identityById, upgrade)`; the testid map row "ServiceStats Plant Production" above. The band rows (Bundle 1 SCU-1.2) are not a table and are not touched.
+- Produces: module-private `plantProductionColumns(identityById, upgrade)`; the testid map row "ServiceStats Plant Production" above. The band rows (Bundle 1 SCU-1.2) are not a table; only their label text changes (Deviation 14).
+- Changes (Deviation 14): `exclusiveBandLabels(boundaries: number[], toDisplay: (canonical: number) => number, unit: string): string[]` — was `format: (canonical: number) => string` (Bundle 1, `lib/bands.ts:153` at `aa7141a`); every boundary now prints through the existing `formatDistanceDisplay` (`lib/formatDistanceDisplay.ts:17`, ≤ 2 dp, grouped). Callers at `aa7141a`: `ServiceStatsTab.tsx:323-329`, `CostSummaryTab.tsx:736-740`, `resultNarrative.ts:96-98` — each passed its own `toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })` formatter.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -3555,10 +3568,82 @@ describe("ServiceStatsTab Plant Production on DataTable — testid map (SCU-2.P3
 });
 ```
 
+Km band-label rounding (Deviation 14) — rewrite the label expectations that change and add the km/mi tests (from `artifacts/studio`):
+
+```bash
+# SCU-2.P3.9 — km band-label rounding: band labels now print through formatDistanceDisplay
+# (≤ 2 dp, thousands-grouped). Rewrite the label expectations that change (run from artifacts/studio).
+set -e
+# narrative band sentences: group 4-digit boundaries ("800–1,600 mi", "> 1,600 mi")
+perl -pi -e 'if (/by distance band/) { s/(?<![\d,.])(\d)(\d{3})(?= mi\b|–)/$1,$2/g }' src/__tests__/resultNarrative.test.ts
+grep -c '1,600 mi' src/__tests__/resultNarrative.test.ts
+# Service Stats label assertions (overflow / range rows); 4-dp converted labels round to 2 dp
+perl -pi -e 'if (/toHaveTextContent\("|toEqual\(\["/) { s/(?<![\d,.])(\d)(\d{3})(?= mi\b|–)/$1,$2/g; s/372\.8227 mi/372.82 mi/g }' src/__tests__/ServiceStatsTab.test.tsx
+grep -c '372.82 mi' src/__tests__/ServiceStatsTab.test.tsx
+cat > $H/p39-labels-block.ts <<'BLOCK'
+describe("exclusiveBandLabels", () => {
+  const same = (v: number) => v;
+
+  it("labels each exclusive row with its range and the overflow row with '>' (en dash, unit-aware, grouped)", () => {
+    expect(exclusiveBandLabels([200, 400, 800, 1600], same, "mi")).toEqual([
+      "0–200 mi", "200–400 mi", "400–800 mi", "800–1,600 mi", "> 1,600 mi",
+    ]);
+  });
+
+  it("sorts boundaries", () => {
+    expect(exclusiveBandLabels([400, 200], same, "mi")).toEqual(["0–200 mi", "200–400 mi", "> 400 mi"]);
+  });
+
+  // SCU-2.P3.9 (user decision 2026-10-17) — converted boundaries print through
+  // formatDistanceDisplay (≤ 2 dp): no "0–321.8688 km".
+  it("rounds converted km boundaries to at most 2 dp (formatDistanceDisplay)", () => {
+    expect(exclusiveBandLabels([200, 400], v => v * 1.609344, "km")).toEqual(["0–321.87 km", "321.87–643.74 km", "> 643.74 km"]);
+  });
+
+  it("rounds converted mi boundaries the same way", () => {
+    expect(exclusiveBandLabels([600], v => v / 1.609344, "mi")).toEqual(["0–372.82 mi", "> 372.82 mi"]);
+  });
+
+  it("no boundaries -> no labels", () => {
+    expect(exclusiveBandLabels([], same, "mi")).toEqual([]);
+  });
+});
+BLOCK
+python3 $H/delete-block.py src/__tests__/exclusiveBands.test.ts describe 'exclusiveBandLabels' --replace-with $H/p39-labels-block.ts
+```
+
+Append at EOF of `ServiceStatsTab.test.tsx`:
+
+```tsx
+
+// SCU-2.P3.9 (user decision 2026-10-17) — band labels round like every other
+// displayed distance (formatDistanceDisplay, ≤ 2 dp): a mi-canonical model
+// shown in km reads "0–321.87 km", never "0–321.8688 km"; mi stays exact.
+describe("ServiceStatsTab — band labels round in km and mi (SCU-2.P3.9)", () => {
+  const banded = { ...result, metrics: { bandCoverage: [{ band: 200, percent: 30 }, { band: 400, percent: 45 }] } };
+
+  it("km display: converted boundaries print at most 2 dp", () => {
+    window.localStorage.setItem(STORAGE_KEY, "km");
+    render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–321.87 km");
+    expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("321.87–643.74 km");
+    expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 643.74 km");
+    expect(screen.getByTestId("service-stats-band-200")).not.toHaveTextContent("321.8688");
+  });
+
+  it("mi display: whole-number boundaries are unchanged", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
+    expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 400 mi");
+  });
+});
+```
+
 - [ ] **Step 3: Run them to verify they fail**
 
-Run: `pnpm --filter studio exec vitest run src/__tests__/ServiceStatsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx`
-Expected (provisional): FAIL — `Unable to find an element by: [data-testid="button-download-service-stats"]`; the thead test fails on `text-center`; `input-filter-remaining-min` not found.
+Run: `pnpm --filter studio exec vitest run src/__tests__/ServiceStatsTab.test.tsx src/__tests__/Workspace.TabCoverage.test.tsx src/__tests__/exclusiveBands.test.ts src/__tests__/resultNarrative.test.ts`
+Expected (provisional): FAIL — `Unable to find an element by: [data-testid="button-download-service-stats"]`; the thead test fails on `text-center`; `input-filter-remaining-min` not found; the label tests now expect `0–321.87 km` / `800–1,600 mi` / `0–372.82 mi` and receive `0–321.8688 km` / `800–1600 mi` / `0–372.8227 mi`.
 
 - [ ] **Step 4: Implement**
 
@@ -3658,15 +3743,47 @@ function plantProductionColumns(identityById: Record<string, EntityIdentity> | u
       )}
 ```
 
+**Km band-label rounding (Deviation 14).** In `artifacts/studio/src/lib/bands.ts`, add `import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";` above the file's first `import`, and replace the `exclusiveBandLabels` function together with its leading `// SCU-1.1 (spec B1.9 "Display")` comment with:
+
+```ts
+// SCU-1.1 (spec B1.9 "Display") — one label per exclusive row, aligned with
+// computeExclusiveBandCoverage / frozenBandCoverageToExclusive output:
+// "0–200 mi", "200–400 mi", …, "> 1,600 mi". `toDisplay` converts a CANONICAL
+// boundary to the display unit (the caller's useDisplayUnit); `unit` is the
+// display unit label.
+// SCU-2.P3.9 (user decision 2026-10-17) — every boundary is printed with the
+// app's one distance display formatter, `formatDistanceDisplay` (≤ 2 dp,
+// thousands-grouped), so a converted km boundary reads "0–321.87 km", never
+// "0–321.8688 km". Formatting lives HERE, once, for Service Stats, the Compare
+// band rows and the Output Map narrative alike.
+export function exclusiveBandLabels(boundaries: number[], toDisplay: (canonical: number) => number, unit: string): string[] {
+  const sorted = [...boundaries].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const fmt = (canonical: number) => formatDistanceDisplay(toDisplay(canonical));
+  const labels = sorted.map((b, i) => `${i === 0 ? "0" : fmt(sorted[i - 1])}–${fmt(b)} ${unit}`);
+  labels.push(`> ${fmt(sorted[sorted.length - 1])} ${unit}`);
+  return labels;
+}
+```
+
+Then update its three callers (each drops its own 4-dp formatter):
+
+- `ServiceStatsTab.tsx`: delete the two lines `const fmt = (v: number) =>` / `toDisplay(v, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });` and pass `v => toDisplay(v, canonicalUnit),` where `fmt,` was the second argument of `exclusiveBandLabels(`.
+- `CostSummaryTab.tsx` (compare band rows): delete the two lines `const fmt = (v: number) =>` / `unit.toDisplay(v, canonicalDistanceUnit!).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });` and change `: exclusiveBandLabels(boundaries, fmt, unitLabel);` to `: exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);`.
+- `resultNarrative.ts` (`bandSentence`): delete `const fmt = (v: number) => d.toDisplay(v).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });` and change `exclusiveBandLabels(rows.slice(0, -1).map(r => r.band), fmt, d.unit)` to `exclusiveBandLabels(rows.slice(0, -1).map(r => r.band), d.toDisplay, d.unit)`.
+
+Verify: `grep -rn 'maximumFractionDigits: 4, useGrouping: false' artifacts/studio/src` → no hits (those three were the only ones at `aa7141a`).
+
 - [ ] **Step 5: Run them to verify they pass**
 
-Run: the Step 3 command. Expected (provisional): PASS — scratch-tree `ServiceStatsTab.test.tsx` 51 (baseline + 5) + TabCoverage 9; every pre-existing Plant Production test (16 rows, filter trigger, `text-filter-count` "16 of 16", per-row values, `identityById` upgrade) passes unchanged.
+Run: the Step 3 command, then `pnpm --filter studio exec vitest run src/__tests__/CostSummaryTab.test.tsx src/__tests__/OutputMapTab.test.tsx`. Expected (provisional): PASS — real-tree dry run `ServiceStatsTab.test.tsx` 55 (baseline + 5 Plant Production + 2 km/mi label tests), TabCoverage 9, `exclusiveBands.test.ts` 7, `resultNarrative.test.ts` 14; every pre-existing Plant Production test (16 rows, filter trigger, `text-filter-count` "16 of 16", per-row values, `identityById` upgrade) passes unchanged.
 
 - [ ] **Step 6: e2e sweep**
 
 1. `grep -rn 'button-download-service-stats\|plant-production-pager\|plant-production-page-indicator\|button-plant-production-' artifacts/studio/e2e/` → no hits.
-2. Matrix §3 "ServiceStats Plant Production" (8 lines, `jade-ch9-workspace-bundle.spec.ts`): section visible; `[data-testid="plant-production-section"] thead th` == the five headers (the wrapper holds the toolbar + table); `row-plant-production-` count 16 / 4 / 16; `row-plant-production-plant-1-product-2`; section-scoped `button-filter-menu-trigger`; `text-filter-count` "16 of 16" / "4 of 16"; `checkbox-filter-plant-plant-1 — Ashland, KY` (column id `plant`, value = the `plantIdCityState` label); `button-clear-all-filters`. No rewrite. The band rows' e2e (`service-stats-band-*`, Bundle 1) are untouched by this task.
-3. Insert (real tab-level downloads; serviceStats family has `unit`; no pager at 16 rows):
+2. Km labels: `grep -rn '[0-9]\{4\} mi\|[0-9]\{4\} km\|\.[0-9]\{3,\} km' artifacts/studio/e2e/*.spec.ts` — at `aa7141a` only comments name 4-digit band boundaries (`delivery-teaching.spec.ts`, `chen-bands-units-qa.spec.ts`); no assertion reads a grouped/ungrouped boundary, so none breaks. The band-row e2e assert percentages or `"mi"` only (`delivery-teaching.spec.ts:213,227`, `nonjade-servicestats-live-coverage.spec.ts:244,360,443`, `bundle2-fastfollow.spec.ts:312`, `workspace-ux-r1-r9.spec.ts:220`).
+3. Matrix §3 "ServiceStats Plant Production" (8 lines, `jade-ch9-workspace-bundle.spec.ts`): section visible; `[data-testid="plant-production-section"] thead th` == the five headers (the wrapper holds the toolbar + table); `row-plant-production-` count 16 / 4 / 16; `row-plant-production-plant-1-product-2`; section-scoped `button-filter-menu-trigger`; `text-filter-count` "16 of 16" / "4 of 16"; `checkbox-filter-plant-plant-1 — Ashland, KY` (column id `plant`, value = the `plantIdCityState` label); `button-clear-all-filters`. No rewrite. The band rows' e2e (`service-stats-band-*`, Bundle 1) are untouched by this task.
+4. Insert (real tab-level downloads; serviceStats family has `unit`; no pager at 16 rows; and a km band label rounded to ≤ 2 dp in `chen-bands-units-qa.spec.ts`, right after its overflow-row check):
 
 ```bash
 imp() { grep -q 'helpers/download' "$1" || python3 $H/insert-after.py "$1" '} from "./fixtures";' 'import { csvDataLines, downloadVia } from "./helpers/download";'; }
@@ -3680,9 +3797,15 @@ expect([ssJson.entity, ssJson.unit]).toEqual(["serviceStats", "mi"]);
 expect(ssJson.rows.length).toBeGreaterThan(0);
 expect(ssJson.rows).toHaveLength(csvDataLines(ssCsv.text).length);
 await expect(page.getByTestId("plant-production-page-indicator")).toHaveCount(0);'
+python3 $H/insert-after.py e2e/chen-bands-units-qa.spec.ts 'expect(overflowLabel).not.toMatch(/-\d/); // no negative distance ever rendered' '// SCU-2.P3.9 (user decision 2026-10-17) — km band labels round like every other
+// displayed distance (formatDistanceDisplay, at most 2 dp): never "1086.8688 km".
+await page.getByTestId("unit-toggle-km").click();
+await expect(overflowRow).toContainText(" km", { timeout: HEADER_TIMEOUT });
+expect((await overflowRow.innerText()).trim()).toMatch(/^> [\d,]+(\.\d{1,2})? km/);
+await page.getByTestId("unit-toggle-auto").click();'
 ```
 
-4. Local run, ports 3109/5209: `E2E_BASE_URL=http://localhost:5209 pnpm exec playwright test e2e/jade-ch9-workspace-bundle.spec.ts e2e/nonjade-servicestats-live-coverage.spec.ts e2e/delivery-teaching.spec.ts e2e/bundle2-fastfollow.spec.ts`. Expected: pass.
+5. Local run, ports 3109/5209: `E2E_BASE_URL=http://localhost:5209 pnpm exec playwright test e2e/jade-ch9-workspace-bundle.spec.ts e2e/chen-bands-units-qa.spec.ts e2e/nonjade-servicestats-live-coverage.spec.ts e2e/delivery-teaching.spec.ts e2e/bundle2-fastfollow.spec.ts e2e/workspace-ux-r1-r9.spec.ts`. Expected: pass (`chen-bands-units-qa.spec.ts` is load-sensitive — judge failures by test name against the flake registry).
 
 - [ ] **Step 7: Gate**
 
@@ -3692,10 +3815,11 @@ As P3.1 Step 8.
 
 ```markdown
 
-### SCU-2.P3.9 — Plant Production on DataTable + Service Stats Download ▾
+### SCU-2.P3.9 — Plant Production on DataTable + Service Stats Download ▾ + km band labels
 
 - JADE Plant Production renders through `DataTable` inside `plant-production-section` (title in `toolbar.extra`, filter right; column ids = today's keys; number columns centred; gains a Remaining-capacity range filter, spec-derived). The tab-level Download is Download ▾ CSV/JSON (server `serviceStats`) and stays outside the DataTable, as do `service-stats-empty`, `-unit-pending`, `-no-bands` and the band rows.
-- Vitest procs: <0>. Baseline: <N>. Deviations 1, 9, 10. Gate: <counts>. e2e: <specs + result>.
+- Band labels (Service Stats, Compare band rows, Output Map narrative) print through `formatDistanceDisplay` via `exclusiveBandLabels` (now `(boundaries, toDisplay, unit)`): km reads `0–321.87 km` (was `0–321.8688 km`); boundaries ≥ 1,000 gain a thousands separator (`> 1,600 mi`).
+- Vitest procs: <0>. Baseline: <N>. Deviations 1, 9, 10, 14. Gate: <counts>. e2e: <specs + result>.
 ```
 
 - [ ] **Step 9: Commit**
@@ -3705,7 +3829,7 @@ As P3.1 Step 8.
 ```
 
 ```bash
-git commit artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P3.9] move Plant Production onto DataTable and add Service Stats Download menu" -m "Deviations 1, 9 (Remaining-capacity range filter added by derivation), 10." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx artifacts/studio/src/lib/bands.ts artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx artifacts/studio/src/lib/resultNarrative.ts artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx artifacts/studio/src/__tests__/exclusiveBands.test.ts artifacts/studio/src/__tests__/resultNarrative.test.ts artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts artifacts/studio/e2e/chen-bands-units-qa.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P3.9] move Plant Production onto DataTable, add Service Stats Download menu, round band labels" -m "Deviations 1, 9 (Remaining-capacity range filter added by derivation), 10, 14 (band labels via formatDistanceDisplay: km <= 2 dp)." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3779,6 +3903,8 @@ Append `### SCU-2.P3.10 — P3 real-browser QA + e2e gate` with the per-model ch
 - **A — Download ▾ on output tables stays right** → P1 `DataTableToolbar.downloadAlign?: "left" | "right"` (default `"left"`) + one P1 DataTable test, spec B2.1 line; every output adapter passes `"right"`; Bundle 1's SCU-1.4 right-aligned tests kept and retargeted (Deviation 2).
 - **B — Solution Summary metric tables never filter** → `filter: false` on every column, tests assert no trigger at 11+ rows, spec B2.2 exception (Deviation 4).
 - **C — JADE Flows downloads = exactly the on-screen table** → `lib/jadeFlowsExport.ts` rebuilt on the row model (same headers/rows, flow summed, no product), spec B2.4 amended (Deviation 6).
+- **E — km band labels round** ("0–321.87 km", not "0–321.8688 km") via the existing `formatDistanceDisplay`, inside `exclusiveBandLabels`, in P3.9 — RTL km + mi label tests, e2e km label in `chen-bands-units-qa.spec.ts` (Deviation 14). Spec line to add (coordinator): B1.9 "Display".
+- **Bundle 1 reconciled** against its real tip `aa7141a` (G-2); `B1_TIP=aa7141a` in Step L0; every count is from the real-tip dry run.
 - **D — non-JADE Flows `distanceUnit`** fixed in P3.4 with RTL (TabCoverage + FlowsTab unit toggle) and e2e (`two-echelon.spec.ts`) (G-3).
 - Codex 1 → every Step 1 records a real baseline; plan counts are labelled scratch-tree/provisional (Global Constraints, "Execution topology").
 - Codex 2 → both JADE legs' Download ▾ use `disabledReasonFor("flows")` + the canonical-unit guard; RTL history-disabled tests (Deviation 12).
@@ -3797,5 +3923,5 @@ No open questions remain for P3.
 
 - **Spec coverage (rev 4 + the three amended lines).** B2.1 (adapter per table, literal testids, `ctx`, number centring, no fixed widths — the shell's; output Download right via `downloadAlign`) → every task. B2.2 filter > 10 rows on all models (P3.1 deletes the JADE-only opt-in; P3.2/P3.4 add filters where none existed) with the metric-table exception (P3.7/P3.8), pager > 50 (each task's pager literals + tests; `jadeassignments-page-indicator` kept, P3.3), descriptor ids = column ids, filter-type pins (Deviation 9). B2.4 server CSV + JSON for `openWarehouses` (P3.1), `assignments` (P3.2, P3.3), `flows` (P3.4), `costSummary` (P3.7), `serviceStats` (P3.9) — G-1: no server work; client-built JADE P→W (P3.5) and W→C (P3.6) = the on-screen table, compare (P3.8) = B1.3's row model; `{ entity, unit?, rows }`, the spec's file names, all rows. B2.10 one instance per commit (P3.1–P3.9). "Risks — e2e breakage": every task greps its literals, re-reads its matrix §3 lines, adds e2e for its new control with real downloads, and runs the specs locally with `E2E_BASE_URL`; P3.10 runs the sibling sweep, the real-browser pass (incl. compare and history), the full gate + quarantine and the non-vacuity breaks. "Behaviour changes users will notice" → Deviation 10, each task's changelog.
 - **Placeholder scan.** The only `<…>` tokens are changelog values the task must measure (rule: measured or `unknown`), `B1_TIP`/`P2_TIP`/`BASE` (set by L0 / the topology commands) and the worktree index `N` in the topology template.
-- **Type consistency with P1 (rev 4 `8f80d35` + `downloadAlign`).** Adapters use only `DataTable`, `ColumnDef` (`id`, `header`, `filterLabel`, `kind`, `cell`, `value`, `filter`, `cellTestId`, `headerTestId`, `cellClassName`, `filterResetKey`), `DataTableTestIds` (`root`, `table`, `count`, `row`, `pager`, `pagerPrev`, `pagerNext`, `pageIndicator`, `filterTrigger`), `DataTableToolbar` (`download`, `extra`, `downloadAlign`), `footer`, and the required `ctx`. Verified at plan time against byte-identical copies of the committed P1 files plus the `downloadAlign` edit exactly as folded into the P1 plan (`DataTable.test.tsx` 35 passing incl. the new test): every code block compiled with `tsc --noEmit` under `tsconfig.json` and `tsconfig.e2e.json` (exit 0). **The generated plan itself was then dry-run:** a script built the simulated post-Bundle-1 base from the real `5ba7c4c` files, executed every task's Step 2 code blocks verbatim (create / append / `bash` edit blocks, helpers included), ran that task's tests (P3.1 21, P3.2 14, P3.3 7, P3.4 11, P3.5 14, P3.6 9, P3.7 16, P3.8 7, P3.9 15 failing before the implementation), applied the implementation, executed its e2e insert block, and re-ran (0 failing in every task; scratch-tree totals P3.1 66 passed, P3.2 36 passed, P3.3 33 passed, P3.4 36 passed, P3.5 47 passed, P3.6 133 passed, P3.7 132 passed, P3.8 105 passed, P3.9 60 passed). The final dry-run state type-checks under both configs and its full studio suite fails only the five path-bound suites that need the real repo root (`pnpm-workspace.yaml`).
-- **What the scratch run could not prove:** real Bundle 1 code (simulated from its plan), the e2e behaviour (no servers were started at plan time — each task's local e2e step and P3.10 own that), and CSS (`hidden`, centring, right alignment) in a real browser — P3.6's `toBeHidden()`, the focus assertions and P3.10 cover those.
+- **Type consistency with P1 (rev 4 `8f80d35` + `downloadAlign`).** Adapters use only `DataTable`, `ColumnDef` (`id`, `header`, `filterLabel`, `kind`, `cell`, `value`, `filter`, `cellTestId`, `headerTestId`, `cellClassName`, `filterResetKey`), `DataTableTestIds` (`root`, `table`, `count`, `row`, `pager`, `pagerPrev`, `pagerNext`, `pageIndicator`, `filterTrigger`), `DataTableToolbar` (`download`, `extra`, `downloadAlign`), `footer`, and the required `ctx`. Verified at plan time against byte-identical copies of the committed P1 files plus the `downloadAlign` edit exactly as folded into the P1 plan (`DataTable.test.tsx` 35 passing incl. the new test): every code block compiled with `tsc --noEmit` under `tsconfig.json` and `tsconfig.e2e.json` (exit 0). **The generated plan itself was then dry-run on the real Bundle 1 tip:** a script copied `artifacts/studio` + `lib/units` from `aa7141a` (plus the P1 shell), executed every task's Step 2 code blocks verbatim (create / append / `bash` edit blocks, helpers included), ran that task's tests (P3.1 21, P3.2 14, P3.3 7, P3.4 11, P3.5 14, P3.6 9, P3.7 16, P3.8 9, P3.9 28 failing before the implementation), applied the implementation, executed its e2e insert block, and re-ran (0 failing in every task; totals P3.1 66 passed, P3.2 36 passed, P3.3 33 passed, P3.4 36 passed, P3.5 47 passed, P3.6 134 passed, P3.7 133 passed, P3.8 107 passed, P3.9 135 passed). The final dry-run state type-checks under both configs, and its full studio suite passes 2521 of 2522: the one failure, `transportCostsBounds.test.ts`, reads `artifacts/api-server/src/solver/solve.py`, which the studio-only scratch tree does not contain.
+- **What the dry run could not prove:** P2's effect (not applied — it touches no P3 file), the e2e behaviour (no servers were started at plan time — each task's local e2e step and P3.10 own that), and CSS (`hidden`, centring, right alignment) in a real browser — P3.6's `toBeHidden()`, the focus assertions and P3.10 cover those.
