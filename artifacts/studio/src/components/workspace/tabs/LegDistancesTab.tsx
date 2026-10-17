@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Download, Upload, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { AlertTriangle, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { CanonicalUnit } from "@workspace/units";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ImportDialog } from "@/components/ImportDialog";
-import { useExport } from "@/contexts/ExportContext";
+import { DataTable } from "@/components/data-table/DataTable";
+import type { ColumnDef } from "@/components/data-table/types";
+import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
@@ -66,6 +66,9 @@ interface LegDistancesTabProps {
    * number, no unit suffix, disabled input) until this is authoritative
    * (Part D, "No fallback unit"). Wired by Workspace.tsx (Task 14). */
   canonicalUnit?: CanonicalUnit | null;
+  /** SCU-2.P4.4 (D2) — browsing result history: value cells, remove buttons
+   * and the add-row trigger are disabled. */
+  readOnly?: boolean;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -88,12 +91,14 @@ function LegDistanceValueCell({
   resetKey,
   onCommitValid,
   inputTestId,
+  readOnly,
 }: {
   canonicalUnit: CanonicalUnit | null;
   currentValue: number;
   resetKey: unknown;
   onCommitValid: (canonicalValue: number) => void;
   inputTestId: string;
+  readOnly: boolean;
 }) {
   const draft = useDistanceDraft({
     canonicalUnit,
@@ -110,7 +115,8 @@ function LegDistanceValueCell({
       inputMode="decimal"
       min={0}
       value={draft.text}
-      disabled={draft.disabled}
+      disabled={readOnly || draft.disabled}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
       onChange={e => draft.onChange(e.target.value)}
       onFocus={draft.onFocus}
       onBlur={draft.commit}
@@ -118,11 +124,13 @@ function LegDistanceValueCell({
         if (e.key === "Enter") draft.commit();
         else if (e.key === "Escape") draft.discard();
       }}
-      className="h-7 text-xs w-24 font-mono"
+      className="h-7 text-xs w-full min-w-24 font-mono"
       data-testid={inputTestId}
     />
   );
 }
+
+const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // B6.2 stage 4 — two-echelon-gold-au's "Leg distances" grid tab, the
 // three-id-space analogue of B5.1's DistancesTab.tsx / Task 30's
@@ -147,24 +155,25 @@ export function LegDistancesTab({
   displayCodeById,
   identityById,
   canonicalUnit = null,
+  readOnly = false,
 }: LegDistancesTabProps) {
-  const [fromFilter, setFromFilter] = useState("");
-  const [toFilter, setToFilter] = useState("");
-  const [importOpen, setImportOpen] = useState(false);
-  const { download, disabledReasonFor } = useExport();
+  const files = useEntityFileMenus({
+    entity: "legDistances",
+    testIdEntity: "legdistances",
+    modelId: "two-echelon-gold-au",
+    scenarioId,
+    onImportApplied,
+  });
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  // chen-bands-units, Task 12 — display-unit label + the add-row Distance
-  // field's own draft (mirrors DistancesTab's identical pattern: no stored
-  // "value" for a brand-new row, so `handleAddRow` reads a ref written
-  // synchronously by an explicit `commit()` call rather than trusting a real
-  // DOM blur to fire before the Add button's click).
-  const { effectiveUnit } = useDisplayUnit();
+  const { effectiveUnit, toDisplay, pref } = useDisplayUnit();
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
   const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
+
+  // The add-row Distance field — see DistancesTab's identical pattern/comment.
   const newDistanceCanonicalRef = useRef<number | null>(null);
   const newDistanceDraft = useDistanceDraft({
     canonicalUnit,
@@ -176,46 +185,20 @@ export function LegDistancesTab({
   });
   const newDistanceText = newDistanceDraft.isDirty ? newDistanceDraft.text : "";
 
-  // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
-  // Reuses this component's own existing `row-legdistance-${fromId}-${toId}`
-  // testid pattern, matched by boundary (either id can itself contain
-  // hyphens, so this isn't a naive split on "-").
-  useEffect(() => {
-    if (!focusEntityId) return;
-    const prefix = "row-legdistance-";
-    const rows = document.querySelectorAll(`[data-testid^="${prefix}"]`);
-    for (const row of Array.from(rows)) {
-      const testid = row.getAttribute("data-testid") ?? "";
-      const suffix = testid.slice(prefix.length);
-      if (suffix.startsWith(`${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`)) {
-        row.scrollIntoView({ block: "center" });
-        break;
-      }
-    }
-  }, [focusEntityId]);
-
   const mineIdSet = new Set(mineIds);
   const refineryIdSet = new Set(refineryIds);
   const customerIdSet = new Set(customerIds);
   const savedByKey = new Map(savedDistanceOverrides.map(o => [pairKey(o.fromId, o.toId), o.distance]));
 
-  // Leg resolved purely by which id-space fromId/toId each belong to (never
-  // a string-prefix convention) — mirrors merge_inputs.py's
-  // build_merged_two_echelon_dataset exactly, so this badge reflects the
-  // SAME resolution the solver/precheck actually apply, not an
-  // independently-reinvented rule.
+  // Leg resolved purely by id-space membership — mirrors merge_inputs.py's
+  // build_merged_two_echelon_dataset exactly.
   function legFor(fromId: string, toId: string): Leg {
     if (mineIdSet.has(fromId) && refineryIdSet.has(toId)) return "mine_to_refinery";
     if (refineryIdSet.has(fromId) && customerIdSet.has(toId)) return "refinery_to_customer";
     return "unknown";
   }
 
-  // T11 (workspace-fixups-2, item 2) — compatibility resolver: prefer
-  // `identityById`, else no location at all (this table had no prior
-  // location source — the entire display was bare `displayCodeById?.[id] ??
-  // id`). The `>10` UPGRADE rule gates on the UNFILTERED row count
-  // (`distanceOverrides.length`, not `visibleRows.length`) — a small table
-  // stays bare-id even once `identityById` is wired.
+  // T11 (workspace-fixups-2, item 2) — `identityById` upgrade above 10 rows (unchanged).
   function resolvedLocation(id: string): { city: string; state: string } | undefined {
     if (identityById && distanceOverrides.length > 10) {
       const entry = identityById[id];
@@ -233,26 +216,13 @@ export function LegDistancesTab({
     unknown: "Unrecognized pair",
   };
 
-  const visibleRows = distanceOverrides.filter(
-    o =>
-      o.fromId.toLowerCase().includes(fromFilter.toLowerCase()) &&
-      o.toId.toLowerCase().includes(toFilter.toLowerCase()),
-  );
-
   function isChanged(o: LegDistanceOverride): boolean {
     const saved = savedByKey.get(pairKey(o.fromId, o.toId));
     return saved === undefined || saved !== o.distance;
   }
 
-  // chen-bands-units, Task 12 — commit-to-parent logic invoked from
-  // `LegDistanceValueCell`'s `onCommitValid` (fires only for a
-  // grammar-complete, positive canonical value on blur/Enter — matches this
-  // function's pre-existing silent-reject-on-invalid behavior exactly, just
-  // moved from every keystroke to commit time).
   function commitDistance(fromId: string, toId: string, canonicalValue: number) {
-    onChange(
-      distanceOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, distance: canonicalValue } : o)),
-    );
+    onChange(distanceOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, distance: canonicalValue } : o)));
   }
 
   function removeRow(fromId: string, toId: string) {
@@ -262,8 +232,6 @@ export function LegDistancesTab({
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    // Resolve any pending typed value synchronously — see DistancesTab's
-    // identical pattern/comment.
     newDistanceDraft.commit();
     const distance = newDistanceCanonicalRef.current;
 
@@ -302,67 +270,92 @@ export function LegDistancesTab({
     setAddError(null);
   }
 
-  const toolbar = (
-    <div className="flex items-center gap-1.5 mb-2 flex-wrap" data-testid="legdistances-tab-toolbar">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("legDistances", "csv")}
-        disabled={disabledReasonFor("legDistances") != null}
-        title={disabledReasonFor("legDistances")}
-        data-testid="button-export-legdistances-csv"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> CSV
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("legDistances", "json")}
-        disabled={disabledReasonFor("legDistances") != null}
-        title={disabledReasonFor("legDistances")}
-        data-testid="button-export-legdistances-json"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> JSON
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setImportOpen(true)}
-        disabled={scenarioId == null}
-        data-testid="button-import-legdistances"
-        className="h-7 text-xs"
-      >
-        <Upload className="w-3.5 h-3.5 mr-1" /> Upload
-      </Button>
-      <div className="flex-1" />
-      <Input
-        placeholder="Filter from ID…"
-        value={fromFilter}
-        onChange={e => setFromFilter(e.target.value)}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-from"
-      />
-      <Input
-        placeholder="Filter to ID…"
-        value={toFilter}
-        onChange={e => setToFilter(e.target.value)}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-to"
-      />
-    </div>
-  );
-
-  const importDialog = importOpen && scenarioId != null && (
-    <ImportDialog
-      open={importOpen}
-      onOpenChange={setImportOpen}
-      scenarioId={scenarioId}
-      entity="legDistances"
-      onApplied={onImportApplied}
-    />
-  );
+  // Rebuilt every render: cells close over live props (see DistancesTab).
+  const columns: ColumnDef<LegDistanceOverride>[] = [
+    {
+      id: "leg",
+      header: "Leg",
+      kind: "enum",
+      value: o => LEG_LABEL[legFor(o.fromId, o.toId)],
+      cell: o => {
+        const leg = legFor(o.fromId, o.toId);
+        return (
+          <Badge variant={leg === "unknown" ? "destructive" : "secondary"} data-testid={`badge-leg-${o.fromId}-${o.toId}`}>
+            {leg === "unknown" && <AlertTriangle className="w-3 h-3 mr-1" />}
+            {LEG_LABEL[leg]}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: "from",
+      header: "From",
+      kind: "text",
+      filter: "text",
+      value: o => o.fromId,
+      cellClassName: "text-xs",
+      cell: o => (
+        <EntityIdCell entityId={o.fromId} displayId={resolvedDisplayId(o.fromId)} location={resolvedLocation(o.fromId)} />
+      ),
+    },
+    {
+      id: "to",
+      header: "To",
+      kind: "text",
+      filter: "text",
+      value: o => o.toId,
+      cellClassName: "text-xs",
+      cell: o => <EntityIdCell entityId={o.toId} displayId={resolvedDisplayId(o.toId)} location={resolvedLocation(o.toId)} />,
+    },
+    {
+      id: "distance",
+      header: unitSuffix("Distance"),
+      filterLabel: "Distance",
+      kind: "number",
+      filterResetKey: pref,
+      value: o => (canonicalUnit == null ? null : toDisplay(o.distance, canonicalUnit)),
+      cell: o => (
+        <div className="flex items-center justify-center gap-1.5">
+          <LegDistanceValueCell
+            canonicalUnit={canonicalUnit}
+            currentValue={o.distance}
+            resetKey={scenarioId}
+            onCommitValid={v => commitDistance(o.fromId, o.toId, v)}
+            inputTestId={`input-legdistance-${o.fromId}-${o.toId}`}
+            readOnly={readOnly}
+          />
+          {isChanged(o) && (
+            <span
+              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              data-testid={`badge-legdistance-changed-${o.fromId}-${o.toId}`}
+            >
+              Changed
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "remove",
+      header: "",
+      kind: "text",
+      filter: false,
+      value: () => null,
+      cell: o => (
+        <button
+          type="button"
+          aria-label={`Remove leg distance override ${o.fromId} → ${o.toId}`}
+          onClick={() => removeRow(o.fromId, o.toId)}
+          disabled={readOnly}
+          title={readOnly ? READ_ONLY_TITLE : undefined}
+          data-testid={`button-remove-legdistance-${o.fromId}-${o.toId}`}
+          className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      ),
+    },
+  ];
 
   const addRowUi = addingRow ? (
     <div className="flex items-start gap-1.5 mt-2" data-testid="add-legdistance-row-form">
@@ -371,6 +364,8 @@ export function LegDistancesTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-44"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-legdistance-from"
       />
       <Input
@@ -378,6 +373,8 @@ export function LegDistancesTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-44"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-legdistance-to"
       />
       <Input
@@ -385,7 +382,8 @@ export function LegDistancesTab({
         inputMode="decimal"
         placeholder={unitSuffix("Distance")}
         value={newDistanceText}
-        disabled={newDistanceDraft.disabled}
+        disabled={readOnly || newDistanceDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newDistanceDraft.onChange(e.target.value)}
         onBlur={newDistanceDraft.commit}
         onKeyDown={e => {
@@ -395,10 +393,23 @@ export function LegDistancesTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-legdistance-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-legdistance-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-legdistance-confirm"
+      >
         Add
       </Button>
-      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancelAddRow} data-testid="button-add-legdistance-cancel">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs"
+        onClick={cancelAddRow}
+        data-testid="button-add-legdistance-cancel"
+      >
         Cancel
       </Button>
     </div>
@@ -408,6 +419,8 @@ export function LegDistancesTab({
       variant="outline"
       className="h-7 px-2 text-xs mt-2"
       onClick={() => setAddingRow(true)}
+      disabled={readOnly}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
       data-testid="button-add-legdistance-row"
     >
       + Add row
@@ -417,105 +430,43 @@ export function LegDistancesTab({
   return (
     <div data-testid="legdistances-tab">
       <p className="text-xs text-muted-foreground mb-2">
-        One flat list covers both legs — each row is auto-labeled Mine → Refinery or Refinery → Customer based on which IDs it references.
+        One flat list covers both legs — each row is auto-labeled Mine → Refinery or Refinery → Customer based on which IDs it
+        references.
       </p>
-      {toolbar}
-
-      {distanceOverrides.length === 0 ? (
-        <p className="text-sm text-muted-foreground" data-testid="legdistances-tab-empty">
-          No leg distance overrides yet — add one below, or upload a CSV/JSON file.
-        </p>
-      ) : (
-        <div className="max-h-[55vh] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Leg</TableHead>
-                <TableHead>From</TableHead>
-                <TableHead>To</TableHead>
-                <TableHead>{unitSuffix("Distance")}</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleRows.map(o => {
-                const key = pairKey(o.fromId, o.toId);
-                const changed = isChanged(o);
-                const leg = legFor(o.fromId, o.toId);
-                return (
-                  <TableRow
-                    key={key}
-                    data-testid={`row-legdistance-${o.fromId}-${o.toId}`}
-                    className={changed ? "bg-amber-50" : undefined}
-                  >
-                    <TableCell>
-                      <Badge
-                        variant={leg === "unknown" ? "destructive" : "secondary"}
-                        data-testid={`badge-leg-${o.fromId}-${o.toId}`}
-                      >
-                        {leg === "unknown" && <AlertTriangle className="w-3 h-3 mr-1" />}
-                        {LEG_LABEL[leg]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <EntityIdCell entityId={o.fromId} displayId={resolvedDisplayId(o.fromId)} location={resolvedLocation(o.fromId)} />
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <EntityIdCell entityId={o.toId} displayId={resolvedDisplayId(o.toId)} location={resolvedLocation(o.toId)} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <LegDistanceValueCell
-                          canonicalUnit={canonicalUnit}
-                          currentValue={o.distance}
-                          resetKey={scenarioId}
-                          onCommitValid={v => commitDistance(o.fromId, o.toId, v)}
-                          inputTestId={`input-legdistance-${o.fromId}-${o.toId}`}
-                        />
-                        {changed && (
-                          <span
-                            className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
-                            data-testid={`badge-legdistance-changed-${o.fromId}-${o.toId}`}
-                          >
-                            Changed
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        type="button"
-                        aria-label={`Remove leg distance override ${o.fromId} → ${o.toId}`}
-                        onClick={() => removeRow(o.fromId, o.toId)}
-                        data-testid={`button-remove-legdistance-${o.fromId}-${o.toId}`}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {visibleRows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-3">
-                    No rows match the current filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+      <DataTable<LegDistanceOverride>
+        rows={distanceOverrides}
+        rowKey={o => pairKey(o.fromId, o.toId)}
+        columns={columns}
+        ctx={{ readOnly, demandEditable: false, isChanged }}
+        rowClassName={(o, ctx) => (ctx.isChanged(o) ? "bg-amber-50" : undefined)}
+        testIds={{
+          toolbar: "legdistances-tab-toolbar",
+          row: o => `row-legdistance-${o.fromId}-${o.toId}`,
+          pagerPrev: "button-legdistances-prev",
+          pagerNext: "button-legdistances-next",
+          pageIndicator: "legdistances-page-indicator",
+          empty: "legdistances-tab-empty",
+        }}
+        toolbar={{ upload: files.upload, download: files.download }}
+        scrollClassName="max-h-[55vh] overflow-y-auto"
+        emptyState={
+          <p className="text-sm text-muted-foreground">
+            No leg distance overrides yet — add one below, or upload a CSV/JSON file.
+          </p>
+        }
+        // The precheck toast's "jump to it" (was a DOM scroll only): now also
+        // clears filters and pages, like Distances (B2.2).
+        focus={
+          focusEntityId ? { token: focusEntityId, matches: o => o.fromId === focusEntityId || o.toId === focusEntityId } : null
+        }
+      />
       {addRowUi}
       {addError && (
         <p className="text-[11px] text-destructive mt-1" data-testid="text-add-legdistance-error">
           {addError}
         </p>
       )}
-
-      {importDialog}
+      {files.dialog}
     </div>
   );
 }

@@ -22,7 +22,7 @@ const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"
   CustomersTab: "disabled", // pre-existing
   TransportCostsTab: "disabled", // pre-existing
   DistancesTab: "readOnly", // SCU-2.P4.3
-  LegDistancesTab: "pending", // SCU-2.P4.4
+  LegDistancesTab: "readOnly", // SCU-2.P4.4
   JadeDistancesTab: "pending", // SCU-2.P4.5
   LaneCostsTab: "pending", // SCU-2.P4.6
   DeliveryCostsTab: "pending", // SCU-2.P4.7

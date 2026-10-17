@@ -8,6 +8,7 @@ import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
+import { chooseInputDownload, chooseUpload, filterText } from "@/__tests__/helpers/inputTable";
 
 // chen-bands-units, Task 12 — every render now needs a UnitProvider ancestor
 // (useDistanceDraft/useDisplayUnit throw without one). Rather than touching
@@ -162,19 +163,26 @@ describe("LegDistancesTab — leg badge", () => {
   });
 });
 
+// SCU-2.P4.4 (B2.2) — From/To are FilterMenu text controls, shown above 10
+// rows: pad the three-row fixture with eight more mine→refinery rows.
+const elevenOverrides = [
+  ...overrides,
+  ...Array.from({ length: 8 }, (_, i) => ({ fromId: "kalgoorlie", toId: `daggar-hills-${i}`, distance: 300 + i })),
+];
+
 describe("LegDistancesTab — from/to filters", () => {
   it("filters visible rows by the from-id filter text", () => {
     render(
       <LegDistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={elevenOverrides}
+        savedDistanceOverrides={elevenOverrides}
         mineIds={mineIds}
         refineryIds={refineryIds}
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "cunnamulla" } });
+    filterText("from", "cunnamulla");
     expect(screen.queryByTestId("row-legdistance-kalgoorlie-daggar-hills")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).toBeInTheDocument();
   });
@@ -182,15 +190,15 @@ describe("LegDistancesTab — from/to filters", () => {
   it("filters visible rows by the to-id filter text", () => {
     render(
       <LegDistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={elevenOverrides}
+        savedDistanceOverrides={elevenOverrides}
         mineIds={mineIds}
         refineryIds={refineryIds}
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "melbourne" } });
+    filterText("to", "melbourne");
     expect(screen.queryByTestId("row-legdistance-kalgoorlie-daggar-hills")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-legdistance-daggar-hills-melbourne")).toBeInTheDocument();
   });
@@ -421,8 +429,8 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
       undefined,
       { scenarioId: null },
     );
-    expect(screen.getByTestId("button-export-legdistances-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-legdistances-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-legdistances")).toBeDisabled();
     expect(screen.getByTestId("button-import-legdistances")).toBeDisabled();
   });
 
@@ -442,7 +450,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
       { scenarioId: 7 },
     );
 
-    await userEvent.click(screen.getByTestId("button-export-legdistances-csv"));
+    chooseInputDownload("legdistances", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -466,7 +474,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
     );
 
     expect(screen.queryByText("Import legDistances")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-legdistances"));
+    chooseUpload("legdistances", "csv");
     expect(screen.getByText("Import legDistances")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-legDistances")).toBeInTheDocument();
   });
@@ -494,7 +502,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-legdistances"));
+    chooseUpload("legdistances", "csv");
     const file = new File(["template_version,from_id,to_id,distance\n1,kalgoorlie,daggar-hills,293.7"], "legDistances.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-legDistances"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());

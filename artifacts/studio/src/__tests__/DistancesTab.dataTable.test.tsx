@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useDisplayUnit } from "@/contexts/UnitContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
@@ -34,8 +35,10 @@ const saved = current.slice(0, 59).map((o, i) => (i === 58 ? { ...o, distance: 1
 const warehouseIds = ["WH01", "WH02"];
 const customerIds = Array.from({ length: 19 }, (_, i) => `C${String(i + 1).padStart(3, "0")}`);
 
-function renderTab(props: Partial<React.ComponentProps<typeof DistancesTab>> = {}) {
+function renderTab(props: Partial<React.ComponentProps<typeof DistancesTab>> = {}, extra?: ReactNode) {
   return render(
+    <>
+    {extra}
     <DistancesTab
       distanceOverrides={current}
       savedDistanceOverrides={saved}
@@ -45,7 +48,8 @@ function renderTab(props: Partial<React.ComponentProps<typeof DistancesTab>> = {
       canonicalUnit="mi"
       scenarioId={1}
       {...props}
-    />,
+    />
+    </>,
     { wrapper: Providers },
   );
 }
@@ -225,5 +229,25 @@ describe("DistancesTab on DataTable (SCU-2.P4.3)", () => {
       expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
     }
     expect(screen.getByTestId("button-add-distance-cancel")).toBeEnabled();
+  });
+
+  // SCU-2.P4.4 (user decision 2026-10-17) — a distance range resets on a km/mi toggle.
+  it("the Override range filter resets when the display unit toggles", () => {
+    function PrefToggle() {
+      const u = useDisplayUnit();
+      return <button data-testid="toggle-pref-mi" onClick={() => u.setPref("mi")}>mi</button>;
+    }
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    try {
+      renderTab({}, <PrefToggle />);
+      const before = screen.getAllByTestId(/^row-distance-/).length;
+      fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      fireEvent.change(screen.getByTestId("input-filter-override-max"), { target: { value: "165" } });
+      expect(screen.getAllByTestId(/^row-distance-/).length).toBeLessThan(before);
+      fireEvent.click(screen.getByTestId("toggle-pref-mi"));
+      expect(screen.getAllByTestId(/^row-distance-/).length).toBe(before);
+    } finally {
+      window.localStorage.removeItem("nos:display-unit-pref");
+    }
   });
 });

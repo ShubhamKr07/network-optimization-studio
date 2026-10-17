@@ -3899,3 +3899,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 3, 4, 5, 6, 7, 15, 16, 17, 19.
 - Baseline: DistancesTab.test 64 + guard + replica = 87 in 3 files; after: 87 in 3 files (dataTable 10 + DistancesTab.test 64 + guard 13). Fail-first: dataTable test 7 failed / 3 passed on the old tab.
 - Gate: studio 2645 passed (144 files), api-server 2035/2036 (`resultEnvelope` p-median-brazil, listed load flake; 16/16 isolated twice), pytest 355 passed, import-schema 22 passed. e2e (local 3403/5403, `E2E_BASE_URL` set, workers=1, retries=0): bundle5-homepage-distances, bundle6.1-legend-distances (incl. 2 @flaky), chen-bands-units-qa, max-coverage, input-map-v2 — 22/22 passed.
+
+### SCU-2.P4.4 — Leg Distances on DataTable
+
+- `LegDistancesTab` on DataTable: FilterMenu (from/to/leg/distance), pager > 50 (new), Upload ▾/Download ▾, D2 read-only, focus clears filters + pages.
+- Deviation (user decision 2026-10-17): `filterResetKey: pref` (from `useDisplayUnit()`) on the Leg `distance` range column and, left out by P4.3, on DistancesTab `base` and `override`; one RTL test each (range set, unit toggled, range cleared), deliberate-break verified.
+- Deviations 3, 6, 7, 15, 17, 19.
+- Gate: studio 2655 passed (145 files), api-server 2031 passed + 5 load-flake failures (98/98 x2 isolated), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): bundle2-fastfollow 3/3 pass, bundle6.1-legend-distances 3/3 pass (incl. both @flaky).

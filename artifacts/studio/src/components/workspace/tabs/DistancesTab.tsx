@@ -252,7 +252,7 @@ export function DistancesTab({
   const [newTo, setNewTo] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  const { effectiveUnit, toDisplay, pref } = useDisplayUnit();
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
   const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
 
@@ -425,6 +425,7 @@ export function DistancesTab({
       header: unitSuffix("Base"),
       filterLabel: "Base",
       kind: "number",
+      filterResetKey: pref,
       value: r => displayNumber(r.base),
       cellClassName: "font-mono text-xs",
       cell: r => baseCell(r),
@@ -434,6 +435,7 @@ export function DistancesTab({
       header: unitSuffix("Override"),
       filterLabel: "Override",
       kind: "number",
+      filterResetKey: pref,
       value: r => displayNumber(r.override?.distance),
       cell: r => {
         const changed = isChangedRow(r);
