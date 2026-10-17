@@ -1851,6 +1851,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     return map;
   }, [outputIdentityById]);
 
+  // NAR-1 — newest history entry BEFORE the displayed one with the same
+  // `details.objective` (Ch 4 steps differ; others are all undefined = equal).
+  const previousSameObjectiveResult = useMemo(() => {
+    const { items, index } = resultHistoryState;
+    const objectiveOf = (r: SolveResult) => (r.details as Record<string, unknown> | undefined)?.objective;
+    const shown = items[index]?.result;
+    if (!shown) return null;
+    return items.slice(0, index).reverse().find(e => objectiveOf(e.result) === objectiveOf(shown))?.result ?? null;
+  }, [resultHistoryState]);
+
   const isDirty =
     localInputs != null &&
     savedInputsRef.current != null &&
@@ -4042,6 +4052,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // `outputIdentityById` (see that memo's own comment) — never
           // `localInputs`, so this never relabels an already-displayed solve.
           displayIdById={displayIdById}
+          // NAR-1 — "City, ST" names + the newest earlier same-objective run
+          // from the in-memory result history (no fetch).
+          identityById={outputIdentityById}
+          previousResult={previousSameObjectiveResult}
         />
       );
     }

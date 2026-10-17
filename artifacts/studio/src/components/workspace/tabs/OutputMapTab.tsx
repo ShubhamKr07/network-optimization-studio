@@ -13,6 +13,8 @@ import { toast } from "@/hooks/use-toast";
 import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 import { buildResultNarrative, legLabel } from "@/lib/resultNarrative";
+import { formatCityState } from "@/lib/formatLocation";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 import { OutputMapNarrative } from "@/components/workspace/tabs/OutputMapNarrative";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
@@ -112,6 +114,13 @@ interface OutputMapTabProps {
   // already covers plants). Optional, default `{}` so every existing call
   // site that hasn't wired it yet renders unchanged raw-id tooltips.
   displayIdById?: Record<string, string>;
+  // NAR-1 — the SOLVED snapshot's canonical id -> {city, state} identity
+  // (Workspace's outputIdentityById); the narrative names sites "City, ST".
+  identityById?: Record<string, EntityIdentity>;
+  // NAR-1 — the newest EARLIER result-history entry of the same objective
+  // (Workspace picks it from its in-memory history; no fetch), for the
+  // narrative's "vs your previous run" parenthetical. Absent = no comparison.
+  previousResult?: SolveResult | null;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -128,7 +137,7 @@ interface OutputMapTabProps {
 export function OutputMapTab({
   dataset, warehouseStatuses, result, bands, countryBounds,
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
-  plants = [], timing, displayIdById = {},
+  plants = [], timing, displayIdById = {}, identityById = {}, previousResult = null,
 }: OutputMapTabProps) {
   const unit = useDisplayUnit();
   const [showWarehouses, setShowWarehouses] = useState(true);
@@ -209,9 +218,13 @@ export function OutputMapTab({
   const outcome = result ? classifyResultOutcome(result) : null;
   const showIncumbent = result != null && outcome != null && hasIncumbent(outcome);
 
-  // SCU-1.9 (spec B1.1) — the narrative reads the SAME band lens the lanes
-  // are coloured with (effectiveBands, not mapBands: unticking "Color lanes"
-  // must not empty the coverage sentence) and the overlay's solve time.
+  // NAR-1 — the narrative reads the SAME band lens the lanes are coloured
+  // with (effectiveBands, not mapBands: unticking "Color lanes" must not
+  // change the sentence) and names sites "City, ST".
+  const nameById = useMemo(
+    () => Object.fromEntries(Object.entries(identityById).map(([id, i]) => [id, formatCityState(i.city, i.state)])),
+    [identityById],
+  );
   const narrative =
     result && modelId
       ? buildResultNarrative(modelId, result, {
@@ -219,8 +232,8 @@ export function OutputMapTab({
           distance: distanceUnit == null
             ? null
             : { toDisplay: v => unit.toDisplay(v, distanceUnit), unit: unit.effectiveUnit(distanceUnit) },
-          solveTimeSec: timing?.totalSec,
-          displayIdById,
+          nameById,
+          previous: previousResult,
         })
       : null;
 
