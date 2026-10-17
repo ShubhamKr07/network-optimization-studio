@@ -251,16 +251,20 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("added-warehouses-section")).toBeVisible();
 
-      // ── Item 3 (non-JADE half) — no FilterMenu anywhere on this tab,
-      // even though it has 26 > 10 rows. ──────────────────────────────────
-      await expect(page.locator('[data-testid="warehouses-tab"] [data-testid="button-filter-menu-trigger"]')).toHaveCount(0);
+      // ── SCU-2.P4.10 (spec B2.2, by design) — the FilterMenu now shows on
+      // EVERY model above 10 rows, so this 26-row non-JADE tab has exactly one,
+      // in the toolbar (it used to assert none). ─────────────────────────────
+      await expect(page.locator('[data-testid="warehouses-tab-toolbar"] [data-testid="button-filter-menu-trigger"]')).toHaveCount(1);
 
+      // SCU-2.P4.10 (B2.8) — "+ Add warehouse" opens the CreateEntityDialog modal.
       await page.getByTestId("button-add-warehouse-row").click();
-      await page.getByTestId("input-new-warehouse-city").fill("Testburg");
-      await page.getByTestId("input-new-warehouse-state").fill("ZZ");
-      await page.getByTestId("input-new-warehouse-lat").fill("40.5");
-      await page.getByTestId("input-new-warehouse-lng").fill("-75.2");
-      await page.getByTestId("button-add-warehouse-confirm").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("create-entity-city").fill("Testburg");
+      await page.getByTestId("create-entity-state").fill("ZZ");
+      await page.getByTestId("create-entity-lat").fill("40.5");
+      await page.getByTestId("create-entity-lng").fill("-75.2");
+      await page.getByTestId("create-entity-submit").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
       const addedRow = page.locator('[data-testid="added-warehouses-section"] [data-testid^="row-added-warehouse-"]');
       await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });

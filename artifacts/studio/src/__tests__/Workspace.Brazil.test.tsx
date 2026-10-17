@@ -169,7 +169,7 @@ describe("Workspace — p-median-brazil (A5.2)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-export-warehouses-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-warehouses")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-warehouses")).toBeInTheDocument();
   });
 

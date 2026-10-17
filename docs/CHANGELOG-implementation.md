@@ -3942,3 +3942,12 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 3, 15, 17.
 - Fail-first: new test file against the pre-migration tab = 1 failed | 5 passed (history test only). After: 6/6; with `historyReadOnlyTabs` + `CapabilityMatrixTab.test.tsx` = 41 passed (baseline for those two files: 35 passed).
 - Gate: studio 2691 passed (150 files), api-server 2033 passed / 3 load flakes (jobRunnerDispatcher, resultEnvelope x2; green 27/27 x2 isolated), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): jade-ch9-workspace-bundle 2/2, jade-two-echelon 1/1, workspace-fixups 2/2 pass.
+
+### SCU-2.P4.10 — Warehouses + Refineries on DataTable with the +Add modal
+
+- Warehouses + Refineries on DataTable: base + added sections, one FilterMenu on every model (was JADE-only), pager > 50, Upload ▾/Download ▾ + expected fields, "+ Add" modal (D4 id `button-add-warehouse-row` kept), D2 read-only on base AND added controls (and the open modal), numbers centred. Delivery wires no entity adds (no added section/trigger).
+- New `entityCells.tsx` (`READ_ONLY_TITLE`, StatusToggle, DeleteRowButton, DraftNumberInput). `CreateEntityDialog.tsx` and `TransportCostsTab.tsx` now import `READ_ONLY_TITLE` from it (dedupe; the other tabs' local copies are untouched). Legacy `WarehouseTable` no longer rendered by the Workspace (Studio.tsx keeps it).
+- By design: `workspace-fixups-2.spec.ts` now asserts one FilterMenu on the 26-row non-JADE tab. No distance column, so no `filterResetKey`.
+- Deviations 1, 3, 9, 13, 14, 15, 17, 18, 19.
+- Counts: affected studio files 275 -> 285 (6 -> 7 files; +10 new). Fail-first: new file 7 failed | 3 passed pre-migration.
+- Gate: studio 2701 passed, api-server 2032 passed (4 registered-flake failures in jobRunnerDispatcher/resultEnvelope; 27/27 isolated x2), pytest 355 passed, import-schema 22 passed. e2e (local 5410/3410): workspace-fixups, workspace-fixups-2, jade-ch9-workspace-bundle, tab-coverage, delivery-teaching, bundle6-ui-tweaks all pass (19 tests).

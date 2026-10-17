@@ -198,11 +198,11 @@ describe("Workspace — analytics: map entity added (POSTHOG-5)", () => {
     // back inline on the base Warehouses tab.
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lat"), { target: { value: "39.74" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lng"), { target: { value: "-104.99" } });
-    fireEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-104.99" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(

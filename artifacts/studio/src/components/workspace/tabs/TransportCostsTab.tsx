@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import {
 // `convert` pairs into the one shared draft hook rather than this file
 // re-implementing the draft state machine.
 
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 interface TransportCostsTabProps {
   canonicalUnit: CanonicalUnit | null;

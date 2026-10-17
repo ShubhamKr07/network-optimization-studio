@@ -3476,11 +3476,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             : {})}
           precheckErrors={precheck?.errors}
           hasStateColumn={hasStateColumn}
-          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-          // true only on the JADE path; every other model sharing this
-          // branch (p-median-us/brazil/Chen/delivery-teaching-us) keeps the
-          // default `false`.
+          // jade-INT (#9) — JADE-only FilterMenu on the ImportDialog preview
+          // grids. SCU-2.P4.10 (B2.2): the table's own FilterMenu now shows on
+          // every model above 10 rows and no longer reads this.
           enableFilters={modelId === "two-echelon-jade-us"}
+          modelId={modelId}
           // chen-bands-units follow-up (QA defect) — decision 1h's "ordinary
           // editors are disabled while browsing history" was only enforced
           // at the write layer (`updateInputsField`'s no-op above); this
@@ -3511,6 +3511,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           entity="refineries"
+          modelId={modelId}
           addedWarehouses={addedRefineriesFromInputs(localInputs)}
           onAddedWarehousesChange={next => handleAddedArrayChange("refineries", "addedRefineries", addedRefineriesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}

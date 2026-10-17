@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -416,7 +417,6 @@ const TABLE_ROLE: Record<CreateEntityKind, EntityRoleConfig> = {
   station: STATION_ROLE,
 };
 
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 const CAPACITY_ERROR: Partial<Record<CreateEntityKind, string>> = {
   warehouse: "Capacity must be a positive number, or left blank.",

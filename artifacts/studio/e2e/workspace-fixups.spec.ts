@@ -515,7 +515,8 @@ test.describe("Workspace fixups — p-median-us (inline add-on-map -> Save flow)
       // entity again" DoD — was mutually exclusive with the old Added
       // Entities tab, which had none of these).
       await expect(page.getByTestId("warehouses-tab-toolbar")).toBeVisible();
-      await expect(page.getByTestId("button-export-warehouses-csv")).toBeVisible();
+      // SCU-2.P4.10 (B2.4) — Download ▾ trigger (the CSV id is now its menu item).
+      await expect(page.getByTestId("button-download-warehouses")).toBeVisible();
       await expect(page.getByTestId("button-import-warehouses")).toBeVisible();
       await expect(page.getByTestId("button-add-warehouse-row")).toBeVisible();
 

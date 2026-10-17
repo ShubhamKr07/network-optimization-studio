@@ -486,11 +486,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       expect(warehousesTabText).not.toContain("10,000,000");
       const warehouseHeaders = await page.locator('[data-testid="warehouses-tab"] thead th').allInnerTexts();
       expect(warehouseHeaders).not.toContain("Capacity");
-      // The "Add warehouse" form also has no capacity field for JADE.
+      // The "+ Add warehouse" modal (SCU-2.P4.10, B2.8) also has no capacity field for JADE.
       await page.getByTestId("button-add-warehouse-row").click();
-      await expect(page.getByTestId("add-warehouse-row-form")).toBeVisible();
-      await expect(page.getByTestId("input-new-warehouse-capacity")).toHaveCount(0);
-      await page.getByTestId("button-add-warehouse-cancel").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
+      await expect(page.getByTestId("create-entity-capacity")).toHaveCount(0);
+      await page.getByTestId("create-entity-cancel").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0);
 
       await page.getByTestId("sidebar-output-open-warehouses").click();
       await expect(page.locator('[data-testid^="open-warehouse-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });

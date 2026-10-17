@@ -712,15 +712,14 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     // back inline on the base Warehouses tab (Added Entities is gone).
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    // T9 (grid-mirror) — the manual "ID" input is gone; `id` is now a hidden
-    // T3 stable uid (`aw-<uuid>`) minted by handleAddRow itself, and
-    // `displayCode` (left blank here — never focused, so City/State's blur
-    // auto-fill never fires) is the optional human-facing label.
-    fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lat"), { target: { value: "39.74" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lng"), { target: { value: "-104.99" } });
-    fireEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    // T9 (grid-mirror) — `id` is a hidden T3 stable uid (`aw-<uuid>`).
+    // SCU-2.P4.10 (B2.8) — the add flow is the CreateEntityDialog modal,
+    // which derives `displayCode` from City/State.
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-104.99" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-save"));
@@ -738,7 +737,9 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
               state: "CO",
               lat: 39.74,
               lng: -104.99,
-              capacity: null,
+              // SCU-2.P4.10 (B2.8) — the modal derives the display code and,
+              // under capacityMode "none", omits `capacity` (was null inline).
+              displayCode: "WH-CO-DENVER-01",
               status: "active",
             }),
           ],
