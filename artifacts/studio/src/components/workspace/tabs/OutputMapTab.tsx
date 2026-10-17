@@ -12,6 +12,8 @@ import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } 
 import { toast } from "@/hooks/use-toast";
 import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
+import { buildResultNarrative, legLabel } from "@/lib/resultNarrative";
+import { OutputMapNarrative } from "@/components/workspace/tabs/OutputMapNarrative";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
 // timing. Optional/no default — when the caller (eventually INT) has no
@@ -21,19 +23,6 @@ export interface SolveTiming {
   totalSec: number;
   queuedSec: number;
   activeSec: number;
-}
-
-// jade-T15.6 — derives a human-readable lane label from a leg string value
-// itself (e.g. "plant_to_warehouse" -> "Plant → Warehouse"), never from a
-// modelId/leg-string allowlist. Generalizes to any two-echelon model's leg
-// naming convention (mine_to_refinery, refinery_to_customer, ...) with zero
-// new code — the SAME bug class this repo's shared-component gates
-// (docs/model-integration-precheck.md Gate 1/6/6.5) exist to prevent.
-function legLabel(leg: string): string {
-  const parts = leg.split("_to_");
-  const cap = (s: string) => (s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-  if (parts.length === 2) return `${cap(parts[0])} → ${cap(parts[1])}`;
-  return cap(leg);
 }
 
 // Local — mirrors NetworkMap's own (unexported) WarehouseStatusEntry shape;
@@ -219,6 +208,21 @@ export function OutputMapTab({
   // Summary's "Quality" row never disagree on wording.
   const outcome = result ? classifyResultOutcome(result) : null;
   const showIncumbent = result != null && outcome != null && hasIncumbent(outcome);
+
+  // SCU-1.9 (spec B1.1) — the narrative reads the SAME band lens the lanes
+  // are coloured with (effectiveBands, not mapBands: unticking "Color lanes"
+  // must not empty the coverage sentence) and the overlay's solve time.
+  const narrative =
+    result && modelId
+      ? buildResultNarrative(modelId, result, {
+          bands: effectiveBands,
+          distance: distanceUnit == null
+            ? null
+            : { toDisplay: v => unit.toDisplay(v, distanceUnit), unit: unit.effectiveUnit(distanceUnit) },
+          solveTimeSec: timing?.totalSec,
+          displayIdById,
+        })
+      : null;
 
   async function handleCopy() {
     if (!mapRef.current) return;
@@ -469,6 +473,7 @@ export function OutputMapTab({
           displayIdById={displayIdById}
         />
       </div>
+      {narrative && <OutputMapNarrative narrative={narrative} />}
     </div>
   );
 }

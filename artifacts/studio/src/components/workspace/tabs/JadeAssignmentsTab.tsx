@@ -299,8 +299,7 @@ export function JadeAssignmentsTab({
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="jade-assignments-tab">
-      <div className="flex items-center justify-between gap-2 p-2 border-b flex-shrink-0 flex-wrap">
-        <span className="text-sm font-medium">Customer Assignments</span>
+      <div className="flex items-center justify-end gap-2 p-2 border-b flex-shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground" data-testid="text-jadeassignments-count">
             {filteredCount} of {totalCount}

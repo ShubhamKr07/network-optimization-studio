@@ -1,6 +1,7 @@
 /**
  * SBR (review finding 7) — real-browser coverage for the collapsible sidebar
- * rail, which ships as the DEFAULT state of every model page.
+ * rail. SCU-1.6 (spec B1.5): the sidebar loads EXPANDED on every model page,
+ * collapses when Run Optimizer opens the solve dialog, and nothing is persisted.
  *
  * Why this spec has to exist: the bundle's other new assertions are all
  * jsdom/RTL, and jsdom cannot verify either of the two mechanisms the feature
@@ -62,8 +63,8 @@ async function navWidth(page: Page): Promise<number> {
     .evaluate(el => Math.round(el.getBoundingClientRect().width));
 }
 
-test.describe("Sidebar rail — collapsed-by-default workspace navigation", () => {
-  test("loads collapsed, toggles, persists, and reveals exactly one label on hover", async ({ page }) => {
+test.describe("Sidebar rail — expanded on load, collapses on Run Optimizer", () => {
+  test("loads expanded, collapses to the rail, reveals exactly one label on hover, does not persist, and Run Optimizer collapses it", async ({ page }) => {
     test.setTimeout(120_000);
     await registerFreshAccount(page, "sbr-rail");
     const id = await createPMedianScenario(page, `E2E SBR rail ${Date.now()}`, 3);
@@ -71,71 +72,55 @@ test.describe("Sidebar rail — collapsed-by-default workspace navigation", () =
     await page.goto(`/chapter-3?scenario=${id}`);
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-    // 1. Collapsed is the default for a brand-new browser profile.
+    // 1. Expanded is the load state (SCU-1.6).
     const nav = page.getByTestId("sidebar-tree");
-    await expect(nav).toHaveAttribute("data-collapsed", "true");
-    await expect(page.getByTestId("button-toggle-sidebar")).toHaveAttribute("aria-expanded", "false");
-    expect(await navWidth(page)).toBe(44);
+    await expect(nav).toHaveAttribute("data-collapsed", "false");
+    await expect(page.getByTestId("button-toggle-sidebar")).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(async () => navWidth(page), { timeout: HEADER_TIMEOUT }).toBe(224);
 
-    // 2. Every entry keeps its testid and stays clickable in the rail — this is
-    //    what ~439 existing references across the suite depend on.
+    // 2. The hamburger collapses it to the 44px rail.
+    await page.getByTestId("button-toggle-sidebar").click({ timeout: HEADER_TIMEOUT });
+    await expect(nav).toHaveAttribute("data-collapsed", "true");
+    await expect.poll(async () => navWidth(page), { timeout: HEADER_TIMEOUT }).toBe(44);
+
+    // 3. Every entry keeps its testid and stays clickable in the rail.
     await expect(page.getByTestId("sidebar-input-input-map")).toBeVisible();
     await expect(page.getByTestId("sidebar-input-warehouses")).toBeVisible();
 
-    // 3. Hovering ONE rail icon paints ONE label. The others stay transparent —
-    //    this is the behaviour jsdom structurally cannot check.
-    const warehousesPill = page
-      .getByTestId("sidebar-input-warehouses")
-      .locator("span");
+    // 4. Hovering ONE rail icon paints ONE label (jsdom cannot check this).
+    const warehousesPill = page.getByTestId("sidebar-input-warehouses").locator("span");
     const customersPill = page.getByTestId("sidebar-input-customers").locator("span");
     await page.getByTestId("sidebar-input-warehouses").hover({ timeout: HEADER_TIMEOUT });
     await expect
-      .poll(async () => warehousesPill.evaluate(el => getComputedStyle(el).opacity), {
-        timeout: HEADER_TIMEOUT,
-      })
+      .poll(async () => warehousesPill.evaluate(el => getComputedStyle(el).opacity), { timeout: HEADER_TIMEOUT })
       .toBe("1");
     expect(await customersPill.evaluate(el => getComputedStyle(el).opacity)).toBe("0");
 
-    // 4. The pill paints ABOVE the map. `.leaflet-container` carries an explicit
-    //    z-index:0 (index.css) and the nav precedes the content column in DOM
-    //    order, so without `relative z-50` on the nav the label would render
-    //    underneath the auto-opened Input Map.
-    //
-    //    Deliberately NOT asserted with elementFromPoint: that respects
-    //    `pointer-events`, and the pill is `pointer-events-none` by design, so
-    //    hit-testing correctly returns the map underneath it and says nothing
-    //    about paint order. (Tried it; it failed for exactly that reason.)
-    //    Stacking is what matters here, so assert stacking: the pill's box must
-    //    overlap the map, and the nav must establish a stacking context above
-    //    `.leaflet-container`'s.
+    // 5. The pill paints ABOVE the map — asserted with stacking, never
+    //    elementFromPoint (the pill is pointer-events-none by design).
     const pillBox = await warehousesPill.boundingBox();
     const mapBox = await page.locator(".leaflet-container").first().boundingBox();
     expect(pillBox).not.toBeNull();
     expect(mapBox).not.toBeNull();
-    // The pill extends past the 44px rail, over the map's area.
     expect(pillBox!.x + pillBox!.width).toBeGreaterThan(mapBox!.x);
-
     const stacking = await page.evaluate(() => {
-      const nav = document.querySelector('[data-testid="sidebar-tree"]')!;
+      const navEl = document.querySelector('[data-testid="sidebar-tree"]')!;
       const map = document.querySelector(".leaflet-container")!;
-      const navStyle = getComputedStyle(nav);
-      return {
-        navZ: Number(navStyle.zIndex),
-        navPosition: navStyle.position,
-        mapZ: Number(getComputedStyle(map).zIndex),
-      };
+      const navStyle = getComputedStyle(navEl);
+      return { navZ: Number(navStyle.zIndex), navPosition: navStyle.position, mapZ: Number(getComputedStyle(map).zIndex) };
     });
-    expect(stacking.navPosition).not.toBe("static"); // z-index only applies to positioned elements
+    expect(stacking.navPosition).not.toBe("static");
     expect(stacking.navZ).toBeGreaterThan(stacking.mapZ);
 
-    // 5. The hamburger expands, and the choice survives a reload.
-    await page.getByTestId("button-toggle-sidebar").click({ timeout: HEADER_TIMEOUT });
-    await expect(nav).toHaveAttribute("data-collapsed", "false");
-    await expect.poll(async () => navWidth(page), { timeout: HEADER_TIMEOUT }).toBe(224);
-
+    // 6. Not persisted: a reload is a fresh model-page load -> expanded again.
     await page.reload();
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
     await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+
+    // 7. Run Optimizer collapses it as it opens the solve dialog.
+    await page.getByTestId("button-run-optimizer").click({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("solve-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
   });
 
   test("the map redraws to the new width when the rail toggles", async ({ page }) => {
@@ -149,6 +134,7 @@ test.describe("Sidebar rail — collapsed-by-default workspace navigation", () =
     // MapContainer — not NetworkMap's. A fix mounted only in NetworkMap would
     // leave this stale, which is precisely the bug this guards.
     await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
 
     const mapWidth = () =>
       page.locator(".leaflet-container").first().evaluate(el => Math.round(el.getBoundingClientRect().width));
@@ -161,16 +147,15 @@ test.describe("Sidebar rail — collapsed-by-default workspace navigation", () =
         return Math.round(right - left);
       });
 
-    const collapsedWidth = await mapWidth();
+    const expandedWidth = await mapWidth();
     await page.getByTestId("button-toggle-sidebar").click({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+    await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
 
-    // The container must shrink by exactly the rail's growth (224 - 44).
-    await expect.poll(async () => await mapWidth(), { timeout: HEADER_TIMEOUT }).toBe(collapsedWidth - 180);
+    // The container must grow by exactly the rail's shrink (224 - 44).
+    await expect.poll(async () => await mapWidth(), { timeout: HEADER_TIMEOUT }).toBe(expandedWidth + 180);
 
     // And Leaflet must have been told about it: tiles have to cover the new
-    // container, not the old one. leaflet's trackResize listens to WINDOW
-    // resize only, so without InvalidateOnResize this leaves a blank strip.
+    // container, not the old one (InvalidateOnResize).
     await expect
       .poll(async () => (await tileSpan()) >= (await mapWidth()), { timeout: HEADER_TIMEOUT })
       .toBe(true);
@@ -183,6 +168,8 @@ test.describe("Sidebar rail — collapsed-by-default workspace navigation", () =
 
     await page.goto(`/chapter-3?scenario=${id}`);
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    // SCU-1.6 — loads expanded; collapse to the rail to reach the flyout.
+    await page.getByTestId("button-toggle-sidebar").click({ timeout: HEADER_TIMEOUT });
     await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true");
 
     // Start a delete, then walk away without answering.
@@ -202,9 +189,11 @@ test.describe("Sidebar rail — collapsed-by-default workspace navigation", () =
       .toBe("0");
 
     // The scenario still exists — abandoning the confirm must not delete.
+    // After the reload the sidebar is expanded again (not persisted), so the
+    // row is directly in the panel.
     await page.reload();
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await page.getByTestId("button-open-scenarios-flyout").hover({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
     await expect(page.getByTestId(`sidebar-scenario-${id}`)).toHaveCount(1);
   });
 });

@@ -3,7 +3,10 @@ import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "
 import { useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { plantIdCityState } from "@/lib/formatLocation";
-import { computeCumulativeBandCoverage, OVERFLOW_BAND } from "@/lib/bands";
+import {
+  bandDecimals, computeExclusiveBandCoverage, exclusiveBandLabels,
+  frozenBandCoverageToExclusive, frozenBandShape, OVERFLOW_BAND,
+} from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
 import { type CanonicalUnit } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
@@ -279,23 +282,19 @@ export function ServiceStatsTab({
   // Workspace.tsx wires it) is unaffected: `useLiveCoverage` is false and
   // this falls through to the frozen `result.metrics.bandCoverage` exactly
   // as before.
-  // Task 12 (Chapter 5, delivery-teaching-us) — spec §5.7 pins 2 dp for this
-  // model only; the other five models' tests are pinned to integers, so
-  // `decimals` stays a single explicit modelId comparison here rather than a
-  // new manifest capability (no capability-shaped seam for "band precision"
-  // exists yet, and one model doesn't warrant inventing one).
+  // SCU-1.2 (spec B1.9) — EXCLUSIVE rows (one per boundary + overflow,
+  // always). Live: classified from the outbound/service edges by the shared
+  // assignBandOrOverflow. Frozen: the solved result's own bandCoverage,
+  // converted per its stored shape (JADE is already exclusive — deviation 1).
+  // Precision per model lives in bandDecimals (delivery 2 dp, others 0).
+  const decimals = bandDecimals(modelId);
   const bandCoverage = useLiveCoverage
-    ? computeCumulativeBandCoverage(
-        serviceEdges,
-        presentationBands as number[],
-        modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
-      )
-    : (result.metrics.bandCoverage ?? []);
+    ? computeExclusiveBandCoverage(serviceEdges, presentationBands as number[], decimals)
+    : (frozenBandCoverageToExclusive(result.metrics.bandCoverage, decimals, frozenBandShape(modelId)) ?? []);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Service Stats</span>
+      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
         <button
           type="button"
           data-testid="button-download-service-stats-csv"
@@ -316,39 +315,27 @@ export function ServiceStatsTab({
         <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-no-bands">No band coverage data for this solve.</div>
       ) : (
         <div className="p-4 space-y-2">
-          {/* jade-T14 — model-integration-precheck.md Gate 4: a `band: -1`
-              entry (Ch10's own existing overflow convention, extended to
-              Chapter 9 JADE) is flow beyond every configured boundary and
-              gets a distinct "> {last boundary}" label — never rendered as
-              "≤ -1", and never folded into the last real boundary's row. The
-              boundary shown is derived from the OTHER rows in this same
-              array (not hardcoded to 1600), so this works for any model's
-              band configuration. */}
+          {/* jade-T14 / SCU-1.2 — exclusive rows: "0–200 mi", "200–400 mi", …,
+              and a `band: -1` overflow row labelled "> {last boundary}". The
+              sentinel itself is never converted — only real boundaries go
+              through toDisplay (a converted -1 would render "-0.62"). */}
           {(() => {
-            // `maxBoundary` is a REAL boundary distance (derived from the
-            // other rows) and converts; `OVERFLOW_BAND` (-1) is a
-            // categorical sentinel used only to pick this branch — it is
-            // never itself passed through `toDisplay` (that would produce
-            // a nonsense negative distance like "-0.62").
-            const maxBoundary = bandCoverage.reduce(
-              (max, b) => (b.band !== OVERFLOW_BAND && b.band > max ? b.band : max),
-              0,
+            const fmt = (v: number) =>
+              toDisplay(v, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
+            const labels = exclusiveBandLabels(
+              bandCoverage.filter(b => b.band !== OVERFLOW_BAND).map(b => b.band),
+              fmt,
+              distanceUnit,
             );
-            return bandCoverage.map(b => {
-              const isOverflow = b.band === OVERFLOW_BAND;
-              const label = isOverflow
-                ? `> ${toDisplay(maxBoundary, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })} ${distanceUnit}`
-                : `≤ ${toDisplay(b.band, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })} ${distanceUnit}`;
-              return (
-                <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
-                  <span className="w-24 flex-shrink-0 font-mono">{label}</span>
-                  <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
-                    <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
-                  </div>
-                  <span className="w-10 text-right font-mono">{b.percent}%</span>
+            return bandCoverage.map((b, i) => (
+              <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
+                <span className="w-28 flex-shrink-0 font-mono">{labels[i]}</span>
+                <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
+                  <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
                 </div>
-              );
-            });
+                <span className="w-14 text-right font-mono">{b.percent}%</span>
+              </div>
+            ));
           })()}
         </div>
       )}

@@ -407,3 +407,13 @@ describe("OpenWarehousesTab", () => {
     });
   });
 });
+
+// SCU-1.4 (spec B1.4) — the title equal to the tab name is gone; Download
+// stays right-aligned in the same header row.
+describe("OpenWarehousesTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Open Warehouses' title and keeps Download right-aligned", () => {
+    render(<OpenWarehousesTab result={result} scenarioId={1} />);
+    expect(screen.queryByText("Open Warehouses")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-open-warehouses-csv").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});

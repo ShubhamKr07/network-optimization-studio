@@ -165,6 +165,7 @@ test.describe("Chapter 9 — editable transportation costs", () => {
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
     await solve(page, sibling);
     await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
+    await page.getByTestId("button-toggle-compare").click({ timeout: HEADER_TIMEOUT }); // SCU-1.3 — picker is hidden by default
     await page.getByTestId(`cost-summary-compare-toggle-${baseline}`).locator("input").check({ timeout: HEADER_TIMEOUT });
 
     await expect(page.getByTestId(`cost-summary-compare-rate-ic-${baseline}`))

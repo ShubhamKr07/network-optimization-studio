@@ -27,14 +27,14 @@ interface SidebarTreeProps {
    */
   hasSolvedRun: boolean;
   /**
-   * SBR-2 — initial collapsed state, for tests and for any future caller that
-   * needs determinism. An explicitly supplied value WINS over the persisted
-   * preference; persistence only fills the `undefined` case. The first draft
-   * of this had the opposite precedence, which made the prop — invented for
-   * determinism — hostage to test order, because jsdom localStorage persists
-   * across tests in a file and src/__tests__/setup.ts never clears it.
+   * SCU-1.6 (spec B1.5) — CONTROLLED collapsed state, owned by the parent
+   * (Workspace): expanded on every model-page mount, collapsed when Run
+   * Optimizer opens the solve dialog. The hamburger and the collapsed
+   * Scenarios rail icon only REQUEST a change through `onCollapsedChange`.
+   * Nothing is persisted (the old `nos:sidebar-collapsed` key is retired).
    */
-  defaultCollapsed?: boolean;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   /** Currently-open/active tab's entity id, for highlighting. */
   activeEntityId?: string | null;
   onOpenInput: (entry: SidebarEntry) => void;
@@ -74,30 +74,6 @@ interface SidebarTreeProps {
  * positioning (or a portal) — NOT adding `overflow-y-auto` here, which would
  * silently eat the pills.
  */
-
-// SBR-2 — matches the repo's one existing persistence key, UnitContext.tsx:16's
-// "nos:display-unit-pref": colon namespace, kebab name.
-const STORAGE_KEY = "nos:sidebar-collapsed";
-
-function readStoredCollapsed(): boolean | null {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-    return null;
-  } catch {
-    // localStorage throws in private-mode Safari. Degrade to the default.
-    return null;
-  }
-}
-
-function writeStoredCollapsed(value: boolean): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, String(value));
-  } catch {
-    // Non-fatal: the session keeps working, the choice just doesn't survive.
-  }
-}
 
 /**
  * The hidden-until-hovered label pill. Four rules here are load-bearing:
@@ -193,7 +169,8 @@ export function SidebarTree({
   inputs,
   outputs,
   hasSolvedRun,
-  defaultCollapsed,
+  collapsed,
+  onCollapsedChange,
   activeEntityId = null,
   onOpenInput,
   onOpenOutput,
@@ -201,19 +178,8 @@ export function SidebarTree({
   onCloneScenario,
   onDeleteScenario,
 }: SidebarTreeProps) {
-  const [collapsed, setCollapsed] = useState<boolean>(
-    () => defaultCollapsed ?? readStoredCollapsed() ?? true,
-  );
-
-  // The only writer of the persisted preference. SBR-4's Scenarios rail icon
-  // calls it too, so there is exactly one persistence path.
-  function applyCollapsed(value: boolean) {
-    setCollapsed(value);
-    writeStoredCollapsed(value);
-  }
-
   function toggleCollapsed() {
-    applyCollapsed(!collapsed);
+    onCollapsedChange(!collapsed);
   }
 
   // D6 — the Scenarios flyout is hover-driven, but ScenarioRow's rename input
@@ -344,7 +310,7 @@ export function SidebarTree({
               // whole sidebar. That is also the touch and keyboard path: Tailwind
               // v4 wraps group-hover in @media (hover: hover), so on touch the
               // flyout never appears at all.
-              onClick={() => applyCollapsed(false)}
+              onClick={() => onCollapsedChange(false)}
               className="text-muted-foreground hover:text-foreground p-1"
             >
               <SCENARIOS_ICON className="w-3.5 h-3.5" />

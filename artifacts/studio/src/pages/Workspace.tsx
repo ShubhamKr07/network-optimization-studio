@@ -1274,7 +1274,7 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       return [
         { id: "input-map", label: "Input Map" },
         { id: "plants", label: "Plants" },
-        { id: "capability-matrix", label: "Capability Matrix" },
+        { id: "capability-matrix", label: "Plant Capability Matrix" },
         { id: "warehouses", label: "Warehouses" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
@@ -2240,18 +2240,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // by capacityMode="none"), so it reuses the same "pmedian" mode editor
       // (renderTabContent's fallback branch) and needs the same Save gate.
       // ch5-edit-6b — delivery-teaching-us joins too: §14 made warehouse
-      // status and customer demand/exclusion editable via the map (Task 6's
-      // `fixedGeography` prop, which keeps ADD/MOVE/COPY/DELETE and this
-      // tab's own Layers-row Save refused, but not the status/demand edit
-      // path). It renders through this same "pmedian" arm with the exact
-      // same PMedianMapInputs shape (pmedianMapInputsSlice/
-      // handlePMedianMapInputsChange, unconditional since ch5-edit-6), so
-      // without this row a map edit writes into localInputs correctly but
-      // has no visible Save affordance on this tab at all — the shared
-      // toolbar was the only Save this model's Input Map was missing.
-      // `saveInLayersRow` below is deliberately NOT extended the same way:
-      // §14.5 keeps this tab's own inline Save hidden for delivery-
-      // teaching-us — only the shared toolbar gains one.
+      // status and customer demand/exclusion editable via the map. It renders
+      // through this same "pmedian" arm with the exact same PMedianMapInputs
+      // shape (pmedianMapInputsSlice/handlePMedianMapInputsChange). SCU-1.5
+      // (spec B1.2) — its Save is the inline Layers-row one (`saveInLayersRow`
+      // below lists it); `fixedGeography` governs geometry only.
       (activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
@@ -2334,26 +2327,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // never tracked for this tab (flagged by a previous review).
       (activeView.entity === "deliveryCosts" && modelId === "delivery-teaching-us"));
 
-  // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
-  // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
-  // toolbar below; T5 — p-median-brazil joins it (same real editor, same
-  // relocated Save).
-  // COSM-2 — max-coverage-us is deliberately NOT in this list any more (it
-  // was, per C4.13). Its Save moves into the shared toolbar row so it sits
-  // beside the step toggle on every Chapter 4 view, and the Layers-row copy
-  // is suppressed at the call site via `showInlineSave={false}` (not deleted
-  // — that row is shared with p-median-us/p-median-brazil).
-  // p-median-us/p-median-brazil keep their inline Layers-row Save unchanged;
-  // the condition is per-model and they are untouched.
-  // ch5-edit-6b — delivery-teaching-us deliberately does NOT join this list,
-  // even though it joined isEditableInputTab's "input-map" row above: §14.5
-  // keeps this tab's own inline Layers-row Save hidden for this model (only
-  // add/move/copy/delete/coordinates were ever routed through it, and those
-  // stay refused — InputMapTab.tsx's `fixedGeography` gate on `onSave`), so
-  // the SHARED toolbar is the only Save affordance this model's Input Map
-  // tab gets.
+  // R4 / SCU-1.5 (spec B1.2) — every "pmedian"-arm Input Map renders its OWN
+  // inline Save in the Layers row (InputMapTab.tsx's `onSave`), so the shared
+  // toolbar Save is suppressed on that view for all four models that render
+  // the arm: p-median-us, p-median-brazil, max-coverage-us (inverts COSM-2)
+  // and delivery-teaching-us (its map status/demand edits are real; geometry
+  // stays fixed via `fixedGeography`). Other editable tabs keep the toolbar.
   const saveInLayersRow =
-    activeView?.kind === "input" && activeView.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
+    activeView?.kind === "input" && activeView.entity === "input-map" &&
+    (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "max-coverage-us" || modelId === "delivery-teaching-us");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
   // condition from the pmedian one above (same reasoning as
   // isEditableInputTab's own third branch) — its Layers row is a
@@ -2837,6 +2819,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // reinvented.
   const solveScenario = useSolveScenario();
   const [solveDialogOpen, setSolveDialogOpen] = useState(false);
+  // SCU-1.6 (spec B1.5) — the sidebar opens EXPANDED on every model-page
+  // mount (App.tsx keys each chapter <Route> by path, so a model switch
+  // remounts Workspace and resets this) and collapses when Run Optimizer
+  // opens the solve dialog. Not persisted.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [solvePhase, setSolvePhase] = useState<SolvePhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
@@ -2885,6 +2872,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // Enter reaching the header Run button mid-job would otherwise cancel the
     // in-flight guard and permit a second enqueue.
     if (solvePhase !== "idle") return;
+    // SCU-1.6 — give the solve flow the width; the hamburger reopens it.
+    setSidebarCollapsed(true);
     reopenSolveDialog();
   }
 
@@ -3391,9 +3380,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouses={pmedianMapWarehouses(dataset, localInputs)}
           customers={pmedianMapCustomers(dataset, localInputs)}
           inputs={pmedianMapInputsSlice(localInputs)}
-          // ch5-edit-6 (§14.5) — delivery-teaching-us's Input Map keeps
-          // fixed geography (add/copy/move/delete and the Layers-row Save
-          // all stay refused — InputMapTab.tsx's `fixedGeography` prop
+          // ch5-edit-6 (§14.5) / SCU-1.5 — delivery-teaching-us's Input Map
+          // keeps fixed geography (add/copy/move/delete stay refused —
+          // InputMapTab.tsx's `fixedGeography` prop
           // suppresses every geometry-changing affordance at its own
           // render sites), but status and demand ARE editable now, so this
           // model routes through the same real `handlePMedianMapInputsChange`
@@ -3422,13 +3411,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onSave={handleSaveClick}
           saving={saveIsPending}
           saveLabel={saveLabel}
-          // COSM-2 — max-coverage-us's Save moved OUT of this tab's Layers
-          // row into the shared toolbar row, so it sits beside the step
-          // toggle on every Chapter 4 view. Suppressed by a prop rather than
-          // by dropping `onSave`, because `onSave`'s presence is also what
-          // `saveInLayersRow` mirrors for p-median-us/p-median-brazil, which
-          // render this same arm and must keep their inline Save.
-          showInlineSave={modelId !== "max-coverage-us"}
           // T5 (Bundle 2, Step 1b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model on this branch (only p-median-us today) defaults true.
@@ -4389,6 +4371,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
           )}
           hasSolvedRun={hasFreshSolvedRun}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
           activeEntityId={activeView?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}

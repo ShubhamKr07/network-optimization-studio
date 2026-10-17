@@ -198,8 +198,7 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Open Warehouses</span>
+      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
         <div className="flex items-center gap-1.5">
           {enableFilters && tableFilters.totalCount > 10 && (
             <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />

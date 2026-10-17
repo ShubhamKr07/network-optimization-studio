@@ -19,7 +19,7 @@
  * the `ServiceStatsTab` call site (search "Task 14 Step C") records that
  * the Chen carve-out was REMOVED — `presentationBands={activeBandLens}` is
  * wired for max-coverage-us exactly like its five siblings now ("Chen now
- * computes live like its five siblings, cumulative + overflow labels...
+ * computes live like its five siblings, exclusive rows + overflow (SCU-1.2)...
  * from the SAME dedicated band lens every other live-band surface on this
  * page reads"). So check 3 is rewritten here as a third POSITIVE case,
  * mirroring check 1's single-echelon shape (max-coverage-us has no `leg`
@@ -43,7 +43,7 @@
  *      LIVE over ALL edges on a band edit, no re-solve. CH4O-10 moved
  *      Chen's own coverage-%/covered-demand KPIs onto Solution Summary, so
  *      this check's ServiceStats assertions are band-graph-only (the
- *      generic cumulative-coverage-bar rows every distance-band model has)
+ *      generic exclusive coverage-bar rows every distance-band model has)
  *      — never the Chen-specific KPIs, which this tab no longer renders at
  *      all.
  *
@@ -172,6 +172,18 @@ function parsePercent(text: string): number {
   return Number(m![1]);
 }
 
+// SCU-1.2 — the exclusive two-row (one boundary + overflow) expectation,
+// computed with the SAME rule as computeExclusiveBandCoverage: round each,
+// then the residual goes to the larger raw share (ties -> the in-band row).
+function expectedTwoRowPercents(inBandFlow: number, overflowFlow: number): [number, number] {
+  const total = inBandFlow + overflowFlow;
+  const raw = [(inBandFlow * 100) / total, (overflowFlow * 100) / total];
+  const rounded = raw.map(Math.round);
+  const target = raw[1] > raw[0] ? 1 : 0;
+  rounded[target] += 100 - (rounded[0] + rounded[1]);
+  return [rounded[0], rounded[1]];
+}
+
 // ── Check 1: p-median-us (single-echelon) ──────────────────────────────────
 
 function pMedianInputs() {
@@ -207,7 +219,7 @@ test.describe("Non-JADE ServiceStats live coverage — p-median-us (single-echel
       // Deterministic pre-check: with p=3 open facilities across 200
       // continental-US customers, some real assignment distance must
       // exceed a tiny 5-mi boundary (used below to force an explicit
-      // overflow row). Coverage % is FLOW-weighted (computeCumulativeBand
+      // overflow row). Coverage % is FLOW-weighted (computeExclusiveBand
       // Coverage sums each edge's `flow`/demand, not a plain edge count —
       // bands.ts's own doc comment), so the expected percentages below are
       // computed the same way, not by counting edges.
@@ -225,12 +237,11 @@ test.describe("Non-JADE ServiceStats live coverage — p-median-us (single-echel
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const solveCalls = makeSolveCallTracker(page);
 
-      // ── Baseline: Service Stats bars reflect the solved (default) bands,
-      // no overflow row shown (all 4 default bands present, no -1 row is
-      // asserted implicitly by the absence check below). ───────────────────
+      // ── Baseline: Service Stats bars reflect the solved (default) bands; SCU-1.2 — the overflow row always renders, and 0% proves no out-of-band flow.
       await page.getByTestId("sidebar-output-service-stats").click();
       await expect(page.getByTestId("service-stats-band-200")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("service-stats-band--1")).toHaveCount(0);
+      // SCU-1.2 — the overflow row is always rendered now; nothing is beyond the last boundary, so it reads 0%.
+      expect(parsePercent(await page.getByTestId("service-stats-band--1").innerText())).toBe(0);
 
       // ── Edit bands post-solve, WITHOUT saving/re-solving ────────────────
       await page.getByTestId("sidebar-input-optimization-parameters").click();
@@ -251,8 +262,7 @@ test.describe("Non-JADE ServiceStats live coverage — p-median-us (single-echel
       await expect(overflowRow).toContainText(`> ${TINY_BOUNDARY} mi`);
       const overflowPct = parsePercent(await overflowRow.innerText());
       const inBandPct = parsePercent(await page.getByTestId("service-stats-band-5").innerText());
-      const expectedOverflowPct = Math.round((overflowFlow * 100) / totalFlow);
-      const expectedInBandPct = Math.round((inBandFlow * 100) / totalFlow);
+      const [expectedInBandPct, expectedOverflowPct] = expectedTwoRowPercents(inBandFlow, overflowFlow);
       expect(overflowPct).toBe(expectedOverflowPct);
       expect(inBandPct).toBe(expectedInBandPct);
       expect(overflowPct).toBeGreaterThan(0);
@@ -337,20 +347,17 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
 
       const callsBeforeCheck = solveCalls.count();
 
-      // ── Service Stats: 100% in-band, overflow row ABSENT ENTIRELY —
-      // proves the inbound mine_to_refinery edge is excluded from the
-      // coverage calc. `computeCumulativeBandCoverage` (lib/bands.ts)
-      // deliberately omits the overflow row altogether when overflow flow
-      // is exactly 0 ("Omits the overflow row entirely when there is
-      // none... rather than emitting a spurious 0% row") — if the inbound
-      // leg had leaked into the coverage calc, its distance (~1464.5 mi,
-      // > BOUNDARY) would make overflow flow nonzero and the row WOULD
-      // render. ────────────────────────────────────────────────────────
+      // ── Service Stats: 100% in-band, overflow row at 0% — proves the
+      // inbound mine_to_refinery edge is excluded from the coverage calc
+      // (SCU-1.2: computeExclusiveBandCoverage always emits the overflow
+      // row). If the inbound leg (~1464.5 mi, > BOUNDARY) had leaked in,
+      // the overflow row would read non-zero. ─────────────────────────
       await page.getByTestId("sidebar-output-service-stats").click();
       const bandRow = page.getByTestId(`service-stats-band-${BOUNDARY}`);
       await expect(bandRow).toBeVisible({ timeout: HEADER_TIMEOUT });
       expect(parsePercent(await bandRow.innerText())).toBe(100);
-      await expect(page.getByTestId("service-stats-band--1")).toHaveCount(0);
+      // SCU-1.2 — the overflow row is always rendered now; nothing is beyond the last boundary, so it reads 0%.
+      expect(parsePercent(await page.getByTestId("service-stats-band--1").innerText())).toBe(0);
 
       // ── Output Map agreement: the map draws BOTH legs (it has no
       // outbound-only filter — that's ServiceStats' own scoping choice), so
@@ -387,7 +394,7 @@ test.describe("Non-JADE ServiceStats live coverage — two-echelon-gold-au (outb
 // (Task 14 Step C). CH4O-10 moved Chen's own coverage-%/covered-demand/
 // high-service-cutoff KPIs onto Solution Summary, so — per this file's own
 // "band-graph-only" framing — this check's ServiceStats assertions touch
-// only the generic cumulative-coverage-bar rows every distance-band model
+// only the generic exclusive coverage-bar rows every distance-band model
 // shares, never a Chen-specific KPI (there isn't one left on this tab to
 // assert against).
 
@@ -411,7 +418,7 @@ test.describe("Non-JADE ServiceStats live coverage — max-coverage-us (single-e
       // Deterministic pre-check, same shape as check 1: with p=3 open
       // facilities {DAL, LA, PIT} (test_max_coverage.py::test_coverage_golden),
       // some real assignment distance must exceed a tiny 5-mi boundary.
-      // Coverage % here is FLOW-weighted too (computeCumulativeBandCoverage
+      // Coverage % here is FLOW-weighted too (computeExclusiveBandCoverage
       // sums each edge's `flow`, not a plain edge count), so the expected
       // percentages below are computed the same way.
       const TINY_BOUNDARY = 5;
@@ -429,11 +436,11 @@ test.describe("Non-JADE ServiceStats live coverage — max-coverage-us (single-e
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const solveCalls = makeSolveCallTracker(page);
 
-      // ── Baseline: Service Stats bars reflect the solved (default) bands,
-      // no overflow row shown. ─────────────────────────────────────────
+      // ── Baseline: Service Stats bars reflect the solved (default) bands; SCU-1.2 — the overflow row always renders, and 0% proves no out-of-band flow.
       await page.getByTestId("sidebar-output-service-stats").click();
       await expect(page.getByTestId("service-stats-band-450")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("service-stats-band--1")).toHaveCount(0);
+      // SCU-1.2 — the overflow row is always rendered now; nothing is beyond the last boundary, so it reads 0%.
+      expect(parsePercent(await page.getByTestId("service-stats-band--1").innerText())).toBe(0);
 
       // ── Edit bands post-solve, WITHOUT saving/re-solving ────────────────
       await page.getByTestId("sidebar-input-optimization-parameters").click();
@@ -457,8 +464,7 @@ test.describe("Non-JADE ServiceStats live coverage — max-coverage-us (single-e
       await expect(overflowRow).toContainText(`> ${TINY_BOUNDARY} mi`);
       const overflowPct = parsePercent(await overflowRow.innerText());
       const inBandPct = parsePercent(await page.getByTestId("service-stats-band-5").innerText());
-      const expectedOverflowPct = Math.round((overflowFlow * 100) / totalFlow);
-      const expectedInBandPct = Math.round((inBandFlow * 100) / totalFlow);
+      const [expectedInBandPct, expectedOverflowPct] = expectedTwoRowPercents(inBandFlow, overflowFlow);
       expect(overflowPct).toBe(expectedOverflowPct);
       expect(inBandPct).toBe(expectedInBandPct);
       expect(overflowPct).toBeGreaterThan(0);

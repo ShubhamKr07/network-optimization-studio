@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render as rtlRender, fireEvent, screen } from "@testing-library/react";
+import { render as rtlRender, fireEvent, screen, within } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // Same ancestor requirement as InputMapTabV2.test.tsx:10-13 — components
@@ -137,14 +137,22 @@ describe("InputMapTab pmedian — fixedGeography (delivery-teaching-us, §14.5)"
     expect(screen.queryByTestId(testid)).toBeNull();
   });
 
-  // Layers-row Save — §14.5 keeps this hidden even when status/demand edits
-  // are live AND a caller wires a real onSave (the exact "future caller
-  // mistakenly wires onSave" case the component's own comment names).
-  // Passing onSave here is what makes this discriminating: without it, the
-  // row passed vacuously (onSave was never supplied, so `onSave &&` alone
-  // already hides the button regardless of fixedGeography).
-  it("still hides button-save even when onSave is supplied — geography stays fixed", () => {
-    renderDeliveryMap({ onSave: vi.fn() });
+  // SCU-1.5 (spec B1.2) — `fixedGeography` means GEOMETRY only now. Saving
+  // status/demand edits is not a geometry change, so the inline Layers-row
+  // Save renders whenever a caller wires `onSave` — and stays absent when no
+  // `onSave` is wired (the gate is `onSave`, not `fixedGeography`).
+  it("renders the inline button-save in the Layers row when onSave is supplied, even with fixed geography", () => {
+    const onSave = vi.fn();
+    renderDeliveryMap({ onSave });
+    const layersRow = screen.getByTestId("pmedian-map-toolbar");
+    const save = within(layersRow).getByTestId("button-save");
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no Layers-row Save when no onSave is wired", () => {
+    renderDeliveryMap();
     expect(screen.queryByTestId("button-save")).toBeNull();
   });
 

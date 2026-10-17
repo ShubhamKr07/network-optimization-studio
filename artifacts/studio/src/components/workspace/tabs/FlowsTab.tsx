@@ -109,8 +109,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Flows</span>
+      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
         <button
           type="button"
           data-testid="button-download-flows-csv"
