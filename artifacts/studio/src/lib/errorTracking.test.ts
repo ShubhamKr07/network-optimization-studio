@@ -23,6 +23,23 @@ describe("errorTracking", () => {
     expect(setUser).toHaveBeenCalledWith({ id: "u1" }); // id only, never email
   });
 
+  // ERR-4 — SCND_STUDIO-2: Microsoft's link scanner (Outlook Safe Links)
+  // opens emailed links headlessly and rejects with this non-Error value.
+  // Sentry treats a string entry as a substring match on the event message.
+  it("ignores the Microsoft link-scanner rejection, and only that", async () => {
+    vi.stubEnv("VITE_SENTRY_DSN", "https://x@o.ingest.sentry.io/1");
+    const m = await import("./errorTracking");
+    m.initErrorTracking();
+    const ignored: (string | RegExp)[] = init.mock.calls[0][0].ignoreErrors ?? [];
+    const matches = (msg: string) =>
+      ignored.some((p) => (typeof p === "string" ? msg.includes(p) : p.test(msg)));
+
+    expect(matches(
+      "Non-Error promise rejection captured with value: Object Not Found Matching Id:3, MethodName:update, ParamCount:4",
+    )).toBe(true);
+    expect(matches("TypeError: Cannot read properties of undefined (reading '_leaflet_pos')")).toBe(false);
+  });
+
   it("scrubEvent strips body/email/cookies and reduces url to path-only", async () => {
     const m = await import("./errorTracking");
     const out = m.scrubEvent({
