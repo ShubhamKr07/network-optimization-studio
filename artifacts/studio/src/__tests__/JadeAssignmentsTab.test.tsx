@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
 import { bandLabel } from "@/lib/bands";
-import { UnitProvider } from "@/contexts/UnitContext";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
 
@@ -284,8 +284,8 @@ describe("JadeAssignmentsTab", () => {
       expect(within(select).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
       expect(within(select).getByTestId("option-filter-band-Band 2: 250 mi - 500 mi")).toBeInTheDocument();
       expect(within(select).getByTestId("option-filter-band-Band 3: 500 mi - 750 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 4: 750 mi - 1000 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 5: > 1000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 4: 750 mi - 1,000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 5: > 1,000 mi")).toBeInTheDocument();
 
       expect(within(select).queryByTestId("option-filter-band-Band 1")).not.toBeInTheDocument();
       expect(within(select).queryByTestId("option-filter-band-Overflow")).not.toBeInTheDocument();
@@ -523,5 +523,30 @@ describe("JadeAssignmentsTab on DataTable — testid map (SCU-2.P3.3)", () => {
     expect(screen.getByTestId("select-filter-band")).toBeInTheDocument();
     expect(screen.getByTestId("input-filter-customer")).toBeInTheDocument();
     expect(screen.getByTestId("input-filter-distance-min")).toBeInTheDocument();
+  });
+});
+
+// SCU-2.R4 (decision B) — the Distance range filters the DISPLAYED unit and
+// resets when the unit toggles.
+describe("JadeAssignmentsTab — Distance range filter follows the display unit (SCU-2.R4)", () => {
+  function PrefToggle() {
+    const u = useDisplayUnit();
+    return <button data-testid="toggle-pref-mi" onClick={() => u.setPref("mi")}>mi</button>;
+  }
+  const rows = makeResult(
+    Array.from({ length: 12 }, (_, i) => ({ customerId: `customer-${i}`, warehouseId: "wh-11", productId: "product-1", distanceMi: 100 + i })),
+  );
+  it("max=170 km matches the 6 rows whose km cell is <= 170; toggling to mi clears the range", () => {
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    try {
+      render(<><PrefToggle /><JadeAssignmentsTab result={rows} dataset={dataset} bands={bands} scenarioId={1} distanceUnit="mi" /></>);
+      fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      fireEvent.change(screen.getByTestId("input-filter-distance-max"), { target: { value: "170" } });
+      expect(screen.getAllByTestId(/^row-jadeassignment-/)).toHaveLength(6);
+      fireEvent.click(screen.getByTestId("toggle-pref-mi"));
+      expect(screen.getAllByTestId(/^row-jadeassignment-/)).toHaveLength(12);
+    } finally {
+      window.localStorage.removeItem("nos:display-unit-pref");
+    }
   });
 });

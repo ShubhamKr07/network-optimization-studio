@@ -19,7 +19,7 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
-import { csvDataLines, downloadVia } from "./helpers/download";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -153,6 +153,8 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await expect(page.locator('[data-testid^="open-warehouse-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       const openRows = await page.locator('[data-testid^="open-warehouse-row-"]').count();
       expect(openRows).toBe(2); // wh-11 + wh-14 forced open, P=2
+      // SCU-2.R4 — the server export lists warehouses only (no plants): download == on-screen rows.
+      await expectCsvJsonDownload(page, "button-download-open-warehouses", { csvName: "openWarehouses.csv", entity: "openWarehouses", rows: openRows });
 
       // JADE is multi-product (JadeAssignmentsTab, not the generic
       // AssignmentsTab the shared `assignment-row-` prefix belongs to) — one
@@ -169,11 +171,7 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
         await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 1 of 8");
         await page.getByTestId("button-jadeassignments-next").click();
         await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 2 of 8");
-        const jaCsv = await downloadVia(page, "button-download-jadeassignments", "button-download-jadeassignments-csv");
-        expect(jaCsv.name).toBe("assignments.csv");
-        expect(csvDataLines(jaCsv.text)).toHaveLength(400);
-        const jaJson = JSON.parse((await downloadVia(page, "button-download-jadeassignments", "button-download-jadeassignments-json")).text);
-        expect([jaJson.entity, jaJson.unit, jaJson.rows.length]).toEqual(["assignments", "mi", 400]);
+        await expectCsvJsonDownload(page, "button-download-jadeassignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: 400 });
 
       // JadeFlowsTab (not the generic FlowsTab the shared `flow-row-` prefix
       // belongs to) sums flow across productId per (plant,warehouse) pair —
@@ -184,29 +182,21 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       // SCU-2.P3.5 — the client-built download IS the on-screen table (all rows);
       // an open menu does not survive a leg switch and focus stays on the leg control.
       const pwCount = await page.locator('[data-testid^="jade-flow-pw-row-"]').count();
-      const pwCsv = await downloadVia(page, "button-download-jade-flows-pw", "button-download-jade-flows-pw-csv");
-      expect(pwCsv.name).toBe("jade-flows-plant-warehouse.csv");
-      expect(pwCsv.text.split("\n")[0]).toBe("Plant,Warehouse,Distance (mi),Flow,Distance Band");
-      expect(csvDataLines(pwCsv.text)).toHaveLength(pwCount);
-      const pwJson = JSON.parse((await downloadVia(page, "button-download-jade-flows-pw", "button-download-jade-flows-pw-json")).text);
-      expect([pwJson.entity, pwJson.unit, pwJson.rows.length]).toEqual(["jadeFlowsPlantWarehouse", "mi", pwCount]);
-      await page.getByTestId("button-download-jade-flows-pw").click();
-      await expect(page.getByTestId("button-download-jade-flows-pw-csv")).toBeVisible();
-      await page.getByTestId("button-jade-flows-inner-warehouse-customer").click();
-      await expect(page.getByTestId("button-download-jade-flows-pw-csv")).toHaveCount(0);
-      await expect(page.getByTestId("button-jade-flows-inner-warehouse-customer")).toBeFocused();
-      await page.getByTestId("button-jade-flows-inner-plant-warehouse").click();
+      await expectCsvJsonDownload(page, "button-download-jade-flows-pw", {
+        csvName: "jade-flows-plant-warehouse.csv",
+        entity: "jadeFlowsPlantWarehouse",
+        unit: "mi",
+        rows: pwCount,
+        csvHeader: "Plant,Warehouse,Distance (mi),Flow,Distance Band",
+      });
+      // (the leg-switch menu-close browser proof lives in jade-ch9-workspace-bundle.spec.ts)
 
       await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-list")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // SCU-2.P3.7 — the metric table never gets a filter (spec B2.2 exception), even
       // at 11 rows; Download ▾ exports the server costSummary (one row, with unit).
       await expect(page.getByTestId("button-filter-menu-trigger")).toHaveCount(0);
-      const csCsv = await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-csv");
-      expect(csCsv.name).toBe("costSummary.csv");
-      expect(csvDataLines(csCsv.text)).toHaveLength(1);
-      const csJson = JSON.parse((await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-json")).text);
-      expect([csJson.entity, csJson.unit, csJson.rows.length]).toEqual(["costSummary", "mi", 1]);
+      const { json: csJson } = await expectCsvJsonDownload(page, "button-download-cost-summary", { csvName: "costSummary.csv", entity: "costSummary", unit: "mi", rows: 1 });
       expect(typeof csJson.templateVersion).toBe("number");
 
       await page.getByTestId("sidebar-output-service-stats").click({ timeout: HEADER_TIMEOUT });

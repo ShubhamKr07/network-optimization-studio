@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import * as exportEntity from "@/lib/exportEntity";
-import { UnitProvider } from "@/contexts/UnitContext";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
@@ -307,6 +307,24 @@ describe("FlowsTab on DataTable — testid map (SCU-2.P3.4)", () => {
       render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
       expect(screen.getByRole("columnheader", { name: "Distance (km)" })).toBeInTheDocument();
       expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("482.8");
+    } finally {
+      window.localStorage.removeItem("nos:display-unit-pref");
+    }
+  });
+  // SCU-2.R4 (decision B) — km pref filters km cells; a unit toggle resets the range.
+  it("the Distance range filters km cells under a km pref and resets on a unit toggle", () => {
+    function PrefToggle() {
+      const u = useDisplayUnit();
+      return <button data-testid="toggle-pref-mi" onClick={() => u.setPref("mi")}>mi</button>;
+    }
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    try {
+      render(<><PrefToggle /><FlowsTab result={many(12)} scenarioId={1} distanceUnit="mi" /></>);
+      fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      fireEvent.change(screen.getByTestId("input-filter-distance-max"), { target: { value: "170" } });
+      expect(screen.getAllByTestId(/^flow-row-/)).toHaveLength(6);
+      fireEvent.click(screen.getByTestId("toggle-pref-mi"));
+      expect(screen.getAllByTestId(/^flow-row-/)).toHaveLength(12);
     } finally {
       window.localStorage.removeItem("nos:display-unit-pref");
     }

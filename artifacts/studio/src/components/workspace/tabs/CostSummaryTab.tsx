@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
@@ -12,7 +12,7 @@ import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type Transport
 import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
 import { Button } from "@/components/ui/button";
 import { buildCompareCsv, buildCompareJson } from "@/lib/compareCsv";
-import { downloadTextFile } from "@/lib/clientCsv";
+import { downloadAs } from "@/lib/clientCsv";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
@@ -369,7 +369,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   const [pickerOpen, setPickerOpen] = useState(() => selectedIds.length >= 2);
   // SCU-2.P3.7 — the single-mode value column is headed by the open scenario's name.
   const ownName = sameModelScenarios.find(s => s.id === scenarioId)?.name ?? "Current";
-  const summaryCols = useMemo(() => summaryColumns(ownName), [ownName]);
 
   // CH4O-10 (decision 10) — cross-mode compare is now ALLOWED. The
   // objective-mode lock this used to enforce (C4.14/D14: a coverage-mode
@@ -398,11 +397,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     .map(id => sameModelScenarios.find(s => s.id === id))
     .filter((s): s is Scenario => !!s && s.result != null);
   const compareMode = !isBrowsingHistory && compareScenarios.length >= 2;
-
-  // SCU-2.P3.8 — memoised here, above the mode branch (no hooks inside it).
-  const compareColumnsKey = compareScenarios.map(s => `${s.id}:${s.name}`).join("|");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const compareCols = useMemo(() => compareColumns(compareScenarios), [compareColumnsKey]);
 
   const toggleList = sameModelScenarios.length > 0 && (
     <div id="cost-summary-compare-toggles" className="p-2 border-b flex-shrink-0" data-testid="cost-summary-compare-toggles">
@@ -591,7 +585,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           <DataTable<SummaryRow>
             rows={summaryRows}
             rowKey={r => r.label}
-            columns={summaryCols}
+            columns={summaryColumns(ownName)}
             ctx={{ readOnly: true, demandEditable: false }}
             testIds={{ table: "cost-summary-list" }}
           />
@@ -826,13 +820,11 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           testId="button-download-cost-summary"
           itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
           onDownload={format =>
-            format === "csv"
-              ? downloadTextFile("cost-summary-compare.csv", buildCompareCsv(compareRows, compareScenarios), "text/csv")
-              : downloadTextFile(
-                  "cost-summary-compare.json",
-                  JSON.stringify(buildCompareJson(compareRows, compareScenarios, unitLabel), null, 2),
-                  "application/json",
-                )
+            downloadAs(
+              "cost-summary-compare",
+              format,
+              format === "csv" ? buildCompareCsv(compareRows, compareScenarios) : buildCompareJson(compareRows, compareScenarios, unitLabel),
+            )
           }
         />,
       )}
@@ -840,7 +832,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         <DataTable<CompareRow>
           rows={compareRows}
           rowKey={r => r.key}
-          columns={compareCols}
+          columns={compareColumns(compareScenarios)}
           ctx={{ readOnly: true, demandEditable: false }}
           footer={
             !sharedBands && (

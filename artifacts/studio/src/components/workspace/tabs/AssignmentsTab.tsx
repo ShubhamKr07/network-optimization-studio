@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
-import { formatCityState } from "@/lib/formatLocation";
+import { entityFilterText, formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
@@ -149,23 +149,6 @@ function resolveCell(
   return idCell(id, fallbackDisplayLabel, locationById);
 }
 
-// SCU-2.P3.2 — the raw text a filter matches for one entity cell (never the
-// rendered JSX): "City, ST displayId" when a location is known, else the
-// display id — the same accessor shape OpenWarehousesTab's warehouse filter uses.
-function entityFilterText(
-  id: string,
-  fallbackDisplayLabel: string,
-  locationById: Record<string, { city: string; state: string }> | undefined,
-  identityById: Record<string, EntityIdentity> | undefined,
-): string {
-  const identity = identityById?.[id];
-  if (identity) {
-    return identity.city || identity.state ? `${formatCityState(identity.city, identity.state)} ${identity.displayId}` : identity.displayId;
-  }
-  const loc = locationById?.[id];
-  return loc ? `${formatCityState(loc.city, loc.state)} ${fallbackDisplayLabel}` : fallbackDisplayLabel;
-}
-
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
@@ -203,6 +186,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
       cellClassName: "font-mono",
       // Filter range is in the DISPLAY unit — the number the student reads in the cell.
       value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
+      filterResetKey: unit.pref,
       cell: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit).toFixed(1) : "—"),
     },
     {

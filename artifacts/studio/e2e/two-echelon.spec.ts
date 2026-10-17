@@ -38,7 +38,7 @@
  * solve outcome.
  */
 import { test, expect, type Page } from "./fixtures";
-import { csvDataLines, downloadVia } from "./helpers/download";
+import { expectCsvJsonDownload } from "./helpers/download";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -133,11 +133,16 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       await page.getByTestId("unit-toggle-mi").click();
       await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
       const flowCount = await flowRows.count();
-      const flCsv = await downloadVia(page, "button-download-flows", "button-download-flows-csv");
-      expect(flCsv.name).toBe("flows.csv");
-      expect(csvDataLines(flCsv.text)).toHaveLength(flowCount);
-      const flJson = JSON.parse((await downloadVia(page, "button-download-flows", "button-download-flows-json")).text);
-      expect([flJson.entity, flJson.unit, flJson.rows.length]).toEqual(["flows", "mi", flowCount]);
+      await expectCsvJsonDownload(page, "button-download-flows", { csvName: "flows.csv", entity: "flows", unit: "mi", rows: flowCount });
+
+      // SCU-2.R4 — Customer Assignments (facility->demand legs only, 10 customers: at the
+      // no-filter boundary, one page): the download carries exactly the on-screen rows.
+      await page.getByTestId("sidebar-output-customer-assignments").click();
+      const assignmentRows = page.locator('[data-testid^="assignment-row-"]');
+      await expect(assignmentRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const assignmentCount = await assignmentRows.count();
+      expect(assignmentCount).toBe(10);
+      await expectCsvJsonDownload(page, "button-download-assignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: assignmentCount });
 
       // ── 2. Clone → BOM 2.0 → re-solve → Daggar Hills ────────────────────
       // Sidebar-only scenario ops now (button-scenario-dropdown is gone) —

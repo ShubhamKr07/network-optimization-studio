@@ -6,6 +6,7 @@ import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
 import type { EntityIdentity } from "@/lib/entityIdentity";
+import { entityFilterText } from "@/lib/formatLocation";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 
@@ -93,19 +94,6 @@ function flowRows(result: SolveResult) {
   return result.edges.filter(e => !(e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg)));
 }
 
-// SCU-2.P3.4 — filter text for one entity cell (raw text, never the JSX):
-// "City, ST id" when a location is known, else the display id.
-function entityFilterText(
-  id: string,
-  locationById: Record<string, { city: string; state: string }> | undefined,
-  identityById: Record<string, EntityIdentity> | undefined,
-): string {
-  const identity = identityById?.[id];
-  if (identity) return identity.city || identity.state ? `${identity.city}, ${identity.state} ${identity.displayId}` : identity.displayId;
-  const loc = locationById?.[id];
-  return loc ? `${loc.city}, ${loc.state} ${id}` : id;
-}
-
 // Per-product plant->warehouse edges can share the same (fromId,toId) pair
 // across products — the productId must be part of the row identity, or two
 // products' rows would collide on both `key` and `data-testid`.
@@ -128,8 +116,8 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
 
   const columns = useMemo<ColumnDef<Edge>[]>(() => {
     const cols: ColumnDef<Edge>[] = [
-      { id: "from", header: "From", kind: "text", value: e => entityFilterText(e.fromId, locationById, identityById), cell: e => resolveCell(e.fromId, locationById, identityById) },
-      { id: "to", header: "To", kind: "text", value: e => entityFilterText(e.toId, locationById, identityById), cell: e => resolveCell(e.toId, locationById, identityById) },
+      { id: "from", header: "From", kind: "text", value: e => entityFilterText(e.fromId, e.fromId, locationById, identityById), cell: e => resolveCell(e.fromId, locationById, identityById) },
+      { id: "to", header: "To", kind: "text", value: e => entityFilterText(e.toId, e.toId, locationById, identityById), cell: e => resolveCell(e.toId, locationById, identityById) },
     ];
     if (hasProduct) cols.push({ id: "product", header: "Product", kind: "enum", value: e => e.productId ?? null, cell: e => e.productId ?? "—" });
     cols.push(
@@ -139,6 +127,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
         kind: "number",
         cellClassName: "font-mono",
         value: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit) : null),
+        filterResetKey: unit.pref,
         cell: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit).toFixed(1) : "—"),
       },
       { id: "flow", header: "Flow", kind: "number", cellClassName: "font-mono", value: e => e.flow, cell: e => e.flow.toLocaleString() },

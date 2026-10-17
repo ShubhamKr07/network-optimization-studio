@@ -233,7 +233,9 @@ export function JadeAssignmentsTab({
         kind: "number",
         cellClassName: "font-mono",
         cellTestId: r => `cell-jadeassignment-distance-${r.key}`,
-        value: r => r.distance, // canonical value, as today's descriptor
+        // Filter range is in the DISPLAY unit — the number the student reads in the cell.
+        value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
+        filterResetKey: unit.pref,
         cell: r => (canonicalResolved ? `${unit.toDisplay(r.distance, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—"),
       },
       {

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within, fireEvent } from "@testing-library/react";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { bandLabel, bandRangeLabel } from "@/lib/bands";
-import { UnitProvider } from "@/contexts/UnitContext";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { AllProviders, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
@@ -366,8 +366,8 @@ describe("JadeFlowsTab", () => {
       "Band 1: 0 mi - 250 mi",
       "Band 2: 250 mi - 500 mi",
       "Band 3: 500 mi - 750 mi",
-      "Band 4: 750 mi - 1000 mi",
-      "Band 5: > 1000 mi",
+      "Band 4: 750 mi - 1,000 mi",
+      "Band 5: > 1,000 mi",
     ];
 
     it("both inner tables' Distance Band filter dropdown lists unit-aware, band-numbered ranges", async () => {
@@ -413,7 +413,7 @@ describe("JadeFlowsTab", () => {
       const labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
-      expect(labels).toEqual(["Band 1: 0 mi - 1000 mi", "Band 2: > 1000 mi"]);
+      expect(labels).toEqual(["Band 1: 0 mi - 1,000 mi", "Band 2: > 1,000 mi"]);
     });
 
     it("selecting a range in EACH inner table, then changing bands, clears only that table's own band filter — non-band filters survive and the two clears are independent", async () => {
@@ -647,35 +647,16 @@ describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.
     expect([...root.querySelectorAll("thead th")].map(th => th.classList.contains("text-center"))).toEqual([false, false, true, true, false]);
   });
 
-  it("CSV = the on-screen table: same headers (unit in Distance), same aggregated rows, as jade-flows-plant-warehouse.csv", async () => {
+  // Header/row/value content is pinned by jadeFlowsExport.test.ts; this is the wiring.
+  it("CSV and JSON downloads are named jade-flows-plant-warehouse.{csv,json}", async () => {
     const dl = captureDownloads();
     const user = userEvent.setup();
     render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
     await user.click(screen.getByTestId("button-download-jade-flows-pw"));
     await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
-    expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv"]);
-    expect(dl.text(0).split("\n")).toEqual([
-      "Plant,Warehouse,Distance (mi),Flow,Distance Band",
-      '"plant-1 — Bethlehem, PA","Chicago, IL",293.7,1400,Band 2',
-      '"plant-2 — Houston, TX","Dallas, TX",1200,300,Overflow',
-    ]);
-  });
-
-  it("JSON = { entity, unit, rows } with one typed object per on-screen row", async () => {
-    const dl = captureDownloads();
-    const user = userEvent.setup();
-    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
     await user.click(screen.getByTestId("button-download-jade-flows-pw"));
     await user.click(screen.getByTestId("button-download-jade-flows-pw-json"));
-    expect(dl.names).toEqual(["jade-flows-plant-warehouse.json"]);
-    expect(JSON.parse(dl.text(0))).toEqual({
-      entity: "jadeFlowsPlantWarehouse",
-      unit: "mi",
-      rows: [
-        { plant: "plant-1 — Bethlehem, PA", warehouse: "Chicago, IL", distance: 293.7, flow: 1400, distanceBand: "Band 2" },
-        { plant: "plant-2 — Houston, TX", warehouse: "Dallas, TX", distance: 1200, flow: 300, distanceBand: "Overflow" },
-      ],
-    });
+    expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
   });
 
   it("> 50 rows: pager with jade-flows-pw literals, and the download still carries ALL rows", async () => {
@@ -757,7 +738,7 @@ describe("JadeFlowsTab W→C on DataTable — testid map + client export (SCU-2.
     expect([...root.querySelectorAll("thead th")].map(th => th.classList.contains("text-center"))).toEqual([false, false, true, true, false]);
   });
 
-  it("CSV and JSON = the on-screen table (same headers incl. 'Flows', same per-customer rows)", async () => {
+  it("CSV and JSON downloads are named jade-flows-warehouse-customer.{csv,json}", async () => {
     const dl = captureDownloads();
     const user = userEvent.setup();
     render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
@@ -767,14 +748,6 @@ describe("JadeFlowsTab W→C on DataTable — testid map + client export (SCU-2.
     await user.click(screen.getByTestId("button-download-jade-flows-wc"));
     await user.click(screen.getByTestId("button-download-jade-flows-wc-json"));
     expect(dl.names).toEqual(["jade-flows-warehouse-customer.csv", "jade-flows-warehouse-customer.json"]);
-    expect(dl.text(0).split("\n")).toEqual([
-      "Warehouse,Customer,Distance (mi),Flows,Distance Band",
-      '"Chicago, IL","Los Angeles, CA",42.1,500,Band 1',
-      '"Dallas, TX","New York City, NY",1200,300,Overflow',
-    ]);
-    const doc = JSON.parse(dl.text(1));
-    expect([doc.entity, doc.unit, doc.rows.length]).toEqual(["jadeFlowsWarehouseCustomer", "mi", 2]);
-    expect(doc.rows[0]).toEqual({ warehouse: "Chicago, IL", customer: "Los Angeles, CA", distance: 42.1, flows: 500, distanceBand: "Band 1" });
   });
 
   it("> 50 rows: pager with jade-flows-wc literals; the download carries ALL rows", async () => {
@@ -828,4 +801,38 @@ describe("JadeFlowsTab W→C on DataTable — testid map + client export (SCU-2.
     expect(screen.queryByTestId("filter-menu-popover")).toBeNull();
     expect(document.activeElement).toBe(screen.getByTestId("button-jade-flows-inner-plant-warehouse"));
   });
+});
+
+// SCU-2.R4 (decision B) — both legs' Distance range filters the DISPLAYED unit
+// and resets when the unit toggles.
+describe("JadeFlowsTab — Distance range filter follows the display unit (SCU-2.R4)", () => {
+  function PrefToggle() {
+    const u = useDisplayUnit();
+    return <button data-testid="toggle-pref-mi" onClick={() => u.setPref("mi")}>mi</button>;
+  }
+  const pw = makeResult(
+    Array.from({ length: 12 }, (_, i) => ({ fromId: `plant-${i + 1}`, toId: "wh-11", flow: 1, distance: 100 + i, leg: "plant_to_warehouse" as const, productId: "product-1" })),
+  );
+  const wc = makeResult(
+    Array.from({ length: 12 }, (_, i) => ({ fromId: "wh-11", toId: `customer-${i + 1}`, flow: 1, distance: 100 + i, leg: "warehouse_to_customer" as const })),
+  );
+  for (const [short, result, trigger, rowRe] of [
+    ["pw", pw, "button-filter-jade-flows-pw", /^jade-flow-pw-row-/],
+    ["wc", wc, "button-filter-jade-flows-wc", /^jade-flow-wc-row-/],
+  ] as const) {
+    it(`${short}: max=170 km matches the 6 rows whose km cell is <= 170; toggling to mi clears the range`, async () => {
+      window.localStorage.setItem("nos:display-unit-pref", "km");
+      try {
+        render(<><PrefToggle /><JadeFlowsTab result={result} dataset={dataset} bands={bands} distanceUnit="mi" /></>);
+        if (short === "wc") await userEvent.setup().click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+        fireEvent.click(screen.getByTestId(trigger));
+        fireEvent.change(screen.getByTestId("input-filter-distance-max"), { target: { value: "170" } });
+        expect(screen.getAllByTestId(rowRe)).toHaveLength(6);
+        fireEvent.click(screen.getByTestId("toggle-pref-mi"));
+        expect(screen.getAllByTestId(rowRe)).toHaveLength(12);
+      } finally {
+        window.localStorage.removeItem("nos:display-unit-pref");
+      }
+    });
+  }
 });

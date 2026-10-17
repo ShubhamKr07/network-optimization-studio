@@ -1,6 +1,7 @@
 import { exportScenario, type ExportScenarioEntity } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
+import { downloadAs } from "@/lib/clientCsv";
 
 // The generated `ExportScenarioEntity` (openapi.yaml) is the single source of truth.
 export type ExportEntity = ExportScenarioEntity;
@@ -57,14 +58,7 @@ export async function downloadEntityExport(
       unit: options?.unit,
       runId: options?.runId,
     });
-    const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-    const blob = new Blob([text], { type: format === "csv" ? "text/csv" : "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${entity}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadAs(entity, format, data);
   } catch (err) {
     // A9 — the 409 LEGACY_RESULT_REQUIRES_RESOLVE rejection is NOT a generic
     // export failure: it's a "the result predates verified solve tracking,

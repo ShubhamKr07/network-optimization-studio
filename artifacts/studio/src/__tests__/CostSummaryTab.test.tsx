@@ -1246,7 +1246,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   });
 
   it("in compare mode, Download CSV (right of the bar) downloads the comparison table as cost-summary-compare.csv", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
     const bar = screen.getByTestId("cost-summary-bar");
@@ -1260,7 +1260,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(fac(2)).toBe("Chicago - IL");
     // Raw numbers, on-screen row order, units in the labels; bands are the
     // exclusive rows (s1 40/40/20, s2 60/30/10).
-    expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
+    expect(spy).toHaveBeenCalledWith("cost-summary-compare", "csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Weighted avg. distance (mi),300,250",
@@ -1270,12 +1270,12 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       "0–200 mi (%),40,60",
       "200–400 mi (%),40,30",
       "> 400 mi (%),20,10",
-    ].join("\n"), "text/csv");
+    ].join("\n"));
     spy.mockRestore();
   });
 
   it("compare CSV: an optional row one scenario lacks is an empty cell; differing band sets export no band rows", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     const s2Mixed = scenario({
       ...s2,
       result: { ...s2.result!, metrics: { ...s2.result!.metrics, inboundCost: 5, bandCoverage: [{ band: 500, percent: 60 }] } },
@@ -1285,7 +1285,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(screen.getByTestId("cost-summary-compare-bands-note")).toBeInTheDocument();
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     const fac = (id: number) => screen.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`).textContent!;
-    expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
+    expect(spy).toHaveBeenCalledWith("cost-summary-compare", "csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Inbound cost,,5",
@@ -1293,12 +1293,12 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
-    ].join("\n"), "text/csv");
+    ].join("\n"));
     spy.mockRestore();
   });
 
   it("compare CSV: band rows are omitted (no duplicate '— (%)' labels) while the distance unit is unresolved", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     const defaultImpl = mockUseListModels.getMockImplementation();
     mockUseListModels.mockReturnValue({ data: [] }); // manifest not loaded -> unit unresolved
     try {
@@ -1306,7 +1306,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       enterCompare();
       expect(screen.getByTestId("cost-summary-compare-band-200-1")).toBeInTheDocument();
       chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
-      const csv = spy.mock.calls[0][1] as string;
+      const csv = spy.mock.calls[0][2] as string;
       expect(csv).not.toContain("— (%)");
       expect(csv).not.toContain("(%)");
     } finally {
@@ -1321,11 +1321,11 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   // label; units/(%)/(s) are appended), and every text-valued cell is the
   // on-screen text verbatim.
   it("compare CSV rows are the compare table's rows, in order, with identical text cells", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
-    const csv = spy.mock.calls[0][1] as string;
+    const csv = spy.mock.calls[0][2] as string;
     const dataRows = csv.split("\n").slice(1);
     const tableRows = [...screen.getByTestId("cost-summary-compare-table").querySelectorAll("tbody tr")];
     expect(dataRows).toHaveLength(tableRows.length);
@@ -1474,17 +1474,17 @@ describe("CostSummaryTab compare on DataTable — testid map (SCU-2.P3.8)", () =
   });
 
   it("Download ▾ JSON: { entity, unit, rows } built from the SAME row model as the CSV", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     enterCompare();
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-json");
     const [csvCall, jsonCall] = spy.mock.calls;
-    expect(jsonCall[0]).toBe("cost-summary-compare.json");
-    expect(jsonCall[2]).toBe("application/json");
-    const doc = JSON.parse(jsonCall[1] as string);
+    expect(jsonCall[0]).toBe("cost-summary-compare");
+    expect(jsonCall[1]).toBe("json");
+    const doc = jsonCall[2] as { entity: string; unit: string; rows: unknown[] };
     expect(doc.entity).toBe("costSummaryCompare");
     expect(doc.unit).toBe("mi");
-    const csvLines = (csvCall[1] as string).split("\n").slice(1);
+    const csvLines = (csvCall[2] as string).split("\n").slice(1);
     expect(doc.rows).toHaveLength(csvLines.length);
     expect(doc.rows[0]).toEqual({
       metric: "Objective",

@@ -6,7 +6,7 @@
 // typed, not rendered text: the single-line entity label the cell falls back
 // to, distance in the active display unit at the on-screen 1-dp precision,
 // flow as a plain number, the band label the cell shows.
-import { csvCell, downloadTextFile } from "@/lib/clientCsv";
+import { csvText } from "@/lib/clientCsv";
 
 /** One on-screen JADE Flows row, as the tab's own row model holds it. */
 export interface JadeFlowScreenRow {
@@ -49,7 +49,7 @@ function cells(row: JadeFlowScreenRow, toDisplay: (canonical: number) => number)
 
 export function jadeFlowsCsv(leg: JadeFlowLeg, rows: JadeFlowScreenRow[], toDisplay: (canonical: number) => number, unit: string): string {
   const header = leg.headers.map(h => (h === "Distance" ? `Distance (${unit})` : h));
-  return [header, ...rows.map(r => cells(r, toDisplay))].map(line => line.map(csvCell).join(",")).join("\n");
+  return csvText([header, ...rows.map(r => cells(r, toDisplay))]);
 }
 
 export interface JadeFlowsJson {
@@ -64,15 +64,4 @@ export function jadeFlowsJson(leg: JadeFlowLeg, rows: JadeFlowScreenRow[], toDis
     unit,
     rows: rows.map(r => Object.fromEntries(cells(r, toDisplay).map((v, i) => [leg.keys[i], v]))),
   };
-}
-
-export function downloadJadeFlows(
-  leg: JadeFlowLeg,
-  format: "csv" | "json",
-  rows: JadeFlowScreenRow[],
-  toDisplay: (canonical: number) => number,
-  unit: string,
-): void {
-  if (format === "csv") downloadTextFile(`${leg.fileBase}.csv`, jadeFlowsCsv(leg, rows, toDisplay, unit), "text/csv");
-  else downloadTextFile(`${leg.fileBase}.json`, JSON.stringify(jadeFlowsJson(leg, rows, toDisplay, unit), null, 2), "application/json");
 }

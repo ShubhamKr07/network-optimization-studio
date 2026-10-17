@@ -1,8 +1,7 @@
 // SCU-2.P3.5 (spec B2.4, user decision 2026-10-17) — JADE Flows downloads are
 // exactly the on-screen table: same headers, same rows, typed values.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  downloadJadeFlows,
   jadeFlowsCsv,
   jadeFlowsJson,
   PLANT_WAREHOUSE_LEG,
@@ -43,27 +42,5 @@ describe("jadeFlowsJson", () => {
       ],
     });
     expect(Object.keys(jadeFlowsJson(WAREHOUSE_CUSTOMER_LEG, rows, d => d, "mi").rows[0])).toEqual(["warehouse", "customer", "distance", "flows", "distanceBand"]);
-  });
-});
-
-describe("downloadJadeFlows", () => {
-  it("writes {fileBase}.csv as text/csv and {fileBase}.json as application/json", () => {
-    // downloadTextFile is called inside clientCsv's module boundary from here, so
-    // spy at the DOM boundary: the Blob parts + the anchor's download name.
-    const RealBlob = globalThis.Blob;
-    const blobSpy = vi.spyOn(globalThis, "Blob").mockImplementation((parts, opts) => new RealBlob(parts, opts));
-    URL.createObjectURL = vi.fn(() => "blob:fake");
-    URL.revokeObjectURL = vi.fn();
-    const names: string[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-      names.push(this.download);
-    });
-    downloadJadeFlows(PLANT_WAREHOUSE_LEG, "csv", rows, d => d, "mi");
-    downloadJadeFlows(PLANT_WAREHOUSE_LEG, "json", rows, d => d, "mi");
-    expect(names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
-    expect(blobSpy.mock.calls[0][0]?.[0]).toBe(jadeFlowsCsv(PLANT_WAREHOUSE_LEG, rows, d => d, "mi"));
-    expect(blobSpy.mock.calls[0][1]).toEqual({ type: "text/csv" });
-    expect(JSON.parse(blobSpy.mock.calls[1][0]?.[0] as string)).toEqual(jadeFlowsJson(PLANT_WAREHOUSE_LEG, rows, d => d, "mi"));
-    expect(blobSpy.mock.calls[1][1]).toEqual({ type: "application/json" });
   });
 });

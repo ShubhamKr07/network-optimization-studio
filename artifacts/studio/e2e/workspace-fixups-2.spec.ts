@@ -28,7 +28,7 @@
  * own scenario in a `finally` block.
  */
 import { test, expect, type Page, type Locator } from "./fixtures";
-import { csvDataLines, downloadVia } from "./helpers/download";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -319,11 +319,7 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       await expect(page.getByTestId("text-filter-count")).toHaveText("200 of 200");
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("assignments-page-indicator")).toHaveText("Page 1 of 4");
-      const asCsv = await downloadVia(page, "button-download-assignments", "button-download-assignments-csv");
-      expect(asCsv.name).toBe("assignments.csv");
-      expect(csvDataLines(asCsv.text)).toHaveLength(200);
-      const asJson = JSON.parse((await downloadVia(page, "button-download-assignments", "button-download-assignments-json")).text);
-      expect([asJson.entity, asJson.unit, asJson.rows.length]).toEqual(["assignments", "mi", 200]);
+      const { json: asJson } = await expectCsvJsonDownload(page, "button-download-assignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: 200 });
       expect(typeof asJson.templateVersion).toBe("number");
 
       const firstRow = page.locator('[data-testid^="assignment-row-"]').first();
@@ -568,8 +564,8 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
         "Band 1: 0 mi - 200 mi",
         "Band 2: 200 mi - 400 mi",
         "Band 3: 400 mi - 800 mi",
-        "Band 4: 800 mi - 1600 mi",
-        "Band 5: > 1600 mi",
+        "Band 4: 800 mi - 1,600 mi",
+        "Band 5: > 1,600 mi",
       ]);
       for (const label of bandOptions) {
         expect(expectedPossible.has(label)).toBe(true);

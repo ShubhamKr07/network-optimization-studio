@@ -214,8 +214,10 @@ test.describe("Bundle 6.1 — Map legend (Input size ramp, Output states, layer-
 });
 
 test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () => {
-  // @flaky (OBS-3, checkpoint #3): intermittent 1/20 in the frozen-commit audit (4be058f).
-  // Quarantined from `pnpm e2e:gate`; runs via `pnpm e2e:quarantine`.
+  // @flaky (OBS-3, checkpoint #3): was logged as intermittent 1/20 in the frozen-commit audit
+  // (4be058f), but the failure was deterministic since T12 (70385070, 2026-09-21): `.fill()`
+  // alone never commits a draft-until-commit field. Fixed by SCU-2.R4 (blur via Tab after the
+  // fill); still quarantined until a flake audit re-measures it.
   test("p-median-us: one merged table (no separate reference sub-table / old two-pager), base row stays read-only while its override marks Changed", { tag: "@flaky" }, async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page, "b61-distances-merge");
@@ -263,6 +265,8 @@ test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () 
       // Adding an override marks the row Changed and does NOT touch the
       // base column's value.
       await page.getByTestId(`input-distance-${warehouseId}-${customerId}`).fill("555");
+      // Draft-until-commit (e2e/CLAUDE.md): the override only commits on blur.
+      await page.getByTestId(`input-distance-${warehouseId}-${customerId}`).press("Tab");
       await expect(page.getByTestId(`badge-distance-changed-${warehouseId}-${customerId}`)).toBeVisible({
         timeout: HEADER_TIMEOUT,
       });

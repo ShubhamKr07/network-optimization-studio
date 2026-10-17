@@ -16,7 +16,7 @@
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe.
  */
 import { test, expect, type Page } from "./fixtures";
-import { csvDataLines, downloadVia } from "./helpers/download";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -420,12 +420,13 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("jade-flows-wc-page-indicator")).toHaveText("Page 1 of 2");
       await expect(page.getByTestId("jade-flows-pw-table")).toBeHidden();
       await expect(page.getByTestId("text-jadeflows-wc-count")).toHaveText("100 of 100");
-      const wcCsv = await downloadVia(page, "button-download-jade-flows-wc", "button-download-jade-flows-wc-csv");
-      expect(wcCsv.name).toBe("jade-flows-warehouse-customer.csv");
-      expect(wcCsv.text.split("\n")[0]).toBe("Warehouse,Customer,Distance (mi),Flows,Distance Band");
-      expect(csvDataLines(wcCsv.text)).toHaveLength(100);
-      const wcJson = JSON.parse((await downloadVia(page, "button-download-jade-flows-wc", "button-download-jade-flows-wc-json")).text);
-      expect([wcJson.entity, wcJson.unit, wcJson.rows.length]).toEqual(["jadeFlowsWarehouseCustomer", "mi", 100]);
+      await expectCsvJsonDownload(page, "button-download-jade-flows-wc", {
+        csvName: "jade-flows-warehouse-customer.csv",
+        entity: "jadeFlowsWarehouseCustomer",
+        unit: "mi",
+        rows: 100,
+        csvHeader: "Warehouse,Customer,Distance (mi),Flows,Distance Band",
+      });
       await page.getByTestId("button-filter-jade-flows-wc").click();
       await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
       await page.getByTestId("button-jade-flows-inner-plant-warehouse").click();
@@ -442,12 +443,8 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       expect(plantProdHeaders).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
       // SCU-2.P3.9 — tab-level Download ▾ (outside the Plant Production DataTable):
       // CSV and JSON carry the same rows; no pager at 16 rows.
-      const ssCsv = await downloadVia(page, "button-download-service-stats", "button-download-service-stats-csv");
-      expect(ssCsv.name).toBe("serviceStats.csv");
-      const ssJson = JSON.parse((await downloadVia(page, "button-download-service-stats", "button-download-service-stats-json")).text);
-      expect([ssJson.entity, ssJson.unit]).toEqual(["serviceStats", "mi"]);
+      const { json: ssJson } = await expectCsvJsonDownload(page, "button-download-service-stats", { csvName: "serviceStats.csv", entity: "serviceStats", unit: "mi" });
       expect(ssJson.rows.length).toBeGreaterThan(0);
-      expect(ssJson.rows).toHaveLength(csvDataLines(ssCsv.text).length);
       await expect(page.getByTestId("plant-production-page-indicator")).toHaveCount(0);
       // Full effective 4 plants × 4 products grid — every combo present,
       // including disabled/zero-production ones (not dropped).

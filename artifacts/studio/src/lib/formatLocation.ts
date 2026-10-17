@@ -1,3 +1,5 @@
+import type { EntityIdentity } from "@/lib/entityIdentity";
+
 // ch4-tab-city-labels — shared city/state display formatter. Every shipped
 // dataset carries a non-blank state for every row (measured 2026-09-28,
 // across all six models, including max-coverage-us since its US dataset
@@ -24,4 +26,21 @@ export function plantIdCityState(plant: {
   name?: string;
 }): string {
   return `${plant.id} — ${formatCityState(plant.city, plant.state)}`;
+}
+
+// SCU-2.P3.2 — the raw text a filter matches for one entity cell (never the
+// rendered JSX): "City, ST displayId" when a location is known, else the
+// display id — the same accessor shape OpenWarehousesTab's warehouse filter uses.
+export function entityFilterText(
+  id: string,
+  fallbackDisplayLabel: string,
+  locationById: Record<string, { city: string; state: string }> | undefined,
+  identityById: Record<string, EntityIdentity> | undefined,
+): string {
+  const identity = identityById?.[id];
+  if (identity) {
+    return identity.city || identity.state ? `${formatCityState(identity.city, identity.state)} ${identity.displayId}` : identity.displayId;
+  }
+  const loc = locationById?.[id];
+  return loc ? `${formatCityState(loc.city, loc.state)} ${fallbackDisplayLabel}` : fallbackDisplayLabel;
 }

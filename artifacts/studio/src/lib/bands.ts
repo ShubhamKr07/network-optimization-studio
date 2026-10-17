@@ -123,10 +123,13 @@ export function computeBandCoverage(edges: BandEdge[], bands: number[]): BandCov
 export function bandRangeLabel(distance: number, bands: number[], unit: string): string {
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return "All distances";
+  // SCU-2.R4 (decision A) — boundaries print through the app's one distance
+  // formatter (<= 2 dp, thousands-grouped) so a km conversion reads "321.87 km".
+  const f = (n: number) => `${formatDistanceDisplay(n)} ${unit}`;
   const index = assignBandOrOverflow(distance, sorted);
-  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
-  if (index === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
-  return `Band ${index + 1}: ${sorted[index - 1]} ${unit} - ${sorted[index]} ${unit}`;
+  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${f(sorted[sorted.length - 1])}`;
+  if (index === 0) return `Band 1: 0 ${unit} - ${f(sorted[0])}`;
+  return `Band ${index + 1}: ${f(sorted[index - 1])} - ${f(sorted[index])}`;
 }
 
 // SCU-1.1 (spec B1.9) — band precision per model: delivery-teaching-us
