@@ -2,7 +2,7 @@
 
 > Produced as the first artefact of Bundle 2 Phase P1 (spec `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` rev 2, §B2.10). Consumed by the P3 (outputs) and P4 (inputs/modals) plans: **one table instance per commit**, and every migration commit rewrites the e2e specs its testid map touches.
 
-**Measured at `46d2f98`, every reference regenerated at `aa7141a` by SCU-2.P1.1** (worktree `/Users/shubhamkr/nos-scnd-upgrades`, branch `scnd-upgrades`, before Bundle 1 lands). All paths are under `artifacts/studio/src/` unless shown otherwise. Every line reference was grep-verified at that commit. Bundle 1 (branch `scnd-upgrades-b1`) edits `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `AssignmentsTab`, `JadeAssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `InputMapTab`, `Workspace.tsx` and several e2e specs, so **line numbers in those files will have shifted**. SCU-2.P1.1 regenerates **every** `file:line` reference in §1, §2, §4 and §5 — source, e2e and visible-string references alike — mechanically through `git diff -U0 46d2f98 <b1-tip>` (unchanged files stay exact by construction; moved lines follow their code; edited lines are reported and re-located by their quoted text), re-checks every §2 testid-table row against the code at `<b1-tip>`, and regenerates §3. A P3/P4 task still locates by the quoted text, not by line number alone.
+**Measured at `46d2f98`, every reference regenerated at `aa7141a` by SCU-2.P1.1 and at `fd3f3e7` by SCU-2.P4.1** (worktree `/Users/shubhamkr/nos-scnd-upgrades`, branch `scnd-upgrades`, before Bundle 1 lands). All paths are under `artifacts/studio/src/` unless shown otherwise. Every line reference was grep-verified at that commit. Bundle 1 (branch `scnd-upgrades-b1`) edits `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `AssignmentsTab`, `JadeAssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `InputMapTab`, `Workspace.tsx` and several e2e specs, so **line numbers in those files will have shifted**. SCU-2.P1.1 regenerates **every** `file:line` reference in §1, §2, §4 and §5 — source, e2e and visible-string references alike — mechanically through `git diff -U0 46d2f98 <b1-tip>` (unchanged files stay exact by construction; moved lines follow their code; edited lines are reported and re-located by their quoted text), re-checks every §2 testid-table row against the code at `<b1-tip>`, and regenerates §3. A P3/P4 task still locates by the quoted text, not by line number alone.
 
 **Counts (from the sections below):** 30 table instances = 9 outputs (P3) + 7 distance/cost inputs (P4) + 14 entity inputs (P4). 2 excluded surface groups. 30 e2e spec files exist (`ls artifacts/studio/e2e/*.spec.ts | wc -l`); `labs.spec.ts` is excluded from every grep (dead, pre-D0).
 
@@ -21,14 +21,14 @@ Legend: **FM** = `FilterMenu` + `useTableFilters`; **F/T** = the plain `input-fi
 | # | Ph | Instance | Tab file:line (table) / mount | Models (gate) | Row source & pipeline | Filter today | Paging today | Upload / Download | Add flow | Editable cells + disable today | Highlight |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | P3 | OpenWarehouses | `OpenWarehousesTab.tsx:219` / `Workspace.tsx:4091` | all with `openWarehouses` grid: p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us, two-echelon-gold-au, JADE (`Workspace.tsx:4089`) | result open warehouses | FM, opt-in JADE only (`Workspace.tsx:4111`), >10 | none | ↓ `openWarehouses` csv (server) | — | none | none |
-| 2 | P3 | Assignments | `AssignmentsTab.tsx:183` / `Workspace.tsx:4141` | non-JADE with `customer-assignments` (`:4124,4139`) | result assignments | none | none (all rows) | ↓ `assignments` csv | — | none | none |
-| 3 | P3 | JadeAssignments | `JadeAssignmentsTab.tsx:322` / `Workspace.tsx:4126` | JADE (`:4124`) | result per-product assignments | FM >10 (`:308`), band filter reset on bands/unit change (`:277-280`) | local `PAGE_SIZE=50` (`:166`), pager when >50 (`:359`) | ↓ `assignments` csv | — | none | none |
-| 4 | P3 | Flows | `FlowsTab.tsx:125` / `Workspace.tsx:4187` | transport-coal, two-echelon-gold-au (`:4175,4186`) | result flows | none | none | ↓ `flows` csv | — | none | none |
-| 5 | P3 | JadeFlows P→W | `JadeFlowsTab.tsx:415` / `Workspace.tsx:4176` | JADE (`:4175`), inner tab `plant-warehouse` | result plant→warehouse flows | FM >10 (`:404`), band reset (`:327-330`) | none | ↓ client CSV `plant-to-warehouse-flows.csv` (`:337-343`) | — | none | none |
-| 6 | P3 | JadeFlows W→C | `JadeFlowsTab.tsx:455` / same | JADE, inner tab `warehouse-customer` | result warehouse→customer flows | FM >10 (`:399`), band reset (`:312-315`) | none | ↓ client CSV `warehouse-to-customer-flows.csv` (`:325-331`) | — | none | none |
-| 7 | P3 | CostSummary single | `CostSummaryTab.tsx:513` / `Workspace.tsx:4159` | all 7 (`:4157`), `!compareMode` | metric rows (transposed) | none | none | ↓ `costSummary` csv (`:499`) | — | none | none |
+| 2 | P3 | Assignments | `AssignmentsTab.tsx:183` / `Workspace.tsx:4138` | non-JADE with `customer-assignments` (`:4121,4136`) | result assignments | none | none (all rows) | ↓ `assignments` csv | — | none | none |
+| 3 | P3 | JadeAssignments | `JadeAssignmentsTab.tsx:322` / `Workspace.tsx:4123` | JADE (`:4121`) | result per-product assignments | FM >10 (`:308`), band filter reset on bands/unit change (`:277-280`) | local `PAGE_SIZE=50` (`:166`), pager when >50 (`:359`) | ↓ `assignments` csv | — | none | none |
+| 4 | P3 | Flows | `FlowsTab.tsx:125` / `Workspace.tsx:4187` | transport-coal, two-echelon-gold-au (`:4172,4183`) | result flows | none | none | ↓ `flows` csv | — | none | none |
+| 5 | P3 | JadeFlows P→W | `JadeFlowsTab.tsx:415` / `Workspace.tsx:4173` | JADE (`:4172`), inner tab `plant-warehouse` | result plant→warehouse flows | FM >10 (`:404`), band reset (`:327-330`) | none | ↓ client CSV `plant-to-warehouse-flows.csv` (`:337-343`) | — | none | none |
+| 6 | P3 | JadeFlows W→C | `JadeFlowsTab.tsx:455` / same | JADE, inner tab `warehouse-customer` | result warehouse→customer flows | FM >10 (`:399`), band reset (`:312-315`) | none | ↓ client CSV `warehouse-to-customer-flows.csv` (`:325-377`) | — | none | none |
+| 7 | P3 | CostSummary single | `CostSummaryTab.tsx:513` / `Workspace.tsx:4156` | all 7 (`:4154`), `!compareMode` | metric rows (transposed) | none | none | ↓ `costSummary` csv (`:499`) | — | none | none |
 | 8 | P3 | CostSummary compare | `CostSummaryTab.tsx:774` / same | all 7, 2–4 solved same-model scenarios | metric rows × scenario columns | none | none | none today; Bundle 1 SCU-1.3 adds client CSV | — | none | none |
-| 9 | P3 | ServiceStats Plant Production | `ServiceStatsTab.tsx:355` / `Workspace.tsx:4213` | JADE (`showPlantProduction`, `:241-242`) | result per plant × product | FM >10 (`:363-365`) | none | part of `serviceStats` csv (`:303`); the tab-level `button-download-service-stats-csv` and `service-stats-empty` / `-unit-pending` / `-no-bands` stay **outside** DataTable (P3 tab wrapper/toolbar) | — | none | none |
+| 9 | P3 | ServiceStats Plant Production | `ServiceStatsTab.tsx:355` / `Workspace.tsx:4210` | JADE (`showPlantProduction`, `:241-242`) | result per plant × product | FM >10 (`:363-365`) | none | part of `serviceStats` csv (`:303`); the tab-level `button-download-service-stats-csv` and `service-stats-empty` / `-unit-pending` / `-no-bands` stay **outside** DataTable (P3 tab wrapper/toolbar) | — | none | none |
 | 10 | P4 | Distances | `DistancesTab.tsx:733` / `Workspace.tsx:3736` | p-median-us, p-median-brazil, max-coverage-us (`:3733`) | reference pairs (active, or carrying a current/saved override) ⊕ overrides ⊕ added pairs appended (`:390-403`) | F/T always (`:632,642`) | local 50 (`:330`), pager **always** (`:849`) | ↑↓ `distances` csv/json | inline `+ Add row` | override cell (`useDistanceDraft`); no hist prop (write dropped at `Workspace.tsx:1877-1878`) | amber changed, sky estimated (`:753`) |
 | 11 | P4 | LegDistances | `LegDistancesTab.tsx:430` / `Workspace.tsx:3778` | two-echelon-gold-au (`:3775`); both legs in one list | overrides list, leg badge column | F/T always (`:345,352`) | none | ↑↓ `legDistances` | inline | value cell (`useDistanceDraft`); no hist prop | amber changed (`:449`) |
 | 12 | P4 | JadeDistances | `JadeDistancesTab.tsx:760` / `Workspace.tsx:3813` | JADE (`:3810`) | reference ⊕ overrides ⊕ added; focus jump (`:441-505`) | FM text `from`/`to` >10 (`:449-450,666`) | local 50 (`:335`), pager always (`:904`) | ↑↓ `legDistances` | inline (+ leg select) | override cell; no hist prop | amber changed, sky estimated (`:783`) |
@@ -52,8 +52,8 @@ Legend: **FM** = `FilterMenu` + `useTableFilters`; **F/T** = the plain `input-fi
 | 30 | P4 | Stations added | `StationsTab.tsx:240` / same | transport-coal (`:3724-3726`) | `inputs.addedStations` | none | none | shares #29 | inline form `button-add-station-row` → modal | demand, delete; not disabled in hist | none (precheck chip) |
 
 **Excluded surfaces (spec §B2.10 "Excluded"):**
-- **ServiceStats band bars** — non-tabular divs (`ServiceStatsTab.tsx:314-344`); Bundle 1 SCU-1.2 rewrites them as exclusive band rows; not a DataTable.
-- **`ImportDialog` preview/error grids** — `components/ImportDialog.tsx:150` and `:185` (each already uses `FilterMenu`, `:146,181`); dialog-internal.
+- **ServiceStats band bars** — non-tabular divs (`ServiceStatsTab.tsx:338-366`); Bundle 1 SCU-1.2 rewrites them as exclusive band rows; not a DataTable.
+- **`ImportDialog` preview/error grids** — `components/ImportDialog.tsx:202` and `:237` (each already uses `FilterMenu`, `:198,233`); dialog-internal.
 - Scanned and found **no** table: `OptimizationParametersTab.tsx`, `BandChipEditor.tsx`, `InputMapTab.tsx`, `components/workspace/map/**`; the CostSummary compare picker and the JadeFlows segmented control are not tables.
 
 **Legacy reuse:** `components/tables/{WarehouseTable,CustomerTable,MineTable,StationTable}.tsx` are also rendered by the legacy `pages/Studio.tsx:25-28`; `Workspace.tsx` imports only their types (`:76-79`). P4 therefore stops rendering them from the Workspace tabs instead of rewriting them in place, and leaves `Studio.tsx` untouched (D6's reasoning applies).
@@ -76,7 +76,7 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 #### OpenWarehouses
 - **File:** `components/workspace/tabs/OpenWarehousesTab.tsx:219` (`<table>`), mounted at `pages/Workspace.tsx:4091`
 - **Models / gate:** every model whose `outputGrids` has `openWarehouses`: p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us, two-echelon-gold-au, two-echelon-jade-us (gate `Workspace.tsx:4089`). Not transport-coal.
-- **Row source & pipeline:** `openWarehouseRows(result)` (`:80-108`): sum `edge.flow` per `fromId`, skipping `mine_to_refinery`/`plant_to_warehouse` legs; plus zero-flow rows for `metrics.openFacilityIds` not already present; `utilization` joined from `metrics.utilizationByNode`. Order = Map insertion order (edge order, then openFacilityIds). No overrides/added/inactive. Identity: `resolveWarehouseIdentity` (`:129-143`) prefers `identityById`, else `displayCodeById(displayedInputs)` (added warehouses/refineries) + `locationById`.
+- **Row source & pipeline:** `openWarehouseRows(result)` (`:71-99`): sum `edge.flow` per `fromId`, skipping `mine_to_refinery`/`plant_to_warehouse` legs; plus zero-flow rows for `metrics.openFacilityIds` not already present; `utilization` joined from `metrics.utilizationByNode`. Order = Map insertion order (edge order, then openFacilityIds). No overrides/added/inactive. Identity: `resolveWarehouseIdentity` (`:120-134`) prefers `identityById`, else `displayCodeById(displayedInputs)` (added warehouses/refineries) + `locationById`.
 - **Columns:** `Warehouse — text — EntityIdCell(displayId, location)`; `Total Flow` or `Demand Served` (when `capacityModes` is an explicit `[]`, JADE + delivery, `Workspace.tsx:4101-4106`) `— number — totalFlow.toLocaleString()`; `Utilization — number — Math.round(utilization)% or "—"` (hidden when `showDemandServed` or `capacityMode === "none"`, `:158`).
 - **Filter today:** FilterMenu, opt-in `enableFilters` (true only for JADE, `Workspace.tsx:4111`), shown when `totalCount > 10` (`:204`). Descriptors (`:165-190`): `warehouse` text (accessor = `"City, ST displayId"` or displayId), `flow` number, `utilization` number (only when shown).
 - **Paging today:** none.
@@ -88,20 +88,20 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 
 | testid | element | line |
 |---|---|---|
-| `open-warehouses-empty` | empty-state div ("No solved result yet.") | 196 |
+| `open-warehouses-empty` | empty-state div ("No solved result yet.") | 192 |
 | `button-download-open-warehouses-csv` | toolbar Download CSV button | 208 |
-| `button-filter-menu-trigger` (+ FilterMenu internals `filter-menu-popover`, `filter-control-{key}`, `input-filter-{key}`, `input-filter-{key}-min/-max`, `select-filter-{key}`, `option-filter-{key}-{v}`, `checkbox-filter-{key}-{v}`, `button-clear-filter-{key}`, `text-filter-active-count`, `text-filter-count`, `button-clear-all-filters`) | FilterMenu (JADE only) | 205 → `components/tables/FilterMenu.tsx:56-188` |
+| `button-filter-menu-trigger` (+ FilterMenu internals `filter-menu-popover`, `filter-control-{key}`, `input-filter-{key}`, `input-filter-{key}-min/-max`, `select-filter-{key}`, `option-filter-{key}-{v}`, `checkbox-filter-{key}-{v}`, `button-clear-filter-{key}`, `text-filter-active-count`, `text-filter-count`, `button-clear-all-filters`) | FilterMenu (JADE only) | 205 → `components/tables/FilterMenu.tsx:56-199` |
 | `open-warehouse-row-{warehouseId}` | `<tr>` | 231 |
 | (none) | `<th>` × 2-3, `<td>` cells | 222-224, 232-238 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:471` — `[data-testid^="open-warehouse-row-"]`; `:473-475` — body text contains "Demand Served"; `jade-two-echelon.spec.ts:152-153` — `open-warehouse-row-` prefix + count; `max-coverage.spec.ts:181-184` — `open-warehouse-row-DAL/LA/PIT` + count 3. `open-warehouses-empty`, `button-download-open-warehouses-csv`, "Total Flow", "Utilization" (as asserted string): none (grep run). Comment-only mentions of "Open Warehouses": `delivery-teaching.spec.ts:34,262`, `max-coverage.spec.ts:179`, `workspace-fixups-2.spec.ts:9,302`.
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:496` — `[data-testid^="open-warehouse-row-"]`; `:498-500` — body text contains "Demand Served"; `jade-two-echelon.spec.ts:153-154` — `open-warehouse-row-` prefix + count; `max-coverage.spec.ts:182-185` — `open-warehouse-row-DAL/LA/PIT` + count 3. `open-warehouses-empty`, `button-download-open-warehouses-csv`, "Total Flow", "Utilization" (as asserted string): none (grep run). Comment-only mentions of "Open Warehouses": `delivery-teaching.spec.ts:34,262`, `max-coverage.spec.ts:180`, `workspace-fixups-2.spec.ts:9,303`.
 - **Unit tests referencing it:** `__tests__/OpenWarehousesTab.test.tsx`, `__tests__/Workspace.test.tsx` (row prefix); `__tests__/Workspace.TabCoverage.test.tsx` (download button).
 
 #### Assignments (shared, non-JADE)
-- **File:** `components/workspace/tabs/AssignmentsTab.tsx:183` (`<table>`), mounted at `pages/Workspace.tsx:4141`
-- **Models / gate:** `customer-assignments` and `modelId !== "two-echelon-jade-us"` (`Workspace.tsx:4124` routes JADE away, `:4139`): p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us, two-echelon-gold-au.
-- **Row source & pipeline:** `aggregatedAssignmentRows(result)` (`:91-106`): if any edge has `leg`, keep only `FACILITY_TO_DEMAND_LEGS`; one row per `toId` (first edge supplies warehouse/distance, flows summed). Edge order. No overrides/added/inactive.
-- **Columns:** `Customer — text — resolveCell(customerId)`; `Warehouse — text — resolveCell(warehouseId, codeById ?? id)`; `Distance ({unit}) — number — unit.toDisplay(distance).toFixed(1) or "—"` (header label at `:155`); `Flow — number — flow.toLocaleString()`.
+- **File:** `components/workspace/tabs/AssignmentsTab.tsx:183` (`<table>`), mounted at `pages/Workspace.tsx:4138`
+- **Models / gate:** `customer-assignments` and `modelId !== "two-echelon-jade-us"` (`Workspace.tsx:4121` routes JADE away, `:4136`): p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us, two-echelon-gold-au.
+- **Row source & pipeline:** `aggregatedAssignmentRows(result)` (`:95-110`): if any edge has `leg`, keep only `FACILITY_TO_DEMAND_LEGS`; one row per `toId` (first edge supplies warehouse/distance, flows summed). Edge order. No overrides/added/inactive.
+- **Columns:** `Customer — text — resolveCell(customerId)`; `Warehouse — text — resolveCell(warehouseId, codeById ?? id)`; `Distance ({unit}) — number — unit.toDisplay(distance).toFixed(1) or "—"` (header label at `:162`); `Flow — number — flow.toLocaleString()`.
 - **Filter today:** none.
 - **Paging today:** none (renders every row; workspace-fixups-2 e2e expects > 10 rows on p-median-us, 200 customers).
 - **Upload / Download entity:** download `assignments` csv (`:175`). No upload.
@@ -110,20 +110,20 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 
 | testid | element | line |
 |---|---|---|
-| `assignments-empty` | empty-state div | 160 |
+| `assignments-empty` | empty-state div | 205 |
 | `button-download-assignments-csv` | Download CSV button | 173 |
 | `assignment-row-{customerId}` | `<tr>` | 194 |
 | (none) | `<th>` × 4, `<td>` × 4 | 186-189, 195-198 |
 
-- **e2e references:** `workspace-fixups-2.spec.ts:306-319` — `assignment-row-` prefix, count > 10, **structural**: `firstRow.locator("td").nth(0).locator(".flex.flex-col")` → 2 `span`s, second has class `font-mono` (EntityIdCell DOM shape, `components/tables/EntityIdCell.tsx:34-39`). `jade-two-echelon.spec.ts:157` comment only. `assignments-empty`, `button-download-assignments-csv`: none (grep run).
+- **e2e references:** `workspace-fixups-2.spec.ts:307-334` — `assignment-row-` prefix, count > 10, **structural**: `firstRow.locator("td").nth(0).locator(".flex.flex-col")` → 2 `span`s, second has class `font-mono` (EntityIdCell DOM shape, `components/tables/EntityIdCell.tsx:34-39`). `jade-two-echelon.spec.ts:160` comment only. `assignments-empty`, `button-download-assignments-csv`: none (grep run).
 - **Unit tests referencing it:** `__tests__/AssignmentsTab.test.tsx`, `__tests__/Workspace.test.tsx`, `__tests__/Workspace.TabCoverage.test.tsx`.
 
 #### JadeAssignments
-- **File:** `components/workspace/tabs/JadeAssignmentsTab.tsx:322` (`<Table>`), mounted at `pages/Workspace.tsx:4126`
-- **Models / gate:** `customer-assignments && modelId === "two-echelon-jade-us"` (`Workspace.tsx:4124`).
-- **Row source & pipeline:** `extractAssignments(result)` mapped to rows keyed `${productId}|${customerId}` (`:233-246`); labels from `dataset` + `displayedInputs.addedCustomers/addedWarehouses` (snapshot); `band = bandLabel(distanceMi, effectiveBands)` where bands = live `activeBandLens` (`Workspace.tsx:4130`) or `DEFAULT_DISTANCE_BANDS`. → `useTableFilters` → `pageCount`/`currentPage = min(page,pageCount)`/slice 50 (`:284-286`). Page is NOT reset on filter change (clamped only).
+- **File:** `components/workspace/tabs/JadeAssignmentsTab.tsx:322` (`<Table>`), mounted at `pages/Workspace.tsx:4123`
+- **Models / gate:** `customer-assignments && modelId === "two-echelon-jade-us"` (`Workspace.tsx:4121`).
+- **Row source & pipeline:** `extractAssignments(result)` mapped to rows keyed `${productId}|${customerId}` (`:185-198`); labels from `dataset` + `displayedInputs.addedCustomers/addedWarehouses` (snapshot); `band = bandLabel(distanceMi, effectiveBands)` where bands = live `activeBandLens` (`Workspace.tsx:4127`) or `DEFAULT_DISTANCE_BANDS`. → `useTableFilters` → `pageCount`/`currentPage = min(page,pageCount)`/slice 50 (`:284-286`). Page is NOT reset on filter change (clamped only).
 - **Columns:** `Product — enum — productLabel`; `Customer — text — renderJadeEntityCell(customerId, customerLabel, identityById, rows.length > 10)`; `Assigned Warehouse — text/enum — renderJadeEntityCell(warehouseId, …)`; `Distance — number — "{toDisplay.toFixed(1)} {unit}"` (header class `text-right`, `:328`); `Distance Band — enum — r.band` ("Band N"/"Overflow").
-- **Filter today:** FilterMenu when `totalCount > 10` (`:307`). Descriptors (`:248-267`): `product` select, `customer` text, `warehouse` select, `distance` number (canonical value), `band` select whose accessor is **`bandRangeLabel(toDisplay(distance), displayBands, unit)`** ("Band N: 0 mi - 200 mi"), i.e. the filter value differs from the cell text. Effect (`:277-280`) clears ONLY the `band` filter when bands/unit change.
+- **Filter today:** FilterMenu when `totalCount > 10` (`:307`). Descriptors (`:203-267`): `product` select, `customer` text, `warehouse` select, `distance` number (canonical value), `band` select whose accessor is **`bandRangeLabel(toDisplay(distance), displayBands, unit)`** ("Band N: 0 mi - 200 mi"), i.e. the filter value differs from the cell text. Effect (`:277-280`) clears ONLY the `band` filter when bands/unit change.
 - **Paging today:** local `PAGE_SIZE = 50` (`:166`), local `Pager` (`:168-205`), shown when `filteredRows.length > 50` (`:358`).
 - **Upload / Download entity:** download `assignments` csv (`:313`). No upload.
 - **Add flow:** n/a. **Editable:** none. **Highlighting:** none.
@@ -131,8 +131,8 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 
 | testid | element | line |
 |---|---|---|
-| `jade-assignments-empty` | empty-state div | 294 |
-| `jade-assignments-tab` | tab root div | 301 |
+| `jade-assignments-empty` | empty-state div | 258 |
+| `jade-assignments-tab` | tab root div | 265 |
 | `text-jadeassignments-count` | toolbar "{filtered} of {total}" span (always shown) | 304 |
 | `button-filter-menu-trigger` + FilterMenu internals | FilterMenu | 307 |
 | `button-download-jadeassignments-csv` | Download CSV | 312 |
@@ -147,12 +147,12 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | `jadeassignments-page-indicator` | "Page X of Y" | 191 |
 | `button-jadeassignments-next` | pager Next | 200 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:334,398` — `jade-assignments-tab`; `:335` — `cell-jadeassignment-band-` first = "Overflow"; `:399-400` — **structural** `[data-testid="jade-assignments-tab"] thead th` inner texts `== ["Product","Customer","Assigned Warehouse","Distance","Distance Band"]`; `workspace-fixups.spec.ts:328-329,375` — `jade-assignments-tab` + scoped `button-filter-menu-trigger`; `:340,415` — `distinctFilterOptionLabels(page,"band")` (helper `:200` reads FilterMenu option testids by key), `text-filter-count` `:350,356,431,447`; match `^Band \d+: …`; `:454` — `cell-jadeassignment-distance-` cells scoped in tab; `workspace-fixups-2.spec.ts:540-541` (trigger), `:546-557` (band option labels "Band 1: 0 mi - 200 mi"… via filter key `band`), `:562` — `cell-jadeassignment-band-` texts `^(Band \d+|Overflow)$`; `jade-two-echelon.spec.ts:160` — `row-jadeassignment-` prefix; `:164-165` — `text-jadeassignments-count` contains "of 400". Pager testids, `jade-assignments-empty`, download button: none (grep run).
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:335,399` — `jade-assignments-tab`; `:336` — `cell-jadeassignment-band-` first = "Overflow"; `:400-401` — **structural** `[data-testid="jade-assignments-tab"] thead th` inner texts `== ["Product","Customer","Assigned Warehouse","Distance","Distance Band"]`; `workspace-fixups.spec.ts:329-330,376` — `jade-assignments-tab` + scoped `button-filter-menu-trigger`; `:341,416` — `distinctFilterOptionLabels(page,"band")` (helper `:201` reads FilterMenu option testids by key), `text-filter-count` `:351,357,432,448`; match `^Band \d+: …`; `:455` — `cell-jadeassignment-distance-` cells scoped in tab; `workspace-fixups-2.spec.ts:555-556` (trigger), `:561-572` (band option labels "Band 1: 0 mi - 200 mi"… via filter key `band`), `:577` — `cell-jadeassignment-band-` texts `^(Band \d+|Overflow)$`; `jade-two-echelon.spec.ts:163` — `row-jadeassignment-` prefix; `:167-168` — `text-jadeassignments-count` contains "of 400". Pager testids, `jade-assignments-empty`, download button: none (grep run).
 - **Unit tests referencing it:** `__tests__/JadeAssignmentsTab.test.tsx` (`row-jadeassignment-`, `text-jadeassignments-count`, download button).
 
 #### Flows (shared, non-JADE)
 - **File:** `components/workspace/tabs/FlowsTab.tsx:125` (`<table>`), mounted at `pages/Workspace.tsx:4187`
-- **Models / gate:** `flows && modelId !== "two-echelon-jade-us"` (`Workspace.tsx:4175` routes JADE away, `:4186`): transport-coal, two-echelon-gold-au.
+- **Models / gate:** `flows && modelId !== "two-echelon-jade-us"` (`Workspace.tsx:4172` routes JADE away, `:4183`): transport-coal, two-echelon-gold-au.
 - **Row source & pipeline:** `flowRows(result)`; row key `${fromId}-${toId}[-${productId}]` (`:143`). Edge order. No overrides/added.
 - **Columns:** `From — text — resolveCell(fromId)`; `To — text — resolveCell(toId)`; `Product — enum — productId ?? "—"` (only when any row has `productId`, `:108,130`); `Distance ({unit}) — number`; `Flow — number`. **Note:** the call site does not pass `distanceUnit` (`Workspace.tsx:4187`), so `canonicalResolved` is false and every distance cell renders "—" with header "Distance" (`:95-98`). Recorded as a grounding fact, not changed by the migration.
 - **Filter today:** none. **Paging today:** none.
@@ -162,19 +162,19 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 
 | testid | element | line |
 |---|---|---|
-| `flows-empty` | empty-state div | 100 |
+| `flows-empty` | empty-state div | 140 |
 | `button-download-flows-csv` | Download CSV | 115 |
 | `flow-row-{fromId}-{toId}` / `flow-row-{fromId}-{toId}-{productId}` | `<tr>` | 144 |
 
-- **e2e references:** `jade-two-echelon.spec.ts:167` comment only. Others: none (grep run).
+- **e2e references:** `jade-two-echelon.spec.ts:176` comment only. Others: none (grep run).
 - **Unit tests referencing it:** `__tests__/FlowsTab.test.tsx`, `__tests__/Workspace.test.tsx`, `__tests__/Workspace.TabCoverage.test.tsx`.
 
 #### JadeFlows P→W
-- **File:** `components/workspace/tabs/JadeFlowsTab.tsx:415` (`<Table>` inside `jade-flows-pw-table` div `:414`), mounted at `pages/Workspace.tsx:4176`
-- **Models / gate:** `flows && modelId === "two-echelon-jade-us"` (`Workspace.tsx:4175`). Rendered when inner tab = `plant-warehouse` (default, `:213`).
-- **Row source & pipeline:** `aggregatePlantToWarehouse(result.edges)` (`:138-153`) → rows keyed `${plantId}|${warehouseId}` (`:213-225`); plant labels from `effectivePlants ?? dataset.plants`; `band = bandLabel(distance, effectiveBands)`. → `useTableFilters` → render all (no paging).
+- **File:** `components/workspace/tabs/JadeFlowsTab.tsx:415` (`<Table>` inside `jade-flows-pw-table` div `:414`), mounted at `pages/Workspace.tsx:4173`
+- **Models / gate:** `flows && modelId === "two-echelon-jade-us"` (`Workspace.tsx:4172`). Rendered when inner tab = `plant-warehouse` (default, `:213`).
+- **Row source & pipeline:** `aggregatePlantToWarehouse(result.edges)` (`:153-168`) → rows keyed `${plantId}|${warehouseId}` (`:243-225`); plant labels from `effectivePlants ?? dataset.plants`; `band = bandLabel(distance, effectiveBands)`. → `useTableFilters` → render all (no paging).
 - **Columns:** `Plant — enum — renderJadeEntityCell(plantId, plantLabel, …, pwRows.length > 10)`; `Warehouse — enum — renderJadeEntityCell(warehouseId, …)`; `Distance — number — "{x.toFixed(1)} {unit}"` (`text-right`); `Flow — number — flow.toLocaleString()` (`text-right`); `Distance Band — enum — band`.
-- **Filter today:** FilterMenu when `pwFilters.totalCount > 10` (`:383`). Descriptors (`:249-267`): `plant` select, `warehouse` select, `distance` number, `flow` number, `band` select (range-label accessor ≠ cell text). Effect `:307-310` clears only `band` on bands/unit change.
+- **Filter today:** FilterMenu when `pwFilters.totalCount > 10` (`:383`). Descriptors (`:249-267`): `plant` select, `warehouse` select, `distance` number, `flow` number, `band` select (range-label accessor ≠ cell text). Effect `:307-349` clears only `band` on bands/unit change.
 - **Paging today:** none.
 - **Upload / Download entity:** **client-built** `downloadClientCsv("plant-to-warehouse-flows.csv", ["Plant","Warehouse","Distance","Flow","Distance Band"], …)` (`:317-322`; helper in `lib/clientCsv.ts`, moved there by Bundle 1 SCU-1.3). Spec B2.4 renames to `jade-flows-plant-warehouse.{csv,json}` with a typed row builder.
 - **Add flow / Editable / Highlighting:** none.
@@ -182,11 +182,11 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 
 | testid | element | line |
 |---|---|---|
-| `jade-flows-empty` | empty-state | 334 |
-| `jade-flows-tab` | tab root (shared with W→C) | 373 |
-| `jade-flows-inner-tabs` | segmented control group | 345 |
-| `button-jade-flows-inner-plant-warehouse` | segment button (`aria-pressed`) | 349 |
-| `button-jade-flows-inner-warehouse-customer` | segment button | 360 |
+| `jade-flows-empty` | empty-state | 380 |
+| `jade-flows-tab` | tab root (shared with W→C) | 460 |
+| `jade-flows-inner-tabs` | segmented control group | 432 |
+| `button-jade-flows-inner-plant-warehouse` | segment button (`aria-pressed`) | 436 |
+| `button-jade-flows-inner-warehouse-customer` | segment button | 447 |
 | `text-jadeflows-pw-count` | "{filtered} of {total}" span | 380 |
 | `button-filter-menu-trigger` + internals | FilterMenu | 383 |
 | `button-download-jade-flows-pw-csv` | Download CSV | 388 |
@@ -199,16 +199,16 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | `cell-jade-flow-pw-band-{key}` | cell | 440 |
 | (none) | "No rows match the current filter." colSpan=5 | 444-448 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:405` — `jade-flows-tab`; `:406` — `button-jade-flows-inner-plant-warehouse` `aria-pressed="true"`; `:407-408` — **structural** `[data-testid="jade-flows-pw-table"] thead th` == `["Plant","Warehouse","Distance","Flow","Distance Band"]`; `jade-two-echelon.spec.ts:171` — `jade-flow-pw-row-` prefix; `:250` — `jade-flow-pw-row-plant-4-wh-11`; `:189-190` — "Plant → Warehouse"/"Warehouse → Customer" (these are on the Output Map leg toggles, `legToggles`, not this tab). Filenames `plant-to-warehouse-flows`: none (grep run).
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:406` — `jade-flows-tab`; `:407` — `button-jade-flows-inner-plant-warehouse` `aria-pressed="true"`; `:408-409` — **structural** `[data-testid="jade-flows-pw-table"] thead th` == `["Plant","Warehouse","Distance","Flow","Distance Band"]`; `jade-two-echelon.spec.ts:180` — `jade-flow-pw-row-` prefix; `:276` — `jade-flow-pw-row-plant-4-wh-11`; `:215-216` — "Plant → Warehouse"/"Warehouse → Customer" (these are on the Output Map leg toggles, `legToggles`, not this tab). Filenames `plant-to-warehouse-flows`: none (grep run).
 - **Unit tests referencing it:** `__tests__/JadeFlowsTab.test.tsx` (`jade-flow-pw-row-`, `jade-flows-pw-table`, `text-jadeflows-*`, `button-download-jade-flows-*`).
 
 #### JadeFlows W→C
 - **File:** `components/workspace/tabs/JadeFlowsTab.tsx:455` (`<Table>` inside `jade-flows-wc-table` div `:454`), same mount/gate as P→W; rendered when inner tab = `warehouse-customer`.
-- **Row source & pipeline:** `warehouseToCustomerEdges(result.edges)` (`:154-…`, `leg === "warehouse_to_customer"`) → rows keyed `${warehouseId}|${customerId}` (`:229-241`) → filters → all rows (no paging).
+- **Row source & pipeline:** `warehouseToCustomerEdges(result.edges)` (`:154-…`, `leg === "warehouse_to_customer"`) → rows keyed `${warehouseId}|${customerId}` (`:259-271`) → filters → all rows (no paging).
 - **Columns:** `Warehouse — enum`; `Customer — text`; `Distance — number`; `Flows — number` (header literally "Flows"); `Distance Band — enum`.
 - **Filter today:** FilterMenu when `wcFilters.totalCount > 10` (`:399`). Descriptors (`:269-285`): `warehouse` select, `customer` text, `distance` number, `flow` number (label "Flows"), `band` select (range label). Effect `:312-315` clears only `band`.
 - **Paging today:** none (JADE W→C has ~400 rows rendered at once).
-- **Upload / Download entity:** client-built `warehouse-to-customer-flows.csv` (`:325-331`); spec renames to `jade-flows-warehouse-customer.{csv,json}`.
+- **Upload / Download entity:** client-built `warehouse-to-customer-flows.csv` (`:325-377`); spec renames to `jade-flows-warehouse-customer.{csv,json}`.
 - **Testid map:**
 
 | testid | element | line |
@@ -224,28 +224,28 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | `cell-jade-flow-wc-flow-{key}` | cell | 477 |
 | `cell-jade-flow-wc-band-{key}` | cell | 480 |
 | (none) | "No rows match the current filter." colSpan=5 | 484-488 |
-| (shared) `jade-flows-tab`, `jade-flows-inner-tabs`, `button-jade-flows-inner-*`, `jade-flows-empty` | see P→W | 334-373 |
+| (shared) `jade-flows-tab`, `jade-flows-inner-tabs`, `button-jade-flows-inner-*`, `jade-flows-empty` | see P→W | 380-460 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:412` — click `button-jade-flows-inner-warehouse-customer`; `:413` — `jade-flows-wc-table` visible; `:414-415` — **structural** `[data-testid="jade-flows-wc-table"] thead th` == `["Warehouse","Customer","Distance","Flows","Distance Band"]`. `jade-flow-wc-row-`, `cell-jade-flow-wc-`, `text-jadeflows-wc-count`: none (grep run).
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:413` — click `button-jade-flows-inner-warehouse-customer`; `:414` — `jade-flows-wc-table` visible; `:415-416` — **structural** `[data-testid="jade-flows-wc-table"] thead th` == `["Warehouse","Customer","Distance","Flows","Distance Band"]`. `jade-flow-wc-row-`, `cell-jade-flow-wc-`, `text-jadeflows-wc-count`: none (grep run).
 - **Unit tests referencing it:** `__tests__/JadeFlowsTab.test.tsx`.
 
 #### CostSummary single
-- **File:** `components/workspace/tabs/CostSummaryTab.tsx:513` (`<table data-testid="cost-summary-list">`), mounted at `pages/Workspace.tsx:4159`
-- **Models / gate:** all 7 (`costSummary` in every manifest; `Workspace.tsx:4157`). Rendered when `!compareMode` (`:334`; compareMode = `!isBrowsingHistory && compareScenarios.length >= 2`, `:297`).
-- **Row source & pipeline:** **transposed metric list**, not entity rows: `rows: Array<[label, value, mono, testId?]>` built imperatively (`:421-480`): Objective; (coverage rows: High service cutoff, % of demand within high service, Total demand within high service — when `details.coveragePct` is a number or no incumbent); Max coverable demand (Model 1); Inbound/Outbound cost (presence-gated); Weighted avg. distance / Avg distance to customers; Runtime; Quality; Solver; JADE rates ×4 (`modelId === JADE_MODEL_ID`). Already-formatted strings.
+- **File:** `components/workspace/tabs/CostSummaryTab.tsx:513` (`<table data-testid="cost-summary-list">`), mounted at `pages/Workspace.tsx:4156`
+- **Models / gate:** all 7 (`costSummary` in every manifest; `Workspace.tsx:4154`). Rendered when `!compareMode` (`:334`; compareMode = `!isBrowsingHistory && compareScenarios.length >= 2`, `:297`).
+- **Row source & pipeline:** **transposed metric list**, not entity rows: `rows: Array<[label, value, mono, testId?]>` built imperatively (`:492-551`): Objective; (coverage rows: High service cutoff, % of demand within high service, Total demand within high service — when `details.coveragePct` is a number or no incumbent); Max coverable demand (Model 1); Inbound/Outbound cost (presence-gated); Weighted avg. distance / Avg distance to customers; Runtime; Quality; Solver; JADE rates ×4 (`modelId === JADE_MODEL_ID`). Already-formatted strings.
 - **Columns:** `"" (metric label) — text — label`; `{ownName} — text — preformatted value` (header `<th data-testid="cost-summary-single-column">`). Value cell `font-mono` per row flag.
 - **Filter today:** none. **Paging today:** none.
 - **Upload / Download entity:** download `costSummary` csv (`:499`). Bundle 1 SCU-1.3 added the compare-mode client CSV (`:766`).
-- **Add flow / Editable / Highlighting:** none. Toolbar also hosts the compare picker `toggleList` (`:330-361`) above the table and `FloorExceedsMaxAlert` (`:509-512`) above the table inside the scroll area.
+- **Add flow / Editable / Highlighting:** none. Toolbar also hosts the compare picker `toggleList` (`:401-432`) above the table and `FloorExceedsMaxAlert` (`:581-584`) above the table inside the scroll area.
 - **Testid map:**
 
 | testid | element | line |
 |---|---|---|
-| `cost-summary-compare-toggles` | picker container (above table, both modes) | 331 |
-| `cost-summary-history-hint` | picker hint `<p>` | 334 |
-| `cost-summary-compare-toggle-{scenarioId}` | `<label>` wrapping checkbox | 347 |
-| `cost-summary-compare-hint-{scenarioId}` | "(solve first)" span | 351 |
-| `cost-summary-empty` | empty state | 392 |
+| `cost-summary-compare-toggles` | picker container (above table, both modes) | 402 |
+| `cost-summary-history-hint` | picker hint `<p>` | 405 |
+| `cost-summary-compare-toggle-{scenarioId}` | `<label>` wrapping checkbox | 418 |
+| `cost-summary-compare-hint-{scenarioId}` | "(solve first)" span | 422 |
+| `cost-summary-empty` | empty state | 463 |
 | `button-download-cost-summary-csv` | Download CSV | 499 |
 | `cost-summary-list` | `<table>` | 513 |
 | `cost-summary-single-column` | **`<th>` header cell** | 517 |
@@ -253,22 +253,22 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | explicit overrides: `cost-summary-high-service-cutoff`, `cost-summary-coverage-pct`, `cost-summary-covered-demand`, `cost-summary-max-coverable-demand`, `cost-summary-rate-ic`, `cost-summary-min-ic`, `cost-summary-rate-ob`, `cost-summary-min-ob` | value `<td>` | 386-388, 396, 418-421 (via 472) |
 
   Measured slugs in use by e2e: `cost-summary-value-objective`, `-weighted-avg-distance`, `-avg-distance-to-customers`, `-quality`.
-- **e2e references:** `jade-two-echelon.spec.ts:174` — `cost-summary-list`; `:125` — `cost-summary-value-objective`; `delivery-teaching.spec.ts:210` — `cost-summary-value-weighted-avg-distance` "422.6 mi"; `chen-bands-units-qa.spec.ts:168,195,202,203` — `cost-summary-value-avg-distance-to-customers`; `:217,221` — `cost-summary-value-weighted-avg-distance`; `jade-transport-costs.spec.ts:84,87,160` — `cost-summary-value-objective`; `:153,158` — `cost-summary-rate-ic/ob`; `:157,159` — `cost-summary-min-ic/ob`; `max-coverage-objective.spec.ts:120,131,150` — objective; `:152` — avg-distance-to-customers "—"; `:121,151` — `cost-summary-max-coverable-demand`; `:132` — `cost-summary-coverage-pct`; `max-coverage.spec.ts:177,282,283` — objective; `:202` — avg-distance-to-customers; `:205-206` — `cost-summary-high-service-cutoff`; `:207` — `cost-summary-coverage-pct`; `:284` — max-coverable-demand; `truthful-status.spec.ts:210,222` — `cost-summary-value-quality`; picker: `bundle6-ui-tweaks.spec.ts:213,216`, `two-echelon.spec.ts:176,180`, `jade-transport-costs.spec.ts:169`, `workspace-ux-r1-r9.spec.ts:246-247,289-290` (`cost-summary-compare-toggles`, `cost-summary-compare-toggle-{id}` → `input`). `cost-summary-single-column`, `cost-summary-empty`, `button-download-cost-summary-csv`, `cost-summary-history-hint`, `cost-summary-compare-hint-`, `cost-summary-covered-demand`: none (grep run).
+- **e2e references:** `jade-two-echelon.spec.ts:195` — `cost-summary-list`; `:126` — `cost-summary-value-objective`; `delivery-teaching.spec.ts:210` — `cost-summary-value-weighted-avg-distance` "422.6 mi"; `chen-bands-units-qa.spec.ts:168,195,202,203` — `cost-summary-value-avg-distance-to-customers`; `:217,221` — `cost-summary-value-weighted-avg-distance`; `jade-transport-costs.spec.ts:84,87,160` — `cost-summary-value-objective`; `:153,158` — `cost-summary-rate-ic/ob`; `:157,159` — `cost-summary-min-ic/ob`; `max-coverage-objective.spec.ts:120,131,150` — objective; `:152` — avg-distance-to-customers "—"; `:121,151` — `cost-summary-max-coverable-demand`; `:132` — `cost-summary-coverage-pct`; `max-coverage.spec.ts:178,287,288` — objective; `:207` — avg-distance-to-customers; `:210-211` — `cost-summary-high-service-cutoff`; `:212` — `cost-summary-coverage-pct`; `:289` — max-coverable-demand; `truthful-status.spec.ts:210,222` — `cost-summary-value-quality`; picker: `bundle6-ui-tweaks.spec.ts:213,216`, `two-echelon.spec.ts:199,203`, `jade-transport-costs.spec.ts:169`, `workspace-ux-r1-r9.spec.ts:247-248,297-298` (`cost-summary-compare-toggles`, `cost-summary-compare-toggle-{id}` → `input`). `cost-summary-single-column`, `cost-summary-empty`, `button-download-cost-summary-csv`, `cost-summary-history-hint`, `cost-summary-compare-hint-`, `cost-summary-covered-demand`: none (grep run).
 - **Unit tests referencing it:** `__tests__/CostSummaryTab.test.tsx` (`cost-summary-list`, `cost-summary-value-`), `__tests__/Workspace.test.tsx` (`cost-summary-value-`), `__tests__/Workspace.TabCoverage.test.tsx` (download).
 
 #### CostSummary compare
-- **File:** `components/workspace/tabs/CostSummaryTab.tsx:774` (`<table>` inside `cost-summary-compare-table` div `:773`), same mount; rendered when `compareMode`.
-- **Models / gate:** all 7; 2–4 (`MAX_COMPARE = 4`, `:127`) solved, non-stale, same-model scenarios, not browsing history.
-- **Row source & pipeline:** **transposed**: rows = metrics (one data-driven `compareRows` model (Bundle 1 SCU-1.3; `CompareRow` `:129-150`, built with `pushRow` `:565-567`) rendered by `compareRows.map` into `<tr>`s, `:786-797`), columns = selected scenarios in selection order (`:324-327`; the same model feeds `buildCompareCsv`). Row presence gated across the selection (objective `:575`; coverage rows `:590-604`; max coverable `:617`; inbound/outbound `:631-637`; JADE rates `:649-670`; distance `:680`; open facilities if `supportsFacilityStatus` `:691-722`; runtime/quality `:724-728`; band rows when `scenariosShareBands` `:734-757`).
+- **File:** `components/workspace/tabs/CostSummaryTab.tsx:774` (`<table>` inside `cost-summary-compare-table` div `:831`), same mount; rendered when `compareMode`.
+- **Models / gate:** all 7; 2–4 (`MAX_COMPARE = 4`, `:131`) solved, non-stale, same-model scenarios, not browsing history.
+- **Row source & pipeline:** **transposed**: rows = metrics (one data-driven `compareRows` model (Bundle 1 SCU-1.3; `CompareRow` `:133-150`, built with `pushRow` `:622-624`) rendered by `compareRows.map` into `<tr>`s, `:786-797`), columns = selected scenarios in selection order (`:395-398`; the same model feeds `buildCompareCsv`). Row presence gated across the selection (objective `:575`; coverage rows `:590-604`; max coverable `:617`; inbound/outbound `:631-637`; JADE rates `:649-670`; distance `:680`; open facilities if `supportsFacilityStatus` `:748-779`; runtime/quality `:724-728`; band rows when `scenariosShareBands` `:791-812`).
 - **Columns:** `"" — text — metric label` (band rows' label cell is `font-mono`, exclusive labels from `exclusiveBandLabels`, Bundle 1 SCU-1.2/1.3); then one per scenario: header `{s.name}` with testid; cell = formatted value or "—".
-- **Filter / Paging:** none. **Download:** Bundle 1 SCU-1.3 added (comment `:540`) the client-built `cost-summary-compare.csv` (`button-download-cost-summary-csv` `:766`, `buildCompareCsv`); B2.4 adds JSON.
+- **Filter / Paging:** none. **Download:** Bundle 1 SCU-1.3 added (comment `:598`) the client-built `cost-summary-compare.csv` (`button-download-cost-summary-csv` `:766`, `buildCompareCsv`); B2.4 adds JSON.
 - **Testid map:**
 
 | testid | element | line |
 |---|---|---|
-| (picker testids as in single) | above table | 331-361 |
+| (picker testids as in single) | above table | 402-432 |
 | `button-download-cost-summary-csv` (Bundle 1 SCU-1.3; same testid as single mode) | compare Download CSV | 766 |
-| `cost-summary-compare-table` | **wrapper `<div>`** around `<table>` | 773 |
+| `cost-summary-compare-table` | **wrapper `<div>`** around `<table>` | 831 |
 | `cost-summary-compare-column-{scenarioId}` | **`<th>` header cell** | 779 |
 | `cost-summary-compare-objective-{id}` | `<td>` | 575 |
 | `cost-summary-compare-high-service-cutoff-{id}` | `<td>` | 590 |
@@ -280,19 +280,19 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | `cost-summary-compare-rate-ic-{id}` / `-min-ic-` / `-rate-ob-` / `-min-ob-` | `<td>` | 649, 656, 663, 670 |
 | `cost-summary-compare-distance-{id}` | `<td>` | 680 |
 | `cost-summary-compare-open-facilities-cities-{id}` | `<td>` | 693 |
-| `cost-summary-compare-open-facility-{id}-{facilityId}` | nested `<span>` in that `<td>` | 710 |
+| `cost-summary-compare-open-facility-{id}-{facilityId}` | nested `<span>` in that `<td>` | 767 |
 | `cost-summary-compare-runtime-{id}` | `<td>` | 724 |
 | `cost-summary-compare-quality-{id}` | `<td>` | 728 |
-| `cost-summary-compare-band-{band}-{id}` | `<td>` | 752 |
+| `cost-summary-compare-band-{band}-{id}` | `<td>` | 807 |
 | `cost-summary-compare-bands-note` | `<p>` **below the table**, when bands differ | 799 |
 
-- **e2e references:** `bundle6-ui-tweaks.spec.ts:217` — `cost-summary-compare-table`; `:223` — `cost-summary-compare-open-facilities-cities-{B}`; `two-echelon.spec.ts:182` — table; `:187` — **structural** `tr:has([data-testid^="cost-summary-compare-open-facilities-cities-"])` toContainText cunnamulla/daggar (requires the label and cells in one `<tr>`); `workspace-ux-r1-r9.spec.ts:250,293` — table; `:251-252` — `cost-summary-compare-column-{id}`; `:256-257,301` — open-facilities-cities; `:261-262` — `cost-summary-compare-distance-{id}`; `:295-296` — `cost-summary-compare-objective-{id}`; `jade-transport-costs.spec.ts:171,173,179` — `cost-summary-compare-rate-ic/ob-{id}`; `:177,181` — `cost-summary-compare-min-ic/ob-{id}`. high-service/coverage/covered/max/inbound/outbound/runtime/quality/band/bands-note: none (grep run).
+- **e2e references:** `bundle6-ui-tweaks.spec.ts:217` — `cost-summary-compare-table`; `:223` — `cost-summary-compare-open-facilities-cities-{B}`; `two-echelon.spec.ts:205` — table; `:210` — **structural** `tr:has([data-testid^="cost-summary-compare-open-facilities-cities-"])` toContainText cunnamulla/daggar (requires the label and cells in one `<tr>`); `workspace-ux-r1-r9.spec.ts:251,301` — table; `:252-253` — `cost-summary-compare-column-{id}`; `:257-258,309` — open-facilities-cities; `:262-263` — `cost-summary-compare-distance-{id}`; `:303-304` — `cost-summary-compare-objective-{id}`; `jade-transport-costs.spec.ts:171,173,179` — `cost-summary-compare-rate-ic/ob-{id}`; `:177,181` — `cost-summary-compare-min-ic/ob-{id}`. high-service/coverage/covered/max/inbound/outbound/runtime/quality/band/bands-note: none (grep run).
 - **Unit tests referencing it:** `__tests__/CostSummaryTab.test.tsx` (`cost-summary-compare-table`, `cost-summary-compare-band-`).
 
 #### ServiceStats Plant Production
-- **File:** `components/workspace/tabs/ServiceStatsTab.tsx:355` (`<Table>` inside `plant-production-section` div `:347`), mounted at `pages/Workspace.tsx:4213`
-- **Models / gate:** `showPlantProduction` = `supportsPlantProductCapability && effectivePlants && products && baseCapabilities` (`:244-245`); the call site passes those only for `two-echelon-jade-us` (`Workspace.tsx:4217-4220`). JADE only.
-- **Row source & pipeline:** `buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges)` (`:234-237`) — full plants × products grid (16 rows measured by e2e), left-joined to inbound production; snapshot props. → `useTableFilters` → all rows (no paging).
+- **File:** `components/workspace/tabs/ServiceStatsTab.tsx:355` (`<Table>` inside `plant-production-section` div `:347`), mounted at `pages/Workspace.tsx:4210`
+- **Models / gate:** `showPlantProduction` = `supportsPlantProductCapability && effectivePlants && products && baseCapabilities` (`:270-271`); the call site passes those only for `two-echelon-jade-us` (`Workspace.tsx:4214-4217`). JADE only.
+- **Row source & pipeline:** `buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges)` (`:256-259`) — full plants × products grid (16 rows measured by e2e), left-joined to inbound production; snapshot props. → `useTableFilters` → all rows (no paging).
 - **Columns:** `Plant — enum — renderPlantCell(plantId, plantLabel, identityById, rows.length > 10)`; `Product — enum — productLabel`; `Actual production — number — actual.toLocaleString()`; `Enabled capacity — number — capacity.toLocaleString()`; `Remaining capacity — number — remaining ?? "—"` (nullable). Number cells are `font-mono`, left-aligned today (no `text-right`).
 - **Filter today:** FilterMenu when `totalCount > 10` (`:350-352`); module-level descriptors (`:163-168`): `plant` select (value = `plantIdCityState` label, e.g. "plant-1 — Ashland, KY"), `product` select, `actual` number, `capacity` number. **No descriptor for Remaining capacity.**
 - **Paging today:** none. **Download:** part of `serviceStats` csv (`:302`, tab-level button, not section-level). **Upload:** none.
@@ -305,36 +305,36 @@ Note: Bundle 1 (SCU-1.3, SCU-1.4) removes the tab-level title spans quoted below
 | `button-filter-menu-trigger` + internals | FilterMenu (section header) | 351 |
 | `row-plant-production-{plantId}-{productId}` | `<TableRow>` | 369 |
 | (none) | `<TableHead>` × 5, cells | 358-362, 371-378 |
-| `service-stats-empty` | tab-level "No solved result yet." early return — **preserved outside DataTable** (P3 adapter's tab wrapper) | 261 |
-| `service-stats-unit-pending` | tab-level unit-pending early return — **preserved outside DataTable** (P3 tab wrapper) | 269 |
+| `service-stats-empty` | tab-level "No solved result yet." early return — **preserved outside DataTable** (P3 adapter's tab wrapper) | 287 |
+| `service-stats-unit-pending` | tab-level unit-pending early return — **preserved outside DataTable** (P3 tab wrapper) | 295 |
 | `button-download-service-stats-csv` | tab-level Download CSV (exports the whole `serviceStats` entity, not the section) — **preserved outside DataTable** (P3 tab toolbar, not the Plant Production `toolbar`) | 300 |
-| `service-stats-no-bands` | band-rows empty state — stays with the band rows, which are not a DataTable | 315 |
+| `service-stats-no-bands` | band-rows empty state — stays with the band rows, which are not a DataTable | 339 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:419,481` — `plant-production-section`; `:421-423` — **structural** `[data-testid="plant-production-section"] thead th` == `["Plant","Product","Actual production","Enabled capacity","Remaining capacity"]`; `:426,496,499` — `row-plant-production-` count 16 / 4 / 16; `:429` — `row-plant-production-plant-1-product-2`; `:482-499` — section-scoped `button-filter-menu-trigger` (`:483-484`), `text-filter-count` "16 of 16"/"4 of 16" (`:488,495,498`), `checkbox-filter-plant-plant-1 — Ashland, KY` (`:494`; descriptor key `plant` + option value), `button-clear-all-filters`.
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:439,506` — `plant-production-section`; `:441-443` — **structural** `[data-testid="plant-production-section"] thead th` == `["Plant","Product","Actual production","Enabled capacity","Remaining capacity"]`; `:451,521,524` — `row-plant-production-` count 16 / 4 / 16; `:454` — `row-plant-production-plant-1-product-2`; `:507-524` — section-scoped `button-filter-menu-trigger` (`:508-509`), `text-filter-count` "16 of 16"/"4 of 16" (`:513,520,523`), `checkbox-filter-plant-plant-1 — Ashland, KY` (`:519`; descriptor key `plant` + option value), `button-clear-all-filters`.
   The four tab-level testids above: no e2e reference (grep run on each literal across `artifacts/studio/e2e/`).
 - **Unit tests referencing it:** `__tests__/ServiceStatsTab.test.tsx`.
 
 #### EXCLUDED — ServiceStats band bars
-- `components/workspace/tabs/ServiceStatsTab.tsx:314-344`: non-tabular `<div>` bar list (`service-stats-band-{band}` `:343`, `service-stats-no-bands` `:315`), plus `service-stats-empty` `:261`, `service-stats-unit-pending` `:269`, `button-download-service-stats-csv` `:300`. Not a table; out of DataTable scope (spec B2.10 "Excluded"). Bundle 1 SCU-1.2 rewrites its rows. e2e (for the record): `bundle2-fastfollow.spec.ts:311-312`, `chen-bands-units-qa.spec.ts:361`, `delivery-teaching.spec.ts:211,225`, `jade-two-echelon.spec.ts:177`, `nonjade-servicestats-live-coverage.spec.ts:242,233,259,260,264,356,353,441,436,461,462,466`, `workspace-ux-r1-r9.spec.ts:211,214,220`.
+- `components/workspace/tabs/ServiceStatsTab.tsx:338-366`: non-tabular `<div>` bar list (`service-stats-band-{band}` `:365`, `service-stats-no-bands` `:339`), plus `service-stats-empty` `:287`, `service-stats-unit-pending` `:295`, `button-download-service-stats-csv` `:300`. Not a table; out of DataTable scope (spec B2.10 "Excluded"). Bundle 1 SCU-1.2 rewrites its rows. e2e (for the record): `bundle2-fastfollow.spec.ts:311-312`, `chen-bands-units-qa.spec.ts:361`, `delivery-teaching.spec.ts:211,225`, `jade-two-echelon.spec.ts:203`, `nonjade-servicestats-live-coverage.spec.ts:242,233,259,260,264,356,353,441,436,461,462,466`, `workspace-ux-r1-r9.spec.ts:212,215,221`.
 
 #### Other tabular things found in these files
-- `CostSummaryTab.tsx:330-361` compare picker is a checkbox list (flex-wrap `<label>`s), not a table — stays outside DataTable (toolbar `extra`).
-- `JadeFlowsTab.tsx:340-370` segmented control — not a table; two separate DataTable instances behind it.
+- `CostSummaryTab.tsx:401-432` compare picker is a checkbox list (flex-wrap `<label>`s), not a table — stays outside DataTable (toolbar `extra`).
+- `JadeFlowsTab.tsx:427-457` segmented control — not a table; two separate DataTable instances behind it.
 - No other `<table>`/`<Table>` in the seven files (grep of `<table\|<Table\b` returned only the instances above).
 
 #### API-gap findings (outputs)
-1. **Header-cell testids.** `cost-summary-single-column` (`CostSummaryTab.tsx:517`) and `cost-summary-compare-column-{id}` (`:779`) sit on `<th>`. Spec `ColumnDef` has `cellTestId?(row)` but no header testid → needs `headerTestId?: string` on `ColumnDef`. e2e uses the compare one (`workspace-ux-r1-r9.spec.ts:251-252`).
-2. **Table testid on a wrapper div, not `<table>`.** `cost-summary-compare-table` (`:508`), `jade-flows-pw-table` (`JadeFlowsTab.tsx:414`), `jade-flows-wc-table` (`:454`), `plant-production-section` (`ServiceStatsTab.tsx:347`), `jade-assignments-tab` (`JadeAssignmentsTab.tsx:301`), `jade-flows-tab` (`JadeFlowsTab.tsx:373`) are on containers, and e2e scopes `… thead th` and `button-filter-menu-trigger` **inside** them (`jade-ch9-workspace-bundle.spec.ts:399,407,414,421,483`; `workspace-fixups.spec.ts:329`). `testIds.table` must therefore land on an element that contains BOTH the toolbar (filter trigger) and the `<thead>`, i.e. the DataTable root, or the adapter keeps the wrapper outside DataTable. `cost-summary-list` (`:459`), by contrast, is on `<table>` itself. Needs either `testIds.root` + `testIds.table` or a rule that `testIds.table` goes on the root container.
-3. **Structural selectors depend on `<thead><th>` and `<tr><td>`.** `thead th` innerTexts (4 sites above), `tr:has(...)` (`two-echelon.spec.ts:187`), `td.nth(0) .flex.flex-col span` (`workspace-fixups-2.spec.ts:310-318`). DataTable must render real `thead`/`th`/`tr`/`td` (via `components/ui/table.tsx`, which does) and must not add extra `<th>`s (e.g. a selection or action column) or the header-equality assertions fail.
-4. **"{filtered} of {total}" counter outside FilterMenu.** `text-jadeassignments-count` (`JadeAssignmentsTab.tsx:304`), `text-jadeflows-pw-count` / `-wc-count` (`JadeFlowsTab.tsx:380,396`) are always-visible toolbar spans (e2e `jade-two-echelon.spec.ts:164`). Not in the spec's `testIds` map → needs `testIds.count?` (or `toolbar.extra` must receive filtered/total counts, which a static ReactNode cannot).
+1. **Header-cell testids.** `cost-summary-single-column` (`CostSummaryTab.tsx:517`) and `cost-summary-compare-column-{id}` (`:779`) sit on `<th>`. Spec `ColumnDef` has `cellTestId?(row)` but no header testid → needs `headerTestId?: string` on `ColumnDef`. e2e uses the compare one (`workspace-ux-r1-r9.spec.ts:252-253`).
+2. **Table testid on a wrapper div, not `<table>`.** `cost-summary-compare-table` (`:508`), `jade-flows-pw-table` (`JadeFlowsTab.tsx:414`), `jade-flows-wc-table` (`:454`), `plant-production-section` (`ServiceStatsTab.tsx:347`), `jade-assignments-tab` (`JadeAssignmentsTab.tsx:265`), `jade-flows-tab` (`JadeFlowsTab.tsx:460`) are on containers, and e2e scopes `… thead th` and `button-filter-menu-trigger` **inside** them (`jade-ch9-workspace-bundle.spec.ts:400,408,415,441,508`; `workspace-fixups.spec.ts:330`). `testIds.table` must therefore land on an element that contains BOTH the toolbar (filter trigger) and the `<thead>`, i.e. the DataTable root, or the adapter keeps the wrapper outside DataTable. `cost-summary-list` (`:460`), by contrast, is on `<table>` itself. Needs either `testIds.root` + `testIds.table` or a rule that `testIds.table` goes on the root container.
+3. **Structural selectors depend on `<thead><th>` and `<tr><td>`.** `thead th` innerTexts (4 sites above), `tr:has(...)` (`two-echelon.spec.ts:210`), `td.nth(0) .flex.flex-col span` (`workspace-fixups-2.spec.ts:325-333`). DataTable must render real `thead`/`th`/`tr`/`td` (via `components/ui/table.tsx`, which does) and must not add extra `<th>`s (e.g. a selection or action column) or the header-equality assertions fail.
+4. **"{filtered} of {total}" counter outside FilterMenu.** `text-jadeassignments-count` (`JadeAssignmentsTab.tsx:304`), `text-jadeflows-pw-count` / `-wc-count` (`JadeFlowsTab.tsx:380,396`) are always-visible toolbar spans (e2e `jade-two-echelon.spec.ts:167`). Not in the spec's `testIds` map → needs `testIds.count?` (or `toolbar.extra` must receive filtered/total counts, which a static ReactNode cannot).
 5. **Pager button testids.** JadeAssignments emits `button-jadeassignments-prev`/`-next` (`:187,200`) besides the indicator; spec `testIds` has only `pager` + `pageIndicator` → needs `pagerPrev?`/`pagerNext?`.
-6. **Filter-value ≠ cell text, and band-filter reset.** JADE `band` filter accessor is a unit-aware range label while the cell shows "Band N" (`JadeAssignmentsTab.tsx:256-264`, `JadeFlowsTab.tsx:256-264,276-283`); `value()` covers this. But each of those tabs clears only the `band` filter when bands/unit change (`JadeAssignmentsTab.tsx:277-280`, `JadeFlowsTab.tsx:307-315`) — DataTable owns filter state, so it needs a hook such as `filterResetKeys?: Record<columnId, unknown>` (clear that column's filter when the dep changes) or an imperative handle. Not expressible in the spec API.
-7. **Descriptor keys must equal today's keys for e2e.** e2e addresses filters by key: `distinctFilterOptionLabels(page,"band")` (`workspace-fixups.spec.ts:340,415`, `workspace-fixups-2.spec.ts:546`) and `checkbox-filter-plant-…` (`jade-ch9-workspace-bundle.spec.ts:494`). Since spec says descriptor id = column id, adapters must use column ids `band`, `plant`, `product`, `actual`, `capacity`, `warehouse`, `customer`, `distance`, `flow`, `utilization` exactly. Labels too ("Flows" for W→C flow).
+6. **Filter-value ≠ cell text, and band-filter reset.** JADE `band` filter accessor is a unit-aware range label while the cell shows "Band N" (`JadeAssignmentsTab.tsx:256-264`, `JadeFlowsTab.tsx:256-264,276-321`); `value()` covers this. But each of those tabs clears only the `band` filter when bands/unit change (`JadeAssignmentsTab.tsx:277-280`, `JadeFlowsTab.tsx:307-315`) — DataTable owns filter state, so it needs a hook such as `filterResetKeys?: Record<columnId, unknown>` (clear that column's filter when the dep changes) or an imperative handle. Not expressible in the spec API.
+7. **Descriptor keys must equal today's keys for e2e.** e2e addresses filters by key: `distinctFilterOptionLabels(page,"band")` (`workspace-fixups.spec.ts:341,416`, `workspace-fixups-2.spec.ts:561`) and `checkbox-filter-plant-…` (`jade-ch9-workspace-bundle.spec.ts:519`). Since spec says descriptor id = column id, adapters must use column ids `band`, `plant`, `product`, `actual`, `capacity`, `warehouse`, `customer`, `distance`, `flow`, `utilization` exactly. Labels too ("Flows" for W→C flow).
 8. **Auto-derivation would ADD filters / change types vs today.** Plant Production has no `remaining` descriptor today (would gain a range); JadeAssignments `customer` is `text` today and `warehouse` `select` — auto rule "text → select if ≤ 20 distinct" keeps `customer` text only if > 20 distinct (JADE: ~100, OK) and `warehouse` needs explicit `filter: "select"` if > 20 distinct warehouses. OpenWarehouses `warehouse` is `text` today. Adapters must pin `filter` explicitly where today's type must survive. Also OpenWarehouses gets a filter only when `enableFilters` (JADE) today; the spec's "every table > 10 rows" widens it to all models — a behaviour change to record.
 9. **No-match row.** "No rows match the current filter." colSpan row inside `<tbody>` (`JadeAssignmentsTab.tsx:348-353`, `JadeFlowsTab.tsx:444-448,484-488`). Spec `emptyState?` must cover two distinct cases: no rows at all vs. filter-empty (today's tab-level empty states are early returns before any table; the filter-empty one is in-table). Needs `noMatchState?` or a documented single `emptyState` used for filter-empty only.
 10. **Transposed metric tables (CostSummary single + compare).** Rows are metrics, columns are scenarios; label column is not a data column of a domain row; cells are pre-formatted strings, per-row `font-mono` flag, per-row default slug testid. Expressible only if the adapter builds `rows: MetricRow[]` and dynamic `columns` per scenario with `cellTestId(row) => row.testIdFor(scenarioId)`. `kind: "number"` centre-alignment would apply to every value column although values are formatted text ("70.42 %", "1.23s", "Optimal") — adapter must use `kind: "text"`, which contradicts "numbers centre-aligned" for numeric metrics. Plus the bands note `<p>` sits **below** the table (`:769-774`) — no footer slot in the spec API (`toolbar`, `emptyState`, `sections` only). Needs `footer?: ReactNode`.
 11. **Nested per-entity testids in one cell.** `cost-summary-compare-open-facility-{id}-{facilityId}` spans inside one `<td>` (`:719`) — fine via `cell()` (spec allows nested testids).
-12. **Content above the table inside the scroll area.** `FloorExceedsMaxAlert` (`CostSummaryTab.tsx:509-512`) renders above the table; compare picker `toggleList` above the toolbar in both modes. Expressible only as `toolbar.extra`/outside DataTable; no `header`/`above` slot.
+12. **Content above the table inside the scroll area.** `FloorExceedsMaxAlert` (`CostSummaryTab.tsx:581-584`) renders above the table; compare picker `toggleList` above the toolbar in both modes. Expressible only as `toolbar.extra`/outside DataTable; no `header`/`above` slot.
 13. **Filter visibility opt-in.** OpenWarehouses' FilterMenu is gated by an `enableFilters` prop (JADE only). Spec rule is unconditional > 10 rows; no per-table opt-out other than `filter: false` on every column.
 14. **Row testid key ≠ rowKey.** JADE flows use `rowKey` `a|b` but row testid `a-b` (`JadeFlowsTab.tsx:427,467`), while cell testids use `a|b`. Fine because `testIds.row(row)` is a function, but `rowKey` must not be reused to build testids.
 15. **Number alignment change.** Today numeric output columns are `text-right` (OW/Assign/Flows/JADE distance+flow) or left (Plant Production). Spec "numbers centre-aligned" changes visual alignment in all of them; no e2e asserts alignment (grep for `text-right` in e2e not part of these needles; header text equality is unaffected).
@@ -394,7 +394,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 | `button-add-distance-row` | "+ Add row" | 704 |
 | `text-add-distance-error` | add error | 880 |
 
-- **e2e references:** `bundle5-homepage-distances.spec.ts:174` distances-tab · `:178` distances-page-indicator · `:179` "Page 1 of 104" · `:180` button-distances-prev · `:181,183` button-distances-next · `:184` "Page 2 of 104" · `:189` input-filter-from · `:190` "Page 1 of 4" · `:192,197` row-distance- prefix · `:211` input-filter-to · `:212` "Page 1 of 1" · `:213` row-distance-{wh}-{c} · `:224` input-distance-. `bundle6.1-legend-distances.spec.ts:232` distances-tab · `:242` distances-page-indicator · `:243,247` "Page 1/2 of 104" · `:244` button-distances-prev · `:245,246` button-distances-next · `:250` input-filter-from · `:251` input-filter-to · `:253` row-distance- · `:265` input-distance- · `:266` badge-distance-changed-. `chen-bands-units-qa.spec.ts:268,405,745` distances-tab-toolbar · `:269,408` button-add-distance-row · `:271,409,410,411,417,427,434` input-new-distance-* · `:412,428,435` button-add-distance-confirm · `:416,429` text-add-distance-error + "Distance must be a positive number." · `:425,430` badge-distance-changed-ALN-C4 · `:439` input-filter-from · `:440` input-filter-to · `:441,442,456,482` input-distance-ALN-C4 · `:644,645,746,751,758` button-export-distances-csv. `max-coverage.spec.ts:311,368` distances-tab-toolbar · `:312` button-add-distance-row · `:313-315` input-new-distance-* · `:321` button-add-distance-confirm · `:369,373` input-filter-from · `:370` badge-distance-estimated- prefix · `:380` button-import-distances. `input-map-v2.spec.ts:144` distances-tab · `:145,154` badge-distance-estimated- · `:151` input-distance-. Grep run, none: add-distance-row-form, distances-reference-*, distances-tab-empty, warning-unknown-*, button-remove-distance-, text-distance-error, spinner-distance. (`delivery-teaching.spec.ts:219` `input-distance-threshold` is an unrelated parameter field matching the prefix.)
+- **e2e references:** `bundle5-homepage-distances.spec.ts:174` distances-tab · `:178` distances-page-indicator · `:179` "Page 1 of 104" · `:180` button-distances-prev · `:181,183` button-distances-next · `:184` "Page 2 of 104" · `:189` input-filter-from · `:190` "Page 1 of 4" · `:192,197` row-distance- prefix · `:211` input-filter-to · `:212` "Page 1 of 1" · `:213` row-distance-{wh}-{c} · `:224` input-distance-. `bundle6.1-legend-distances.spec.ts:234` distances-tab · `:244` distances-page-indicator · `:245,249` "Page 1/2 of 104" · `:246` button-distances-prev · `:247,248` button-distances-next · `:252` input-filter-from · `:253` input-filter-to · `:255` row-distance- · `:267` input-distance- · `:270` badge-distance-changed-. `chen-bands-units-qa.spec.ts:268,411,751` distances-tab-toolbar · `:269,414` button-add-distance-row · `:271,415,416,417,423,433,440` input-new-distance-* · `:418,434,441` button-add-distance-confirm · `:422,435` text-add-distance-error + "Distance must be a positive number." · `:431,436` badge-distance-changed-ALN-C4 · `:445` input-filter-from · `:446` input-filter-to · `:447,448,462,488` input-distance-ALN-C4 · `:650,651,752,757,764` button-export-distances-csv. `max-coverage.spec.ts:316,373` distances-tab-toolbar · `:317` button-add-distance-row · `:318-320` input-new-distance-* · `:326` button-add-distance-confirm · `:374,378` input-filter-from · `:375` badge-distance-estimated- prefix · `:385` button-import-distances. `input-map-v2.spec.ts:144` distances-tab · `:145,154` badge-distance-estimated- · `:151` input-distance-. Grep run, none: add-distance-row-form, distances-reference-*, distances-tab-empty, warning-unknown-*, button-remove-distance-, text-distance-error, spinner-distance. (`delivery-teaching.spec.ts:219` `input-distance-threshold` is an unrelated parameter field matching the prefix.)
 - **Unit tests referencing it:** `__tests__/DistancesTab.test.tsx` (1536 lines; filter boxes :289-341, pager :361-367, :1112-1209); root testid in `Workspace.InputMapV2.test.tsx`, `Workspace.Brazil.test.tsx`, `Workspace.TabCoverage.test.tsx`.
 
 ---
@@ -428,7 +428,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 | (none) | "No rows match the current filter." colSpan=5 | 501-502 |
 | `add-legdistance-row-form`, `input-new-legdistance-{from,to,value}`, `button-add-legdistance-{confirm,cancel}`, `button-add-legdistance-row`, `text-add-legdistance-error` | add flow | 368, 374/381/396, 398/401, 411, 513 |
 
-- **e2e references:** `bundle2-fastfollow.spec.ts:304` legdistances-tab · `:305` row-legdistance- prefix. `bundle6.1-legend-distances.spec.ts:311` legdistances-tab · `:313` badge-leg-{mine}-{refinery} · `:315` "Mine → Refinery". Grep run, none for every other id (filter boxes are only hit by Distances/Delivery/JADE specs above).
+- **e2e references:** `bundle2-fastfollow.spec.ts:304` legdistances-tab · `:305` row-legdistance- prefix. `bundle6.1-legend-distances.spec.ts:315` legdistances-tab · `:317` badge-leg-{mine}-{refinery} · `:319` "Mine → Refinery". Grep run, none for every other id (filter boxes are only hit by Distances/Delivery/JADE specs above).
 - **Unit tests referencing it:** `__tests__/LegDistancesTab.test.tsx` (728 lines); root in `Workspace.TwoEchelon.test.tsx`, `Workspace.TabCoverage.test.tsx`.
 
 ---
@@ -453,7 +453,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 | `jadedistances-tab-toolbar` | toolbar | 632 |
 | `button-export-legdistances-csv` / `-json` | downloads | 639 / 650 |
 | `button-import-legdistances` | Upload | 660 |
-| `button-filter-menu-trigger`, `filter-menu-popover`, `filter-control-from`/`-to`, `input-filter-from`/`-to`, `button-clear-filter-{from,to}`, `text-filter-count`, `button-clear-all-filters`, `text-filter-active-count` | FilterMenu internals (`FilterMenu.tsx:56,63,76,92,102,183,192,65`) | 667 |
+| `button-filter-menu-trigger`, `filter-menu-popover`, `filter-control-from`/`-to`, `input-filter-from`/`-to`, `button-clear-filter-{from,to}`, `text-filter-count`, `button-clear-all-filters`, `text-filter-active-count` | FilterMenu internals (`FilterMenu.tsx:56,71,84,100,110,194,203,73`) | 667 |
 | `jadedistances-reference-section` | compat wrapper | 928 |
 | `jadedistances-reference-error` / `-loading` | banners | 742 / 747 |
 | `jade-distances-tab-empty` | empty state | 754 |
@@ -471,7 +471,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 | `button-jadedistances-prev` / `jadedistances-page-indicator` / `button-jadedistances-next` | pager | 259 / 263 / 272 |
 | `add-jadedistance-row-form`, `select-new-jadedistance-leg`, `input-new-jadedistance-{from,to,value}`, `button-add-jadedistance-{confirm,cancel}`, `button-add-jadedistance-row`, `text-add-jadedistance-error` | add flow | 683, 688, 698/705/720, 722/725, 735, 932 |
 
-- **e2e references:** `jade-two-echelon.spec.ts:282` jade-distances-tab · `:288` button-filter-menu-trigger · `:289,290,294` input-filter-to · `:291` badge-jadedistance-estimated- prefix. `jade-transport-costs.spec.ts:100,134` jade-distances-tab · `:101,112` cell-jadedistance-cost-… · `:103,114` badge-jadedistance-min-… · `:109` button-filter-menu-trigger · `:110,111,116` input-filter-to. Grep run, none: row-jadedistance-, jadedistances page/pager ids, add-flow ids, reference ids.
+- **e2e references:** `jade-two-echelon.spec.ts:308` jade-distances-tab · `:314` button-filter-menu-trigger · `:315,316,320` input-filter-to · `:317` badge-jadedistance-estimated- prefix. `jade-transport-costs.spec.ts:100,134` jade-distances-tab · `:101,112` cell-jadedistance-cost-… · `:103,114` badge-jadedistance-min-… · `:109` button-filter-menu-trigger · `:110,111,116` input-filter-to. Grep run, none: row-jadedistance-, jadedistances page/pager ids, add-flow ids, reference ids.
 - **Unit tests referencing it:** `__tests__/JadeDistancesTab.test.tsx` (1488 lines; `jadedistances-page-indicator` :290,416,420,1016,1021); root in `Workspace.TabCoverage.test.tsx`.
 
 ---
@@ -574,7 +574,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 - **Models / gate:** any model with `activeModelManifest?.capabilities?.supportsPlantProductCapability` — today `two-echelon-jade-us` only — `Workspace.tsx:3549`.
 - **Row source & pipeline:** rows = effective plants `mergeEffectivePlants(dataset, localInputs)` (base ∪ added, `Workspace.tsx:3554`), **pivot**: one row per plant, one column per product (`products.map`, `:176-178`). Cell = `isCellEnabled(baseCapabilities, overrides, plantId, productId)`; toggle writes a sparse override or removes it when equal to base (`toggle`, `:138`). FilterMenu → `filteredRows`; no paging; no sort.
 - **Columns:** `Plant — text — EntityIdCell(plant)` · then **one dynamic column per product**: `{product.name} — enum(boolean) — effectiveEnabled(...)` rendered as checkbox + "{capacity} Units" caption.
-- **Filter today:** FilterMenu when `totalCount > 10` (`:167`); descriptors (`buildFilterDescriptors`, `:65`): `{key:"plant", type:"text", accessor: name+id+city+state joined}`, `{key:"state", type:"select", accessor: state}` — **"state" is a filter-only descriptor with no rendered column**. JADE has 4 plants, so the menu is absent in practice (asserted by `jade-ch9-workspace-bundle.spec.ts:531`). Count line `text-capability-count` "{filteredCount} of {totalCount}" rendered **always**, outside FilterMenu (`:164-166`).
+- **Filter today:** FilterMenu when `totalCount > 10` (`:167`); descriptors (`buildFilterDescriptors`, `:65`): `{key:"plant", type:"text", accessor: name+id+city+state joined}`, `{key:"state", type:"select", accessor: state}` — **"state" is a filter-only descriptor with no rendered column**. JADE has 4 plants, so the menu is absent in practice (asserted by `jade-ch9-workspace-bundle.spec.ts:556`). Count line `text-capability-count` "{filteredCount} of {totalCount}" rendered **always**, outside FilterMenu (`:165-167`).
 - **Paging today:** none. **Upload/Download:** none (out of scope per spec). **Add:** none (plants added in Plants tab).
 - **Editable cells + disable rules:** Radix `Checkbox` per cell, never disabled (no history prop; write dropped by `updateInputsField`).
 - **Highlighting:** none (no override marking).
@@ -593,7 +593,7 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 | `text-capability-capacity-{plantId}-{productId}` | "{n} Units" caption | 204 |
 | (none) | "No plants match the current filter." colSpan=products+1 | 216-217 |
 
-- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:439,529` sidebar-input-capability-matrix · `:440,530` capability-matrix-tab · `:441,443,451,455` text-capability-capacity-plant-1-product-{1,2} + "210,000,000 Units"/"0 Units" · `:442,444,449,450,453,454` checkbox-capability-plant-1-product-2/1 · `:531` button-filter-menu-trigger count 0. `jade-two-echelon.spec.ts:229,255` sidebar · `:230,256` capability-matrix-tab · `:231,257` checkbox-capability-plant-4-product-1. `workspace-fixups.spec.ts:283` sidebar · `:284` capability-matrix-tab · `:292` text-capability-plant-plant-1 (asserts exactly 2 `<span>` children, :293-296) · `:300` text-capability-capacity-label (whiteSpace nowrap, height < 24) · `:309,310` capacity captions. Grep run, none: row-capability-, text-capability-count, capability-matrix-empty.
+- **e2e references:** `jade-ch9-workspace-bundle.spec.ts:464,554` sidebar-input-capability-matrix · `:465,555` capability-matrix-tab · `:466,468,476,480` text-capability-capacity-plant-1-product-{1,2} + "210,000,000 Units"/"0 Units" · `:467,469,474,475,478,479` checkbox-capability-plant-1-product-2/1 · `:556` button-filter-menu-trigger count 0. `jade-two-echelon.spec.ts:255,281` sidebar · `:256,282` capability-matrix-tab · `:257,283` checkbox-capability-plant-4-product-1. `workspace-fixups.spec.ts:284` sidebar · `:285` capability-matrix-tab · `:293` text-capability-plant-plant-1 (asserts exactly 2 `<span>` children, :294-297) · `:301` text-capability-capacity-label (whiteSpace nowrap, height < 24) · `:310,311` capacity captions. Grep run, none: row-capability-, text-capability-count, capability-matrix-empty.
 - **Unit tests referencing it:** `__tests__/CapabilityMatrixTab.test.tsx` (403 lines); `Workspace.Jade.test.tsx` (row-/checkbox-capability-); root in `Workspace.TabCoverage.test.tsx`.
 
 ---
@@ -602,9 +602,9 @@ All paths under `artifacts/studio/src/` unless shown. Lines at `46d2f98` (worktr
 The same two literals are emitted by Distances, LegDistances, LaneCosts, DeliveryCosts (plain `<Input>` boxes) **and** by JadeDistances (FilterMenu `text` descriptors keyed `from`/`to`). Removing the boxes (spec B2.2) and routing every table through auto-derived descriptors keeps these literals **only if** the From/To column ids are `from`/`to` **and** they derive to `text` (FilterMenu → `input-filter-${key}`). Under the spec's rule 4 (text → select if ≤ 20 distinct), From on Distances (25 warehouses for p-median-us) stays text but To/From on small tables would become `select-filter-*` — the e2e lines above that `.fill()` the box must then be rewritten to the menu.
 
 #### API-gap findings (distance/cost inputs)
-1. **Pager has three testids, the API names two.** Every pager emits `button-{p}-prev`, `{p}-page-indicator`, `button-{p}-next` (`DistancesTab.tsx:225,229,238`; `JadeDistancesTab.tsx:259,263,272`; `DeliveryCostsTab.tsx:434,438,447`), and e2e clicks prev/next (`bundle5-homepage-distances.spec.ts:180-183`, `bundle6.1-legend-distances.spec.ts:244-246`). `testIds.{pager,pageIndicator}` cannot express prev/next → needs `pagerPrev`/`pagerNext` (or a single `pagerPrefix` that derives all three).
+1. **Pager has three testids, the API names two.** Every pager emits `button-{p}-prev`, `{p}-page-indicator`, `button-{p}-next` (`DistancesTab.tsx:225,229,238`; `JadeDistancesTab.tsx:259,263,272`; `DeliveryCostsTab.tsx:434,438,447`), and e2e clicks prev/next (`bundle5-homepage-distances.spec.ts:180-183`, `bundle6.1-legend-distances.spec.ts:246-248`). `testIds.{pager,pageIndicator}` cannot express prev/next → needs `pagerPrev`/`pagerNext` (or a single `pagerPrefix` that derives all three).
 2. **Focus-jump needs external page control.** Distances (`:459-467`) and JadeDistances (`:494-503`) set `page` from outside the row pipeline and clear filters. The spec says jump computes against the **filtered** list (B2.2) — today both compute against the **unfiltered** list after clearing filters. DataTable needs a `focusRowKey`/`jumpTo(predicate)` input (or an exposed imperative handle) that clears filters and sets the page; nothing in the listed props supports it.
-3. **Cell-level testids on `<td>`.** `cell-jadedistance-cost-…` (`JadeDistancesTab.tsx:860`) and `text-capability-plant-{id}` (`CapabilityMatrixTab.tsx:183`) are on the `<TableCell>` itself; covered by `cellTestId?(row)` — OK, but `text-capability-plant` is asserted to contain exactly 2 `<span>` children (`workspace-fixups.spec.ts:292-296`), so the shell must not wrap `cell()` output in an extra element.
+3. **Cell-level testids on `<td>`.** `cell-jadedistance-cost-…` (`JadeDistancesTab.tsx:860`) and `text-capability-plant-{id}` (`CapabilityMatrixTab.tsx:183`) are on the `<TableCell>` itself; covered by `cellTestId?(row)` — OK, but `text-capability-plant` is asserted to contain exactly 2 `<span>` children (`workspace-fixups.spec.ts:293-297`), so the shell must not wrap `cell()` output in an extra element.
 4. **Header testids.** `label-transport-rate-unit-head` on a `<TableHead>` (`TransportCostsTab.tsx:218`). `ColumnDef` has no `headerTestId`; `header` would need to be `ReactNode` with the testid on an inner element (changes the element the testid lives on) or a new `headerTestId?`.
 5. **Filter-only descriptors.** CapabilityMatrix's `state` select (`CapabilityMatrixTab.tsx:65` `buildFilterDescriptors`) has no rendered column; JadeDistances' `from`/`to` filter on `"city, ST displayCode"` while the cell shows EntityIdCell. Expressible only if `value()` may differ from display (it can) **and** a column may be filter-only (needs `hidden?: true` or a separate `extraFilters`).
 6. **Dynamic pivot columns.** CapabilityMatrix columns are `products.map(...)` (`:176-178`, `:191-207`). Expressible as a runtime-built `columns` array (no API gap), but auto-derivation would create one select filter per product — needs `filter: false` on each product column.
@@ -613,7 +613,7 @@ The same two literals are emitted by Distances, LegDistances, LaneCosts, Deliver
 9. **Pager visibility change.** All three pagers are always rendered today; spec's `> 50` gate means `distances-page-indicator` disappears on small tables. Unit tests asserting `"Page 1 of N"` with N=1 (e.g. `DistancesTab.test.tsx` and e2e `bundle5-homepage-distances.spec.ts:212` "Page 1 of 1" after filtering to one row) break by design.
 10. **Wrapper testids around the table.** `distances-reference-section` / `jadedistances-reference-section` wrap banners + table + pager (`DistancesTab.tsx:876`, `JadeDistancesTab.tsx:928`) conditionally. Not a DataTable concern if the adapter keeps the wrapper outside, but `testIds.table` alone cannot place it.
 11. **Count text outside FilterMenu.** `text-capability-count` (`CapabilityMatrixTab.tsx:164`) is always visible, independent of the >10 gate → `toolbar.extra`.
-12. **Toolbar testid.** Each tab's toolbar div has its own testid (`distances-tab-toolbar`, `legdistances-tab-toolbar`, `jadedistances-tab-toolbar`, `lanecosts-tab-toolbar`, `delivery-costs-tab-toolbar`) asserted in e2e (`chen-bands-units-qa.spec.ts:268,405,745`; `max-coverage.spec.ts:311,368`). `testIds` has no `toolbar` key.
+12. **Toolbar testid.** Each tab's toolbar div has its own testid (`distances-tab-toolbar`, `legdistances-tab-toolbar`, `jadedistances-tab-toolbar`, `lanecosts-tab-toolbar`, `delivery-costs-tab-toolbar`) asserted in e2e (`chen-bands-units-qa.spec.ts:268,411,751`; `max-coverage.spec.ts:316,373`). `testIds` has no `toolbar` key.
 13. **Add-row form renders below the table, outside `<tbody>`.** Not inside tbody for any of these five tabs (`DistancesTab.tsx:878`) — fits `toolbar.add` only if `add` may render a below-table region rather than a toolbar button; the spec keeps inline "+ Add row" for these tables, so DataTable needs a `footer?` slot (or the adapter renders it outside DataTable).
 14. **Overflowing scroll container.** All tables sit in `max-h-[55vh]`/`[60vh] overflow-y-auto` wrappers; the shell's `table.tsx` already wraps in `overflow-auto`. Needs a `maxHeightClassName?` or the adapter wraps.
 15. **History read-only is a new prop for six of seven** (see top). Not an API gap, but the adapters cannot source `ctx.readOnly` from current props.
@@ -653,21 +653,21 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 | `button-export-warehouses-csv` | download CSV | `WarehousesTab.tsx:310` |
 | `button-export-warehouses-json` | download JSON | `WarehousesTab.tsx:321` |
 | `button-import-warehouses` | Upload | `WarehousesTab.tsx:331` |
-| `button-filter-menu-trigger` (+ FilterMenu internals `filter-menu-popover`, `filter-control-{key}`, `input-filter-{key}`, `select-filter-{key}`, `option-filter-{key}-{v}`, `checkbox-filter-{key}-{v}`, `button-clear-filter-{key}`, `text-filter-count`, `button-clear-all-filters`, `text-filter-active-count`) | filter | `FilterMenu.tsx:57-183` |
+| `button-filter-menu-trigger` (+ FilterMenu internals `filter-menu-popover`, `filter-control-{key}`, `input-filter-{key}`, `select-filter-{key}`, `option-filter-{key}-{v}`, `checkbox-filter-{key}-{v}`, `button-clear-filter-{key}`, `text-filter-count`, `button-clear-all-filters`, `text-filter-active-count`) | filter | `FilterMenu.tsx:65-194` |
 | `warehouses-tab-empty` (`${entity}-tab-empty`) | empty-dataset text | `WarehousesTab.tsx:558` |
 | `input-wh-capacity-{id}` | capacity input | `WarehouseTable.tsx:145` |
 | `button-wh-{id}-{active\|forced_open\|inactive}` | status buttons | `WarehouseTable.tsx:154` |
 | *(none)* | table / `<tr>` / `<td>` — base rows carry **no** row testid | `WarehouseTable.tsx:120` |
 
 - **e2e references:**
-  - `warehouses-tab`: `workspace-fixups.spec.ts:266,504,542`; `workspace-fixups-2.spec.ts:250,255,277,509`; `delivery-teaching.spec.ts:284`; `jade-ch9-workspace-bundle.spec.ts:459,460,462,505`; `tab-coverage.spec.ts:142,154`
-  - `warehouses-tab-toolbar`: `workspace-fixups.spec.ts:516`; `workspace-fixups-2.spec.ts:510` (bounding-box height < 40, `:518-519`); `bundle6-ui-tweaks.spec.ts:188`; `jade-ch9-workspace-bundle.spec.ts:513` (filter trigger scoped inside the toolbar)
-  - `button-export-warehouses-csv`: `workspace-fixups.spec.ts:517`. `button-import-warehouses`: `workspace-fixups.spec.ts:518`
-  - `button-wh-`: `delivery-teaching.spec.ts:286` (`button-wh-W1-inactive`); `jade-ch9-workspace-bundle.spec.ts:522,525` (`[data-testid^="button-wh-"][data-testid$="-active"]` used as a **row count**)
-  - Filter internals used against this table: `jade-ch9-workspace-bundle.spec.ts:513-526`. These cover `text-filter-count` "25 of 25" / "2 of 25", `checkbox-filter-status-Fixed-Open` (so the descriptor key `status` and the option value = the presentation **label** are load-bearing), and `button-clear-all-filters`.
-  - `thead th` header text: `jade-ch9-workspace-bundle.spec.ts:462-463` (`not.toContain("Capacity")`)
-  - **Must change:** `workspace-fixups-2.spec.ts:255` asserts `[data-testid="warehouses-tab"] [data-testid="button-filter-menu-trigger"]` count **0** on a non-JADE 26-row tab. The spec's "Filter: every table > 10 rows, all models" inverts this.
-  - `input-wh-capacity-`: none (grep run). "Fixed-Open"/"Potential": comments only, plus `jade-ch9-workspace-bundle.spec.ts:520`.
+  - `warehouses-tab`: `workspace-fixups.spec.ts:267,505,543`; `workspace-fixups-2.spec.ts:251,256,278,524`; `delivery-teaching.spec.ts:284`; `jade-ch9-workspace-bundle.spec.ts:484,485,487,530`; `tab-coverage.spec.ts:142,154`
+  - `warehouses-tab-toolbar`: `workspace-fixups.spec.ts:517`; `workspace-fixups-2.spec.ts:525` (bounding-box height < 40, `:533-534`); `bundle6-ui-tweaks.spec.ts:188`; `jade-ch9-workspace-bundle.spec.ts:538` (filter trigger scoped inside the toolbar)
+  - `button-export-warehouses-csv`: `workspace-fixups.spec.ts:518`. `button-import-warehouses`: `workspace-fixups.spec.ts:519`
+  - `button-wh-`: `delivery-teaching.spec.ts:286` (`button-wh-W1-inactive`); `jade-ch9-workspace-bundle.spec.ts:547,550` (`[data-testid^="button-wh-"][data-testid$="-active"]` used as a **row count**)
+  - Filter internals used against this table: `jade-ch9-workspace-bundle.spec.ts:538-551`. These cover `text-filter-count` "25 of 25" / "2 of 25", `checkbox-filter-status-Fixed-Open` (so the descriptor key `status` and the option value = the presentation **label** are load-bearing), and `button-clear-all-filters`.
+  - `thead th` header text: `jade-ch9-workspace-bundle.spec.ts:487-488` (`not.toContain("Capacity")`)
+  - **Must change:** `workspace-fixups-2.spec.ts:256` asserts `[data-testid="warehouses-tab"] [data-testid="button-filter-menu-trigger"]` count **0** on a non-JADE 26-row tab. The spec's "Filter: every table > 10 rows, all models" inverts this.
+  - `input-wh-capacity-`: none (grep run). "Fixed-Open"/"Potential": comments only, plus `jade-ch9-workspace-bundle.spec.ts:545`.
 - **Unit tests:** `__tests__/WarehousesTab.test.tsx`, `__tests__/WarehouseTable.test.tsx`, `__tests__/Workspace.test.tsx`, `Workspace.Integration`, `Workspace.DisplayedInputs`, `Workspace.TwoEchelon`, `Workspace.Brazil`, `Workspace.TabCoverage`, `DistancesTab.test.tsx`, `CustomersTab.test.tsx`, `MinesTab.test.tsx` (name-grep hits).
 
 #### Warehouses — added
@@ -699,13 +699,13 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 | `text-add-warehouse-error` | add error | `:548` |
 
 - **e2e references:**
-  - `added-warehouses-section`: `workspace-fixups.spec.ts:506,543`; `workspace-fixups-2.spec.ts:251,264,278`; `tab-coverage.spec.ts:155,259`
-  - `row-added-warehouse-`: `workspace-fixups.spec.ts:508,544`; `workspace-fixups-2.spec.ts:264,278`; `tab-coverage.spec.ts:157,261`
-  - `add-warehouse-row-form`: `jade-ch9-workspace-bundle.spec.ts:466`
-  - `input-new-warehouse-*`: `workspace-fixups-2.spec.ts:258-261`; `jade-ch9-workspace-bundle.spec.ts:467` (`-capacity` count 0)
-  - `button-add-warehouse-confirm`: `workspace-fixups-2.spec.ts:262`. `button-add-warehouse-cancel`: `jade-ch9-workspace-bundle.spec.ts:468`
-  - `button-add-warehouse-row`: `workspace-fixups.spec.ts:267,519`; `workspace-fixups-2.spec.ts:257,358`; `jade-ch9-workspace-bundle.spec.ts:465`
-  - None for `added-warehouses-empty`, `warning-precheck-added-warehouse-`, `input-added-wh-capacity-`, `button-added-wh-`, `button-delete-added-warehouse-`, `text-add-warehouse-error`, "Added warehouses" (comments only: `workspace-fixups.spec.ts:475,499`, `tab-coverage.spec.ts:150`) (grep run)
+  - `added-warehouses-section`: `workspace-fixups.spec.ts:507,544`; `workspace-fixups-2.spec.ts:252,265,279`; `tab-coverage.spec.ts:155,259`
+  - `row-added-warehouse-`: `workspace-fixups.spec.ts:509,545`; `workspace-fixups-2.spec.ts:265,279`; `tab-coverage.spec.ts:157,261`
+  - `add-warehouse-row-form`: `jade-ch9-workspace-bundle.spec.ts:491`
+  - `input-new-warehouse-*`: `workspace-fixups-2.spec.ts:259-262`; `jade-ch9-workspace-bundle.spec.ts:492` (`-capacity` count 0)
+  - `button-add-warehouse-confirm`: `workspace-fixups-2.spec.ts:263`. `button-add-warehouse-cancel`: `jade-ch9-workspace-bundle.spec.ts:493`
+  - `button-add-warehouse-row`: `workspace-fixups.spec.ts:268,520`; `workspace-fixups-2.spec.ts:258,373`; `jade-ch9-workspace-bundle.spec.ts:490`
+  - None for `added-warehouses-empty`, `warning-precheck-added-warehouse-`, `input-added-wh-capacity-`, `button-added-wh-`, `button-delete-added-warehouse-`, `text-add-warehouse-error`, "Added warehouses" (comments only: `workspace-fixups.spec.ts:476,500`, `tab-coverage.spec.ts:150`) (grep run)
   - B2.8 note: every `input-new-warehouse-*` / `add-warehouse-row-form` / `button-add-warehouse-confirm|cancel` reference above moves to `create-entity-*`.
 - **Unit tests:** `__tests__/WarehousesTab.test.tsx`, `__tests__/Workspace.test.tsx`.
 
@@ -721,7 +721,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Editable cells + disable rules:** status buttons only, `disabled={isBrowsingHistoryNow}` (`Workspace.tsx:3524`).
 - **Highlighting:** none.
 - **Testid map:** same as Warehouses base with entity substitution: `refineries-tab` (`:569`), `refineries-tab-toolbar` (`:303`), `button-export-refineries-csv|json` (`:310,321`), `button-import-refineries` (`:331`), `refineries-tab-empty` (`:558`), `button-wh-{id}-{status}` (`WarehouseTable.tsx:154`, which is **not** entity-prefixed).
-- **e2e references:** `refineries-tab`: `workspace-fixups-2.spec.ts:357`; `tab-coverage.spec.ts:244,258`. None for `button-export-refineries` or `button-import-refineries` (grep run).
+- **e2e references:** `refineries-tab`: `workspace-fixups-2.spec.ts:372`; `tab-coverage.spec.ts:244,258`. None for `button-export-refineries` or `button-import-refineries` (grep run).
 - **Unit tests:** `__tests__/Workspace.TwoEchelon.test.tsx`, `__tests__/WarehousesTab.test.tsx`.
 
 #### Refineries — added (two-echelon-gold-au)
@@ -732,7 +732,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Add flow:** same form. The button label reads "+ Add refinery" (`addedEntityLabel`, `:150,544`), the heading reads "Added refineries" (`:383`), and the collision message reads "…another refinery…". **Every testid stays warehouse-worded** (`added-warehouses-section`, `row-added-warehouse-*`, `button-add-warehouse-row`, `input-new-warehouse-*`), which matches spec D4.
 - **Editable cells:** status buttons and delete. They are **not disabled in history** (D2).
 - **Testid map:** identical to Warehouses added (`WarehousesTab.tsx:381-548`).
-- **e2e references:** `workspace-fixups-2.spec.ts:358` (`button-add-warehouse-row` on the Refineries tab); `tab-coverage.spec.ts:252-261` (comment explaining the warehouse-worded ids, plus `added-warehouses-section` / `row-added-warehouse-`). There are no "Added refineries" / "Add refinery" strings (grep run).
+- **e2e references:** `workspace-fixups-2.spec.ts:373` (`button-add-warehouse-row` on the Refineries tab); `tab-coverage.spec.ts:252-261` (comment explaining the warehouse-worded ids, plus `added-warehouses-section` / `row-added-warehouse-`). There are no "Added refineries" / "Add refinery" strings (grep run).
 - **Unit tests:** `__tests__/Workspace.TwoEchelon.test.tsx`.
 
 #### Customers — base (scalar demand)
@@ -764,13 +764,13 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 | *(none)* | table / `<tr>` — no row testid | `CustomerTable.tsx:155` |
 
 - **e2e references:**
-  - `customers-tab`: `workspace-fixups.spec.ts:269`; `jade-two-echelon.spec.ts:315`; `import.spec.ts:94`; `bundle2-fastfollow.spec.ts:152`; `max-coverage.spec.ts:404`; `delivery-teaching.spec.ts:297`
-  - `button-import-customers`: `jade-two-echelon.spec.ts:316`; `import.spec.ts:95`; `max-coverage.spec.ts:405`
+  - `customers-tab`: `workspace-fixups.spec.ts:270`; `jade-two-echelon.spec.ts:341`; `import.spec.ts:94`; `bundle2-fastfollow.spec.ts:152`; `max-coverage.spec.ts:409`; `delivery-teaching.spec.ts:297`
+  - `button-import-customers`: `jade-two-echelon.spec.ts:342`; `import.spec.ts:95`; `max-coverage.spec.ts:410`
   - `input-customer-demand-` (**demand-format sensitive, B2.9**):
     - `import.spec.ts:108`: `toHaveValue(String(originalDemand + 500))` breaks once the value is grouped
-    - `chen-bands-units-qa.spec.ts:541,553,556,558,572,622,682,684`: `Number(await inputValue())` and `toHaveValue(String(Number(before)+500))` at `:572`. `Number("1,234")` is `NaN`, so this fails or silently mis-computes
+    - `chen-bands-units-qa.spec.ts:547,559,562,564,578,628,688,690`: `Number(await inputValue())` and `toHaveValue(String(Number(before)+500))` at `:578`. `Number("1,234")` is `NaN`, so this fails or silently mis-computes
     - `bundle2-fastfollow.spec.ts:154-157`: Brazil base demand `toBeDisabled()`
-    - `max-coverage.spec.ts:292-296`: `Number(inputValue()) || 0` silently becomes 0 on a grouped value, then `fill()`s an ungrouped number
+    - `max-coverage.spec.ts:297-301`: `Number(inputValue()) || 0` silently becomes 0 on a grouped value, then `fill()`s an ungrouped number
   - `button-customer-`: `delivery-teaching.spec.ts:299` (`button-customer-C1-excluded`)
   - None for `button-export-customers`, `customer-product-table`, `error-customer-demand-`, "Demand must be" (grep run).
 - **Unit tests:** `__tests__/CustomerTable.test.tsx`, `__tests__/CustomersTab.test.tsx`, `__tests__/Studio.test.tsx` (legacy), `Workspace.test.tsx`, `Workspace.Brazil.test.tsx`, `Workspace.TwoEchelon.test.tsx`, `Workspace.Integration.test.tsx`, `Workspace.TabCoverage.test.tsx`.
@@ -801,7 +801,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 | `button-add-customer-row` | trigger | `:648` |
 | `text-add-customer-error` | error | `:653` |
 
-- **e2e references:** `button-add-customer-row`: `workspace-fixups.spec.ts:270`. None for the others (grep run on `added-customers-section`, `added-customers-empty`, `row-added-customer-`, `warning-precheck-added-customer-`, `input-added-customer-demand-`, `button-delete-added-customer-`, `add-customer-row-form`, `input-new-customer-`, `button-add-customer-confirm|cancel`, `text-add-customer-error`, "Added customers", "Add customer").
+- **e2e references:** `button-add-customer-row`: `workspace-fixups.spec.ts:271`. None for the others (grep run on `added-customers-section`, `added-customers-empty`, `row-added-customer-`, `warning-precheck-added-customer-`, `input-added-customer-demand-`, `button-delete-added-customer-`, `add-customer-row-form`, `input-new-customer-`, `button-add-customer-confirm|cancel`, `text-add-customer-error`, "Added customers", "Add customer").
 - **Unit tests:** `__tests__/CustomersTab.test.tsx`.
 
 #### JADE per-product customers — base
@@ -827,7 +827,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 | `button-customer-{id}-{active\|excluded}` | status buttons | `:725` |
 | plus `customers-tab`, `customers-tab-toolbar`, `button-export-customers-*`, `button-import-customers`, `button-filter-menu-trigger` (shared toolbar) | | `:674,396-431` |
 
-- **e2e references:** `customer-product-table`: none (grep run). `input-customer-demand-` prefix: the specs above are all non-JADE models (chen = max-coverage-us, import = p-median-us, bundle2 = brazil). `jade-two-echelon.spec.ts:315-316` uses `customers-tab` / `button-import-customers`. Caution: a `^="input-customer-demand-"` prefix selector also matches the JADE `{c}-{p}` ids.
+- **e2e references:** `customer-product-table`: none (grep run). `input-customer-demand-` prefix: the specs above are all non-JADE models (chen = max-coverage-us, import = p-median-us, bundle2 = brazil). `jade-two-echelon.spec.ts:341-342` uses `customers-tab` / `button-import-customers`. Caution: a `^="input-customer-demand-"` prefix selector also matches the JADE `{c}-{p}` ids.
 - **Unit tests:** `__tests__/CustomersTab.test.tsx`, `Workspace.Jade*` (by `Workspace.test` family).
 
 #### JADE per-product customers — added
@@ -846,14 +846,14 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Models / gate:** capability `supportsPlantProductCapability`, which today is only `two-echelon-jade-us` (`Workspace.tsx:3530`).
 - **Row source & pipeline:** `dataset.plants`, then `useTableFilters` (`:106-112`). Read-only rows: **no overrides, no editable cells, no status**.
 - **Columns:** ID — text — `p.name ?? p.id` (note: **name**, not id); City; State; Latitude; Longitude.
-- **Filter today:** **not opt-in**. Shown when `plants.length > 10` (`:113`). Descriptors: `id` text (accessor `name ?? id`), `city` text, `state` text. JADE has 4 plants per `jade-ch9-workspace-bundle.spec.ts:528` comment, so it is never shown in practice.
+- **Filter today:** **not opt-in**. Shown when `plants.length > 10` (`:113`). Descriptors: `id` text (accessor `name ?? id`), `city` text, `state` text. JADE has 4 plants per `jade-ch9-workspace-bundle.spec.ts:553` comment, so it is never shown in practice.
 - **Paging:** none.
 - **Upload / Download entity:** `"plants"` (`:212,223,254`).
 - **Add flow:** none on base.
 - **Editable cells:** none.
 - **Highlighting:** none.
 - **Testid map:** `plants-tab` (`:390`), `plants-tab-toolbar` (`:208`), `button-export-plants-csv|json` (`:215,226`), `button-import-plants` (`:236`), `button-filter-menu-trigger` (`:243`), `plants-tab-empty` (`:380`). There are no row or cell testids.
-- **e2e references:** `plants-tab`: `workspace-fixups.spec.ts:263`; `workspace-fixups-2.spec.ts:478,499`. None for `button-export-plants`, `button-import-plants` (grep run).
+- **e2e references:** `plants-tab`: `workspace-fixups.spec.ts:264`; `workspace-fixups-2.spec.ts:493,514`. None for `button-export-plants`, `button-import-plants` (grep run).
 - **Unit tests:** `__tests__/PlantsTab.test.tsx`.
 
 #### Plants — added (JADE)
@@ -866,7 +866,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Add flow:** inline form (`:312-367`). Trigger `button-add-plant-row` "+ Add plant". Fields `input-new-plant-city|state|lat|lng|display-code`. Confirm `button-add-plant-confirm`, cancel `button-add-plant-cancel`, error `text-add-plant-error`. Messages: "City and state are both required."; "Display code '{c}' is already in use by another plant in this scenario."; "Latitude and longitude must both be numbers." The id comes from `newPlantUid()` (`ap-…`, `:25-29`) and the code from `PL-{state}-{city}-NN` (`:31-41`). Both are local helpers, not `lib/entityId`.
 - **Editable cells:** only the delete button (`:295-303`). It is **not disabled in history** (no disabled prop on PlantsTab at all).
 - **Testid map:** `added-plants-section` (`:262`), `added-plants-empty` (`:270`), `row-added-plant-{id}` (`:288`), `button-delete-added-plant-{id}` (`:299`), `add-plant-row-form` (`:313`), `input-new-plant-city|state|lat|lng|display-code` (`:320,328,337,346,354`), `button-add-plant-confirm` (`:356`), `button-add-plant-cancel` (`:359`), `button-add-plant-row` (`:364`), `text-add-plant-error` (`:369`).
-- **e2e references:** `added-plants-section`: `workspace-fixups-2.spec.ts:479,488,500`. `row-added-plant-`: `workspace-fixups-2.spec.ts:488,500`. `input-new-plant-*`: `workspace-fixups-2.spec.ts:482-485`. `button-add-plant-row`: `workspace-fixups.spec.ts:264`; `workspace-fixups-2.spec.ts:481`. `button-add-plant-confirm`: `workspace-fixups-2.spec.ts:486`. No hits for the others (grep run).
+- **e2e references:** `added-plants-section`: `workspace-fixups-2.spec.ts:494,503,515`. `row-added-plant-`: `workspace-fixups-2.spec.ts:503,515`. `input-new-plant-*`: `workspace-fixups-2.spec.ts:497-500`. `button-add-plant-row`: `workspace-fixups.spec.ts:265`; `workspace-fixups-2.spec.ts:496`. `button-add-plant-confirm`: `workspace-fixups-2.spec.ts:501`. No hits for the others (grep run).
 - **Unit tests:** `__tests__/PlantsTab.test.tsx`.
 
 #### Mines — base (transport-coal)
@@ -881,7 +881,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Editable cells:** capacity `<Input type="number" min=0>` (`MineTable.tsx:50-62`). It commits on keystroke via `parseInt`. **No disabled prop exists; it is live in history** (D2).
 - **Highlighting:** none.
 - **Testid map:** `mines-tab` (`MinesTab.tsx:416`), `mines-tab-toolbar` (`:202`), `button-export-mines-csv|json` (`:209,220`), `button-import-mines` (`:230`), `mines-tab-empty` (`:406`), `input-mine-capacity-{id}` (`MineTable.tsx:61`). There are no row testids.
-- **e2e references:** `mines-tab`: `workspace-fixups-2.spec.ts:413`; `tab-coverage.spec.ts:194,204`. None for `button-export-mines`, `button-import-mines`, `input-mine-capacity-`, "Capacity override" (grep run).
+- **e2e references:** `mines-tab`: `workspace-fixups-2.spec.ts:428`; `tab-coverage.spec.ts:194,204`. None for `button-export-mines`, `button-import-mines`, `input-mine-capacity-`, "Capacity override" (grep run).
 - **Unit tests:** `__tests__/MinesTab.test.tsx`, `__tests__/MineTable.test.tsx`, `Workspace.TransportCoal.test.tsx`, `Workspace.test.tsx`.
 
 #### Mines — added (transport-coal)
@@ -893,7 +893,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Add flow:** inline form (`:337-393`). Trigger `button-add-mine-row` "+ Add mine". Fields `input-new-mine-city|state|lat|lng|display-code|capacity`. Confirm `button-add-mine-confirm`, cancel `button-add-mine-cancel`, error `text-add-mine-error`. Messages: "City and state are both required."; "Display code '{c}' is already in use by another mine in this scenario."; "Latitude and longitude must both be numbers."; "Capacity must be a positive number, or left blank for unconstrained." The id is `newUid("mn")`.
 - **Editable cells:** capacity `<Input type="number" min=0>` (`:305-316`) and delete (`:319-327`). **Not disabled in history.**
 - **Testid map:** `added-mines-section` (`:254`), `added-mines-empty` (`:257`), `row-added-mine-{id}` (`:279`), `warning-precheck-added-mine-{id}` (`:291`), `input-added-mine-capacity-{id}` (`:315`), `button-delete-added-mine-{id}` (`:323`), `add-mine-row-form` (`:338`), `input-new-mine-city|state|lat|lng|display-code|capacity` (`:345,353,362,371,379,381`), `button-add-mine-confirm|cancel` (`:382,385`), `button-add-mine-row` (`:390`), `text-add-mine-error` (`:395`).
-- **e2e references:** `added-mines-section`: `tab-coverage.spec.ts:205`. `row-added-mine-`: `tab-coverage.spec.ts:207`. `button-add-mine-row`: `workspace-fixups-2.spec.ts:414`. No hits for the others (grep run).
+- **e2e references:** `added-mines-section`: `tab-coverage.spec.ts:205`. `row-added-mine-`: `tab-coverage.spec.ts:207`. `button-add-mine-row`: `workspace-fixups-2.spec.ts:429`. No hits for the others (grep run).
 - **Unit tests:** `__tests__/MinesTab.test.tsx`.
 
 #### Stations — base (transport-coal)
@@ -906,7 +906,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Editable cells:** demand `<Input type="number" min=0>` (`StationTable.tsx:50-62`). It commits on keystroke via **`parseInt`**, which truncates decimals. **There is no disabled prop.** Note: B2.9's `FormattedNumberInput` names "base, added, and JADE per-product demand" with `input-customer-demand-*` testids. Station demand is a separate testid family (`input-station-demand-*`), and the spec is silent on whether it is in scope.
 - **Highlighting:** none.
 - **Testid map:** `stations-tab` (`StationsTab.tsx:393`), `stations-tab-toolbar` (`:185`), `button-export-stations-csv|json` (`:192,203`), `button-import-stations` (`:213`), `stations-tab-empty` (`:383`), `input-station-demand-{id}` (`StationTable.tsx:61`).
-- **e2e references:** `stations-tab`: `workspace-fixups-2.spec.ts:416`. None for `button-export-stations`, `button-import-stations`, `input-station-demand-`, "Demand override" (grep run).
+- **e2e references:** `stations-tab`: `workspace-fixups-2.spec.ts:431`. None for `button-export-stations`, `button-import-stations`, `input-station-demand-`, "Demand override" (grep run).
 - **Unit tests:** `__tests__/StationsTab.test.tsx`, `__tests__/StationTable.test.tsx`, `Workspace.TransportCoal.test.tsx`.
 
 #### Stations — added (transport-coal)
@@ -917,7 +917,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - **Add flow:** inline form (`:315-370`). Trigger `button-add-station-row`. Fields `input-new-station-city|state|lat|lng|display-code|demand`. Confirm `button-add-station-confirm`, cancel `button-add-station-cancel`, error `text-add-station-error`. Messages: "City and state are both required."; "Display code '{c}' is already in use by another station in this scenario."; "Latitude and longitude must both be numbers."; "Demand must be a number ≥ 0." (`:158-176`). The id is `newUid("st")`.
 - **Editable cells:** demand `<Input type="number" min=0 value={s.demand}>` (`:283-293`) and delete (`:296-302`). **Not disabled in history.**
 - **Testid map:** `added-stations-section` (`:232`), `added-stations-empty` (`:235`), `row-added-station-{id}` (`:257`), `warning-precheck-added-station-{id}` (`:269`), `input-added-station-demand-{id}` (`:292`), `button-delete-added-station-{id}` (`:300`), `add-station-row-form` (`:315`), `input-new-station-city|state|lat|lng|display-code|demand` (`:322,330,339,348,356,358`), `button-add-station-confirm|cancel` (`:359,362`), `button-add-station-row` (`:367`), `text-add-station-error` (`:372`).
-- **e2e references:** `button-add-station-row`: `workspace-fixups-2.spec.ts:417`. No hits for the others (grep run).
+- **e2e references:** `button-add-station-row`: `workspace-fixups-2.spec.ts:432`. No hits for the others (grep run).
 - **Unit tests:** `__tests__/StationsTab.test.tsx`.
 
 #### Scanned and excluded (no Workspace table instance)
@@ -925,7 +925,7 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 - `components/workspace/tabs/BandChipEditor.tsx`: **no table** (chip editor).
 - `components/workspace/tabs/InputMapTab.tsx`: **no table** (map surface; 2780 lines, no `<Table`/`<table` match).
 - `components/workspace/map/**`: no table.
-- `components/ImportDialog.tsx:150` and `:185`: **EXCLUDED** per spec B2.10 (dialog-internal preview/error grids, not Workspace tables). Note that `ImportDialog.tsx:14` imports `FilterMenu`; it receives the `enableFilters` prop from WarehousesTab (`:357`) and CustomersTab (`:450`).
+- `components/ImportDialog.tsx:202` and `:237`: **EXCLUDED** per spec B2.10 (dialog-internal preview/error grids, not Workspace tables). Note that `ImportDialog.tsx:15` imports `FilterMenu`; it receives the `enableFilters` prop from WarehousesTab (`:409`) and CustomersTab (`:502`).
 
 ---
 
@@ -939,10 +939,10 @@ Base commit `46d2f98`. All paths under `artifacts/studio/src/` unless shown. e2e
 6. **Testids on nested elements, multiple per cell.** The status cell emits 2-3 buttons with their own testids (`button-wh-{id}-{s}`, `button-customer-{id}-{s}`, `button-added-wh-{id}-{s}`). The demand cell emits an input plus `error-customer-demand-{id}` (`CustomerTable.tsx:171-173`). The ID cell emits the precheck chip (`warning-precheck-added-*`). The spec allows this ("cell may render nested elements carrying any number of their own testids"), and `cellTestId` is unused for all entity tables. **No entity table puts a testid on a `<td>`.**
 7. **Per-row local draft state lives in the table component.** `WarehouseTable` and `CustomerTable` keep `drafts`/`errors` plus a `lastCommittedRef` stale-draft reconciliation run during render (`WarehouseTable.tsx:52-98`, `CustomerTable.tsx:47-132`), and the JADE table keeps `productDrafts`/`productErrors` (`CustomersTab.tsx:182-204`). `cell(row, ctx)` is a pure render function, so this state must move into the cell component (e.g. `FormattedNumberInput` owning its draft) or into the adapter's tab. `CellContext` has no slot for it, and none is needed if each editable cell is its own component.
 8. **`ctx.demandEditable` is base-only.** Brazil `!demandEditable` applies to base demand only, and added demand is never gated (`CustomersTab.tsx:80-83`). With `sections`, `ctx` must be **per section**. Otherwise the cell must check `isAdded(row)`. `ctx.isAdded(row)` is in the spec and is sufficient if every section shares one row type. The base `Customer` and `AddedCustomer` types differ (no `zip` and no `status` on added), so `T` would be a union or a normalised effective row.
-9. **Filter scope.** The spec says base and added share one menu. Today, Plants has **two independent menus** (`PlantsTab.tsx:241-245` and `:265-267`), and every other tab filters base only. The spec's single shared menu is a **behaviour change** for Plants, and two `button-filter-menu-trigger`s would be ambiguous anyway. Filter over the union of sections means descriptors need `value()` on both row shapes. Today's descriptor quirks that e2e pins: the JADE Warehouses `status` select option **value = presentation label** ("Fixed-Open", `jade-ch9-workspace-bundle.spec.ts:520`), so the column `value()` must return the label, not the enum `forced_open`. Plants `id` filters on `name ?? id` (`PlantsTab.tsx:107`), and Customers `state` is a **text** filter while Warehouses `state` is a **select** (`CustomersTab.tsx:368` vs `WarehousesTab.tsx:286`). Auto-derivation (≤20 distinct → select) will change some of these silently.
-10. **Filter visibility today is opt-in and JADE-only** for Warehouses and Customers (`Workspace.tsx:3483,3626`). Refineries, Mines and Stations have no filter. B2.2's "every table > 10 rows, all models" flips `workspace-fixups-2.spec.ts:255`, which asserts **no** filter trigger on the 26-row non-JADE warehouses tab. That spec must be rewritten in the Warehouses migration commit.
-11. **Conditional columns.** State (`hasStateColumn`), Zip (`rows.some(r=>r.zip)`), and Capacity (`capacityMode==="per_wh"`). These are expressible by building `columns` conditionally. `jade-ch9-workspace-bundle.spec.ts:462-463` reads `thead th` inner texts and asserts no "Capacity". A trailing blank `<TableHead />` (delete column) yields an empty-string `th`. Keep it, or the header-count tests (if any) change. There are no header testids anywhere in entity tables.
-12. **Toolbar order and labels.** Today's order is **Download CSV, Download JSON, Upload, then Filter right-aligned** (`WarehousesTab.tsx:303-341`). The ids are `button-export-{entity}-csv|json` and `button-import-{entity}`. B2.3/B2.4 turn these into dropdowns. The four `button-export-*`/`button-import-*` literals must be preserved on the dropdown triggers or items (e2e: `workspace-fixups.spec.ts:517-518`, `jade-two-echelon.spec.ts:316`, `import.spec.ts:95`, `max-coverage.spec.ts:405`). A single "Download ▾" cannot carry two ids on one trigger, so the plan should map `button-export-{e}-csv|json` to the **menu items**, and e2e needs one extra click to open the menu. `workspace-fixups-2.spec.ts:518-519` asserts the toolbar's bounding box is < 40 px high (one line).
+9. **Filter scope.** The spec says base and added share one menu. Today, Plants has **two independent menus** (`PlantsTab.tsx:241-245` and `:265-267`), and every other tab filters base only. The spec's single shared menu is a **behaviour change** for Plants, and two `button-filter-menu-trigger`s would be ambiguous anyway. Filter over the union of sections means descriptors need `value()` on both row shapes. Today's descriptor quirks that e2e pins: the JADE Warehouses `status` select option **value = presentation label** ("Fixed-Open", `jade-ch9-workspace-bundle.spec.ts:545`), so the column `value()` must return the label, not the enum `forced_open`. Plants `id` filters on `name ?? id` (`PlantsTab.tsx:107`), and Customers `state` is a **text** filter while Warehouses `state` is a **select** (`CustomersTab.tsx:368` vs `WarehousesTab.tsx:286`). Auto-derivation (≤20 distinct → select) will change some of these silently.
+10. **Filter visibility today is opt-in and JADE-only** for Warehouses and Customers (`Workspace.tsx:3483,3626`). Refineries, Mines and Stations have no filter. B2.2's "every table > 10 rows, all models" flips `workspace-fixups-2.spec.ts:256`, which asserts **no** filter trigger on the 26-row non-JADE warehouses tab. That spec must be rewritten in the Warehouses migration commit.
+11. **Conditional columns.** State (`hasStateColumn`), Zip (`rows.some(r=>r.zip)`), and Capacity (`capacityMode==="per_wh"`). These are expressible by building `columns` conditionally. `jade-ch9-workspace-bundle.spec.ts:487-488` reads `thead th` inner texts and asserts no "Capacity". A trailing blank `<TableHead />` (delete column) yields an empty-string `th`. Keep it, or the header-count tests (if any) change. There are no header testids anywhere in entity tables.
+12. **Toolbar order and labels.** Today's order is **Download CSV, Download JSON, Upload, then Filter right-aligned** (`WarehousesTab.tsx:303-341`). The ids are `button-export-{entity}-csv|json` and `button-import-{entity}`. B2.3/B2.4 turn these into dropdowns. The four `button-export-*`/`button-import-*` literals must be preserved on the dropdown triggers or items (e2e: `workspace-fixups.spec.ts:518-519`, `jade-two-echelon.spec.ts:342`, `import.spec.ts:95`, `max-coverage.spec.ts:410`). A single "Download ▾" cannot carry two ids on one trigger, so the plan should map `button-export-{e}-csv|json` to the **menu items**, and e2e needs one extra click to open the menu. `workspace-fixups-2.spec.ts:533-534` asserts the toolbar's bounding box is < 40 px high (one line).
 13. **No highlighting today.** The spec's `rowClassName` / `isOverridden` / `isChanged` adds amber override highlighting to tables that have none today (all entity tables). That is a new visible behaviour if applied here. The spec only cites Distances/LaneCosts/DeliveryCosts as having amber today, so the default should be no `rowClassName` for entity adapters.
 
 #### Current customer demand input (replaced by `FormattedNumberInput`, B2.9)
@@ -974,8 +974,8 @@ JADE added per-product (`CustomersTab.tsx:532-542`): `value={c.demands?.[p.id] ?
 
 **e2e that will break under grouped display** (B2.9 must rewrite these in the same commit):
 - `import.spec.ts:108` (`toHaveValue(String(originalDemand + 500))`)
-- `chen-bands-units-qa.spec.ts:556-572` and `:682-686` (`Number(inputValue())` / `toHaveValue(String(Number(before)+500))`)
-- `max-coverage.spec.ts:292-296` (`Number(inputValue()) || 0` silently becomes 0 when the value is grouped, e.g. "1,234")
+- `chen-bands-units-qa.spec.ts:562-578` and `:688-692` (`Number(inputValue())` / `toHaveValue(String(Number(before)+500))`)
+- `max-coverage.spec.ts:297-301` (`Number(inputValue()) || 0` silently becomes 0 when the value is grouped, e.g. "1,234")
 
 ## 3. e2e selector / visible-string inventory
 
@@ -988,39 +988,41 @@ JADE added per-product (`CustomersTab.tsx:532-542`): `value={c.demands?.[p.id] ?
 #### OpenWarehouses
 - prefixes grepped (3): `button-download-open-warehouses-csv`, `open-warehouse-row-`, `open-warehouses-empty`
 - e2e hits: 7 lines in 3 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 471
-  - `jade-two-echelon.spec.ts`: 152, 153
-  - `max-coverage.spec.ts`: 181, 182, 183, 184
+  - `jade-ch9-workspace-bundle.spec.ts`: 496
+  - `jade-two-echelon.spec.ts`: 153, 154
+  - `max-coverage.spec.ts`: 182, 183, 184, 185
 
 #### Assignments (shared, non-JADE)
 - prefixes grepped (3): `assignment-row-`, `assignments-empty`, `button-download-assignments-csv`
-- e2e hits: 4 lines in 2 files
-  - `jade-two-echelon.spec.ts`: 157
-  - `workspace-fixups-2.spec.ts`: 306, 307, 310
+- e2e hits: 5 lines in 3 files
+  - `jade-two-echelon.spec.ts`: 160
+  - `two-echelon.spec.ts`: 141
+  - `workspace-fixups-2.spec.ts`: 307, 308, 325
 
 #### JadeAssignments
 - prefixes grepped (12): `button-download-jadeassignments-csv`, `button-jadeassignments-next`, `button-jadeassignments-prev`, `cell-jadeassignment-band-`, `cell-jadeassignment-customer-`, `cell-jadeassignment-distance-`, `cell-jadeassignment-product-`, `cell-jadeassignment-warehouse-`, `jade-assignments-empty`, `jade-assignments-tab`, `jadeassignments-page-indicator`, `text-jadeassignments-count`
-- e2e hits: 12 lines in 4 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 334, 335, 398, 399
-  - `jade-two-echelon.spec.ts`: 164
-  - `workspace-fixups-2.spec.ts`: 540, 541, 562
-  - `workspace-fixups.spec.ts`: 328, 329, 375, 454
+- e2e hits: 15 lines in 4 files
+  - `jade-ch9-workspace-bundle.spec.ts`: 335, 336, 399, 400
+  - `jade-two-echelon.spec.ts`: 167, 171, 172, 173
+  - `workspace-fixups-2.spec.ts`: 555, 556, 577
+  - `workspace-fixups.spec.ts`: 329, 330, 376, 455
 
 #### Flows (shared, non-JADE)
 - prefixes grepped (3): `button-download-flows-csv`, `flow-row-`, `flows-empty`
-- e2e hits: 1 lines in 1 files
-  - `jade-two-echelon.spec.ts`: 167
+- e2e hits: 2 lines in 2 files
+  - `jade-two-echelon.spec.ts`: 176
+  - `two-echelon.spec.ts`: 127
 
 #### JadeFlows P→W
 - prefixes grepped (13): `button-download-jade-flows-pw-csv`, `button-jade-flows-inner-plant-warehouse`, `button-jade-flows-inner-warehouse-customer`, `cell-jade-flow-pw-band-`, `cell-jade-flow-pw-distance-`, `cell-jade-flow-pw-flow-`, `cell-jade-flow-pw-warehouse-`, `jade-flow-pw-row-`, `jade-flows-empty`, `jade-flows-inner-tabs`, `jade-flows-pw-table`, `jade-flows-tab`, `text-jadeflows-pw-count`
-- e2e hits: 6 lines in 2 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 405, 406, 407, 412
-  - `jade-two-echelon.spec.ts`: 171, 250
+- e2e hits: 11 lines in 2 files
+  - `jade-ch9-workspace-bundle.spec.ts`: 406, 407, 408, 413, 421, 432, 434, 435
+  - `jade-two-echelon.spec.ts`: 180, 184, 276
 
 #### JadeFlows W→C
 - prefixes grepped (11): `button-download-jade-flows-wc-csv`, `cell-jade-flow-wc-band-`, `cell-jade-flow-wc-customer-`, `cell-jade-flow-wc-distance-`, `cell-jade-flow-wc-flow-`, `jade-flow-wc-row-`, `jade-flows-empty`, `jade-flows-inner-tabs`, `jade-flows-tab`, `jade-flows-wc-table`, `text-jadeflows-wc-count`
-- e2e hits: 3 lines in 1 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 405, 413, 414
+- e2e hits: 4 lines in 1 files
+  - `jade-ch9-workspace-bundle.spec.ts`: 406, 414, 415, 422
 
 #### CostSummary single
 - prefixes grepped (17): `button-download-cost-summary-csv`, `cost-summary-compare-hint-`, `cost-summary-compare-toggle-`, `cost-summary-compare-toggles`, `cost-summary-coverage-pct`, `cost-summary-covered-demand`, `cost-summary-empty`, `cost-summary-high-service-cutoff`, `cost-summary-history-hint`, `cost-summary-list`, `cost-summary-max-coverable-demand`, `cost-summary-min-ic`, `cost-summary-min-ob`, `cost-summary-rate-ic`, `cost-summary-rate-ob`, `cost-summary-single-column`, `cost-summary-value-`
@@ -1029,84 +1031,84 @@ JADE added per-product (`CustomersTab.tsx:532-542`): `value={c.demands?.[p.id] ?
   - `chen-bands-units-qa.spec.ts`: 168, 195, 202, 203, 217, 221
   - `delivery-teaching.spec.ts`: 210
   - `jade-transport-costs.spec.ts`: 84, 87, 153, 157, 158, 159, 160, 169
-  - `jade-two-echelon.spec.ts`: 125, 174
+  - `jade-two-echelon.spec.ts`: 126, 195
   - `max-coverage-objective.spec.ts`: 120, 121, 131, 132, 150, 151, 152
-  - `max-coverage.spec.ts`: 177, 202, 205, 206, 207, 282, 283, 284
+  - `max-coverage.spec.ts`: 178, 207, 210, 211, 212, 287, 288, 289
   - `truthful-status.spec.ts`: 28, 210, 222
-  - `two-echelon.spec.ts`: 19, 176, 180
-  - `workspace-ux-r1-r9.spec.ts`: 246, 247, 289, 290
+  - `two-echelon.spec.ts`: 19, 199, 203
+  - `workspace-ux-r1-r9.spec.ts`: 247, 248, 297, 298
 
 #### CostSummary compare
 - prefixes grepped (18): `button-download-cost-summary-csv`, `cost-summary-compare-band-`, `cost-summary-compare-bands-note`, `cost-summary-compare-column-`, `cost-summary-compare-coverage-pct-`, `cost-summary-compare-covered-demand-`, `cost-summary-compare-distance-`, `cost-summary-compare-high-service-cutoff-`, `cost-summary-compare-inbound-`, `cost-summary-compare-max-coverable-demand-`, `cost-summary-compare-objective-`, `cost-summary-compare-open-facilities-cities-`, `cost-summary-compare-open-facility-`, `cost-summary-compare-outbound-`, `cost-summary-compare-quality-`, `cost-summary-compare-rate-ic-`, `cost-summary-compare-runtime-`, `cost-summary-compare-table`
-- e2e hits: 17 lines in 4 files
+- e2e hits: 18 lines in 4 files
   - `bundle6-ui-tweaks.spec.ts`: 217, 223
   - `jade-transport-costs.spec.ts`: 171, 173
-  - `two-echelon.spec.ts`: 182, 187
-  - `workspace-ux-r1-r9.spec.ts`: 250, 251, 252, 256, 257, 261, 262, 293, 295, 296, 301
+  - `two-echelon.spec.ts`: 205, 210
+  - `workspace-ux-r1-r9.spec.ts`: 251, 252, 253, 257, 258, 262, 263, 267, 301, 303, 304, 309
 
 #### ServiceStats Plant Production
 - prefixes grepped (6): `button-download-service-stats-csv`, `plant-production-section`, `row-plant-production-`, `service-stats-empty`, `service-stats-no-bands`, `service-stats-unit-pending`
 - e2e hits: 8 lines in 1 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 419, 421, 426, 429, 481, 483, 496, 499
+  - `jade-ch9-workspace-bundle.spec.ts`: 439, 441, 451, 454, 506, 508, 521, 524
 
 #### Distances
 - prefixes grepped (30): `add-distance-row-form`, `badge-distance-changed-`, `badge-distance-estimated-`, `button-add-distance-cancel`, `button-add-distance-confirm`, `button-add-distance-row`, `button-distances-next`, `button-distances-prev`, `button-export-distances-csv`, `button-export-distances-json`, `button-import-distances`, `button-remove-distance-`, `distances-page-indicator`, `distances-reference-error`, `distances-reference-loading`, `distances-reference-section`, `distances-tab`, `distances-tab-empty`, `distances-tab-toolbar`, `input-distance-`, `input-filter-from`, `input-filter-to`, `input-new-distance-from`, `row-distance-`, `spinner-distance-base-`, `spinner-distance-unit-`, `text-add-distance-error`, `text-distance-error-`, `warning-unknown-from-`, `warning-unknown-to-`
-- e2e hits: 76 lines in 9 files
+- e2e hits: 77 lines in 9 files
   - `bundle2-fastfollow.spec.ts`: 304
   - `bundle5-homepage-distances.spec.ts`: 174, 178, 180, 181, 183, 189, 192, 197, 211, 213, 224
-  - `bundle6.1-legend-distances.spec.ts`: 232, 242, 244, 245, 246, 250, 251, 253, 265, 266, 311
-  - `chen-bands-units-qa.spec.ts`: 268, 269, 405, 408, 409, 412, 416, 420, 425, 428, 429, 430, 435, 439, 440, 441, 442, 456, 482, 644, 645, 745, 746, 751, 758
+  - `bundle6.1-legend-distances.spec.ts`: 234, 244, 246, 247, 248, 252, 253, 255, 267, 269, 270, 315
+  - `chen-bands-units-qa.spec.ts`: 268, 269, 411, 414, 415, 418, 422, 426, 431, 434, 435, 436, 441, 445, 446, 447, 448, 462, 488, 650, 651, 751, 752, 757, 764
   - `delivery-teaching.spec.ts`: 219, 244, 245
   - `input-map-v2.spec.ts`: 144, 145, 148, 151, 154
   - `jade-transport-costs.spec.ts`: 100, 110, 111, 116, 134
-  - `jade-two-echelon.spec.ts`: 282, 283, 289, 290, 294
-  - `max-coverage.spec.ts`: 311, 312, 313, 316, 321, 368, 369, 370, 373, 380
+  - `jade-two-echelon.spec.ts`: 308, 309, 315, 316, 320
+  - `max-coverage.spec.ts`: 316, 317, 318, 321, 326, 373, 374, 375, 378, 385
 
 #### LegDistances (one table instance — both legs share one flat list)
 - prefixes grepped (17): `add-legdistance-row-form`, `badge-leg-`, `badge-legdistance-changed-`, `button-add-legdistance-`, `button-add-legdistance-row`, `button-export-legdistances-csv`, `button-import-legdistances`, `button-remove-legdistance-`, `input-filter-from`, `input-filter-to`, `input-legdistance-`, `input-new-legdistance-`, `legdistances-tab`, `legdistances-tab-empty`, `legdistances-tab-toolbar`, `row-legdistance-`, `text-add-legdistance-error`
 - e2e hits: 21 lines in 8 files
   - `bundle2-fastfollow.spec.ts`: 304, 305
   - `bundle5-homepage-distances.spec.ts`: 189, 211
-  - `bundle6.1-legend-distances.spec.ts`: 250, 251, 311, 313
-  - `chen-bands-units-qa.spec.ts`: 439, 440
+  - `bundle6.1-legend-distances.spec.ts`: 252, 253, 315, 317
+  - `chen-bands-units-qa.spec.ts`: 445, 446
   - `delivery-teaching.spec.ts`: 244, 245
   - `jade-transport-costs.spec.ts`: 110, 111, 116
-  - `jade-two-echelon.spec.ts`: 283, 289, 290, 294
-  - `max-coverage.spec.ts`: 369, 373
+  - `jade-two-echelon.spec.ts`: 309, 315, 316, 320
+  - `max-coverage.spec.ts`: 374, 378
 
 #### JadeDistances
 - prefixes grepped (25): `add-jadedistance-row-form`, `badge-jadedistance-min-`, `badge-leg-`, `button-add-jadedistance-`, `button-add-jadedistance-row`, `button-export-legdistances-csv`, `button-import-legdistances`, `button-jadedistances-next`, `button-jadedistances-prev`, `cell-jadedistance-cost-`, `filter-control-from`, `input-filter-from`, `input-jadedistance-`, `input-new-jadedistance-`, `jade-distances-tab`, `jade-distances-tab-empty`, `jadedistances-page-indicator`, `jadedistances-reference-error`, `jadedistances-reference-section`, `jadedistances-tab-toolbar`, `row-jadedistance-`, `select-new-jadedistance-leg`, `text-add-jadedistance-error`, `text-jadedistance-error-`, `warning-unknown-from-`
 - e2e hits: 14 lines in 7 files
   - `bundle5-homepage-distances.spec.ts`: 189
-  - `bundle6.1-legend-distances.spec.ts`: 250, 313
-  - `chen-bands-units-qa.spec.ts`: 439
+  - `bundle6.1-legend-distances.spec.ts`: 252, 317
+  - `chen-bands-units-qa.spec.ts`: 445
   - `delivery-teaching.spec.ts`: 244
   - `jade-transport-costs.spec.ts`: 100, 101, 103, 112, 114, 134
-  - `jade-two-echelon.spec.ts`: 282
-  - `max-coverage.spec.ts`: 369, 373
+  - `jade-two-echelon.spec.ts`: 308
+  - `max-coverage.spec.ts`: 374, 378
 
 #### LaneCosts
 - prefixes grepped (17): `add-lanecost-row-form`, `badge-lanecost-changed-`, `button-add-lanecost-`, `button-add-lanecost-row`, `button-export-lanecosts-csv`, `button-import-lanecosts`, `button-remove-lanecost-`, `input-filter-from`, `input-filter-to`, `input-lanecost-`, `input-new-lanecost-`, `lanecosts-tab`, `lanecosts-tab-empty`, `lanecosts-tab-toolbar`, `row-lanecost-`, `text-add-lanecost-error`, `warning-unknown-from-`
 - e2e hits: 19 lines in 8 files
   - `bundle2-fastfollow.spec.ts`: 237, 238
   - `bundle5-homepage-distances.spec.ts`: 189, 211
-  - `bundle6.1-legend-distances.spec.ts`: 250, 251
-  - `chen-bands-units-qa.spec.ts`: 439, 440
+  - `bundle6.1-legend-distances.spec.ts`: 252, 253
+  - `chen-bands-units-qa.spec.ts`: 445, 446
   - `delivery-teaching.spec.ts`: 244, 245
   - `jade-transport-costs.spec.ts`: 110, 111, 116
-  - `jade-two-echelon.spec.ts`: 283, 289, 290, 294
-  - `max-coverage.spec.ts`: 369, 373
+  - `jade-two-echelon.spec.ts`: 309, 315, 316, 320
+  - `max-coverage.spec.ts`: 374, 378
 
 #### DeliveryCosts
 - prefixes grepped (17): `add-deliverycost-row-form`, `badge-deliverycost-overridden-`, `button-add-deliverycost-`, `button-add-deliverycost-row`, `button-delivery-costs-next`, `button-delivery-costs-prev`, `button-remove-deliverycost-`, `delivery-costs-page-indicator`, `delivery-costs-tab`, `delivery-costs-tab-loading`, `delivery-costs-tab-toolbar`, `input-deliverycost-`, `input-filter-from`, `input-filter-to`, `input-new-deliverycost-`, `row-deliverycost-`, `text-add-deliverycost-error`
 - e2e hits: 20 lines in 7 files
   - `bundle5-homepage-distances.spec.ts`: 189, 211
-  - `bundle6.1-legend-distances.spec.ts`: 250, 251
-  - `chen-bands-units-qa.spec.ts`: 439, 440
+  - `bundle6.1-legend-distances.spec.ts`: 252, 253
+  - `chen-bands-units-qa.spec.ts`: 445, 446
   - `delivery-teaching.spec.ts`: 243, 244, 245, 246, 250
   - `jade-transport-costs.spec.ts`: 110, 111, 116
-  - `jade-two-echelon.spec.ts`: 283, 289, 290, 294
-  - `max-coverage.spec.ts`: 369, 373
+  - `jade-two-echelon.spec.ts`: 309, 315, 316, 320
+  - `max-coverage.spec.ts`: 374, 378
 
 #### TransportCosts
 - prefixes grepped (4): `button-transport-reset`, `label-transport-rate-unit-head`, `text-transport-formula`, `transport-costs-tab`
@@ -1116,62 +1118,62 @@ JADE added per-product (`CustomersTab.tsx:532-542`): `value={c.demands?.[p.id] ?
 #### CapabilityMatrix (Plant Capability Matrix)
 - prefixes grepped (13): `capability-matrix-empty`, `capability-matrix-tab`, `checkbox-capability-`, `checkbox-filter-state-`, `filter-control-plant`, `input-filter-plant`, `option-filter-state-`, `row-capability-`, `select-filter-state`, `text-capability-capacity-`, `text-capability-capacity-label`, `text-capability-count`, `text-capability-plant-`
 - e2e hits: 21 lines in 3 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 440, 441, 442, 443, 444, 449, 450, 451, 453, 454, 455, 530
-  - `jade-two-echelon.spec.ts`: 230, 231, 256, 257
-  - `workspace-fixups.spec.ts`: 284, 292, 300, 309, 310
+  - `jade-ch9-workspace-bundle.spec.ts`: 465, 466, 467, 468, 469, 474, 475, 476, 478, 479, 480, 555
+  - `jade-two-echelon.spec.ts`: 256, 257, 282, 283
+  - `workspace-fixups.spec.ts`: 285, 293, 301, 310, 311
 
 #### Warehouses — base
 - prefixes grepped (7): `button-export-warehouses-csv`, `button-export-warehouses-json`, `button-import-warehouses`, `input-wh-capacity-`, `warehouses-tab`, `warehouses-tab-empty`, `warehouses-tab-toolbar`
 - e2e hits: 21 lines in 6 files
   - `bundle6-ui-tweaks.spec.ts`: 188
   - `delivery-teaching.spec.ts`: 284
-  - `jade-ch9-workspace-bundle.spec.ts`: 459, 460, 462, 505, 511, 513
+  - `jade-ch9-workspace-bundle.spec.ts`: 484, 485, 487, 530, 536, 538
   - `tab-coverage.spec.ts`: 142, 154
-  - `workspace-fixups-2.spec.ts`: 250, 255, 277, 509, 510
-  - `workspace-fixups.spec.ts`: 266, 504, 516, 517, 518, 542
+  - `workspace-fixups-2.spec.ts`: 251, 256, 278, 524, 525
+  - `workspace-fixups.spec.ts`: 267, 505, 517, 518, 519, 543
 
 #### Warehouses — added
 - prefixes grepped (13): `add-warehouse-row-form`, `added-warehouses-empty`, `added-warehouses-section`, `button-add-warehouse-cancel`, `button-add-warehouse-confirm`, `button-add-warehouse-row`, `button-added-wh-`, `button-delete-added-warehouse-`, `input-added-wh-capacity-`, `input-new-warehouse-city`, `row-added-warehouse-`, `text-add-warehouse-error`, `warning-precheck-added-warehouse-`
 - e2e hits: 22 lines in 4 files
-  - `jade-ch9-workspace-bundle.spec.ts`: 465, 466, 468
+  - `jade-ch9-workspace-bundle.spec.ts`: 490, 491, 493
   - `tab-coverage.spec.ts`: 155, 157, 252, 253, 259, 261
-  - `workspace-fixups-2.spec.ts`: 251, 257, 258, 262, 264, 278, 358
-  - `workspace-fixups.spec.ts`: 267, 506, 508, 519, 543, 544
+  - `workspace-fixups-2.spec.ts`: 252, 258, 259, 263, 265, 279, 373
+  - `workspace-fixups.spec.ts`: 268, 507, 509, 520, 544, 545
 
 #### Refineries — base (two-echelon-gold-au)
 - prefixes grepped (6): `button-export-refineries-csv`, `button-import-refineries`, `button-wh-`, `refineries-tab`, `refineries-tab-empty`, `refineries-tab-toolbar`
 - e2e hits: 6 lines in 4 files
   - `delivery-teaching.spec.ts`: 286
-  - `jade-ch9-workspace-bundle.spec.ts`: 522, 525
+  - `jade-ch9-workspace-bundle.spec.ts`: 547, 550
   - `tab-coverage.spec.ts`: 244, 258
-  - `workspace-fixups-2.spec.ts`: 357
+  - `workspace-fixups-2.spec.ts`: 372
 
 #### Customers — base (scalar demand)
 - prefixes grepped (7): `button-export-customers-csv`, `button-import-customers`, `customers-tab`, `customers-tab-empty`, `customers-tab-toolbar`, `error-customer-demand-`, `input-customer-demand-`
 - e2e hits: 20 lines in 7 files
   - `bundle2-fastfollow.spec.ts`: 152, 154
-  - `chen-bands-units-qa.spec.ts`: 541, 553, 556, 558, 572, 622, 682, 684
+  - `chen-bands-units-qa.spec.ts`: 547, 559, 562, 564, 578, 628, 688, 690
   - `delivery-teaching.spec.ts`: 297
   - `import.spec.ts`: 94, 95, 108
-  - `jade-two-echelon.spec.ts`: 315, 316
-  - `max-coverage.spec.ts`: 292, 404, 405
-  - `workspace-fixups.spec.ts`: 269
+  - `jade-two-echelon.spec.ts`: 341, 342
+  - `max-coverage.spec.ts`: 297, 409, 410
+  - `workspace-fixups.spec.ts`: 270
 
 #### Customers — added (scalar demand)
 - prefixes grepped (11): `add-customer-row-form`, `added-customers-empty`, `added-customers-section`, `button-add-customer-confirm`, `button-add-customer-row`, `button-delete-added-customer-`, `input-added-customer-demand-`, `input-new-customer-demand`, `row-added-customer-`, `text-add-customer-error`, `warning-precheck-added-customer-`
 - e2e hits: 1 lines in 1 files
-  - `workspace-fixups.spec.ts`: 270
+  - `workspace-fixups.spec.ts`: 271
 
 #### JADE per-product customers — base
 - prefixes grepped (5): `button-import-customers`, `customer-product-table`, `customers-tab`, `customers-tab-toolbar`, `input-customer-demand-`
 - e2e hits: 20 lines in 7 files
   - `bundle2-fastfollow.spec.ts`: 152, 154
-  - `chen-bands-units-qa.spec.ts`: 541, 553, 556, 558, 572, 622, 682, 684
+  - `chen-bands-units-qa.spec.ts`: 547, 559, 562, 564, 578, 628, 688, 690
   - `delivery-teaching.spec.ts`: 297
   - `import.spec.ts`: 94, 95, 108
-  - `jade-two-echelon.spec.ts`: 315, 316
-  - `max-coverage.spec.ts`: 292, 404, 405
-  - `workspace-fixups.spec.ts`: 269
+  - `jade-two-echelon.spec.ts`: 341, 342
+  - `max-coverage.spec.ts`: 297, 409, 410
+  - `workspace-fixups.spec.ts`: 270
 
 #### JADE per-product customers — added
 - prefixes grepped (5): `button-delete-added-customer-`, `input-added-customer-demand-`, `input-new-customer-demand-`, `row-added-customer-`, `warning-precheck-added-customer-`
@@ -1180,50 +1182,52 @@ JADE added per-product (`CustomersTab.tsx:532-542`): `value={c.demands?.[p.id] ?
 #### Plants — base (JADE)
 - prefixes grepped (5): `button-export-plants-csv`, `button-import-plants`, `plants-tab`, `plants-tab-empty`, `plants-tab-toolbar`
 - e2e hits: 3 lines in 2 files
-  - `workspace-fixups-2.spec.ts`: 478, 499
-  - `workspace-fixups.spec.ts`: 263
+  - `workspace-fixups-2.spec.ts`: 493, 514
+  - `workspace-fixups.spec.ts`: 264
 
 #### Plants — added (JADE)
 - prefixes grepped (10): `add-plant-row-form`, `added-plants-empty`, `added-plants-section`, `button-add-plant-cancel`, `button-add-plant-confirm`, `button-add-plant-row`, `button-delete-added-plant-`, `input-new-plant-city`, `row-added-plant-`, `text-add-plant-error`
 - e2e hits: 7 lines in 2 files
-  - `workspace-fixups-2.spec.ts`: 479, 481, 482, 486, 488, 500
-  - `workspace-fixups.spec.ts`: 264
+  - `workspace-fixups-2.spec.ts`: 494, 496, 497, 501, 503, 515
+  - `workspace-fixups.spec.ts`: 265
 
 #### Mines — base (transport-coal)
 - prefixes grepped (6): `button-export-mines-csv`, `button-import-mines`, `input-mine-capacity-`, `mines-tab`, `mines-tab-empty`, `mines-tab-toolbar`
 - e2e hits: 3 lines in 2 files
   - `tab-coverage.spec.ts`: 194, 204
-  - `workspace-fixups-2.spec.ts`: 413
+  - `workspace-fixups-2.spec.ts`: 428
 
 #### Mines — added (transport-coal)
 - prefixes grepped (11): `add-mine-row-form`, `added-mines-empty`, `added-mines-section`, `button-add-mine-confirm`, `button-add-mine-row`, `button-delete-added-mine-`, `input-added-mine-capacity-`, `input-new-mine-city`, `row-added-mine-`, `text-add-mine-error`, `warning-precheck-added-mine-`
 - e2e hits: 3 lines in 2 files
   - `tab-coverage.spec.ts`: 205, 207
-  - `workspace-fixups-2.spec.ts`: 414
+  - `workspace-fixups-2.spec.ts`: 429
 
 #### Stations — base (transport-coal)
 - prefixes grepped (6): `button-export-stations-csv`, `button-import-stations`, `input-station-demand-`, `stations-tab`, `stations-tab-empty`, `stations-tab-toolbar`
 - e2e hits: 1 lines in 1 files
-  - `workspace-fixups-2.spec.ts`: 416
+  - `workspace-fixups-2.spec.ts`: 431
 
 #### Stations — added (transport-coal)
 - prefixes grepped (11): `add-station-row-form`, `added-stations-empty`, `added-stations-section`, `button-add-station-confirm`, `button-add-station-row`, `button-delete-added-station-`, `input-added-station-demand-`, `input-new-station-city`, `row-added-station-`, `text-add-station-error`, `warning-precheck-added-station-`
 - e2e hits: 1 lines in 1 files
-  - `workspace-fixups-2.spec.ts`: 417
+  - `workspace-fixups-2.spec.ts`: 432
 
 #### Shared FilterMenu testids (every table with a filter today; FilterMenu.tsx)
 - prefixes grepped (11): `button-clear-all-filters`, `button-clear-filter-`, `button-filter-menu-trigger`, `checkbox-filter-`, `filter-control-`, `filter-menu-popover`, `input-filter-`, `option-filter-`, `select-filter-`, `text-filter-active-count`, `text-filter-count`
-- e2e hits: 55 lines in 10 files
+- e2e hits: 70 lines in 12 files
   - `bundle5-homepage-distances.spec.ts`: 189, 211
-  - `bundle6.1-legend-distances.spec.ts`: 250, 251
-  - `chen-bands-units-qa.spec.ts`: 439, 440
+  - `bundle6.1-legend-distances.spec.ts`: 252, 253
+  - `chen-bands-units-qa.spec.ts`: 445, 446
   - `delivery-teaching.spec.ts`: 244, 245
-  - `jade-ch9-workspace-bundle.spec.ts`: 35, 484, 487, 488, 494, 495, 497, 498, 513, 516, 517, 520, 521, 523, 524, 531
+  - `helpers/inputTable.ts`: 9, 11, 12, 13, 14, 20
+  - `jade-ch9-workspace-bundle.spec.ts`: 36, 431, 433, 509, 512, 513, 519, 520, 522, 523, 538, 541, 542, 545, 546, 548, 549, 556
   - `jade-transport-costs.spec.ts`: 109, 110, 111, 116
-  - `jade-two-echelon.spec.ts`: 283, 288, 289, 290, 294
-  - `max-coverage.spec.ts`: 369, 373
-  - `workspace-fixups-2.spec.ts`: 255, 462, 512, 541, 544, 559
-  - `workspace-fixups.spec.ts`: 191, 195, 201, 329, 332, 350, 356, 360, 413, 430, 431, 436, 447, 451
+  - `jade-two-echelon.spec.ts`: 198, 309, 314, 315, 316, 320
+  - `max-coverage.spec.ts`: 374, 378
+  - `workspace-fixups-2.spec.ts`: 256, 314, 315, 316, 318, 319, 477, 527, 556, 559, 574
+  - `workspace-fixups.spec.ts`: 192, 196, 202, 330, 333, 351, 357, 361, 414, 431, 432, 437, 448, 452
+  - `workspace-ux-r1-r9.spec.ts`: 266
 
 ## 4. API-gap resolution — what the spec's B2.1 API could not express, and the P1 interface that covers it
 
@@ -1233,8 +1237,8 @@ The spec's B2.1 prop list (`rows`, `rowKey`, `columns{id,header,kind,cell,value,
 |---|---|---|
 | G1 | Pager Prev/Next carry their own testids: `button-{p}-prev`/`-next` (`DistancesTab.tsx:225,238`; `JadeAssignmentsTab.tsx:187,200`; e2e `bundle5-homepage-distances.spec.ts:180-183`) | `testIds.pagerPrev`, `testIds.pagerNext` (plus spec's `pager`, `pageIndicator`) |
 | G2 | Header-cell testids: `cost-summary-single-column`, `cost-summary-compare-column-{id}` (`CostSummaryTab.tsx:517,779`), `label-transport-rate-unit-head` (`TransportCostsTab.tsx:218`) | `ColumnDef.headerTestId` |
-| G3 | Table testids sit on wrapper divs that contain the toolbar, filter trigger and `thead` (`jade-flows-pw-table` `JadeFlowsTab.tsx:414`; `cost-summary-compare-table` `:773`; `customer-product-table` `CustomersTab.tsx:677`); e2e scopes `thead th` and `button-filter-menu-trigger` inside them (`jade-ch9-workspace-bundle.spec.ts:399-421,483`) | `testIds.root` (wrapper of toolbar + table + pager), `testIds.scroll` (scroll wrapper), `testIds.table` (`<table>` itself, e.g. `cost-summary-list` `CostSummaryTab.tsx:513`); per section `testId`, `scrollTestId`, `tableTestId` |
-| G4 | Toolbar testids asserted by e2e (`distances-tab-toolbar` `chen-bands-units-qa.spec.ts:268,405,745`; `max-coverage.spec.ts:311,368`) | `testIds.toolbar` |
+| G3 | Table testids sit on wrapper divs that contain the toolbar, filter trigger and `thead` (`jade-flows-pw-table` `JadeFlowsTab.tsx:414`; `cost-summary-compare-table` `:750`; `customer-product-table` `CustomersTab.tsx:677`); e2e scopes `thead th` and `button-filter-menu-trigger` inside them (`jade-ch9-workspace-bundle.spec.ts:400-441,508`) | `testIds.root` (wrapper of toolbar + table + pager), `testIds.scroll` (scroll wrapper), `testIds.table` (`<table>` itself, e.g. `cost-summary-list` `CostSummaryTab.tsx:513`); per section `testId`, `scrollTestId`, `tableTestId` |
+| G4 | Toolbar testids asserted by e2e (`distances-tab-toolbar` `chen-bands-units-qa.spec.ts:268,411,751`; `max-coverage.spec.ts:316,373`) | `testIds.toolbar` |
 | G5 | Always-visible "X of Y" counters outside FilterMenu (`text-jadeassignments-count` `JadeAssignmentsTab.tsx:304`; `text-jadeflows-pw-count`/`-wc-count` `JadeFlowsTab.tsx:380,396`) | `testIds.count` — renders `{filtered} of {total}` only when mapped. `text-capability-count` (`CapabilityMatrixTab.tsx:164`) differs in text and goes in `toolbar.extra` |
 | G6 | In-tbody "No rows match the current filter." colSpan row, distinct from the tab empty state (`DistancesTab.tsx:840-845`; `JadeAssignmentsTab.tsx:348-353`; `JadeFlowsTab.tsx:444-448,484-488`; CapabilityMatrix "No plants match…") | `noMatchText` (default `"No rows match the current filter."`) + `testIds.noMatch`; `emptyState` + `testIds.empty` stay for zero rows |
 | G7 | Focus jump sets the page and clears filters from outside the pipeline (`DistancesTab.tsx:459-479`; `JadeDistancesTab.tsx:441-505`) | `focus: { token, matches }` — clears filters, jumps, `scrollIntoView({block:"center"})` |
@@ -1242,7 +1246,7 @@ The spec's B2.1 prop list (`rows`, `rowKey`, `columns{id,header,kind,cell,value,
 | G9 | Filter on a value with no rendered column (`CapabilityMatrixTab.tsx:65` `state`) | `ColumnDef.hidden` (filter-only column) |
 | G10 | Base and added sections differ in columns, row testids, scroll height and empty state; add forms sit below the table, outside `<tbody>` (`WarehousesTab.tsx:486-551`, `:555-566`; base rows carry no row testid `WarehouseTable.tsx:120`) | `DataTableSection{ id, title, testId, tableTestId, scrollTestId, scrollClassName, includes, columns, rowTestId, footer, emptyState }`; `testIds.row` is optional and emits nothing when absent |
 | G11 | Scroll wrappers `max-h-[55vh]` / `[60vh]` / `[40vh]` | `scrollClassName` (single table) / `DataTableSection.scrollClassName` |
-| G12 | A cell testid sits on the `<td>` and e2e counts its direct `<span>` children (`text-capability-plant-{id}`, `workspace-fixups.spec.ts:292-296`); e2e reads `td.nth(0) .flex.flex-col span` (`workspace-fixups-2.spec.ts:310-318`) | `cellTestId` goes on the `<td>`, and `cell()` output is placed **directly** in the `<td>` with no wrapper (asserted in the P1 tests) |
+| G12 | A cell testid sits on the `<td>` and e2e counts its direct `<span>` children (`text-capability-plant-{id}`, `workspace-fixups.spec.ts:293-297`); e2e reads `td.nth(0) .flex.flex-col span` (`workspace-fixups-2.spec.ts:325-333`) | `cellTestId` goes on the `<td>`, and `cell()` output is placed **directly** in the `<td>` with no wrapper (asserted in the P1 tests) |
 | G13 | Per-cell classes (`font-mono text-xs` base cells) | `ColumnDef.cellClassName` (alignment and padding stay the shell's) |
 | G14 | Two FilterMenus on one tab both emit `button-filter-menu-trigger` (JadeFlows P→W + W→C, Plants base + added) | `testIds.filterTrigger` (FilterMenu gains `triggerTestId`, default unchanged) |
 | G15 | Footer note below a table (`CostSummaryTab.tsx:798-803` bands note) | `footer` (inside the root, after the pager) |
@@ -1258,15 +1262,15 @@ The spec's B2.1 prop list (`rows`, `rowKey`, `columns{id,header,kind,cell,value,
 ## 5. Behaviour changes and open questions for P3/P4
 
 **Behaviour changes the spec mandates (record each in the changelog when its table migrates):**
-1. **Filter menus appear on tables that have none today** — every table with > 10 effective rows, on every model. Today only JADE opts in for OpenWarehouses (`Workspace.tsx:4111`), Warehouses (`:3483`) and Customers (`:3626`); Refineries, Mines, Stations, Assignments, Flows and CostSummary have none. `workspace-fixups-2.spec.ts:255` asserts **zero** filter triggers on the 26-row non-JADE warehouses tab and must be rewritten in that commit.
+1. **Filter menus appear on tables that have none today** — every table with > 10 effective rows, on every model. Today only JADE opts in for OpenWarehouses (`Workspace.tsx:4111`), Warehouses (`:3483`) and Customers (`:3626`); Refineries, Mines, Stations, Assignments, Flows and CostSummary have none. `workspace-fixups-2.spec.ts:256` asserts **zero** filter triggers on the 26-row non-JADE warehouses tab and must be rewritten in that commit.
 2. **Pagers disappear at ≤ 50 rows** (#10, #12, #14). "Page 1 of 1" assertions break by design: `bundle5-homepage-distances.spec.ts:212`, plus the pager cases in `__tests__/DistancesTab.test.tsx` (:361-367, :1112-1209).
-3. **F/T boxes become FilterMenu text controls.** FilterMenu emits `input-filter-{columnId}`, so a column with id `from`/`to` and **text** type re-emits the literals `input-filter-from`/`-to` — but inside the popover, so specs must open `button-filter-menu-trigger` first. Auto-derivation turns a ≤ 20-distinct text column into a `select`, so adapters that want the literal kept set `filter: "text"` explicitly. Spec lines that `.fill()` those boxes: `bundle5-homepage-distances.spec.ts:189,211`, `bundle6.1-legend-distances.spec.ts:250-251`, `chen-bands-units-qa.spec.ts:439-440`, `delivery-teaching.spec.ts:244-245`, `max-coverage.spec.ts:369,373`.
-4. **Column ids must equal today's descriptor keys** wherever e2e selects a filter control by key: `band` (`workspace-fixups.spec.ts:340,415`; `workspace-fixups-2.spec.ts:546`), `plant` (`jade-ch9-workspace-bundle.spec.ts:494`), and the JADE warehouse status option value `Fixed-Open` (`jade-ch9-workspace-bundle.spec.ts:520`, so that `value()` returns the label).
+3. **F/T boxes become FilterMenu text controls.** FilterMenu emits `input-filter-{columnId}`, so a column with id `from`/`to` and **text** type re-emits the literals `input-filter-from`/`-to` — but inside the popover, so specs must open `button-filter-menu-trigger` first. Auto-derivation turns a ≤ 20-distinct text column into a `select`, so adapters that want the literal kept set `filter: "text"` explicitly. Spec lines that `.fill()` those boxes: `bundle5-homepage-distances.spec.ts:189,211`, `bundle6.1-legend-distances.spec.ts:252-253`, `chen-bands-units-qa.spec.ts:445-446`, `delivery-teaching.spec.ts:244-245`, `max-coverage.spec.ts:374,378`.
+4. **Column ids must equal today's descriptor keys** wherever e2e selects a filter control by key: `band` (`workspace-fixups.spec.ts:341,416`; `workspace-fixups-2.spec.ts:561`), `plant` (`jade-ch9-workspace-bundle.spec.ts:519`), and the JADE warehouse status option value `Fixed-Open` (`jade-ch9-workspace-bundle.spec.ts:545`, so that `value()` returns the label).
 5. **Auto-derivation changes some filter types** unless the adapter pins them: OpenWarehouses `warehouse` (text today), JADE `warehouse` (select today even above 20 values), Customers `state` (text) vs Warehouses `state` (select), and Plant Production gains a Remaining-capacity range filter it does not have today.
 6. **Numbers become centre-aligned.** Output numeric columns are right-aligned today; Plant Production is left-aligned.
 7. **Focus jump** keeps today's behaviour — clear filters, then page against the now-unfiltered list (#10, #12). Spec B2.2 was amended to say so (rev 4). P1 proves the page selection in jsdom only; **P4 adds a real-browser check** (Playwright) that the target row is actually in view after the jump, for Distances and JadeDistances.
 8. **D2 is wider than the spec's citations.** No disabled prop at all today: Plants, Mines, Stations (`Workspace.tsx:3533-3540`, `3698-3729`) and six of the seven distance/cost tabs (only TransportCosts has one, `Workspace.tsx:3853`). Added-warehouse controls are `WarehousesTab.tsx:435-476` (the spec says ~433-465); customers-added `:532-569`; JADE base `CustomersTab.tsx:708-734`.
-9. **Demand display gets grouping** — e2e lines that read the demand value with `Number(...)` would silently read `NaN → 0` once it shows `1,234`: `import.spec.ts:108`, `chen-bands-units-qa.spec.ts:556-572,682-686`, `max-coverage.spec.ts:292-296`. They are rewritten in the B2.9 application commit (P4). History-disabled assertions that must keep passing: `bundle2-fastfollow.spec.ts:154-157`, `chen-bands-units-qa.spec.ts:622-623`.
+9. **Demand display gets grouping** — e2e lines that read the demand value with `Number(...)` would silently read `NaN → 0` once it shows `1,234`: `import.spec.ts:108`, `chen-bands-units-qa.spec.ts:562-578,688-692`, `max-coverage.spec.ts:297-301`. They are rewritten in the B2.9 application commit (P4). History-disabled assertions that must keep passing: `bundle2-fastfollow.spec.ts:154-157`, `chen-bands-units-qa.spec.ts:628-629`.
 
 **Decisions taken by the user (2026-10-17) — folded into spec B2.2/B2.9 (rev 4):**
 - **Q1 Station demand** (`input-station-demand-*`, `StationTable.tsx:50-62`; added `input-added-station-demand-*`) → **uses `FormattedNumberInput` in integer mode** (`integer` prop: "." rejected). Today it parses with `parseInt` and shows blank when not overridden.

@@ -6,7 +6,7 @@
 // outside click for free. `disabledReason` disables the TRIGGER and is its
 // tooltip, exactly as the single Download CSV buttons it replaces did.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,6 +21,10 @@ export interface DownloadMenuProps {
   onDownload: (format: DownloadFormat) => void;
   /** Non-null disables the trigger; shown as its title. */
   disabledReason?: string;
+  /** SCU-2.P4.1 — trigger text. Default "Download"; the input tables' Upload ▾ passes "Upload". */
+  label?: string;
+  /** SCU-2.P4.1 — rendered under the items (the input tables' expected-fields panel). */
+  children?: ReactNode;
 }
 
 const ITEMS: Array<{ format: DownloadFormat; label: string }> = [
@@ -28,7 +32,7 @@ const ITEMS: Array<{ format: DownloadFormat; label: string }> = [
   { format: "json", label: "JSON" },
 ];
 
-export function DownloadMenu({ testId, itemTestIds, onDownload, disabledReason }: DownloadMenuProps) {
+export function DownloadMenu({ testId, itemTestIds, onDownload, disabledReason, label = "Download", children }: DownloadMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -42,16 +46,15 @@ export function DownloadMenu({ testId, itemTestIds, onDownload, disabledReason }
           disabled={disabledReason != null}
           title={disabledReason}
         >
-          Download
+          {label}
           <ChevronDown className="w-3.5 h-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-32 p-1" align="end" role="menu">
-        {ITEMS.map(({ format, label }) => (
+      <PopoverContent className={children ? "w-[30rem] max-w-[90vw] p-1" : "w-32 p-1"} align="end">
+        {ITEMS.map(({ format, label: itemLabel }) => (
           <button
             key={format}
             type="button"
-            role="menuitem"
             className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted"
             data-testid={itemTestIds[format]}
             onClick={() => {
@@ -59,9 +62,10 @@ export function DownloadMenu({ testId, itemTestIds, onDownload, disabledReason }
               onDownload(format);
             }}
           >
-            {label}
+            {itemLabel}
           </button>
         ))}
+        {children && <div className="mt-1 border-t pt-1">{children}</div>}
       </PopoverContent>
     </Popover>
   );

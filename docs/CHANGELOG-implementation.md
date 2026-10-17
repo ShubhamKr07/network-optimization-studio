@@ -3872,3 +3872,13 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - **Docs:** SCU-2.P3.10 block corrected in place (filter-trigger count 12, gold-au exact-10 boundary, `git diff 1ab5b863..26757b3 -- artifacts/api-server/src` evidence, simulated history-disable, overwritten `results.json`); registry "specs" -> "test cases".
 - **Gate:** typecheck + typecheck:e2e 0; studio 2600 passed (141 files); api-server 2035/2036 on the full run, the one failure (a `jobRunnerDispatcher`/`resultEnvelope` load flake, a different test each full run) green 27/27 x2 isolated; pytest 355 passed. e2e (api 3310 / studio 5310, `--workers=1 --retries=0`): jade-two-echelon, two-echelon, jade-ch9-workspace-bundle, max-coverage, workspace-ux-r1-r9, workspace-fixups-2, workspace-fixups, bundle6.1-legend-distances all green.
 - **Tracked follow-up (FU):** `importJsonRoundTrip` non-owner oversized-body socket race. Capture the error on the next sighting; candidate fixes are splitting the oversized case or `req.resume()` in the `loadOwnedImportScenario` 404 path.
+
+### SCU-2.P4.1 — Shared input-table toolbar, helpers, D2 guard, matrix refresh
+
+- `DownloadMenu` (P3) gains `label` + `children` (additive; defaults unchanged). Folded P3-review finding: the popover is now a plain dialog (dropped `role="menu"`/`role="menuitem"`; items stay buttons with their testids; no test/e2e queried those roles). New `ExpectedFieldsPanel` (from `@workspace/import-schema`) and `useEntityFileMenus` (Upload ▾ `button-import-{t}` -> `-csv|-json` opens ImportDialog with `format`, disabled in history with the Download reason; Download ▾ `button-download-{t}` -> `button-export-{t}-csv|json`). No consumers yet.
+- RTL helpers `__tests__/helpers/inputTable.ts`, Playwright helpers `e2e/helpers/inputTable.ts`.
+- D2 wiring guard `historyReadOnlyTabs.test.ts`: 3 tabs wired (`disabled`), 9 pending (13 tests).
+- Matrix references remapped `aa7141a` -> `fd3f3e7` mechanically; 212 references (all output-tab / Workspace.tsx / FilterMenu files edited by P3) were reported as needing manual re-location and were NOT hand-relocated (P4 migrates input tabs, which P1-P3 did not touch, so their rows are unchanged; P4 tasks locate by quoted text); §3 regenerated (30 groups).
+- Deliberate breaks: 3 measured (2 failed / 1 failed / 1 failed).
+- Deviations 7, 8, 17. Plan anchors for `DownloadMenu.tsx` differed (P3 header comment) and were edited by hand against the real text.
+- Gate: studio 2621 passed (143 files), api-server 2032/2036 on the full run (4 load flakes, 54/54 green x2 isolated; registry updated), pytest 355 passed, import-schema 22 passed. e2e (local 3401/5401): `two-echelon.spec.ts` and `max-coverage.spec.ts` (download paths through DownloadMenu) pass.
