@@ -28,6 +28,7 @@
  * own scenario in a `finally` block.
  */
 import { test, expect, type Page, type Locator } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -306,6 +307,24 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       await expect(page.locator('[data-testid^="assignment-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       const rowCount = await page.locator('[data-testid^="assignment-row-"]').count();
       expect(rowCount).toBeGreaterThan(10);
+      // SCU-2.P3.2 — 200 customers page at 50; the shared filter (> 10 rows) narrows
+      // to nothing and back; Download ▾ exports all 200 rows (not the page).
+      expect(rowCount).toBe(50);
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveText("Page 1 of 4");
+      await page.getByTestId("button-filter-menu-trigger").click();
+      await page.getByTestId("input-filter-flow-min").fill("999999999999");
+      await expect(page.getByTestId("text-filter-count")).toHaveText("0 of 200");
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveCount(0);
+      await page.getByTestId("button-clear-all-filters").click();
+      await expect(page.getByTestId("text-filter-count")).toHaveText("200 of 200");
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveText("Page 1 of 4");
+      const asCsv = await downloadVia(page, "button-download-assignments", "button-download-assignments-csv");
+      expect(asCsv.name).toBe("assignments.csv");
+      expect(csvDataLines(asCsv.text)).toHaveLength(200);
+      const asJson = JSON.parse((await downloadVia(page, "button-download-assignments", "button-download-assignments-json")).text);
+      expect([asJson.entity, asJson.unit, asJson.rows.length]).toEqual(["assignments", "mi", 200]);
+      expect(typeof asJson.templateVersion).toBe("number");
 
       const firstRow = page.locator('[data-testid^="assignment-row-"]').first();
       const customerCell = firstRow.locator("td").nth(0);

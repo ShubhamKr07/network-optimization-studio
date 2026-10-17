@@ -6,6 +6,7 @@ import * as exportEntity from "@/lib/exportEntity";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 
 // AssignmentsTab now calls useDisplayUnit() unconditionally — every render
 // needs a UnitProvider ancestor. Shadowing `render` (rather than wrapping
@@ -69,7 +70,7 @@ describe("AssignmentsTab", () => {
   it("calls downloadEntityExport with entity=assignments when Download CSV is clicked", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<AssignmentsTab result={result} scenarioId={1} />);
-    fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
+    chooseDownload("button-download-assignments", "button-download-assignments-csv");
     expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi" });
   });
 
@@ -83,7 +84,7 @@ describe("AssignmentsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-assignments-csv");
+      const button = screen.getByTestId("button-download-assignments");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -97,7 +98,7 @@ describe("AssignmentsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
+      chooseDownload("button-download-assignments", "button-download-assignments-csv");
       expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi", runId: 9 });
     });
   });
@@ -334,6 +335,64 @@ describe("AssignmentsTab — no duplicate title (SCU-1.4)", () => {
   it("renders no 'Customer Assignments' title and keeps Download right-aligned", () => {
     render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
     expect(screen.queryByText("Customer Assignments")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-download-assignments-csv").closest("div.border-b")).toHaveClass("justify-end");
+    const dl = screen.getByTestId("button-download-assignments"); // SCU-2.P3: Download ▾ right-aligned via toolbar.downloadAlign
+    expect(dl.closest("div.ml-auto")).not.toBeNull();
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+  });
+});
+
+// SCU-2.P3.2 (spec B2.1/B2.2/B2.4, matrix §2a "Assignments") — DataTable
+// migration: every testid in the instance map, Download ▾ CSV/JSON, the new
+// pager literals at > 50 rows, filter > 10 rows, number columns centred.
+describe("AssignmentsTab on DataTable — testid map (SCU-2.P3.2)", () => {
+  const many = (n: number) => ({
+    ...result,
+    edges: Array.from({ length: n }, (_, i) => ({ fromId: i % 2 ? "ALN" : "DAL", toId: `C${i + 1}`, flow: i + 1, distance: 10 + i })),
+  });
+
+  it("emits assignment-row-{customerId} on a <tr>, Download ▾ trigger + items", () => {
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("assignment-row-C1").tagName).toBe("TR");
+    fireEvent.click(screen.getByTestId("button-download-assignments"));
+    expect(screen.getByTestId("button-download-assignments-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-assignments-json")).toBeInTheDocument();
+  });
+
+  it("JSON goes through the server export (entity assignments, format json)", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
+    chooseDownload("button-download-assignments", "button-download-assignments-json");
+    expect(spy).toHaveBeenCalledWith(1, "assignments", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("keeps the header texts and order; centres Distance and Flow only", () => {
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
+    const heads = screen.getAllByRole("columnheader");
+    expect(heads.map(h => h.textContent)).toEqual(["Customer", "Warehouse", "Distance (mi)", "Flow"]);
+    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, true, true]);
+  });
+
+  it("10 rows: no filter, no pager; 11 rows: filter; 51 rows: pager with the mapped literals", () => {
+    const a = render(<AssignmentsTab result={many(10)} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+    a.unmount();
+    const b = render(<AssignmentsTab result={many(11)} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(screen.queryByTestId("assignments-pager")).toBeNull();
+    b.unmount();
+    render(<AssignmentsTab result={many(51)} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("assignments-page-indicator")).toHaveTextContent("Page 1 of 2");
+    fireEvent.click(screen.getByTestId("button-assignments-next"));
+    expect(screen.getByTestId("assignment-row-C51")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-assignments-prev"));
+    expect(screen.getByTestId("assignment-row-C1")).toBeInTheDocument();
+  });
+
+  it("the Distance range filters on the DISPLAY-unit value", () => {
+    render(<AssignmentsTab result={many(12)} scenarioId={1} distanceUnit="mi" />);
+    fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+    fireEvent.change(screen.getByTestId("input-filter-distance-max"), { target: { value: "11" } });
+    expect(screen.getAllByTestId(/^assignment-row-/).map(r => r.getAttribute("data-testid"))).toEqual(["assignment-row-C1", "assignment-row-C2"]);
   });
 });

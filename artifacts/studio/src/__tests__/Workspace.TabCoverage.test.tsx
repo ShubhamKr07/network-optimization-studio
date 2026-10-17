@@ -155,7 +155,7 @@ const OUTPUT_MAP: TabCoverageEntry = { sidebarId: "output-map", tabTestId: "outp
 // ServiceStatsTab.tsx directly), so it's the most reliable "real content
 // mounted" signal available for this sweep.
 const OPEN_WAREHOUSES: TabCoverageEntry = { sidebarId: "open-warehouses", tabTestId: "button-download-open-warehouses" };
-const CUSTOMER_ASSIGNMENTS: TabCoverageEntry = { sidebarId: "customer-assignments", tabTestId: "button-download-assignments-csv" };
+const CUSTOMER_ASSIGNMENTS: TabCoverageEntry = { sidebarId: "customer-assignments", tabTestId: "button-download-assignments" };
 const FLOWS: TabCoverageEntry = { sidebarId: "flows", tabTestId: "button-download-flows-csv" };
 const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary-csv" };
 const SERVICE_STATS: TabCoverageEntry = { sidebarId: "service-stats", tabTestId: "button-download-service-stats-csv" };
