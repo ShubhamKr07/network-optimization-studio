@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
@@ -13,6 +13,9 @@ import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToE
 import { Button } from "@/components/ui/button";
 import { buildCompareCsv } from "@/lib/compareCsv";
 import { downloadTextFile } from "@/lib/clientCsv";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 
 // chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
 // `distanceUnitLabel` below are this file's single choke point for turning a
@@ -144,6 +147,44 @@ interface CompareRow {
   cellClassName: string;
   testId: (scenarioId: number) => string;
   cells: CompareCell[];
+}
+
+// SCU-2.P3.7 (spec B2.1) — the single-scenario Solution Summary is a
+// TRANSPOSED table: one row per metric, one value column (the open
+// scenario). Values arrive pre-formatted; `testId` is the value cell's
+// literal testid (explicit override, else the slug of the label). No column
+// is filterable, so the shell never shows a filter menu here (spec B2.2).
+interface SummaryRow {
+  label: string;
+  value: string;
+  mono: boolean;
+  testId: string;
+}
+
+function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
+  return [
+    {
+      id: "metric",
+      header: "",
+      kind: "text",
+      // Metric tables are never filtered (user decision 2026-10-17, spec B2.2 exception).
+      filter: false,
+      cellClassName: "text-muted-foreground",
+      value: r => r.label,
+      cell: r => r.label,
+    },
+    {
+      id: "value",
+      header: ownName,
+      headerTestId: "cost-summary-single-column",
+      // Numbers are centred (B2.1); never filtered (spec B2.2 exception).
+      kind: "number",
+      filter: false,
+      cellTestId: r => r.testId,
+      value: r => r.value,
+      cell: r => (r.mono ? <span className="font-mono">{r.value}</span> : r.value),
+    },
+  ];
 }
 
 const DOWNLOAD_BUTTON_CLASS =
@@ -298,6 +339,9 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // selection always starts at [scenarioId], so that branch is unreachable;
   // it is the spec's rule written down, not a code path anything exercises.
   const [pickerOpen, setPickerOpen] = useState(() => selectedIds.length >= 2);
+  // SCU-2.P3.7 — the single-mode value column is headed by the open scenario's name.
+  const ownName = sameModelScenarios.find(s => s.id === scenarioId)?.name ?? "Current";
+  const summaryCols = useMemo(() => summaryColumns(ownName), [ownName]);
 
   // CH4O-10 (decision 10) — cross-mode compare is now ALLOWED. The
   // objective-mode lock this used to enforce (C4.14/D14: a coverage-mode
@@ -489,48 +533,35 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // keeps "Solver" (compare has no room for it and it's near-constant),
     // and compare keeps its Open-facilities + per-band rows. Only the shell
     // and typography are shared.
-    const ownName = sameModelScenarios.find(s => s.id === scenarioId)?.name ?? "Current";
+    const summaryRows: SummaryRow[] = rows.map(([label, value, mono, testId]) => ({
+      label,
+      value,
+      mono,
+      testId: testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+    }));
 
     return (
       <div className="flex flex-col h-full overflow-hidden">
         {summaryBar(
-          <button
-            type="button"
-            data-testid="button-download-cost-summary-csv"
-            className={DOWNLOAD_BUTTON_CLASS}
-            onClick={() => download("costSummary", "csv")}
-            disabled={disabledReasonFor("costSummary") != null}
-            title={disabledReasonFor("costSummary")}
-          >
-            Download CSV
-          </button>,
+          <DownloadMenu
+            testId="button-download-cost-summary"
+            itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
+            onDownload={format => download("costSummary", format)}
+            disabledReason={disabledReasonFor("costSummary")}
+          />,
         )}
         <div className="overflow-auto flex-1 p-2">
           <FloorExceedsMaxAlert
             result={result}
             formatDistance={v => formatDistance(v, canonicalDistanceUnit, unit)}
           />
-          <table className="w-full text-sm border-collapse" data-testid="cost-summary-list">
-            <thead>
-              <tr>
-                <th className="text-left p-2 border-b"></th>
-                <th className="text-left p-2 border-b" data-testid="cost-summary-single-column">{ownName}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(([label, value, mono, testId]) => (
-                <tr key={label}>
-                  <td className="p-2 text-muted-foreground">{label}</td>
-                  <td
-                    className={`p-2${mono ? " font-mono" : ""}`}
-                    data-testid={testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
-                  >
-                    {value}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<SummaryRow>
+            rows={summaryRows}
+            rowKey={r => r.label}
+            columns={summaryCols}
+            ctx={{ readOnly: true, demandEditable: false }}
+            testIds={{ table: "cost-summary-list" }}
+          />
         </div>
       </div>
     );

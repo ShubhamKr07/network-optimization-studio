@@ -527,3 +527,20 @@ describe("DataTable — focus edge cases", () => {
     spy.mockRestore();
   });
 });
+
+
+// SCU-2.P3.7 (spec B2.2 exception) — a table with no filterable column renders
+// no filter menu, whatever its row count (the Solution Summary metric tables).
+describe("DataTable — no filterable column (SCU-2.P3.7)", () => {
+  it("renders no filter trigger above 10 rows when every column is filter: false", () => {
+    render(
+      <DataTable<Row>
+        rows={makeRows(12)}
+        rowKey={r => r.id}
+        columns={[{ id: "city", header: "City", kind: "text", value: r => r.city, cell: r => r.city, filter: false }]}
+        ctx={{ readOnly: true, demandEditable: false }}
+      />,
+    );
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+});

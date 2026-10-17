@@ -2,6 +2,7 @@ import { render as rtlRender, screen, fireEvent, cleanup } from "@testing-librar
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import * as clientCsv from "@/lib/clientCsv";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
@@ -331,7 +332,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   it("calls downloadEntityExport with entity=costSummary on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
-    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi" });
   });
 
@@ -345,7 +346,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-cost-summary-csv");
+      const button = screen.getByTestId("button-download-cost-summary");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -359,7 +360,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+      chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
       expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi", runId: 8 });
     });
   });
@@ -373,9 +374,9 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   // render in the monospace font; the text-valued Quality row doesn't.
   it("renders numeric stats with font-mono, text stats without (Bundle 3, T9)", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
-    expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
-    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
-    expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
+    expect(screen.getByTestId("cost-summary-value-objective").querySelector(".font-mono")).not.toBeNull(); // SCU-2.P3.7: mono span inside the <td>
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance").querySelector(".font-mono")).not.toBeNull();
+    expect(screen.getByTestId("cost-summary-value-quality").querySelector(".font-mono")).toBeNull();
   });
 });
 
@@ -938,7 +939,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   it("1 selected renders the normal single-scenario summary, including Download CSV", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-list")).toBeInTheDocument();
-    expect(screen.getByTestId("button-download-cost-summary-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-cost-summary")).toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-table")).not.toBeInTheDocument();
   });
 });
@@ -1241,7 +1242,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     const bar = screen.getByTestId("cost-summary-bar");
     expect(bar).toHaveClass("justify-between");
     expect(bar.firstElementChild).toBe(screen.getByTestId("button-toggle-compare"));
-    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary-csv"));
+    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary"));
   });
 
   it("in compare mode, Download CSV (right of the bar) downloads the comparison table as cost-summary-compare.csv", () => {
@@ -1338,5 +1339,72 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       }
     }
     spy.mockRestore();
+  });
+});
+
+
+// SCU-2.P3.7 (spec B2.1/B2.2/B2.4, matrix §2a "CostSummary single") — the
+// single-scenario Solution Summary on DataTable.
+describe("CostSummaryTab single on DataTable — testid map (SCU-2.P3.7)", () => {
+  const wrap = (ui: React.ReactElement) => render(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
+
+  it("cost-summary-list is the <table>; cost-summary-single-column is its value <th>; value cells keep their literal testids", () => {
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    const table = screen.getByTestId("cost-summary-list");
+    expect(table.tagName).toBe("TABLE");
+    const head = screen.getByTestId("cost-summary-single-column");
+    expect(head.tagName).toBe("TH");
+    expect(head).toHaveTextContent("Current");
+    expect(head).toHaveClass("text-center");
+    for (const id of ["cost-summary-value-objective", "cost-summary-value-weighted-avg-distance", "cost-summary-value-runtime", "cost-summary-value-quality", "cost-summary-value-solver"]) {
+      const td = screen.getByTestId(id);
+      expect(td.tagName).toBe("TD");
+      expect(table).toContainElement(td);
+    }
+    // metric label first, value second, in one row
+    const firstRow = table.querySelector("tbody tr")!;
+    expect(firstRow.querySelector("td")!.textContent).toBe("Objective");
+  });
+
+  it("emits cost-summary-empty for no result and keeps the bar's Compare toggle", () => {
+    wrap(<CostSummaryTab result={null} scenarioId={1} />);
+    expect(screen.getByTestId("cost-summary-empty")).toBeInTheDocument();
+  });
+
+  it("Download ▾ offers CSV and JSON through the server costSummary export", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-json");
+    expect(spy).toHaveBeenCalledWith(1, "costSummary", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("no 'Solution Summary' title (B1.3 kept) and no filter menu", () => {
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    expect(screen.queryByText(/Solution Summary/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+
+  it("JADE: inbound/outbound + the four rate rows keep their literal testids; 11 metric rows still get NO filter menu (spec B2.2 exception)", () => {
+    const jade = scenario({ id: 1, name: "JADE", modelId: "two-echelon-jade-us", result: { ...result, metrics: { weightedAvgDistance: 300, inboundCost: 5, outboundCost: 7 } } });
+    renderTab({ scenarios: [jade], modelId: "two-echelon-jade-us" });
+    const table = screen.getByTestId("cost-summary-list");
+    for (const id of ["cost-summary-value-inbound-cost", "cost-summary-value-outbound-cost", "cost-summary-rate-ic", "cost-summary-min-ic", "cost-summary-rate-ob", "cost-summary-min-ob"]) {
+      expect(table).toContainElement(screen.getByTestId(id));
+    }
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(11);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+
+  it("max-coverage: the coverage rows keep their explicit testids", () => {
+    const mc = scenario({
+      id: 1, name: "MC", modelId: "max-coverage-us",
+      result: { ...result, details: { coveragePct: 70.42, coveredDemand: 1000, highServiceDistMi: 300, maxCoverableDemand: 1200, model1: { optimal: true } } },
+    });
+    renderTab({ scenarios: [mc], modelId: "max-coverage-us" });
+    for (const id of ["cost-summary-high-service-cutoff", "cost-summary-coverage-pct", "cost-summary-covered-demand", "cost-summary-max-coverable-demand"]) {
+      expect(screen.getByTestId("cost-summary-list")).toContainElement(screen.getByTestId(id));
+    }
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("70.42 %");
   });
 });

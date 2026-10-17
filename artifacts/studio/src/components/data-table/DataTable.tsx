@@ -101,7 +101,8 @@ export function DataTable<T>({
   });
 
   const noMatch = rows.length > 0 && filteredRows.length === 0;
-  const showFilter = rows.length > FILTER_ROW_THRESHOLD;
+  // SCU-2.P3.7 (spec B2.2 exception) — no filterable column, no filter menu.
+  const showFilter = rows.length > FILTER_ROW_THRESHOLD && descriptors.length > 0;
 
   const renderTable = (
     allCols: ColumnDef<T>[],

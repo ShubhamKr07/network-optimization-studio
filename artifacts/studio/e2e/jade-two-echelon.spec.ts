@@ -199,6 +199,15 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
 
       await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-list")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P3.7 — the metric table never gets a filter (spec B2.2 exception), even
+      // at 11 rows; Download ▾ exports the server costSummary (one row, with unit).
+      await expect(page.getByTestId("button-filter-menu-trigger")).toHaveCount(0);
+      const csCsv = await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-csv");
+      expect(csCsv.name).toBe("costSummary.csv");
+      expect(csvDataLines(csCsv.text)).toHaveLength(1);
+      const csJson = JSON.parse((await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-json")).text);
+      expect([csJson.entity, csJson.unit, csJson.rows.length]).toEqual(["costSummary", "mi", 1]);
+      expect(typeof csJson.templateVersion).toBe("number");
 
       await page.getByTestId("sidebar-output-service-stats").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="service-stats-band-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });

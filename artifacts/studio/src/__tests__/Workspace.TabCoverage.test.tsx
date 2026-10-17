@@ -157,7 +157,7 @@ const OUTPUT_MAP: TabCoverageEntry = { sidebarId: "output-map", tabTestId: "outp
 const OPEN_WAREHOUSES: TabCoverageEntry = { sidebarId: "open-warehouses", tabTestId: "button-download-open-warehouses" };
 const CUSTOMER_ASSIGNMENTS: TabCoverageEntry = { sidebarId: "customer-assignments", tabTestId: "button-download-assignments" };
 const FLOWS: TabCoverageEntry = { sidebarId: "flows", tabTestId: "button-download-flows" };
-const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary-csv" };
+const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary" };
 const SERVICE_STATS: TabCoverageEntry = { sidebarId: "service-stats", tabTestId: "button-download-service-stats-csv" };
 
 function runTabCoverage(inputs: TabCoverageEntry[], outputs: TabCoverageEntry[]) {
