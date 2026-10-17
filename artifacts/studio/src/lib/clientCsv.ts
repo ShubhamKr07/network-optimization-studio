@@ -18,7 +18,3 @@ export function downloadTextFile(filename: string, text: string, mimeType: strin
   a.click();
   URL.revokeObjectURL(url);
 }
-
-export function downloadClientCsv(filename: string, headers: string[], rows: (string | number)[][]): void {
-  downloadTextFile(filename, [headers, ...rows].map(r => r.map(csvCell).join(",")).join("\n"), "text/csv");
-}

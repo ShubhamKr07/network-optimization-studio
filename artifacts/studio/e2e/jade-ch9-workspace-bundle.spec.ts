@@ -16,6 +16,7 @@
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe.
  */
 import { test, expect, type Page } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -413,6 +414,24 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("jade-flows-wc-table")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const wcHeaders = await page.locator('[data-testid="jade-flows-wc-table"] thead th').allInnerTexts();
       expect(wcHeaders).toEqual(["Warehouse", "Customer", "Distance", "Flows", "Distance Band"]);
+      // SCU-2.P3.6 — W→C (one row per customer, 100) pages at 50 while the download
+      // carries all 100; the P→W leg stays mounted but HIDDEN (real-browser proof of
+      // the `hidden` wrapper); an open filter does not survive a leg switch.
+      await expect(page.getByTestId("jade-flows-wc-page-indicator")).toHaveText("Page 1 of 2");
+      await expect(page.getByTestId("jade-flows-pw-table")).toBeHidden();
+      await expect(page.getByTestId("text-jadeflows-wc-count")).toHaveText("100 of 100");
+      const wcCsv = await downloadVia(page, "button-download-jade-flows-wc", "button-download-jade-flows-wc-csv");
+      expect(wcCsv.name).toBe("jade-flows-warehouse-customer.csv");
+      expect(wcCsv.text.split("\n")[0]).toBe("Warehouse,Customer,Distance (mi),Flows,Distance Band");
+      expect(csvDataLines(wcCsv.text)).toHaveLength(100);
+      const wcJson = JSON.parse((await downloadVia(page, "button-download-jade-flows-wc", "button-download-jade-flows-wc-json")).text);
+      expect([wcJson.entity, wcJson.unit, wcJson.rows.length]).toEqual(["jadeFlowsWarehouseCustomer", "mi", 100]);
+      await page.getByTestId("button-filter-jade-flows-wc").click();
+      await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
+      await page.getByTestId("button-jade-flows-inner-plant-warehouse").click();
+      await expect(page.getByTestId("filter-menu-popover")).toHaveCount(0);
+      await expect(page.getByTestId("button-jade-flows-inner-plant-warehouse")).toBeFocused();
+      await page.getByTestId("button-jade-flows-inner-warehouse-customer").click();
 
       // ── Item #5 — Plant Production section (full effective grid) ───────
       await page.getByTestId("sidebar-output-service-stats").click();

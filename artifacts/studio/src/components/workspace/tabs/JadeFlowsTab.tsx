@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
-import { downloadClientCsv } from "@/lib/clientCsv";
 import { useExport } from "@/contexts/ExportContext";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
-import { downloadJadeFlows, PLANT_WAREHOUSE_LEG, type JadeFlowLeg, type JadeFlowScreenRow } from "@/lib/jadeFlowsExport";
+import {
+  downloadJadeFlows,
+  PLANT_WAREHOUSE_LEG,
+  WAREHOUSE_CUSTOMER_LEG,
+  type JadeFlowLeg,
+  type JadeFlowScreenRow,
+} from "@/lib/jadeFlowsExport";
 
 // B3 (JADE Ch.9 Workspace Bundle, spec §5b) — Chapter 9 JADE's Flows tab.
 // JADE has TWO distinct facility->facility legs (plant_to_warehouse inbound,
@@ -318,51 +319,63 @@ export function JadeFlowsTab({
     [effectiveBands.join(","), distanceUnit, unit.pref, identityById, pwUpgrade],
   );
 
-  const wcDescriptors: ColumnFilterDescriptor<WarehouseCustomerRow>[] = useMemo(
+  // SCU-2.P3.6 — Warehouse -> Customer is a DataTable, built like P->W above
+  // (today's descriptor keys/labels: "Flows" for flow; band range filter with
+  // its own filterResetKey, cleared independently of P->W's).
+  const wcUpgrade = wcRows.length > 10;
+  const wcColumns = useMemo<ColumnDef<WarehouseCustomerRow>[]>(
     () => [
-      { key: "warehouse", label: "Warehouse", type: "select", accessor: r => r.warehouseLabel },
-      { key: "customer", label: "Customer", type: "text", accessor: r => r.customerLabel },
-      { key: "distance", label: "Distance", type: "number", accessor: r => r.distance },
-      { key: "flow", label: "Flows", type: "number", accessor: r => r.flow },
       {
-        key: "band",
-        label: "Distance Band",
-        type: "select",
-        accessor: r =>
+        id: "warehouse",
+        header: "Warehouse",
+        kind: "enum",
+        cellTestId: r => `cell-jade-flow-wc-warehouse-${r.key}`,
+        value: r => r.warehouseLabel,
+        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, wcUpgrade),
+      },
+      {
+        id: "customer",
+        header: "Customer",
+        kind: "text",
+        filter: "text", // pinned: today's descriptor type
+        cellTestId: r => `cell-jade-flow-wc-customer-${r.key}`,
+        value: r => r.customerLabel,
+        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById, wcUpgrade),
+      },
+      {
+        id: "distance",
+        header: "Distance",
+        kind: "number",
+        cellClassName: "font-mono",
+        cellTestId: r => `cell-jade-flow-wc-distance-${r.key}`,
+        value: r => r.distance,
+        cell: r => formatRowDistance(r.distance),
+      },
+      {
+        id: "flow",
+        header: "Flows",
+        kind: "number",
+        cellClassName: "font-mono",
+        cellTestId: r => `cell-jade-flow-wc-flow-${r.key}`,
+        value: r => r.flow,
+        cell: r => r.flow.toLocaleString(),
+      },
+      {
+        id: "band",
+        header: "Distance Band",
+        kind: "enum",
+        cellTestId: r => `cell-jade-flow-wc-band-${r.key}`,
+        value: r =>
           canonicalResolved
             ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
             : "—",
+        cell: r => r.band,
+        filterResetKey: `${effectiveBands.join(",")}|${distanceUnit ?? ""}|${unit.pref}`,
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [effectiveBands.join(","), distanceUnit, unit.pref],
+    [effectiveBands.join(","), distanceUnit, unit.pref, identityById, wcUpgrade],
   );
-
-  const wcFilters = useTableFilters(wcRows, wcDescriptors);
-
-  // Workspace fixups bundle (T6, item 5) — stale-selection policy: when the
-  // band boundaries/unit change, an active "band" selection (e.g. "≤ 250 mi")
-  // may no longer match any of the freshly-recomputed range options (the
-  // FilterMenu derives its select options from `pwDescriptors`/`wcDescriptors`
-  // above, which just changed too) — clear ONLY that table's own "band" key,
-  // leaving every other active filter on that table intact. Each inner
-  // table's clear is independent of the other (separate effects, separate
-  // `useTableFilters` instances) — selecting a range on Plant -> Warehouse and
-  // then editing bands must not touch Warehouse -> Customer's filters, and
-  // vice versa. `setFilter` is a stable `useCallback` (empty deps in
-  // `useTableFilters`), so it's intentionally omitted from these deps.
-  useEffect(() => {
-    wcFilters.setFilter("band", undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveBands.join(","), distanceUnit, unit.pref]);
-
-  function handleDownloadWc() {
-    downloadClientCsv(
-      "warehouse-to-customer-flows.csv",
-      ["Warehouse", "Customer", "Distance", "Flows", "Distance Band"],
-      wcRows.map(r => [r.warehouseLabel, r.customerLabel, formatRowDistance(r.distance), r.flow, r.band]),
-    );
-  }
 
   if (!result) {
     return (
@@ -410,23 +423,6 @@ export function JadeFlowsTab({
         <div className="flex items-center gap-2">
           {segmentedControl}
         </div>
-        {innerTab === "warehouse-customer" && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground" data-testid="text-jadeflows-wc-count">
-              {wcFilters.filteredCount} of {wcFilters.totalCount}
-            </span>
-            {wcFilters.totalCount > 10 && <FilterMenu descriptors={wcDescriptors} tableFilters={wcFilters} />}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              data-testid="button-download-jade-flows-wc-csv"
-              onClick={handleDownloadWc}
-            >
-              Download CSV
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* SCU-2.P3.5 — Plant -> Warehouse stays MOUNTED while the other leg is
@@ -466,47 +462,42 @@ export function JadeFlowsTab({
             }}
           />
       </div>
-      {innerTab === "warehouse-customer" && (
-        <div className="overflow-auto flex-1" data-testid="jade-flows-wc-table">
-          <Table>
-            <TableHeader className="sticky top-0 bg-background">
-              <TableRow>
-                <TableHead>Warehouse</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead className="text-right">Distance</TableHead>
-                <TableHead className="text-right">Flows</TableHead>
-                <TableHead>Distance Band</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {wcFilters.filteredRows.map(r => (
-                <TableRow key={r.key} data-testid={`jade-flow-wc-row-${r.warehouseId}-${r.customerId}`}>
-                  <TableCell data-testid={`cell-jade-flow-wc-warehouse-${r.key}`}>
-                    {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, wcRows.length > 10)}
-                  </TableCell>
-                  <TableCell data-testid={`cell-jade-flow-wc-customer-${r.key}`}>
-                    {renderJadeEntityCell(r.customerId, r.customerLabel, identityById, wcRows.length > 10)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-wc-distance-${r.key}`}>
-                    {formatRowDistance(r.distance)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-wc-flow-${r.key}`}>
-                    {r.flow.toLocaleString()}
-                  </TableCell>
-                  <TableCell data-testid={`cell-jade-flow-wc-band-${r.key}`}>{r.band}</TableCell>
-                </TableRow>
-              ))}
-              {wcFilters.filteredRows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-3">
-                    No rows match the current filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      {/* SCU-2.P3.6 — mounted alongside P->W (hidden when inactive) so each
+          leg keeps its own filters across a leg switch. */}
+      <div className="overflow-auto flex-1 p-2" hidden={innerTab !== "warehouse-customer"}>
+        <DataTable<WarehouseCustomerRow>
+          rows={wcRows}
+          rowKey={r => r.key}
+          columns={wcColumns}
+          ctx={{ readOnly: true, demandEditable: false }}
+          testIds={{
+            root: "jade-flows-wc-table",
+            row: r => `jade-flow-wc-row-${r.warehouseId}-${r.customerId}`,
+            count: "text-jadeflows-wc-count",
+            pagerPrev: "button-jade-flows-wc-prev",
+            pagerNext: "button-jade-flows-wc-next",
+            pageIndicator: "jade-flows-wc-page-indicator",
+            filterTrigger: "button-filter-jade-flows-wc",
+          }}
+          toolbar={{
+            download: (
+              <DownloadMenu
+                testId="button-download-jade-flows-wc"
+                itemTestIds={{ csv: "button-download-jade-flows-wc-csv", json: "button-download-jade-flows-wc-json" }}
+                disabledReason={downloadDisabledReason}
+                onDownload={format =>
+                  downloadLeg(
+                    WAREHOUSE_CUSTOMER_LEG,
+                    format,
+                    wcRows.map(r => ({ fromLabel: r.warehouseLabel, toLabel: r.customerLabel, distance: r.distance, flow: r.flow, band: r.band })),
+                  )
+                }
+              />
+            ),
+            downloadAlign: "right",
+          }}
+        />
+      </div>
     </div>
   );
 }
