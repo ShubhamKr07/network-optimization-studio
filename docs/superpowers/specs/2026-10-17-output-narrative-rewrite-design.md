@@ -13,6 +13,10 @@ Supersedes the SCU-1.9 narrative text (`artifacts/studio/src/lib/resultNarrative
 7. **Extras, all four:** name the farthest customer (`City, ST`); compare to the previous run when the result history has one; plain wording for failed / time-limited runs (no status codes); a one-clause tie-in to what the model optimised.
 8. **2–3 sentences; every number matches the Service Stats / Solution Summary tabs** (same source field; display rounding only). Two-echelon may run to 4 (user's Ch 9 example). Extras are folded into existing sentences, not appended.
 
+9. **Brazil regions (user, 2026-10-17):** a region is named by region only, dropping " Region" and the state code — "the farthest region, Acre, is 1,699 miles away" (the live identity renders "Acre Region, AC"). Warehouses stay "City, ST".
+10. **Brazil infeasible, single-source capacity (user, 2026-10-17):** "No plan meets these settings: São Paulo needs 29M units, more than any single warehouse can supply (20M). Turn Single-source off so its demand can be split between warehouses." Built from the known solve.py message shape; any other infeasibility reason is quoted verbatim.
+11. **Ch 4 coverage compare (user, 2026-10-17):** the "points more/less" parenthetical appears only when the previous coverage run used the same high-service distance, and compares the displayed whole percentages.
+
 ## User's reference examples
 
 - Ch 4 (min-distance / Ch 3): "Open Baltimore, Dallas and Los Angeles. A typical unit ships about 383 miles from the warehouse to the customer, and these three sites give the shortest overall shipping distance of any three. About 56% of your demand is within 400 miles, and the farthest customer is 1,139 miles away."

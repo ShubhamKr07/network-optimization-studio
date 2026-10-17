@@ -14,7 +14,7 @@ const bandsOf = (name: string): number[] =>
   JSON.parse(readFileSync(path.join(__dirname, "fixtures/narrative", `${name}.json`), "utf8")).inputs.distanceBands;
 
 // id -> "City, ST" from every entity file of the model's dataset. Brazil's
-// regions carry only `name` ("Acre Region"), shown as the bare region name.
+// regions carry only `name`; the live identity map renders them "Acre Region, AC".
 function namesFor(solver: string): Record<string, string> {
   const dir = path.join(__dirname, "../../../../solvers", solver, "dataset");
   const out: Record<string, string> = {};
@@ -22,7 +22,7 @@ function namesFor(solver: string): Record<string, string> {
     if (/^(distances|costs|version|products|plant_product_capability)\.json$/.test(f)) continue;
     for (const row of Object.values(JSON.parse(readFileSync(path.join(dir, f), "utf8"))) as Array<Record<string, string>>) {
       if (!row.id) continue;
-      out[row.id] = row.city ? (row.state ? `${row.city}, ${row.state}` : row.city) : row.name.replace(/ Region$/, "");
+      out[row.id] = row.city ? (row.state ? `${row.city}, ${row.state}` : row.city) : `${row.name}, ${row.id}`;
     }
   }
   return out;
@@ -66,7 +66,7 @@ describe("buildResultNarrative — approved wording per model/objective (real en
 
   it("Ch 5 Brazil infeasible (default inputs) gives the plain reason, no status code", () => {
     expect(run("p-median-brazil", "p-median-brazil", "p-median-brazil")).toBe(
-      "No plan meets these settings: Demand region São Paulo Region (29M) exceed the single-warehouse capacity (20M). Under single-sourcing each region must be served by exactly one warehouse, but no warehouse can absorb this much demand. Solution: toggle Single-source OFF to allow demand to split across warehouses.",
+      "No plan meets these settings: São Paulo needs 29M units, more than any single warehouse can supply (20M). Turn Single-source off so its demand can be split between warehouses.",
     );
   });
 
@@ -152,6 +152,74 @@ describe("buildResultNarrative — rules", () => {
 
   it("an unknown model with a solved result returns null", () => {
     expect(buildResultNarrative("mystery", pm(), ctx)).toBeNull();
+  });
+});
+
+describe("buildResultNarrative — NAR-1.R review folds", () => {
+  const pm = () => fixture("p-median-us");
+  const ctx = { bands: bandsOf("p-median-us"), distance: MI, nameById: namesFor("p-median-us") };
+  const asR = (o: Record<string, unknown>) => ({ ...pm(), ...o }) as unknown as SolveResult;
+
+  it("a legacy-unverified result does not claim a time limit", () => {
+    const t = buildResultNarrative("p-median-us", asR({ solutionStatus: null, status: "optimal", terminationReason: null }), ctx)!.text;
+    expect(t).toContain("this is the best plan the solver found.");
+    expect(t).not.toContain("time limit");
+  });
+
+  it("a gap-limit feasible result does not claim a time limit; a time-limit one does", () => {
+    expect(buildResultNarrative("p-median-us", asR({ solutionStatus: "feasible", terminationReason: "gap_limit" }), ctx)!.text).not.toContain("time limit");
+    expect(buildResultNarrative("p-median-us", asR({ solutionStatus: "feasible", terminationReason: "time_limit" }), ctx)!.text).toContain("before the time limit");
+  });
+
+  it("JADE: sub-$500 delta shows no parenthetical; $999,600 reads $1.0M, never $1000K", () => {
+    const j = fixture("two-echelon-jade-us");
+    const c = { bands: bandsOf("two-echelon-jade-us"), distance: MI, nameById: namesFor("two-echelon-jade-us") };
+    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 400 } as SolveResult })!.text).not.toContain("previous run");
+    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 999_600 } as SolveResult })!.text).toContain("($1.0M less than your previous run)");
+  });
+
+  it("gold-au says truckload-km under the km toggle", () => {
+    const g = fixture("two-echelon-gold-au");
+    const t = buildResultNarrative("two-echelon-gold-au", g, { bands: bandsOf("two-echelon-gold-au"), distance: KM, nameById: namesFor("two-echelon-gold-au") })!.text;
+    expect(t).toContain("the fewest truckload-km possible");
+  });
+
+  it("gold-au closed refinery with no map entry still reads City, ST", () => {
+    const g = fixture("two-echelon-gold-au");
+    const names = { ...namesFor("two-echelon-gold-au") };
+    delete names["daggar-hills"];
+    expect(buildResultNarrative("two-echelon-gold-au", g, { bands: bandsOf("two-echelon-gold-au"), distance: MI, nameById: names })!.text).toContain("; Daggar Hills stays closed.");
+  });
+
+  it("an empty city name falls back to the raw id", () => {
+    expect(buildResultNarrative("p-median-us", pm(), { ...ctx, nameById: { ...ctx.nameById, BAL: "" } })!.text).toMatch(/^Open BAL, /);
+  });
+
+  it("Brazil: the farthest region is named by region only (live identity 'Acre Region, AC')", () => {
+    const t = run("p-median-brazil", "p-median-brazil", "p-median-brazil-VARIANT-singleSource-false")!;
+    expect(namesFor("p-median-brazil").AC).toBe("Acre Region, AC");
+    expect(t).toContain("the farthest region, Acre, is 1,699 miles away.");
+    expect(t).toContain("Belém, PA");
+  });
+
+  it("Brazil: any other infeasibility reason is quoted verbatim", () => {
+    const r = { ...fixture("p-median-brazil"), infeasibilityReason: "Something else is wrong." } as SolveResult;
+    expect(buildResultNarrative("p-median-brazil", r, ctx)!.text).toBe("No plan meets these settings: Something else is wrong.");
+  });
+
+  it("Brazil: several over-capacity regions each get their demand", () => {
+    const r = { ...fixture("p-median-brazil"), infeasibilityReason: "Demand regions São Paulo Region (29M), Rio de Janeiro Region (21M) exceed the single-warehouse capacity (20M). Solution: x." } as SolveResult;
+    expect(buildResultNarrative("p-median-brazil", r, ctx)!.text).toBe("No plan meets these settings: São Paulo needs 29M units and Rio de Janeiro needs 21M units, more than any single warehouse can supply (20M). Turn Single-source off so their demand can be split between warehouses.");
+  });
+
+  it("Ch 4 coverage compare: rounds like the displayed numbers, and needs the same high-service distance", () => {
+    const cov = fixture("max-coverage-us-coverage");
+    const c = { bands: bandsOf("max-coverage-us-coverage"), distance: MI, nameById: namesFor("max-coverage-us") };
+    const cur = { ...cov, details: { ...cov.details, coveragePct: 70.4 } } as SolveResult;
+    const prevSame = { ...cov, details: { ...cov.details, coveragePct: 69.6 } } as SolveResult;
+    expect(buildResultNarrative("max-coverage-us", cur, { ...c, previous: prevSame })!.text).not.toContain("previous run");
+    const prevOtherDist = { ...cov, details: { ...cov.details, coveragePct: 60, highServiceDistMi: 300 } } as SolveResult;
+    expect(buildResultNarrative("max-coverage-us", cov, { ...c, previous: prevOtherDist })!.text).not.toContain("previous run");
   });
 });
 
