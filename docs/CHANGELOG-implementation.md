@@ -3967,3 +3967,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 1, 3, 9, 13, 15, 17, 19. No distance column, so no `filterResetKey`.
 - Tests: baseline 42 (PlantsTab, Workspace.Jade, historyReadOnlyTabs); after 47 in 4 files incl. new PlantsTab.dataTable (fail-first vs pre-migration tab: 4 failed / 1 passed).
 - Gate: studio 2720 passed, api-server 2033 passed / 3 load flakes (loginRateLimitProxy, resultEnvelope x2; isolated 20/20 on two re-runs, one earlier isolated run had a resultEnvelope brazil flake), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): workspace-fixups 2/2 pass, workspace-fixups-2 4/4 pass.
+
+### SCU-2.P4.13 — Mines on DataTable with the +Add modal
+
+- Mines on DataTable: base + added sections, "+ Add mine" modal (capacity, no status), D2 read-only (new `readOnly` prop: base/added capacity, delete, add trigger, open modal), FilterMenu, Upload ▾/Download ▾. Legacy `MineTable` no longer rendered by the Workspace.
+- Deviations 1, 3, 9, 13, 15, 17, 18, 19. No distance column, so no `filterResetKey`/range-reset test. The plan's e2e step needed no rewrites (sweep found only unchanged `mines-tab`, `added-mines-section`, `row-added-mine-*`, `button-add-mine-row`).
+- Fail-first against the pre-migration tab: 4 failed | 1 passed (5). Baseline (MinesTab, Workspace.TransportCoal, Workspace, historyReadOnlyTabs): 205 passed; after, plus the new file: 210 passed.
+- Gate: studio 2725 passed (154 files), api-server 3 load flakes in the full run (`cors`, `importJsonRoundTrip`, `registration`; all registered, green in isolation) with no api-server diff vs P3_TIP, pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set, 1 worker, 0 retries): tab-coverage 3/3, workspace-fixups-2 4/4, bundle2-fastfollow 3/3 pass.

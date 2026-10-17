@@ -945,11 +945,11 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     // and `displayCode` (left blank here — never focused, so City/State's
     // blur auto-fill never fires under `fireEvent.change`) is the optional
     // human-facing label. Mirrors the equivalent warehouse test exactly.
-    fireEvent.change(screen.getByTestId("input-new-mine-city"), { target: { value: "Bristol" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-state"), { target: { value: "VA" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-lat"), { target: { value: "36.6" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-lng"), { target: { value: "-82.19" } });
-    fireEvent.click(screen.getByTestId("button-add-mine-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Bristol" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "VA" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "36.6" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-82.19" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-save"));

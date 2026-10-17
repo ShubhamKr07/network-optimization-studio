@@ -3680,6 +3680,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <MinesTab
+          readOnly={isBrowsingHistoryNow}
           mines={dataset.warehouses}
           overrides={mineOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
