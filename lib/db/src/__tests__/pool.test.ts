@@ -13,19 +13,20 @@ vi.mock("drizzle-orm/node-postgres", () => ({
   drizzle: vi.fn(() => ({})),
 }));
 
+const ORIGINAL_ENV = process.env;
+
+beforeEach(() => {
+  vi.resetModules();
+  mockPoolCtor.mockImplementation(() => new EventEmitter());
+  process.env = { ...ORIGINAL_ENV, DATABASE_URL: "postgresql://localhost/test" };
+});
+
+afterEach(() => {
+  process.env = ORIGINAL_ENV;
+  vi.restoreAllMocks();
+});
+
 describe("db pool SSL configuration", () => {
-  const ORIGINAL_ENV = process.env;
-
-  beforeEach(() => {
-    vi.resetModules();
-    mockPoolCtor.mockImplementation(() => new EventEmitter());
-    process.env = { ...ORIGINAL_ENV, DATABASE_URL: "postgresql://localhost/test" };
-  });
-
-  afterEach(() => {
-    process.env = ORIGINAL_ENV;
-  });
-
   it("does not set ssl when NODE_ENV is not production", async () => {
     process.env.NODE_ENV = "development";
     await import("../index.js");
@@ -46,26 +47,25 @@ describe("db pool SSL configuration", () => {
 // NOS-API-3 (2026-09-24): a Postgres restart ("terminating connection due to
 // administrator command") reached the pool as an idle-client error with no
 // listener, which Node raises as an uncaught exception.
-describe("db pool idle-client errors", () => {
-  const ORIGINAL_ENV = process.env;
-
-  beforeEach(() => {
-    vi.resetModules();
-    mockPoolCtor.mockImplementation(() => new EventEmitter());
-    process.env = { ...ORIGINAL_ENV, DATABASE_URL: "postgresql://localhost/test" };
-  });
-
-  afterEach(() => {
-    process.env = ORIGINAL_ENV;
-    vi.restoreAllMocks();
-  });
+describe("db pool connection errors", () => {
+  const err = new Error("terminating connection due to administrator command");
 
   it("logs an idle-client error instead of throwing it", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { pool } = await import("../index.js");
-    const err = new Error("terminating connection due to administrator command");
 
     expect(() => pool.emit("error", err)).not.toThrow();
     expect(logged).toHaveBeenCalledWith(expect.any(String), err);
+  });
+
+  // A checked-out client (pool.connect(), which drizzle's db.transaction()
+  // uses) has no pool idle listener, and pg's Client always emits "error"
+  // when its socket dies, even after rejecting the in-flight query.
+  it("does not throw when a checked-out client's connection dies", async () => {
+    const { pool } = await import("../index.js");
+    const client = new EventEmitter();
+    pool.emit("connect", client);
+
+    expect(() => client.emit("error", err)).not.toThrow();
   });
 });
