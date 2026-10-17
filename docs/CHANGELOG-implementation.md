@@ -3928,3 +3928,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - `ExportContext.download` sends no `unit` for `deliveryCosts`; e2e step 10 downloads the JSON with km on and asserts no `unit` and the unconverted cost.
 - Deviations 3, 7, 15, 17, 19, 20. Plan anchors applied verbatim on the post-R4 base.
 - Gate: studio 2681 passed (148 files), api-server 2034 passed / 2 load-flakes (`cors`, `resultEnvelope`; 19/19 x2 isolated, registered), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): delivery-teaching.spec.ts pass.
+
+### SCU-2.P4.8 — JADE Transport Costs on DataTable
+
+- `TransportCostsTab` on DataTable (2 fixed rows, header testid via `headerTestId`, numbers centred, inputs `w-full`). No Upload/Download (spec). History read-only unchanged (`disabled`), now with `title={disabled ? READ_ONLY_TITLE : undefined}` on all four inputs and Reset; the new test asserts the exact title in history and its absence outside it.
+- Fail-first: `TransportCostsTab.dataTable.test.tsx` run against the pre-migration tab = 2 failed | 2 passed (centring, exact title); after = 4/4. With `TransportCostsTab.test.tsx` and `historyReadOnlyTabs.test.ts`: 36/36.
+- No `filterResetKey` (user decision 2026-10-17 rule): rate/min columns have no range filter (2 rows, no FilterMenu), so no deviation added. Deviations 3, 19.
+- Gate: studio 2685 passed (149 files; baseline 2681/148), api-server 2033 passed / 3 load-flakes (`jobRunnerDispatcher`, `resultEnvelope` x2; 27/27 x2 isolated, registered), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL=http://localhost:5408`): `jade-transport-costs.spec.ts` 1/1 pass.
