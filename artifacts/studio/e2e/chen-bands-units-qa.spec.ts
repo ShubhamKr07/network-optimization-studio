@@ -243,12 +243,17 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
     expect(createResp.status()).toBe(201);
     const chenId = String((await createResp.json()).id);
 
+    let releaseModels!: () => void;
+    const modelsHeld = new Promise<void>(resolve => { releaseModels = resolve; });
     try {
-      // Delay /api/models so the manifest genuinely has not resolved by the
+      // Hold /api/models so the manifest genuinely has not resolved by the
       // time the page first paints — the real "unresolved canonical unit"
       // window this bundle's whole "no fallback unit" contract exists for.
+      // The hold is a promise released EXPLICITLY below (not a timer): a fixed
+      // delay races the test's own pace, so under load the manifest could
+      // resolve before the "pending" assertions ran (SCU-2.R5b).
       await page.route("**/api/models", async route => {
-        await new Promise(r => setTimeout(r, 3000));
+        await modelsHeld;
         await route.continue();
       });
 
@@ -273,7 +278,9 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(valueInput).toBeDisabled();
       await expect(valueInput).toHaveValue("");
 
-      // Once the manifest resolves (route delay elapses), the real mi-labeled
+      // Release the held manifest request now.
+      releaseModels();
+      // Once the manifest resolves (route released), the real mi-labeled
       // content replaces the placeholder — proving this was a genuine
       // load-then-resolve transition, not a permanently-broken editor.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
@@ -286,6 +293,7 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByText("Distance bands (mi)")).toBeVisible();
     } finally {
+      releaseModels();
       await page.unroute("**/api/models");
       await page.request.delete(`/api/scenarios/${chenId}`);
     }

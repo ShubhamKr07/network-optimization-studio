@@ -94,7 +94,7 @@ async function openTab(page: Page, sidebar: string, root: string): Promise<void>
 async function enabledCount(page: Page, root: string): Promise<{ enabled: number; total: number; enabledIds: string[] }> {
   return page
     .locator(`[data-testid="${root}"]`)
-    .locator('input:not([type="hidden"]):not([type="file"]), button, [role="checkbox"]')
+    .locator('input:not([type="hidden"]):not([type="file"]), button, select, textarea, [role="checkbox"], [role="combobox"], [role="switch"]')
     .evaluateAll(els => {
     const skip = (t: string) => t === "button-filter-menu-trigger" || t.endsWith("-prev") || t.endsWith("-next");
     const all = els.filter(e => !skip(e.getAttribute("data-testid") ?? ""));
@@ -187,8 +187,8 @@ test.describe("Input tables — history read-only (D2) and unit-reset (SCU-2.P4.
       await page.getByTestId("input-filter-cost-min").fill("105");
       await expect(page.getByTestId("input-filter-cost-min")).toHaveValue("105");
       await page.keyboard.press("Escape");
-      const filtered = await page.locator('tr[data-row-key]').count();
-      expect(filtered).toBeLessThan(12);
+      // 12 rows, cost-min 105 drops the four 100-103 rows: 110-113 and 120-123 remain.
+      await expect(page.locator('tr[data-row-key]')).toHaveCount(8);
 
       await page.getByTestId("unit-toggle-km").click();
       await page.getByTestId("button-filter-menu-trigger").click({ timeout: HEADER_TIMEOUT });

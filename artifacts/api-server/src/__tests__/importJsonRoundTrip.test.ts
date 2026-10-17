@@ -24,7 +24,7 @@ afterAll(async () => {
 async function register(tag: string): Promise<string> {
   const email = `scu-p2-2-${tag}-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
   const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
-  expect(res.status).toBe(201);
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
   userIds.push(res.body.user.id);
   return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
 }
@@ -75,7 +75,7 @@ beforeAll(async () => {
 
 async function createScenario(cookie: string, modelId: string, inputs: Record<string, unknown>): Promise<number> {
   const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: `scu-p2-2 ${modelId}`, modelId, inputs });
-  expect(res.status).toBe(201);
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
   scenarioIds.push(res.body.id);
   return res.body.id;
 }
@@ -168,7 +168,21 @@ describe("body handling is scoped to the import routes and runs after ownership 
     expect((await preview(stranger, id, { entity: "warehouses", format: "json", document })).status).toBe(404);
     expect((await apply(stranger, id, { entity: "warehouses", format: "json", document, mode: "partial" })).status).toBe(404);
     expect((await rawPost(stranger, `/api/scenarios/${id}/import`, "{not json")).status).toBe(404);
-    expect((await preview(stranger, id, { entity: "warehouses", csvText: "x".repeat(MAX_IMPORT_BYTES) })).status).toBe(404);
+    expect((await exportJson(owner, id, "warehouses")).rows[1]!.status).toBe("active");
+  });
+
+  // The 404 is sent BEFORE the 2 MiB body is read (by design), so the client may
+  // get EPIPE/ECONNRESET while still writing. Either is "rejected before body
+  // handling"; 413 would mean the body limit ran ahead of ownership.
+  it("non-owner: an oversized body gets 404 (or a client-side EPIPE/ECONNRESET), never 413, and nothing changes", async () => {
+    const id = await createScenario(owner, "p-median-us", BASE["p-median-us"]!);
+    let s: number | string | undefined;
+    try {
+      s = (await preview(stranger, id, { entity: "warehouses", csvText: "x".repeat(MAX_IMPORT_BYTES) })).status;
+    } catch (e) {
+      s = (e as { code?: string }).code;
+    }
+    expect([404, "EPIPE", "ECONNRESET"]).toContain(s);
     expect((await exportJson(owner, id, "warehouses")).rows[1]!.status).toBe("active");
   });
 
