@@ -56,7 +56,7 @@ function parseJsonDocument(text: string): ImportDocument | null {
   return null;
 }
 
-const rowLabel = (rowIndex: number | undefined) => (rowIndex === undefined ? undefined : `row ${rowIndex}`);
+const rowLabel = (rowIndex: number | undefined) => (rowIndex === undefined ? undefined : `row ${rowIndex + 1}`);
 
 export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = "csv", onApplied, enableFilters = false }: ImportDialogProps) {
   const [fileName, setFileName] = useState<string | null>(null);

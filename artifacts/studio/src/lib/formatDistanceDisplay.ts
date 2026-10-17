@@ -13,10 +13,12 @@
 // CustomerTable / BandChipEditor all keep raw text) — see
 // `useDistanceDraft`'s `presentation` option.
 
+// Pinned to en-US (app is English-only): these labels feed downloaded
+// JADE Flows CSV/JSON, so they must not vary with the viewer's locale.
 /** A display-unit distance -> "12,004.8" / "1,234.57" / "892". */
 export function formatDistanceDisplay(value: number): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 /**

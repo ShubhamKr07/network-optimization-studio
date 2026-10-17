@@ -323,7 +323,7 @@ describe("ImportDialog — JSON format and the 2 MB limit (SCU-2.P2.2)", () => {
     });
     renderDialog({ format: "json" });
     await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), new File([JSON.stringify(document)], "w.json", { type: "application/json" }));
-    expect(await screen.findByTestId("import-error-row-0")).toHaveTextContent("row 3");
-    expect(screen.getByTestId("import-change-row-0")).toHaveTextContent("row 1");
+    expect(await screen.findByTestId("import-error-row-0")).toHaveTextContent("row 4");
+    expect(screen.getByTestId("import-change-row-0")).toHaveTextContent("row 2");
   });
 });
