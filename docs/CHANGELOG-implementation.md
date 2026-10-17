@@ -3890,3 +3890,12 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 2, 9, 19. Plan edit script and test applied verbatim (all anchors matched once).
 - Fail-first: 22 failed / 29 passed before; 64 passed (table 24 + map 27 + D2 guard 13) after; deliberate break (`&& false` on the empty-demand guard) failed 1 case.
 - Gate: studio 2645 passed (144 files), api-server 2033/2036 (3 listed load flakes `cors`, `dispatcherRecovery`, `scenarioSolveAtomicity`; green isolated twice), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): input-map-v2 3/3, workspace-fixups 2/2 pass.
+
+### SCU-2.P4.3 — Distances on DataTable
+
+- `DistancesTab` on DataTable: FilterMenu replaces From/To (`from`/`to` = display code, + Base/Override ranges); pager > 50 only; Upload ▾/Download ▾ + expected fields; history read-only (D2: override, remove, + Add row, open add form); numbers centred; focus via DataTable (`token` = id + row count).
+- P1.5 replica test deleted (deviation 16). Real-browser focus check added (input-map-v2: filter cleared, page != 1, row `toBeInViewport`). Upload ▾ disabled-in-history asserted in chen-bands-units-qa history block.
+- Plan edit scripts applied verbatim (21 unit + 18 e2e anchors each matched once on the R4-era base); R4's Tab-after-fill in bundle6.1-legend-distances kept. Distance range filters (Base/Override) are in the display unit; no `filterResetKey: unit.pref` added, matching the plan's columns (deviation from the brief's note: plan does not specify it; ranges are not reset on unit toggle).
+- Deviations 3, 4, 5, 6, 7, 15, 16, 17, 19.
+- Baseline: DistancesTab.test 64 + guard + replica = 87 in 3 files; after: 87 in 3 files (dataTable 10 + DistancesTab.test 64 + guard 13). Fail-first: dataTable test 7 failed / 3 passed on the old tab.
+- Gate: studio 2645 passed (144 files), api-server 2035/2036 (`resultEnvelope` p-median-brazil, listed load flake; 16/16 isolated twice), pytest 355 passed, import-schema 22 passed. e2e (local 3403/5403, `E2E_BASE_URL` set, workers=1, retries=0): bundle5-homepage-distances, bundle6.1-legend-distances (incl. 2 @flaky), chen-bands-units-qa, max-coverage, input-map-v2 — 22/22 passed.

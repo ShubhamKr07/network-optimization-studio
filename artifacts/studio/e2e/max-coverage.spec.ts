@@ -46,6 +46,7 @@
 import { test, expect, type Page } from "./fixtures";
 import { expectCsvJsonDownload } from "./helpers/download";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { chooseMenuItem, closePopover, fillTableFilter } from "./helpers/inputTable";
 // FU-8 — was a local `coverageInputs()`, byte-identical to
 // `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
 // `objective: "coverage"` rationale (CH4OS).
@@ -371,18 +372,20 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       // Distances tab, filtered by its display code.
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("input-filter-from").fill(newWhCode);
+      await fillTableFilter(page, "from", newWhCode);
       const estimatedBadges = page.locator('[data-testid^="badge-distance-estimated-"]');
       await expect(estimatedBadges.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       expect(await estimatedBadges.count()).toBeGreaterThan(0);
-      await page.getByTestId("input-filter-from").fill("");
+      await fillTableFilter(page, "from", "");
+      await closePopover(page);
 
       // ── 7a. v1 `distances` CSV round-trip identity ──────────────────────
       const distExport = await page.request.get(`/api/scenarios/${id}/export?entity=distances&format=csv`);
       expect(distExport.status()).toBe(200);
       const distCsv = await distExport.text();
       expect(distCsv.split("\n")[0]).toContain("from_id");
-      await page.getByTestId("button-import-distances").click();
+      // SCU-2.P4.3 (B2.3) — Upload ▾ → CSV.
+      await chooseMenuItem(page, "button-import-distances", "button-import-distances-csv");
       await page.getByTestId("input-import-file-distances").setInputFiles({
         name: "distances.csv",
         mimeType: "text/csv",

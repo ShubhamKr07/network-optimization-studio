@@ -18,6 +18,7 @@ import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
+import { chooseInputDownload, chooseUpload, filterText } from "@/__tests__/helpers/inputTable";
 
 // Bundle 6.1, T2 — the two previously-separate sections (read-only reference
 // table + editable overrides table) are now ONE merged, Customers-tab-styled
@@ -275,18 +276,25 @@ describe("DistancesTab — merged table with a reference matrix", () => {
   });
 });
 
+// SCU-2.P4.3 (B2.2) — the From/To boxes are now the FilterMenu's `from`/`to`
+// text controls, which only render above 10 rows: these fixtures carry 11.
+const elevenOverrides = [
+  ...overrides,
+  ...Array.from({ length: 8 }, (_, i) => ({ fromId: "WH03", toId: `C${String(i + 10).padStart(3, "0")}`, distance: 200 + i })),
+];
+
 describe("DistancesTab — from/to filters", () => {
   it("filters visible rows by the from-id filter text", () => {
     renderWithQueryClient(
       <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={elevenOverrides}
+        savedDistanceOverrides={elevenOverrides}
         warehouseIds={["WH01", "WH02"]}
         customerIds={["C001", "C002"]}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH02" } });
+    filterText("from", "WH02");
     expect(screen.queryByTestId("row-distance-WH01-C001")).not.toBeInTheDocument();
     expect(screen.queryByTestId("row-distance-WH01-C002")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH02-C001")).toBeInTheDocument();
@@ -295,14 +303,14 @@ describe("DistancesTab — from/to filters", () => {
   it("filters visible rows by the to-id filter text", () => {
     renderWithQueryClient(
       <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={elevenOverrides}
+        savedDistanceOverrides={elevenOverrides}
         warehouseIds={["WH01", "WH02"]}
         customerIds={["C001", "C002"]}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "C002" } });
+    filterText("to", "C002");
     expect(screen.queryByTestId("row-distance-WH01-C001")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH01-C002")).toBeInTheDocument();
     expect(screen.queryByTestId("row-distance-WH02-C001")).not.toBeInTheDocument();
@@ -311,20 +319,20 @@ describe("DistancesTab — from/to filters", () => {
   it("filters are case-insensitive substring matches", () => {
     renderWithQueryClient(
       <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={elevenOverrides}
+        savedDistanceOverrides={elevenOverrides}
         warehouseIds={["WH01", "WH02"]}
         customerIds={["C001", "C002"]}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "wh0" } });
+    filterText("from", "wh0");
     expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH02-C001")).toBeInTheDocument();
   });
 
   it("resolution #8: an added entity is found by typing its DISPLAY code (not its raw uid) into the From filter", () => {
-    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }, ...elevenOverrides.slice(1)];
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={uidOverrides}
@@ -335,10 +343,10 @@ describe("DistancesTab — from/to filters", () => {
         displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH-CO-DENVER" } });
+    filterText("from", "WH-CO-DENVER");
     expect(screen.getByTestId("row-distance-aw-1234-C001")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    filterText("from", "aw-1234");
     expect(screen.queryByTestId("row-distance-aw-1234-C001")).not.toBeInTheDocument();
   });
 
@@ -355,12 +363,13 @@ describe("DistancesTab — from/to filters", () => {
         referenceCapable
       />,
     );
-    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+    // The pager only renders above 50 rows (B2.2): wait for the base matrix.
+    await waitFor(() => expect(screen.getByTestId("button-distances-next")).toBeInTheDocument());
 
     await userEvent.click(screen.getByTestId("button-distances-next"));
     expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of");
 
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
+    filterText("from", "WH01");
 
     expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of");
     // WH01 has 200 base pairs -> 4 pages of 50.
@@ -605,7 +614,7 @@ describe("DistancesTab — added-entity override rows", () => {
     await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
     // Once the 5200-pair base matrix has loaded, the added row sorts after
     // all of it (page ~104) — filter down to it so it's on the current page.
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    filterText("from", "aw-1234");
     const row = screen.getByTestId("row-distance-aw-1234-C001");
     expect(row).toHaveTextContent("—");
   });
@@ -825,7 +834,7 @@ describe("DistancesTab — load/error states (resolution #6)", () => {
     // The added row (aw-1234|C001) sorts after all 5200 base rows once the
     // matrix has loaded — filter down to it so it's actually on the current
     // page (this test is about its Base cell's content, not pagination).
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    filterText("from", "aw-1234");
     expect(screen.getByTestId("row-distance-aw-1234-C001")).toHaveTextContent("—");
   });
 });
@@ -1008,8 +1017,8 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
       undefined,
       { scenarioId: null },
     );
-    expect(screen.getByTestId("button-export-distances-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-distances-json")).toBeDisabled();
+    // SCU-2.P4.3 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-distances")).toBeDisabled();
     expect(screen.getByTestId("button-import-distances")).toBeDisabled();
   });
 
@@ -1030,7 +1039,7 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
       { scenarioId: 7 },
     );
 
-    await userEvent.click(screen.getByTestId("button-export-distances-csv"));
+    chooseInputDownload("distances", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -1052,7 +1061,7 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
     );
 
     expect(screen.queryByText("Import distances")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-distances"));
+    chooseUpload("distances", "csv");
     expect(screen.getByText("Import distances")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-distances")).toBeInTheDocument();
   });
@@ -1078,7 +1087,7 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-distances"));
+    chooseUpload("distances", "csv");
     const file = new File(["fromId,toId,distance\nWH01,C001,120.5"], "distances.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-distances"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
@@ -1123,7 +1132,9 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
     expect(screen.queryByTestId(`row-distance-${many[0].fromId}-${many[0].toId}`)).not.toBeInTheDocument();
   });
 
-  it("clamps down on delete: removing the last row on the last page lands on the new last page (no empty page)", async () => {
+  // SCU-2.P4.3 (spec B2.2 rev 4) — deleting a row changes the row set, which
+  // resets to page 1 (was: clamp to the new last page).
+  it("deleting a row resets to page 1 of the new page count", async () => {
     const many = buildManyOverrides(101); // 3 pages: 50/50/1
     const Wrapper = () => {
       const [rows, setRows] = useState(many);
@@ -1147,7 +1158,7 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
     const last = many[100];
     await userEvent.click(screen.getByTestId(`button-remove-distance-${last.fromId}-${last.toId}`));
 
-    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of 2");
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 2");
   });
 
   it("focus across pages, starting on a non-empty filter: clears the filter and lands on the target's real page without snapping back to page 1", async () => {
@@ -1165,8 +1176,9 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
     );
 
     // Set a non-empty filter first (real user typing — resets to page 1).
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
-    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of");
+    filterText("from", "WH01");
+    // 5 matching rows: below the 50-row pager threshold (B2.2), so no pager.
+    expect(screen.queryByTestId("distances-page-indicator")).not.toBeInTheDocument();
 
     // override #75 (index 74) — target its toId so the effect finds it.
     const target = many[74];

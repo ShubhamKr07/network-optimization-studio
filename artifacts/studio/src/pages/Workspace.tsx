@@ -3734,6 +3734,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           distanceOverrides={distanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}

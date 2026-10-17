@@ -20,6 +20,7 @@
  * vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 
@@ -186,7 +187,8 @@ test.describe("Bundle 5 — Distances pagination + global filter", () => {
       // Global From filter: typing a specific warehouse id resets to page 1
       // and narrows the merged table to just that warehouse's 200 customer
       // pairs -> 4 pages of 50.
-      await page.getByTestId("input-filter-from").fill(warehouseIds[0]);
+      // SCU-2.P4.3 (B2.2) — the From/To boxes are FilterMenu text controls now.
+      await fillTableFilter(page, "from", warehouseIds[0]);
       await expect(pageIndicator).toHaveText("Page 1 of 4");
 
       const rows = page.locator('[data-testid^="row-distance-"]');
@@ -208,8 +210,10 @@ test.describe("Bundle 5 — Distances pagination + global filter", () => {
       // filter's plain `.includes()` match, so "C1" alone doesn't isolate a
       // single row — "C27" has no such collision (nothing else contains it).
       const toFilterId = customerIds[26];
-      await page.getByTestId("input-filter-to").fill(toFilterId);
-      await expect(pageIndicator).toHaveText("Page 1 of 1");
+      await fillTableFilter(page, "to", toFilterId);
+      // One matching row: the pager renders only above 50 filtered rows (B2.2).
+      await expect(pageIndicator).toHaveCount(0);
+      await closePopover(page);
       const isolatedRow = page.getByTestId(`row-distance-${warehouseIds[0]}-${toFilterId}`);
       await expect(isolatedRow).toBeVisible();
 

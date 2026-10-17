@@ -21,7 +21,7 @@ const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"
   WarehousesTab: "disabled", // warehouses + refineries mounts (pre-existing)
   CustomersTab: "disabled", // pre-existing
   TransportCostsTab: "disabled", // pre-existing
-  DistancesTab: "pending", // SCU-2.P4.3
+  DistancesTab: "readOnly", // SCU-2.P4.3
   LegDistancesTab: "pending", // SCU-2.P4.4
   JadeDistancesTab: "pending", // SCU-2.P4.5
   LaneCostsTab: "pending", // SCU-2.P4.6

@@ -42,6 +42,7 @@
  */
 import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 120_000;
@@ -442,8 +443,9 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // The merged base+override table is paginated (50/page) and this pair
       // may not land on page 1 — filter down to it (same pattern the
       // Distances tab's own filter fields exist for).
-      await page.getByTestId("input-filter-from").fill("ALN");
-      await page.getByTestId("input-filter-to").fill("C4");
+      await fillTableFilter(page, "from", "ALN");
+      await fillTableFilter(page, "to", "C4");
+      await closePopover(page);
       await expect(page.getByTestId("input-distance-ALN-C4")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-distance-ALN-C4")).toHaveValue("500");
       await saveViaHeader(page);
@@ -647,8 +649,15 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       // this half for the same reason this whole test moved models): input
       // exports are disabled while browsing a historical entry. ──────────
       await page.getByTestId("sidebar-input-distances").click();
-      await expect(page.getByTestId("button-export-distances-csv")).toBeDisabled({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-export-distances-csv")).toHaveAttribute(
+      // SCU-2.P4.3 (B2.4) — the Download ▾ trigger carries the disabled state + reason.
+      await expect(page.getByTestId("button-download-distances")).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-download-distances")).toHaveAttribute(
+        "title",
+        "Input exports reflect the current scenario",
+      );
+      // User decision 2026-10-17 — Upload ▾ is disabled in history too, same reason.
+      await expect(page.getByTestId("button-import-distances")).toBeDisabled();
+      await expect(page.getByTestId("button-import-distances")).toHaveAttribute(
         "title",
         "Input exports reflect the current scenario",
       );
@@ -749,19 +758,25 @@ test.describe("chen-bands-units QA — export controls", () => {
       // ── unit= applies on a real click ────────────────────────────────────
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-export-distances-csv")).toBeEnabled();
+      await expect(page.getByTestId("button-download-distances")).toBeEnabled();
 
       await page.getByTestId("unit-toggle-mi").click();
       const [reqMi] = await Promise.all([
         page.waitForRequest(req => req.url().includes("/export") && req.method() === "GET"),
-        page.getByTestId("button-export-distances-csv").click(),
+        (async () => {
+          await page.getByTestId("button-download-distances").click();
+          await page.getByTestId("button-export-distances-csv").click();
+        })(),
       ]);
       expect(reqMi.url()).toContain("unit=mi");
 
       await page.getByTestId("unit-toggle-km").click();
       const [reqKm] = await Promise.all([
         page.waitForRequest(req => req.url().includes("/export") && req.method() === "GET"),
-        page.getByTestId("button-export-distances-csv").click(),
+        (async () => {
+          await page.getByTestId("button-download-distances").click();
+          await page.getByTestId("button-export-distances-csv").click();
+        })(),
       ]);
       expect(reqKm.url()).toContain("unit=km");
 

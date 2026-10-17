@@ -23,6 +23,7 @@
  * vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 
@@ -249,8 +250,10 @@ test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () 
       await expect(pageIndicator).toHaveText("Page 2 of 104");
 
       // Filter down to one specific base pair to isolate its row.
-      await page.getByTestId("input-filter-from").fill(warehouseId);
-      await page.getByTestId("input-filter-to").fill(customerId);
+      // SCU-2.P4.3 (B2.2) — FilterMenu text controls replace the From/To boxes.
+      await fillTableFilter(page, "from", warehouseId);
+      await fillTableFilter(page, "to", customerId);
+      await closePopover(page);
 
       const row = page.getByTestId(`row-distance-${warehouseId}-${customerId}`);
       await expect(row).toBeVisible({ timeout: HEADER_TIMEOUT });

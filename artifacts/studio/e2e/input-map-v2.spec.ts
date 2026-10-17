@@ -15,6 +15,7 @@
  * API_PROXY_TARGET) — see CLAUDE.md.
  */
 import { test, expect, type Page, type Locator } from "./fixtures";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 // Real CBC solve, not seeded — this test's whole point is the estimated-
@@ -81,6 +82,54 @@ function warehouseMarkers(page: Page): Locator {
 function emptyMapOffset(box: { width: number; height: number }): { x: number; y: number } {
   return { x: box.width * 0.94, y: box.height * 0.06 };
 }
+
+// SCU-2.P4.3 — P1 hand-off (Codex finding 6): jsdom proves only that the
+// focus jump picks the right page; this proves the row is really scrolled into
+// view in a browser, with a filter active beforehand that the jump must clear.
+test.describe("Distances focus jump on DataTable (SCU-2.P4.3, p-median-us)", () => {
+  test("the estimated-distance toast's jump clears an active filter, pages to the new warehouse and scrolls it into view", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    const id = await createPMedianScenario(page);
+    try {
+      const canvas = mapCanvas(page);
+      const box = (await canvas.boundingBox())!;
+      await canvas.click({ position: emptyMapOffset(box), button: "right" });
+      await page.getByTestId("map-add-menu-wh").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
+      const displayCode = (await page.getByTestId("create-entity-display-code").textContent())!.trim();
+      await page.getByTestId("create-entity-submit").click();
+      await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible();
+
+      // Unsaved draft carries across tabs: open Distances and filter everything out.
+      await page.getByTestId("sidebar-input-distances").click();
+      await expect(page.getByTestId("distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await fillTableFilter(page, "from", "zz-no-such-warehouse");
+      await closePopover(page);
+      await expect(page.locator('[data-testid^="row-distance-"]')).toHaveCount(0);
+
+      await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
+      const escapedCode = displayCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const toastItem = page.getByRole("region").locator("li").filter({
+        hasText: new RegExp(`distances? estimated for ${escapedCode}`),
+      });
+      await expect(toastItem).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await toastItem.getByRole("button", { name: "Distances" }).click();
+
+      // The filter was cleared…
+      await page.getByTestId("button-filter-menu-trigger").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-filter-from")).toHaveValue("");
+      await closePopover(page);
+      // …the pager moved off page 1 (the added warehouse's rows follow all 5,200 base pairs)…
+      await expect(page.getByTestId("distances-page-indicator")).not.toHaveText(/^Page 1 of/, { timeout: HEADER_TIMEOUT });
+      // …and the target row is actually on screen.
+      const target = page.locator('tr:has([data-testid^="badge-distance-estimated-"])').first();
+      await expect(target).toBeInViewport({ timeout: HEADER_TIMEOUT });
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+});
 
 test.describe("Input Map v2 — money path (p-median-us)", () => {
   test("add on map → Save → estimated-distance toast → Distances grid shows it → editing clears the chip → Run Optimizer solves", async ({ page }) => {
