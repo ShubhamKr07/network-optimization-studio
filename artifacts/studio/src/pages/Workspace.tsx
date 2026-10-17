@@ -4106,9 +4106,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
-            // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-            // true only on the JADE path.
-            enableFilters={modelId === "two-echelon-jade-us"}
             identityById={outputIdentityById}
           />
         );

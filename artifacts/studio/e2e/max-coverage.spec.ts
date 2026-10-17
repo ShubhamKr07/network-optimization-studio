@@ -44,6 +44,7 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 import { readSolvedAt } from "./helpers/solvedAt";
 // FU-8 — was a local `coverageInputs()`, byte-identical to
 // `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
@@ -182,6 +183,16 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await expect(page.getByTestId("open-warehouse-row-LA")).toBeVisible();
       await expect(page.getByTestId("open-warehouse-row-PIT")).toBeVisible();
       expect(await page.locator('[data-testid^="open-warehouse-row-"]').count()).toBe(3);
+      // SCU-2.P3.1 — Download ▾ (right of the toolbar): real CSV + JSON downloads carry
+      // every row; openWarehouses is the unitless v1 envelope (G-4).
+      const owCsv = await downloadVia(page, "button-download-open-warehouses", "button-download-open-warehouses-csv");
+      expect(owCsv.name).toBe("openWarehouses.csv");
+      expect(csvDataLines(owCsv.text)).toHaveLength(3);
+      const owJson = JSON.parse((await downloadVia(page, "button-download-open-warehouses", "button-download-open-warehouses-json")).text);
+      expect(owJson.entity).toBe("openWarehouses");
+      expect(typeof owJson.templateVersion).toBe("number");
+      expect("unit" in owJson).toBe(false);
+      expect(owJson.rows).toHaveLength(3);
 
       // The three opened facilities ARE Dallas / Los Angeles / Pittsburgh —
       // proven on the Warehouses input grid, which pairs each id with its
