@@ -127,10 +127,11 @@ export function frozenBandCoverageToExclusive(
   let raw: number[];
   if (shape === "cumulative") {
     raw = rows.map((r, i) => Math.max(0, r.percent - (i === 0 ? 0 : rows[i - 1].percent)));
-    // Zero total flow freezes as all-zero rows (no positive -1 row): keep it
-    // all-zero rather than inventing a 100% overflow.
-    const zeroFlow = rows.every(r => r.percent === 0) && !all.some(r => r.band === OVERFLOW_BAND && r.percent > 0);
-    raw.push(zeroFlow ? 0 : Math.max(0, 100 - rows[rows.length - 1].percent));
+    // ponytail: all-zero cumulative rows read as 100% overflow. p-median and
+    // transport never freeze a -1 row, so frozen rows cannot tell "all flow
+    // beyond the last boundary" from true zero flow (only uncapacitated
+    // p-median can freeze the latter); pass a flow signal in if that matters.
+    raw.push(Math.max(0, 100 - rows[rows.length - 1].percent));
   } else {
     raw = rows.map(r => Math.max(0, r.percent));
     const overflow = all.find(r => r.band === OVERFLOW_BAND);
