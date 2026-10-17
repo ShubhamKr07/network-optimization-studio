@@ -3753,3 +3753,8 @@ Plan: `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p2.md`. Spec: `do
 - Solver scripts: `e2e_accuracy.py` 99/99 passed; `e2e_journey.py delivery` 42/42; `transport` 42/42 (local API on port 3917, stopped).
 - Gate: typecheck + typecheck:e2e exit 0; api-server first run 2020 passed / 7 failed (jobRunnerDispatcher x2, resultEnvelope x3, dispatcherRecovery x1, all registry flakes, plus maxCoverageContract parity which was the real miss above), all green after fix/isolated re-runs x2; studio 2473 / 3 failed (DistancesTab, JadeDistancesTab, Studio, load flakes), 224/224 on two isolated re-runs; pytest 355 passed. Concurrent vitest before gate: 0. lib/db schema diff empty. e2e: sweep 2 hits (`delivery-teaching.spec.ts:188,242`, `sidebar-input-deliveryCosts`, unrelated), no rewrite, not run.
 - P2 complete — P3/P4 consume IMPORT_SCHEMAS, exampleCsv/exampleJsonDocument, MAX_IMPORT_BYTES, ImportDialog format, ImportError.rowIndex/field.
+
+### SCU-2.P1.5 — DistancesTab replica harness
+
+- `__tests__/DataTable.distancesReplica.test.tsx`: real `DistancesTab` vs a DataTable adapter on a 60-row fixture — identical COMPLETE testid multisets under `distances-tab` on pages 1 and 2 and in the empty state (>150 ids on page 1), identical headers and amber rows, filter trigger scoped to the replica's toolbar; only differences are B2.2's (From/To boxes removed, FilterMenu trigger added). Five built-in deliberate breaks (root, toolbar, filter trigger, table, row) each fail the comparison.
+- Gate: studio 2524 passed (139 files), api-server 2000 passed (2 load flakes, both pass isolated twice: jobRunnerDispatcher A2 crash-after-claim, resultEnvelope p-median-brazil), pytest 355 passed. e2e: n/a (test only).
