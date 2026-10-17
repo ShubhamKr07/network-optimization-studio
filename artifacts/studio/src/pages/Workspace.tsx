@@ -3867,6 +3867,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LaneCostsTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
           savedLaneCostOverrides={laneCostOverridesFromInputs(savedInputsRef.current)}

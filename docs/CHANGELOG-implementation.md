@@ -3914,3 +3914,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviation (user decision 2026-10-17): `filterResetKey: pref` on the Base and Override range columns (plan omitted it); RTL test sets an Override max, toggles unit, range cleared (fails without the key).
 - Deviations 3, 5, 6, 7, 15, 17, 19. Baseline: JadeDistancesTab.test + historyReadOnlyTabs 68 tests; after: 77 (3 files). New test fail-first against the old tab: 6 failed / 3 passed.
 - Gate: studio 2664 passed (146 files), import-schema 22 passed, api-server 2034 passed + 2 load-flake failures (`resultEnvelope` x2, 16/16 isolated x2), pytest full `-x` runs stopped at load-flake failures (see flake registry; `test_delivery.py` 29/29 x2 isolated). e2e (local 3405/5405, `E2E_BASE_URL` set): jade-two-echelon 1/1, jade-transport-costs 1/1.
+
+### SCU-2.P4.6 — Lane Costs on DataTable
+
+- `LaneCostsTab` on DataTable: FilterMenu replaces From/To (+ Cost range), pager > 50 (new), Upload ▾/Download ▾ (`laneCosts`), D2 read-only (cells, remove, add-row trigger and open add form), focus via DataTable (now also clears filters/pages), numbers centred.
+- Deviations 3, 6, 7, 15, 17, 19, plus the user decision of 2026-10-17: Cost is a unit-converted distance, so its range filter carries `filterResetKey: pref` (RTL test "Cost range filter resets when the display unit toggles"; deliberately removing the key fails it).
+- Counts: LaneCostsTab.test + historyReadOnlyTabs 45 before; with the new dataTable file 53 after (dataTable file 8; fail-first 5 failed / 2 passed against the pre-migration tab, then 8 pass).
+- Gate: studio 2672 (first full run 2 failed, second run all pass), api-server 6 failed/2030 passed full run (`cors`, `resultEnvelope` + 1 other; flake class, `cors`+`resultEnvelope` 19/19 x2 isolated), pytest 355 passed, import-schema 22 passed, typecheck + typecheck:e2e exit 0. e2e (local, `E2E_BASE_URL` set): bundle2-fastfollow.spec.ts 5/5 pass.

@@ -24,7 +24,7 @@ const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"
   DistancesTab: "readOnly", // SCU-2.P4.3
   LegDistancesTab: "readOnly", // SCU-2.P4.4
   JadeDistancesTab: "readOnly", // SCU-2.P4.5
-  LaneCostsTab: "pending", // SCU-2.P4.6
+  LaneCostsTab: "readOnly", // SCU-2.P4.6
   DeliveryCostsTab: "pending", // SCU-2.P4.7
   CapabilityMatrixTab: "pending", // SCU-2.P4.9
   PlantsTab: "pending", // SCU-2.P4.12
