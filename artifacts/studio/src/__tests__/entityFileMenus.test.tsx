@@ -10,7 +10,7 @@ import { IMPORT_SCHEMAS, exampleCsv, exampleJsonDocument } from "@workspace/impo
 import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { useEntityFileMenus, type EntityFileMenusOptions } from "@/components/data-table/useEntityFileMenus";
-import { allowedText, expectedFields, requiredText } from "@/components/data-table/ExpectedFieldsPanel";
+import { allowedText, expectedFields, ignoredForModel, requiredText } from "@/components/data-table/ExpectedFieldsPanel";
 
 const downloadEntityExport = vi.fn();
 vi.mock("@/lib/exportEntity", () => ({
@@ -120,10 +120,17 @@ describe("useEntityFileMenus (SCU-2.P4.1)", () => {
 });
 
 describe("expected-fields text (SCU-2.P4.1)", () => {
-  it("drops fields that do not apply to the model (warehouse capacity is p-median only)", () => {
-    expect(expectedFields("warehouses", "p-median-us").map(f => f.csvHeader)).toContain("capacity");
-    expect(expectedFields("warehouses", "delivery-teaching-us").map(f => f.csvHeader)).not.toContain("capacity");
+  it("lists every CSV column for every model; a non-applicable one is marked required-but-ignored (warehouse capacity is p-median only)", () => {
     expect(expectedFields("warehouses").map(f => f.csvHeader)).toContain("capacity");
+    const capacity = expectedFields("warehouses").find(f => f.csvHeader === "capacity")!;
+    expect(ignoredForModel(capacity, "p-median-us")).toBe(false);
+    expect(ignoredForModel(capacity, "delivery-teaching-us")).toBe(true);
+    expect(ignoredForModel(capacity)).toBe(false);
+    render(<Harness entity="warehouses" testIdEntity="warehouses" modelId="delivery-teaching-us" scenarioId={7} />, { wrapper: AllProviders });
+    fireEvent.click(screen.getByTestId("button-import-warehouses"));
+    const row = screen.getByTestId("expected-field-warehouses-capacity");
+    expect(row).toHaveTextContent("column required in the CSV");
+    expect(row).toHaveTextContent("value ignored for this model");
   });
 
   it("describes required-ness, enums, bounds and the unit column", () => {

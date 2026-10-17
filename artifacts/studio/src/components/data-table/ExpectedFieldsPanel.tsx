@@ -30,11 +30,15 @@ export function allowedText(f: ImportFieldDescriptor): string {
   return parts.length ? parts.join("; ") : "—";
 }
 
-/** Fields of the version export emits (the last one), minus those that do not apply to `modelId`. */
-export function expectedFields(entity: ImportEntity, modelId?: string): readonly ImportFieldDescriptor[] {
+/** Every field of the version export emits. The CSV importer requires an exact header with ALL of them (no model filter), so none may be hidden. */
+export function expectedFields(entity: ImportEntity): readonly ImportFieldDescriptor[] {
   const versions = IMPORT_SCHEMAS[entity].versions;
-  const fields = versions[versions.length - 1]!.fields;
-  return modelId ? fields.filter(f => !f.models || (f.models as readonly string[]).includes(modelId)) : fields;
+  return versions[versions.length - 1]!.fields;
+}
+
+/** True when the column must still be present in a CSV but its value is ignored for `modelId`. */
+export function ignoredForModel(f: ImportFieldDescriptor, modelId?: string): boolean {
+  return !!modelId && !!f.models && !(f.models as readonly string[]).includes(modelId);
 }
 
 export function ExpectedFieldsPanel({ entity, modelId }: { entity: ImportEntity; modelId?: string }) {
@@ -55,15 +59,18 @@ export function ExpectedFieldsPanel({ entity, modelId }: { entity: ImportEntity;
             </tr>
           </thead>
           <tbody>
-            {expectedFields(entity, modelId).map(f => (
-              <tr key={f.csvHeader} data-testid={`expected-field-${entity}-${f.csvHeader}`}>
-                <td className="pr-2 font-mono">{f.csvHeader}</td>
-                <td className="pr-2 font-mono">{f.jsonKey}</td>
-                <td className="pr-2">{f.type}</td>
-                <td className="pr-2">{requiredText(f)}</td>
-                <td>{allowedText(f)}</td>
-              </tr>
-            ))}
+            {expectedFields(entity).map(f => {
+              const ignored = ignoredForModel(f, modelId);
+              return (
+                <tr key={f.csvHeader} data-testid={`expected-field-${entity}-${f.csvHeader}`}>
+                  <td className="pr-2 font-mono">{f.csvHeader}</td>
+                  <td className="pr-2 font-mono">{f.jsonKey}</td>
+                  <td className="pr-2">{f.type}</td>
+                  <td className="pr-2">{ignored ? "column required in the CSV" : requiredText(f)}</td>
+                  <td>{ignored ? "value ignored for this model" : allowedText(f)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {canAdd && <p className="text-muted-foreground">Leave id blank to add a new row.</p>}

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
+import { DeleteRowButton, DistanceValueCell, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
-import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 export interface LegDistanceOverride {
   fromId: string;
@@ -74,63 +75,6 @@ interface LegDistancesTabProps {
 function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
 }
-
-// chen-bands-units, Task 12 — one row's Distance cell, a dedicated child
-// component for the same Rules-of-Hooks reason as DistancesTab's own
-// `DistanceOverrideCell` (`useDistanceDraft` must be called unconditionally
-// once per row-component-instance, not inline inside the parent's `.map()`,
-// whose row count changes across filter/pagination/add/remove renders).
-// Unlike DistancesTab's Override cell, every row here already has a real
-// value (this tab has no "blank until an override exists" state — an
-// existing override IS the row), so there's no blank-baseline special case,
-// and — matching the pre-existing `updateDistance`'s own behavior — an
-// invalid draft is simply never committed, with no separate error UI.
-function LegDistanceValueCell({
-  canonicalUnit,
-  currentValue,
-  resetKey,
-  onCommitValid,
-  inputTestId,
-  readOnly,
-}: {
-  canonicalUnit: CanonicalUnit | null;
-  currentValue: number;
-  resetKey: unknown;
-  onCommitValid: (canonicalValue: number) => void;
-  inputTestId: string;
-  readOnly: boolean;
-}) {
-  const draft = useDistanceDraft({
-    canonicalUnit,
-    value: currentValue,
-    resetKey,
-    presentation: "grouped",
-    onCommit: v => {
-      if (Number.isFinite(v) && v > 0) onCommitValid(v);
-    },
-  });
-  return (
-    <Input
-      type="text"
-      inputMode="decimal"
-      min={0}
-      value={draft.text}
-      disabled={readOnly || draft.disabled}
-      title={readOnly ? READ_ONLY_TITLE : undefined}
-      onChange={e => draft.onChange(e.target.value)}
-      onFocus={draft.onFocus}
-      onBlur={draft.commit}
-      onKeyDown={e => {
-        if (e.key === "Enter") draft.commit();
-        else if (e.key === "Escape") draft.discard();
-      }}
-      className="h-7 text-xs w-full min-w-24 font-mono"
-      data-testid={inputTestId}
-    />
-  );
-}
-
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // B6.2 stage 4 — two-echelon-gold-au's "Leg distances" grid tab, the
 // three-id-space analogue of B5.1's DistancesTab.tsx / Task 30's
@@ -292,7 +236,7 @@ export function LegDistancesTab({
       header: "From",
       kind: "text",
       filter: "text",
-      value: o => o.fromId,
+      value: o => resolvedDisplayId(o.fromId),
       cellClassName: "text-xs",
       cell: o => (
         <EntityIdCell entityId={o.fromId} displayId={resolvedDisplayId(o.fromId)} location={resolvedLocation(o.fromId)} />
@@ -303,7 +247,7 @@ export function LegDistancesTab({
       header: "To",
       kind: "text",
       filter: "text",
-      value: o => o.toId,
+      value: o => resolvedDisplayId(o.toId),
       cellClassName: "text-xs",
       cell: o => <EntityIdCell entityId={o.toId} displayId={resolvedDisplayId(o.toId)} location={resolvedLocation(o.toId)} />,
     },
@@ -316,7 +260,7 @@ export function LegDistancesTab({
       value: o => (canonicalUnit == null ? null : toDisplay(o.distance, canonicalUnit)),
       cell: o => (
         <div className="flex items-center justify-center gap-1.5">
-          <LegDistanceValueCell
+          <DistanceValueCell
             canonicalUnit={canonicalUnit}
             currentValue={o.distance}
             resetKey={scenarioId}
@@ -342,17 +286,7 @@ export function LegDistancesTab({
       filter: false,
       value: () => null,
       cell: o => (
-        <button
-          type="button"
-          aria-label={`Remove leg distance override ${o.fromId} → ${o.toId}`}
-          onClick={() => removeRow(o.fromId, o.toId)}
-          disabled={readOnly}
-          title={readOnly ? READ_ONLY_TITLE : undefined}
-          data-testid={`button-remove-legdistance-${o.fromId}-${o.toId}`}
-          className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <DeleteRowButton label={`Remove leg distance override ${o.fromId} → ${o.toId}`} onClick={() => removeRow(o.fromId, o.toId)} disabled={readOnly} testId={`button-remove-legdistance-${o.fromId}-${o.toId}`} />
       ),
     },
   ];
@@ -437,8 +371,7 @@ export function LegDistancesTab({
         rows={distanceOverrides}
         rowKey={o => pairKey(o.fromId, o.toId)}
         columns={columns}
-        ctx={{ readOnly, demandEditable: false, isChanged }}
-        rowClassName={(o, ctx) => (ctx.isChanged(o) ? "bg-amber-50" : undefined)}
+        rowClassName={(o) => (isChanged(o) ? "bg-amber-50" : undefined)}
         testIds={{
           toolbar: "legdistances-tab-toolbar",
           row: o => `row-legdistance-${o.fromId}-${o.toId}`,

@@ -260,7 +260,6 @@ export function MinesTab({
         rows={rows}
         rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
         columns={baseColumns}
-        ctx={{ readOnly, demandEditable: false, isAdded: r => r.added }}
         testIds={{
           toolbar: "mines-tab-toolbar",
           pagerPrev: "button-mines-prev",

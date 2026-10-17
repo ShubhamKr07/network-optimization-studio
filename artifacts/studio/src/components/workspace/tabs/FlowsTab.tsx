@@ -147,7 +147,6 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
           rows={rows}
           rowKey={flowRowKey}
           columns={columns}
-          ctx={{ readOnly: true, demandEditable: false }}
           testIds={{
             row: e => `flow-row-${flowRowKey(e)}`,
             pager: "flows-pager",

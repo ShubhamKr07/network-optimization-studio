@@ -199,7 +199,6 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
           rows={rows}
           rowKey={r => r.warehouseId}
           columns={columns}
-          ctx={{ readOnly: true, demandEditable: false }}
           testIds={{
             row: r => `open-warehouse-row-${r.warehouseId}`,
             pager: "open-warehouses-pager",

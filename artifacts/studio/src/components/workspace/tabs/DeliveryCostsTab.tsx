@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceCosts, getGetReferenceCostsQueryKey } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
+import { DeleteRowButton, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { Button } from "@/components/ui/button";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
@@ -65,7 +65,6 @@ interface MergedRow {
   override?: LaneCostOverride;
 }
 
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // One row's Cost cell — a plain controlled text input with local draft
 // state, committed on blur/Enter. NOT `useDistanceDraft` (see the file
@@ -124,7 +123,7 @@ function CostCell({
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") setDraft(null);
       }}
-      className="h-7 text-xs w-full min-w-24 font-mono"
+      className="h-7 text-xs w-full min-w-24 font-mono text-center"
       data-testid={inputTestId}
     />
   );
@@ -305,17 +304,7 @@ export function DeliveryCostsTab({
       value: () => null,
       cell: r =>
         (r.override || r.base == null) && (
-          <button
-            type="button"
-            aria-label={`Remove cost override ${r.fromId} → ${r.toId}`}
-            onClick={() => clearOverride(r)}
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_TITLE : undefined}
-            data-testid={`button-remove-deliverycost-${r.fromId}-${r.toId}`}
-            className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <DeleteRowButton label={`Remove cost override ${r.fromId} → ${r.toId}`} onClick={() => clearOverride(r)} disabled={readOnly} testId={`button-remove-deliverycost-${r.fromId}-${r.toId}`} />
         ),
     },
   ];
@@ -406,8 +395,7 @@ export function DeliveryCostsTab({
         rows={referenceQuery.isLoading || referenceQuery.isError ? [] : rows}
         rowKey={r => pairKey(r.fromId, r.toId)}
         columns={columns}
-        ctx={{ readOnly, demandEditable: false, isOverridden: r => r.override != null }}
-        rowClassName={(r, ctx) => (ctx.isOverridden(r) ? "bg-amber-50" : undefined)}
+        rowClassName={(r) => (r.override != null ? "bg-amber-50" : undefined)}
         testIds={{
           toolbar: "delivery-costs-tab-toolbar",
           row: r => `row-deliverycost-${r.fromId}-${r.toId}`,

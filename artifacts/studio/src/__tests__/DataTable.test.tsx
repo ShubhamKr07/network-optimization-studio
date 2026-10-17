@@ -3,7 +3,7 @@ import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataTable } from "@/components/data-table/DataTable";
-import type { ColumnDef, DataTableContext, DataTableFocus, DataTableProps } from "@/components/data-table/types";
+import type { ColumnDef, DataTableFocus, DataTableProps } from "@/components/data-table/types";
 
 interface Row {
   id: string;
@@ -14,9 +14,6 @@ interface Row {
 
 const makeRows = (n: number, prefix = "C"): Row[] =>
   Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i + 1}`, city: `City${i + 1}`, demand: (i + 1) * 10 }));
-
-// Editable-table default; output tables would pass readOnly: true.
-const CTX: DataTableContext<Row> = { readOnly: false, demandEditable: true };
 
 const columns: ColumnDef<Row>[] = [
   { id: "id", header: "ID", kind: "text", value: r => r.id, cell: r => <span data-testid={`id-${r.id}`}>{r.id}</span>, filter: "text" },
@@ -36,7 +33,6 @@ const columns: ColumnDef<Row>[] = [
 function renderTable(props: Partial<DataTableProps<Row>> = {}) {
   return render(
     <DataTable<Row>
-      ctx={CTX}
       rows={makeRows(3)}
       rowKey={r => r.id}
       columns={columns}
@@ -78,7 +74,6 @@ describe("DataTable — markup", () => {
   it("emits exactly the mapped testids and nothing else", () => {
     const { container } = render(
       <DataTable<Row>
-      ctx={CTX}
         rows={makeRows(2)}
         rowKey={r => r.id}
         columns={[{ id: "city", header: "City", kind: "text", value: r => r.city, cell: r => r.city }]}
@@ -100,50 +95,10 @@ describe("DataTable — markup", () => {
     expect(screen.getByTestId("cell-demand-C3")).toHaveTextContent("30");
   });
 
-  it("passes ctx (with defaults) to cell and rowClassName", () => {
-    const seen: unknown[] = [];
-    renderTable({
-      ctx: { readOnly: true, demandEditable: true, isChanged: r => r.id === "C2" },
-      rowClassName: (r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : undefined),
-      columns: [
-        {
-          id: "x",
-          header: "X",
-          kind: "text",
-          value: r => r.id,
-          cell: (r, ctx) => {
-            seen.push([ctx.readOnly, ctx.demandEditable, ctx.isAdded(r), ctx.isOverridden(r)]);
-            return r.id;
-          },
-        },
-      ],
-    });
+  it("passes the row to rowClassName", () => {
+    renderTable({ rowClassName: r => (r.id === "C2" ? "bg-amber-50" : undefined) });
     expect(screen.getByTestId("row-C2")).toHaveClass("bg-amber-50");
     expect(screen.getByTestId("row-C1")).not.toHaveClass("bg-amber-50");
-    expect(seen[0]).toEqual([true, true, false, false]);
-  });
-});
-
-describe("DataTable — ctx is required (D2 safety)", () => {
-  it("omitting ctx is a compile error, so an adapter cannot silently default readOnly to false", () => {
-    const element = (
-      // @ts-expect-error — `ctx` is required: readOnly and demandEditable must be passed explicitly.
-      <DataTable<Row> rows={[]} rowKey={r => r.id} columns={columns} />
-    );
-    expect(element).toBeTruthy(); // not rendered; the assertion is the @ts-expect-error under `pnpm run typecheck`
-  });
-
-  it("an adapter's readOnly reaches every cell", () => {
-    const seen: boolean[] = [];
-    render(
-      <DataTable<Row>
-        ctx={{ readOnly: true, demandEditable: false }}
-        rows={makeRows(3)}
-        rowKey={r => r.id}
-        columns={[{ id: "x", header: "X", kind: "text", value: r => r.id, cell: (_r, ctx) => (seen.push(ctx.readOnly && !ctx.demandEditable), null) }]}
-      />,
-    );
-    expect(seen).toEqual([true, true, true]);
   });
 });
 
@@ -193,14 +148,14 @@ describe("DataTable — filter", () => {
     ];
     const { rerender } = render(
       <DataTable<Row>
-      ctx={CTX} rows={makeRows(12)} rowKey={r => r.id} columns={cols(1)} testIds={{ row: r => `row-${r.id}` }} />,
+      rows={makeRows(12)} rowKey={r => r.id} columns={cols(1)} testIds={{ row: r => `row-${r.id}` }} />,
     );
     await user.click(screen.getByTestId("button-filter-menu-trigger"));
     await user.type(screen.getByTestId("input-filter-demand-min"), "100");
     await user.type(screen.getByTestId("input-filter-id"), "C1");
     expect(visibleIds()).toEqual(["row-C10", "row-C11", "row-C12"]);
     rerender(<DataTable<Row>
-      ctx={CTX} rows={makeRows(12)} rowKey={r => r.id} columns={cols(2)} testIds={{ row: r => `row-${r.id}` }} />);
+      rows={makeRows(12)} rowKey={r => r.id} columns={cols(2)} testIds={{ row: r => `row-${r.id}` }} />);
     // demand range cleared, id text filter "C1" kept → C1, C10, C11, C12
     expect(visibleIds()).toEqual(["row-C1", "row-C10", "row-C11", "row-C12"]);
   });
@@ -258,7 +213,7 @@ describe("DataTable — paging", () => {
         <>
           <button onClick={() => setRows(rs => rs.map(r => (r.id === "C55" ? { ...r, demand: 1 } : r)))}>edit</button>
           <DataTable<Row>
-      ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />
+      rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />
         </>
       );
     }
@@ -272,12 +227,12 @@ describe("DataTable — paging", () => {
   it("a NEW columns array with the same ids (adapter rebuilt per render) keeps the filter and the page", async () => {
     const user = userEvent.setup();
     const rows = makeRows(120);
-    const { rerender } = render(<DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />);
+    const { rerender } = render(<DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />);
     await user.click(screen.getByTestId("button-filter-menu-trigger"));
     await user.type(screen.getByTestId("input-filter-demand-min"), "100");
     await user.click(screen.getByTestId("t-next"));
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
-    rerender(<DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns.map(c => ({ ...c }))} testIds={pagerIds} />);
+    rerender(<DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns.map(c => ({ ...c }))} testIds={pagerIds} />);
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
     expect(visibleIds()[0]).toBe("row-C60"); // filter kept: unfiltered page 2 would start at C51
   });
@@ -291,7 +246,7 @@ describe("DataTable — page reset semantics (B2.2)", () => {
     return (
       <>
         <button onClick={() => setRows(mutate)}>mutate</button>
-        <DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={ids} />
+        <DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} testIds={ids} />
       </>
     );
   }
@@ -381,7 +336,6 @@ describe("DataTable — sections", () => {
   const sectioned = (rows: Row[]) =>
     render(
       <DataTable<Row>
-      ctx={CTX}
         rows={rows}
         rowKey={r => r.id}
         columns={columns}
@@ -434,7 +388,6 @@ describe("DataTable — sections", () => {
     const user = userEvent.setup();
     render(
       <DataTable<Row>
-      ctx={CTX}
         rows={[...makeRows(50), ...added]}
         rowKey={r => r.id}
         columns={columns}
@@ -459,7 +412,7 @@ describe("DataTable — focus jump", () => {
       <>
         <button onClick={() => setFocus({ token: Date.now(), matches: r => r.id === "C75" })}>jump</button>
         <DataTable<Row>
-      ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ row: r => `row-${r.id}`, pageIndicator: "t-ind" }} />
+      rows={rows} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ row: r => `row-${r.id}`, pageIndicator: "t-ind" }} />
       </>
     );
   }
@@ -485,7 +438,7 @@ describe("DataTable — focus jump", () => {
         <>
           <button onClick={() => setFocus({ token: 1, matches: () => false })}>jump</button>
           <DataTable<Row>
-      ctx={CTX} rows={makeRows(120)} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ pagerNext: "t-next", pageIndicator: "t-ind" }} />
+      rows={makeRows(120)} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ pagerNext: "t-next", pageIndicator: "t-ind" }} />
         </>
       );
     }
@@ -499,7 +452,7 @@ describe("DataTable — focus jump", () => {
 describe("DataTable — focus edge cases", () => {
   it("re-attempts an unmatched focus once the row appears, only while the token is unconsumed", async () => {
     const focus: DataTableFocus<Row> = { token: 7, matches: r => r.id === "C75" };
-    const props = { ctx: CTX, rowKey: (r: Row) => r.id, columns, focus, testIds: { row: (r: Row) => `row-${r.id}`, pageIndicator: "t-ind" } };
+    const props = { rowKey: (r: Row) => r.id, columns, focus, testIds: { row: (r: Row) => `row-${r.id}`, pageIndicator: "t-ind" } };
     const { rerender } = render(<DataTable<Row> {...props} rows={makeRows(60)} />);
     expect(screen.queryByTestId("row-C75")).toBeNull();
     (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
@@ -518,7 +471,7 @@ describe("DataTable — focus edge cases", () => {
     const spy = vi.spyOn(Element.prototype, "querySelectorAll");
     const sections = [{ id: "a", includes: (r: Row) => r.id === "C1" }];
     const focus: DataTableFocus<Row> = { token: 1, matches: r => r.id === "C2" };
-    const props = { ctx: CTX, rowKey: (r: Row) => r.id, columns, focus, sections };
+    const props = { rowKey: (r: Row) => r.id, columns, focus, sections };
     const { rerender } = render(<DataTable<Row> {...props} rows={makeRows(3)} />);
     spy.mockClear();
     rerender(<DataTable<Row> {...props} rows={makeRows(3)} />);
@@ -538,7 +491,6 @@ describe("DataTable — no filterable column (SCU-2.P3.7)", () => {
         rows={makeRows(12)}
         rowKey={r => r.id}
         columns={[{ id: "city", header: "City", kind: "text", value: r => r.city, cell: r => r.city, filter: false }]}
-        ctx={{ readOnly: true, demandEditable: false }}
       />,
     );
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();

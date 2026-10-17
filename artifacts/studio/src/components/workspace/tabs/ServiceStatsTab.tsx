@@ -371,7 +371,6 @@ export function ServiceStatsTab({
             rows={plantProductionRows}
             rowKey={r => `${r.plantId}|${r.productId}`}
             columns={plantProductionCols}
-            ctx={{ readOnly: true, demandEditable: false }}
             testIds={{
               row: r => `row-plant-production-${r.plantId}-${r.productId}`,
               pager: "plant-production-pager",

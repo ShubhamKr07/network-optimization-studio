@@ -75,6 +75,8 @@ interface CustomersTabProps {
    * gated by this — an added region has no textbook demand to protect.
    * Defaults true, unaffected for every existing caller. */
   demandEditable?: boolean;
+  /** D30 — whole-number demand (max-coverage-us): scalar demand cells and the Add dialog reject ".". */
+  integerDemand?: boolean;
   /** T11 (Chapter 9 JADE) — presence (non-empty array) is what switches this
    * whole component into per-product demand mode: base rows render one
    * demand column per product instead of `CustomerTable`'s single scalar
@@ -146,6 +148,7 @@ export function CustomersTab({
   onDeleteCustomer,
   precheckErrors = [],
   demandEditable = true,
+  integerDemand = false,
   products = [],
   productOverrides = [],
   onProductOverridesChange,
@@ -338,6 +341,7 @@ export function CustomersTab({
             cell: r => (
               <DemandCell
                 suffix="Units"
+                integer={integerDemand}
                 value={r.demand}
                 clearCommits={!added}
                 onCommit={v =>
@@ -426,7 +430,6 @@ export function CustomersTab({
         rows={rows}
         rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
         columns={baseColumns}
-        ctx={{ readOnly: disabled, demandEditable, isAdded: r => r.added }}
         testIds={{
           toolbar: "customers-tab-toolbar",
           pagerPrev: "button-customers-prev",
@@ -472,6 +475,7 @@ export function CustomersTab({
           source="table"
           readOnly={disabled}
           entityKind="customer"
+          integerDemand={integerDemand}
           hasStateColumn={hasStateColumn}
           products={productMode ? products : undefined}
           existingCodes={addedCustomers.map(c => c.displayCode).filter((c): c is string => !!c)}

@@ -7,6 +7,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import type { CanonicalUnit } from "@workspace/units";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { FormattedNumberInput } from "./FormattedNumberInput";
 
 export const READ_ONLY_TITLE = "Read-only while browsing result history.";
@@ -91,7 +93,11 @@ export function DraftNumberInput({
 }) {
   const shown = value == null ? "" : String(value);
   const [draft, setDraft] = useState<{ raw: string; committed: string } | null>(null);
-  if (draft !== null && draft.committed !== shown) setDraft(null);
+  // Drop the draft on an external change, or when the keystroke text no longer
+  // reads back as the saved value (parse clamped it: "-5" saved as 0).
+  if (draft !== null && (draft.committed !== shown || (draft.raw === "" ? shown !== "" : Number(draft.raw) !== Number(shown)))) {
+    setDraft(null);
+  }
   return (
     <Input
       type="number"
@@ -107,7 +113,7 @@ export function DraftNumberInput({
       disabled={disabled}
       title={disabled ? READ_ONLY_TITLE : undefined}
       placeholder={placeholder}
-      className="h-7 text-xs w-full min-w-24 font-mono"
+      className="h-7 text-xs w-full min-w-24 font-mono text-center"
       data-testid={testId}
     />
   );
@@ -164,8 +170,56 @@ export function DemandCell({
       disabled={disabled}
       title={title}
       placeholder={placeholder}
-      className="h-7 text-xs font-mono min-w-24"
+      className="h-7 text-xs font-mono min-w-24 text-center"
       data-testid={testId}
+    />
+  );
+}
+
+/** A distance (or distance-valued cost) cell: `useDistanceDraft` once per row
+ * instance. Every row already holds a real value and an invalid draft is
+ * simply never committed. Shared by the Lane costs and Leg distances tabs. */
+export function DistanceValueCell({
+  canonicalUnit,
+  currentValue,
+  resetKey,
+  onCommitValid,
+  inputTestId,
+  readOnly,
+}: {
+  canonicalUnit: CanonicalUnit | null;
+  currentValue: number;
+  resetKey: unknown;
+  onCommitValid: (canonicalValue: number) => void;
+  inputTestId: string;
+  readOnly: boolean;
+}) {
+  const draft = useDistanceDraft({
+    canonicalUnit,
+    value: currentValue,
+    resetKey,
+    presentation: "grouped",
+    onCommit: v => {
+      if (Number.isFinite(v) && v > 0) onCommitValid(v);
+    },
+  });
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      min={0}
+      value={draft.text}
+      disabled={readOnly || draft.disabled}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
+      onChange={e => draft.onChange(e.target.value)}
+      onFocus={draft.onFocus}
+      onBlur={draft.commit}
+      onKeyDown={e => {
+        if (e.key === "Enter") draft.commit();
+        else if (e.key === "Escape") draft.discard();
+      }}
+      className="h-7 text-xs w-full min-w-24 font-mono text-center"
+      data-testid={inputTestId}
     />
   );
 }

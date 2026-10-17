@@ -215,7 +215,6 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
           rows={rows}
           rowKey={r => r.customerId}
           columns={columns}
-          ctx={{ readOnly: true, demandEditable: false }}
           testIds={{
             row: r => `assignment-row-${r.customerId}`,
             pager: "assignments-pager",

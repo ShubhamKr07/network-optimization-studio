@@ -263,7 +263,6 @@ export function StationsTab({
         rows={rows}
         rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
         columns={baseColumns}
-        ctx={{ readOnly, demandEditable: true, isAdded: r => r.added }}
         testIds={{
           toolbar: "stations-tab-toolbar",
           pagerPrev: "button-stations-prev",

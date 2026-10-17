@@ -268,7 +268,6 @@ export function JadeAssignmentsTab({
           rows={rows}
           rowKey={r => r.key}
           columns={columns}
-          ctx={{ readOnly: true, demandEditable: false }}
           testIds={{
             row: r => `row-jadeassignment-${r.key}`,
             count: "text-jadeassignments-count",

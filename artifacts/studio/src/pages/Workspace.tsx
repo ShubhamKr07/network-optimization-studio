@@ -77,9 +77,9 @@ import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
 import type { StationOverride } from "@/components/tables/StationTable";
+import { hasIntegerCustomerDemand } from "@/lib/integerDemand";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
-import type { LegDistanceOverride } from "@/components/workspace/tabs/LegDistancesTab";
 import type { CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
 import type {
   MapWarehouse,
@@ -3636,6 +3636,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // model here defaults true. Never applied to the "Added customers"
           // section below (a new region has no textbook demand to protect).
           demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+          // D30 — max-coverage-us demand is a whole-number domain (manifest-derived).
+          integerDemand={hasIntegerCustomerDemand(activeModelManifest?.inputsSchema)}
           // B5.2/B6.2 — addedCustomers used to be a p-median-us-only concept
           // (twoEchelonInputsSchema had no such field); B6.2 gave
           // two-echelon-gold-au its own real addedCustomers field with the

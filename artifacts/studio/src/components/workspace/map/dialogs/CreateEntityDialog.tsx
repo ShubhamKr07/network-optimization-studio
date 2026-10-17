@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
+import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
 import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -357,33 +359,13 @@ function MapCreateEntityDialog({
 
 export type CreateEntityKind = "warehouse" | "customer" | "plant" | "mine" | "station" | "refinery";
 
-export interface AddedMineInput {
-  id: string;
-  displayCode?: string;
-  city: string;
-  state: string;
-  lat: number;
-  lng: number;
-  capacity?: number | null;
-}
-
-export interface AddedStationInput {
-  id: string;
-  displayCode?: string;
-  city: string;
-  state: string;
-  lat: number;
-  lng: number;
-  demand: number;
-}
-
 export type CreateEntitySubmit =
   | { kind: "warehouse"; entity: AddedWarehouseInput }
   | { kind: "refinery"; entity: AddedWarehouseInput }
   | { kind: "customer"; entity: AddedCustomerInput & { demands?: Record<string, number> } }
   | { kind: "plant"; entity: AddedPlantInput }
-  | { kind: "mine"; entity: AddedMineInput }
-  | { kind: "station"; entity: AddedStationInput };
+  | { kind: "mine"; entity: AddedMine }
+  | { kind: "station"; entity: AddedStation };
 
 interface TableCreateEntityDialogProps {
   source: "table";
@@ -392,6 +374,8 @@ interface TableCreateEntityDialogProps {
   capacityMode?: "none" | "uniform" | "per_wh";
   /** false → no State field and "City is required." (WarehousesTab/CustomersTab `hasStateColumn`). */
   hasStateColumn?: boolean;
+  /** D30: whole-number scalar demand (max-coverage-us customers). Stations are always integer. */
+  integerDemand?: boolean;
   /** JADE: one required demand field per product instead of the scalar demand. */
   products?: ReadonlyArray<{ id: string; name: string }>;
   /** Display codes already used by this entity's ADDED rows (collision check + derivation). */
@@ -427,6 +411,7 @@ function TableCreateEntityDialog({
   entityKind,
   capacityMode,
   hasStateColumn = true,
+  integerDemand = false,
   products = [],
   existingCodes,
   onCreate,
@@ -682,7 +667,7 @@ function TableCreateEntityDialog({
                   value={demand}
                   onChange={setDemand}
                   suffix={entityKind === "station" ? "tons" : "Units"}
-                  integer={entityKind === "station"}
+                  integer={entityKind === "station" || integerDemand}
                   className="font-mono"
                   disabled={readOnly}
                   title={readOnly ? READ_ONLY_TITLE : undefined}

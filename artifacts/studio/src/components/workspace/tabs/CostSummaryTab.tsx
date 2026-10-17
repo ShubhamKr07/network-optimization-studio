@@ -586,7 +586,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             rows={summaryRows}
             rowKey={r => r.label}
             columns={summaryColumns(ownName)}
-            ctx={{ readOnly: true, demandEditable: false }}
             testIds={{ table: "cost-summary-list" }}
           />
         </div>
@@ -833,7 +832,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           rows={compareRows}
           rowKey={r => r.key}
           columns={compareColumns(compareScenarios)}
-          ctx={{ readOnly: true, demandEditable: false }}
           footer={
             !sharedBands && (
               <p className="text-xs text-muted-foreground p-2" data-testid="cost-summary-compare-bands-note">

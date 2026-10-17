@@ -3,6 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
 import { isCellEnabled, cellCapacity, type CapabilityOverride } from "@/lib/jadeCapability";
+import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 
 // T11 (Chapter 9 JADE) — matches `jadeInputsSchema`'s
@@ -62,7 +63,6 @@ interface CapabilityMatrixTabProps {
 // A single text descriptor covers name/id/city/state via one combined
 // search string (mirrors JadeDistancesTab's own `searchText` helper), plus
 // a select descriptor on State for a quick narrow-down.
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // SCU-2.P4.9 (B2.1/B2.2) — the plants × products pivot on the shared
 // DataTable. The plant search text and the filter-only `state` select are
@@ -173,7 +173,6 @@ export function CapabilityMatrixTab({
         rows={plants}
         rowKey={plant => plant.id}
         columns={columns}
-        ctx={{ readOnly, demandEditable: false }}
         testIds={{ row: plant => `row-capability-${plant.id}`, count: "text-capability-count" }}
         toolbar={{
           extra: (

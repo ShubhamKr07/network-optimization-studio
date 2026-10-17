@@ -14,10 +14,9 @@ import { cn } from "@/lib/utils";
 import { deriveFilterDescriptors, FILTER_ROW_THRESHOLD } from "./deriveFilterDescriptors";
 import { PAGE_SIZE, pageResetKey, usePagedRows } from "./usePagedRows";
 import { TablePager } from "./TablePager";
-import type { CellContext, ColumnDef, DataTableProps, DataTableSection } from "./types";
+import type { ColumnDef, DataTableProps, DataTableSection } from "./types";
 
 const KEY_SEP = "\u0000";
-const never = () => false;
 
 export function DataTable<T>({
   rows,
@@ -25,7 +24,6 @@ export function DataTable<T>({
   columns,
   testIds = {},
   rowClassName,
-  ctx: ctxIn,
   toolbar,
   emptyState,
   noMatchText = "No rows match the current filter.",
@@ -34,14 +32,6 @@ export function DataTable<T>({
   scrollClassName,
   footer,
 }: DataTableProps<T>) {
-  const ctx: CellContext<T> = {
-    readOnly: ctxIn.readOnly,
-    demandEditable: ctxIn.demandEditable,
-    isOverridden: ctxIn.isOverridden ?? never,
-    isChanged: ctxIn.isChanged ?? never,
-    isAdded: ctxIn.isAdded ?? never,
-  };
-
   // Pipeline (B2.2, fixed order): effective rows (adapter) → filter → clamp page → slice 50.
   const descriptors = useMemo(() => deriveFilterDescriptors(columns, rows), [columns, rows]);
   const tableFilters = useTableFilters(rows, descriptors);
@@ -129,14 +119,14 @@ export function DataTable<T>({
           {bodyRows.map(row => {
             const key = rowKey(row);
             return (
-              <TableRow key={key} data-row-key={key} data-testid={opts.rowTestId?.(row)} className={rowClassName?.(row, ctx)}>
+              <TableRow key={key} data-row-key={key} data-testid={opts.rowTestId?.(row)} className={rowClassName?.(row)}>
                 {cols.map(c => (
                   <TableCell
                     key={c.id}
                     className={cn("px-3 py-1.5", c.kind === "number" && "text-center", c.cellClassName)}
                     data-testid={c.cellTestId?.(row)}
                   >
-                    {c.cell(row, ctx)}
+                    {c.cell(row)}
                   </TableCell>
                 ))}
               </TableRow>

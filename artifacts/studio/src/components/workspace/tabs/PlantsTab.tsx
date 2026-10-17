@@ -183,7 +183,6 @@ export function PlantsTab({
         rows={rows}
         rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
         columns={columns}
-        ctx={{ readOnly, demandEditable: false, isAdded: r => r.added }}
         testIds={{
           toolbar: "plants-tab-toolbar",
           pagerPrev: "button-plants-prev",

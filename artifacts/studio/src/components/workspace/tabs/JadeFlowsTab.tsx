@@ -398,7 +398,6 @@ export function JadeFlowsTab({
           rows={rows}
           rowKey={r => r.key}
           columns={columns}
-          ctx={{ readOnly: true, demandEditable: false }}
           testIds={{
             root: `jade-flows-${short}-table`,
             row: r => `jade-flow-${short}-row-${rowTestIdSuffix(r)}`,

@@ -14,28 +14,6 @@ export type ColumnFilterKind = "text" | "select" | "range";
 /** Raw value used for filtering and client export — never display text. */
 export type CellValue = string | number | null;
 
-/** What an adapter passes as `ctx`. `readOnly` and `demandEditable` are REQUIRED so an
- * adapter can never silently drop D2 history protection or the Brazil demand lock;
- * the row predicates default to "never" (no highlighting). */
-export interface DataTableContext<T> {
-  readOnly: boolean;
-  demandEditable: boolean;
-  isOverridden?: (row: T) => boolean;
-  isChanged?: (row: T) => boolean;
-  isAdded?: (row: T) => boolean;
-}
-
-/** Passed to every `cell` and `rowClassName` call (the adapter's ctx with predicates filled). */
-export interface CellContext<T> {
-  /** History browsing: every editable cell in base, added and JADE rows is disabled (D2). */
-  readOnly: boolean;
-  /** Brazil base demand lock (`!demandEditable` applies to base demand only). */
-  demandEditable: boolean;
-  isOverridden: (row: T) => boolean;
-  isChanged: (row: T) => boolean;
-  isAdded: (row: T) => boolean;
-}
-
 export interface ColumnDef<T> {
   /** Stable id. Also the filter descriptor key, so FilterMenu emits
    * `filter-control-{id}`, `input-filter-{id}`, `checkbox-filter-{id}-{value}`. */
@@ -44,7 +22,7 @@ export interface ColumnDef<T> {
   /** FilterMenu label. Defaults to `header` when it is a string, else `id`. */
   filterLabel?: string;
   kind: ColumnKind;
-  cell: (row: T, ctx: CellContext<T>) => ReactNode;
+  cell: (row: T) => ReactNode;
   value: (row: T) => CellValue;
   /** Overrides auto-derivation; `false` = this column is not filterable. */
   filter?: false | ColumnFilterKind;
@@ -136,9 +114,7 @@ export interface DataTableProps<T> {
   /** May be rebuilt each render; DataTable/FilterMenu must not key effects on this array's identity. */
   columns: ColumnDef<T>[];
   testIds?: DataTableTestIds<T>;
-  rowClassName?: (row: T, ctx: CellContext<T>) => string | undefined;
-  /** Required. Output tables pass `{ readOnly: true, demandEditable: false }` or the live flags. */
-  ctx: DataTableContext<T>;
+  rowClassName?: (row: T) => string | undefined;
   toolbar?: DataTableToolbar;
   /** Rendered INSTEAD of table(s)/pager when `rows` is empty (toolbar slots still render).
    * With `sections` and no top-level emptyState, each section's own emptyState renders instead. */

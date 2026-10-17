@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
-import { roundForFile, type CanonicalUnit } from "@workspace/units";
+import type { CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
+import { DeleteRowButton, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
@@ -192,7 +193,7 @@ function DistanceOverrideCell({
           else if (e.key === "Escape") draft.discard();
         }}
         aria-invalid={error ? "true" : undefined}
-        className={`h-7 text-xs w-full min-w-24 font-mono ${error ? "border-destructive" : ""}`}
+        className={`h-7 text-xs w-full min-w-24 font-mono text-center ${error ? "border-destructive" : ""}`}
         data-testid={inputTestId}
       />
       {error && (
@@ -204,7 +205,6 @@ function DistanceOverrideCell({
   );
 }
 
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // Bundle 6.1, T2 — one row of the merged base+override table. `base === null`
 // means there's genuinely no reference pair for this (fromId, toId) — either
@@ -480,17 +480,7 @@ export function DistancesTab({
       value: () => null,
       cell: r =>
         (r.override || r.base == null) && (
-          <button
-            type="button"
-            aria-label={`Remove distance override ${r.fromId} → ${r.toId}`}
-            onClick={() => clearOverride(r)}
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_TITLE : undefined}
-            data-testid={`button-remove-distance-${r.fromId}-${r.toId}`}
-            className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <DeleteRowButton label={`Remove distance override ${r.fromId} → ${r.toId}`} onClick={() => clearOverride(r)} disabled={readOnly} testId={`button-remove-distance-${r.fromId}-${r.toId}`} />
         ),
     },
   ];
@@ -608,8 +598,7 @@ export function DistancesTab({
       rows={mergedRowsAll}
       rowKey={r => pairKey(r.fromId, r.toId)}
       columns={columns}
-      ctx={{ readOnly, demandEditable: false, isChanged: isChangedRow }}
-      rowClassName={(r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
+      rowClassName={(r) => (isChangedRow(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
       testIds={{
         toolbar: "distances-tab-toolbar",
         row: r => `row-distance-${r.fromId}-${r.toId}`,
@@ -624,13 +613,13 @@ export function DistancesTab({
         <p className="text-sm text-muted-foreground">No distance overrides yet — add one below, or upload a CSV/JSON file.</p>
       }
       // Phase 3.2 Task 4 — the precheck toast's "jump to it": clear filters,
-      // go to the target's page, scroll it into view. The row count is in the
-      // token so a jump requested before the reference matrix loads re-runs
-      // once it has (today's effect depended on the merged row list too).
+      // go to the target's page, scroll it into view. A jump requested before the
+      // reference matrix loads is retried by DataTable when `rows` changes
+      // (the token must NOT include the row count: add/delete would re-fire it).
       focus={
         focusEntityId
           ? {
-              token: `${focusEntityId}|${mergedRowsAll.length}`,
+              token: focusEntityId,
               matches: r => r.fromId === focusEntityId || r.toId === focusEntityId,
             }
           : null

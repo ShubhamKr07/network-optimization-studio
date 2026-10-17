@@ -133,7 +133,7 @@ function TransportCostField({
           if (e.key === "Enter") draft.commit();
           else if (e.key === "Escape") draft.discard();
         }}
-        className="h-8 w-full min-w-28 text-sm font-mono"
+        className="h-8 w-full min-w-28 text-sm font-mono text-center"
         data-testid={inputTestId}
       />
       {error && (
@@ -281,7 +281,6 @@ export function TransportCostsTab({
         rows={legs}
         rowKey={leg => leg.key}
         columns={columns}
-        ctx={{ readOnly: disabled, demandEditable: false }}
         testIds={{ row: leg => `row-transport-${leg.key}` }}
       />
 
@@ -292,7 +291,7 @@ export function TransportCostsTab({
       <Button
         size="sm"
         variant="outline"
-        className="h-7 px-2 text-xs"
+        className="h-auto min-h-7 whitespace-normal px-2 py-1 text-xs"
         disabled={disabled || !isCustom}
         title={disabled ? READ_ONLY_TITLE : undefined}
         onClick={onReset}

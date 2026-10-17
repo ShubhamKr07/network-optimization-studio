@@ -11,13 +11,9 @@ import { fileURLToPath } from "node:url";
 // Workspace.tsx to pass the live history flag. This scans every mount, so a
 // table that forgets the prop — or a new mount of a listed tab — fails here.
 //
-// Each P4 migration task flips its tab from "pending" to the prop it wires;
-// "pending" also asserts the prop is still ABSENT, so the flip is a
-// deliberate, reviewed edit. The last migration (SCU-2.P4.14) adds the
-// assertion that nothing is left pending.
 const WORKSPACE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../pages/Workspace.tsx");
 
-const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"> = {
+const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled"> = {
   WarehousesTab: "disabled", // warehouses + refineries mounts (pre-existing)
   CustomersTab: "disabled", // pre-existing
   TransportCostsTab: "disabled", // pre-existing
@@ -50,16 +46,8 @@ describe("Workspace — every input tab mount receives the history flag (D2)", (
     const found = mounts(src, name);
     expect(found.length, `${name} is not mounted in Workspace.tsx`).toBeGreaterThan(0);
     for (const m of found) {
-      if (prop === "pending") {
-        expect(m).not.toMatch(/\b(readOnly|disabled)=\{isBrowsingHistoryNow\}/);
-      } else {
-        expect(m).toContain(`${prop}={isBrowsingHistoryNow}`);
-      }
+      expect(m).toContain(`${prop}={isBrowsingHistoryNow}`);
     }
-  });
-
-  it("no input tab is left pending (every P4 migration wired its flag)", () => {
-    expect(Object.entries(INPUT_TAB_HISTORY_PROP).filter(([, prop]) => prop === "pending")).toEqual([]);
   });
 
   it("the mount scanner is not vacuous: it finds both WarehousesTab mounts", () => {

@@ -339,7 +339,6 @@ export function WarehousesTab({
         rows={rows}
         rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
         columns={baseColumns}
-        ctx={{ readOnly: disabled, demandEditable: false, isAdded: r => r.added }}
         testIds={{
           toolbar: `${entity}-tab-toolbar`,
           pagerPrev: `button-${entity}-prev`,

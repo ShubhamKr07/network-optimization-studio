@@ -1,15 +1,16 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
+import { DeleteRowButton, DistanceValueCell, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
-import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 export interface LaneCostOverride {
   fromId: string;
@@ -69,58 +70,6 @@ interface LaneCostsTabProps {
 function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
 }
-
-// chen-bands-units, Task 12 — one row's Cost cell. Dedicated child component
-// for the same Rules-of-Hooks reason as the sibling tabs' own per-row cells.
-// `cost` here is semantically a DISTANCE (see the prop comment above) — it
-// routes through the identical `useDistanceDraft` contract as every other
-// tab's distance field, not a special-cased "it's just a cost" path.
-function LaneCostValueCell({
-  canonicalUnit,
-  currentValue,
-  resetKey,
-  onCommitValid,
-  inputTestId,
-  readOnly,
-}: {
-  canonicalUnit: CanonicalUnit | null;
-  currentValue: number;
-  resetKey: unknown;
-  onCommitValid: (canonicalValue: number) => void;
-  inputTestId: string;
-  readOnly: boolean;
-}) {
-  const draft = useDistanceDraft({
-    canonicalUnit,
-    value: currentValue,
-    resetKey,
-    presentation: "grouped",
-    onCommit: v => {
-      if (Number.isFinite(v) && v > 0) onCommitValid(v);
-    },
-  });
-  return (
-    <Input
-      type="text"
-      inputMode="decimal"
-      min={0}
-      value={draft.text}
-      disabled={readOnly || draft.disabled}
-      title={readOnly ? READ_ONLY_TITLE : undefined}
-      onChange={e => draft.onChange(e.target.value)}
-      onFocus={draft.onFocus}
-      onBlur={draft.commit}
-      onKeyDown={e => {
-        if (e.key === "Enter") draft.commit();
-        else if (e.key === "Escape") draft.discard();
-      }}
-      className="h-7 text-xs w-full min-w-24 font-mono"
-      data-testid={inputTestId}
-    />
-  );
-}
-
-const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // Task 30 (B6.1 stage 4) — transport-coal's "Lane costs" grid tab, the
 // mine/station analogue of B5.1's DistancesTab.tsx (long-format
@@ -245,7 +194,7 @@ export function LaneCostsTab({
       filterLabel: "From",
       kind: "text",
       filter: "text",
-      value: o => o.fromId,
+      value: o => resolvedDisplayId(o.fromId),
       cellClassName: "text-xs",
       cell: o => (
         <div className="flex items-center gap-1">
@@ -267,7 +216,7 @@ export function LaneCostsTab({
       filterLabel: "To",
       kind: "text",
       filter: "text",
-      value: o => o.toId,
+      value: o => resolvedDisplayId(o.toId),
       cellClassName: "text-xs",
       cell: o => (
         <div className="flex items-center gap-1">
@@ -292,7 +241,7 @@ export function LaneCostsTab({
       value: o => (canonicalUnit == null ? null : toDisplay(o.cost, canonicalUnit)),
       cell: o => (
         <div className="flex items-center justify-center gap-1.5">
-          <LaneCostValueCell
+          <DistanceValueCell
             canonicalUnit={canonicalUnit}
             currentValue={o.cost}
             resetKey={scenarioId}
@@ -318,17 +267,7 @@ export function LaneCostsTab({
       filter: false,
       value: () => null,
       cell: o => (
-        <button
-          type="button"
-          aria-label={`Remove lane cost override ${o.fromId} → ${o.toId}`}
-          onClick={() => removeRow(o.fromId, o.toId)}
-          disabled={readOnly}
-          title={readOnly ? READ_ONLY_TITLE : undefined}
-          data-testid={`button-remove-lanecost-${o.fromId}-${o.toId}`}
-          className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <DeleteRowButton label={`Remove lane cost override ${o.fromId} → ${o.toId}`} onClick={() => removeRow(o.fromId, o.toId)} disabled={readOnly} testId={`button-remove-lanecost-${o.fromId}-${o.toId}`} />
       ),
     },
   ];
@@ -409,8 +348,7 @@ export function LaneCostsTab({
         rows={laneCostOverrides}
         rowKey={o => pairKey(o.fromId, o.toId)}
         columns={columns}
-        ctx={{ readOnly, demandEditable: false, isChanged }}
-        rowClassName={(o, ctx) => (ctx.isChanged(o) ? "bg-amber-50" : undefined)}
+        rowClassName={(o) => (isChanged(o) ? "bg-amber-50" : undefined)}
         testIds={{
           toolbar: "lanecosts-tab-toolbar",
           row: o => `row-lanecost-${o.fromId}-${o.toId}`,
