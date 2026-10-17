@@ -46,6 +46,7 @@ export const IMPORT_ENTITIES = [
   "legDistances",
   "plants",
   "plantCapabilities",
+  "deliveryCosts",
 ] as const;
 export type ImportEntity = (typeof IMPORT_ENTITIES)[number];
 
@@ -234,6 +235,15 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     addModels: [],
     versions: pairVersions("kalgoorlie", "cunnamulla", distanceValue("1500"), true),
     exportOnlyJsonKeys: ["overridden"],
+  },
+  deliveryCosts: {
+    entity: "deliveryCosts",
+    models: ["delivery-teaching-us"],
+    addModels: [],
+    // D1: sparse overrides of inputs.laneCostOverrides. cost = BILLABLE MILES, never
+    // unit-converted: v1 only and no unitFamily (unlike laneCosts).
+    versions: pairVersions("W8", "C269", field({ csvHeader: "cost", type: "number", ...ALWAYS, min: 0, example: "1047.7157" }), false),
+    exportOnlyJsonKeys: [],
   },
   plants: {
     entity: "plants",

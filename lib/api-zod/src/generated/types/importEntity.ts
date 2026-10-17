@@ -23,4 +23,5 @@ export const ImportEntity = {
   legDistances: 'legDistances',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
 } as const;

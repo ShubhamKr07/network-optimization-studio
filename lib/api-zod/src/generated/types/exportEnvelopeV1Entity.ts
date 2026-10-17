@@ -17,5 +17,6 @@ export const ExportEnvelopeV1Entity = {
   refineries: 'refineries',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
   openWarehouses: 'openWarehouses',
 } as const;

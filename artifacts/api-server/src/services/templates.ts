@@ -20,6 +20,7 @@ import {
   OVERFLOW_BAND,
 } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, csvColumns } from "@workspace/import-schema";
 
 // D4.1 export. CSV format choice: plain columns with template_version
@@ -1268,6 +1269,25 @@ export function laneCostRowsToCsv(
   const lines = rows.map(r =>
     [r.templateVersion, r.unit, r.fromId, r.toId, r.cost ?? ""].join(","),
   );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// SCU-2.P2.3 (B2.7, D1) - delivery-teaching-us's laneCostOverrides as an
+// import/export entity. SPARSE (only overridden pairs). `cost` is billable
+// miles and is never unit-converted: v1 unitless, no `unit` field (unlike
+// transport laneCosts).
+export interface DeliveryCostRow { fromId: string; toId: string; cost: number; }
+
+/** Drops redundant overrides (cost equal to base), so the export is the true sparse diff. */
+export function applyDeliveryCostOverrides(overrides: Array<{ fromId: string; toId: string; cost: number }>): DeliveryCostRow[] {
+  return overrides
+    .filter(o => o.cost !== deliveryBaseCost(o.fromId, o.toId))
+    .map(o => ({ fromId: o.fromId, toId: o.toId, cost: o.cost }));
+}
+
+export function deliveryCostRowsToCsv(rows: DeliveryCostRow[]): string {
+  const header = csvColumns("deliveryCosts", TEMPLATE_VERSION).join(",");
+  const lines = rows.map(r => [TEMPLATE_VERSION, r.fromId, r.toId, r.cost].join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 

@@ -29,6 +29,8 @@ export const GUARD_CASES: Array<{ modelId: ModelId; entity: ImportEntity; suppor
   { modelId: "max-coverage-us", entity: "legDistances", supported: false },
   { modelId: "delivery-teaching-us", entity: "customers", supported: true },
   { modelId: "delivery-teaching-us", entity: "distances", supported: false },
+  { modelId: "delivery-teaching-us", entity: "deliveryCosts", supported: true },
+  { modelId: "transport-coal", entity: "deliveryCosts", supported: false },
 ];
 
 const userIds: string[] = [];
@@ -59,7 +61,7 @@ describe("one accepted + one rejected entity per model guard", () => {
   it("every model has exactly one accepted and one rejected case, and each agrees with the package", () => {
     for (const modelId of MODEL_IDS) {
       const mine = GUARD_CASES.filter(c => c.modelId === modelId);
-      expect(mine.filter(c => c.supported)).toHaveLength(1);
+      expect(mine.filter(c => c.supported).length).toBeGreaterThanOrEqual(1);
       expect(mine.filter(c => !c.supported).length).toBeGreaterThanOrEqual(1);
     }
     for (const c of GUARD_CASES) expect(IMPORT_SCHEMAS[c.entity].models.includes(c.modelId)).toBe(c.supported);

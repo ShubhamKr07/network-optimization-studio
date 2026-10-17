@@ -46,6 +46,7 @@ const ROUND_TRIP_CASES: Array<{ name: string; modelId: string; entity: string; o
   { name: "gold legDistances", modelId: "two-echelon-gold-au", entity: "legDistances", overrides: { distanceOverrides: [{ fromId: "kalgoorlie", toId: "cunnamulla", distance: 1500 }] }, expectChanges: true },
   { name: "jade warehouses", modelId: "two-echelon-jade-us", entity: "warehouses", overrides: { warehouseOverrides: [{ id: "wh-1", status: "inactive" }] }, expectChanges: true },
   { name: "jade customers", modelId: "two-echelon-jade-us", entity: "customers", overrides: { customerOverrides: [{ id: "customer-1", status: "excluded" }] }, expectChanges: true },
+  { name: "delivery deliveryCosts", modelId: "delivery-teaching-us", entity: "deliveryCosts", overrides: { laneCostOverrides: [{ fromId: "W8", toId: "C269", cost: 1 }] }, expectChanges: true },
   { name: "jade plants", modelId: "two-echelon-jade-us", entity: "plants", overrides: {}, expectChanges: false },
   { name: "jade plantCapabilities", modelId: "two-echelon-jade-us", entity: "plantCapabilities", overrides: { plantProductCapability: [{ plantId: "plant-1", productId: "product-2", enabled: true }] }, expectChanges: true },
   { name: "jade legDistances", modelId: "two-echelon-jade-us", entity: "legDistances", overrides: { distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 321 }] }, expectChanges: true },

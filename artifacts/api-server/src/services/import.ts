@@ -12,6 +12,7 @@ import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, 
 // canonical unit without a hardcoded per-model table.
 import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { csvColumns, IMPORT_ENTITIES, IMPORT_SCHEMAS, MAX_IMPORT_ROWS, findTemplateVersion, isImportEntity } from "@workspace/import-schema";
 import type { ImportEntity, ImportFieldDescriptor, ImportJsonDocument } from "@workspace/import-schema";
@@ -94,7 +95,7 @@ export type { ImportEntity };
 // this file's header comment on `distances`, Task 30's laneCosts addition,
 // B6.2's legDistances addition below, and jade-T7's plantCapabilities
 // addition).
-type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances" | "plantCapabilities">;
+type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances" | "plantCapabilities" | "deliveryCosts">;
 
 // `distances`/`laneCosts`/`legDistances`/`plantCapabilities` are
 // intentionally absent from COLUMNS/ENTITY_HAS_VALUE/VALID_STATUSES below —
@@ -137,6 +138,9 @@ const LANE_COST_COLUMNS_V2 = csvColumns("laneCosts", DISTANCE_TEMPLATE_VERSION);
 // jade-T7 — plantCapabilities' own 4-column shape: a plant x product
 // "can-make" toggle (`enabled`, a boolean, not a numeric distance/cost).
 const PLANT_CAPABILITY_COLUMNS = csvColumns("plantCapabilities", TEMPLATE_VERSION);
+
+// SCU-2.P2.3 (B2.7, D1) - delivery-teaching-us's lane-cost overrides.
+const DELIVERY_COST_COLUMNS = csvColumns("deliveryCosts", TEMPLATE_VERSION);
 
 // Singular display label per entity, used in a handful of free-text error
 // messages below (id-collision, add-mode "lat/lng required"/"city and state
@@ -440,6 +444,7 @@ export function parseAndValidateImport(
       // jade-T7 — plantCapabilities' own 4-column shape (plant_id/
       // product_id/enabled, not from_id/to_id/distance).
       entity === "plantCapabilities" ? PLANT_CAPABILITY_COLUMNS
+      : entity === "deliveryCosts" ? DELIVERY_COST_COLUMNS
       // `isDistanceLikeEntity` (a plain boolean, not a type guard) already
       // excluded distances/laneCosts/legDistances above, so `entity` here is
       // really a SingleIdEntity — TS just can't see that through the
@@ -540,6 +545,11 @@ export function parseAndValidateImport(
     const baseCapacityByPair = new Map(JADE_PLANT_PRODUCT_CAPABILITIES.map(c => [`${c.plantId}|${c.productId}`, c.capacity]));
     const capabilityResult = parsePlantCapabilityRows(rows.slice(1), currentOverrides.plantProductCapability ?? [], plantIdSpace, productIdSpace, baseCapacityByPair);
     return { errors: capabilityResult.errors, changes: capabilityResult.changes, warnings: [] };
+  }
+
+  if (entity === "deliveryCosts") {
+    const deliveryResult = parseDeliveryCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? []);
+    return { errors: deliveryResult.errors, changes: deliveryResult.changes, warnings: [] };
   }
 
   // Mines/stations store overrides as sparse dicts (mineCapacities/
@@ -1311,6 +1321,59 @@ function parseLegDistanceRows(
     }
   }
 
+  return { errors, changes };
+}
+
+// SCU-2.P2.3 (B2.7, D1; review #8). `before` is the EFFECTIVE cost (override
+// ?? base). Removal is decided by the override's PRESENCE: a row equal to base
+// on an overridden pair is a reset-to-base change (after.status "base") even
+// when the stored override already equals base, and the apply merge drops it.
+function parseDeliveryCostRows(
+  dataRows: string[][],
+  currentOverrides: LaneCostOverride[],
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const overrideByPair = new Map(currentOverrides.map(o => [`${o.fromId}|${o.toId}`, o.cost]));
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+    if (cols.length !== DELIVERY_COST_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${DELIVERY_COST_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+    const [tvStr, fromId, toId, costStr] = cols;
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+    const pairKey = `${fromId}|${toId}`;
+    const base = deliveryBaseCost(fromId, toId);
+    if (base === undefined) {
+      errors.push({ errorClass: "logic", line, message: `Unknown lane (from_id "${fromId}", to_id "${toId}") — must be a warehouse→customer pair in the base cost matrix` });
+      continue;
+    }
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (from_id,to_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+    // Deviation 6: Number("") is 0, a legal cost here — a blank cell must not become a 0 override.
+    const cost = costStr.trim() === "" ? NaN : Number(costStr);
+    if (!Number.isFinite(cost) || cost < 0) {
+      errors.push({ errorClass: "logic", line, message: `cost must be a non-negative number, got "${costStr}"` });
+      continue;
+    }
+    const hasOverride = overrideByPair.has(pairKey);
+    const before = hasOverride ? overrideByPair.get(pairKey)! : base;
+    if (cost === base) {
+      if (hasOverride) changes.push({ id: pairKey, line, before: { status: "active", value: before }, after: { status: "base", value: base }, fromId, toId });
+    } else if (before !== cost) {
+      changes.push({ id: pairKey, line, before: { status: "active", value: before }, after: { status: "active", value: cost }, fromId, toId });
+    }
+  }
   return { errors, changes };
 }
 

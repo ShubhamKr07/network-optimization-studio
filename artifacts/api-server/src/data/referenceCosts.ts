@@ -81,6 +81,17 @@ const REFERENCE_COSTS_BY_MODEL: Record<string, ReferenceCostsData> = {
   "delivery-teaching-us": buildDeliveryReferenceCosts(),
 };
 
+// SCU-2.P2.3 (B2.7, D1) - the delivery base matrix as a pair lookup, shared by
+// the importer, the exporter and the apply merge. Lives here (not import.ts)
+// so templates.ts can use it without an import.ts <-> templates.ts cycle.
+const DELIVERY_BASE_COST_BY_PAIR: ReadonlyMap<string, number> = new Map(
+  REFERENCE_COSTS_BY_MODEL["delivery-teaching-us"]!.pairs.map(p => [`${p.fromId}|${p.toId}`, p.cost]),
+);
+
+export function deliveryBaseCost(fromId: string, toId: string): number | undefined {
+  return DELIVERY_BASE_COST_BY_PAIR.get(`${fromId}|${toId}`);
+}
+
 /** Undefined for any model that has not registered a builder; the route 422s on that. */
 export function getReferenceCosts(modelId: string): ReferenceCostsData | undefined {
   return REFERENCE_COSTS_BY_MODEL[modelId];

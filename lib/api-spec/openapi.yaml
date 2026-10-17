@@ -552,7 +552,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities]
+            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities, deliveryCosts]
         - name: format
           in: query
           required: true
@@ -1974,7 +1974,7 @@ components:
     ImportEntity:
       type: string
       description: Importable input entities. Single source is lib/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.
-      enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
+      enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities, deliveryCosts]
 
     ImportDocument:
       type: object
@@ -2183,7 +2183,7 @@ components:
       type: object
       description: >-
         Unitless export entities (warehouses, customers, mines, stations,
-        refineries, plants, plantCapabilities, openWarehouses). Output is
+        refineries, plants, plantCapabilities, deliveryCosts, openWarehouses). Output is
         byte-identical whether or not `unit=` was supplied — deliberately no
         `unit` property on this schema.
       example: { templateVersion: 1, entity: warehouses, rows: [] }
@@ -2193,7 +2193,7 @@ components:
           enum: [1]
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses]
+          enum: [warehouses, customers, mines, stations, refineries, plants, plantCapabilities, deliveryCosts, openWarehouses]
         rows:
           type: array
           description: Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services/templates.ts layer, not this contract.
@@ -2425,7 +2425,7 @@ components:
       description: >-
         One of three versioned families (spec Part E): v1 unitless
         (warehouses/customers/mines/stations/refineries/plants/
-        plantCapabilities/openWarehouses), v2 unit-bearing input
+        plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input
         (distances/legDistances/laneCosts), or v3 unit-bearing output
         (assignments/flows/serviceStats — plus costSummary, which is the
         same family but on its own grid-local version, v4 as of CH4O; see

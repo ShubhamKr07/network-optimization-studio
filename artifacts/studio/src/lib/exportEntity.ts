@@ -6,7 +6,7 @@ import { describeWriteError } from "@/lib/describeWriteError";
 // already-generated `ExportScenarioEntity` (openapi.yaml) exactly. This
 // union is a small hand-maintained convenience type over that generated
 // enum (not generated code itself), so it's the correct place to extend.
-export type ExportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "assignments" | "openWarehouses" | "costSummary" | "serviceStats" | "flows" | "plants" | "plantCapabilities";
+export type ExportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "assignments" | "openWarehouses" | "costSummary" | "serviceStats" | "flows" | "plants" | "plantCapabilities" | "deliveryCosts";
 
 // A1.3 — shared client-side download logic for the Workspace grid tabs
 // (WarehousesTab, CustomersTab). Extracted rather than duplicated because

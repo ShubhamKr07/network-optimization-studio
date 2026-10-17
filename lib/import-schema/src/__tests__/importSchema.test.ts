@@ -20,6 +20,7 @@ const LITERAL_COLUMNS: Record<string, Record<number, string[]>> = {
   legDistances: { 1: ["template_version", "from_id", "to_id", "distance"], 2: ["template_version", "unit", "from_id", "to_id", "distance"] },
   laneCosts: { 1: ["template_version", "from_id", "to_id", "cost"], 2: ["template_version", "unit", "from_id", "to_id", "cost"] },
   plantCapabilities: { 1: ["template_version", "plant_id", "product_id", "enabled"] },
+  deliveryCosts: { 1: ["template_version", "from_id", "to_id", "cost"] },
 };
 
 describe("constants", () => {
@@ -129,5 +130,19 @@ describe("helpers", () => {
     expect(isImportEntity("warehouses")).toBe(true);
     expect(isImportEntity("assignments")).toBe(false);
     expect(isImportEntity(7)).toBe(false);
+  });
+});
+
+describe("deliveryCosts (D1)", () => {
+  it("is v1-only, unitless, cost >= 0 inclusive, delivery-only, no add mode", () => {
+    const s = IMPORT_SCHEMAS.deliveryCosts;
+    expect(s.models).toEqual(["delivery-teaching-us"]);
+    expect(s.addModels).toEqual([]);
+    expect(s.versions.map(v => v.templateVersion)).toEqual([TEMPLATE_VERSION]);
+    const cost = s.versions[0]!.fields.find(f => f.csvHeader === "cost")!;
+    expect(cost).toMatchObject({ type: "number", min: 0, requiredForUpdate: true });
+    expect(cost.exclusiveMin).toBeUndefined();
+    expect(cost.unitFamily).toBeUndefined(); // billable miles, never unit-converted
+    expect(exampleJsonDocument("deliveryCosts")).toEqual({ templateVersion: TEMPLATE_VERSION, entity: "deliveryCosts", rows: [{ fromId: "W8", toId: "C269", cost: 1047.7157 }] });
   });
 });

@@ -882,6 +882,7 @@ export const ImportEntity = {
   legDistances: 'legDistances',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
 } as const;
 
 export type ImportDocumentUnit = typeof ImportDocumentUnit[keyof typeof ImportDocumentUnit];
@@ -1080,13 +1081,14 @@ export const ExportEnvelopeV1Entity = {
   refineries: 'refineries',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
   openWarehouses: 'openWarehouses',
 } as const;
 
 export type ExportEnvelopeV1RowsItem = { [key: string]: unknown };
 
 /**
- * Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.
+ * Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, deliveryCosts, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.
  */
 export interface ExportEnvelopeV1 {
   templateVersion: ExportEnvelopeV1TemplateVersion;
@@ -1357,7 +1359,7 @@ export interface ServiceStatsExportEnvelope {
 }
 
 /**
- * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.
+ * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.
  */
 export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
 
@@ -1442,6 +1444,7 @@ export const ExportScenarioEntity = {
   flows: 'flows',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

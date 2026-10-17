@@ -58,6 +58,13 @@ describe("useExport", () => {
   });
 
   describe("disabledReasonFor", () => {
+    it("classifies deliveryCosts as an input entity (history lock applies)", () => {
+      const { result } = renderHook(() => useExport(), {
+        wrapper: exportProviderWrapper({ scenarioId: 1, unit: "mi", inputDisabledReason: "history", resultDisabledReason: "result" }),
+      });
+      expect(INPUT_ENTITIES).toContain("deliveryCosts");
+      expect(result.current.disabledReasonFor("deliveryCosts")).toBe("history");
+    });
     it("routes a RESULT entity to resultDisabledReason", () => {
       const { result } = renderHook(() => useExport(), {
         wrapper: exportProviderWrapper({

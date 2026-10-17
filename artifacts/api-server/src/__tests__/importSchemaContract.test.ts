@@ -10,9 +10,10 @@ import {
   PreviewScenarioImportResponse,
   ImportEntity as GeneratedImportEntity,
   ExportScenarioEntity,
+  ExportScenarioResponse,
 } from "@workspace/api-zod";
 import { IMPORT_ENTITIES, TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION } from "@workspace/import-schema";
-import { applyWarehouseOverrides, applyDistanceOverrides, toDistanceJsonRow } from "../services/templates.js";
+import { applyWarehouseOverrides, applyDistanceOverrides, applyDeliveryCostOverrides, toDistanceJsonRow } from "../services/templates.js";
 import { parseAndValidateJsonImport, readImportRequest } from "../services/import.js";
 
 const DOC = { templateVersion: TEMPLATE_VERSION, entity: "warehouses", rows: [{ id: "ATL", status: "forced_open" }] };
@@ -22,6 +23,12 @@ const JSON_REQ = { entity: "warehouses", format: "json", document: DOC };
 describe("import contract", () => {
   it("the OpenAPI ImportEntity enum is exactly import-schema's IMPORT_ENTITIES", () => {
     expect(Object.values(GeneratedImportEntity).sort()).toEqual([...IMPORT_ENTITIES].sort());
+  });
+
+  it("a populated deliveryCosts export envelope satisfies the export contract (v1, no unit)", () => {
+    const envelope = { templateVersion: TEMPLATE_VERSION, entity: "deliveryCosts", rows: applyDeliveryCostOverrides([{ fromId: "W8", toId: "C269", cost: 1 }]) };
+    expect(envelope.rows.length).toBeGreaterThan(0);
+    expect(ExportScenarioResponse.safeParse(envelope).success).toBe(true);
   });
 
   it("every import entity is also an export entity", () => {

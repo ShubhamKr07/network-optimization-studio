@@ -512,15 +512,15 @@ export const PreviewScenarioImportParams = zod.object({
 })
 
 export const PreviewScenarioImportBody = zod.union([zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "format": zod.enum(['csv']).optional().describe('Optional; omitted means csv (backward compatible).'),
   "csvText": zod.string()
 }).strict(),zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "format": zod.enum(['json']),
   "document": zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "unit": zod.enum(['km', 'mi']).optional(),
   "rows": zod.array(zod.object({
 
@@ -565,16 +565,16 @@ export const ApplyScenarioImportParams = zod.object({
 })
 
 export const ApplyScenarioImportBody = zod.union([zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "format": zod.enum(['csv']).optional(),
   "csvText": zod.string(),
   "mode": zod.enum(['all_or_nothing', 'partial']).optional()
 }).strict(),zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "format": zod.enum(['json']),
   "document": zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
   "unit": zod.enum(['km', 'mi']).optional(),
   "rows": zod.array(zod.object({
 
@@ -684,7 +684,7 @@ export const ExportScenarioParams = zod.object({
 
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities', 'deliveryCosts']),
   "format": zod.enum(['csv', 'json']),
   "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.'),
   "unit": zod.enum(['km', 'mi']).optional().describe('Unit for distance-dimension values in the emitted file. Validated for EVERY entity; an unknown value is 400 even for a non-distance entity. Ignored (byte-identical output) for non-distance entities. Omitted = each model\'s canonical unit.'),
@@ -693,11 +693,11 @@ export const ExportScenarioQueryParams = zod.object({
 
 export const ExportScenarioResponse = zod.union([zod.object({
   "templateVersion": zod.literal(1),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'openWarehouses']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'deliveryCosts', 'openWarehouses']),
   "rows": zod.array(zod.object({
 
 }).passthrough()).describe('Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services\/templates.ts layer, not this contract.')
-}).describe('Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.'),zod.object({
+}).describe('Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, deliveryCosts, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.'),zod.object({
   "templateVersion": zod.literal(2),
   "entity": zod.enum(['distances', 'legDistances', 'laneCosts']),
   "unit": zod.enum(['km', 'mi']),
@@ -764,7 +764,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "band": zod.number(),
   "percent": zod.number()
 }).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
-}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/deliveryCosts\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
 
 
 /**

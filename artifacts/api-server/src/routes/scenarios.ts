@@ -61,6 +61,8 @@ import {
   plantCapabilityRowsToCsv,
   distanceRowsToCsv,
   laneCostRowsToCsv,
+  applyDeliveryCostOverrides,
+  deliveryCostRowsToCsv,
   assignmentRowsToCsv,
   openWarehouseRowsToCsv,
   costSummaryRowsToCsv,
@@ -616,8 +618,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats", "flows"] as const;
   type OutputEntity = typeof OUTPUT_ENTITIES[number];
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && entity !== "deliveryCosts" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'deliveryCosts', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -892,7 +894,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // this model's distance-bearing entity is laneCostOverrides, which is
   // out of scope; its own output-entity exports already work independently
   // of this guard, see the OUTPUT_ENTITIES branch above).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -914,7 +916,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers export" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts export" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1284,7 +1286,23 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     const inputs = scenario.inputs as {
       warehouseOverrides?: Parameters<typeof applyDeliveryWarehouseOverrides>[0];
       customerOverrides?: Parameters<typeof applyDeliveryCustomerOverrides>[0];
+      laneCostOverrides?: Parameters<typeof applyDeliveryCostOverrides>[0];
     };
+
+    if (entity === "deliveryCosts") {
+      const costRows = applyDeliveryCostOverrides(inputs.laneCostOverrides ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(deliveryCostRowsToCsv(costRows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: costRows });
+      return;
+    }
 
     const rows = entity === "warehouses"
       ? applyDeliveryWarehouseOverrides(inputs.warehouseOverrides ?? [])
@@ -1548,6 +1566,21 @@ function mergeLaneCostChangesIntoOverrides(
   return [...rest, ...applied];
 }
 
+// SCU-2.P2.3 (B2.7, D1; review #8) - upsert; a reset-to-base change
+// (after.status "base", set by the parser on override PRESENCE) removes the
+// override, keeping laneCostOverrides sparse.
+function mergeDeliveryCostChangesIntoOverrides(
+  currentOverrides: Array<{ fromId: string; toId: string; cost: number }>,
+  changes: ImportRowChange[],
+): Array<{ fromId: string; toId: string; cost: number }> {
+  const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
+  const rest = currentOverrides.filter(o => !changedKeys.has(`${o.fromId}|${o.toId}`));
+  const applied = changes
+    .filter(c => c.after.status !== "base")
+    .map(c => ({ fromId: c.fromId!, toId: c.toId!, cost: c.after.value! }));
+  return [...rest, ...applied];
+}
+
 // jade-T7 — two-echelon-jade-us' distanceOverrides analogue of
 // mergeDistanceChangesIntoOverrides above, but jadeInputsSchema's
 // distanceOverrideSchema (unlike every other model's) declares `leg` as a
@@ -1649,7 +1682,7 @@ router.post("/scenarios/:scenarioId/import", loadOwnedImportScenario, importJson
   // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
   // import too (same scope as export — see that route's own comment on
   // entityIsDelivery).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1671,7 +1704,7 @@ router.post("/scenarios/:scenarioId/import", loadOwnedImportScenario, importJson
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts import" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1717,7 +1750,7 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
   // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
   // import too (same scope as export — see that route's own comment on
   // entityIsDelivery).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1739,7 +1772,7 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts import" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1803,6 +1836,8 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
     const currentLaneCostOverrides = inputs.laneCostOverrides ?? [];
     const nextLaneCostOverrides = mergeLaneCostChangesIntoOverrides(currentLaneCostOverrides, preview.changes);
     nextInputs = { ...inputs, laneCostOverrides: nextLaneCostOverrides };
+  } else if (entity === "deliveryCosts") {
+    nextInputs = { ...inputs, laneCostOverrides: mergeDeliveryCostChangesIntoOverrides(inputs.laneCostOverrides ?? [], preview.changes) };
   } else if (entity === "warehouses" || entity === "customers") {
     // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
     // blank id + valid new-entity data — T11 changed the trigger from
@@ -1944,6 +1979,14 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
   // CH4O-P1 — this comment previously explained the route in terms of
   // `stepEpoch` and "the precise failure CH4-7 exists to prevent"; the
   // Chapter 4 overhaul deleted both branch-wide.
+  // SCU-2.P2.3 (B2.7, review #9): a deliveryCosts no-op must not advance the
+  // revision. applyScenarioInputWrite diffs persisted vs candidate with
+  // JSON.stringify, and jsonb reorders object keys on read ({cost,toId,fromId}),
+  // so re-writing identical override rows would look changed and bump anyway.
+  if (entity === "deliveryCosts" && preview.changes.length === 0) {
+    res.json({ scenario: toApiScenario(scenario), applied: 0, errors: preview.errors });
+    return;
+  }
   const writeOutcome = await db.transaction(async (tx) =>
     applyScenarioInputWrite(tx, {
       scenarioId: id,

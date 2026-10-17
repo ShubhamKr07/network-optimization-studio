@@ -17,7 +17,7 @@ import { downloadEntityExport, type ExportEntity } from "@/lib/exportEntity";
 export type ExportUnit = "km" | "mi" | null;
 
 /**
- * The ten input entities. Exported so input/result classification lives
+ * The eleven input entities. Exported so input/result classification lives
  * HERE, once — never as 16 component-local checks. A per-entity gate
  * updated for one entity and forgotten for a sibling is this repo's
  * most-recurring bug class (Chapter 10, SCN v0.3, Bundle 2.2 all hit it) —
@@ -34,6 +34,7 @@ export const INPUT_ENTITIES = [
   "legDistances",
   "plants",
   "plantCapabilities",
+  "deliveryCosts",
 ] as const;
 
 /** The five result entities. INPUT_ENTITIES ∪ RESULT_ENTITIES === ExportEntity. */
