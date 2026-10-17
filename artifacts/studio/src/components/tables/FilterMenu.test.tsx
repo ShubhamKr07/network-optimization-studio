@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterMenu } from "./FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { EMPTY_FILTER_VALUE, useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 
 interface Row {
   id: string;
@@ -112,5 +112,47 @@ describe("FilterMenu", () => {
     expect(screen.queryByTestId("text-filter-active-count")).not.toBeInTheDocument();
     await user.type(screen.getByTestId("input-filter-name"), "depot");
     expect(screen.getByTestId("text-filter-active-count")).toHaveTextContent("1");
+  });
+});
+
+describe("FilterMenu — triggerTestId (SCU-2.P1)", () => {
+  function Mapped({ triggerTestId }: { triggerTestId?: string }) {
+    const tableFilters = useTableFilters(rows, descriptors);
+    return <FilterMenu descriptors={descriptors} tableFilters={tableFilters} triggerTestId={triggerTestId} />;
+  }
+
+  it("defaults the trigger testid to button-filter-menu-trigger", () => {
+    render(<Mapped />);
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+  });
+
+  it("uses a mapped trigger testid when given", () => {
+    render(<Mapped triggerTestId="button-filter-jade-flows-pw" />);
+    expect(screen.getByTestId("button-filter-jade-flows-pw")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+});
+
+describe("FilterMenu — empty option (SCU-2.P1)", () => {
+  interface E { id: string; v: string }
+  const eRows: E[] = [{ id: "1", v: "a" }, { id: "2", v: EMPTY_FILTER_VALUE }];
+  const eDescriptors: ColumnFilterDescriptor<E>[] = [{ key: "v", label: "V", type: "select", accessor: r => r.v }];
+  function EmptyHarness() {
+    const tableFilters = useTableFilters(eRows, eDescriptors);
+    return (
+      <div>
+        <FilterMenu descriptors={eDescriptors} tableFilters={tableFilters} />
+        <div data-testid="visible-rows">{tableFilters.filteredRows.map(r => r.id).join(",")}</div>
+      </div>
+    );
+  }
+
+  it("shows the empty token as '(empty)' with a __empty__ testid suffix, and selecting it filters", async () => {
+    const user = userEvent.setup();
+    render(<EmptyHarness />);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    expect(screen.getByTestId("option-filter-v-__empty__")).toHaveTextContent("(empty)");
+    await user.click(screen.getByTestId("checkbox-filter-v-__empty__"));
+    expect(screen.getByTestId("visible-rows")).toHaveTextContent("2");
   });
 });
