@@ -38,3 +38,18 @@ describe("stripGrouping", () => {
     expect(stripGrouping("")).toBe("");
   });
 });
+
+describe("formatDistanceDisplay locale pin", () => {
+  it("groups with en-US even when the default locale is German", () => {
+    const orig = Number.prototype.toLocaleString;
+    // Simulate a de-DE browser: an undefined locale resolves to "de-DE".
+    Number.prototype.toLocaleString = function (this: number, loc?: string | string[], o?: Intl.NumberFormatOptions) {
+      return orig.call(this, loc === undefined ? "de-DE" : loc, o);
+    };
+    try {
+      expect(formatDistanceDisplay(1600)).toBe("1,600");
+    } finally {
+      Number.prototype.toLocaleString = orig;
+    }
+  });
+});

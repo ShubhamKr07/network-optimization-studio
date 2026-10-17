@@ -157,8 +157,10 @@ export function frozenBandShape(modelId: string | undefined): FrozenBandShape {
 // SCU-2.P3.9 (user decision 2026-10-17) — every boundary is printed with the
 // app's one distance display formatter, `formatDistanceDisplay` (≤ 2 dp,
 // thousands-grouped), so a converted km boundary reads "0–321.87 km", never
-// "0–321.8688 km". Formatting lives HERE, once, for Service Stats, the Compare
-// band rows and the Output Map narrative alike.
+// "0–321.8688 km". Formatting lives HERE, once, for Service Stats and the Compare
+// band rows. The Output Map narrative does NOT use it: per NAR-1 decision 5
+// (specs/2026-10-17-output-narrative-rewrite-design.md) it prints whole,
+// grouped distances in prose.
 export function exclusiveBandLabels(boundaries: number[], toDisplay: (canonical: number) => number, unit: string): string[] {
   const sorted = [...boundaries].sort((a, b) => a - b);
   if (sorted.length === 0) return [];
