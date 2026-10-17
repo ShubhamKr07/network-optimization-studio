@@ -3,7 +3,7 @@
 // values; a missing value is an EMPTY cell (the on-screen "—" is
 // display-only); rows in the order given (the table's own row model).
 import { describe, it, expect } from "vitest";
-import { buildCompareCsv } from "@/lib/compareCsv";
+import { buildCompareCsv, buildCompareJson } from "@/lib/compareCsv";
 
 describe("buildCompareCsv", () => {
   it("writes a metric column then one column per scenario, in the given order", () => {
@@ -37,5 +37,37 @@ describe("buildCompareCsv", () => {
     expect(buildCompareCsv(rows, [{ name: "A" }, { name: "B" }, { name: "C" }])).toBe(
       "metric,A,B,C\nObjective,1,2,3\nMax coverable demand (Model 1),,900,\nQuality,Proven optimal,No incumbent,Proven optimal",
     );
+  });
+});
+
+// SCU-2.P3.8 (spec B2.4) — the compare JSON: same row model as the CSV.
+
+describe("buildCompareJson", () => {
+  const rows = [
+    { csvLabel: "Objective", cells: [{ raw: 1 }, { raw: 2 }] },
+    { csvLabel: "Inbound cost", cells: [{ raw: null }, { raw: 5 }] },
+  ];
+  const scenarios = [{ id: 7, name: "A" }, { id: 9, name: "A" }];
+
+  it("one row per metric, one value per scenario keyed by id (names may repeat), null kept", () => {
+    expect(buildCompareJson(rows, scenarios, "mi")).toEqual({
+      entity: "costSummaryCompare",
+      unit: "mi",
+      rows: [
+        { metric: "Objective", values: [{ scenarioId: 7, scenario: "A", value: 1 }, { scenarioId: 9, scenario: "A", value: 2 }] },
+        { metric: "Inbound cost", values: [{ scenarioId: 7, scenario: "A", value: null }, { scenarioId: 9, scenario: "A", value: 5 }] },
+      ],
+    });
+  });
+
+  it("omits unit while the display unit is unresolved", () => {
+    expect("unit" in buildCompareJson(rows, scenarios, null)).toBe(false);
+  });
+});
+
+describe("buildCompareJson — rows the CSV omits", () => {
+  it("drops a csvLabel: null row exactly as buildCompareCsv does", () => {
+    const doc = buildCompareJson([{ csvLabel: null, cells: [{ raw: 1 }] }, { csvLabel: "Objective", cells: [{ raw: 2 }] }], [{ id: 1, name: "A" }], "mi");
+    expect(doc.rows.map(r => r.metric)).toEqual(["Objective"]);
   });
 });

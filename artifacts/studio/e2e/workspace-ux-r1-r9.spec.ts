@@ -14,6 +14,7 @@
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md.
  */
 import { test, expect, type Page } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 import { readSolvedAt } from "./helpers/solvedAt";
 
 const HEADER_TIMEOUT = 10_000;
@@ -260,6 +261,18 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     // keep proving more than just the header renders.
     await expect(page.getByTestId(`cost-summary-compare-distance-${id}`)).toBeVisible();
     await expect(page.getByTestId(`cost-summary-compare-distance-${id2}`)).toBeVisible();
+    // SCU-2.P3.8 — compare Download ▾: CSV + JSON are the compare table's rows, in
+    // on-screen column order; never a filter on the metric table.
+    await expect(page.getByTestId("button-filter-menu-trigger")).toHaveCount(0);
+    const cmpRows = await page.locator('[data-testid="cost-summary-compare-table"] tbody tr').count();
+    const cmpCsv = await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-csv");
+    expect(cmpCsv.name).toBe("cost-summary-compare.csv");
+    expect(cmpCsv.text.split("\n")[0].startsWith("metric,")).toBe(true);
+    expect(csvDataLines(cmpCsv.text)).toHaveLength(cmpRows);
+    const cmpJson = JSON.parse((await downloadVia(page, "button-download-cost-summary", "button-download-cost-summary-json")).text);
+    expect(cmpJson.entity).toBe("costSummaryCompare");
+    expect(cmpJson.rows).toHaveLength(cmpRows);
+    expect(cmpJson.rows[0].values.map((v: { scenarioId: number }) => v.scenarioId)).toEqual([Number(id), Number(id2)]);
 
     await page.request.delete(`/api/scenarios/${id}`);
     await page.request.delete(`/api/scenarios/${id2}`);
