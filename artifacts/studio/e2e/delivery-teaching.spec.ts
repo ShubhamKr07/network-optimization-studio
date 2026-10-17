@@ -67,6 +67,8 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
+import { downloadVia } from "./helpers/download";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -241,8 +243,10 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
 
     await page.getByTestId("sidebar-input-deliveryCosts").click();
     await expect(page.getByTestId("delivery-costs-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await page.getByTestId("input-filter-from").fill(OVERRIDE_LANE.fromId);
-    await page.getByTestId("input-filter-to").fill(OVERRIDE_LANE.toId);
+    // SCU-2.P4.7 (B2.2) — FilterMenu text controls replace the From/To boxes.
+    await fillTableFilter(page, "from", OVERRIDE_LANE.fromId);
+    await fillTableFilter(page, "to", OVERRIDE_LANE.toId);
+    await closePopover(page);
     const costInput = page.getByTestId(`input-deliverycost-${OVERRIDE_LANE.fromId}-${OVERRIDE_LANE.toId}`);
     await expect(costInput).toBeVisible({ timeout: HEADER_TIMEOUT });
     await costInput.fill("0");
@@ -300,6 +304,28 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
 
     const excludedC1 = await solveViaUi(page, id);
     expect(excludedC1.details.assignments.length).toBe(312);
+
+    // ── 10. SCU-2.P4.7 (B2.7, D1) — Download ▾ JSON of the sparse
+    // deliveryCosts entity: the envelope carries NO unit, and a cost is
+    // billable miles, exported unconverted even under a km display. ────────
+    await page.getByTestId("sidebar-input-deliveryCosts").click();
+    await expect(page.getByTestId("delivery-costs-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await fillTableFilter(page, "from", OVERRIDE_LANE.fromId);
+    await fillTableFilter(page, "to", OVERRIDE_LANE.toId);
+    await closePopover(page);
+    const laneCost = page.getByTestId(`input-deliverycost-${OVERRIDE_LANE.fromId}-${OVERRIDE_LANE.toId}`);
+    await laneCost.fill("123.5");
+    await laneCost.press("Enter");
+    await solveViaUi(page, id); // persists the draft, like every override above
+    await page.getByTestId("unit-toggle-km").click();
+    await page.getByTestId("sidebar-input-deliveryCosts").click();
+    await expect(page.getByTestId("delivery-costs-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const dc = JSON.parse((await downloadVia(page, "button-download-deliverycosts", "button-export-deliverycosts-json")).text);
+    expect(dc.entity).toBe("deliveryCosts");
+    expect("unit" in dc).toBe(false);
+    expect(dc.rows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ fromId: OVERRIDE_LANE.fromId, toId: OVERRIDE_LANE.toId, cost: 123.5 })]),
+    );
 
     await page.request.delete(`/api/scenarios/${id}`);
   });

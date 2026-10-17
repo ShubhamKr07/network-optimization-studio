@@ -113,7 +113,9 @@ export function useExport(): ExportApi {
       // ignores it (byte-identical output) when it doesn't apply. `runId`
       // is appended only when defined (an explicit historical run vs. "the
       // latest result").
-      await downloadEntityExport(scenarioId, entity, format, { unit, runId });
+      // SCU-2.P4.7 (B2.7, D1) — deliveryCosts are billable miles, never unit-converted
+      // and exported without a unit, so no unit= is sent for that entity.
+      await downloadEntityExport(scenarioId, entity, format, { unit: entity === "deliveryCosts" ? undefined : unit, runId });
     };
 
     return {

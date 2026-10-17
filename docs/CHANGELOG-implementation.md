@@ -3921,3 +3921,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 3, 6, 7, 15, 17, 19, plus the user decision of 2026-10-17: Cost is a unit-converted distance, so its range filter carries `filterResetKey: pref` (RTL test "Cost range filter resets when the display unit toggles"; deliberately removing the key fails it).
 - Counts: LaneCostsTab.test + historyReadOnlyTabs 45 before; with the new dataTable file 53 after (dataTable file 8; fail-first 5 failed / 2 passed against the pre-migration tab, then 8 pass).
 - Gate: studio 2672 (first full run 2 failed, second run all pass), api-server 6 failed/2030 passed full run (`cors`, `resultEnvelope` + 1 other; flake class, `cors`+`resultEnvelope` 19/19 x2 isolated), pytest 355 passed, import-schema 22 passed, typecheck + typecheck:e2e exit 0. e2e (local, `E2E_BASE_URL` set): bundle2-fastfollow.spec.ts 5/5 pass.
+
+### SCU-2.P4.7 — Delivery Costs on DataTable + `deliveryCosts` Upload/Download
+
+- `DeliveryCostsTab` on DataTable: Upload ▾/Download ▾ for `deliveryCosts` (sparse, D1), FilterMenu, pager > 50 only (was always on), override-present amber kept, D2 read-only (incl. an open add-row form), loading/error/empty testids kept. Billable miles: no `filterResetKey` on Base/Cost (no unit conversion).
+- `ExportContext.download` sends no `unit` for `deliveryCosts`; e2e step 10 downloads the JSON with km on and asserts no `unit` and the unconverted cost.
+- Deviations 3, 7, 15, 17, 19, 20. Plan anchors applied verbatim on the post-R4 base.
+- Gate: studio 2681 passed (148 files), api-server 2034 passed / 2 load-flakes (`cors`, `resultEnvelope`; 19/19 x2 isolated, registered), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): delivery-teaching.spec.ts pass.

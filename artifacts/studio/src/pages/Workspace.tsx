@@ -3892,7 +3892,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // LaneCostsTab, this tab reads its base matrix from Task 7's
     // GET /models/:id/reference-costs (via DeliveryCostsTab's own internal
     // useGetReferenceCosts call, modelId-gated) — a cost here is billable
-    // miles, not a distance, so no canonicalUnit/Upload/Download wiring.
+    // miles, not a distance, so no canonicalUnit wiring. SCU-2.P4.7 — Upload ▾/
+    // Download ▾ use the sparse `deliveryCosts` entity (spec B2.7, D1).
     if (activeView.kind === "input" && activeView.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
@@ -3900,6 +3901,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("laneCostOverrides", next)}
           modelId={modelId}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          readOnly={isBrowsingHistoryNow}
         />
       );
     }

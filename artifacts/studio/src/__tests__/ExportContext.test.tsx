@@ -151,6 +151,20 @@ describe("useExport", () => {
       }
     });
 
+    // SCU-2.P4.7 (B2.7, D1) — billable miles: deliveryCosts never sends unit=.
+    it("sends no unit for deliveryCosts, whatever the resolved unit", async () => {
+      for (const unit of ["km", "mi"] as const) {
+        mockedDownload.mockClear();
+        const { result } = renderHook(() => useExport(), {
+          wrapper: exportProviderWrapper({ scenarioId: 5, unit }),
+        });
+        await act(async () => {
+          await result.current.download("deliveryCosts", "json");
+        });
+        expect(mockedDownload).toHaveBeenCalledWith(5, "deliveryCosts", "json", { unit: undefined, runId: undefined });
+      }
+    });
+
     it("forwards runId to the helper when injected", async () => {
       const { result } = renderHook(() => useExport(), {
         wrapper: exportProviderWrapper({ scenarioId: 5, unit: "mi", runId: 12 }),
