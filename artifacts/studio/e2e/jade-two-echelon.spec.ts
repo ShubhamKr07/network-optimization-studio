@@ -19,6 +19,7 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -163,6 +164,16 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       // page, so assert the total via the tab's own counter instead.
       await expect(page.getByTestId("text-jadeassignments-count"))
         .toContainText("of 400", { timeout: HEADER_TIMEOUT }); // 100 customers x 4 product families
+        // SCU-2.P3.3 — the shell pager keeps today's literals (400 rows = 8 pages);
+        // Download ▾ exports all 400 product-level rows (JADE v3 shape, with unit).
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 1 of 8");
+        await page.getByTestId("button-jadeassignments-next").click();
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 2 of 8");
+        const jaCsv = await downloadVia(page, "button-download-jadeassignments", "button-download-jadeassignments-csv");
+        expect(jaCsv.name).toBe("assignments.csv");
+        expect(csvDataLines(jaCsv.text)).toHaveLength(400);
+        const jaJson = JSON.parse((await downloadVia(page, "button-download-jadeassignments", "button-download-jadeassignments-json")).text);
+        expect([jaJson.entity, jaJson.unit, jaJson.rows.length]).toEqual(["assignments", "mi", 400]);
 
       // JadeFlowsTab (not the generic FlowsTab the shared `flow-row-` prefix
       // belongs to) sums flow across productId per (plant,warehouse) pair —

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render as rtlRender, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within, fireEvent } from "@testing-library/react";
 import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
@@ -180,6 +180,7 @@ describe("JadeAssignmentsTab", () => {
         </ExportProvider>
       </UnitProvider>,
     );
+    await user.click(screen.getByTestId("button-download-jadeassignments"));
     await user.click(screen.getByTestId("button-download-jadeassignments-csv"));
     expect(spy).toHaveBeenCalledWith(7, "assignments", "csv", { unit: "mi" });
   });
@@ -194,7 +195,7 @@ describe("JadeAssignmentsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-jadeassignments-csv");
+      const button = screen.getByTestId("button-download-jadeassignments");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -209,6 +210,7 @@ describe("JadeAssignmentsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
+      await user.click(screen.getByTestId("button-download-jadeassignments"));
       await user.click(screen.getByTestId("button-download-jadeassignments-csv"));
       expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi", runId: 11 });
     });
@@ -449,6 +451,77 @@ describe("JadeAssignmentsTab — no duplicate title (SCU-1.4)", () => {
   it("renders no 'Customer Assignments' title and keeps the count/filter/Download group right-aligned", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
     expect(screen.queryByText("Customer Assignments")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-download-jadeassignments-csv").closest("div.border-b")).toHaveClass("justify-end");
+    const dl = screen.getByTestId("button-download-jadeassignments"); // SCU-2.P3: Download ▾ right-aligned via toolbar.downloadAlign
+    expect(dl.closest("div.ml-auto")).not.toBeNull();
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+  });
+});
+
+// SCU-2.P3.3 (spec B2.1/B2.2/B2.4, matrix §2a "JadeAssignments") — DataTable
+// migration emits every testid in the instance's map.
+describe("JadeAssignmentsTab on DataTable — testid map (SCU-2.P3.3)", () => {
+  const many = (n: number) =>
+    makeResult(
+      Array.from({ length: n }, (_, i) => ({
+        customerId: `customer-${i + 1}`,
+        warehouseId: i % 2 ? "wh-11" : "wh-14",
+        productId: "product-1",
+        distanceMi: 100 + i,
+      })),
+    );
+
+  it("emits the tab root, count, row and five cell testids; Download ▾ trigger + items", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    const key = "product-1|customer-1";
+    const tab = screen.getByTestId("jade-assignments-tab");
+    expect(within(tab).getByTestId(`row-jadeassignment-${key}`).tagName).toBe("TR");
+    for (const col of ["product", "customer", "warehouse", "distance", "band"]) {
+      expect(within(tab).getByTestId(`cell-jadeassignment-${col}-${key}`).tagName).toBe("TD");
+    }
+    expect(within(tab).getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 2");
+    expect(within(tab).getByTestId("cell-jadeassignment-distance-" + key)).toHaveTextContent("42.1 mi");
+    fireEvent.click(within(tab).getByTestId("button-download-jadeassignments"));
+    expect(screen.getByTestId("button-download-jadeassignments-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-jadeassignments-json")).toBeInTheDocument();
+  });
+
+  it("JSON goes through the server export (entity assignments, format json)", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    fireEvent.click(screen.getByTestId("button-download-jadeassignments"));
+    fireEvent.click(screen.getByTestId("button-download-jadeassignments-json"));
+    expect(spy).toHaveBeenCalledWith(1, "assignments", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("thead th texts stay exactly the e2e contract; only Distance is centred", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    const heads = [...screen.getByTestId("jade-assignments-tab").querySelectorAll("thead th")];
+    expect(heads.map(h => h.textContent)).toEqual(["Product", "Customer", "Assigned Warehouse", "Distance", "Distance Band"]);
+    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, false, true, false]);
+  });
+
+  it("51 rows: shell pager with today's literals (prev/next/indicator); 50 rows: none", () => {
+    const a = render(<JadeAssignmentsTab result={many(50)} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    expect(screen.queryByTestId("jadeassignments-page-indicator")).toBeNull();
+    a.unmount();
+    render(<JadeAssignmentsTab result={many(51)} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    expect(screen.getByTestId("jadeassignments-page-indicator")).toHaveTextContent("Page 1 of 2");
+    expect(screen.getByTestId("button-jadeassignments-prev")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("button-jadeassignments-next"));
+    expect(screen.getByTestId("jadeassignments-page-indicator")).toHaveTextContent("Page 2 of 2");
+    expect(screen.getByTestId("row-jadeassignment-product-1|customer-51")).toBeInTheDocument();
+    expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("51 of 51");
+  });
+
+  it("filter descriptor keys and types are today's: product/warehouse/band select, customer text, distance range", async () => {
+    const user = userEvent.setup();
+    render(<JadeAssignmentsTab result={many(30)} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    expect(screen.getByTestId("select-filter-product")).toBeInTheDocument();
+    expect(screen.getByTestId("select-filter-warehouse")).toBeInTheDocument();
+    expect(screen.getByTestId("select-filter-band")).toBeInTheDocument();
+    expect(screen.getByTestId("input-filter-customer")).toBeInTheDocument();
+    expect(screen.getByTestId("input-filter-distance-min")).toBeInTheDocument();
   });
 });
