@@ -383,6 +383,9 @@ export function parseAndValidateImport(
   // which baseline to validate against. Defaults to p-median-us so existing
   // callers/tests that never passed this don't need to change.
   modelId: string = "p-median-us",
+  // SCU-2.R6a — CSV uploads undo templates.csvCell's formula-injection `'`; the
+  // JSON path (which funnels through here as CSV text) must NOT, so it passes false.
+  stripFormulaGuard: boolean = true,
 ): ImportPreview {
   const errors: ImportError[] = [];
   const changes: ImportRowChange[] = [];
@@ -414,6 +417,13 @@ export function parseAndValidateImport(
     return { errors, changes, warnings };
   }
   const header = rows[0]?.map(h => h.trim()) ?? [];
+  if (stripFormulaGuard) {
+    // Text columns only (numbers never carry the guard). Strip ONE leading ' iff the rest starts with = + - @ tab CR.
+    const textCols = new Set(IMPORT_SCHEMAS[entity].versions.flatMap(v => v.fields.filter(f => f.type !== "number" && f.type !== "boolean").map(f => f.csvHeader)));
+    for (const row of rows.slice(1)) {
+      row.forEach((cell, i) => { if (textCols.has(header[i]) && /^'[=+\-@\t\r]/.test(cell)) row[i] = cell.slice(1); });
+    }
+  }
 
   // T8 (Part E) — distances/laneCosts/legDistances now accept EITHER the v1
   // (unitless, canonical-implied) header or the v2 (unit-labeled) header —
@@ -1500,7 +1510,15 @@ export function readImportRequest(body: unknown, route: "preview" | "apply"): Re
     if (envelope || issues.length === 0) return { ok: false, status: 422, body: { error: envelope?.message ?? "request body must be a JSON object" } };
     const issue = issues[0];
     const field = issue.code === "unrecognized_keys" ? issue.keys[0] : String(issue.path[1] ?? "document");
-    return { ok: false, status: 400, body: { error: issue.message, errorClass: "malformed", field } };
+    // Plain sentences for students (SCU-2.R6a) — never Zod's raw "Required" / "Unrecognized key(s)…".
+    const sub = issue.path.slice(1).join(".");
+    const name = sub || field;
+    const error =
+      issue.code === "unrecognized_keys" ? `Unknown field "${issue.keys[0]}" in ${sub ? `"${sub}"` : "the document"}.`
+      : issue.code === "invalid_type" && issue.received === "undefined" ? `Missing required field "${name}".`
+      : issue.code === "invalid_type" ? `Wrong type for "${name}": expected ${issue.expected}, got ${issue.received}.`
+      : `Invalid value for "${name}": ${issue.message}`;
+    return { ok: false, status: 400, body: { error, errorClass: "malformed", field } };
   }
   const data = parsed.data as { entity: ImportEntity; format?: "csv" | "json"; csvText?: string; document?: ImportJsonDocument; mode?: "all_or_nothing" | "partial" };
   const mode = data.mode ?? "all_or_nothing";
@@ -1586,7 +1604,7 @@ export function parseAndValidateJsonImport(
   });
 
   const csvText = Papa.unparse([version.fields.map(f => f.csvHeader), ...csvRows], { newline: "\n" });
-  const csvPreview = parseAndValidateImport(entity, csvText, currentOverrides, pValue, modelId);
+  const csvPreview = parseAndValidateImport(entity, csvText, currentOverrides, pValue, modelId, false);
 
   const mapped: ImportError[] = csvPreview.errors.map(e => {
     const rowIndex = e.line === null ? undefined : rowIndexByLine.get(e.line);

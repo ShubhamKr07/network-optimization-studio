@@ -676,8 +676,15 @@ export function applyRefineryOverrides(overrides: RefineryOverride[], addedRefin
   return [...baseRows, ...addedRows];
 }
 
-function csvEscape(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+// SCU-2.R6a — the ONE encoder for every cell of every server CSV. Mirrors the
+// studio's clientCsv.csvCell: STRING cells starting with = + - @ tab CR get a
+// leading ' (spreadsheet formula injection) unless they are plain numbers;
+// numeric/boolean cells are never prefixed. Quotes on " , CR LF. import.ts
+// strips the ' back off text fields so download -> edit -> upload round-trips.
+export function csvCell(value: string | number | boolean | null | undefined): string {
+  let s = String(value ?? "");
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(s) && !(s.trim() !== "" && Number.isFinite(Number(s)))) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // B4.3 — header catches up to B4.2's import COLUMNS exactly. T11 — gained
@@ -692,7 +699,7 @@ function csvEscape(value: string): string {
 export function warehouseRowsToCsv(rows: WarehouseTemplateRow[]): string {
   const header = csvColumns("warehouses", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? "", r.status].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng, r.capacity ?? "", r.status].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -700,7 +707,7 @@ export function warehouseRowsToCsv(rows: WarehouseTemplateRow[]): string {
 export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
   const header = csvColumns("customers", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand, r.status].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng, r.demand, r.status].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -714,7 +721,7 @@ export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
 export function mineRowsToCsv(rows: MineTemplateRow[]): string {
   const header = csvColumns("mines", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? ""].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng, r.capacity ?? ""].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -722,7 +729,7 @@ export function mineRowsToCsv(rows: MineTemplateRow[]): string {
 export function stationRowsToCsv(rows: StationTemplateRow[]): string {
   const header = csvColumns("stations", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng, r.demand].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -734,7 +741,7 @@ export function stationRowsToCsv(rows: StationTemplateRow[]): string {
 export function refineryRowsToCsv(rows: RefineryTemplateRow[]): string {
   const header = csvColumns("refineries", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.status].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng, r.status].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -881,7 +888,7 @@ export function applyPlantOverrides(addedPlants: AddedPlant[] = []): PlantTempla
 export function plantRowsToCsv(rows: PlantTemplateRow[]): string {
   const header = csvColumns("plants", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng].join(","),
+    [r.templateVersion, r.id, r.displayCode ?? "", r.city, r.state, r.lat, r.lng].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -934,7 +941,7 @@ export function applyPlantCapabilityOverrides(
 
 export function plantCapabilityRowsToCsv(rows: PlantCapabilityTemplateRow[]): string {
   const header = csvColumns("plantCapabilities", TEMPLATE_VERSION).join(",");
-  const lines = rows.map(r => [r.templateVersion, r.plantId, r.productId, r.enabled].join(","));
+  const lines = rows.map(r => [r.templateVersion, r.plantId, r.productId, r.enabled].map(csvCell).join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1137,7 +1144,7 @@ export function distanceRowsToCsv(
 ): string {
   const header = csvColumns("distances", DISTANCE_TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.unit, r.fromId, r.toId, r.distance ?? ""].join(","),
+    [r.templateVersion, r.unit, r.fromId, r.toId, r.distance ?? ""].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1267,7 +1274,7 @@ export function laneCostRowsToCsv(
 ): string {
   const header = csvColumns("laneCosts", DISTANCE_TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
-    [r.templateVersion, r.unit, r.fromId, r.toId, r.cost ?? ""].join(","),
+    [r.templateVersion, r.unit, r.fromId, r.toId, r.cost ?? ""].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1287,7 +1294,7 @@ export function applyDeliveryCostOverrides(overrides: Array<{ fromId: string; to
 
 export function deliveryCostRowsToCsv(rows: DeliveryCostRow[]): string {
   const header = csvColumns("deliveryCosts", TEMPLATE_VERSION).join(",");
-  const lines = rows.map(r => [TEMPLATE_VERSION, r.fromId, r.toId, r.cost].join(","));
+  const lines = rows.map(r => [TEMPLATE_VERSION, r.fromId, r.toId, r.cost].map(csvCell).join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1441,7 +1448,7 @@ export function buildAssignmentRows(
 export function assignmentRowsToCsv(rows: AssignmentTemplateRow[]): string {
   const header = "template_version,customer_id,warehouse_id,distance,distance_unit,band,flow";
   const lines = rows.map(r =>
-    [r.templateVersion, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band, r.flow].join(","),
+    [r.templateVersion, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band, r.flow].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1546,7 +1553,7 @@ export function buildOpenWarehouseRows(result: ResultEnvelope, cityById: Map<str
 export function openWarehouseRowsToCsv(rows: OpenWarehouseTemplateRow[]): string {
   const header = "template_version,warehouse_id,city,total_flow,utilization";
   const lines = rows.map(r =>
-    [r.templateVersion, r.warehouseId, csvEscape(r.city), r.totalFlow, r.utilization ?? ""].join(","),
+    [r.templateVersion, r.warehouseId, r.city, r.totalFlow, r.utilization ?? ""].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1680,7 +1687,7 @@ export function buildCostSummaryRows(
 export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
   const header = "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used";
   const lines = rows.map(r =>
-    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.highServiceDist ?? "", r.coveragePct ?? "", r.coveredDemand ?? "", r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solutionStatus ?? ""), csvEscape(r.terminationReason ?? ""), csvEscape(r.solverUsed)].join(","),
+    [r.templateVersion, r.objective ?? "", r.objectiveMode ?? "", r.highServiceDist ?? "", r.coveragePct ?? "", r.coveredDemand ?? "", r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", r.quality, r.solutionStatus ?? "", r.terminationReason ?? "", r.solverUsed].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1795,7 +1802,7 @@ export function buildServiceStatsRows(
 
 export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
   const header = "template_version,band,distance_unit,percent";
-  const lines = rows.map(r => [r.templateVersion, r.band, r.distanceUnit, r.percent].join(","));
+  const lines = rows.map(r => [r.templateVersion, r.band, r.distanceUnit, r.percent].map(csvCell).join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1871,7 +1878,7 @@ export function buildFlowRows(
 export function flowRowsToCsv(rows: FlowTemplateRow[]): string {
   const header = "template_version,from_id,to_id,distance,distance_unit,band,flow";
   const lines = rows.map(r =>
-    [r.templateVersion, r.fromId, r.toId, r.distance, r.distanceUnit, r.band, r.flow].join(","),
+    [r.templateVersion, r.fromId, r.toId, r.distance, r.distanceUnit, r.band, r.flow].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1986,7 +1993,7 @@ export function buildJadeAssignmentRows(
 export function jadeAssignmentRowsToCsv(rows: JadeAssignmentTemplateRow[]): string {
   const header = "template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band";
   const lines = rows.map(r =>
-    [r.templateVersion, r.productId, r.customerId, r.warehouseId, r.distance, r.distanceUnit, csvEscape(r.band)].join(","),
+    [r.templateVersion, r.productId, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -2081,7 +2088,7 @@ export function buildJadeFlowRows(
 export function jadeFlowRowsToCsv(rows: JadeFlowTemplateRow[]): string {
   const header = "template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows";
   const lines = rows.map(r =>
-    [r.templateVersion, r.leg, r.fromId, r.toId, r.distance, r.distanceUnit, csvEscape(r.band), r.flows].join(","),
+    [r.templateVersion, r.leg, r.fromId, r.toId, r.distance, r.distanceUnit, r.band, r.flows].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
