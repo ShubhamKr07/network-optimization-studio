@@ -52,23 +52,13 @@ export function FeedbackWidget() {
   }
 
   return (
-    // Docked in the always-visible homepage footer, NOT floating inside the
-    // scroll wrapper. The float overlapped a chapter card at 768-900px
-    // (measured: 0 cards at 375px, 1 at 768px and 900px) because the content
-    // column's side margin shrinks below ~972px and leaves no room beside it.
-    // Padding the content could not fix that: the launcher did not scroll, so
-    // content passed under it mid-scroll at any width. Anchoring to the footer
-    // — which sits outside the scroll area — removes the overlap at every
-    // width instead of tuning a breakpoint.
-    // QF-2: the launcher sits in NORMAL FLOW, stacked above the credit line,
-    // so it reserves its own height rather than overlaying the footer's
-    // centred text. Only the PANEL is absolute — anchored `bottom-full` to
-    // this wrapper so opening it floats upward over the content instead of
-    // resizing the footer and shifting the page under the user's cursor.
-    // SCU-1.7 (spec B1.6) — launcher right-aligned (bottom-right of the
-    // homepage, directly above DeveloperCredit); the panel anchors `right-0`
-    // so it opens upward from the launcher and stays inside the viewport.
-    <div className="relative flex justify-end mb-2" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    // QF-B (2026-10-17, user-specified after two misses): the launcher FLOATS
+    // just ABOVE the homepage footer's top border line, 24 px from the
+    // window's right edge — anchored `bottom-full` to the footer (AppShell
+    // makes it `relative`), so it stays put while the lab cards scroll under
+    // it, like a chat bubble. The footer itself holds only the credit text.
+    // The panel anchors `bottom-full right-0` to this wrapper, opening upward.
+    <div className="absolute bottom-full right-6 mb-3 z-20" data-testid="feedback-launcher-anchor">
       {open && (
         <div
           id="feedback-panel"
