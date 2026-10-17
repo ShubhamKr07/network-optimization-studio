@@ -467,6 +467,18 @@ describe("DataTable — focus edge cases", () => {
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 1 of 3");
   });
 
+  it("re-aims a consumed jump when late-loading rows push the target to another page (R5a.1)", () => {
+    const focus: DataTableFocus<Row> = { token: "WH", matches: r => r.id === "T" };
+    const props = { rowKey: (r: Row) => r.id, columns, focus, testIds: { row: (r: Row) => `row-${r.id}`, pageIndicator: "t-ind" } };
+    const target: Row = { id: "T", city: "Target", demand: 1 };
+    const { rerender } = render(<DataTable<Row> {...props} rows={[target]} />);
+    expect(screen.getByTestId("row-T")).toBeInTheDocument();
+    // the base block loads AHEAD of the (override) target row
+    rerender(<DataTable<Row> {...props} rows={[...makeRows(60), target]} />);
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 2");
+    expect(screen.getByTestId("row-T")).toBeInTheDocument();
+  });
+
   it("clears pendingScrollKey when the row is in no section instead of re-querying forever", () => {
     const spy = vi.spyOn(Element.prototype, "querySelectorAll");
     const sections = [{ id: "a", includes: (r: Row) => r.id === "C1" }];

@@ -62,14 +62,18 @@ export function DataTable<T>({
   // scroll that row into view once its page has rendered.
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingScrollKey = useRef<string | null>(null);
-  const consumedToken = useRef<string | number | null>(null);
-  // Re-runs on `rows` so a focus whose row arrives later is retried — but only
-  // while its token is unconsumed (one jump per token).
+  const consumedToken = useRef<string | null>(null);
+  // Re-runs on `rows` so a focus whose row arrives later is retried. A jump is
+  // consumed per (token, target page): a late-loading base block that pushes
+  // the target to another page re-aims it, while an unrelated add/delete that
+  // leaves the target on its page does not re-fire or clear the user's filters.
   useEffect(() => {
-    if (!focus || consumedToken.current === focus.token) return;
+    if (!focus) return;
     const idx = rows.findIndex(focus.matches);
     if (idx < 0) return;
-    consumedToken.current = focus.token;
+    const consumed = `${focus.token}|${Math.floor(idx / PAGE_SIZE)}`;
+    if (consumedToken.current === consumed) return;
+    consumedToken.current = consumed;
     clearAll();
     paged.setPage(Math.floor(idx / PAGE_SIZE) + 1, clearedKey);
     pendingScrollKey.current = rowKey(rows[idx]);
