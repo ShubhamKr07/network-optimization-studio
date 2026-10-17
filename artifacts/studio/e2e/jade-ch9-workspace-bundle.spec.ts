@@ -16,6 +16,7 @@
  * CLAUDE.md's "Local dev DB"/"To run e2e locally" recipe.
  */
 import { test, expect, type Page } from "./fixtures";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -413,6 +414,25 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("jade-flows-wc-table")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const wcHeaders = await page.locator('[data-testid="jade-flows-wc-table"] thead th').allInnerTexts();
       expect(wcHeaders).toEqual(["Warehouse", "Customer", "Distance", "Flows", "Distance Band"]);
+      // SCU-2.P3.6 — W→C (one row per customer, 100) pages at 50 while the download
+      // carries all 100; the P→W leg stays mounted but HIDDEN (real-browser proof of
+      // the `hidden` wrapper); an open filter does not survive a leg switch.
+      await expect(page.getByTestId("jade-flows-wc-page-indicator")).toHaveText("Page 1 of 2");
+      await expect(page.getByTestId("jade-flows-pw-table")).toBeHidden();
+      await expect(page.getByTestId("text-jadeflows-wc-count")).toHaveText("100 of 100");
+      await expectCsvJsonDownload(page, "button-download-jade-flows-wc", {
+        csvName: "jade-flows-warehouse-customer.csv",
+        entity: "jadeFlowsWarehouseCustomer",
+        unit: "mi",
+        rows: 100,
+        csvHeader: "Warehouse,Customer,Distance (mi),Flows,Distance Band",
+      });
+      await page.getByTestId("button-filter-jade-flows-wc").click();
+      await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
+      await page.getByTestId("button-jade-flows-inner-plant-warehouse").click();
+      await expect(page.getByTestId("filter-menu-popover")).toHaveCount(0);
+      await expect(page.getByTestId("button-jade-flows-inner-plant-warehouse")).toBeFocused();
+      await page.getByTestId("button-jade-flows-inner-warehouse-customer").click();
 
       // ── Item #5 — Plant Production section (full effective grid) ───────
       await page.getByTestId("sidebar-output-service-stats").click();
@@ -421,6 +441,11 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
         .locator('[data-testid="plant-production-section"] thead th')
         .allInnerTexts();
       expect(plantProdHeaders).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
+      // SCU-2.P3.9 — tab-level Download ▾ (outside the Plant Production DataTable):
+      // CSV and JSON carry the same rows; no pager at 16 rows.
+      const { json: ssJson } = await expectCsvJsonDownload(page, "button-download-service-stats", { csvName: "serviceStats.csv", entity: "serviceStats", unit: "mi" });
+      expect(ssJson.rows.length).toBeGreaterThan(0);
+      await expect(page.getByTestId("plant-production-page-indicator")).toHaveCount(0);
       // Full effective 4 plants × 4 products grid — every combo present,
       // including disabled/zero-production ones (not dropped).
       await expect(page.locator('[data-testid^="row-plant-production-"]')).toHaveCount(16);
@@ -461,11 +486,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       expect(warehousesTabText).not.toContain("10,000,000");
       const warehouseHeaders = await page.locator('[data-testid="warehouses-tab"] thead th').allInnerTexts();
       expect(warehouseHeaders).not.toContain("Capacity");
-      // The "Add warehouse" form also has no capacity field for JADE.
+      // The "+ Add warehouse" modal (SCU-2.P4.10, B2.8) also has no capacity field for JADE.
       await page.getByTestId("button-add-warehouse-row").click();
-      await expect(page.getByTestId("add-warehouse-row-form")).toBeVisible();
-      await expect(page.getByTestId("input-new-warehouse-capacity")).toHaveCount(0);
-      await page.getByTestId("button-add-warehouse-cancel").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
+      await expect(page.getByTestId("create-entity-capacity")).toHaveCount(0);
+      await page.getByTestId("create-entity-cancel").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0);
 
       await page.getByTestId("sidebar-output-open-warehouses").click();
       await expect(page.locator('[data-testid^="open-warehouse-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });

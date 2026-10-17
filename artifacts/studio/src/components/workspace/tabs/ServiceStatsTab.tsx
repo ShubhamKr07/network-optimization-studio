@@ -11,9 +11,9 @@ import { isOutboundLeg } from "@/lib/legPalette";
 import { type CanonicalUnit } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 
@@ -161,12 +161,34 @@ function renderPlantCell(
   return fallbackLabel;
 }
 
-const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductionRow>[] = [
-  { key: "plant", label: "Plant", type: "select", accessor: (r) => r.plantLabel },
-  { key: "product", label: "Product", type: "select", accessor: (r) => r.productLabel },
-  { key: "actual", label: "Actual production", type: "number", accessor: (r) => r.actual },
-  { key: "capacity", label: "Enabled capacity", type: "number", accessor: (r) => r.capacity },
-];
+// SCU-2.P3.9 (spec B2.1/B2.2) — Plant Production on DataTable. Column ids are
+// today's descriptor keys (e2e clicks `checkbox-filter-plant-<label>`). The
+// derived filters now also include a Remaining-capacity range (spec B2.2:
+// descriptors come from every column; today it had none). Built per render
+// because the Plant cell depends on `identityById` + the unfiltered count.
+function plantProductionColumns(identityById: Record<string, EntityIdentity> | undefined, upgrade: boolean): ColumnDef<PlantProductionRow>[] {
+  return [
+    {
+      id: "plant",
+      header: "Plant",
+      kind: "enum",
+      cellClassName: "text-xs",
+      value: r => r.plantLabel,
+      cell: r => renderPlantCell(r.plantId, r.plantLabel, identityById, upgrade),
+    },
+    { id: "product", header: "Product", kind: "enum", cellClassName: "text-xs", value: r => r.productLabel, cell: r => r.productLabel },
+    { id: "actual", header: "Actual production", kind: "number", cellClassName: "text-xs font-mono", value: r => r.actual, cell: r => r.actual.toLocaleString() },
+    { id: "capacity", header: "Enabled capacity", kind: "number", cellClassName: "text-xs font-mono", value: r => r.capacity, cell: r => r.capacity.toLocaleString() },
+    {
+      id: "remaining",
+      header: "Remaining capacity",
+      kind: "number",
+      cellClassName: "text-xs font-mono",
+      value: r => r.remaining,
+      cell: r => (r.remaining === null ? "—" : r.remaining.toLocaleString()),
+    },
+  ];
+}
 
 // By default reads the solver's own metrics.bandCoverage directly (a
 // point-in-time snapshot of the actual solved result) — deliberately NOT
@@ -236,7 +258,11 @@ export function ServiceStatsTab({
     return buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges);
   }, [effectivePlants, products, baseCapabilities, capabilityOverrides, edges]);
 
-  const plantProductionFilters = useTableFilters(plantProductionRows, PLANT_PRODUCTION_FILTER_DESCRIPTORS);
+  const plantProductionUpgrade = plantProductionRows.length > 10;
+  const plantProductionCols = useMemo(
+    () => plantProductionColumns(identityById, plantProductionUpgrade),
+    [identityById, plantProductionUpgrade],
+  );
 
   const showPlantProduction =
     supportsPlantProductCapability && effectivePlants != null && products != null && baseCapabilities != null;
@@ -295,16 +321,14 @@ export function ServiceStatsTab({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
-        <button
-          type="button"
-          data-testid="button-download-service-stats-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
-          onClick={() => download("serviceStats", "csv")}
-          disabled={disabledReasonFor("serviceStats") != null}
-          title={disabledReasonFor("serviceStats")}
-        >
-          Download CSV
-        </button>
+        {/* SCU-2.P3.9 (spec B2.4) — tab-level Download ▾ CSV/JSON (server
+            `serviceStats`); outside DataTable: it exports the whole tab. */}
+        <DownloadMenu
+          testId="button-download-service-stats"
+          itemTestIds={{ csv: "button-download-service-stats-csv", json: "button-download-service-stats-json" }}
+          onDownload={format => download("serviceStats", format)}
+          disabledReason={disabledReasonFor("serviceStats")}
+        />
       </div>
       {/* R9 — demand-weighted, not a customer count: metrics.bandCoverage[].percent
           is computed from flow/demand, so the label says so explicitly. */}
@@ -320,11 +344,9 @@ export function ServiceStatsTab({
               sentinel itself is never converted — only real boundaries go
               through toDisplay (a converted -1 would render "-0.62"). */}
           {(() => {
-            const fmt = (v: number) =>
-              toDisplay(v, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
             const labels = exclusiveBandLabels(
               bandCoverage.filter(b => b.band !== OVERFLOW_BAND).map(b => b.band),
-              fmt,
+              v => toDisplay(v, canonicalUnit),
               distanceUnit,
             );
             return bandCoverage.map((b, i) => (
@@ -344,44 +366,20 @@ export function ServiceStatsTab({
           effective plants × products grid, left-joined to aggregated
           inbound production. */}
       {showPlantProduction && (
-        <div className="mt-2 border-t flex-shrink-0" data-testid="plant-production-section">
-          <div className="flex items-center justify-between p-2">
-            <span className="text-sm font-medium">Plant Production</span>
-            {plantProductionFilters.totalCount > 10 && (
-              <FilterMenu descriptors={PLANT_PRODUCTION_FILTER_DESCRIPTORS} tableFilters={plantProductionFilters} />
-            )}
-          </div>
-          <div className="px-2 pb-2 overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Plant</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Actual production</TableHead>
-                  <TableHead>Enabled capacity</TableHead>
-                  <TableHead>Remaining capacity</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {plantProductionFilters.filteredRows.map((row) => (
-                  <TableRow
-                    key={`${row.plantId}|${row.productId}`}
-                    data-testid={`row-plant-production-${row.plantId}-${row.productId}`}
-                  >
-                    <TableCell className="text-xs">
-                      {renderPlantCell(row.plantId, row.plantLabel, identityById, plantProductionRows.length > 10)}
-                    </TableCell>
-                    <TableCell className="text-xs">{row.productLabel}</TableCell>
-                    <TableCell className="text-xs font-mono">{row.actual.toLocaleString()}</TableCell>
-                    <TableCell className="text-xs font-mono">{row.capacity.toLocaleString()}</TableCell>
-                    <TableCell className="text-xs font-mono">
-                      {row.remaining === null ? "—" : row.remaining.toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+        <div className="mt-2 border-t flex-shrink-0 p-2" data-testid="plant-production-section">
+          <DataTable<PlantProductionRow>
+            rows={plantProductionRows}
+            rowKey={r => `${r.plantId}|${r.productId}`}
+            columns={plantProductionCols}
+            testIds={{
+              row: r => `row-plant-production-${r.plantId}-${r.productId}`,
+              pager: "plant-production-pager",
+              pagerPrev: "button-plant-production-prev",
+              pagerNext: "button-plant-production-next",
+              pageIndicator: "plant-production-page-indicator",
+            }}
+            toolbar={{ extra: <span className="text-sm font-medium">Plant Production</span> }}
+          />
         </div>
       )}
     </div>

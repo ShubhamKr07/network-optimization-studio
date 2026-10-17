@@ -3,9 +3,10 @@ import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import * as exportEntity from "@/lib/exportEntity";
-import { UnitProvider } from "@/contexts/UnitContext";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 
 // FlowsTab now calls useDisplayUnit() unconditionally — every render needs a
 // UnitProvider ancestor. Shadowing `render` keeps every existing call site
@@ -124,7 +125,7 @@ describe("FlowsTab", () => {
   it("calls downloadEntityExport with entity=flows when Download CSV is clicked", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<FlowsTab result={transportResult} scenarioId={1} />);
-    fireEvent.click(screen.getByTestId("button-download-flows-csv"));
+    chooseDownload("button-download-flows", "button-download-flows-csv");
     expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi" });
   });
 
@@ -138,7 +139,7 @@ describe("FlowsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-flows-csv");
+      const button = screen.getByTestId("button-download-flows");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -152,7 +153,7 @@ describe("FlowsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-flows-csv"));
+      chooseDownload("button-download-flows", "button-download-flows-csv");
       expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi", runId: 3 });
     });
   });
@@ -246,6 +247,86 @@ describe("FlowsTab — no duplicate title (SCU-1.4)", () => {
   it("renders no 'Flows' title and keeps Download right-aligned", () => {
     render(<FlowsTab result={transportResult} scenarioId={1} />);
     expect(screen.queryByText("Flows", { selector: "span" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-download-flows-csv").closest("div.border-b")).toHaveClass("justify-end");
+    const dl = screen.getByTestId("button-download-flows"); // SCU-2.P3: Download ▾ right-aligned via toolbar.downloadAlign
+    expect(dl.closest("div.ml-auto")).not.toBeNull();
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+  });
+});
+
+// SCU-2.P3.4 (spec B2.1/B2.2/B2.4, matrix §2a "Flows") — DataTable migration.
+describe("FlowsTab on DataTable — testid map (SCU-2.P3.4)", () => {
+  const many = (n: number) => ({
+    ...transportResult,
+    edges: Array.from({ length: n }, (_, i) => ({ fromId: `M${i % 3}`, toId: `S${i + 1}`, flow: i + 1, distance: 100 + i })),
+  });
+
+  it("emits flow-row-{from}-{to} and flow-row-{from}-{to}-{product} on <tr>s; Download ▾ trigger + items", () => {
+    render(<FlowsTab result={jadeResult} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("flow-row-plant-1-wh-11-product-1").tagName).toBe("TR");
+    expect(screen.getByTestId("flow-row-plant-1-wh-11-product-2")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-download-flows"));
+    expect(screen.getByTestId("button-download-flows-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-flows-json")).toBeInTheDocument();
+  });
+
+  it("emits flows-empty for no result", () => {
+    render(<FlowsTab result={null} scenarioId={1} />);
+    expect(screen.getByTestId("flows-empty")).toBeInTheDocument();
+  });
+
+  it("JSON goes through the server export (entity flows, format json)", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
+    chooseDownload("button-download-flows", "button-download-flows-json");
+    expect(spy).toHaveBeenCalledWith(1, "flows", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("keeps header order (Product only when present) and centres Distance/Flow", () => {
+    render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
+    const heads = screen.getAllByRole("columnheader");
+    expect(heads.map(h => h.textContent)).toEqual(["From", "To", "Distance (mi)", "Flow"]);
+    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, true, true]);
+  });
+
+  it("11 rows: filter; 51 rows: pager with the mapped literals", () => {
+    const a = render(<FlowsTab result={many(11)} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(screen.queryByTestId("flows-pager")).toBeNull();
+    a.unmount();
+    render(<FlowsTab result={many(51)} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.getByTestId("flows-page-indicator")).toHaveTextContent("Page 1 of 2");
+    fireEvent.click(screen.getByTestId("button-flows-next"));
+    expect(screen.getByTestId("flow-row-M2-S51")).toBeInTheDocument();
+    expect(screen.getByTestId("button-flows-prev")).not.toBeDisabled();
+  });
+
+  it("follows the display-unit toggle: header and values convert to the display unit", () => {
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    try {
+      render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
+      expect(screen.getByRole("columnheader", { name: "Distance (km)" })).toBeInTheDocument();
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("482.8");
+    } finally {
+      window.localStorage.removeItem("nos:display-unit-pref");
+    }
+  });
+  // SCU-2.R4 (decision B) — km pref filters km cells; a unit toggle resets the range.
+  it("the Distance range filters km cells under a km pref and resets on a unit toggle", () => {
+    function PrefToggle() {
+      const u = useDisplayUnit();
+      return <button data-testid="toggle-pref-mi" onClick={() => u.setPref("mi")}>mi</button>;
+    }
+    window.localStorage.setItem("nos:display-unit-pref", "km");
+    try {
+      render(<><PrefToggle /><FlowsTab result={many(12)} scenarioId={1} distanceUnit="mi" /></>);
+      fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      fireEvent.change(screen.getByTestId("input-filter-distance-max"), { target: { value: "170" } });
+      expect(screen.getAllByTestId(/^flow-row-/)).toHaveLength(6);
+      fireEvent.click(screen.getByTestId("toggle-pref-mi"));
+      expect(screen.getAllByTestId(/^flow-row-/)).toHaveLength(12);
+    } finally {
+      window.localStorage.removeItem("nos:display-unit-pref");
+    }
   });
 });

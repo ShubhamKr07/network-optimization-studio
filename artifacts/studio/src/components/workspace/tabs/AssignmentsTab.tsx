@@ -1,7 +1,11 @@
+import { useMemo } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
-import { formatCityState } from "@/lib/formatLocation";
+import { entityFilterText, formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
@@ -148,13 +152,54 @@ function resolveCell(
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
+// SCU-2.P3.2 (spec B2.1/B2.2/B2.4) — rendered by the shared DataTable: filter
+// menu > 10 rows, pager > 50 (p-median-us's 200 customers now page), number
+// columns centred, Download ▾ CSV/JSON (server `assignments`).
 export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, identityById, distanceUnit }: AssignmentsTabProps) {
   const unit = useDisplayUnit();
   const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
-  const formatRowDistance = (raw: number): string =>
-    canonicalResolved ? unit.toDisplay(raw, distanceUnit).toFixed(1) : "—";
+  const codeById = useMemo(() => displayCodeById(displayedInputs), [displayedInputs]);
+  const rows = useMemo(() => (result ? aggregatedAssignmentRows(result) : []), [result]);
+
+  const columns = useMemo<ColumnDef<AssignmentRow>[]>(() => [
+    {
+      id: "customer",
+      header: "Customer",
+      kind: "text",
+      value: r => entityFilterText(r.customerId, r.customerId, locationById, identityById),
+      cell: r => resolveCell(r.customerId, r.customerId, locationById, identityById),
+    },
+    {
+      id: "warehouse",
+      header: "Warehouse",
+      kind: "text",
+      value: r => entityFilterText(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById, identityById),
+      cell: r => resolveCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById, identityById),
+    },
+    {
+      id: "distance",
+      header: distanceHeaderLabel,
+      filterLabel: distanceHeaderLabel,
+      kind: "number",
+      cellClassName: "font-mono",
+      // Filter range is in the DISPLAY unit — the number the student reads in the cell.
+      value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
+      filterResetKey: unit.pref,
+      cell: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit).toFixed(1) : "—"),
+    },
+    {
+      id: "flow",
+      header: "Flow",
+      kind: "number",
+      cellClassName: "font-mono",
+      value: r => r.flow,
+      cell: r => r.flow.toLocaleString(),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [codeById, locationById, identityById, distanceHeaderLabel, canonicalResolved, distanceUnit, unit.pref]);
+
   if (!result) {
     return (
       <div className="p-4 text-sm text-muted-foreground" data-testid="assignments-empty">
@@ -162,44 +207,34 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
       </div>
     );
   }
-  const codeById = displayCodeById(displayedInputs);
-  const rows = aggregatedAssignmentRows(result);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
-        <button
-          type="button"
-          data-testid="button-download-assignments-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
-          onClick={() => download("assignments", "csv")}
-          disabled={disabledReasonFor("assignments") != null}
-          title={disabledReasonFor("assignments")}
-        >
-          Download CSV
-        </button>
-      </div>
-      <div className="overflow-auto flex-1">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-background border-b">
-            <tr>
-              <th className="text-left p-2">Customer</th>
-              <th className="text-left p-2">Warehouse</th>
-              <th className="text-right p-2">{distanceHeaderLabel}</th>
-              <th className="text-right p-2">Flow</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(r => (
-              <tr key={r.customerId} data-testid={`assignment-row-${r.customerId}`} className="border-b">
-                <td className="p-2">{resolveCell(r.customerId, r.customerId, locationById, identityById)}</td>
-                <td className="p-2">{resolveCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById, identityById)}</td>
-                <td className="p-2 text-right font-mono">{formatRowDistance(r.distance)}</td>
-                <td className="p-2 text-right font-mono">{r.flow.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="overflow-auto flex-1 p-2">
+        <DataTable<AssignmentRow>
+          rows={rows}
+          rowKey={r => r.customerId}
+          columns={columns}
+          testIds={{
+            row: r => `assignment-row-${r.customerId}`,
+            pager: "assignments-pager",
+            pagerPrev: "button-assignments-prev",
+            pagerNext: "button-assignments-next",
+            pageIndicator: "assignments-page-indicator",
+          }}
+          toolbar={{
+            download: (
+              <DownloadMenu
+                testId="button-download-assignments"
+                itemTestIds={{ csv: "button-download-assignments-csv", json: "button-download-assignments-json" }}
+                onDownload={format => download("assignments", format)}
+                disabledReason={disabledReasonFor("assignments")}
+              />
+            ),
+            // SCU-2.P3 (user decision 2026-10-17) — output tables keep Download on the right (B1.4).
+            downloadAlign: "right",
+          }}
+        />
       </div>
     </div>
   );

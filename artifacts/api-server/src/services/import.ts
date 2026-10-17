@@ -12,19 +12,28 @@ import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, 
 // canonical unit without a hardcoded per-model table.
 import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { getManifest } from "../registry/modelRegistry.js";
+import { PreviewScenarioImportBody, ApplyScenarioImportBody } from "@workspace/api-zod";
+import { csvColumns, IMPORT_SCHEMAS, MAX_IMPORT_ROWS, findTemplateVersion } from "@workspace/import-schema";
+import type { ImportEntity, ImportFieldDescriptor, ImportJsonDocument } from "@workspace/import-schema";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
 export interface ImportError {
   errorClass: ImportErrorClass;
-  line: number | null; // null for whole-file format errors (no single row to blame)
+  line: number | null; // null for whole-file format errors (no single row to blame) and for every JSON-import error
   message: string;
+  // SCU-2.P2.2 (B2.6) — JSON imports only: the 0-based document.rows index, and the key to blame.
+  rowIndex?: number;
+  field?: string;
 }
 
 export interface ImportRowChange {
   id: string;
   line: number;
+  // SCU-2.P2.2 (B2.6) — JSON imports only; `line` is then rowIndex + 2 (the CSV-equivalent line).
+  rowIndex?: number;
   before: { status: string; value: number | null };
   after: { status: string; value: number | null };
   // Populated only for the composite-keyed `distances` entity (B4.1) —
@@ -78,7 +87,8 @@ export interface ImportPreview {
 // header comment on `distances` for why composite-keyed entities don't fit
 // the generic single-id loop, and PLANT_CAPABILITY_COLUMNS below for its own
 // dedicated parsing function (parsePlantCapabilityRows).
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "plants" | "distances" | "laneCosts" | "legDistances" | "plantCapabilities";
+// SCU-2.P2.1 (B2.5) — single source: @workspace/import-schema's IMPORT_ENTITIES.
+export type { ImportEntity };
 
 // Entities that fit the generic single-id-row model below — everything
 // EXCEPT the composite-keyed entities (distances, laneCosts, legDistances,
@@ -86,7 +96,7 @@ export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "
 // this file's header comment on `distances`, Task 30's laneCosts addition,
 // B6.2's legDistances addition below, and jade-T7's plantCapabilities
 // addition).
-type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances" | "plantCapabilities">;
+type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances" | "plantCapabilities" | "deliveryCosts">;
 
 // `distances`/`laneCosts`/`legDistances`/`plantCapabilities` are
 // intentionally absent from COLUMNS/ENTITY_HAS_VALUE/VALID_STATUSES below —
@@ -97,13 +107,13 @@ type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDist
 // and they're each parsed by a wholly separate function
 // (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows/
 // parsePlantCapabilityRows), not this file's generic per-row loop.
-const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
+const DISTANCES_COLUMNS = csvColumns("distances", TEMPLATE_VERSION);
 // T8 — v2 header for the same entity: gains a `unit` column right after
 // `template_version` (Part E, locked column order). A file matching this
 // header is interpreted as v2 (unit-labeled); a file matching
 // DISTANCES_COLUMNS above is interpreted as v1 (unitless, canonical) —
 // both are accepted, never one superseding the other (backward compat).
-const DISTANCES_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "distance"];
+const DISTANCES_COLUMNS_V2 = csvColumns("distances", DISTANCE_TEMPLATE_VERSION);
 // The only two units this app knows about (`@workspace/units`'s
 // `CanonicalUnit`). A v2 file's `unit` column must be one of these, on
 // every row, uniformly — see checkUniformUnitAndVersion below.
@@ -113,10 +123,10 @@ const KNOWN_UNITS = new Set<string>(["km", "mi"]);
 // "cost" (not "distance"), matching stage 1-3's own established vocabulary
 // decision for this model (transportLp.ts's laneCostOverrideSchema) even
 // though the underlying values are the same kind of quantity.
-const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
+const LANE_COST_COLUMNS = csvColumns("laneCosts", TEMPLATE_VERSION);
 // T8 — v2 header for laneCosts, same shape/reasoning as DISTANCES_COLUMNS_V2
 // above (keeps the "cost" value-column name, per-entity vocabulary).
-const LANE_COST_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "cost"];
+const LANE_COST_COLUMNS_V2 = csvColumns("laneCosts", DISTANCE_TEMPLATE_VERSION);
 // B6.2 stage 4 — two-echelon-gold-au's composite-keyed entity. Same 4-column
 // shape as DISTANCES_COLUMNS (this model's own vocabulary is "distance",
 // not "cost" — B6.2 stage 1's naming decision) — reuses DISTANCES_COLUMNS
@@ -128,7 +138,10 @@ const LANE_COST_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "c
 
 // jade-T7 — plantCapabilities' own 4-column shape: a plant x product
 // "can-make" toggle (`enabled`, a boolean, not a numeric distance/cost).
-const PLANT_CAPABILITY_COLUMNS = ["template_version", "plant_id", "product_id", "enabled"];
+const PLANT_CAPABILITY_COLUMNS = csvColumns("plantCapabilities", TEMPLATE_VERSION);
+
+// SCU-2.P2.3 (B2.7, D1) - delivery-teaching-us's lane-cost overrides.
+const DELIVERY_COST_COLUMNS = csvColumns("deliveryCosts", TEMPLATE_VERSION);
 
 // Singular display label per entity, used in a handful of free-text error
 // messages below (id-collision, add-mode "lat/lng required"/"city and state
@@ -200,15 +213,15 @@ function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | 
 // comment — the only per-plant lever is plantCapabilities, a separate
 // composite-keyed entity, below).
 const COLUMNS: Record<SingleIdEntity, string[]> = {
-  warehouses: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"],
-  customers: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"],
-  mines: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity"],
-  stations: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand"],
+  warehouses: csvColumns("warehouses", TEMPLATE_VERSION),
+  customers: csvColumns("customers", TEMPLATE_VERSION),
+  mines: csvColumns("mines", TEMPLATE_VERSION),
+  stations: csvColumns("stations", TEMPLATE_VERSION),
   // Refineries have status but no value column at all (two-echelon-gold-au
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
-  refineries: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "status"],
-  plants: ["template_version", "id", "display_code", "city", "state", "lat", "lng"],
+  refineries: csvColumns("refineries", TEMPLATE_VERSION),
+  plants: csvColumns("plants", TEMPLATE_VERSION),
 };
 
 // Which entities carry lat/lng columns (see COLUMNS' comment above) — used
@@ -396,6 +409,10 @@ export function parseAndValidateImport(
   }
 
   const rows = parsed.data;
+  if (rows.length - 1 > MAX_IMPORT_ROWS) {
+    errors.push(tooManyRowsError(rows.length - 1));
+    return { errors, changes, warnings };
+  }
   const header = rows[0]?.map(h => h.trim()) ?? [];
 
   // T8 (Part E) — distances/laneCosts/legDistances now accept EITHER the v1
@@ -428,6 +445,7 @@ export function parseAndValidateImport(
       // jade-T7 — plantCapabilities' own 4-column shape (plant_id/
       // product_id/enabled, not from_id/to_id/distance).
       entity === "plantCapabilities" ? PLANT_CAPABILITY_COLUMNS
+      : entity === "deliveryCosts" ? DELIVERY_COST_COLUMNS
       // `isDistanceLikeEntity` (a plain boolean, not a type guard) already
       // excluded distances/laneCosts/legDistances above, so `entity` here is
       // really a SingleIdEntity — TS just can't see that through the
@@ -528,6 +546,11 @@ export function parseAndValidateImport(
     const baseCapacityByPair = new Map(JADE_PLANT_PRODUCT_CAPABILITIES.map(c => [`${c.plantId}|${c.productId}`, c.capacity]));
     const capabilityResult = parsePlantCapabilityRows(rows.slice(1), currentOverrides.plantProductCapability ?? [], plantIdSpace, productIdSpace, baseCapacityByPair);
     return { errors: capabilityResult.errors, changes: capabilityResult.changes, warnings: [] };
+  }
+
+  if (entity === "deliveryCosts") {
+    const deliveryResult = parseDeliveryCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? []);
+    return { errors: deliveryResult.errors, changes: deliveryResult.changes, warnings: [] };
   }
 
   // Mines/stations store overrides as sparse dicts (mineCapacities/
@@ -1302,6 +1325,59 @@ function parseLegDistanceRows(
   return { errors, changes };
 }
 
+// SCU-2.P2.3 (B2.7, D1; review #8). `before` is the EFFECTIVE cost (override
+// ?? base). Removal is decided by the override's PRESENCE: a row equal to base
+// on an overridden pair is a reset-to-base change (after.status "base") even
+// when the stored override already equals base, and the apply merge drops it.
+function parseDeliveryCostRows(
+  dataRows: string[][],
+  currentOverrides: LaneCostOverride[],
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const overrideByPair = new Map(currentOverrides.map(o => [`${o.fromId}|${o.toId}`, o.cost]));
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+    if (cols.length !== DELIVERY_COST_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${DELIVERY_COST_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+    const [tvStr, fromId, toId, costStr] = cols;
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+    const pairKey = `${fromId}|${toId}`;
+    const base = deliveryBaseCost(fromId, toId);
+    if (base === undefined) {
+      errors.push({ errorClass: "logic", line, message: `Unknown lane (from_id "${fromId}", to_id "${toId}") — must be a warehouse→customer pair in the base cost matrix` });
+      continue;
+    }
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (from_id,to_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+    // Deviation 6: Number("") is 0, a legal cost here — a blank cell must not become a 0 override.
+    const cost = costStr.trim() === "" ? NaN : Number(costStr);
+    if (!Number.isFinite(cost) || cost < 0) {
+      errors.push({ errorClass: "logic", line, message: `cost must be a non-negative number, got "${costStr}"` });
+      continue;
+    }
+    const hasOverride = overrideByPair.has(pairKey);
+    const before = hasOverride ? overrideByPair.get(pairKey)! : base;
+    if (cost === base) {
+      if (hasOverride) changes.push({ id: pairKey, line, before: { status: "active", value: before }, after: { status: "base", value: base }, fromId, toId });
+    } else if (before !== cost) {
+      changes.push({ id: pairKey, line, before: { status: "active", value: before }, after: { status: "active", value: cost }, fromId, toId });
+    }
+  }
+  return { errors, changes };
+}
+
 // jade-T7 — composite-key (plant_id,product_id) parsing branch for the
 // plantCapabilities entity, structurally different from every composite-key
 // entity above: a full MATRIX (every plant x every product has a baseline
@@ -1384,4 +1460,142 @@ function parsePlantCapabilityRows(
   }
 
   return { errors, changes };
+}
+
+// ---------------------------------------------------------------------------
+// SCU-2.P2.2 (B2.6) — JSON import. The JSON document is the export envelope.
+// It gets NO second validator: the envelope and each row's keys/types are
+// checked against @workspace/import-schema (the document's SHAPE was already
+// checked by readImportRequest), the rows become CSV text in the
+// entity's own header order, and the existing CSV validator above decides
+// everything else (ids, duplicates, values, add mode). Its line numbers are
+// then mapped back to document.rows indexes.
+// ---------------------------------------------------------------------------
+
+function tooManyRowsError(count: number): ImportError {
+  return { errorClass: "format", line: null, message: `File has ${count} data rows; the maximum is ${MAX_IMPORT_ROWS} per import.` };
+}
+
+export type ImportPayload =
+  | { format: "csv"; csvText: string }
+  | { format: "json"; document: ImportJsonDocument };
+
+export type ReadImportRequestResult =
+  | { ok: true; entity: ImportEntity; payload: ImportPayload; mode: "all_or_nothing" | "partial" }
+  | { ok: false; status: 400 | 422; body: { error: string; errorClass?: "malformed"; field?: string } };
+
+/**
+ * Validates the request against the generated strict OpenAPI oneOf (the single
+ * source). Issues under `document` → 400 malformed; any other envelope
+ * violation → 422. Runs AFTER the ownership lookup (the route mounts it so).
+ */
+export function readImportRequest(body: unknown, route: "preview" | "apply"): ReadImportRequestResult {
+  const schema = route === "preview" ? PreviewScenarioImportBody : ApplyScenarioImportBody;
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    // A failed union nests per-branch issues; the json branch is the 2nd member.
+    const issues = parsed.error.issues.flatMap(i =>
+      i.code === "invalid_union" ? i.unionErrors[(body as { format?: unknown } | null)?.format === "json" ? 1 : 0].issues : [i]);
+    const envelope = issues.find(i => i.path[0] !== "document");
+    if (envelope || issues.length === 0) return { ok: false, status: 422, body: { error: envelope?.message ?? "request body must be a JSON object" } };
+    const issue = issues[0];
+    const field = issue.code === "unrecognized_keys" ? issue.keys[0] : String(issue.path[1] ?? "document");
+    return { ok: false, status: 400, body: { error: issue.message, errorClass: "malformed", field } };
+  }
+  const data = parsed.data as { entity: ImportEntity; format?: "csv" | "json"; csvText?: string; document?: ImportJsonDocument; mode?: "all_or_nothing" | "partial" };
+  const mode = data.mode ?? "all_or_nothing";
+  if (data.format === "json") {
+    const document = data.document!;
+    // OpenAPI says integer; the generated Zod emits a bare number().
+    if (!Number.isInteger(document.templateVersion)) {
+      return { ok: false, status: 400, body: { error: "document.templateVersion must be an integer", errorClass: "malformed", field: "templateVersion" } };
+    }
+    return { ok: true, entity: data.entity, payload: { format: "json", document }, mode };
+  }
+  return { ok: true, entity: data.entity, payload: { format: "csv", csvText: data.csvText! }, mode };
+}
+
+export function previewImport(
+  entity: ImportEntity,
+  payload: ImportPayload,
+  currentOverrides: ImportCurrentOverrides,
+  pValue: number,
+  modelId: string,
+): ImportPreview {
+  return payload.format === "csv"
+    ? parseAndValidateImport(entity, payload.csvText, currentOverrides, pValue, modelId)
+    : parseAndValidateJsonImport(entity, payload.document, currentOverrides, pValue, modelId);
+}
+
+const JSON_TYPE_PHRASE = { string: "a string", enum: "a string", number: "a number", boolean: "true or false" } as const;
+
+/** One JSON value → its CSV cell text; undefined = wrong JSON type. null/absent → blank cell. */
+function jsonCell(value: unknown, field: ImportFieldDescriptor): string | undefined {
+  if (value === null || value === undefined) return "";
+  if (field.type === "number") return typeof value === "number" ? String(value) : undefined;
+  if (field.type === "boolean") return typeof value === "boolean" ? String(value) : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+export function parseAndValidateJsonImport(
+  entity: ImportEntity,
+  document: ImportJsonDocument, // shape already guaranteed by readImportRequest
+  currentOverrides: ImportCurrentOverrides,
+  pValue: number,
+  modelId: string = "p-median-us",
+): ImportPreview {
+  const formatError = (field: string, message: string): ImportPreview =>
+    ({ errors: [{ errorClass: "format", line: null, field, message }], changes: [], warnings: [] });
+
+  if (document.entity !== entity) {
+    return formatError("entity", `Document entity ${JSON.stringify(document.entity)} does not match the import target "${entity}".`);
+  }
+  const schema = IMPORT_SCHEMAS[entity];
+  const version = typeof document.templateVersion === "number" ? findTemplateVersion(entity, document.templateVersion) : undefined;
+  if (!version) {
+    return formatError("templateVersion", `templateVersion ${JSON.stringify(document.templateVersion)} is not supported for ${entity} (expected ${schema.versions.map(v => v.templateVersion).join(" or ")}).`);
+  }
+  const takesUnit = version.fields.some(f => f.envelopeKey === "unit");
+  if (takesUnit && document.unit === undefined) return formatError("unit", `unit is required for ${entity} templateVersion ${version.templateVersion}.`);
+  if (!takesUnit && document.unit !== undefined) return formatError("unit", `unit is not allowed for ${entity} templateVersion ${version.templateVersion}.`);
+  if (document.rows.length > MAX_IMPORT_ROWS) return { errors: [tooManyRowsError(document.rows.length)], changes: [], warnings: [] };
+
+  const allowedKeys = new Set<string>([...version.fields.map(f => f.jsonKey), ...schema.exportOnlyJsonKeys]);
+  const shapeErrors: ImportError[] = [];
+  const csvRows: string[][] = [];
+  const rowIndexByLine = new Map<number, number>(); // CSV line (header = 1) → document.rows index
+
+  document.rows.forEach((record, rowIndex) => {
+    const unknownKey = Object.keys(record).find(k => !allowedKeys.has(k));
+    if (unknownKey !== undefined) {
+      shapeErrors.push({ errorClass: "syntax", line: null, rowIndex, field: unknownKey, message: `Unknown field "${unknownKey}".` });
+      return;
+    }
+    const cells: string[] = [];
+    for (const f of version.fields) {
+      const value = f.jsonKey in record ? record[f.jsonKey] : f.envelopeKey ? document[f.envelopeKey] : null;
+      const cell = jsonCell(value, f);
+      if (cell === undefined) {
+        shapeErrors.push({ errorClass: "syntax", line: null, rowIndex, field: f.jsonKey, message: `${f.jsonKey} must be ${JSON_TYPE_PHRASE[f.type]}${f.nullable ? " or null" : ""}.` });
+        return;
+      }
+      cells.push(cell);
+    }
+    rowIndexByLine.set(csvRows.length + 2, rowIndex);
+    csvRows.push(cells);
+  });
+
+  const csvText = Papa.unparse([version.fields.map(f => f.csvHeader), ...csvRows], { newline: "\n" });
+  const csvPreview = parseAndValidateImport(entity, csvText, currentOverrides, pValue, modelId);
+
+  const mapped: ImportError[] = csvPreview.errors.map(e => {
+    const rowIndex = e.line === null ? undefined : rowIndexByLine.get(e.line);
+    return rowIndex === undefined ? { ...e, line: null } : { ...e, line: null, rowIndex };
+  });
+  const errors = [...shapeErrors, ...mapped].sort((a, b) => (a.rowIndex ?? -1) - (b.rowIndex ?? -1));
+  const changes = csvPreview.changes.map(c => {
+    const rowIndex = rowIndexByLine.get(c.line)!;
+    return { ...c, line: rowIndex + 2, rowIndex };
+  });
+  return { errors, changes, warnings: csvPreview.warnings };
 }

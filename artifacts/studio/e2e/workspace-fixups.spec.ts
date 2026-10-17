@@ -161,9 +161,10 @@ function bandRangeLabelLocal(distance: number, bands: number[], unit: string): s
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return "All distances";
   const idx = sorted.findIndex(b => distance <= b);
-  if (idx === -1) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
-  if (idx === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
-  return `Band ${idx + 1}: ${sorted[idx - 1]} ${unit} - ${sorted[idx]} ${unit}`;
+  const f = (n: number) => `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
+  if (idx === -1) return `Band ${sorted.length + 1}: > ${f(sorted[sorted.length - 1])}`;
+  if (idx === 0) return `Band 1: 0 ${unit} - ${f(sorted[0])}`;
+  return `Band ${idx + 1}: ${f(sorted[idx - 1])} - ${f(sorted[idx])}`;
 }
 
 /** Parses a `bandRangeLabel` string back into inclusive numeric bounds, for
@@ -173,10 +174,10 @@ function bandRangeLabelLocal(distance: number, bands: number[], unit: string): s
  * distance — this is a smoke-level cross-check, not a re-proof of the
  * boundary math itself (that's `bands.test.ts`'s job). */
 function parseBandRangeBounds(label: string): { min: number; max: number } {
-  const overflow = label.match(/^Band \d+: > ([\d.]+) /);
-  if (overflow) return { min: Number(overflow[1]), max: Infinity };
-  const range = label.match(/^Band \d+: ([\d.]+) \S+ - ([\d.]+) /);
-  if (range) return { min: Number(range[1]), max: Number(range[2]) };
+  const overflow = label.match(/^Band \d+: > ([\d.,]+) /);
+  if (overflow) return { min: Number(overflow[1].replace(/,/g, "")), max: Infinity };
+  const range = label.match(/^Band \d+: ([\d.,]+) \S+ - ([\d.,]+) /);
+  if (range) return { min: Number(range[1].replace(/,/g, "")), max: Number(range[2].replace(/,/g, "")) };
   throw new Error(`Unrecognized band range label: ${label}`);
 }
 
@@ -340,7 +341,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       const originalBandOptions = await distinctFilterOptionLabels(page, "band");
       expect(originalBandOptions.length).toBeGreaterThan(0);
       for (const label of originalBandOptions) {
-        expect(label).toMatch(/^Band \d+: (\d+(\.\d+)? \S+ - \d+(\.\d+)? \S+|> \d+(\.\d+)? \S+)$/);
+        expect(label).toMatch(/^Band \d+: ([\d,]+(\.\d+)? \S+ - [\d,]+(\.\d+)? \S+|> [\d,]+(\.\d+)? \S+)$/);
       }
 
       // Select a non-band filter (Product) first, capture its solo count —
@@ -419,7 +420,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       // the exact same list).
       expect([...newBandOptions].sort()).not.toEqual([...originalBandOptions].sort());
       for (const label of newBandOptions) {
-        expect(label).toMatch(/^Band \d+: (\d+(\.\d+)? \S+ - \d+(\.\d+)? \S+|> \d+(\.\d+)? \S+)$/);
+        expect(label).toMatch(/^Band \d+: ([\d,]+(\.\d+)? \S+ - [\d,]+(\.\d+)? \S+|> [\d,]+(\.\d+)? \S+)$/);
       }
       // The specific stale selection is gone from the new option set.
       expect(newBandOptions).not.toContain(bandLabelBefore);
@@ -514,7 +515,8 @@ test.describe("Workspace fixups — p-median-us (inline add-on-map -> Save flow)
       // entity again" DoD — was mutually exclusive with the old Added
       // Entities tab, which had none of these).
       await expect(page.getByTestId("warehouses-tab-toolbar")).toBeVisible();
-      await expect(page.getByTestId("button-export-warehouses-csv")).toBeVisible();
+      // SCU-2.P4.10 (B2.4) — Download ▾ trigger (the CSV id is now its menu item).
+      await expect(page.getByTestId("button-download-warehouses")).toBeVisible();
       await expect(page.getByTestId("button-import-warehouses")).toBeVisible();
       await expect(page.getByTestId("button-add-warehouse-row")).toBeVisible();
 

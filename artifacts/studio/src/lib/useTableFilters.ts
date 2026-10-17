@@ -13,6 +13,13 @@ import { useCallback, useMemo, useState } from "react";
 
 export type ColumnFilterType = "text" | "select" | "number";
 
+/** SCU-2.P1 (B2.2) — the internal select-option value an accessor returns for an
+ * empty (null/NaN) cell. NUL-prefixed, so no real cell text can equal it (a raw
+ * "(empty)" string stays its own option). FilterMenu displays it as
+ * `EMPTY_FILTER_LABEL` and uses `__empty__` in its option testids. */
+export const EMPTY_FILTER_VALUE = "\u0000empty";
+export const EMPTY_FILTER_LABEL = "(empty)";
+
 export interface ColumnFilterDescriptor<T> {
   /** Stable key identifying this filter — also the `filterState`/`setFilter` key. */
   key: string;

@@ -10,7 +10,13 @@ import type { ImportRowChangeBefore } from './importRowChangeBefore';
 
 export interface ImportRowChange {
   id: string;
+  /** CSV-equivalent line (rowIndex + 2 for a JSON import). */
   line: number;
+  /**
+     * JSON only — 0-based index into document.rows.
+     * @minimum 0
+     */
+  rowIndex?: number;
   before: ImportRowChangeBefore;
   after: ImportRowChangeAfter;
 }

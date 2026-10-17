@@ -42,6 +42,7 @@
  */
 import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { closePopover, fillTableFilter, grouped, readGroupedNumber } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 120_000;
@@ -242,12 +243,17 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
     expect(createResp.status()).toBe(201);
     const chenId = String((await createResp.json()).id);
 
+    let releaseModels!: () => void;
+    const modelsHeld = new Promise<void>(resolve => { releaseModels = resolve; });
     try {
-      // Delay /api/models so the manifest genuinely has not resolved by the
+      // Hold /api/models so the manifest genuinely has not resolved by the
       // time the page first paints — the real "unresolved canonical unit"
       // window this bundle's whole "no fallback unit" contract exists for.
+      // The hold is a promise released EXPLICITLY below (not a timer): a fixed
+      // delay races the test's own pace, so under load the manifest could
+      // resolve before the "pending" assertions ran (SCU-2.R5b).
       await page.route("**/api/models", async route => {
-        await new Promise(r => setTimeout(r, 3000));
+        await modelsHeld;
         await route.continue();
       });
 
@@ -272,7 +278,9 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(valueInput).toBeDisabled();
       await expect(valueInput).toHaveValue("");
 
-      // Once the manifest resolves (route delay elapses), the real mi-labeled
+      // Release the held manifest request now.
+      releaseModels();
+      // Once the manifest resolves (route released), the real mi-labeled
       // content replaces the placeholder — proving this was a genuine
       // load-then-resolve transition, not a permanently-broken editor.
       await page.getByTestId("sidebar-input-optimization-parameters").click();
@@ -285,6 +293,7 @@ test.describe("chen-bands-units QA — unit toggle + no-wrong-unit-render", () =
       await expect(page.getByTestId("band-700")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByText("Distance bands (mi)")).toBeVisible();
     } finally {
+      releaseModels();
       await page.unroute("**/api/models");
       await page.request.delete(`/api/scenarios/${chenId}`);
     }
@@ -363,6 +372,12 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       const overflowLabel = (await overflowRow.innerText()).trim();
       expect(overflowLabel.startsWith(">")).toBe(true);
       expect(overflowLabel).not.toMatch(/-\d/); // no negative distance ever rendered
+      // SCU-2.P3.9 (user decision 2026-10-17) — km band labels round like every other
+      // displayed distance (formatDistanceDisplay, at most 2 dp): never "1086.8688 km".
+      await page.getByTestId("unit-toggle-km").click();
+      await expect(overflowRow).toContainText(" km", { timeout: HEADER_TIMEOUT });
+      expect((await overflowRow.innerText()).trim()).toMatch(/^> [\d,]+(\.\d{1,2})? km/);
+      await page.getByTestId("unit-toggle-auto").click();
 
       // ── Non-integer boundary via unit toggle ────────────────────────────
       // CH4O-8 flipped the canonical unit to mi, so the "away from auto"
@@ -436,8 +451,9 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // The merged base+override table is paginated (50/page) and this pair
       // may not land on page 1 — filter down to it (same pattern the
       // Distances tab's own filter fields exist for).
-      await page.getByTestId("input-filter-from").fill("ALN");
-      await page.getByTestId("input-filter-to").fill("C4");
+      await fillTableFilter(page, "from", "ALN");
+      await fillTableFilter(page, "to", "C4");
+      await closePopover(page);
       await expect(page.getByTestId("input-distance-ALN-C4")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("input-distance-ALN-C4")).toHaveValue("500");
       await saveViaHeader(page);
@@ -540,7 +556,8 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await page.getByTestId("sidebar-input-customers").click();
       const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
       await expect(demandInput).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const original = Number(await demandInput.inputValue()) || 0;
+      // SCU-2.P4.11 (B2.9) — demand is displayed grouped; read it as a number.
+      const original = (await readGroupedNumber(demandInput)) || 0;
       await demandInput.fill(String(original + 1000));
       await saveViaHeader(page);
       await solveViaUi(page, id);
@@ -556,7 +573,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       const demandInput2 = page.locator('[data-testid^="input-customer-demand-"]').first();
       const demand2TestId = (await demandInput2.getAttribute("data-testid"))!;
       const dirtyCustomerId = demand2TestId.replace("input-customer-demand-", "");
-      const beforeDirtyValue = await demandInput2.inputValue();
+      const beforeDirtyValue = String(await readGroupedNumber(demandInput2));
       await demandInput2.fill(String(Number(beforeDirtyValue) + 500));
 
       // ── Step back -> dirty-nav prompt intercepts navigation ─────────────
@@ -569,7 +586,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await page.getByTestId("dirty-nav-cancel").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toHaveCount(0);
       await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2");
-      await expect(page.locator('[data-testid^="input-customer-demand-"]').first()).toHaveValue(String(Number(beforeDirtyValue) + 500));
+      await expect(page.locator('[data-testid^="input-customer-demand-"]').first()).toHaveValue(grouped(Number(beforeDirtyValue) + 500));
 
       // ── Reject Save: intercept the whole-input PATCH to fail ────────────
       await page.getByTestId("button-result-back").click();
@@ -641,8 +658,15 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       // this half for the same reason this whole test moved models): input
       // exports are disabled while browsing a historical entry. ──────────
       await page.getByTestId("sidebar-input-distances").click();
-      await expect(page.getByTestId("button-export-distances-csv")).toBeDisabled({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-export-distances-csv")).toHaveAttribute(
+      // SCU-2.P4.3 (B2.4) — the Download ▾ trigger carries the disabled state + reason.
+      await expect(page.getByTestId("button-download-distances")).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-download-distances")).toHaveAttribute(
+        "title",
+        "Input exports reflect the current scenario",
+      );
+      // User decision 2026-10-17 — Upload ▾ is disabled in history too, same reason.
+      await expect(page.getByTestId("button-import-distances")).toBeDisabled();
+      await expect(page.getByTestId("button-import-distances")).toHaveAttribute(
         "title",
         "Input exports reflect the current scenario",
       );
@@ -682,7 +706,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       const latestDemand2 = page.locator('[data-testid^="input-customer-demand-"]').first();
       const latestDemandTestId = (await latestDemand2.getAttribute("data-testid"))!;
       const latestDemandCustomerId = latestDemandTestId.replace("input-customer-demand-", "");
-      const savedLatestValue = await latestDemand2.inputValue();
+      const savedLatestValue = String(await readGroupedNumber(latestDemand2));
       await latestDemand2.fill(String(Number(savedLatestValue) + 42));
       await page.getByTestId("button-result-back").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -743,19 +767,25 @@ test.describe("chen-bands-units QA — export controls", () => {
       // ── unit= applies on a real click ────────────────────────────────────
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-export-distances-csv")).toBeEnabled();
+      await expect(page.getByTestId("button-download-distances")).toBeEnabled();
 
       await page.getByTestId("unit-toggle-mi").click();
       const [reqMi] = await Promise.all([
         page.waitForRequest(req => req.url().includes("/export") && req.method() === "GET"),
-        page.getByTestId("button-export-distances-csv").click(),
+        (async () => {
+          await page.getByTestId("button-download-distances").click();
+          await page.getByTestId("button-export-distances-csv").click();
+        })(),
       ]);
       expect(reqMi.url()).toContain("unit=mi");
 
       await page.getByTestId("unit-toggle-km").click();
       const [reqKm] = await Promise.all([
         page.waitForRequest(req => req.url().includes("/export") && req.method() === "GET"),
-        page.getByTestId("button-export-distances-csv").click(),
+        (async () => {
+          await page.getByTestId("button-download-distances").click();
+          await page.getByTestId("button-export-distances-csv").click();
+        })(),
       ]);
       expect(reqKm.url()).toContain("unit=km");
 

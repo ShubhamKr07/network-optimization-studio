@@ -1,12 +1,10 @@
-import { exportScenario } from "@workspace/api-client-react";
+import { exportScenario, type ExportScenarioEntity } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
+import { downloadAs } from "@/lib/clientCsv";
 
-// T11 (Chapter 9 JADE) — "plants"/"plantCapabilities" added, matching T3.5's
-// already-generated `ExportScenarioEntity` (openapi.yaml) exactly. This
-// union is a small hand-maintained convenience type over that generated
-// enum (not generated code itself), so it's the correct place to extend.
-export type ExportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "assignments" | "openWarehouses" | "costSummary" | "serviceStats" | "flows" | "plants" | "plantCapabilities";
+// The generated `ExportScenarioEntity` (openapi.yaml) is the single source of truth.
+export type ExportEntity = ExportScenarioEntity;
 
 // A1.3 — shared client-side download logic for the Workspace grid tabs
 // (WarehousesTab, CustomersTab). Extracted rather than duplicated because
@@ -60,14 +58,7 @@ export async function downloadEntityExport(
       unit: options?.unit,
       runId: options?.runId,
     });
-    const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-    const blob = new Blob([text], { type: format === "csv" ? "text/csv" : "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${entity}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadAs(entity, format, data);
   } catch (err) {
     // A9 — the 409 LEGACY_RESULT_REQUIRES_RESOLVE rejection is NOT a generic
     // export failure: it's a "the result predates verified solve tracking,

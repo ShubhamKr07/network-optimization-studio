@@ -77,9 +77,9 @@ import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
 import type { StationOverride } from "@/components/tables/StationTable";
+import { hasIntegerCustomerDemand } from "@/lib/integerDemand";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
-import type { LegDistanceOverride } from "@/components/workspace/tabs/LegDistancesTab";
 import type { CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
 import type {
   MapWarehouse,
@@ -3486,11 +3486,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             : {})}
           precheckErrors={precheck?.errors}
           hasStateColumn={hasStateColumn}
-          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-          // true only on the JADE path; every other model sharing this
-          // branch (p-median-us/brazil/Chen/delivery-teaching-us) keeps the
-          // default `false`.
+          // jade-INT (#9) — JADE-only FilterMenu on the ImportDialog preview
+          // grids. SCU-2.P4.10 (B2.2): the table's own FilterMenu now shows on
+          // every model above 10 rows and no longer reads this.
           enableFilters={modelId === "two-echelon-jade-us"}
+          modelId={modelId}
           // chen-bands-units follow-up (QA defect) — decision 1h's "ordinary
           // editors are disabled while browsing history" was only enforced
           // at the write layer (`updateInputsField`'s no-op above); this
@@ -3521,6 +3521,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           entity="refineries"
+          modelId={modelId}
           addedWarehouses={addedRefineriesFromInputs(localInputs)}
           onAddedWarehousesChange={next => handleAddedArrayChange("refineries", "addedRefineries", addedRefineriesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
@@ -3541,6 +3542,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <PlantsTab
+          readOnly={isBrowsingHistoryNow}
           plants={dataset.plants ?? []}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
@@ -3560,6 +3562,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CapabilityMatrixTab
+          readOnly={isBrowsingHistoryNow}
           plants={mergeEffectivePlants(dataset, localInputs)}
           products={dataset.products ?? []}
           baseCapabilities={dataset.plantProductCapabilities ?? []}
@@ -3630,20 +3633,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           hasStateColumn={hasStateColumn}
-          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-          // true only on the JADE path; every other model sharing this
-          // branch keeps the default `false`.
+          // jade-INT (#9) — JADE-only FilterMenu on the ImportDialog preview
+          // grids. SCU-2.P4.11 (B2.2): the table's own FilterMenu shows on
+          // every model above 10 rows and no longer reads this.
           enableFilters={isJade}
-          // chen-bands-units follow-up (QA defect) — see the Warehouses tab
-          // call site's identical comment for the full rationale. Has no
-          // effect on JADE's own separate productMode table (out of this
-          // fix's scope — see CustomersTabProps.disabled's own comment).
+          modelId={modelId}
+          // History read-only (decision 1h; SCU-2.P4.11 D2) — base, added AND
+          // JADE per-product rows.
           disabled={isBrowsingHistoryNow}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model here defaults true. Never applied to the "Added customers"
           // section below (a new region has no textbook demand to protect).
           demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+          // D30 — max-coverage-us demand is a whole-number domain (manifest-derived).
+          integerDemand={hasIntegerCustomerDemand(activeModelManifest?.inputsSchema)}
           // B5.2/B6.2 — addedCustomers used to be a p-median-us-only concept
           // (twoEchelonInputsSchema had no such field); B6.2 gave
           // two-echelon-gold-au its own real addedCustomers field with the
@@ -3688,6 +3692,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <MinesTab
+          readOnly={isBrowsingHistoryNow}
           mines={dataset.warehouses}
           overrides={mineOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
@@ -3708,6 +3713,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <StationsTab
+          readOnly={isBrowsingHistoryNow}
           stations={dataset.customers}
           overrides={stationOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
@@ -3744,6 +3750,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           distanceOverrides={distanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
@@ -3786,6 +3793,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LegDistancesTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           distanceOverrides={distanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
@@ -3821,6 +3829,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <JadeDistancesTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           distanceOverrides={jadeDistanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={jadeDistanceOverridesFromInputs(savedInputsRef.current)}
@@ -3874,6 +3883,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LaneCostsTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
           savedLaneCostOverrides={laneCostOverridesFromInputs(savedInputsRef.current)}
@@ -3898,7 +3908,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // LaneCostsTab, this tab reads its base matrix from Task 7's
     // GET /models/:id/reference-costs (via DeliveryCostsTab's own internal
     // useGetReferenceCosts call, modelId-gated) — a cost here is billable
-    // miles, not a distance, so no canonicalUnit/Upload/Download wiring.
+    // miles, not a distance, so no canonicalUnit wiring. SCU-2.P4.7 — Upload ▾/
+    // Download ▾ use the sparse `deliveryCosts` entity (spec B2.7, D1).
     if (activeView.kind === "input" && activeView.entity === "deliveryCosts" && modelId === "delivery-teaching-us") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
@@ -3906,6 +3917,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("laneCostOverrides", next)}
           modelId={modelId}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          readOnly={isBrowsingHistoryNow}
         />
       );
     }
@@ -4120,9 +4134,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
-            // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-            // true only on the JADE path.
-            enableFilters={modelId === "two-echelon-jade-us"}
             identityById={outputIdentityById}
           />
         );
@@ -4198,7 +4209,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           />
         );
       if (activeView.entity === "flows")
-        return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} identityById={outputIdentityById} />;
+        return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} identityById={outputIdentityById} distanceUnit={canonicalUnit} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
       // jade-INT (#4/#5, spec §6) — JADE-only Plant Production snapshot

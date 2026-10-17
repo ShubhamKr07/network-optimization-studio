@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
@@ -163,48 +162,11 @@ function renderJadeEntityCell(
   return fallbackLabel;
 }
 
-const PAGE_SIZE = 50;
-
-function Pager({
-  page,
-  pageCount,
-  onPrev,
-  onNext,
-}: {
-  page: number;
-  pageCount: number;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-end gap-2 mt-1 text-xs">
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-6 px-2 text-xs"
-        disabled={page <= 1}
-        onClick={onPrev}
-        data-testid="button-jadeassignments-prev"
-      >
-        Prev
-      </Button>
-      <span className="font-mono text-[11px] text-muted-foreground" data-testid="jadeassignments-page-indicator">
-        Page {page} of {pageCount}
-      </span>
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-6 px-2 text-xs"
-        disabled={page >= pageCount}
-        onClick={onNext}
-        data-testid="button-jadeassignments-next"
-      >
-        Next
-      </Button>
-    </div>
-  );
-}
-
+// SCU-2.P3.3 (spec B2.1/B2.2/B2.4) — rendered by the shared DataTable: the
+// local PAGE_SIZE/Pager are replaced by the shell's (same literals); filter
+// menu > 10 rows with today's descriptor keys/types; Download ▾ CSV/JSON.
+// Behaviour change (spec B2.2): a filter change now returns to page 1 (today
+// the page was only clamped).
 export function JadeAssignmentsTab({
   result = null,
   dataset = null,
@@ -214,22 +176,12 @@ export function JadeAssignmentsTab({
   displayedInputs = null,
   identityById,
 }: JadeAssignmentsTabProps) {
-  const [page, setPage] = useState(1);
   const unit = useDisplayUnit();
   const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
-  // `bandRangeLabel` (lib/bands.ts) has no unit-conversion awareness of its
-  // own — it just prints whatever numbers/unit it's handed. Converting BOTH
-  // the boundaries and the distance to the display unit before calling it
-  // (rather than passing canonical numbers under a display-unit label) keeps
-  // the printed range numerically correct; scaling every input by the same
-  // factor preserves the same band classification.
-  const formatRowDistance = (raw: number): string =>
-    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—";
-
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
-  const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
+  const bandsKey = effectiveBands.join(",");
 
   const rows: JadeAssignmentRow[] = useMemo(() => {
     return extractAssignments(result).map(a => ({
@@ -244,50 +196,62 @@ export function JadeAssignmentsTab({
       band: bandLabel(a.distanceMi, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, dataset, displayedInputs, effectiveBands.join(",")]);
+  }, [result, dataset, displayedInputs, bandsKey]);
 
-  const filterDescriptors: ColumnFilterDescriptor<JadeAssignmentRow>[] = useMemo(
-    () => [
-      { key: "product", label: "Product", type: "select", accessor: r => r.productLabel },
-      { key: "customer", label: "Customer", type: "text", accessor: r => r.customerLabel },
-      { key: "warehouse", label: "Warehouse", type: "select", accessor: r => r.warehouseLabel },
-      { key: "distance", label: "Distance", type: "number", accessor: r => r.distance },
+  // workspace-fixups-2 T10 — the `>10` identity upgrade reads the UNFILTERED count.
+  const upgrade = rows.length > 10;
+
+  const columns = useMemo<ColumnDef<JadeAssignmentRow>[]>(() => {
+    // `bandRangeLabel` (lib/bands.ts) has no unit awareness of its own:
+    // converting BOTH the boundaries and the distance to the display unit
+    // keeps the printed range numerically correct.
+    const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
+    return [
+      { id: "product", header: "Product", kind: "enum", cellTestId: r => `cell-jadeassignment-product-${r.key}`, value: r => r.productLabel, cell: r => r.productLabel },
       {
-        key: "band",
-        label: "Distance Band",
-        type: "select",
-        accessor: r =>
-          canonicalResolved
-            ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
-            : "—",
+        id: "customer",
+        header: "Customer",
+        kind: "text",
+        filter: "text", // pinned: today's descriptor type
+        cellTestId: r => `cell-jadeassignment-customer-${r.key}`,
+        value: r => r.customerLabel,
+        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById, upgrade),
       },
-    ],
+      {
+        id: "warehouse",
+        header: "Assigned Warehouse",
+        filterLabel: "Warehouse",
+        kind: "text",
+        filter: "select", // pinned: today's descriptor type, even above 20 warehouses
+        cellTestId: r => `cell-jadeassignment-warehouse-${r.key}`,
+        value: r => r.warehouseLabel,
+        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, upgrade),
+      },
+      {
+        id: "distance",
+        header: "Distance",
+        kind: "number",
+        cellClassName: "font-mono",
+        cellTestId: r => `cell-jadeassignment-distance-${r.key}`,
+        // Filter range is in the DISPLAY unit — the number the student reads in the cell.
+        value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
+        filterResetKey: unit.pref,
+        cell: r => (canonicalResolved ? `${unit.toDisplay(r.distance, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—"),
+      },
+      {
+        id: "band",
+        header: "Distance Band",
+        kind: "enum",
+        cellTestId: r => `cell-jadeassignment-band-${r.key}`,
+        // The FILTER value is the unit-aware range label; the CELL keeps "Band N"/"Overflow".
+        value: r => (canonicalResolved ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!) : "—"),
+        cell: r => r.band,
+        // Workspace fixups T7 item 5 — a bands/unit change clears ONLY this filter.
+        filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
+      },
+    ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [effectiveBands.join(","), distanceUnit, unit.pref],
-  );
-
-  const tableFilters = useTableFilters(rows, filterDescriptors);
-  const { filteredRows, totalCount, filteredCount, setFilter } = tableFilters;
-
-  // Workspace fixups bundle (T7, item 5) — when the live distance-band
-  // boundaries or the distance unit change, a previously-selected band range
-  // (e.g. "≤ 250 mi") can no longer match any current option (e.g.
-  // "≤ 300 mi"), which would silently zero out the table with an orphaned
-  // active-filter badge. Clear ONLY the `band` filter key on that change,
-  // leaving every other active column filter intact (spec §5's stale-
-  // selection policy).
-  useEffect(() => {
-    setFilter("band", undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveBands.join(","), distanceUnit, unit.pref]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const pagedRows = filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  function setFilteredPage(next: number) {
-    setPage(Math.max(1, Math.min(pageCount, next)));
-  }
+  }, [bandsKey, distanceUnit, unit.pref, identityById, upgrade]);
 
   if (!result) {
     return (
@@ -299,70 +263,32 @@ export function JadeAssignmentsTab({
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="jade-assignments-tab">
-      <div className="flex items-center justify-end gap-2 p-2 border-b flex-shrink-0 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground" data-testid="text-jadeassignments-count">
-            {filteredCount} of {totalCount}
-          </span>
-          {totalCount > 10 && <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            data-testid="button-download-jadeassignments-csv"
-            onClick={() => download("assignments", "csv")}
-            disabled={disabledReasonFor("assignments") != null}
-            title={disabledReasonFor("assignments")}
-          >
-            Download CSV
-          </Button>
-        </div>
-      </div>
-      <div className="overflow-auto flex-1">
-        <Table>
-          <TableHeader className="sticky top-0 bg-background">
-            <TableRow>
-              <TableHead>Product</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Assigned Warehouse</TableHead>
-              <TableHead className="text-right">Distance</TableHead>
-              <TableHead>Distance Band</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pagedRows.map(r => (
-              <TableRow key={r.key} data-testid={`row-jadeassignment-${r.key}`}>
-                <TableCell data-testid={`cell-jadeassignment-product-${r.key}`}>{r.productLabel}</TableCell>
-                <TableCell data-testid={`cell-jadeassignment-customer-${r.key}`}>
-                  {renderJadeEntityCell(r.customerId, r.customerLabel, identityById, rows.length > 10)}
-                </TableCell>
-                <TableCell data-testid={`cell-jadeassignment-warehouse-${r.key}`}>
-                  {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, rows.length > 10)}
-                </TableCell>
-                <TableCell className="text-right font-mono" data-testid={`cell-jadeassignment-distance-${r.key}`}>
-                  {formatRowDistance(r.distance)}
-                </TableCell>
-                <TableCell data-testid={`cell-jadeassignment-band-${r.key}`}>{r.band}</TableCell>
-              </TableRow>
-            ))}
-            {filteredRows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-3">
-                  No rows match the current filter.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      {filteredRows.length > PAGE_SIZE && (
-        <Pager
-          page={currentPage}
-          pageCount={pageCount}
-          onPrev={() => setFilteredPage(currentPage - 1)}
-          onNext={() => setFilteredPage(currentPage + 1)}
+      <div className="overflow-auto flex-1 p-2">
+        <DataTable<JadeAssignmentRow>
+          rows={rows}
+          rowKey={r => r.key}
+          columns={columns}
+          testIds={{
+            row: r => `row-jadeassignment-${r.key}`,
+            count: "text-jadeassignments-count",
+            pagerPrev: "button-jadeassignments-prev",
+            pagerNext: "button-jadeassignments-next",
+            pageIndicator: "jadeassignments-page-indicator",
+          }}
+          toolbar={{
+            download: (
+              <DownloadMenu
+                testId="button-download-jadeassignments"
+                itemTestIds={{ csv: "button-download-jadeassignments-csv", json: "button-download-jadeassignments-json" }}
+                onDownload={format => download("assignments", format)}
+                disabledReason={disabledReasonFor("assignments")}
+              />
+            ),
+            // SCU-2.P3 (user decision 2026-10-17) — output tables keep Download on the right (B1.4).
+            downloadAlign: "right",
+          }}
         />
-      )}
+      </div>
     </div>
   );
 }

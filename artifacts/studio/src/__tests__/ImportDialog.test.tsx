@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImportDialog } from "@/components/ImportDialog";
+import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
 import type { ImportPreview, ImportApplyResult } from "@workspace/api-client-react";
 
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
@@ -241,5 +242,88 @@ describe("ImportDialog — enableFilters (B7, opt-in shared FilterMenu, independ
     expect(within(errorsSection).getAllByTestId(/^import-error-row-/).length).toBe(1);
     // Changes grid is completely untouched by the Errors grid's own filter.
     expect(within(changesSection).getAllByTestId(/^import-change-row-/).length).toBe(11);
+  });
+});
+
+describe("ImportDialog — JSON format and the 2 MB limit (SCU-2.P2.2)", () => {
+  const document = {
+    templateVersion: 1,
+    entity: "warehouses",
+    rows: [{ templateVersion: 1, id: "ATL", displayCode: null, city: "Atlanta", state: "GA", lat: 33.75, lng: -84.39, capacity: null, status: "forced_open", overridden: true }],
+  };
+  const sentBody = (call = 0) => JSON.parse(String((fetchMock.mock.calls[call]![1] as RequestInit).body));
+  const LIMIT = "File is larger than the 2 MB import limit.";
+
+  it("csv (default) keeps accept=.csv and still sends { entity, csvText } with no format key", async () => {
+    mockFetchRoutes({ errors: [], changes: [], warnings: [] });
+    renderDialog();
+    expect(screen.getByTestId("input-import-file-warehouses")).toHaveAttribute("accept", ".csv,text/csv");
+    await uploadFile();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody()).toEqual({ entity: "warehouses", csvText: "id,line\nCHI,2" });
+  });
+
+  it("json sends { entity, format: 'json', document } and re-sends it with the mode on apply", async () => {
+    mockFetchRoutes(
+      { errors: [], changes: [{ id: "ATL", line: 2, rowIndex: 0, before: { status: "active", value: null }, after: { status: "forced_open", value: null } }], warnings: [] },
+      { applied: 1, errors: [] },
+    );
+    renderDialog({ format: "json" });
+    const input = screen.getByTestId("input-import-file-warehouses");
+    expect(input).toHaveAttribute("accept", ".json,application/json");
+    await userEvent.upload(input, new File([JSON.stringify(document)], "warehouses.json", { type: "application/json" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody(0)).toEqual({ entity: "warehouses", format: "json", document });
+    await userEvent.click(await screen.findByTestId("button-import-confirm"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(sentBody(1)).toEqual({ entity: "warehouses", format: "json", document, mode: "all_or_nothing" });
+  });
+
+  it("a file that is not a JSON document is rejected before any request", async () => {
+    renderDialog({ format: "json" });
+    await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), new File(["{not json"], "bad.json", { type: "application/json" }));
+    expect(await screen.findByTestId("import-file-error")).toHaveTextContent("not a valid import document");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("the check is on the serialized request BODY: a CSV just under 2 MiB whose body exceeds the wire limit is refused before sending", async () => {
+    renderDialog();
+    const file = new File(["x".repeat(MAX_IMPORT_BYTES - 10)], "big.csv", { type: "text/csv" });
+    expect(file.size).toBeLessThan(MAX_IMPORT_BYTES);
+    await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), file);
+    expect(await screen.findByTestId("import-file-error")).toHaveTextContent(LIMIT);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a pretty-printed JSON file over 2 MiB whose compact body fits is sent", async () => {
+    mockFetchRoutes({ errors: [], changes: [], warnings: [] });
+    renderDialog({ format: "json" });
+    const padded = JSON.stringify(document) + " ".repeat(MAX_IMPORT_BYTES); // trailing whitespace is valid JSON
+    const file = new File([padded], "pretty.json", { type: "application/json" });
+    expect(file.size).toBeGreaterThan(MAX_IMPORT_BYTES);
+    await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), file);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody()).toEqual({ entity: "warehouses", format: "json", document });
+  });
+
+  it("a server 413 shows the limit sentence, never the raw code", async () => {
+    fetchMock.mockImplementation(async () => errorResponse({ error: "payload_too_large" }, 413, "Payload Too Large"));
+    renderDialog();
+    await uploadFile();
+    const shown = await screen.findByTestId("import-preview-error");
+    expect(shown).toHaveTextContent(LIMIT);
+    expect(shown).not.toHaveTextContent("payload_too_large");
+  });
+
+  it("JSON errors and changes show their row index", async () => {
+    mockFetchRoutes({
+      errors: [{ errorClass: "syntax", line: null, rowIndex: 3, field: "bogus", message: 'Unknown field "bogus".' }],
+      changes: [{ id: "ATL", line: 3, rowIndex: 1, before: { status: "active", value: null }, after: { status: "forced_open", value: null } }],
+      warnings: [],
+    });
+    renderDialog({ format: "json" });
+    await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), new File([JSON.stringify(document)], "w.json", { type: "application/json" }));
+    expect(await screen.findByTestId("import-error-row-0")).toHaveTextContent("row 3");
+    expect(screen.getByTestId("import-change-row-0")).toHaveTextContent("row 1");
   });
 });

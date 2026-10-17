@@ -8,6 +8,7 @@ import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
+import { chooseInputDownload, chooseUpload, filterText } from "@/__tests__/helpers/inputTable";
 
 // chen-bands-units, Task 12 — every render now needs a UnitProvider ancestor.
 // Shadow `render` (RTL's `wrapper` option + a default `canonicalUnit="mi"`,
@@ -108,18 +109,25 @@ describe("LaneCostsTab — rendering", () => {
   });
 });
 
+// SCU-2.P4.6 (B2.2) — From/To are FilterMenu text controls, shown above 10
+// rows: pad the three-row fixture with eight more MN03 rows.
+const elevenOverrides = [
+  ...overrides,
+  ...Array.from({ length: 8 }, (_, i) => ({ fromId: "MN03", toId: `ST1${i}`, cost: 200 + i })),
+];
+
 describe("LaneCostsTab — from/to filters", () => {
   it("filters visible rows by the from-id filter text", () => {
     render(
       <LaneCostsTab
-        laneCostOverrides={overrides}
-        savedLaneCostOverrides={overrides}
+        laneCostOverrides={elevenOverrides}
+        savedLaneCostOverrides={elevenOverrides}
         mineIds={["MN01", "MN02"]}
         stationIds={["ST001", "ST002"]}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "MN02" } });
+    filterText("from", "MN02");
     expect(screen.queryByTestId("row-lanecost-MN01-ST001")).not.toBeInTheDocument();
     expect(screen.queryByTestId("row-lanecost-MN01-ST002")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-lanecost-MN02-ST001")).toBeInTheDocument();
@@ -128,14 +136,14 @@ describe("LaneCostsTab — from/to filters", () => {
   it("filters visible rows by the to-id filter text", () => {
     render(
       <LaneCostsTab
-        laneCostOverrides={overrides}
-        savedLaneCostOverrides={overrides}
+        laneCostOverrides={elevenOverrides}
+        savedLaneCostOverrides={elevenOverrides}
         mineIds={["MN01", "MN02"]}
         stationIds={["ST001", "ST002"]}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "ST002" } });
+    filterText("to", "ST002");
     expect(screen.queryByTestId("row-lanecost-MN01-ST001")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-lanecost-MN01-ST002")).toBeInTheDocument();
     expect(screen.queryByTestId("row-lanecost-MN02-ST001")).not.toBeInTheDocument();
@@ -406,8 +414,8 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
       undefined,
       { scenarioId: null },
     );
-    expect(screen.getByTestId("button-export-lanecosts-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-lanecosts-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-lanecosts")).toBeDisabled();
     expect(screen.getByTestId("button-import-lanecosts")).toBeDisabled();
   });
 
@@ -426,7 +434,7 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
       { scenarioId: 7 },
     );
 
-    await userEvent.click(screen.getByTestId("button-export-lanecosts-csv"));
+    chooseInputDownload("lanecosts", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -449,7 +457,7 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
     );
 
     expect(screen.queryByText("Import laneCosts")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-lanecosts"));
+    chooseUpload("lanecosts", "csv");
     expect(screen.getByText("Import laneCosts")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-laneCosts")).toBeInTheDocument();
   });
@@ -476,7 +484,7 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-lanecosts"));
+    chooseUpload("lanecosts", "csv");
     const file = new File(["fromId,toId,cost\nMN01,ST001,120.5"], "laneCosts.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-laneCosts"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());

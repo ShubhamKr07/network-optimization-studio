@@ -21,6 +21,7 @@
     "@workspace/api-zod": "workspace:*",
     "@workspace/dataset-schema": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/import-schema": "workspace:*",
     "@workspace/units": "workspace:*",
     "argon2": "^0.41.1",
     "cookie-parser": "^1.4.7",

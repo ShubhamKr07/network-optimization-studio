@@ -505,26 +505,47 @@ export const PrecheckScenarioResponse = zod.object({
 
 
 /**
- * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ * @summary Parse and validate a CSV or JSON import against the scenario's current state, without applying it
  */
 export const PreviewScenarioImportParams = zod.object({
-  "scenarioId": zod.coerce.number()
+  "scenarioId": zod.number()
 })
 
-export const PreviewScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']),
+export const PreviewScenarioImportBody = zod.union([zod.object({
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "format": zod.enum(['csv']).optional().describe('Optional; omitted means csv (backward compatible).'),
   "csvText": zod.string()
-})
+}).strict(),zod.object({
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "format": zod.enum(['json']),
+  "document": zod.object({
+  "templateVersion": zod.number(),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "unit": zod.enum(['km', 'mi']).optional(),
+  "rows": zod.array(zod.object({
+
+}).passthrough())
+}).strict().describe('The JSON envelope GET \/scenarios\/{scenarioId}\/export?format=json emits, accepted back unchanged. Row keys are the entity\'s JSON keys (lib\/import-schema). A row may omit templateVersion (it defaults to the envelope\'s). unit is present exactly for templateVersion 2 of a unit-bearing entity. Only these four top-level keys are allowed. Round trip = structural JSON equality of the re-export; added (scenario-local) entities round-trip into the same scenario only.')
+}).strict()])
+
+export const previewScenarioImportResponseErrorsItemRowIndexMin = 0;
+
+export const previewScenarioImportResponseChangesItemRowIndexMin = 0;
+
+
 
 export const PreviewScenarioImportResponse = zod.object({
   "errors": zod.array(zod.object({
   "errorClass": zod.enum(['format', 'syntax', 'logic']),
-  "line": zod.number().nullable(),
+  "line": zod.number().nullable().describe('CSV only — 1-based file line (header = 1). null for JSON imports and whole-file errors.'),
+  "rowIndex": zod.number().min(previewScenarioImportResponseErrorsItemRowIndexMin).optional().describe('JSON only — 0-based index into document.rows.'),
+  "field": zod.string().optional().describe('JSON only — the row key (or envelope key) the error is about, when one key is to blame.'),
   "message": zod.string()
 })),
   "changes": zod.array(zod.object({
   "id": zod.string(),
-  "line": zod.number(),
+  "line": zod.number().describe('CSV-equivalent line (rowIndex + 2 for a JSON import).'),
+  "rowIndex": zod.number().min(previewScenarioImportResponseChangesItemRowIndexMin).optional().describe('JSON only — 0-based index into document.rows.'),
   "before": zod.object({
 
 }).passthrough(),
@@ -537,17 +558,34 @@ export const PreviewScenarioImportResponse = zod.object({
 
 
 /**
- * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ * @summary Re-validate and apply a CSV or JSON import onto the scenario's overrides
  */
 export const ApplyScenarioImportParams = zod.object({
-  "scenarioId": zod.coerce.number()
+  "scenarioId": zod.number()
 })
 
-export const ApplyScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities']),
+export const ApplyScenarioImportBody = zod.union([zod.object({
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "format": zod.enum(['csv']).optional(),
   "csvText": zod.string(),
   "mode": zod.enum(['all_or_nothing', 'partial']).optional()
-})
+}).strict(),zod.object({
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "format": zod.enum(['json']),
+  "document": zod.object({
+  "templateVersion": zod.number(),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'plants', 'plantCapabilities', 'deliveryCosts']).describe('Importable input entities. Single source is lib\/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.'),
+  "unit": zod.enum(['km', 'mi']).optional(),
+  "rows": zod.array(zod.object({
+
+}).passthrough())
+}).strict().describe('The JSON envelope GET \/scenarios\/{scenarioId}\/export?format=json emits, accepted back unchanged. Row keys are the entity\'s JSON keys (lib\/import-schema). A row may omit templateVersion (it defaults to the envelope\'s). unit is present exactly for templateVersion 2 of a unit-bearing entity. Only these four top-level keys are allowed. Round trip = structural JSON equality of the re-export; added (scenario-local) entities round-trip into the same scenario only.'),
+  "mode": zod.enum(['all_or_nothing', 'partial']).optional()
+}).strict()])
+
+export const applyScenarioImportResponseErrorsItemRowIndexMin = 0;
+
+
 
 export const ApplyScenarioImportResponse = zod.object({
   "scenario": zod.object({
@@ -609,16 +647,18 @@ export const ApplyScenarioImportResponse = zod.object({
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
 }).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "solvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.date(),
+  "updatedAt": zod.date(),
+  "solvedAt": zod.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
   "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 }).optional(),
   "applied": zod.number(),
   "errors": zod.array(zod.object({
   "errorClass": zod.enum(['format', 'syntax', 'logic']),
-  "line": zod.number().nullable(),
+  "line": zod.number().nullable().describe('CSV only — 1-based file line (header = 1). null for JSON imports and whole-file errors.'),
+  "rowIndex": zod.number().min(applyScenarioImportResponseErrorsItemRowIndexMin).optional().describe('JSON only — 0-based index into document.rows.'),
+  "field": zod.string().optional().describe('JSON only — the row key (or envelope key) the error is about, when one key is to blame.'),
   "message": zod.string()
 }))
 })
@@ -644,7 +684,7 @@ export const ExportScenarioParams = zod.object({
 
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities', 'deliveryCosts']),
   "format": zod.enum(['csv', 'json']),
   "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.'),
   "unit": zod.enum(['km', 'mi']).optional().describe('Unit for distance-dimension values in the emitted file. Validated for EVERY entity; an unknown value is 400 even for a non-distance entity. Ignored (byte-identical output) for non-distance entities. Omitted = each model\'s canonical unit.'),
@@ -653,11 +693,11 @@ export const ExportScenarioQueryParams = zod.object({
 
 export const ExportScenarioResponse = zod.union([zod.object({
   "templateVersion": zod.literal(1),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'openWarehouses']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'deliveryCosts', 'openWarehouses']),
   "rows": zod.array(zod.object({
 
 }).passthrough()).describe('Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services\/templates.ts layer, not this contract.')
-}).describe('Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.'),zod.object({
+}).describe('Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, deliveryCosts, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.'),zod.object({
   "templateVersion": zod.literal(2),
   "entity": zod.enum(['distances', 'legDistances', 'laneCosts']),
   "unit": zod.enum(['km', 'mi']),
@@ -724,7 +764,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "band": zod.number(),
   "percent": zod.number()
 }).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
-}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/deliveryCosts\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
 
 
 /**

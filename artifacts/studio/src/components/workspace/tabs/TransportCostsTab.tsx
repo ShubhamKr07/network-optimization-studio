@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTable } from "@/components/data-table/DataTable";
+import type { ColumnDef } from "@/components/data-table/types";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft, type DraftConversion } from "@/hooks/useDistanceDraft";
 import { stripGrouping } from "@/lib/formatDistanceDisplay";
@@ -24,6 +26,7 @@ import {
 // charge alone — which is why the two field kinds pass different
 // `convert` pairs into the one shared draft hook rather than this file
 // re-implementing the draft state machine.
+
 
 interface TransportCostsTabProps {
   canonicalUnit: CanonicalUnit | null;
@@ -95,20 +98,20 @@ function TransportCostField({
   // pattern as JadeDistancesTab's own override cell).
   const trimmed = stripGrouping(draft.text).trim();
   const numeric = trimmed === "" ? null : Number(trimmed);
-  const displayMax = canonicalUnit == null
-    ? null
-    : roundForFile(convert.toDisplay(max, canonicalUnit));
+  const displayMax = canonicalUnit == null ? null : roundForFile(convert.toDisplay(max, canonicalUnit));
   const liveError =
     trimmed === "" || numeric === null || Number.isNaN(numeric)
-      ? trimmed === "" ? null : "Must be a number."
+      ? trimmed === ""
+        ? null
+        : "Must be a number."
       : numeric < 0
         ? "Must be 0 or more."
         : displayMax != null && numeric > displayMax
-          // `displayMax` is already rounded to the field's 4 dp via
-          // `roundForFile`; `toLocaleString()` would re-round it to its
-          // default 3 fraction digits (6.2137 -> "6.214"), silently
-          // misstating the actual live-validation boundary.
-          ? `Must be ${displayMax} or less.`
+          ? // `displayMax` is already rounded to the field's 4 dp via
+            // `roundForFile`; `toLocaleString()` would re-round it to its
+            // default 3 fraction digits (6.2137 -> "6.214"), silently
+            // misstating the actual live-validation boundary.
+            `Must be ${displayMax} or less.`
           : null;
   const error = liveError ?? rejected;
 
@@ -120,6 +123,7 @@ function TransportCostField({
         aria-label={label}
         value={draft.text}
         disabled={disabled || draft.disabled}
+        title={disabled ? READ_ONLY_TITLE : undefined}
         onChange={e => {
           setRejected(null);
           draft.onChange(e.target.value);
@@ -129,7 +133,7 @@ function TransportCostField({
           if (e.key === "Enter") draft.commit();
           else if (e.key === "Escape") draft.discard();
         }}
-        className="h-8 w-28 text-sm font-mono"
+        className="h-8 w-full min-w-28 text-sm font-mono text-center"
         data-testid={inputTestId}
       />
       {error && (
@@ -182,96 +186,103 @@ export function TransportCostsTab({
   function commitField(field: keyof TransportCosts, incoming: number, convert: DraftConversion) {
     if (canonicalUnit != null) {
       const stored = transportCosts[field];
-      if (
-        roundForFile(convert.toDisplay(incoming, canonicalUnit)) ===
-        roundForFile(convert.toDisplay(stored, canonicalUnit))
-      ) {
+      if (roundForFile(convert.toDisplay(incoming, canonicalUnit)) === roundForFile(convert.toDisplay(stored, canonicalUnit))) {
         return;
       }
     }
     onChange({ ...transportCosts, [field]: incoming });
   }
 
-  const legs = [
+  type Leg = {
+    key: "ic" | "ob";
+    label: string;
+    lane: string;
+    rateField: "icTransCost" | "obTransCost";
+    minField: "icMinTrans" | "obMinTrans";
+  };
+  const legs: Leg[] = [
+    { key: "ic", label: "Inbound", lane: "plant → warehouse", rateField: "icTransCost", minField: "icMinTrans" },
+    { key: "ob", label: "Outbound", lane: "warehouse → customer", rateField: "obTransCost", minField: "obMinTrans" },
+  ];
+
+  // SCU-2.P4.8 (B2.1) — the two fixed rows render through the shared
+  // DataTable (no filter or pager at 2 rows; numbers centred). No Upload /
+  // Download (spec scope). History read-only was already wired (`disabled`).
+  const columns: ColumnDef<Leg>[] = [
     {
-      key: "ic" as const,
-      label: "Inbound",
-      lane: "plant → warehouse",
-      rateField: "icTransCost" as const,
-      minField: "icMinTrans" as const,
+      id: "leg",
+      header: "Leg",
+      kind: "text",
+      value: leg => leg.label,
+      cellClassName: "text-xs",
+      cell: leg => (
+        <>
+          <div className="font-medium">{leg.label}</div>
+          <div className="text-muted-foreground">{leg.lane}</div>
+        </>
+      ),
     },
     {
-      key: "ob" as const,
-      label: "Outbound",
-      lane: "warehouse → customer",
-      rateField: "obTransCost" as const,
-      minField: "obMinTrans" as const,
+      id: "rate",
+      header: `Rate${rateLabel ? ` (${rateLabel})` : ""}`,
+      headerTestId: "label-transport-rate-unit-head",
+      kind: "number",
+      value: leg => transportCosts[leg.rateField],
+      cell: leg => (
+        <>
+          <TransportCostField
+            canonicalUnit={canonicalUnit}
+            value={transportCosts[leg.rateField]}
+            max={UI_RATE_MAX}
+            convert={rateConvert}
+            disabled={disabled}
+            resetKey={scenarioId}
+            onCommitValid={v => commitField(leg.rateField, v, rateConvert)}
+            inputTestId={`input-transport-${leg.key}-rate`}
+            errorTestId={`error-transport-${leg.key}-rate`}
+            label={`${leg.label} rate`}
+          />
+          <span className="text-[10px] text-muted-foreground" data-testid={`label-transport-rate-unit-${leg.key}`}>
+            {rateLabel ?? "—"}
+          </span>
+        </>
+      ),
+    },
+    {
+      id: "min",
+      header: "Min ($/ton)",
+      kind: "number",
+      value: leg => transportCosts[leg.minField],
+      cell: leg => (
+        <>
+          <TransportCostField
+            canonicalUnit={canonicalUnit}
+            value={transportCosts[leg.minField]}
+            max={UI_MIN_CHARGE_MAX}
+            convert={IDENTITY_CONVERSION}
+            disabled={disabled}
+            resetKey={scenarioId}
+            onCommitValid={v => commitField(leg.minField, v, IDENTITY_CONVERSION)}
+            inputTestId={`input-transport-${leg.key}-min`}
+            errorTestId={`error-transport-${leg.key}-min`}
+            label={`${leg.label} minimum charge`}
+          />
+          <span className="text-[10px] text-muted-foreground" data-testid={`label-transport-min-unit-${leg.key}`}>
+            $/ton
+          </span>
+        </>
+      ),
     },
   ];
 
   return (
     <div className="p-4 space-y-3" data-testid="transport-costs-tab">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Leg</TableHead>
-            <TableHead data-testid="label-transport-rate-unit-head">
-              Rate{rateLabel ? ` (${rateLabel})` : ""}
-            </TableHead>
-            <TableHead>Min ($/ton)</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {legs.map(leg => (
-            <TableRow key={leg.key} data-testid={`row-transport-${leg.key}`}>
-              <TableCell className="text-xs">
-                <div className="font-medium">{leg.label}</div>
-                <div className="text-muted-foreground">{leg.lane}</div>
-              </TableCell>
-              <TableCell>
-                <TransportCostField
-                  canonicalUnit={canonicalUnit}
-                  value={transportCosts[leg.rateField]}
-                  max={UI_RATE_MAX}
-                  convert={rateConvert}
-                  disabled={disabled}
-                  resetKey={scenarioId}
-                  onCommitValid={v => commitField(leg.rateField, v, rateConvert)}
-                  inputTestId={`input-transport-${leg.key}-rate`}
-                  errorTestId={`error-transport-${leg.key}-rate`}
-                  label={`${leg.label} rate`}
-                />
-                <span
-                  className="text-[10px] text-muted-foreground"
-                  data-testid={`label-transport-rate-unit-${leg.key}`}
-                >
-                  {rateLabel ?? "—"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <TransportCostField
-                  canonicalUnit={canonicalUnit}
-                  value={transportCosts[leg.minField]}
-                  max={UI_MIN_CHARGE_MAX}
-                  convert={IDENTITY_CONVERSION}
-                  disabled={disabled}
-                  resetKey={scenarioId}
-                  onCommitValid={v => commitField(leg.minField, v, IDENTITY_CONVERSION)}
-                  inputTestId={`input-transport-${leg.key}-min`}
-                  errorTestId={`error-transport-${leg.key}-min`}
-                  label={`${leg.label} minimum charge`}
-                />
-                <span
-                  className="text-[10px] text-muted-foreground"
-                  data-testid={`label-transport-min-unit-${leg.key}`}
-                >
-                  $/ton
-                </span>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <DataTable<Leg>
+        rows={legs}
+        rowKey={leg => leg.key}
+        columns={columns}
+        testIds={{ row: leg => `row-transport-${leg.key}` }}
+      />
 
       <p className="text-xs text-muted-foreground" data-testid="text-transport-formula">
         cost per ton = max(rate × distance, min)
@@ -280,8 +291,9 @@ export function TransportCostsTab({
       <Button
         size="sm"
         variant="outline"
-        className="h-7 px-2 text-xs"
+        className="h-auto min-h-7 whitespace-normal px-2 py-1 text-xs"
         disabled={disabled || !isCustom}
+        title={disabled ? READ_ONLY_TITLE : undefined}
         onClick={onReset}
         data-testid="button-transport-reset"
       >

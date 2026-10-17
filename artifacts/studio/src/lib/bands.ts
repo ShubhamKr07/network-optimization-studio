@@ -21,6 +21,7 @@
 // `bandRangeLabel`) stay local. See `__tests__/bandsSingleSource.test.ts` for
 // the reference-identity regression guard against a re-implementation
 // silently drifting from the shared classifier.
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import {
   OVERFLOW_BAND,
   assignBandOrOverflow,
@@ -122,10 +123,13 @@ export function computeBandCoverage(edges: BandEdge[], bands: number[]): BandCov
 export function bandRangeLabel(distance: number, bands: number[], unit: string): string {
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return "All distances";
+  // SCU-2.R4 (decision A) — boundaries print through the app's one distance
+  // formatter (<= 2 dp, thousands-grouped) so a km conversion reads "321.87 km".
+  const f = (n: number) => `${formatDistanceDisplay(n)} ${unit}`;
   const index = assignBandOrOverflow(distance, sorted);
-  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
-  if (index === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
-  return `Band ${index + 1}: ${sorted[index - 1]} ${unit} - ${sorted[index]} ${unit}`;
+  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${f(sorted[sorted.length - 1])}`;
+  if (index === 0) return `Band 1: 0 ${unit} - ${f(sorted[0])}`;
+  return `Band ${index + 1}: ${f(sorted[index - 1])} - ${f(sorted[index])}`;
 }
 
 // SCU-1.1 (spec B1.9) — band precision per model: delivery-teaching-us
@@ -147,13 +151,19 @@ export function frozenBandShape(modelId: string | undefined): FrozenBandShape {
 
 // SCU-1.1 (spec B1.9 "Display") — one label per exclusive row, aligned with
 // computeExclusiveBandCoverage / frozenBandCoverageToExclusive output:
-// "0–200 mi", "200–400 mi", …, "> 1600 mi". `format` turns a CANONICAL
-// boundary into display text (unit conversion is the caller's, via
-// useDisplayUnit), `unit` is the display unit label.
-export function exclusiveBandLabels(boundaries: number[], format: (canonical: number) => string, unit: string): string[] {
+// "0–200 mi", "200–400 mi", …, "> 1,600 mi". `toDisplay` converts a CANONICAL
+// boundary to the display unit (the caller's useDisplayUnit); `unit` is the
+// display unit label.
+// SCU-2.P3.9 (user decision 2026-10-17) — every boundary is printed with the
+// app's one distance display formatter, `formatDistanceDisplay` (≤ 2 dp,
+// thousands-grouped), so a converted km boundary reads "0–321.87 km", never
+// "0–321.8688 km". Formatting lives HERE, once, for Service Stats, the Compare
+// band rows and the Output Map narrative alike.
+export function exclusiveBandLabels(boundaries: number[], toDisplay: (canonical: number) => number, unit: string): string[] {
   const sorted = [...boundaries].sort((a, b) => a - b);
   if (sorted.length === 0) return [];
-  const labels = sorted.map((b, i) => `${i === 0 ? "0" : format(sorted[i - 1])}–${format(b)} ${unit}`);
-  labels.push(`> ${format(sorted[sorted.length - 1])} ${unit}`);
+  const fmt = (canonical: number) => formatDistanceDisplay(toDisplay(canonical));
+  const labels = sorted.map((b, i) => `${i === 0 ? "0" : fmt(sorted[i - 1])}–${fmt(b)} ${unit}`);
+  labels.push(`> ${fmt(sorted[sorted.length - 1])} ${unit}`);
   return labels;
 }

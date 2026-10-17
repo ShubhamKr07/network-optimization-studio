@@ -5,9 +5,7 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ImportRequestEntity } from './importRequestEntity';
+import type { ImportCsvRequest } from './importCsvRequest';
+import type { ImportJsonRequest } from './importJsonRequest';
 
-export interface ImportRequest {
-  entity: ImportRequestEntity;
-  csvText: string;
-}
+export type ImportRequest = ImportCsvRequest | ImportJsonRequest;

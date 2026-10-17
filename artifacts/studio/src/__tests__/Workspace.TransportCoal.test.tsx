@@ -139,11 +139,11 @@ describe("Workspace — transport-coal (A5.1)", () => {
   it("Mines tab's Export/Import toolbar is scoped to entity=mines, Stations to entity=stations", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-mines"));
-    expect(screen.getByTestId("button-export-mines-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-mines")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-mines")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
-    expect(screen.getByTestId("button-export-stations-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-stations")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-stations")).toBeInTheDocument();
   });
 

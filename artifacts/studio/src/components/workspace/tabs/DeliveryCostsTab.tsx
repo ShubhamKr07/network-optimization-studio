@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceCosts, getGetReferenceCostsQueryKey } from "@workspace/api-client-react";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { DataTable } from "@/components/data-table/DataTable";
+import type { ColumnDef } from "@/components/data-table/types";
+import { DeleteRowButton, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
+import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { Button } from "@/components/ui/button";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 
@@ -17,9 +20,8 @@ import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab"
 //      its inputs shape), so every id a student can type already resolves
 //      against the fixed 33x313 base dataset or is a plain typo, not a
 //      legitimate scenario-local id.
-//   2. No Upload/Download/Import toolbar — not part of this task's scope
-//      (the reference-costs endpoint has no accompanying import/export
-//      entity wiring yet).
+//   2. (SCU-2.P4.7 — superseded) Upload ▾ / Download ▾ now exist: the sparse
+//      `deliveryCosts` import/export entity (spec B2.7, D1) landed in P2.
 //
 // The critical divergence from DistancesTab is semantic, not structural: a
 // `cost` here is billable miles, NOT a distance — it must never round-trip
@@ -43,6 +45,13 @@ interface DeliveryCostsTabProps {
    * while the scenario hasn't resolved yet, mirroring DistancesTab's own
    * `enabled` gate — the base query never fires without it. */
   modelId?: string;
+  /** SCU-2.P4.7 (B2.3/B2.4) — Upload stays disabled until the scenario resolves. */
+  scenarioId?: number;
+  /** Fired after a successful import apply (Workspace refreshes its draft). */
+  onImportApplied?: (scenario: Scenario) => void;
+  /** SCU-2.P4.7 (D2) — browsing result history: cost cells, remove buttons and
+   * the add-row trigger are disabled. */
+  readOnly?: boolean;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -56,7 +65,6 @@ interface MergedRow {
   override?: LaneCostOverride;
 }
 
-const PAGE_SIZE = 50;
 
 // One row's Cost cell — a plain controlled text input with local draft
 // state, committed on blur/Enter. NOT `useDistanceDraft` (see the file
@@ -67,11 +75,13 @@ function CostCell({
   resetKey,
   onCommitValid,
   inputTestId,
+  readOnly,
 }: {
   currentValue: number | undefined;
   resetKey: unknown;
   onCommitValid: (value: number) => void;
   inputTestId: string;
+  readOnly: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -105,31 +115,45 @@ function CostCell({
       type="text"
       inputMode="decimal"
       value={text}
+      disabled={readOnly}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") setDraft(null);
       }}
-      className="h-7 text-xs w-24 font-mono"
+      className="h-7 text-xs w-full min-w-24 font-mono text-center"
       data-testid={inputTestId}
     />
   );
 }
 
-export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: DeliveryCostsTabProps) {
-  const [fromFilter, setFromFilter] = useState("");
-  const [toFilter, setToFilter] = useState("");
-  const [page, setPage] = useState(1);
+// SCU-2.P4.7 (B2.1–B2.4, B2.7) — rendered by the shared DataTable: FilterMenu
+// replaces the From/To boxes, the pager shows only above 50 filtered rows
+// (it was always on), Upload ▾/Download ▾ use the sparse `deliveryCosts`
+// entity, amber stays "override present", history read-only (D2).
+export function DeliveryCostsTab({
+  laneCostOverrides,
+  onChange,
+  modelId,
+  scenarioId,
+  onImportApplied,
+  readOnly = false,
+}: DeliveryCostsTabProps) {
+  const files = useEntityFileMenus({
+    entity: "deliveryCosts",
+    testIdEntity: "deliverycosts",
+    modelId,
+    scenarioId,
+    onImportApplied,
+  });
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
   const [newCost, setNewCost] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Called UNCONDITIONALLY (Rules of Hooks) — `enabled` gates the actual
-  // request. `staleTime: Infinity` — the base matrix is immutable (DD-1),
-  // fetched once per model per session.
   const referenceQuery = useGetReferenceCosts(modelId ?? "", {
     query: {
       enabled: Boolean(modelId),
@@ -137,74 +161,29 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
       queryKey: getGetReferenceCostsQueryKey(modelId ?? ""),
     },
   });
-
   const referencePairs = useMemo(() => referenceQuery.data?.pairs ?? [], [referenceQuery.data]);
 
   const baseByKey = useMemo(() => new Map(referencePairs.map(p => [pairKey(p.fromId, p.toId), p.cost])), [referencePairs]);
-  const overrideByKey = useMemo(
-    () => new Map(laneCostOverrides.map(o => [pairKey(o.fromId, o.toId), o])),
-    [laneCostOverrides],
+  const overrideByKey = useMemo(() => new Map(laneCostOverrides.map(o => [pairKey(o.fromId, o.toId), o])), [laneCostOverrides]);
+
+  // Effective rows (B2.2 step 1): the whole base matrix, then overrides for
+  // pairs outside it — the same base-then-added order the old two-segment
+  // pager sliced. Memoised: ~10k rows, and DataTable keys its page reset on
+  // this array's identity.
+  const rows: MergedRow[] = useMemo(
+    () => [
+      ...referencePairs.map(p => ({
+        fromId: p.fromId,
+        toId: p.toId,
+        base: p.cost,
+        override: overrideByKey.get(pairKey(p.fromId, p.toId)),
+      })),
+      ...laneCostOverrides
+        .filter(o => !baseByKey.has(pairKey(o.fromId, o.toId)))
+        .map(o => ({ fromId: o.fromId, toId: o.toId, base: null, override: o })),
+    ],
+    [referencePairs, laneCostOverrides, baseByKey, overrideByKey],
   );
-
-  // Overrides on a pair that ISN'T in the base matrix at all (a typo, or —
-  // structurally, for architecture parity with DistancesTab — any pair the
-  // base×base matrix doesn't cover). Always a tiny array in practice.
-  const addedOverrides = useMemo(
-    () => laneCostOverrides.filter(o => !baseByKey.has(pairKey(o.fromId, o.toId))),
-    [laneCostOverrides, baseByKey],
-  );
-
-  function matchesFilter(fromId: string, toId: string): boolean {
-    return fromId.toLowerCase().includes(fromFilter.toLowerCase()) && toId.toLowerCase().includes(toFilter.toLowerCase());
-  }
-
-  // Perf (10,329-row test) — filter FIRST over the raw arrays (cheap: no
-  // per-row object construction, no Map lookups), THEN slice to the current
-  // page, and only THEN merge in the override for those ~50 rows. Never
-  // materializes a merged {base, override} object for a row that isn't on
-  // the current page.
-  const filteredBasePairs = useMemo(
-    () => referencePairs.filter(p => matchesFilter(p.fromId, p.toId)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [referencePairs, fromFilter, toFilter],
-  );
-  const filteredAdded = useMemo(
-    () => addedOverrides.filter(o => matchesFilter(o.fromId, o.toId)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addedOverrides, fromFilter, toFilter],
-  );
-
-  const totalFilteredCount = filteredBasePairs.length + filteredAdded.length;
-  const pageCount = Math.max(1, Math.ceil(totalFilteredCount / PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  const clampedPage = Math.min(page, pageCount);
-
-  const pagedRows: MergedRow[] = useMemo(() => {
-    const start = (clampedPage - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    const rows: MergedRow[] = [];
-
-    if (start < filteredBasePairs.length) {
-      for (const p of filteredBasePairs.slice(start, Math.min(end, filteredBasePairs.length))) {
-        rows.push({ fromId: p.fromId, toId: p.toId, base: p.cost, override: overrideByKey.get(pairKey(p.fromId, p.toId)) });
-      }
-    }
-    const addedStart = Math.max(0, start - filteredBasePairs.length);
-    const addedEnd = Math.max(0, end - filteredBasePairs.length);
-    if (addedStart < filteredAdded.length) {
-      for (const o of filteredAdded.slice(addedStart, Math.min(addedEnd, filteredAdded.length))) {
-        rows.push({ fromId: o.fromId, toId: o.toId, base: null, override: o });
-      }
-    }
-    return rows;
-  }, [filteredBasePairs, filteredAdded, overrideByKey, clampedPage]);
-
-  const isEmpty = referencePairs.length === 0 && laneCostOverrides.length === 0;
-  const noFilterMatches = !isEmpty && totalFilteredCount === 0;
 
   function commitOverride(r: MergedRow, cost: number) {
     const key = pairKey(r.fromId, r.toId);
@@ -230,13 +209,6 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
       setAddError("From ID and To ID are both required.");
       return;
     }
-    // I-1 (whole-branch review) — the server's precheck 422 never names the
-    // offending id to the student (buildErrorMessage only lifts data.error,
-    // not errors[]), and this tab has no allowlisted precheck query to catch
-    // it later. Reject inline, naming the id, using the base matrix already
-    // fetched for display (referencePairs) — fail OPEN (skip the check) while
-    // that matrix hasn't loaded yet, so a genuinely-empty/loading query never
-    // blocks every add.
     if (referencePairs.length > 0 && !referencePairs.some(p => p.fromId === fromId)) {
       setAddError(`Unknown warehouse id "${fromId}" — not found in the base cost matrix.`);
       return;
@@ -271,31 +243,71 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
     setAddError(null);
   }
 
-  const toolbar = (
-    <div className="flex items-center gap-1.5 mb-2 flex-wrap" data-testid="delivery-costs-tab-toolbar">
-      <div className="flex-1" />
-      <Input
-        placeholder="Filter from ID…"
-        value={fromFilter}
-        onChange={e => {
-          setFromFilter(e.target.value);
-          setPage(1);
-        }}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-from"
-      />
-      <Input
-        placeholder="Filter to ID…"
-        value={toFilter}
-        onChange={e => {
-          setToFilter(e.target.value);
-          setPage(1);
-        }}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-to"
-      />
-    </div>
-  );
+  // Rebuilt every render: cells close over live props (see DistancesTab).
+  const columns: ColumnDef<MergedRow>[] = [
+    {
+      id: "from",
+      header: "From",
+      kind: "text",
+      filter: "text",
+      value: r => r.fromId,
+      cellClassName: "text-xs font-mono",
+      cell: r => r.fromId,
+    },
+    {
+      id: "to",
+      header: "To",
+      kind: "text",
+      filter: "text",
+      value: r => r.toId,
+      cellClassName: "text-xs font-mono",
+      cell: r => r.toId,
+    },
+    {
+      id: "base",
+      header: "Base",
+      kind: "number",
+      value: r => r.base,
+      cellClassName: "font-mono text-xs",
+      cell: r => (r.base == null ? "—" : r.base),
+    },
+    {
+      id: "cost",
+      header: "Cost",
+      kind: "number",
+      value: r => r.override?.cost ?? null,
+      cell: r => (
+        <div className="flex items-center justify-center gap-1.5">
+          <CostCell
+            currentValue={r.override?.cost}
+            resetKey={`${pairKey(r.fromId, r.toId)}:${r.override ? "1" : "0"}`}
+            onCommitValid={v => commitOverride(r, v)}
+            inputTestId={`input-deliverycost-${r.fromId}-${r.toId}`}
+            readOnly={readOnly}
+          />
+          {r.override && (
+            <span
+              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              data-testid={`badge-deliverycost-overridden-${r.fromId}-${r.toId}`}
+            >
+              Overridden
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "remove",
+      header: "",
+      kind: "text",
+      filter: false,
+      value: () => null,
+      cell: r =>
+        (r.override || r.base == null) && (
+          <DeleteRowButton label={`Remove cost override ${r.fromId} → ${r.toId}`} onClick={() => clearOverride(r)} disabled={readOnly} testId={`button-remove-deliverycost-${r.fromId}-${r.toId}`} />
+        ),
+    },
+  ];
 
   const addRowUi = addingRow ? (
     <div className="flex items-start gap-1.5 mt-2" data-testid="add-deliverycost-row-form">
@@ -304,6 +316,8 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-from"
       />
       <Input
@@ -311,6 +325,8 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-to"
       />
       <Input
@@ -320,12 +336,27 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
         value={newCost}
         onChange={e => setNewCost(e.target.value)}
         className="h-7 text-xs w-24 font-mono"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-deliverycost-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-deliverycost-confirm"
+      >
         Add
       </Button>
-      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancelAddRow} data-testid="button-add-deliverycost-cancel">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs"
+        onClick={cancelAddRow}
+        data-testid="button-add-deliverycost-cancel"
+      >
         Cancel
       </Button>
     </div>
@@ -335,133 +366,55 @@ export function DeliveryCostsTab({ laneCostOverrides, onChange, modelId }: Deliv
       variant="outline"
       className="h-7 px-2 text-xs mt-2"
       onClick={() => setAddingRow(true)}
+      disabled={readOnly}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
       data-testid="button-add-deliverycost-row"
     >
       + Add row
     </Button>
   );
 
-  // I-2 (whole-branch review) — the 546 KB reference-costs response takes
-  // real time to arrive (and can fail); this tab's only editable surface
-  // must not affirmatively claim "No cost data yet" while that's still
-  // unknown. Mirrors DistancesTab's referenceLoadingBanner/referenceErrorBanner
-  // gating — loading and error are checked BEFORE the genuinely-empty state,
-  // which only fires once the query has actually succeeded with no data.
-  const tableSection = referenceQuery.isLoading ? (
-    <p className="text-sm text-muted-foreground" data-testid="delivery-costs-tab-loading">
-      Loading cost data…
-    </p>
+  // Loading / error / no data replace the table (toolbar stays), each with
+  // its own testid — DataTable renders `emptyState` inside `testIds.empty`.
+  const emptyTestId = referenceQuery.isLoading
+    ? "delivery-costs-tab-loading"
+    : referenceQuery.isError
+      ? "delivery-costs-tab-error"
+      : "delivery-costs-tab-empty";
+  const emptyState = referenceQuery.isLoading ? (
+    <p className="text-sm text-muted-foreground">Loading cost data…</p>
   ) : referenceQuery.isError ? (
-    <p className="text-sm text-destructive" data-testid="delivery-costs-tab-error">
-      Failed to load cost data — try reloading the page.
-    </p>
-  ) : isEmpty ? (
-    <p className="text-sm text-muted-foreground" data-testid="delivery-costs-tab-empty">
-      No cost data yet — add an override below.
-    </p>
+    <p className="text-sm text-destructive">Failed to load cost data — try reloading the page.</p>
   ) : (
-    <>
-      <div className="max-h-[55vh] overflow-y-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>From</TableHead>
-              <TableHead>To</TableHead>
-              <TableHead>Base</TableHead>
-              <TableHead>Cost</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pagedRows.map(r => {
-              const key = pairKey(r.fromId, r.toId);
-              return (
-                <TableRow key={key} data-testid={`row-deliverycost-${r.fromId}-${r.toId}`} className={r.override ? "bg-amber-50" : undefined}>
-                  <TableCell className="text-xs font-mono">{r.fromId}</TableCell>
-                  <TableCell className="text-xs font-mono">{r.toId}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.base == null ? "—" : r.base}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5">
-                      <CostCell
-                        currentValue={r.override?.cost}
-                        resetKey={`${key}:${r.override ? "1" : "0"}`}
-                        onCommitValid={v => commitOverride(r, v)}
-                        inputTestId={`input-deliverycost-${r.fromId}-${r.toId}`}
-                      />
-                      {r.override && (
-                        <span
-                          className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
-                          data-testid={`badge-deliverycost-overridden-${r.fromId}-${r.toId}`}
-                        >
-                          Overridden
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {(r.override || r.base == null) && (
-                      <button
-                        type="button"
-                        aria-label={`Remove cost override ${r.fromId} → ${r.toId}`}
-                        onClick={() => clearOverride(r)}
-                        data-testid={`button-remove-deliverycost-${r.fromId}-${r.toId}`}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {noFilterMatches && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-3">
-                  No rows match the current filter.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="flex items-center justify-end gap-2 mt-1 text-xs">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 px-2 text-xs"
-          disabled={clampedPage <= 1}
-          onClick={() => setPage(p => Math.max(1, p - 1))}
-          data-testid="button-delivery-costs-prev"
-        >
-          Prev
-        </Button>
-        <span className="font-mono text-[11px] text-muted-foreground" data-testid="delivery-costs-page-indicator">
-          Page {clampedPage} of {pageCount}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 px-2 text-xs"
-          disabled={clampedPage >= pageCount}
-          onClick={() => setPage(p => Math.min(pageCount, p + 1))}
-          data-testid="button-delivery-costs-next"
-        >
-          Next
-        </Button>
-      </div>
-    </>
+    <p className="text-sm text-muted-foreground">No cost data yet — add an override below.</p>
   );
 
   return (
     <div data-testid="delivery-costs-tab">
-      {toolbar}
-      {tableSection}
+      <DataTable<MergedRow>
+        rows={referenceQuery.isLoading || referenceQuery.isError ? [] : rows}
+        rowKey={r => pairKey(r.fromId, r.toId)}
+        columns={columns}
+        rowClassName={(r) => (r.override != null ? "bg-amber-50" : undefined)}
+        testIds={{
+          toolbar: "delivery-costs-tab-toolbar",
+          row: r => `row-deliverycost-${r.fromId}-${r.toId}`,
+          pagerPrev: "button-delivery-costs-prev",
+          pagerNext: "button-delivery-costs-next",
+          pageIndicator: "delivery-costs-page-indicator",
+          empty: emptyTestId,
+        }}
+        toolbar={{ upload: files.upload, download: files.download }}
+        scrollClassName="max-h-[55vh] overflow-y-auto"
+        emptyState={emptyState}
+      />
       {addRowUi}
       {addError && (
         <p className="text-[11px] text-destructive mt-1" data-testid="text-add-deliverycost-error">
           {addError}
         </p>
       )}
+      {files.dialog}
     </div>
   );
 }

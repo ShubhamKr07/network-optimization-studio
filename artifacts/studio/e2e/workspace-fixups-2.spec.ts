@@ -28,6 +28,7 @@
  * own scenario in a `finally` block.
  */
 import { test, expect, type Page, type Locator } from "./fixtures";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -250,16 +251,20 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("added-warehouses-section")).toBeVisible();
 
-      // ── Item 3 (non-JADE half) — no FilterMenu anywhere on this tab,
-      // even though it has 26 > 10 rows. ──────────────────────────────────
-      await expect(page.locator('[data-testid="warehouses-tab"] [data-testid="button-filter-menu-trigger"]')).toHaveCount(0);
+      // ── SCU-2.P4.10 (spec B2.2, by design) — the FilterMenu now shows on
+      // EVERY model above 10 rows, so this 26-row non-JADE tab has exactly one,
+      // in the toolbar (it used to assert none). ─────────────────────────────
+      await expect(page.locator('[data-testid="warehouses-tab-toolbar"] [data-testid="button-filter-menu-trigger"]')).toHaveCount(1);
 
+      // SCU-2.P4.10 (B2.8) — "+ Add warehouse" opens the CreateEntityDialog modal.
       await page.getByTestId("button-add-warehouse-row").click();
-      await page.getByTestId("input-new-warehouse-city").fill("Testburg");
-      await page.getByTestId("input-new-warehouse-state").fill("ZZ");
-      await page.getByTestId("input-new-warehouse-lat").fill("40.5");
-      await page.getByTestId("input-new-warehouse-lng").fill("-75.2");
-      await page.getByTestId("button-add-warehouse-confirm").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("create-entity-city").fill("Testburg");
+      await page.getByTestId("create-entity-state").fill("ZZ");
+      await page.getByTestId("create-entity-lat").fill("40.5");
+      await page.getByTestId("create-entity-lng").fill("-75.2");
+      await page.getByTestId("create-entity-submit").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
       const addedRow = page.locator('[data-testid="added-warehouses-section"] [data-testid^="row-added-warehouse-"]');
       await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
@@ -306,6 +311,20 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
       await expect(page.locator('[data-testid^="assignment-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       const rowCount = await page.locator('[data-testid^="assignment-row-"]').count();
       expect(rowCount).toBeGreaterThan(10);
+      // SCU-2.P3.2 — 200 customers page at 50; the shared filter (> 10 rows) narrows
+      // to nothing and back; Download ▾ exports all 200 rows (not the page).
+      expect(rowCount).toBe(50);
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveText("Page 1 of 4");
+      await page.getByTestId("button-filter-menu-trigger").click();
+      await page.getByTestId("input-filter-flow-min").fill("999999999999");
+      await expect(page.getByTestId("text-filter-count")).toHaveText("0 of 200");
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveCount(0);
+      await page.getByTestId("button-clear-all-filters").click();
+      await expect(page.getByTestId("text-filter-count")).toHaveText("200 of 200");
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("assignments-page-indicator")).toHaveText("Page 1 of 4");
+      const { json: asJson } = await expectCsvJsonDownload(page, "button-download-assignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: 200 });
+      expect(typeof asJson.templateVersion).toBe("number");
 
       const firstRow = page.locator('[data-testid^="assignment-row-"]').first();
       const customerCell = firstRow.locator("td").nth(0);
@@ -478,12 +497,15 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await expect(page.getByTestId("plants-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("added-plants-section")).toBeVisible();
 
+      // SCU-2.P4.12 (B2.8) — "+ Add plant" opens the CreateEntityDialog modal.
       await page.getByTestId("button-add-plant-row").click();
-      await page.getByTestId("input-new-plant-city").fill("Testburg");
-      await page.getByTestId("input-new-plant-state").fill("ZZ");
-      await page.getByTestId("input-new-plant-lat").fill("41.0");
-      await page.getByTestId("input-new-plant-lng").fill("-80.0");
-      await page.getByTestId("button-add-plant-confirm").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("create-entity-city").fill("Testburg");
+      await page.getByTestId("create-entity-state").fill("ZZ");
+      await page.getByTestId("create-entity-lat").fill("41.0");
+      await page.getByTestId("create-entity-lng").fill("-80.0");
+      await page.getByTestId("create-entity-submit").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
       const addedPlantRow = page.locator('[data-testid="added-plants-section"] [data-testid^="row-added-plant-"]');
       await expect(addedPlantRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
@@ -549,8 +571,8 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
         "Band 1: 0 mi - 200 mi",
         "Band 2: 200 mi - 400 mi",
         "Band 3: 400 mi - 800 mi",
-        "Band 4: 800 mi - 1600 mi",
-        "Band 5: > 1600 mi",
+        "Band 4: 800 mi - 1,600 mi",
+        "Band 5: > 1,600 mi",
       ]);
       for (const label of bandOptions) {
         expect(expectedPossible.has(label)).toBe(true);

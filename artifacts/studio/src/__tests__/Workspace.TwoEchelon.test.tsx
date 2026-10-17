@@ -210,9 +210,10 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
   it("Refineries tab's Export/Import toolbar is scoped to entity=refineries, not entity=warehouses", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-refineries"));
-    expect(screen.getByTestId("button-export-refineries-csv")).toBeInTheDocument();
+    // SCU-2.P4.10 (B2.3/B2.4) — Download ▾ / Upload ▾ triggers.
+    expect(screen.getByTestId("button-download-refineries")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-refineries")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-download-warehouses")).not.toBeInTheDocument();
   });
 
   // B6.2 stage 4 — two-echelon-gold-au's own leg distances entity (mine->

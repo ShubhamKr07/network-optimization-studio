@@ -472,7 +472,7 @@ describe("Workspace — #9 enableFilters (JADE-only opt-in)", () => {
     expect(customersTabSpy.mock.calls.at(-1)?.[0]).toMatchObject({ enableFilters: true });
 
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
-    expect(openWarehousesTabSpy.mock.calls.at(-1)?.[0]).toMatchObject({ enableFilters: true });
+    expect(openWarehousesTabSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty("enableFilters"); // SCU-2.P3.1: prop deleted — DataTable filters every model > 10 rows
   });
 
   it("does NOT pass enableFilters=true for a non-JADE model (p-median-us)", () => {
@@ -523,7 +523,7 @@ describe("Workspace — #9 enableFilters (JADE-only opt-in)", () => {
     expect(customersTabSpy.mock.calls.at(-1)?.[0]).toMatchObject({ enableFilters: false });
 
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
-    expect(openWarehousesTabSpy.mock.calls.at(-1)?.[0]).toMatchObject({ enableFilters: false });
+    expect(openWarehousesTabSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty("enableFilters"); // SCU-2.P3.1
   });
 });
 

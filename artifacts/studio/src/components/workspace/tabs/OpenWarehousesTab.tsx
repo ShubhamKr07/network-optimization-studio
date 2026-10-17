@@ -2,8 +2,9 @@ import { useMemo } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { formatCityState } from "@/lib/formatLocation";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 
@@ -56,16 +57,6 @@ interface OpenWarehousesTabProps {
    * component's output is byte-unchanged for any caller that never passes
    * it. */
   identityById?: Record<string, EntityIdentity>;
-  /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu. Defaults
-   * `false`: every existing caller (every non-JADE model) is completely
-   * unaffected — the underlying `useTableFilters` hook is still called
-   * unconditionally (rules of hooks — this component has an early-return
-   * branch, so `rows`/the hook must be computed BEFORE it), but with no
-   * FilterMenu ever mounted its filter state can never become non-empty, and
-   * `displayRows` explicitly falls back to the unfiltered `rows` array when
-   * this is `false`. Only the JADE Workspace path passes `true` (wired by
-   * INT). */
-  enableFilters?: boolean;
 }
 
 interface OpenWarehouseRow {
@@ -142,55 +133,60 @@ function resolveWarehouseIdentity(
   return { displayId: codeById[id] ?? id, location: locationById?.[id] };
 }
 
-export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, identityById, enableFilters = false }: OpenWarehousesTabProps) {
+// SCU-2.P3.1 (spec B2.1/B2.2/B2.4) — rendered by the shared DataTable: filter
+// menu on every model once > 10 rows (the JADE-only `enableFilters` opt-in is
+// gone), pager > 50, number columns centred, Download ▾ CSV/JSON (server).
+export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, identityById }: OpenWarehousesTabProps) {
   const { download, disabledReasonFor } = useExport();
-  // B6 (spec §10) — `rows`/the filter hook must be computed BEFORE the
-  // early-return below (rules of hooks: no conditional hook calls). `!result`
-  // degrades to an empty rows array here; the early return still fires
-  // exactly as before, just after these otherwise-inert computations.
-  const rows = result ? openWarehouseRows(result) : [];
+  const rows = useMemo(() => (result ? openWarehouseRows(result) : []), [result]);
   // jade-T14 — an explicit EMPTY `capacityModes` array (JADE's uncapacitated,
   // demand-served-in-tons model, manifest `capacityModes: []`) means "show
-  // Demand Served, never a %"; `capacityModes` absent (every pre-existing
-  // call site) falls through to the original `capacityMode`-string gate
-  // unchanged, so p-median-us/Ch10 rendering is byte-identical to before
-  // this task.
+  // Demand Served, never a %"; `capacityModes` absent falls through to the
+  // original `capacityMode`-string gate unchanged.
   const showDemandServed = displayedInputs?.capacityModes != null && displayedInputs.capacityModes.length === 0;
   // Back-compat: no `displayedInputs` at all -> show Utilization as today.
   const showUtilization = !showDemandServed && displayedInputs?.capacityMode !== "none";
-  const codeById = displayCodeById(displayedInputs);
+  const codeById = useMemo(() => displayCodeById(displayedInputs), [displayedInputs]);
 
-  const filterDescriptors = useMemo<ColumnFilterDescriptor<OpenWarehouseRow>[]>(() => {
-    const descriptors: ColumnFilterDescriptor<OpenWarehouseRow>[] = [
+  const columns = useMemo<ColumnDef<OpenWarehouseRow>[]>(() => {
+    const identity = (r: OpenWarehouseRow) => resolveWarehouseIdentity(r.warehouseId, codeById, locationById, identityById);
+    const cols: ColumnDef<OpenWarehouseRow>[] = [
       {
-        key: "warehouse",
-        label: "Warehouse",
-        type: "text",
-        accessor: r => {
-          const { displayId, location } = resolveWarehouseIdentity(r.warehouseId, codeById, locationById, identityById);
+        id: "warehouse",
+        header: "Warehouse",
+        kind: "text",
+        // Pinned: today's descriptor is free text (matrix §5.5), never a select.
+        filter: "text",
+        value: r => {
+          const { displayId, location } = identity(r);
           return location ? `${formatCityState(location.city, location.state)} ${displayId}` : displayId;
+        },
+        cell: r => {
+          const { displayId, location } = identity(r);
+          return <EntityIdCell entityId={r.warehouseId} displayId={displayId} location={location} />;
         },
       },
       {
-        key: "flow",
-        label: showDemandServed ? "Demand Served" : "Total Flow",
-        type: "number",
-        accessor: r => r.totalFlow,
+        id: "flow",
+        header: showDemandServed ? "Demand Served" : "Total Flow",
+        kind: "number",
+        cellClassName: "font-mono",
+        value: r => r.totalFlow,
+        cell: r => r.totalFlow.toLocaleString(),
       },
     ];
     if (showUtilization) {
-      descriptors.push({
-        key: "utilization",
-        label: "Utilization",
-        type: "number",
-        accessor: r => r.utilization ?? undefined,
+      cols.push({
+        id: "utilization",
+        header: "Utilization",
+        kind: "number",
+        cellClassName: "font-mono",
+        value: r => r.utilization,
+        cell: r => (r.utilization != null ? `${Math.round(r.utilization)}%` : "—"),
       });
     }
-    return descriptors;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationById, codeById, identityById, showDemandServed, showUtilization]);
-  const tableFilters = useTableFilters(rows, filterDescriptors);
-  const displayRows = enableFilters ? tableFilters.filteredRows : rows;
+    return cols;
+  }, [codeById, locationById, identityById, showDemandServed, showUtilization]);
 
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="open-warehouses-empty">No solved result yet.</div>;
@@ -198,49 +194,31 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
-        <div className="flex items-center gap-1.5">
-          {enableFilters && tableFilters.totalCount > 10 && (
-            <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />
-          )}
-          <button
-            type="button"
-            data-testid="button-download-open-warehouses-csv"
-            className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
-            onClick={() => download("openWarehouses", "csv")}
-            disabled={disabledReasonFor("openWarehouses") != null}
-            title={disabledReasonFor("openWarehouses")}
-          >
-            Download CSV
-          </button>
-        </div>
-      </div>
-      <div className="overflow-auto flex-1">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-background border-b">
-            <tr>
-              <th className="text-left p-2">Warehouse</th>
-              <th className="text-right p-2">{showDemandServed ? "Demand Served" : "Total Flow"}</th>
-              {showUtilization && <th className="text-right p-2">Utilization</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {displayRows.map(r => {
-              const { displayId, location } = resolveWarehouseIdentity(r.warehouseId, codeById, locationById, identityById);
-              return (
-              <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
-                <td className="p-2">
-                  <EntityIdCell entityId={r.warehouseId} displayId={displayId} location={location} />
-                </td>
-                <td className="p-2 text-right font-mono">{r.totalFlow.toLocaleString()}</td>
-                {showUtilization && (
-                  <td className="p-2 text-right font-mono">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
-                )}
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="overflow-auto flex-1 p-2">
+        <DataTable<OpenWarehouseRow>
+          rows={rows}
+          rowKey={r => r.warehouseId}
+          columns={columns}
+          testIds={{
+            row: r => `open-warehouse-row-${r.warehouseId}`,
+            pager: "open-warehouses-pager",
+            pagerPrev: "button-open-warehouses-prev",
+            pagerNext: "button-open-warehouses-next",
+            pageIndicator: "open-warehouses-page-indicator",
+          }}
+          toolbar={{
+            download: (
+              <DownloadMenu
+                testId="button-download-open-warehouses"
+                itemTestIds={{ csv: "button-download-open-warehouses-csv", json: "button-download-open-warehouses-json" }}
+                onDownload={format => download("openWarehouses", format)}
+                disabledReason={disabledReasonFor("openWarehouses")}
+              />
+            ),
+            // SCU-2.P3 (user decision 2026-10-17) — output tables keep Download on the right (B1.4).
+            downloadAlign: "right",
+          }}
+        />
       </div>
     </div>
   );

@@ -9,6 +9,11 @@ export function csvCell(value: string | number): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+/** Rows of cells -> CSV text (no trailing newline). */
+export function csvText(lines: Array<Array<string | number>>): string {
+  return lines.map(line => line.map(csvCell).join(",")).join("\n");
+}
+
 export function downloadTextFile(filename: string, text: string, mimeType: string): void {
   const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -19,6 +24,8 @@ export function downloadTextFile(filename: string, text: string, mimeType: strin
   URL.revokeObjectURL(url);
 }
 
-export function downloadClientCsv(filename: string, headers: string[], rows: (string | number)[][]): void {
-  downloadTextFile(filename, [headers, ...rows].map(r => r.map(csvCell).join(",")).join("\n"), "text/csv");
+/** `<base>.<format>` download; objects are pretty-printed JSON, strings pass through. */
+export function downloadAs(base: string, format: "csv" | "json", data: string | object): void {
+  const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  downloadTextFile(`${base}.${format}`, text, format === "csv" ? "text/csv" : "application/json");
 }

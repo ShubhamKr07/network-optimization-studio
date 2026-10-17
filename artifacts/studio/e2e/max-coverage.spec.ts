@@ -44,7 +44,9 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { chooseMenuItem, closePopover, fillTableFilter, readGroupedNumber } from "./helpers/inputTable";
 // FU-8 — was a local `coverageInputs()`, byte-identical to
 // `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
 // `objective: "coverage"` rationale (CH4OS).
@@ -182,6 +184,10 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await expect(page.getByTestId("open-warehouse-row-LA")).toBeVisible();
       await expect(page.getByTestId("open-warehouse-row-PIT")).toBeVisible();
       expect(await page.locator('[data-testid^="open-warehouse-row-"]').count()).toBe(3);
+      // SCU-2.P3.1 — Download ▾ (right of the toolbar): real CSV + JSON downloads carry
+      // every row; openWarehouses is the unitless v1 envelope (G-4).
+      const { json: owJson } = await expectCsvJsonDownload(page, "button-download-open-warehouses", { csvName: "openWarehouses.csv", entity: "openWarehouses", unit: null, rows: 3 });
+      expect(typeof owJson.templateVersion).toBe("number");
 
       // The three opened facilities ARE Dallas / Los Angeles / Pittsburgh —
       // proven on the Warehouses input grid, which pairs each id with its
@@ -291,7 +297,8 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await page.getByTestId("sidebar-input-customers").click();
       const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
       await expect(demandInput).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const currentDemand = Number(await demandInput.inputValue()) || 0;
+      // SCU-2.P4.11 (B2.9) — grouped display ("1,234"): Number() of it is NaN.
+      const currentDemand = (await readGroupedNumber(demandInput)) || 0;
       await demandInput.fill(String(currentDemand + 100_000_000)); // large, served → moves the objective
 
       const afterDemand = await solveViaUi(page, id);
@@ -366,18 +373,20 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       // Distances tab, filtered by its display code.
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("input-filter-from").fill(newWhCode);
+      await fillTableFilter(page, "from", newWhCode);
       const estimatedBadges = page.locator('[data-testid^="badge-distance-estimated-"]');
       await expect(estimatedBadges.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       expect(await estimatedBadges.count()).toBeGreaterThan(0);
-      await page.getByTestId("input-filter-from").fill("");
+      await fillTableFilter(page, "from", "");
+      await closePopover(page);
 
       // ── 7a. v1 `distances` CSV round-trip identity ──────────────────────
       const distExport = await page.request.get(`/api/scenarios/${id}/export?entity=distances&format=csv`);
       expect(distExport.status()).toBe(200);
       const distCsv = await distExport.text();
       expect(distCsv.split("\n")[0]).toContain("from_id");
-      await page.getByTestId("button-import-distances").click();
+      // SCU-2.P4.3 (B2.3) — Upload ▾ → CSV.
+      await chooseMenuItem(page, "button-import-distances", "button-import-distances-csv");
       await page.getByTestId("input-import-file-distances").setInputFiles({
         name: "distances.csv",
         mimeType: "text/csv",
@@ -402,7 +411,7 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
 
       await page.getByTestId("sidebar-input-customers").click();
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click();
+      await chooseMenuItem(page, "button-import-customers", "button-import-customers-csv");
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",

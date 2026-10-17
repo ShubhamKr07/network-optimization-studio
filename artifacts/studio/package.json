@@ -70,6 +70,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "^3.2.4",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/import-schema": "workspace:*",
     "@workspace/units": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",

@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+
+// SCU-2.P4.7 — the tab now renders Upload ▾ / Download ▾ (useExport), which
+// needs the ExportProvider; AllProviders supplies it (and UnitProvider).
+function render(ui: Parameters<typeof rtlRender>[0]) {
+  return rtlRender(ui, { wrapper: AllProviders });
+}
 
 // Task 11 — DeliveryCostsTab is modelled directly on DistancesTab.tsx's
 // merged base+override architecture (see that component's own tests,
@@ -22,6 +29,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { DeliveryCostsTab } from "@/components/workspace/tabs/DeliveryCostsTab";
+import { filterText } from "@/__tests__/helpers/inputTable";
 
 interface Pair {
   fromId: string;
@@ -127,14 +135,19 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("delivery-costs-page-indicator")).toHaveTextContent(`Page 1 of ${Math.ceil(10329 / 50)}`);
   });
 
+  // SCU-2.P4.7 (B2.2) — From/To are FilterMenu text controls, shown above
+  // 10 rows: both filter fixtures carry 9 extra W9 rows.
+  const padding = Array.from({ length: 9 }, (_, i) => ({ fromId: "W9", toId: `C9${i}`, cost: 30 + i }));
+
   it("filters by from-id substring", () => {
     const overrides = [
       { fromId: "W1", toId: "C1", cost: 10 },
       { fromId: "W2", toId: "C1", cost: 20 },
+      ...padding,
     ];
     render(<DeliveryCostsTab laneCostOverrides={overrides} onChange={vi.fn()} />);
 
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "W2" } });
+    filterText("from", "W2");
 
     expect(screen.queryByTestId("row-deliverycost-W1-C1")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W2-C1")).toBeInTheDocument();
@@ -144,10 +157,11 @@ describe("DeliveryCostsTab", () => {
     const overrides = [
       { fromId: "W1", toId: "C1", cost: 10 },
       { fromId: "W1", toId: "C2", cost: 20 },
+      ...padding,
     ];
     render(<DeliveryCostsTab laneCostOverrides={overrides} onChange={vi.fn()} />);
 
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "C2" } });
+    filterText("to", "C2");
 
     expect(screen.queryByTestId("row-deliverycost-W1-C1")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W1-C2")).toBeInTheDocument();

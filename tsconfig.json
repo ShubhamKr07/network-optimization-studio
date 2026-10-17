@@ -15,6 +15,7 @@
     {
       "path": "./lib/dataset-schema"
     },
-    { "path": "./lib/units" }
+    { "path": "./lib/units" },
+    { "path": "./lib/import-schema" }
   ]
 }

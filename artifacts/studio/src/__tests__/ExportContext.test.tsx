@@ -58,6 +58,13 @@ describe("useExport", () => {
   });
 
   describe("disabledReasonFor", () => {
+    it("classifies deliveryCosts as an input entity (history lock applies)", () => {
+      const { result } = renderHook(() => useExport(), {
+        wrapper: exportProviderWrapper({ scenarioId: 1, unit: "mi", inputDisabledReason: "history", resultDisabledReason: "result" }),
+      });
+      expect(INPUT_ENTITIES).toContain("deliveryCosts");
+      expect(result.current.disabledReasonFor("deliveryCosts")).toBe("history");
+    });
     it("routes a RESULT entity to resultDisabledReason", () => {
       const { result } = renderHook(() => useExport(), {
         wrapper: exportProviderWrapper({
@@ -141,6 +148,20 @@ describe("useExport", () => {
         });
         expect(mockedDownload).toHaveBeenCalledTimes(1);
         expect(mockedDownload).toHaveBeenCalledWith(5, entity, "csv", { unit, runId: undefined });
+      }
+    });
+
+    // SCU-2.P4.7 (B2.7, D1) — billable miles: deliveryCosts never sends unit=.
+    it("sends no unit for deliveryCosts, whatever the resolved unit", async () => {
+      for (const unit of ["km", "mi"] as const) {
+        mockedDownload.mockClear();
+        const { result } = renderHook(() => useExport(), {
+          wrapper: exportProviderWrapper({ scenarioId: 5, unit }),
+        });
+        await act(async () => {
+          await result.current.download("deliveryCosts", "json");
+        });
+        expect(mockedDownload).toHaveBeenCalledWith(5, "deliveryCosts", "json", { unit: undefined, runId: undefined });
       }
     });
 

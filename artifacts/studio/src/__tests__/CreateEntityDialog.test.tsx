@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
+import { CreateEntityDialog, type MapCreateEntityDialogProps } from "@/components/workspace/map/dialogs/CreateEntityDialog";
 import { MINE_ROLE, REFINERY_ROLE, STATION_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
 
 // Reno, NV per the real gazetteer entry (lat 39.549097, lng -119.849907) —
@@ -8,7 +8,7 @@ import { MINE_ROLE, REFINERY_ROLE, STATION_ROLE, PLANT_ROLE } from "@/components
 const RENO_LAT = 39.53;
 const RENO_LNG = -119.81;
 
-function renderDialog(props: Partial<React.ComponentProps<typeof CreateEntityDialog>> = {}) {
+function renderDialog(props: Partial<MapCreateEntityDialogProps> = {}) {
   const onSubmit = vi.fn();
   const onCancel = vi.fn();
   render(

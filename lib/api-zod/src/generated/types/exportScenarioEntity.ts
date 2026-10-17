@@ -25,4 +25,5 @@ export const ExportScenarioEntity = {
   flows: 'flows',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  deliveryCosts: 'deliveryCosts',
 } as const;

@@ -20,12 +20,17 @@ import {
   OVERFLOW_BAND,
 } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+import { deliveryBaseCost } from "../data/referenceCosts.js";
+import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, csvColumns } from "@workspace/import-schema";
 
 // D4.1 export. CSV format choice: plain columns with template_version
 // repeated on every row (not a leading comment line) — simpler for D5's
 // importer to parse with a standard CSV reader, no special first-line
 // handling needed.
-export const TEMPLATE_VERSION = 1;
+// SCU-2.P2.1 (B2.5) — the input template versions now live in
+// @workspace/import-schema (one source for the server and the studio);
+// re-exported so every existing `from "./templates.js"` import keeps working.
+export { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION };
 
 // Chen-bands-units bundle, Part E — the three importable, distance-bearing
 // input entities (distances, legDistances, laneCosts) get their OWN
@@ -35,7 +40,6 @@ export const TEMPLATE_VERSION = 1;
 // file is self-describing about which display unit its values are in.
 // warehouses/customers/mines/stations/refineries/plants/plantCapabilities
 // are non-distance entities and are NOT affected by this constant.
-export const DISTANCE_TEMPLATE_VERSION = 2;
 
 // Chen-bands-units bundle — OUTPUT_TEMPLATE_VERSION bumps 2 -> 3: every
 // band-bearing output entity (assignments, flows, JADE assignments, JADE
@@ -686,7 +690,7 @@ function csvEscape(value: string): string {
 // fallback needed here since `city`/`state` are always present as their own
 // columns right alongside it.
 export function warehouseRowsToCsv(rows: WarehouseTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng,capacity,status";
+  const header = csvColumns("warehouses", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? "", r.status].join(","),
   );
@@ -694,7 +698,7 @@ export function warehouseRowsToCsv(rows: WarehouseTemplateRow[]): string {
 }
 
 export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng,demand,status";
+  const header = csvColumns("customers", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand, r.status].join(","),
   );
@@ -708,7 +712,7 @@ export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
 // refineryRowsToCsv above). `overridden` stays JSON-only, same as
 // warehouses/customers.
 export function mineRowsToCsv(rows: MineTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng,capacity";
+  const header = csvColumns("mines", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? ""].join(","),
   );
@@ -716,7 +720,7 @@ export function mineRowsToCsv(rows: MineTemplateRow[]): string {
 }
 
 export function stationRowsToCsv(rows: StationTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng,demand";
+  const header = csvColumns("stations", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand].join(","),
   );
@@ -728,7 +732,7 @@ export function stationRowsToCsv(rows: StationTemplateRow[]): string {
 // joined the uid+displayCode add-mode set) — same blank-cell-when-null
 // convention as warehouseRowsToCsv/customerRowsToCsv above.
 export function refineryRowsToCsv(rows: RefineryTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng,status";
+  const header = csvColumns("refineries", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.status].join(","),
   );
@@ -875,7 +879,7 @@ export function applyPlantOverrides(addedPlants: AddedPlant[] = []): PlantTempla
 }
 
 export function plantRowsToCsv(rows: PlantTemplateRow[]): string {
-  const header = "template_version,id,display_code,city,state,lat,lng";
+  const header = csvColumns("plants", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng].join(","),
   );
@@ -929,7 +933,7 @@ export function applyPlantCapabilityOverrides(
 }
 
 export function plantCapabilityRowsToCsv(rows: PlantCapabilityTemplateRow[]): string {
-  const header = "template_version,plant_id,product_id,enabled";
+  const header = csvColumns("plantCapabilities", TEMPLATE_VERSION).join(",");
   const lines = rows.map(r => [r.templateVersion, r.plantId, r.productId, r.enabled].join(","));
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1131,7 +1135,7 @@ export function buildDistanceStubRows(
 export function distanceRowsToCsv(
   rows: Array<{ templateVersion: number; unit: CanonicalUnit; fromId: string; toId: string; distance: number | null }>,
 ): string {
-  const header = "template_version,unit,from_id,to_id,distance";
+  const header = csvColumns("distances", DISTANCE_TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.unit, r.fromId, r.toId, r.distance ?? ""].join(","),
   );
@@ -1261,10 +1265,29 @@ export function buildLaneCostStubRows(
 export function laneCostRowsToCsv(
   rows: Array<{ templateVersion: number; unit: CanonicalUnit; fromId: string; toId: string; cost: number | null }>,
 ): string {
-  const header = "template_version,unit,from_id,to_id,cost";
+  const header = csvColumns("laneCosts", DISTANCE_TEMPLATE_VERSION).join(",");
   const lines = rows.map(r =>
     [r.templateVersion, r.unit, r.fromId, r.toId, r.cost ?? ""].join(","),
   );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// SCU-2.P2.3 (B2.7, D1) - delivery-teaching-us's laneCostOverrides as an
+// import/export entity. SPARSE (only overridden pairs). `cost` is billable
+// miles and is never unit-converted: v1 unitless, no `unit` field (unlike
+// transport laneCosts).
+export interface DeliveryCostRow { fromId: string; toId: string; cost: number; }
+
+/** Drops redundant overrides (cost equal to base), so the export is the true sparse diff. */
+export function applyDeliveryCostOverrides(overrides: Array<{ fromId: string; toId: string; cost: number }>): DeliveryCostRow[] {
+  return overrides
+    .filter(o => o.cost !== deliveryBaseCost(o.fromId, o.toId))
+    .map(o => ({ fromId: o.fromId, toId: o.toId, cost: o.cost }));
+}
+
+export function deliveryCostRowsToCsv(rows: DeliveryCostRow[]): string {
+  const header = csvColumns("deliveryCosts", TEMPLATE_VERSION).join(",");
+  const lines = rows.map(r => [TEMPLATE_VERSION, r.fromId, r.toId, r.cost].join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1395,7 +1418,13 @@ export function buildAssignmentRows(
   requestedUnit: CanonicalUnit = canonicalUnit,
   savedBands: number[] = [],
 ): AssignmentTemplateRow[] {
-  return result.edges.map(e => ({
+  // Mirrors the studio's AssignmentsTab: when any edge carries a `leg`, only
+  // facility->demand legs are assignments (gold-au's mine->refinery is not).
+  const hasLegs = result.edges.some(e => e.leg != null);
+  const edges = hasLegs
+    ? result.edges.filter(e => e.leg === "refinery_to_customer" || e.leg === "warehouse_to_customer")
+    : result.edges;
+  return edges.map(e => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
     customerId: e.toId,
     warehouseId: e.fromId,
@@ -1480,7 +1509,7 @@ export function buildEffectiveFacilityCityLookup(
   return lookup;
 }
 
-// Sums flow per distinct fromId across edges. Skips mine_to_refinery edges
+// Sums flow per distinct fromId across edges. Skips mine_to_refinery and plant_to_warehouse edges
 // (two-echelon's own leg type, not a facility-open edge for the "which
 // warehouse-equivalent node is open" question this entity answers) — a
 // no-op for p-median-us today (its edges never carry `leg`), kept so this
@@ -1495,7 +1524,7 @@ export function buildEffectiveFacilityCityLookup(
 export function buildOpenWarehouseRows(result: ResultEnvelope, cityById: Map<string, string>): OpenWarehouseTemplateRow[] {
   const flowByWarehouse = new Map<string, number>();
   for (const e of result.edges) {
-    if (e.leg === "mine_to_refinery") continue;
+    if (e.leg === "mine_to_refinery" || e.leg === "plant_to_warehouse") continue;
     flowByWarehouse.set(e.fromId, (flowByWarehouse.get(e.fromId) ?? 0) + e.flow);
   }
   const utilByWarehouse = new Map((result.metrics.utilizationByNode ?? []).map(u => [u.warehouseId, u]));

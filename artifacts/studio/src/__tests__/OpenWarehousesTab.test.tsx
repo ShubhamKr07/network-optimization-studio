@@ -6,6 +6,7 @@ import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab
 import * as exportEntity from "@/lib/exportEntity";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { exportProviderWrapper, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 
 // SCN chen-bands-units, Task 14b — OpenWarehousesTab now calls useExport()
 // unconditionally, needing an ExportProvider ancestor for every render.
@@ -47,7 +48,7 @@ describe("OpenWarehousesTab", () => {
   it("calls downloadEntityExport with entity=openWarehouses on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<OpenWarehousesTab result={result} scenarioId={1} />);
-    fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+    chooseDownload("button-download-open-warehouses", "button-download-open-warehouses-csv");
     // scenarioId/unit come from the ExportProvider context (default {scenarioId:1, unit:"mi"}),
     // NOT from this component's own `scenarioId` prop — toHaveBeenCalledWith
     // ignores the undefined `runId` key (vitest/jest equality semantics).
@@ -63,7 +64,7 @@ describe("OpenWarehousesTab", () => {
           <OpenWarehousesTab result={result} scenarioId={1} />
         </ExportProvider>,
       );
-      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      const button = screen.getByTestId("button-download-open-warehouses");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "This result predates run history — export the latest result instead.");
     });
@@ -75,14 +76,14 @@ describe("OpenWarehousesTab", () => {
           <OpenWarehousesTab result={result} scenarioId={1} />
         </ExportProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      chooseDownload("button-download-open-warehouses", "button-download-open-warehouses-csv");
       expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv", { unit: "mi", runId: 42 });
     });
 
     it("omits runId (undefined) when the latest result is displayed", () => {
       const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
       render(<OpenWarehousesTab result={result} scenarioId={1} />);
-      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      chooseDownload("button-download-open-warehouses", "button-download-open-warehouses-csv");
       const call = spy.mock.calls[0];
       expect(call[3]).toEqual({ unit: "mi", runId: undefined });
     });
@@ -100,7 +101,7 @@ describe("OpenWarehousesTab", () => {
           <OpenWarehousesTab result={result} scenarioId={1} />
         </ExportProvider>,
       );
-      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      const button = screen.getByTestId("button-download-open-warehouses");
       expect(button).not.toBeDisabled();
 
       // Student steps the result-history stepper back to an entry that
@@ -372,8 +373,9 @@ describe("OpenWarehousesTab", () => {
     expect(screen.queryByText(/10,000,000/)).not.toBeInTheDocument();
   });
 
-  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu.
-  describe("enableFilters (B6)", () => {
+  // SCU-2.P3.1 (spec B2.2) — the FilterMenu is no longer an opt-in: every
+  // model gets it once the table has > 10 rows (replaces the B6 enableFilters tests).
+  describe("FilterMenu > 10 rows on every model (SCU-2.P3.1)", () => {
     const manyWarehousesResult = {
       status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
       edges: Array.from({ length: 11 }, (_, i) => ({ fromId: `WH${i}`, toId: `C${i}`, flow: 10, distance: 1 })),
@@ -381,23 +383,18 @@ describe("OpenWarehousesTab", () => {
       details: {}, solverUsed: "CBC", infeasibilityReason: null,
     };
 
-    it("defaults to false: no FilterMenu even with >10 rows (other-model behavior unchanged)", () => {
+    it("<= 10 rows: no FilterMenu", () => {
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("> 10 rows: FilterMenu shown without any opt-in prop", () => {
       render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} />);
-      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
-    });
-
-    it("enableFilters=true with <=10 rows: FilterMenu stays hidden", () => {
-      render(<OpenWarehousesTab result={result} scenarioId={1} enableFilters />);
-      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
-    });
-
-    it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
-      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} enableFilters />);
       expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
     });
 
-    it("filtering by Warehouse (text) narrows the rendered rows", async () => {
-      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} enableFilters />);
+    it("filtering by Warehouse (text, pinned) narrows the rendered rows", async () => {
+      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} />);
       await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
       await userEvent.type(screen.getByTestId("input-filter-warehouse"), "WH1");
       // "WH1" matches WH1 and WH10 (substring match).
@@ -414,6 +411,69 @@ describe("OpenWarehousesTab — no duplicate title (SCU-1.4)", () => {
   it("renders no 'Open Warehouses' title and keeps Download right-aligned", () => {
     render(<OpenWarehousesTab result={result} scenarioId={1} />);
     expect(screen.queryByText("Open Warehouses")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-download-open-warehouses-csv").closest("div.border-b")).toHaveClass("justify-end");
+    const dl = screen.getByTestId("button-download-open-warehouses"); // SCU-2.P3: Download ▾ right-aligned via toolbar.downloadAlign
+    expect(dl.closest("div.ml-auto")).not.toBeNull();
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+  });
+});
+
+// SCU-2.P3.1 (spec B2.1/B2.2/B2.4, matrix §2a "OpenWarehouses") — the
+// DataTable migration emits every testid in the instance's testid map, plus
+// the new Download ▾ and pager literals; number columns are centred.
+describe("OpenWarehousesTab on DataTable — testid map (SCU-2.P3.1)", () => {
+  const manyResult = (n: number) => ({
+    ...result,
+    edges: Array.from({ length: n }, (_, i) => ({ fromId: `WH${i + 1}`, toId: `C${i + 1}`, flow: 10 * (i + 1), distance: 1 })),
+    metrics: {},
+  });
+
+  it("emits open-warehouses-empty for no result", () => {
+    render(<OpenWarehousesTab result={null} scenarioId={1} />);
+    expect(screen.getByTestId("open-warehouses-empty")).toHaveTextContent("No solved result yet.");
+  });
+
+  it("emits the row testid on a <tr> and the Download ▾ trigger + both items", () => {
+    render(<OpenWarehousesTab result={result} scenarioId={1} />);
+    expect(screen.getByTestId("open-warehouse-row-ALN").tagName).toBe("TR");
+    fireEvent.click(screen.getByTestId("button-download-open-warehouses"));
+    expect(screen.getByTestId("button-download-open-warehouses-csv")).toHaveTextContent("CSV");
+    expect(screen.getByTestId("button-download-open-warehouses-json")).toHaveTextContent("JSON");
+  });
+
+  it("JSON goes through the same server export (entity openWarehouses, format json)", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    render(<OpenWarehousesTab result={result} scenarioId={1} />);
+    chooseDownload("button-download-open-warehouses", "button-download-open-warehouses-json");
+    expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("centres the number columns (header and cells), not the Warehouse column", () => {
+    render(<OpenWarehousesTab result={result} scenarioId={1} />);
+    expect(screen.getByRole("columnheader", { name: "Total Flow" })).toHaveClass("text-center");
+    expect(screen.getByRole("columnheader", { name: "Utilization" })).toHaveClass("text-center");
+    expect(screen.getByRole("columnheader", { name: "Warehouse" })).not.toHaveClass("text-center");
+    const cells = screen.getByTestId("open-warehouse-row-ALN").querySelectorAll("td");
+    expect(cells[1]).toHaveClass("text-center");
+    expect(cells[2]).toHaveClass("text-center");
+  });
+
+  it("> 50 rows: pager with the mapped literals; 50 rows: none", () => {
+    const { unmount } = render(<OpenWarehousesTab result={manyResult(50)} scenarioId={1} />);
+    expect(screen.queryByTestId("open-warehouses-pager")).toBeNull();
+    unmount();
+    render(<OpenWarehousesTab result={manyResult(51)} scenarioId={1} />);
+    expect(screen.getByTestId("open-warehouses-page-indicator")).toHaveTextContent("Page 1 of 2");
+    expect(screen.getByTestId("open-warehouses-pager")).toContainElement(screen.getByTestId("button-open-warehouses-prev"));
+    fireEvent.click(screen.getByTestId("button-open-warehouses-next"));
+    expect(screen.getByTestId("open-warehouse-row-WH51")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-warehouse-row-WH1")).toBeNull();
+  });
+
+  it("Download ▾ renders last in the toolbar, right of the filter trigger (toolbar.downloadAlign: right)", () => {
+    render(<OpenWarehousesTab result={manyResult(11)} scenarioId={1} />);
+    const dl = screen.getByTestId("button-download-open-warehouses");
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+    expect(screen.getByTestId("button-filter-menu-trigger").compareDocumentPosition(dl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

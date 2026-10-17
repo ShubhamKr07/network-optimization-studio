@@ -10,7 +10,7 @@ import type { ExportEnvelopeV1RowsItem } from './exportEnvelopeV1RowsItem';
 import type { ExportEnvelopeV1TemplateVersion } from './exportEnvelopeV1TemplateVersion';
 
 /**
- * Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.
+ * Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, deliveryCosts, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.
  */
 export interface ExportEnvelopeV1 {
   templateVersion: ExportEnvelopeV1TemplateVersion;

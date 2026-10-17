@@ -712,15 +712,14 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     // back inline on the base Warehouses tab (Added Entities is gone).
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    // T9 (grid-mirror) — the manual "ID" input is gone; `id` is now a hidden
-    // T3 stable uid (`aw-<uuid>`) minted by handleAddRow itself, and
-    // `displayCode` (left blank here — never focused, so City/State's blur
-    // auto-fill never fires) is the optional human-facing label.
-    fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lat"), { target: { value: "39.74" } });
-    fireEvent.change(screen.getByTestId("input-new-warehouse-lng"), { target: { value: "-104.99" } });
-    fireEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    // T9 (grid-mirror) — `id` is a hidden T3 stable uid (`aw-<uuid>`).
+    // SCU-2.P4.10 (B2.8) — the add flow is the CreateEntityDialog modal,
+    // which derives `displayCode` from City/State.
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-104.99" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-save"));
@@ -738,7 +737,9 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
               state: "CO",
               lat: 39.74,
               lng: -104.99,
-              capacity: null,
+              // SCU-2.P4.10 (B2.8) — the modal derives the display code and,
+              // under capacityMode "none", omits `capacity` (was null inline).
+              displayCode: "WH-CO-DENVER-01",
               status: "active",
             }),
           ],
@@ -798,12 +799,12 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     // back inline on the base Customers tab.
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));
     fireEvent.click(screen.getByTestId("button-add-customer-row"));
-    fireEvent.change(screen.getByTestId("input-new-customer-city"), { target: { value: "Denver" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-state"), { target: { value: "CO" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-lat"), { target: { value: "39.74" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-lng"), { target: { value: "-104.99" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-demand"), { target: { value: "500" } });
-    fireEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-104.99" } });
+    fireEvent.change(screen.getByTestId("create-entity-demand"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     fireEvent.click(screen.getByTestId("button-save"));
 
@@ -944,11 +945,11 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     // and `displayCode` (left blank here — never focused, so City/State's
     // blur auto-fill never fires under `fireEvent.change`) is the optional
     // human-facing label. Mirrors the equivalent warehouse test exactly.
-    fireEvent.change(screen.getByTestId("input-new-mine-city"), { target: { value: "Bristol" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-state"), { target: { value: "VA" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-lat"), { target: { value: "36.6" } });
-    fireEvent.change(screen.getByTestId("input-new-mine-lng"), { target: { value: "-82.19" } });
-    fireEvent.click(screen.getByTestId("button-add-mine-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Bristol" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "VA" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "36.6" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-82.19" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-save"));
@@ -1019,12 +1020,12 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
     fireEvent.click(screen.getByTestId("button-add-station-row"));
     // T11 (Step A, grid-mirror) — mirrors the mine test's own comment above.
-    fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
-    fireEvent.change(screen.getByTestId("input-new-station-state"), { target: { value: "NC" } });
-    fireEvent.change(screen.getByTestId("input-new-station-lat"), { target: { value: "35.5" } });
-    fireEvent.change(screen.getByTestId("input-new-station-lng"), { target: { value: "-80.2" } });
-    fireEvent.change(screen.getByTestId("input-new-station-demand"), { target: { value: "900000" } });
-    fireEvent.click(screen.getByTestId("button-add-station-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Newtown" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "NC" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "35.5" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-80.2" } });
+    fireEvent.change(screen.getByTestId("create-entity-demand"), { target: { value: "900000" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     fireEvent.click(screen.getByTestId("button-save"));
 

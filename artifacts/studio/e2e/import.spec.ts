@@ -25,6 +25,7 @@
  * API_PROXY_TARGET) so the browser sees one origin — see vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { chooseMenuItem, grouped } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 
@@ -92,7 +93,8 @@ test.describe("Import (D5.2)", () => {
 
       await page.getByTestId("sidebar-input-customers").click();
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click();
+      // SCU-2.P4.11 (B2.3) — Upload ▾ → CSV.
+      await chooseMenuItem(page, "button-import-customers", "button-import-customers-csv");
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",
@@ -105,8 +107,9 @@ test.describe("Import (D5.2)", () => {
       // Dialog closes on success and the customer row's own demand input
       // reflects the newly-applied override.
       await expect(page.getByTestId("input-import-file-customers")).not.toBeVisible({ timeout: 8_000 });
+      // SCU-2.P4.11 (B2.9) — the demand cell shows the grouped value.
       await expect(page.getByTestId(`input-customer-demand-${customerId}`)).toHaveValue(
-        String(originalDemand + 500),
+        grouped(originalDemand + 500),
         { timeout: HEADER_TIMEOUT },
       );
 

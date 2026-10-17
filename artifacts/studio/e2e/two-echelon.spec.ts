@@ -38,6 +38,7 @@
  * solve outcome.
  */
 import { test, expect, type Page } from "./fixtures";
+import { expectCsvJsonDownload } from "./helpers/download";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -120,6 +121,28 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       await solveAndWait(page);
       await page.getByTestId("sidebar-output-open-warehouses").click();
       await expect(page.getByText(/cunnamulla/i).first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P3.4 — gold-au Flows: distances render under the canonical unit (G-3
+      // fixed), follow the display-unit toggle, and Download ▾ exports every row.
+      await page.getByTestId("sidebar-output-flows").click();
+      const flowRows = page.locator('[data-testid^="flow-row-"]');
+      await expect(flowRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
+      await expect(flowRows.first().locator("td").nth(2)).toHaveText(/^\d+\.\d$/);
+      await page.getByTestId("unit-toggle-km").click();
+      await expect(page.getByRole("columnheader", { name: "Distance (km)" })).toBeVisible();
+      await page.getByTestId("unit-toggle-mi").click();
+      await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
+      const flowCount = await flowRows.count();
+      await expectCsvJsonDownload(page, "button-download-flows", { csvName: "flows.csv", entity: "flows", unit: "mi", rows: flowCount });
+
+      // SCU-2.R4 — Customer Assignments (facility->demand legs only, 10 customers: at the
+      // no-filter boundary, one page): the download carries exactly the on-screen rows.
+      await page.getByTestId("sidebar-output-customer-assignments").click();
+      const assignmentRows = page.locator('[data-testid^="assignment-row-"]');
+      await expect(assignmentRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const assignmentCount = await assignmentRows.count();
+      expect(assignmentCount).toBe(10);
+      await expectCsvJsonDownload(page, "button-download-assignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: assignmentCount });
 
       // ── 2. Clone → BOM 2.0 → re-solve → Daggar Hills ────────────────────
       // Sidebar-only scenario ops now (button-scenario-dropdown is gone) —

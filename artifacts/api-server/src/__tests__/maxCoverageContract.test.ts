@@ -111,7 +111,7 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
     const requestEntities = ExportScenarioQueryParams.shape.entity.options as readonly string[];
     const v1Entities = new Set([
       "warehouses", "customers", "mines", "stations", "refineries",
-      "plants", "plantCapabilities", "openWarehouses",
+      "plants", "plantCapabilities", "deliveryCosts", "openWarehouses",
     ]);
     const v2Entities = new Set(["distances", "laneCosts", "legDistances"]);
     const v3Entities = new Set(["assignments", "flows", "serviceStats"]);

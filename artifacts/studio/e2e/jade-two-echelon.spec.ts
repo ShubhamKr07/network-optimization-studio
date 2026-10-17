@@ -19,8 +19,10 @@
  * "To run e2e locally" recipe and vite.config.ts.
  */
 import { test, expect, type Page } from "./fixtures";
+import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { chooseMenuItem, closePopover, fillTableFilter } from "./helpers/inputTable";
 
 // Both JADE siblings (jade-transport-costs.spec.ts, jade-ch9-workspace-
 // bundle.spec.ts) already set this — without it, an action with no explicit
@@ -152,6 +154,8 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await expect(page.locator('[data-testid^="open-warehouse-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       const openRows = await page.locator('[data-testid^="open-warehouse-row-"]').count();
       expect(openRows).toBe(2); // wh-11 + wh-14 forced open, P=2
+      // SCU-2.R4 — the server export lists warehouses only (no plants): download == on-screen rows.
+      await expectCsvJsonDownload(page, "button-download-open-warehouses", { csvName: "openWarehouses.csv", entity: "openWarehouses", rows: openRows });
 
       // JADE is multi-product (JadeAssignmentsTab, not the generic
       // AssignmentsTab the shared `assignment-row-` prefix belongs to) — one
@@ -163,6 +167,12 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       // page, so assert the total via the tab's own counter instead.
       await expect(page.getByTestId("text-jadeassignments-count"))
         .toContainText("of 400", { timeout: HEADER_TIMEOUT }); // 100 customers x 4 product families
+        // SCU-2.P3.3 — the shell pager keeps today's literals (400 rows = 8 pages);
+        // Download ▾ exports all 400 product-level rows (JADE v3 shape, with unit).
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 1 of 8");
+        await page.getByTestId("button-jadeassignments-next").click();
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 2 of 8");
+        await expectCsvJsonDownload(page, "button-download-jadeassignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: 400 });
 
       // JadeFlowsTab (not the generic FlowsTab the shared `flow-row-` prefix
       // belongs to) sums flow across productId per (plant,warehouse) pair —
@@ -170,8 +180,25 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("sidebar-output-flows").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="jade-flow-pw-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
 
+      // SCU-2.P3.5 — the client-built download IS the on-screen table (all rows);
+      // an open menu does not survive a leg switch and focus stays on the leg control.
+      const pwCount = await page.locator('[data-testid^="jade-flow-pw-row-"]').count();
+      await expectCsvJsonDownload(page, "button-download-jade-flows-pw", {
+        csvName: "jade-flows-plant-warehouse.csv",
+        entity: "jadeFlowsPlantWarehouse",
+        unit: "mi",
+        rows: pwCount,
+        csvHeader: "Plant,Warehouse,Distance (mi),Flow,Distance Band",
+      });
+      // (the leg-switch menu-close browser proof lives in jade-ch9-workspace-bundle.spec.ts)
+
       await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-list")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P3.7 — the metric table never gets a filter (spec B2.2 exception), even
+      // at 11 rows; Download ▾ exports the server costSummary (one row, with unit).
+      await expect(page.getByTestId("button-filter-menu-trigger")).toHaveCount(0);
+      const { json: csJson } = await expectCsvJsonDownload(page, "button-download-cost-summary", { csvName: "costSummary.csv", entity: "costSummary", unit: "mi", rows: 1 });
+      expect(typeof csJson.templateVersion).toBe("number");
 
       await page.getByTestId("sidebar-output-service-stats").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="service-stats-band-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -269,11 +296,33 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("create-entity-submit").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // The map's own Layers row carries Save for this mode (saveInLayersRowJade).
-      const mapSaveButton = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
-      await expect(mapSaveButton).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      await mapSaveButton.click({ timeout: HEADER_TIMEOUT });
-      await expect(mapSaveButton).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P4.5 — P1 hand-off (Codex finding 6): a real-browser focus-jump
+      // check. Save from the Distances tab with a filter that hides every row,
+      // then take the estimated-distance toast's "Distances" jump: the filter
+      // must be cleared, the pager must leave page 1 (the new warehouse's
+      // triples follow every base triple) and the target row must be on screen.
+      await page.getByTestId("sidebar-input-distances").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("jade-distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await fillTableFilter(page, "to", "zz-no-such-id");
+      await closePopover(page);
+      await expect(page.locator('[data-testid^="row-jadedistance-"]')).toHaveCount(0);
+      const toolbarSave = page.getByTestId("button-save");
+      await expect(toolbarSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
+      await toolbarSave.click({ timeout: HEADER_TIMEOUT });
+      await expect(toolbarSave).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      const escapedWhCode = newWhDisplayCode.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const estimateToast = page.getByRole("region").locator("li").filter({
+        hasText: new RegExp(`distances? estimated for ${escapedWhCode}`),
+      });
+      await expect(estimateToast).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await estimateToast.getByRole("button", { name: "Distances" }).click({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("button-filter-menu-trigger").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-filter-to")).toHaveValue("");
+      await closePopover(page);
+      await expect(page.getByTestId("jadedistances-page-indicator")).not.toHaveText(/^Page 1 of/, { timeout: HEADER_TIMEOUT });
+      await expect(page.locator('tr:has([data-testid^="badge-jadedistance-estimated-"])').first()).toBeInViewport({
+        timeout: HEADER_TIMEOUT,
+      });
 
       // The new warehouse's estimated plant→warehouse distances now appear
       // in the Distances tab, filtered by its display code (raw uids don't
@@ -313,7 +362,8 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
 
       await page.getByTestId("sidebar-input-customers").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P4.11 (B2.3) — Upload ▾ → CSV.
+      await chooseMenuItem(page, "button-import-customers", "button-import-customers-csv");
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",

@@ -15,6 +15,7 @@ function render(
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
+import { chooseInputDownload, chooseUpload } from "@/__tests__/helpers/inputTable";
 
 const warehouses = [
   { id: "CHI", city: "Chicago", state: "IL", lat: 41.88, lng: -87.62 },
@@ -112,9 +113,11 @@ describe("WarehousesTab", () => {
       lng: -87 - i * 0.01,
     }));
 
-    it("defaults to false: no FilterMenu even with >10 rows (other-model behavior unchanged)", () => {
+    // SCU-2.P4.10 (spec B2.2) — the table's FilterMenu shows above 10 rows on
+    // EVERY model; enableFilters now only reaches ImportDialog's preview grids.
+    it("without enableFilters the FilterMenu still shows above 10 rows (B2.2: all models)", () => {
       render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
-      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
     });
 
     it("enableFilters=true with <=10 rows: FilterMenu stays hidden", () => {
@@ -156,17 +159,15 @@ describe("WarehousesTab", () => {
       render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
       const toolbar = screen.getByTestId("warehouses-tab-toolbar");
       // Import/Export buttons live in the toolbar...
-      expect(toolbar).toContainElement(screen.getByTestId("button-export-warehouses-csv"));
+      expect(toolbar).toContainElement(screen.getByTestId("button-download-warehouses"));
       expect(toolbar).toContainElement(screen.getByTestId("button-import-warehouses"));
       // ...and so does the FilterMenu trigger — one row, not a separate one.
       expect(toolbar).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
     });
 
-    it("non-JADE tab (enableFilters omitted): no FilterMenu anywhere, even with >10 rows", () => {
+    it("non-JADE tab (enableFilters omitted): the FilterMenu sits in the same toolbar row (B2.2)", () => {
       render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
-      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
-      // The toolbar still renders (Import/Export unaffected).
-      expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+      expect(screen.getByTestId("warehouses-tab-toolbar")).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
     });
   });
 });
@@ -204,8 +205,8 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
         <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
       </ExportProviderTestWrapper>,
     );
-    expect(screen.getByTestId("button-export-warehouses-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-warehouses-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-warehouses")).toBeDisabled();
     expect(screen.getByTestId("button-import-warehouses")).toBeDisabled();
   });
 
@@ -220,7 +221,7 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-warehouses-csv"));
+    chooseInputDownload("warehouses", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -235,7 +236,7 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
       <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} />,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-warehouses-json"));
+    chooseInputDownload("warehouses", "json");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -254,7 +255,8 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
         <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
       </ExportProvider>,
     );
-    const csvButton = screen.getByTestId("button-export-warehouses-csv");
+    // SCU-2.P4.10 (B2.4) — the Download ▾ trigger carries the disabled state.
+    const csvButton = screen.getByTestId("button-download-warehouses");
     expect(csvButton).not.toBeDisabled();
 
     // Student steps the result-history stepper back to an older entry —
@@ -286,7 +288,7 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
 
     expect(screen.queryByText("Import warehouses")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByTestId("button-import-warehouses"));
+    chooseUpload("warehouses", "csv");
 
     expect(screen.getByText("Import warehouses")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-warehouses")).toBeInTheDocument();
@@ -312,7 +314,7 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-warehouses"));
+    chooseUpload("warehouses", "csv");
     const file = new File(["id,status\nCHI,active"], "warehouses.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
@@ -369,11 +371,11 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     // T9 — Denver/CO is a real gazetteer hit, so the blur off the State
     // field (triggered by userEvent.type's own focus-shift to the Lat
@@ -389,10 +391,12 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
       state: "CO",
       lat: 39.74,
       lng: -104.99,
-      capacity: null,
       status: "active",
       displayCode: "WH-CO-DENVER-01",
     });
+    // SCU-2.P4.10 (B2.8) — the modal omits `capacity` when capacityMode has no
+    // per-warehouse capacity (the map flow's convention); the inline form sent null.
+    expect(added).not.toHaveProperty("capacity");
     expect(added.id).toMatch(/^aw-/);
   });
 
@@ -411,12 +415,12 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedWarehousesChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-warehouse-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   // T9 (team-lead decision) — since `id` is now a hidden uid, displayCode
@@ -440,16 +444,16 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Chicago");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "IL");
-    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Chicago");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "IL");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
     // Manually override the auto-filled displayCode to collide.
-    await userEvent.clear(screen.getByTestId("input-new-warehouse-display-code"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-display-code"), "DUPE");
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    await userEvent.clear(screen.getByTestId("create-entity-display-code"));
+    await userEvent.type(screen.getByTestId("create-entity-display-code"), "DUPE");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedWarehousesChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-warehouse-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   it("renders an added warehouse row with a delete button, and clicking it calls onDeleteWarehouse with its id", async () => {
@@ -565,13 +569,14 @@ describe("WarehousesTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
-    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
 
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(39.76185);
-    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(-104.881105);
-    expect(screen.getByTestId("input-new-warehouse-display-code")).toHaveValue("WH-CO-DENVER-01");
+    // SCU-2.P4.10 — the modal's lat/lng are text inputs (string values).
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("39.76185");
+    expect(screen.getByTestId("create-entity-lng")).toHaveValue("-104.881105");
+    expect(screen.getByTestId("create-entity-display-code")).toHaveValue("WH-CO-DENVER-01");
   });
 
   it("a manual edit to the auto-filled Lat cell sticks — a later City/State blur does not re-overwrite it", async () => {
@@ -587,23 +592,25 @@ describe("WarehousesTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
-    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(39.76185);
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("39.76185");
 
     // Manual focus+edit ungreys the cell and stops future auto-fills.
-    await userEvent.clear(screen.getByTestId("input-new-warehouse-lat"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "1.2345");
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(1.2345);
+    await userEvent.clear(screen.getByTestId("create-entity-lat"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "1.2345");
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("1.2345");
 
     // Re-triggering the City/State blur (e.g. a further edit to State) must
     // not clobber the student's manual lat value.
-    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(1.2345);
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("1.2345");
   });
 
-  it("a gazetteer miss (unknown city/state) leaves Lat/Lng blank for manual entry, and no display code is assigned", async () => {
+  // SCU-2.P4.10 (B2.8) — the modal always derives a display code from
+  // City/State (the map flow's rule); a gazetteer miss only leaves lat/lng blank.
+  it("a gazetteer miss (unknown city/state) leaves Lat/Lng blank for manual entry; the display code is still derived", async () => {
     render(
       <WarehousesTab
         warehouses={warehouses}
@@ -616,13 +623,13 @@ describe("WarehousesTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Nowheresville");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "ZZ");
-    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Nowheresville");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "ZZ");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
 
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(null);
-    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(null);
-    expect(screen.getByTestId("input-new-warehouse-display-code")).toHaveValue("");
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("");
+    expect(screen.getByTestId("create-entity-lng")).toHaveValue("");
+    expect(screen.getByTestId("create-entity-display-code")).toHaveValue("WH-ZZ-NOWHERESVILLE-01");
   });
 });
 
@@ -643,7 +650,7 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
       <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} entity="refineries" />,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-refineries-csv"));
+    chooseInputDownload("refineries", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -655,7 +662,7 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
       <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} entity="refineries" />,
     );
     expect(screen.queryByText("Import refineries")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-refineries"));
+    chooseUpload("refineries", "csv");
     expect(screen.getByText("Import refineries")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-refineries")).toBeInTheDocument();
   });
@@ -701,13 +708,13 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Kalgoorlie West");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "WA");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "-30.8");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.3");
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Kalgoorlie West");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "WA");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "-30.8");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "121.3");
     // No capacity input rendered at all under capacityMode="none".
-    expect(screen.queryByTestId("input-new-warehouse-capacity")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    expect(screen.queryByTestId("create-entity-capacity")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     // T9 — "Kalgoorlie West"/WA is a gazetteer miss (US-only gazetteer, this
     // is an Australian city) — no display code gets auto-assigned, and the
@@ -720,11 +727,12 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
       state: "WA",
       lat: -30.8,
       lng: 121.3,
-      capacity: null,
       status: "active",
     });
+    expect(added).not.toHaveProperty("capacity");
     expect(added.id).toMatch(/^aw-/);
-    expect(added.displayCode).toBeUndefined();
+    // SCU-2.P4.10 (B2.8) — always derived (refineries reuse the "wh" prefix, DD-7).
+    expect(added.displayCode).toBe("WH-WA-KALGOORLIEWEST-01");
   });
 
   it("deleting an added refinery row calls onDeleteWarehouse with its id", async () => {
@@ -772,7 +780,7 @@ describe("WarehousesTab — base table + inline add-section always render togeth
     );
     expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
     expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("button-export-warehouses-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-warehouses")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-warehouses")).toBeInTheDocument();
     expect(screen.getByText("CHI")).toBeInTheDocument();
     expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
@@ -789,9 +797,9 @@ describe("WarehousesTab — base table + inline add-section always render togeth
         {...addedWarehousesProps}
       />,
     );
-    expect(screen.queryByTestId("add-warehouse-row-form")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    expect(screen.getByTestId("add-warehouse-row-form")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-dialog")).toBeInTheDocument();
     expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
     expect(screen.getByText("CHI")).toBeInTheDocument();
   });
@@ -831,7 +839,7 @@ describe("WarehousesTab — hasStateColumn (Chen's Cosmetics, no state data)", (
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    expect(screen.queryByTestId("input-new-warehouse-state")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-state")).not.toBeInTheDocument();
   });
 
   it("hasStateColumn=false: add-row succeeds with city+lat+lng only (no state), state stored as empty string", async () => {
@@ -849,10 +857,10 @@ describe("WarehousesTab — hasStateColumn (Chen's Cosmetics, no state data)", (
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Shanghai");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "31.23");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.47");
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Shanghai");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedWarehousesChange).toHaveBeenCalledTimes(1);
     const [added] = onAddedWarehousesChange.mock.calls[0][0];
@@ -874,11 +882,11 @@ describe("WarehousesTab — hasStateColumn (Chen's Cosmetics, no state data)", (
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "31.23");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.47");
-    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedWarehousesChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-warehouse-error")).toHaveTextContent("City is required.");
+    expect(screen.getByTestId("create-entity-error")).toHaveTextContent("City is required.");
   });
 });

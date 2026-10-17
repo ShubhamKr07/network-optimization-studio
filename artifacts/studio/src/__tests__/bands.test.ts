@@ -275,12 +275,17 @@ describe("bandRangeLabel (workspace fixups T1)", () => {
     const bands = [250, 500, 750, 1000];
     expect(bandRangeLabel(400, bands, "mi")).toBe("Band 2: 250 mi - 500 mi");
     expect(bandRangeLabel(700, bands, "mi")).toBe("Band 3: 500 mi - 750 mi");
-    expect(bandRangeLabel(900, bands, "mi")).toBe("Band 4: 750 mi - 1000 mi");
+    expect(bandRangeLabel(900, bands, "mi")).toBe("Band 4: 750 mi - 1,000 mi");
   });
 
   it("labels overflow with the next band number and '> <last>'", () => {
     const bands = [250, 500, 750, 1000];
-    expect(bandRangeLabel(1200, bands, "mi")).toBe("Band 5: > 1000 mi");
+    expect(bandRangeLabel(1200, bands, "mi")).toBe("Band 5: > 1,000 mi");
+  });
+
+  it("formats boundaries with formatDistanceDisplay (<= 2 dp, grouped) — SCU-2.R4", () => {
+    expect(bandRangeLabel(10, [200 * 1.609344, 800 * 1.609344], "km")).toBe("Band 1: 0 km - 321.87 km");
+    expect(bandRangeLabel(900, [400, 800, 1600], "mi")).toBe("Band 3: 800 mi - 1,600 mi");
   });
 
   it("is unit-aware (km)", () => {

@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { EMPTY_FILTER_LABEL, EMPTY_FILTER_VALUE } from "@/lib/useTableFilters";
 import type { ColumnFilterDescriptor, FilterState, FilterValue, UseTableFiltersResult } from "@/lib/useTableFilters";
 
 export interface FilterMenuProps<T> {
@@ -33,6 +34,8 @@ export interface FilterMenuProps<T> {
   >;
   /** Trigger button label. Defaults to "Filter". */
   label?: string;
+  /** Trigger testid. Defaults to `button-filter-menu-trigger` (SCU-2.P1: DataTable maps it per table). */
+  triggerTestId?: string;
 }
 
 function isFilterActive(filter: FilterValue | undefined): boolean {
@@ -46,14 +49,19 @@ function activeFilterCount(filterState: FilterState): number {
   return Object.values(filterState).filter(isFilterActive).length;
 }
 
-export function FilterMenu<T>({ descriptors, tableFilters, label = "Filter" }: FilterMenuProps<T>) {
+export function FilterMenu<T>({
+  descriptors,
+  tableFilters,
+  label = "Filter",
+  triggerTestId = "button-filter-menu-trigger",
+}: FilterMenuProps<T>) {
   const { filterState, setFilter, clearAll, totalCount, filteredCount, distinctValuesByKey } = tableFilters;
   const activeCount = activeFilterCount(filterState);
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid="button-filter-menu-trigger">
+        <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid={triggerTestId}>
           <Filter className="w-3.5 h-3.5" />
           {label}
           {activeCount > 0 && (
@@ -101,13 +109,16 @@ export function FilterMenu<T>({ descriptors, tableFilters, label = "Filter" }: F
                 <div className="max-h-40 overflow-y-auto space-y-1 pl-0.5" data-testid={`select-filter-${descriptor.key}`}>
                   {(distinctValuesByKey[descriptor.key] ?? []).map(value => {
                     const stringValue = String(value);
+                    const isEmptyOption = stringValue === EMPTY_FILTER_VALUE;
+                    const optionLabel = isEmptyOption ? EMPTY_FILTER_LABEL : stringValue;
+                    const optionId = isEmptyOption ? "__empty__" : stringValue;
                     const selected = filter?.type === "select" ? filter.values : [];
                     const checked = selected.includes(stringValue);
                     return (
                       <label
                         key={stringValue}
                         className="flex items-center gap-1.5 text-xs cursor-pointer"
-                        data-testid={`option-filter-${descriptor.key}-${stringValue}`}
+                        data-testid={`option-filter-${descriptor.key}-${optionId}`}
                       >
                         <Checkbox
                           checked={checked}
@@ -120,9 +131,9 @@ export function FilterMenu<T>({ descriptors, tableFilters, label = "Filter" }: F
                               nextValues.length > 0 ? { type: "select", values: nextValues } : undefined,
                             );
                           }}
-                          data-testid={`checkbox-filter-${descriptor.key}-${stringValue}`}
+                          data-testid={`checkbox-filter-${descriptor.key}-${optionId}`}
                         />
-                        <span>{stringValue}</span>
+                        <span>{optionLabel}</span>
                       </label>
                     );
                   })}

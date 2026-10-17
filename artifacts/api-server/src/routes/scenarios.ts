@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
@@ -61,6 +61,8 @@ import {
   plantCapabilityRowsToCsv,
   distanceRowsToCsv,
   laneCostRowsToCsv,
+  applyDeliveryCostOverrides,
+  deliveryCostRowsToCsv,
   assignmentRowsToCsv,
   openWarehouseRowsToCsv,
   costSummaryRowsToCsv,
@@ -77,7 +79,8 @@ import {
   toJadeFlowJsonRow,
 } from "../services/templates.js";
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
-import { parseAndValidateImport } from "../services/import.js";
+import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
+import { previewImport, readImportRequest } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
@@ -615,8 +618,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats", "flows"] as const;
   type OutputEntity = typeof OUTPUT_ENTITIES[number];
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && entity !== "deliveryCosts" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'deliveryCosts', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -891,7 +894,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // this model's distance-bearing entity is laneCostOverrides, which is
   // out of scope; its own output-entity exports already work independently
   // of this guard, see the OUTPUT_ENTITIES branch above).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -913,7 +916,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers export" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts export" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1283,7 +1286,23 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     const inputs = scenario.inputs as {
       warehouseOverrides?: Parameters<typeof applyDeliveryWarehouseOverrides>[0];
       customerOverrides?: Parameters<typeof applyDeliveryCustomerOverrides>[0];
+      laneCostOverrides?: Parameters<typeof applyDeliveryCostOverrides>[0];
     };
+
+    if (entity === "deliveryCosts") {
+      const costRows = applyDeliveryCostOverrides(inputs.laneCostOverrides ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(deliveryCostRowsToCsv(costRows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: costRows });
+      return;
+    }
 
     const rows = entity === "warehouses"
       ? applyDeliveryWarehouseOverrides(inputs.warehouseOverrides ?? [])
@@ -1536,14 +1555,18 @@ function mergeDistanceChangesIntoOverrides(
 // Task 30 (B6.1 stage 4) — laneCostOverrides persists overrides as an array
 // keyed by the composite (fromId, toId) pair, the exact transport-coal
 // analogue of mergeDistanceChangesIntoOverrides above (field name aside —
-// `cost` instead of `distance`).
+// `cost` instead of `distance`). Also serves deliveryCosts (SCU-2.P2.3): a
+// reset-to-base change (after.status "base", set by the parser on override
+// PRESENCE) removes the override, keeping laneCostOverrides sparse.
 function mergeLaneCostChangesIntoOverrides(
   currentOverrides: Array<{ fromId: string; toId: string; cost: number }>,
   changes: ImportRowChange[],
 ): Array<{ fromId: string; toId: string; cost: number }> {
   const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
   const rest = currentOverrides.filter(o => !changedKeys.has(`${o.fromId}|${o.toId}`));
-  const applied = changes.map(c => ({ fromId: c.fromId!, toId: c.toId!, cost: c.after.value! }));
+  const applied = changes
+    .filter(c => c.after.status !== "base")
+    .map(c => ({ fromId: c.fromId!, toId: c.toId!, cost: c.after.value! }));
   return [...rest, ...applied];
 }
 
@@ -1596,23 +1619,37 @@ function mergeCapabilityChangesIntoOverrides(
   return [...rest, ...applied];
 }
 
-router.post("/scenarios/:scenarioId/import", async (req, res) => {
-  const id = Number(req.params.scenarioId);
-  const { entity, csvText } = req.body as { entity?: string; csvText?: string };
-
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', or 'legDistances'" });
-    return;
-  }
-  if (typeof csvText !== "string") {
-    res.status(422).json({ error: "csvText is required" });
-    return;
-  }
-
+// SCU-2.P2.2 (B2.6; review #1) — the two import routes read their body AFTER
+// auth (router-wide requireAuth) and AFTER this ownership lookup, so a
+// non-owned scenario is 404 whatever the body (never 400/413) and the 2 MiB
+// limit cannot be used to probe ids. app.ts's global express.json() skips
+// exactly these two paths; every other route keeps it unchanged.
+async function loadOwnedImportScenario(req: Request, res: Response, next: NextFunction): Promise<void> {
   const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+    .where(and(eq(scenariosTable.id, Number(req.params.scenarioId)), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  res.locals.importScenario = scenario;
+  next();
+}
+
+const importJsonBody = express.json({ limit: MAX_IMPORT_BYTES });
+
+// Answers body-parser failures for the import routes only (type strings:
+// raw-body@3.0.2/index.js:167, body-parser@2.2.2/lib/read.js:166).
+function importBodyErrors(err: unknown, _req: Request, res: Response, next: NextFunction): void {
+  const type = (err as { type?: unknown } | null)?.type;
+  if (type === "entity.too.large") { res.status(413).json({ error: "payload_too_large" }); return; }
+  if (type === "entity.parse.failed") { res.status(400).json({ error: "Request body is not valid JSON.", errorClass: "malformed" }); return; }
+  next(err);
+}
+router.post("/scenarios/:scenarioId/import", loadOwnedImportScenario, importJsonBody, importBodyErrors, async (req: Request, res: Response) => {
+  const scenario = res.locals.importScenario as typeof scenariosTable.$inferSelect;
+  // Kept in the handler: lockedModelGuards.test.ts scans each :scenarioId handler's own text.
   if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
+  // SCU-2.P2.2 (B2.6) — strict request contract (import-schema entity list, format default csv).
+  const parsedRequest = readImportRequest(req.body, "preview");
+  if (!parsedRequest.ok) { res.status(parsedRequest.status).json(parsedRequest.body); return; }
+  const { entity, payload } = parsedRequest;
 
   // Same model↔entity pairing the export route enforces: p-median-us/
   // p-median-brazil (T9 — Brazil shares p-median-us's exact entity set)
@@ -1634,7 +1671,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
   // import too (same scope as export — see that route's own comment on
   // entityIsDelivery).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1656,7 +1693,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts import" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1675,28 +1712,20 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   // the shared "customers" entity name by modelId. p is p-median-only — pass
   // 0 otherwise (its p-driven warning branch never fires for other entities).
   const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[]; distanceOverrides?: unknown[]; laneCostOverrides?: unknown[]; addedWarehouses?: unknown[]; addedCustomers?: unknown[]; addedMines?: unknown[]; addedStations?: unknown[]; addedRefineries?: unknown[]; addedPlants?: unknown[]; plantProductCapability?: unknown[] };
-  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
+  const preview = previewImport(entity, payload, inputs as Parameters<typeof previewImport>[2], inputs.p ?? 0, scenario.modelId);
   res.json(preview);
 });
 
-router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
+router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, importJsonBody, importBodyErrors, async (req: Request, res: Response) => {
   const id = Number(req.params.scenarioId);
-  const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
-
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', or 'legDistances'" });
-    return;
-  }
-  if (typeof csvText !== "string") {
-    res.status(422).json({ error: "csvText is required" });
-    return;
-  }
-  const applyMode = mode === "partial" ? "partial" : "all_or_nothing";
-
-  const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  const scenario = res.locals.importScenario as typeof scenariosTable.$inferSelect;
+  // Kept in the handler: lockedModelGuards.test.ts scans each :scenarioId handler's own text.
   if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
+  // SCU-2.P2.2 (B2.6) — strict request contract (import-schema entity list, format default csv).
+  const parsedRequest = readImportRequest(req.body, "apply");
+  if (!parsedRequest.ok) { res.status(parsedRequest.status).json(parsedRequest.body); return; }
+  const { entity, payload } = parsedRequest;
+  const applyMode = parsedRequest.mode;
 
   // distances/laneCosts/legDistances (B4.1/Task 30/B6.2) are
   // p-median-us-and-p-median-brazil-only (T9)/transport-coal-only/
@@ -1710,7 +1739,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   // ch5-edit-11 — delivery-teaching-us is warehouses/customers-only for
   // import too (same scope as export — see that route's own comment on
   // entityIsDelivery).
-  const entityIsDelivery = entity === "warehouses" || entity === "customers";
+  const entityIsDelivery = entity === "warehouses" || entity === "customers" || entity === "deliveryCosts";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1732,7 +1761,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     return;
   }
   if (scenario.modelId === "delivery-teaching-us" && !entityIsDelivery) {
-    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "delivery-teaching-us scenarios only support warehouses/customers/deliveryCosts import" });
     return;
   }
   if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "max-coverage-us" && scenario.modelId !== "delivery-teaching-us") {
@@ -1743,7 +1772,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   // Always re-validate against the live scenario state — never trust a
   // client-held preview, which may be stale by the time apply is called.
   const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }>; distanceOverrides?: Array<{ fromId: string; toId: string; distance: number }>; laneCostOverrides?: Array<{ fromId: string; toId: string; cost: number }>; addedWarehouses?: Array<{ id: string }>; addedCustomers?: Array<{ id: string }>; addedMines?: Array<{ id: string }>; addedStations?: Array<{ id: string }>; addedRefineries?: Array<{ id: string }>; addedPlants?: Array<{ id: string }>; plantProductCapability?: Array<{ plantId: string; productId: string; enabled: boolean }> };
-  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
+  const preview = previewImport(entity, payload, inputs as Parameters<typeof previewImport>[2], inputs.p ?? 0, scenario.modelId);
 
   if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
     res.status(422).json({ error: "Import has errors; nothing was applied (all-or-nothing mode)", preview });
@@ -1796,6 +1825,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const currentLaneCostOverrides = inputs.laneCostOverrides ?? [];
     const nextLaneCostOverrides = mergeLaneCostChangesIntoOverrides(currentLaneCostOverrides, preview.changes);
     nextInputs = { ...inputs, laneCostOverrides: nextLaneCostOverrides };
+  } else if (entity === "deliveryCosts") {
+    nextInputs = { ...inputs, laneCostOverrides: mergeLaneCostChangesIntoOverrides(inputs.laneCostOverrides ?? [], preview.changes) };
   } else if (entity === "warehouses" || entity === "customers") {
     // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
     // blank id + valid new-entity data — T11 changed the trigger from
@@ -1937,6 +1968,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   // CH4O-P1 — this comment previously explained the route in terms of
   // `stepEpoch` and "the precise failure CH4-7 exists to prevent"; the
   // Chapter 4 overhaul deleted both branch-wide.
+  // No-op imports are detected inside applyScenarioInputWrite (key-order-
+  // insensitive diff), so they do not bump the revision.
   const writeOutcome = await db.transaction(async (tx) =>
     applyScenarioInputWrite(tx, {
       scenarioId: id,

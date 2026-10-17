@@ -1,7 +1,8 @@
-import { render as rtlRender, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import * as clientCsv from "@/lib/clientCsv";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
@@ -331,7 +332,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   it("calls downloadEntityExport with entity=costSummary on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
-    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi" });
   });
 
@@ -345,7 +346,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-cost-summary-csv");
+      const button = screen.getByTestId("button-download-cost-summary");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -359,7 +360,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+      chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
       expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi", runId: 8 });
     });
   });
@@ -373,9 +374,9 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   // render in the monospace font; the text-valued Quality row doesn't.
   it("renders numeric stats with font-mono, text stats without (Bundle 3, T9)", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
-    expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
-    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
-    expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
+    expect(screen.getByTestId("cost-summary-value-objective").querySelector(".font-mono")).not.toBeNull(); // SCU-2.P3.7: mono span inside the <td>
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance").querySelector(".font-mono")).not.toBeNull();
+    expect(screen.getByTestId("cost-summary-value-quality").querySelector(".font-mono")).toBeNull();
   });
 });
 
@@ -938,7 +939,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   it("1 selected renders the normal single-scenario summary, including Download CSV", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-list")).toBeInTheDocument();
-    expect(screen.getByTestId("button-download-cost-summary-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-cost-summary")).toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-table")).not.toBeInTheDocument();
   });
 });
@@ -1241,16 +1242,16 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     const bar = screen.getByTestId("cost-summary-bar");
     expect(bar).toHaveClass("justify-between");
     expect(bar.firstElementChild).toBe(screen.getByTestId("button-toggle-compare"));
-    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary-csv"));
+    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary"));
   });
 
   it("in compare mode, Download CSV (right of the bar) downloads the comparison table as cost-summary-compare.csv", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
     const bar = screen.getByTestId("cost-summary-bar");
-    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary-csv"));
-    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary"));
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     // Facilities: the CSV carries the SAME label text the table cell shows
     // (review fold 1) — read from the rendered cell, then pinned concretely
     // against the mocked dataset (WH1 Chicago IL, WH2 Dallas TX).
@@ -1259,7 +1260,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(fac(2)).toBe("Chicago - IL");
     // Raw numbers, on-screen row order, units in the labels; bands are the
     // exclusive rows (s1 40/40/20, s2 60/30/10).
-    expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
+    expect(spy).toHaveBeenCalledWith("cost-summary-compare", "csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Weighted avg. distance (mi),300,250",
@@ -1269,12 +1270,12 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       "0–200 mi (%),40,60",
       "200–400 mi (%),40,30",
       "> 400 mi (%),20,10",
-    ].join("\n"), "text/csv");
+    ].join("\n"));
     spy.mockRestore();
   });
 
   it("compare CSV: an optional row one scenario lacks is an empty cell; differing band sets export no band rows", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     const s2Mixed = scenario({
       ...s2,
       result: { ...s2.result!, metrics: { ...s2.result!.metrics, inboundCost: 5, bandCoverage: [{ band: 500, percent: 60 }] } },
@@ -1282,9 +1283,9 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     renderTab({ scenarios: [s1, s2Mixed], modelId: "p-median-us" });
     enterCompare();
     expect(screen.getByTestId("cost-summary-compare-bands-note")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     const fac = (id: number) => screen.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`).textContent!;
-    expect(spy).toHaveBeenCalledWith("cost-summary-compare.csv", [
+    expect(spy).toHaveBeenCalledWith("cost-summary-compare", "csv", [
       "metric,Baseline,Alt P",
       "Objective,100,120",
       "Inbound cost,,5",
@@ -1292,20 +1293,20 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
-    ].join("\n"), "text/csv");
+    ].join("\n"));
     spy.mockRestore();
   });
 
   it("compare CSV: band rows are omitted (no duplicate '— (%)' labels) while the distance unit is unresolved", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     const defaultImpl = mockUseListModels.getMockImplementation();
     mockUseListModels.mockReturnValue({ data: [] }); // manifest not loaded -> unit unresolved
     try {
       renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
       enterCompare();
       expect(screen.getByTestId("cost-summary-compare-band-200-1")).toBeInTheDocument();
-      fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
-      const csv = spy.mock.calls[0][1] as string;
+      chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
+      const csv = spy.mock.calls[0][2] as string;
       expect(csv).not.toContain("— (%)");
       expect(csv).not.toContain("(%)");
     } finally {
@@ -1320,11 +1321,11 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   // label; units/(%)/(s) are appended), and every text-valued cell is the
   // on-screen text verbatim.
   it("compare CSV rows are the compare table's rows, in order, with identical text cells", () => {
-    const spy = vi.spyOn(clientCsv, "downloadTextFile").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
-    fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
-    const csv = spy.mock.calls[0][1] as string;
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
+    const csv = spy.mock.calls[0][2] as string;
     const dataRows = csv.split("\n").slice(1);
     const tableRows = [...screen.getByTestId("cost-summary-compare-table").querySelectorAll("tbody tr")];
     expect(dataRows).toHaveLength(tableRows.length);
@@ -1338,5 +1339,185 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       }
     }
     spy.mockRestore();
+  });
+});
+
+
+// SCU-2.P3.7 (spec B2.1/B2.2/B2.4, matrix §2a "CostSummary single") — the
+// single-scenario Solution Summary on DataTable.
+describe("CostSummaryTab single on DataTable — testid map (SCU-2.P3.7)", () => {
+  const wrap = (ui: React.ReactElement) => render(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
+
+  it("cost-summary-list is the <table>; cost-summary-single-column is its value <th>; value cells keep their literal testids", () => {
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    const table = screen.getByTestId("cost-summary-list");
+    expect(table.tagName).toBe("TABLE");
+    const head = screen.getByTestId("cost-summary-single-column");
+    expect(head.tagName).toBe("TH");
+    expect(head).toHaveTextContent("Current");
+    expect(head).toHaveClass("text-center");
+    for (const id of ["cost-summary-value-objective", "cost-summary-value-weighted-avg-distance", "cost-summary-value-runtime", "cost-summary-value-quality", "cost-summary-value-solver"]) {
+      const td = screen.getByTestId(id);
+      expect(td.tagName).toBe("TD");
+      expect(table).toContainElement(td);
+    }
+    // metric label first, value second, in one row
+    const firstRow = table.querySelector("tbody tr")!;
+    expect(firstRow.querySelector("td")!.textContent).toBe("Objective");
+  });
+
+  it("emits cost-summary-empty for no result and keeps the bar's Compare toggle", () => {
+    wrap(<CostSummaryTab result={null} scenarioId={1} />);
+    expect(screen.getByTestId("cost-summary-empty")).toBeInTheDocument();
+  });
+
+  it("Download ▾ offers CSV and JSON through the server costSummary export", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-json");
+    expect(spy).toHaveBeenCalledWith(1, "costSummary", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+
+  it("no 'Solution Summary' title (B1.3 kept) and no filter menu", () => {
+    wrap(<CostSummaryTab result={result} scenarioId={1} />);
+    expect(screen.queryByText(/Solution Summary/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+
+  it("JADE: inbound/outbound + the four rate rows keep their literal testids; 11 metric rows still get NO filter menu (spec B2.2 exception)", () => {
+    const jade = scenario({ id: 1, name: "JADE", modelId: "two-echelon-jade-us", result: { ...result, metrics: { weightedAvgDistance: 300, inboundCost: 5, outboundCost: 7 } } });
+    renderTab({ scenarios: [jade], modelId: "two-echelon-jade-us" });
+    const table = screen.getByTestId("cost-summary-list");
+    for (const id of ["cost-summary-value-inbound-cost", "cost-summary-value-outbound-cost", "cost-summary-rate-ic", "cost-summary-min-ic", "cost-summary-rate-ob", "cost-summary-min-ob"]) {
+      expect(table).toContainElement(screen.getByTestId(id));
+    }
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(11);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+
+  it("max-coverage: the coverage rows keep their explicit testids", () => {
+    const mc = scenario({
+      id: 1, name: "MC", modelId: "max-coverage-us",
+      result: { ...result, details: { coveragePct: 70.42, coveredDemand: 1000, highServiceDistMi: 300, maxCoverableDemand: 1200, model1: { optimal: true } } },
+    });
+    renderTab({ scenarios: [mc], modelId: "max-coverage-us" });
+    for (const id of ["cost-summary-high-service-cutoff", "cost-summary-coverage-pct", "cost-summary-covered-demand", "cost-summary-max-coverable-demand"]) {
+      expect(screen.getByTestId("cost-summary-list")).toContainElement(screen.getByTestId(id));
+    }
+    expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("70.42 %");
+  });
+});
+
+
+// SCU-2.P3.8 (spec B2.1/B2.2/B2.4, matrix §2a "CostSummary compare") — the
+// compare table on DataTable: every testid in the instance map, label + cells
+// in one <tr>, centred value columns, footer bands note, CSV + JSON.
+describe("CostSummaryTab compare on DataTable — testid map (SCU-2.P3.8)", () => {
+  const s1 = scenario({
+    id: 1, name: "Baseline", modelId: "p-median-us",
+    result: { ...result, objective: 100, metrics: { weightedAvgDistance: 300, bandCoverage: [{ band: 200, percent: 40 }, { band: 400, percent: 80 }] }, edges: [{ fromId: "WH1", toId: "C1", flow: 1, distance: 100 }] },
+  });
+  const s2 = scenario({
+    id: 2, name: "Alt P", modelId: "p-median-us",
+    result: { ...result, objective: 120, metrics: { weightedAvgDistance: 250, bandCoverage: [{ band: 200, percent: 60 }, { band: 400, percent: 90 }] }, edges: [{ fromId: "WH1", toId: "C1", flow: 1, distance: 100 }] },
+  });
+  function enterCompare(scenarios: Scenario[] = [s1, s2]) {
+    renderTab({ scenarios, modelId: "p-median-us" });
+    fireEvent.click(screen.getByTestId("button-toggle-compare"));
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+  }
+
+  it("wrapper, column <th>s and every always-present row's cells keep their literal testids", () => {
+    enterCompare();
+    const wrap = screen.getByTestId("cost-summary-compare-table");
+    for (const id of [1, 2]) {
+      const th = within(wrap).getByTestId(`cost-summary-compare-column-${id}`);
+      expect(th.tagName).toBe("TH");
+      expect(th).toHaveClass("text-center");
+      for (const key of ["objective", "distance", "open-facilities-cities", "runtime", "quality", "band-200", "band-400", "band--1"]) {
+        expect(within(wrap).getByTestId(`cost-summary-compare-${key}-${id}`).tagName).toBe("TD");
+      }
+    }
+    expect(within(wrap).getByTestId("cost-summary-compare-column-2")).toHaveTextContent("Alt P");
+  });
+
+  it("the JADE/Chen chip layout (locationById present) nests cost-summary-compare-open-facility-{id}-{facility} spans in the cell", () => {
+    rtlRender(
+      <UnitProvider>
+        <ExportProvider value={makeExportProviderValue()}>
+          <CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} locationById={{}} />
+        </ExportProvider>
+      </UnitProvider>,
+    );
+    fireEvent.click(screen.getByTestId("button-toggle-compare"));
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    for (const id of [1, 2]) {
+      const span = screen.getByTestId(`cost-summary-compare-open-facility-${id}-WH1`);
+      expect(span.tagName).toBe("SPAN");
+      expect(screen.getByTestId(`cost-summary-compare-open-facilities-cities-${id}`)).toContainElement(span);
+    }
+  });
+
+  it("each metric label and its scenario cells share one <tr> (two-echelon.spec.ts:185 tr:has contract)", () => {
+    enterCompare();
+    const tr = screen.getByTestId("cost-summary-compare-objective-1").closest("tr")!;
+    expect(tr.querySelector("td")!.textContent).toBe("Objective");
+    expect(tr).toContainElement(screen.getByTestId("cost-summary-compare-objective-2"));
+  });
+
+  it("differing band sets: the bands note renders below the table inside the wrapper", () => {
+    enterCompare([s1, scenario({ ...s2, result: { ...s2.result!, metrics: { ...s2.result!.metrics, bandCoverage: [{ band: 500, percent: 60 }] } } })]);
+    const note = screen.getByTestId("cost-summary-compare-bands-note");
+    expect(screen.getByTestId("cost-summary-compare-table")).toContainElement(note);
+    expect(screen.getByRole("table").compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("Download ▾ JSON: { entity, unit, rows } built from the SAME row model as the CSV", () => {
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    enterCompare();
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-json");
+    const [csvCall, jsonCall] = spy.mock.calls;
+    expect(jsonCall[0]).toBe("cost-summary-compare");
+    expect(jsonCall[1]).toBe("json");
+    const doc = jsonCall[2] as { entity: string; unit: string; rows: unknown[] };
+    expect(doc.entity).toBe("costSummaryCompare");
+    expect(doc.unit).toBe("mi");
+    const csvLines = (csvCall[2] as string).split("\n").slice(1);
+    expect(doc.rows).toHaveLength(csvLines.length);
+    expect(doc.rows[0]).toEqual({
+      metric: "Objective",
+      values: [{ scenarioId: 1, scenario: "Baseline", value: 100 }, { scenarioId: 2, scenario: "Alt P", value: 120 }],
+    });
+    spy.mockRestore();
+  });
+
+  it("JADE compare: inbound/outbound and the four rate rows keep their per-scenario testids; no filter menu", () => {
+    const j = (id: number, name: string) =>
+      scenario({ id, name, modelId: "two-echelon-jade-us", result: { ...result, metrics: { weightedAvgDistance: 300, inboundCost: id, outboundCost: id * 2 } } });
+    renderTab({ scenarios: [j(1, "A"), j(2, "B")], modelId: "two-echelon-jade-us" });
+    fireEvent.click(screen.getByTestId("button-toggle-compare"));
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    for (const key of ["inbound", "outbound", "rate-ic", "min-ic", "rate-ob", "min-ob"]) {
+      for (const id of [1, 2]) expect(screen.getByTestId(`cost-summary-compare-${key}-${id}`).tagName).toBe("TD");
+    }
+    // > 10 metric rows, still never a filter menu (spec B2.2 exception, user decision 2026-10-17)
+    expect(screen.getByTestId("cost-summary-compare-table").querySelectorAll("tbody tr").length).toBeGreaterThan(10);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+
+  it("max-coverage compare: the coverage rows keep their per-scenario testids", () => {
+    const m = (id: number) =>
+      scenario({
+        id, name: `M${id}`, modelId: "max-coverage-us",
+        result: { ...result, details: { coveragePct: 70, coveredDemand: 1000, highServiceDistMi: 300, maxCoverableDemand: 1200, model1: { optimal: true } } },
+      });
+    renderTab({ scenarios: [m(1), m(2)], modelId: "max-coverage-us" });
+    fireEvent.click(screen.getByTestId("button-toggle-compare"));
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    for (const key of ["high-service-cutoff", "coverage-pct", "covered-demand", "max-coverable-demand"]) {
+      for (const id of [1, 2]) expect(screen.getByTestId(`cost-summary-compare-${key}-${id}`).tagName).toBe("TD");
+    }
   });
 });

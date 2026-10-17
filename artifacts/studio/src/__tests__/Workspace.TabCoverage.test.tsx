@@ -154,11 +154,11 @@ const OUTPUT_MAP: TabCoverageEntry = { sidebarId: "output-map", tabTestId: "outp
 // OpenWarehousesTab.tsx/AssignmentsTab.tsx/FlowsTab.tsx/CostSummaryTab.tsx/
 // ServiceStatsTab.tsx directly), so it's the most reliable "real content
 // mounted" signal available for this sweep.
-const OPEN_WAREHOUSES: TabCoverageEntry = { sidebarId: "open-warehouses", tabTestId: "button-download-open-warehouses-csv" };
-const CUSTOMER_ASSIGNMENTS: TabCoverageEntry = { sidebarId: "customer-assignments", tabTestId: "button-download-assignments-csv" };
-const FLOWS: TabCoverageEntry = { sidebarId: "flows", tabTestId: "button-download-flows-csv" };
-const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary-csv" };
-const SERVICE_STATS: TabCoverageEntry = { sidebarId: "service-stats", tabTestId: "button-download-service-stats-csv" };
+const OPEN_WAREHOUSES: TabCoverageEntry = { sidebarId: "open-warehouses", tabTestId: "button-download-open-warehouses" };
+const CUSTOMER_ASSIGNMENTS: TabCoverageEntry = { sidebarId: "customer-assignments", tabTestId: "button-download-assignments" };
+const FLOWS: TabCoverageEntry = { sidebarId: "flows", tabTestId: "button-download-flows" };
+const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary" };
+const SERVICE_STATS: TabCoverageEntry = { sidebarId: "service-stats", tabTestId: "button-download-service-stats" };
 
 function runTabCoverage(inputs: TabCoverageEntry[], outputs: TabCoverageEntry[]) {
   for (const { sidebarId, tabTestId } of inputs) {
@@ -353,6 +353,14 @@ describe("Workspace tab coverage — transport-coal", () => {
         // assignment view).
       ],
     );
+  });
+  // SCU-2.P3.4 (G-3) — Workspace now passes the canonical unit to FlowsTab, so
+  // transport-coal's Flows distances render under a unit header.
+  it("Flows receives the canonical distance unit: the header names it and the distance renders (SCU-2.P3.4)", () => {
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-flows"));
+    expect(screen.getByRole("columnheader", { name: "Distance (mi)" })).toBeInTheDocument();
+    expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
   });
 });
 
