@@ -1,218 +1,254 @@
-// SCU-1.9 (spec B1.1) — one test per family, each fixture shaped like that
-// family's real solve.py envelope (line refs per fixture). A missing field
-// drops its sentence; nothing is invented.
+// NAR-1 — one case per model/objective, built from REAL local solve envelopes
+// (fixtures/narrative/*.json, default inputs; `details.assignments` stripped,
+// nothing the narrative reads) with city/state names read from the same
+// solvers/<model>/dataset files the API serves.
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import type { SolveResult } from "@workspace/api-client-react";
-import { buildResultNarrative, legLabel } from "@/lib/resultNarrative";
+import { buildResultNarrative } from "@/lib/resultNarrative";
+
+const fixture = (name: string): SolveResult =>
+  JSON.parse(readFileSync(path.join(__dirname, "fixtures/narrative", `${name}.json`), "utf8")).result;
+const bandsOf = (name: string): number[] =>
+  JSON.parse(readFileSync(path.join(__dirname, "fixtures/narrative", `${name}.json`), "utf8")).inputs.distanceBands;
+
+// id -> "City, ST" from every entity file of the model's dataset. Brazil's
+// regions carry only `name`; the live identity map renders them "Acre Region, AC".
+function namesFor(solver: string): Record<string, string> {
+  const dir = path.join(__dirname, "../../../../solvers", solver, "dataset");
+  const out: Record<string, string> = {};
+  for (const f of readdirSync(dir)) {
+    if (/^(distances|costs|version|products|plant_product_capability)\.json$/.test(f)) continue;
+    for (const row of Object.values(JSON.parse(readFileSync(path.join(dir, f), "utf8"))) as Array<Record<string, string>>) {
+      if (!row.id) continue;
+      out[row.id] = row.city ? (row.state ? `${row.city}, ${row.state}` : row.city) : `${row.name}, ${row.id}`;
+    }
+  }
+  return out;
+}
 
 const MI = { toDisplay: (v: number) => v, unit: "mi" };
-const BANDS = [200, 400, 800, 1600];
-const proven = {
-  status: "optimal", solutionStatus: "optimal", terminationReason: "optimality_proven", achievedGap: null,
-  quality: "optimal", solverUsed: "CBC", infeasibilityReason: null, runTimeSec: 0.4,
-};
-const asResult = (r: Record<string, unknown>) => ({ ...proven, ...r }) as unknown as SolveResult;
+const KM = { toDisplay: (v: number) => v * 1.609344, unit: "km" };
+const run = (model: string, solver: string, name: string, extra: Record<string, unknown> = {}) =>
+  buildResultNarrative(model, fixture(name), { bands: bandsOf(name), distance: MI, nameById: namesFor(solver), ...extra })?.text;
 
-// solve.py:492-512 — p-median: edges carry no `leg`, details.openWarehouseIds.
-const pmedian = asResult({
-  objective: 29873735731,
-  edges: [
-    { fromId: "CHI", toId: "C1", flow: 600, distance: 0, band: 0 },
-    { fromId: "CHI", toId: "C2", flow: 300, distance: 350, band: 1 },
-    { fromId: "ATL", toId: "C3", flow: 100, distance: 900, band: 3 },
-  ],
-  metrics: { utilizationByNode: [], bandCoverage: [{ band: 200, percent: 60 }, { band: 400, percent: 90 }, { band: 800, percent: 90 }, { band: 1600, percent: 100 }], weightedAvgDistance: 195.0 },
-  details: { openWarehouseIds: ["CHI", "ATL"], assignments: [] },
-});
-
-describe("buildResultNarrative — p-median", () => {
-  it("narrates objective + solve time, open warehouses, exclusive band coverage and weighted distance", () => {
-    expect(buildResultNarrative("p-median-us", pmedian, { bands: BANDS, distance: MI, solveTimeSec: 2 })!.summary).toEqual([
-      "Objective: 29,873,735,731, solved in 2.0s.",
-      "2 warehouses open: CHI, ATL.",
-      "Demand by distance band: 0–200 mi 60%, 200–400 mi 30%, 400–800 mi 0%, 800–1,600 mi 10%, > 1,600 mi 0%.",
-      "Weighted average distance: 195.0 mi.",
-    ]);
+describe("buildResultNarrative — approved wording per model/objective (real envelopes)", () => {
+  it("Ch 3 p-median-us", () => {
+    expect(run("p-median-us", "p-median-us", "p-median-us")).toBe(
+      "Open Baltimore, MD, Dallas, TX and Los Angeles, CA. A typical unit ships about 383 miles from the warehouse to the customer, and these three sites give the shortest overall shipping distance of any three. The largest share of your demand, 35%, is 400–800 miles away, and the farthest customer, Seattle, WA, is 1,139 miles away.",
+    );
   });
 
-  it("p-median-brazil uses the same adapter", () => {
-    expect(buildResultNarrative("p-median-brazil", pmedian, { bands: BANDS, distance: MI })!.summary[1]).toBe("2 warehouses open: CHI, ATL.");
+  it("Ch 4 coverage keeps its objective sentence and has no band sentence", () => {
+    expect(run("max-coverage-us", "max-coverage-us", "max-coverage-us-coverage")).toBe(
+      "Open Dallas, TX, Los Angeles, CA and Pittsburgh, PA. These three sites put 70% of your demand within 450 miles, the most any three sites can cover. A typical unit ships about 395 miles, and the farthest customer, Miami, FL, is 1,197 miles away.",
+    );
   });
 
-  it("uses display ids when supplied", () => {
-    const n = buildResultNarrative("p-median-us", pmedian, { bands: BANDS, distance: MI, displayIdById: { CHI: "WH-IL-CHI" } })!;
-    expect(n.summary[1]).toBe("2 warehouses open: WH-IL-CHI, ATL.");
+  it("Ch 4 min-distance uses the Ch 3 template (largest band is the first: 'within')", () => {
+    expect(run("max-coverage-us", "max-coverage-us", "max-coverage-us-min_distance")).toBe(
+      "Open Baltimore, MD, Dallas, TX and Los Angeles, CA. A typical unit ships about 383 miles from the warehouse to the customer, and these three sites give the shortest overall shipping distance of any three. The largest share of your demand, 67%, is within 450 miles, and the farthest customer, Seattle, WA, is 1,139 miles away.",
+    );
   });
 
-  it("omits the solve time when there is no timing, and every distance sentence while the unit is unresolved", () => {
-    expect(buildResultNarrative("p-median-us", pmedian, { bands: BANDS, distance: null })!.summary).toEqual([
-      "Objective: 29,873,735,731.",
-      "2 warehouses open: CHI, ATL.",
-    ]);
+  it("Ch 5 transport-coal", () => {
+    expect(run("transport-coal", "transport-coal", "transport-coal")).toBe(
+      "Coal ships from all four mines, Pikeville, KY, Rock Springs, WY, Clarion, PA and Council Bluffs, IA, each at full capacity, to 15 power stations. A typical ton travels about 562 miles, the fewest total ton-miles that meet every station's demand. The largest share of the coal, 54%, moves within 500 miles, and the longest lane, Council Bluffs, IA to Phoenix, AZ, is 1,304 miles.",
+    );
   });
 
-  it("drops the open-facility sentence when details.openWarehouseIds is missing (never invented)", () => {
-    const n = buildResultNarrative("p-median-us", asResult({ ...pmedian, details: {} }), { bands: BANDS, distance: MI })!;
-    expect(n.summary.some(s => s.includes("open"))).toBe(false);
+  it("Ch 5 Brazil (feasible variant: Single-source off)", () => {
+    expect(run("p-median-brazil", "p-median-brazil", "p-median-brazil-VARIANT-singleSource-false")).toBe(
+      "Open seven warehouses: Belém, PA, Betim, MG, Juiz de Fora, MG, Ponta Grossa, PR, Recife, PE, Salvador, BA and Santos, SP. A typical unit ships about 184 miles, the shortest overall shipping distance of any seven. The largest share of your demand, 94%, is within 500 miles, and the farthest region, Acre, is 1,699 miles away.",
+    );
   });
 
-  it("a no-incumbent result gets one truthful sentence and nothing derived from its sentinel zeros", () => {
-    const infeasible = asResult({ ...pmedian, status: "infeasible", solutionStatus: "infeasible", terminationReason: null, objective: 0, edges: [] });
-    expect(buildResultNarrative("p-median-us", infeasible, { bands: BANDS, distance: MI })!.summary).toEqual([
-      "There is no solution to describe (No incumbent).",
-    ]);
+  it("Ch 5 Brazil infeasible (default inputs) gives the plain reason, no status code", () => {
+    expect(run("p-median-brazil", "p-median-brazil", "p-median-brazil")).toBe(
+      "No plan meets these settings: São Paulo needs 29M units, more than any single warehouse can supply (20M). Turn Single-source off so its demand can be split between warehouses.",
+    );
   });
 
-  it("returns null for a model it has no adapter for", () => {
-    expect(buildResultNarrative("not-a-model", pmedian, { bands: BANDS, distance: MI })).toBeNull();
-  });
-});
-
-// solve.py:668-688 — transport: details.openWarehouseIds holds MINES, so the
-// adapter narrates mine -> station flows instead of "warehouses".
-describe("buildResultNarrative — transport", () => {
-  const transport = asResult({
-    objective: 123456,
-    edges: [
-      { fromId: "M1", toId: "S1", flow: 500, distance: 120, band: 0 },
-      { fromId: "M1", toId: "S2", flow: 300, distance: 450, band: 2 },
-      { fromId: "M2", toId: "S2", flow: 200, distance: 90, band: 0 },
-    ],
-    metrics: { utilizationByNode: [], bandCoverage: [{ band: 200, percent: 70 }, { band: 400, percent: 70 }, { band: 800, percent: 100 }, { band: 1600, percent: 100 }], weightedAvgDistance: 213.0 },
-    details: { openWarehouseIds: ["M1", "M2"], assignments: [] },
+  it("Ch 5 delivery: band share at 2 dp", () => {
+    expect(run("delivery-teaching-us", "delivery-teaching-us", "delivery-teaching-us")).toBe(
+      "Open Los Angeles, CA, New York City, NY and Louisville, KY. A typical delivery travels about 423 miles, and these three sites give the shortest overall delivery distance of any three. The largest share of your demand, 59.38%, is within 400 miles, and the farthest customer, McAllen, TX, is 1,301 miles away.",
+    );
   });
 
-  it("narrates mine -> station flows, never 'warehouses'", () => {
-    const n = buildResultNarrative("transport-coal", transport, { bands: BANDS, distance: MI })!;
-    expect(n.summary).toEqual([
-      "Objective: 123,456.",
-      "Coal ships from 2 mines to 2 power stations over 3 lanes.",
-      "Tonnage by distance band: 0–200 mi 70%, 200–400 mi 0%, 400–800 mi 30%, 800–1,600 mi 0%, > 1,600 mi 0%.",
-      "Weighted average distance: 213.0 mi.",
-    ]);
-    expect(n.summary.join(" ")).not.toMatch(/warehouse/i);
-    expect(n.howToRead).toMatch(/mines/);
+  it("Ch 5 delivery cost_adjusted names the cost objective", () => {
+    const r = fixture("delivery-teaching-us");
+    const adjusted = { ...r, details: { ...r.details, objective: "cost_adjusted" } } as SolveResult;
+    const t = buildResultNarrative("delivery-teaching-us", adjusted, { bands: bandsOf("delivery-teaching-us"), distance: MI, nameById: namesFor("delivery-teaching-us") })!.text;
+    expect(t).toContain("give the lowest overall delivery cost of any three.");
+  });
+
+  it("Ch 9 JADE: outbound leg only, $M costs, per-ton", () => {
+    expect(run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us")).toBe(
+      "Open Baltimore, MD, Las Vegas, NV and Louisville, KY. The total transportation cost is $182.0M, about $118 per ton, the lowest possible with three warehouses. Roughly $101.5M of that is plant-to-warehouse and $80.5M is warehouse-to-customer. Outbound, customers are 431 miles from their warehouse on average, the largest share (48%) is 200–400 miles away, and the farthest, McAllen, TX, is 1,301 miles away.",
+    );
+  });
+
+  it("Ch 10 gold-au", () => {
+    expect(run("two-echelon-gold-au", "two-echelon-gold-au", "two-echelon-gold-au")).toBe(
+      "Refine at Cunnamulla, QLD; Daggar Hills, WA stays closed. Ore travels about 1,465 miles from the Kalgoorlie, WA mine to the refinery, and gold about 688 miles on to customers, the fewest truckload-miles possible. The largest share of your demand, 100%, is 500–1,000 miles away, and the farthest customer, Cairns, QLD, is 909 miles away.",
+    );
   });
 });
 
-// solve.py:1630-1642 — max-coverage: coverage is details.coveragePct /
-// coveredDemand against details.highServiceDistMi (not a band rollup).
-describe("buildResultNarrative — max-coverage", () => {
-  const maxCoverage = asResult({
-    objective: 66.6667,
-    edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 300 }],
-    metrics: { openFacilityIds: ["W1", "W2", "W3"], weightedAvgDistance: 812.4, utilizationByNode: [], bandCoverage: [{ band: 450, percent: 66.6667 }, { band: 3400, percent: 100 }] },
-    details: { objective: "coverage", p: 3, highServiceDistMi: 450, maxDistMi: 3400, coverageFloorDemand: 0, openWarehouseIds: ["W1", "W2", "W3"], coveragePct: 66.6667, coveredDemand: 131645389, uncoveredPct: 33.3333, assignments: [] },
+describe("buildResultNarrative — rules", () => {
+  const pm = () => fixture("p-median-us");
+  const ctx = { bands: bandsOf("p-median-us"), distance: MI, nameById: namesFor("p-median-us") };
+
+  it("km display unit says km and converts every distance and band edge", () => {
+    const t = buildResultNarrative("p-median-us", pm(), { ...ctx, distance: KM })!.text;
+    expect(t).toContain("about 616 km from the warehouse");
+    expect(t).toContain("is 644–1,287 km away");
+    expect(t).toContain("is 1,833 km away");
+    expect(t).not.toMatch(/miles/);
   });
 
-  it("narrates coverage from coveragePct/coveredDemand at the high-service distance", () => {
-    expect(buildResultNarrative("max-coverage-us", maxCoverage, { bands: [450, 900, 1800, 3400], distance: MI })!.summary).toEqual([
-      "Objective: 66.667.",
-      "3 warehouses open: W1, W2, W3.",
-      "66.67% of demand (131,645,389 units) is within the 450.0 mi high-service distance.",
-      "Weighted average distance: 812.4 mi.",
-    ]);
-  });
-});
-
-// solve.py:1850-1863 — delivery: 2-dp bands, no utilizationByNode (no
-// capacity), details.objective "base"/"cost_adjusted".
-describe("buildResultNarrative — delivery", () => {
-  const delivery = asResult({
-    objective: 88240913478.1,
-    edges: [
-      { fromId: "W1", toId: "C1", flow: 2, distance: 0, band: 0 },
-      { fromId: "W2", toId: "C2", flow: 1, distance: 900, band: 2 },
-    ],
-    metrics: { bandCoverage: [{ band: 400, percent: 66.67 }, { band: 800, percent: 66.67 }, { band: 1200, percent: 100 }, { band: 1600, percent: 100 }], weightedAvgDistance: 422.5511, openFacilityIds: ["W1", "W2", "W60"] },
-    details: { openWarehouseIds: ["W1", "W2", "W60"], assignments: [], objective: "base" },
+  it("an unresolved unit yields no narrative for a solved result", () => {
+    expect(buildResultNarrative("p-median-us", pm(), { ...ctx, distance: null })).toBeNull();
   });
 
-  it("narrates 2-dp exclusive bands and no capacity/utilisation text", () => {
-    const n = buildResultNarrative("delivery-teaching-us", delivery, { bands: [400, 800, 1200, 1600], distance: MI })!;
-    expect(n.summary).toEqual([
-      "Objective: 88,240,913,478.1.",
-      "3 warehouses open: W1, W2, W60.",
-      "Demand by distance band: 0–400 mi 66.67%, 400–800 mi 0%, 800–1,200 mi 33.33%, 1,200–1,600 mi 0%, > 1,600 mi 0%.",
-      "Weighted average distance: 422.6 mi.",
-    ]);
-    expect(n.summary.join(" ")).not.toMatch(/capacity|utili/i);
-  });
-});
-
-// two-echelon — gold-au (solve.py:1081-1090: refineries in
-// details.openWarehouseIds, NO metrics.openFacilityIds) and JADE
-// (solve.py:1411-1424: metrics.openFacilityIds = warehouses only).
-describe("buildResultNarrative — two-echelon", () => {
-  const gold = asResult({
-    objective: 98765.43,
-    edges: [
-      { fromId: "MINE1", toId: "REF1", flow: 1000, distance: 1464.5, band: 3, leg: "mine_to_refinery" },
-      { fromId: "REF1", toId: "C1", flow: 600, distance: 100, band: 0, leg: "refinery_to_customer" },
-      { fromId: "REF1", toId: "C2", flow: 400, distance: 250, band: 1, leg: "refinery_to_customer" },
-    ],
-    metrics: {
-      utilizationByNode: [], bandCoverage: [{ band: 200, percent: 60 }, { band: 400, percent: 100 }, { band: 800, percent: 100 }, { band: 1600, percent: 100 }],
-      weightedAvgDistance: 812.3,
-      avgDistanceByLeg: [{ leg: "mine_to_refinery", avgDistance: 1464.5, totalFlow: 1000 }, { leg: "refinery_to_customer", avgDistance: 160.0, totalFlow: 1000 }],
-    },
-    details: { openWarehouseIds: ["REF1"], assignments: [], bomRatio: 1.1 },
+  it("a tie between bands goes to the lowest band", () => {
+    const tied = { ...pm(), edges: [
+      { fromId: "BAL", toId: "C1", flow: 100, distance: 300 },
+      { fromId: "BAL", toId: "C2", flow: 100, distance: 600 },
+    ] } as SolveResult;
+    expect(buildResultNarrative("p-median-us", tied, ctx)!.text).toContain("The largest share of your demand, 50%, is 200–400 miles away");
   });
 
-  it("gold-au: open refineries from details.openWarehouseIds, per-leg bands and per-leg averages", () => {
-    expect(buildResultNarrative("two-echelon-gold-au", gold, { bands: BANDS, distance: MI })!.summary).toEqual([
-      "Objective: 98,765.43.",
-      "1 refinery open: REF1.",
-      "Mine → Refinery flow by distance band: 0–200 mi 0%, 200–400 mi 0%, 400–800 mi 0%, 800–1,600 mi 100%, > 1,600 mi 0%.",
-      "Refinery → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 40%, 400–800 mi 0%, 800–1,600 mi 0%, > 1,600 mi 0%.",
-      "Average Mine → Refinery distance: 1464.5 mi.",
-      "Average Refinery → Customer distance: 160.0 mi.",
-    ]);
+  it("an overflow band that holds the most is phrased 'more than X'", () => {
+    const far = { ...pm(), edges: [
+      { fromId: "BAL", toId: "C1", flow: 100, distance: 100 },
+      { fromId: "BAL", toId: "C2", flow: 300, distance: 2000 },
+    ] } as SolveResult;
+    expect(buildResultNarrative("p-median-us", far, ctx)!.text).toContain("The largest share of your demand, 75%, is more than 1,600 miles away, and the farthest customer, Albuquerque, NM, is 2,000 miles away");
   });
 
-  const jade = asResult({
-    objective: 4567890.1234,
-    edges: [
-      { fromId: "P1", toId: "wh-11", flow: 700, distance: 300, leg: "plant_to_warehouse", productId: "product-1" },
-      { fromId: "P2", toId: "wh-14", flow: 300, distance: 900, leg: "plant_to_warehouse", productId: "product-2" },
-      { fromId: "wh-11", toId: "c1", flow: 600, distance: 150, band: 0, leg: "warehouse_to_customer" },
-      { fromId: "wh-14", toId: "c2", flow: 400, distance: 500, band: 2, leg: "warehouse_to_customer" },
-    ],
-    metrics: {
-      utilizationByNode: [], bandCoverage: [{ band: 200, percent: 60 }, { band: 400, percent: 0 }, { band: 800, percent: 40 }, { band: 1600, percent: 0 }],
-      weightedAvgDistance: 385.0, openFacilityIds: ["wh-11", "wh-14"], totalDemand: 1000, inboundCost: 1, outboundCost: 2,
-      avgDistanceByLeg: [{ leg: "plant_to_warehouse", avgDistance: 480.0, totalFlow: 1000 }, { leg: "warehouse_to_customer", avgDistance: 290.0, totalFlow: 1000 }],
-    },
-    details: { openWarehouseIds: ["wh-11", "wh-14"], assignments: [] },
+  it("a no-incumbent time-limit run is plain, with no status code", () => {
+    const t = { ...pm(), solutionStatus: "no_solution", status: "no_solution", terminationReason: "time_limit", edges: [], objective: 0 } as unknown as SolveResult;
+    expect(buildResultNarrative("p-median-us", t, ctx)!.text).toBe("The solver stopped at its time limit before finding a plan.");
   });
 
-  it("JADE: open warehouses from metrics.openFacilityIds; plants are never narrated as 'open'", () => {
-    const n = buildResultNarrative("two-echelon-jade-us", jade, { bands: BANDS, distance: MI })!;
-    expect(n.summary).toEqual([
-      "Objective: 4,567,890.123.",
-      "2 warehouses open: wh-11, wh-14.",
-      "Plant → Warehouse flow by distance band: 0–200 mi 0%, 200–400 mi 70%, 400–800 mi 0%, 800–1,600 mi 30%, > 1,600 mi 0%.",
-      "Warehouse → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 0%, 400–800 mi 40%, 800–1,600 mi 0%, > 1,600 mi 0%.",
-      "Average Plant → Warehouse distance: 480.0 mi.",
-      "Average Warehouse → Customer distance: 290.0 mi.",
-    ]);
-    expect(n.summary.join(" ")).not.toMatch(/plants? open/i);
+  it("an ambiguous no-incumbent run says no plan was found", () => {
+    const t = { ...pm(), solutionStatus: "no_solution", status: "no_solution", terminationReason: "unknown", edges: [], objective: 0 } as unknown as SolveResult;
+    expect(buildResultNarrative("p-median-us", t, ctx)!.text).toBe("The solver could not find a plan for these settings.");
+  });
+
+  it("a feasible-but-unproven run never claims 'shortest of any'", () => {
+    const f = { ...pm(), solutionStatus: "feasible", terminationReason: "time_limit" } as SolveResult;
+    const t = buildResultNarrative("p-median-us", f, ctx)!.text;
+    expect(t).toContain("this is the best plan found before the time limit.");
+    expect(t).not.toContain("shortest overall");
+  });
+
+  it("missing open-site ids -> no narrative (never invented)", () => {
+    const r = { ...pm(), details: {}, metrics: { ...pm().metrics, openFacilityIds: undefined } } as SolveResult;
+    expect(buildResultNarrative("p-median-us", r, ctx)).toBeNull();
+  });
+
+  it("an unknown model with a solved result returns null", () => {
+    expect(buildResultNarrative("mystery", pm(), ctx)).toBeNull();
   });
 });
 
-describe("buildResultNarrative — 'How to read this map'", () => {
-  it("every supported model has fixed, non-empty reading guidance mentioning the band legend", () => {
-    for (const id of ["p-median-us", "p-median-brazil", "transport-coal", "max-coverage-us", "delivery-teaching-us", "two-echelon-gold-au", "two-echelon-jade-us"]) {
-      const n = buildResultNarrative(id, pmedian, { bands: BANDS, distance: MI })!;
-      expect(n.howToRead, id).toMatch(/legend/);
-    }
+describe("buildResultNarrative — NAR-1.R review folds", () => {
+  const pm = () => fixture("p-median-us");
+  const ctx = { bands: bandsOf("p-median-us"), distance: MI, nameById: namesFor("p-median-us") };
+  const asR = (o: Record<string, unknown>) => ({ ...pm(), ...o }) as unknown as SolveResult;
+
+  it("a legacy-unverified result does not claim a time limit", () => {
+    const t = buildResultNarrative("p-median-us", asR({ solutionStatus: null, status: "optimal", terminationReason: null }), ctx)!.text;
+    expect(t).toContain("this is the best plan the solver found.");
+    expect(t).not.toContain("time limit");
+  });
+
+  it("a gap-limit feasible result does not claim a time limit; a time-limit one does", () => {
+    expect(buildResultNarrative("p-median-us", asR({ solutionStatus: "feasible", terminationReason: "gap_limit" }), ctx)!.text).not.toContain("time limit");
+    expect(buildResultNarrative("p-median-us", asR({ solutionStatus: "feasible", terminationReason: "time_limit" }), ctx)!.text).toContain("before the time limit");
+  });
+
+  it("JADE: sub-$500 delta shows no parenthetical; $999,600 reads $1.0M, never $1000K", () => {
+    const j = fixture("two-echelon-jade-us");
+    const c = { bands: bandsOf("two-echelon-jade-us"), distance: MI, nameById: namesFor("two-echelon-jade-us") };
+    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 400 } as SolveResult })!.text).not.toContain("previous run");
+    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 999_600 } as SolveResult })!.text).toContain("($1.0M less than your previous run)");
+  });
+
+  it("gold-au says truckload-km under the km toggle", () => {
+    const g = fixture("two-echelon-gold-au");
+    const t = buildResultNarrative("two-echelon-gold-au", g, { bands: bandsOf("two-echelon-gold-au"), distance: KM, nameById: namesFor("two-echelon-gold-au") })!.text;
+    expect(t).toContain("the fewest truckload-km possible");
+  });
+
+  it("gold-au closed refinery with no map entry still reads City, ST", () => {
+    const g = fixture("two-echelon-gold-au");
+    const names = { ...namesFor("two-echelon-gold-au") };
+    delete names["daggar-hills"];
+    expect(buildResultNarrative("two-echelon-gold-au", g, { bands: bandsOf("two-echelon-gold-au"), distance: MI, nameById: names })!.text).toContain("; Daggar Hills stays closed.");
+  });
+
+  it("an empty city name falls back to the raw id", () => {
+    expect(buildResultNarrative("p-median-us", pm(), { ...ctx, nameById: { ...ctx.nameById, BAL: "" } })!.text).toMatch(/^Open BAL, /);
+  });
+
+  it("Brazil: the farthest region is named by region only (live identity 'Acre Region, AC')", () => {
+    const t = run("p-median-brazil", "p-median-brazil", "p-median-brazil-VARIANT-singleSource-false")!;
+    expect(namesFor("p-median-brazil").AC).toBe("Acre Region, AC");
+    expect(t).toContain("the farthest region, Acre, is 1,699 miles away.");
+    expect(t).toContain("Belém, PA");
+  });
+
+  it("Brazil: any other infeasibility reason is quoted verbatim", () => {
+    const r = { ...fixture("p-median-brazil"), infeasibilityReason: "Something else is wrong." } as SolveResult;
+    expect(buildResultNarrative("p-median-brazil", r, ctx)!.text).toBe("No plan meets these settings: Something else is wrong.");
+  });
+
+  it("Brazil: several over-capacity regions each get their demand", () => {
+    const r = { ...fixture("p-median-brazil"), infeasibilityReason: "Demand regions São Paulo Region (29M), Rio de Janeiro Region (21M) exceed the single-warehouse capacity (20M). Solution: x." } as SolveResult;
+    expect(buildResultNarrative("p-median-brazil", r, ctx)!.text).toBe("No plan meets these settings: São Paulo needs 29M units and Rio de Janeiro needs 21M units, more than any single warehouse can supply (20M). Turn Single-source off so their demand can be split between warehouses.");
+  });
+
+  it("Ch 4 coverage compare: rounds like the displayed numbers, and needs the same high-service distance", () => {
+    const cov = fixture("max-coverage-us-coverage");
+    const c = { bands: bandsOf("max-coverage-us-coverage"), distance: MI, nameById: namesFor("max-coverage-us") };
+    const cur = { ...cov, details: { ...cov.details, coveragePct: 70.4 } } as SolveResult;
+    const prevSame = { ...cov, details: { ...cov.details, coveragePct: 69.6 } } as SolveResult;
+    expect(buildResultNarrative("max-coverage-us", cur, { ...c, previous: prevSame })!.text).not.toContain("previous run");
+    const prevOtherDist = { ...cov, details: { ...cov.details, coveragePct: 60, highServiceDistMi: 300 } } as SolveResult;
+    expect(buildResultNarrative("max-coverage-us", cov, { ...c, previous: prevOtherDist })!.text).not.toContain("previous run");
   });
 });
 
-describe("legLabel (moved from OutputMapTab)", () => {
-  it("derives a label from the leg string itself", () => {
-    expect(legLabel("plant_to_warehouse")).toBe("Plant → Warehouse");
-    expect(legLabel("mine_to_refinery")).toBe("Mine → Refinery");
-    expect(legLabel("custom")).toBe("Custom");
+describe("buildResultNarrative — compare to previous run", () => {
+  const ctx = { bands: bandsOf("p-median-us"), distance: MI, nameById: namesFor("p-median-us") };
+  const withAvg = (avg: number) => ({ ...fixture("p-median-us"), metrics: { ...fixture("p-median-us").metrics, weightedAvgDistance: avg } }) as SolveResult;
+
+  it("p-median: miles shorter", () => {
+    const t = buildResultNarrative("p-median-us", fixture("p-median-us"), { ...ctx, previous: withAvg(424.4) })!.text;
+    expect(t).toContain("about 383 miles (41 miles shorter than your previous run) from the warehouse");
+  });
+
+  it("p-median: longer, and nothing when equal", () => {
+    expect(buildResultNarrative("p-median-us", fixture("p-median-us"), { ...ctx, previous: withAvg(300) })!.text).toContain("(83 miles longer than your previous run)");
+    expect(buildResultNarrative("p-median-us", fixture("p-median-us"), { ...ctx, previous: withAvg(383) })!.text).not.toContain("previous run");
+  });
+
+  it("Ch 4 coverage: points; a different-objective previous run is ignored", () => {
+    const cov = fixture("max-coverage-us-coverage");
+    const prevCov = { ...cov, details: { ...cov.details, coveragePct: 67.09 } } as SolveResult;
+    const c = { bands: bandsOf("max-coverage-us-coverage"), distance: MI, nameById: namesFor("max-coverage-us") };
+    expect(buildResultNarrative("max-coverage-us", cov, { ...c, previous: prevCov })!.text).toContain("put 70% (3 points more than your previous run) of your demand within 450 miles");
+    expect(buildResultNarrative("max-coverage-us", cov, { ...c, previous: fixture("max-coverage-us-min_distance") })!.text).not.toContain("previous run");
+  });
+
+  it("JADE: money delta", () => {
+    const j = fixture("two-echelon-jade-us");
+    const c = { bands: bandsOf("two-echelon-jade-us"), distance: MI, nameById: namesFor("two-echelon-jade-us") };
+    const t = buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 6.3e6 } as SolveResult })!.text;
+    expect(t).toContain("is $182.0M ($6.3M less than your previous run), about $118 per ton");
   });
 });

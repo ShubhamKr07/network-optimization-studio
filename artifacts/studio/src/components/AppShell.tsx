@@ -108,17 +108,10 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
         <main className="absolute inset-0 overflow-y-auto z-10">{children}</main>
       </div>
       {hero
-        ? // The feedback launcher is docked in the footer, NOT in the scroll
-          // wrapper above. Floating it there put it over a chapter card at
-          // 768-900px, and because it did not scroll, content passed under it
-          // at any width. Anchored to the footer — which is outside the scroll
-          // area and always visible — it cannot overlap content at all.
-          // QF-2: it now sits in normal flow ABOVE the credit line rather than
-          // absolutely positioned beside it, so the two never compete for the
-          // same horizontal space at narrow widths. The footer no longer needs
-          // to be a positioning context — the widget supplies its own, for its
-          // panel only.
-          <footer data-testid="homepage-credit-footer" className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
+        ? // QF-B: the footer is the positioning context for the feedback
+          // launcher, which floats just above this footer's top border line
+          // at the bottom-right (see FeedbackWidget).
+          <footer data-testid="homepage-credit-footer" className="relative flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
             <FeedbackWidget />
             <DeveloperCredit />
           </footer>
