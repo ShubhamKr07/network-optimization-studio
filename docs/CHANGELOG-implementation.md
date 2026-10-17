@@ -3882,3 +3882,11 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deliberate breaks: 3 measured (2 failed / 1 failed / 1 failed).
 - Deviations 7, 8, 17. Plan anchors for `DownloadMenu.tsx` differed (P3 header comment) and were edited by hand against the real text.
 - Gate: studio 2621 passed (143 files), api-server 2032/2036 on the full run (4 load flakes, 54/54 green x2 isolated; registry updated), pytest 355 passed, import-schema 22 passed. e2e (local 3401/5401): `two-echelon.spec.ts` and `max-coverage.spec.ts` (download paths through DownloadMenu) pass.
+
+### SCU-2.P4.2 — CreateEntityDialog table mode
+
+- `CreateEntityDialog` gains `source: "table"` (six kinds, discriminated `CreateEntitySubmit`, editable lat/lng with the inline forms' touched rule, editable display code always derived via `nextDisplayCode`, inline validation messages verbatim, `FormattedNumberInput` demand with Units/tons, empty demand blocks — incl. JADE per-product). Map flow unchanged (its test now types props as `MapCreateEntityDialogProps`). No table consumers yet.
+- `readOnly` (D2, deviation 19): every field, the status radios and submit disabled with the read-only title; Cancel stays enabled.
+- Deviations 2, 9, 19. Plan edit script and test applied verbatim (all anchors matched once).
+- Fail-first: 22 failed / 29 passed before; 64 passed (table 24 + map 27 + D2 guard 13) after; deliberate break (`&& false` on the empty-demand guard) failed 1 case.
+- Gate: studio 2645 passed (144 files), api-server 2033/2036 (3 listed load flakes `cors`, `dispatcherRecovery`, `scenarioSolveAtomicity`; green isolated twice), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): input-map-v2 3/3, workspace-fixups 2/2 pass.
