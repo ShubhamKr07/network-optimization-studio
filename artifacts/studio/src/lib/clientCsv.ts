@@ -1,7 +1,7 @@
 // Minimal client-side CSV writer + file download, shared by the client-built
 // exports (JADE Flows' per-leg tables, Solution Summary compare). Moved out of
-// JadeFlowsTab.tsx (SCU-1.3) so there is exactly one copy; behaviour is
-// byte-identical (same escaping, same `new Blob([text], { type })`).
+// JadeFlowsTab.tsx (SCU-1.3) so there is exactly one copy. SCU-1.R added
+// `\r` quoting and a formula-injection guard for non-numeric strings.
 export function csvCell(value: string | number): string {
   let s = String(value);
   // Spreadsheet formula injection: only STRING cells (names, labels). Numbers stay raw.
