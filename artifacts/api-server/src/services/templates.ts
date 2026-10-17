@@ -1418,7 +1418,13 @@ export function buildAssignmentRows(
   requestedUnit: CanonicalUnit = canonicalUnit,
   savedBands: number[] = [],
 ): AssignmentTemplateRow[] {
-  return result.edges.map(e => ({
+  // Mirrors the studio's AssignmentsTab: when any edge carries a `leg`, only
+  // facility->demand legs are assignments (gold-au's mine->refinery is not).
+  const hasLegs = result.edges.some(e => e.leg != null);
+  const edges = hasLegs
+    ? result.edges.filter(e => e.leg === "refinery_to_customer" || e.leg === "warehouse_to_customer")
+    : result.edges;
+  return edges.map(e => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
     customerId: e.toId,
     warehouseId: e.fromId,
@@ -1503,7 +1509,7 @@ export function buildEffectiveFacilityCityLookup(
   return lookup;
 }
 
-// Sums flow per distinct fromId across edges. Skips mine_to_refinery edges
+// Sums flow per distinct fromId across edges. Skips mine_to_refinery and plant_to_warehouse edges
 // (two-echelon's own leg type, not a facility-open edge for the "which
 // warehouse-equivalent node is open" question this entity answers) — a
 // no-op for p-median-us today (its edges never carry `leg`), kept so this
@@ -1518,7 +1524,7 @@ export function buildEffectiveFacilityCityLookup(
 export function buildOpenWarehouseRows(result: ResultEnvelope, cityById: Map<string, string>): OpenWarehouseTemplateRow[] {
   const flowByWarehouse = new Map<string, number>();
   for (const e of result.edges) {
-    if (e.leg === "mine_to_refinery") continue;
+    if (e.leg === "mine_to_refinery" || e.leg === "plant_to_warehouse") continue;
     flowByWarehouse.set(e.fromId, (flowByWarehouse.get(e.fromId) ?? 0) + e.flow);
   }
   const utilByWarehouse = new Map((result.metrics.utilizationByNode ?? []).map(u => [u.warehouseId, u]));
