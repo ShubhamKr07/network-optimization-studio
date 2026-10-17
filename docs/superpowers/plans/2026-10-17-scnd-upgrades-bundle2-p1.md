@@ -221,7 +221,7 @@ export interface DataTableProps<T> {
   rows: T[];
   /** Unique per row; composite keys allowed (e.g. `${fromId}|${toId}`). */
   rowKey: (row: T) => string;
-  /** Memoise in the adapter — filter descriptors are derived from this array's identity. */
+  /** May be rebuilt each render; DataTable/FilterMenu must not key effects on this array's identity. */
   columns: ColumnDef<T>[];
   testIds?: DataTableTestIds<T>;
   rowClassName?: (row: T, ctx: CellContext<T>) => string | undefined;
@@ -290,7 +290,7 @@ export interface FilterMenuProps<T> { /* …existing… */ triggerTestId?: strin
 - An omitted testid emits **no** `data-testid` attribute. Nothing is derived from `rowKey`.
 - Each `<tr>` carries `data-row-key={rowKey(row)}` (used for the focus scroll; not a testid).
 - Toolbar order: `upload`, `download`, `add`, `extra`, then right-aligned `count` and the filter trigger; with `toolbar.downloadAlign: "right"` (output tables) `download` renders last, after the filter trigger. The toolbar row renders when any slot, `testIds.toolbar`, `testIds.count` or the filter menu is present.
-- `columns` must be memoised by the adapter (descriptors are derived per `columns`/`rows` identity).
+- Adapters may rebuild `columns` each render; DataTable and FilterMenu must not key effects on column identity (a new `columns` array with the same ids keeps the filter state and the page — P1.4 test).
 - `ctx` is required: input adapters pass the live `{ readOnly: isBrowsingHistoryNow, demandEditable, isOverridden, isChanged, isAdded }`; output adapters pass `{ readOnly: true, demandEditable: false }`.
 - Editable cells with draft state are components returned from `cell()` (matrix G16).
 - Inputs rendered inside cells carry `w-full` and no fixed width (B2.1 rendering); `FormattedNumberInput` already does.
@@ -1026,7 +1026,7 @@ export interface DataTableProps<T> {
   rows: T[];
   /** Unique per row; composite keys allowed (e.g. `${fromId}|${toId}`). */
   rowKey: (row: T) => string;
-  /** Memoise in the adapter — filter descriptors are derived from this array's identity. */
+  /** May be rebuilt each render; DataTable/FilterMenu must not key effects on this array's identity. */
   columns: ColumnDef<T>[];
   testIds?: DataTableTestIds<T>;
   rowClassName?: (row: T, ctx: CellContext<T>) => string | undefined;
@@ -1937,6 +1937,19 @@ describe("DataTable — paging", () => {
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 2");
     expect(screen.getByTestId("cell-demand-C55")).toHaveTextContent("1");
   });
+
+  it("a NEW columns array with the same ids (adapter rebuilt per render) keeps the filter and the page", async () => {
+    const user = userEvent.setup();
+    const rows = makeRows(120);
+    const { rerender } = render(<DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns} testIds={pagerIds} />);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-demand-min"), "100");
+    await user.click(screen.getByTestId("t-next"));
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
+    rerender(<DataTable<Row> ctx={CTX} rows={rows} rowKey={r => r.id} columns={columns.map(c => ({ ...c }))} testIds={pagerIds} />);
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
+    expect(visibleIds()[0]).toBe("row-C60"); // filter kept: unfiltered page 2 would start at C51
+  });
 });
 
 describe("DataTable — page reset semantics (B2.2)", () => {
@@ -2405,7 +2418,7 @@ export function DataTable<T>({
 - [ ] **Step 8: Run it to verify it passes**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DataTable.test.tsx src/components/tables/FilterMenu.test.tsx src/__tests__/ImportDialog.test.tsx`
-Expected: PASS — `DataTable.test.tsx` 35 tests, `FilterMenu.test.tsx` 12, `ImportDialog.test.tsx` 10 (measured at plan time). Then `pnpm --filter studio typecheck` must exit 0: it is what enforces the `@ts-expect-error` "ctx is required" test (an unused directive is itself a type error).
+Expected: PASS — `DataTable.test.tsx` 36 tests, `FilterMenu.test.tsx` 12, `ImportDialog.test.tsx` 10 (measured at plan time). Then `pnpm --filter studio typecheck` must exit 0: it is what enforces the `@ts-expect-error` "ctx is required" test (an unused directive is itself a type error).
 
 - [ ] **Step 9: e2e sweep**
 
@@ -3302,4 +3315,4 @@ git commit artifacts/studio/src/components/data-table/FormattedNumberInput.tsx a
 - **Spec coverage (rev 4).** B2.1 props → P1.2 (types, required `ctx`) + P1.4 (render) — rendering rules (primitives, `table-auto`, `px-3 py-1.5`, `whitespace-nowrap`, number centring, no fixed widths) asserted in `DataTable.test.tsx` "markup"; `readOnly` reaching every cell → P1.4. B2.2 pipeline / filter precedence / null handling with the internal empty token / descriptor ids / shared menu / trigger testid → P1.2 + P1.4; paging fixed at 50, pager > 50, rev 4 reset rule (all six cases), clamp, added rows appended → P1.3 + P1.4; focus jump (rev 4 wording) → P1.4, browser check → P4 hand-off; From/To removal → proven in P1.5 (actual removal per table in P4). B2.9 component bullets incl. integer mode and no-aria-label → P1.6; table-level B2.9 tests → P4 hand-off. B2.10 matrix → P1.1 (every reference regenerated at `B1_TIP`). B2.3–B2.8 → P2/P4 (toolbar slots exist in P1.4).
 - **Codex deep review (11 findings) folded:** 1 topology + L0 + `B1_TIP` base guard; 2 P1.1 remaps every reference (scripts); 3 FilterMenu append starts after line 116 with no stray `});`, re-run; 4 `pageResetKey` + six DataTable reset tests + key-order tests; 5 spec B2.2 amended; 6 P4 browser check; 7 complete scoped sets + built-in breaks; 8 matrix row #9; 9 internal empty token; 10 no aria-label, tests assert absence + describedby; 11 no page-size override, `ctx` required.
 - **Placeholder scan.** The only `<…>` tokens are changelog values the task must measure (rule: measured or `unknown`), `B1_TIP`/`BASE` (set by L0 / the topology commands) and the worktree index `N`.
-- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL`, `PAGE_SIZE`, `pageResetKey`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0, which also proves the `@ts-expect-error` is consumed) and run under vitest — 103 tests across the six test files (11 + 15 + 12 + 35 + 10 + 20; the 35th is the `downloadAlign` test folded in with the P3 review), all passing, plus `ImportDialog.test.tsx` 10, `DistancesTab.test.tsx` 64 and `useTableFilters.test.ts` 16 unchanged and green — in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written. The three P1.1 scripts were run against the matrix at plan time (identity remap byte-exact; checker 152 rows / 10 legitimate mismatches; inventory reproduces §3).
+- **Type consistency.** Every name in the tasks (`ColumnDef`, `CellContext`, `DataTableContext`, `DataTableTestIds`, `DataTableSection`, `DataTableFocus`, `DataTableProps`, `deriveFilterDescriptors`, `FILTER_ROW_THRESHOLD`, `SELECT_DISTINCT_MAX`, `EMPTY_FILTER_VALUE`, `EMPTY_FILTER_LABEL`, `PAGE_SIZE`, `pageResetKey`, `usePagedRows`, `PagedRows`, `TablePager`, `TablePagerTestIds`, `FormattedNumberInput`, `sanitizeNumberText`, `groupNumberText`, `formatNumberValue`, `triggerTestId`) matches the code blocks, which were compiled with `tsc -p artifacts/studio/tsconfig.json --noEmit` (exit 0, which also proves the `@ts-expect-error` is consumed) and run under vitest — 104 tests across the six test files (11 + 15 + 12 + 36 + 10 + 20; the 35th is the `downloadAlign` test folded in with the P3 review, the 36th the same-ids-new-columns test folded in with the P4 Codex review), all passing, plus `ImportDialog.test.tsx` 10, `DistancesTab.test.tsx` 64 and `useTableFilters.test.ts` 16 unchanged and green — in a scratch copy of `artifacts/studio` at `46d2f98` before this plan was written. The three P1.1 scripts were run against the matrix at plan time (identity remap byte-exact; checker 152 rows / 10 legitimate mismatches; inventory reproduces §3).

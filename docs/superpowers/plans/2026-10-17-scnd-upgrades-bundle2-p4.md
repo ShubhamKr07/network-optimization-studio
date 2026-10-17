@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 18 + TypeScript + Vite (`artifacts/studio`), Tailwind, Radix popover/dialog, vitest 3 + React Testing Library 16 + user-event 14 (jsdom), Playwright (`artifacts/studio/e2e`), `@workspace/import-schema` (P2).
 
-**Inputs (source of truth):** spec `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` rev 4 (B2.1–B2.4, B2.8, B2.9, B2.10, D1–D4, "Risks and mitigations"); P1 plan `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p1.md` ("Interfaces", "Adapter rules", "Hand-off to P4"); P2 plan `…-bundle2-p2.md` (import-schema exports, `ImportDialog` `format`, `deliveryCosts`); P3 plan `…-bundle2-p3.md` (`DownloadMenu`, `chooseDownload`); matrix `…-bundle2-matrix.md` (§1 rows #10–#30, §2b/§2c testid maps, §3 inventory, §4 G1–G21, §5). User decisions of 2026-10-17 listed under "Decisions applied".
+**Inputs (source of truth):** spec `docs/superpowers/specs/2026-10-16-scnd-upgrades-design.md` rev 6 (B2.1–B2.4, B2.7, B2.8, B2.9, B2.10, D1–D6, "Risks and mitigations"); P1 plan `docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p1.md` ("Interfaces", "Adapter rules", "Hand-off to P4"); P2 plan `…-bundle2-p2.md` (import-schema exports, `ImportDialog` `format`, `deliveryCosts`); P3 plan `…-bundle2-p3.md` (`DownloadMenu`, `chooseDownload`); matrix `…-bundle2-matrix.md` (§1 rows #10–#30, §2b/§2c testid maps, §3 inventory, §4 G1–G21, §5). User decisions of 2026-10-17 listed under "Decisions applied".
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@
 - **Changelog in the same commit (hard rule #9):** every task appends `### SCU-2.P4.N — <title>` at the bottom of `docs/CHANGELOG-implementation.md` (under P1.1's `## SCU-B2` heading). Numbers come from that task's own run; anything underivable is the literal `unknown`. A cherry-pick conflict that is only two bottom-appended changelog blocks is resolved by keeping both in task-id order.
 - **Hard rule #12:** SCU-2.P4.1–P4.14 are owned by **frontend-engineer** and begin with Step 0: invoke `andrej-karpathy-skills:karpathy-guidelines`, then `ponytail:ponytail`, via the Skill tool, and say so in the report. Review: latest Opus + `ponytail:ponytail-review`. SCU-2.P4.15 is **qa-sdet** (exempt from both skills; if a ponytail ruleset is injected anyway, ignore it and say so). SCU-2.P4.16 is the lead.
 - **Never edit generated code** (`lib/api-zod/src/generated/`, `lib/api-client-react/src/generated/`). P4 has no OpenAPI change; if a task seems to need one, STOP and escalate.
-- **No server, solver or DB change.** `solve.py`, `e2e_accuracy.py`, `lib/db/**`, `artifacts/api-server/**` are untouched. Each task asserts `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+- **No server, solver or DB change.** `solve.py`, `e2e_accuracy.py`, `lib/db/**`, `artifacts/api-server/**` are untouched (the gate's last check).
 - **Spec values, verbatim (B2.1–B2.4, B2.8, B2.9, D2–D4):**
   - Filter menu top-right **when effective rows > 10**, on every model; it replaces `input-filter-from/to`; base and added sections share **one** menu (incl. JADE Plants); trigger testid `button-filter-menu-trigger`.
   - Page size **50**; the pager renders **only when filtered rows > 50**.
@@ -30,21 +30,29 @@
   - Upload ▾ (CSV / JSON) → existing `ImportDialog` with the chosen `format`; Download ▾ (CSV / JSON) → `useExport().download(entity, format)`; both are disabled while browsing history with the same reason (user answer 2026-10-17); both carry the expected-fields panel (CSV header / JSON key, type, required add vs update, enum values, numeric bounds, unit, example CSV + example JSON envelope). Tables: Warehouses/Refineries, Customers, Plants, Mines, Stations, Distances, Leg Distances, JADE Distances, Lane Costs, **Delivery Costs**. **Not:** Plant Capability Matrix, JADE Transport Costs.
   - "+ Add {Entity}" modal for warehouse, customer, plant, mine, station, refinery only; lat/lng **editable** from a table, prefilled read-only from the map; refinery no capacity, plant no value/status, mine capacity, station demand; same validation messages as the inline forms; trigger testids `button-add-{warehouse|customer|plant|mine|station}-row`, refinery keeps `button-add-warehouse-row` (D4); fields `create-entity-*`. Distance/cost tables — **including Delivery Costs** — keep their inline "+ Add row".
   - Demand cell: `FormattedNumberInput`, grouped display, live reformat, a visible suffix linked by `aria-describedby`, set per adapter (**"Units"** for customers, **"tons"** for stations — user answer 2026-10-17), **no aria-label added**; `null` = empty = clear override on base rows (D3); decimals allowed; station demand in **integer** mode; Brazil `!demandEditable` locks **base** demand only; the add form **blocks submit on an empty demand** (incl. JADE per-product).
-- **Gate (every task; scripts verified to exist: root `package.json` `typecheck`, `artifacts/studio/package.json` `typecheck:e2e` / `test`, `artifacts/api-server/package.json` `test`, `lib/import-schema` `test` from P2):** run each separately and judge it by its own exit status:
-  1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
-  2. `pnpm run typecheck`
-  3. `pnpm --filter studio typecheck:e2e`
-  4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
-  5. `pnpm --filter studio test`
-  6. `(cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)`
-  7. `pnpm --filter @workspace/import-schema test`
+- **Gate (every task):** the canonical block under "Canonical gate block" at the end of this section. Every task's Gate step repeats it byte for byte (proven by the self-review check). Scripts verified to exist: root `package.json` `typecheck`, `artifacts/studio/package.json` `typecheck:e2e` / `test`, `artifacts/api-server/package.json` `test`, `lib/import-schema` `test` (from P2).
 - **Local e2e (every migration task; recipe from `artifacts/studio/e2e/CLAUDE.md`):** api-server `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" PORT=3001 pnpm --filter api-server run dev`, studio `PORT=5179 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 VITE_POSTHOG_KEY=phc_local_dummy_key VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 pnpm --filter studio run dev`, then `cd artifacts/studio && E2E_BASE_URL=http://localhost:5179 npx playwright test <the task's spec list>`. **`E2E_BASE_URL` is never optional** (without it Playwright silently tests a remote Replit deployment). Record pass/fail per spec; a failure is checked against `docs/superpowers/flake-registry.md` by test **name** and re-run twice in isolation before it is called a regression. `@flaky`-tagged specs run with `npx playwright test --grep @flaky <spec>`.
 - **Flakes:** api-server vitest, studio vitest and Playwright all flake under load (root gotcha). Check the registry by test name, re-run the file twice in isolation, record new sightings in the registry.
 - **No merge, no push, no deploy** inside a task. The phase ends at SCU-2.P4.16's STOP for the user's merge approval; merge, push and deploy are each a separate approval (root "Branch discipline").
 
+### Canonical gate block
+
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
+2. `pnpm run typecheck`
+3. `pnpm --filter studio typecheck:e2e`
+4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
+5. `pnpm --filter studio test`
+6. `(cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)`
+7. `pnpm --filter @workspace/import-schema test`
+
+Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
+
 ## Decisions applied (user, 2026-10-17 — final, not re-asked)
 
-- **D1** Delivery Costs import/export is sparse (P2's `deliveryCosts` entity). **D2** history read-only on every editable control of every input table, including Plants/Mines/Stations and all distance/cost tabs (matrix §5 item 8: six of seven had no prop; writes were silently dropped at `Workspace.tsx` `updateInputsField`). **D3** demand decimals allowed; empty clears the override on base rows. **D4** refinery trigger keeps `button-add-warehouse-row`.
+- **D1** Delivery Costs import/export is sparse (P2's `deliveryCosts` entity). **D2** history read-only on every editable control of every input table, including Plants/Mines/Stations and all distance/cost tabs (matrix §5 item 8: six of seven had no prop; writes were silently dropped at `Workspace.tsx` `updateInputsField`). **D3** demand decimals allowed; empty clears the override on base rows. **D4** refinery trigger keeps `button-add-warehouse-row`. **D5 and D6 preserved, untouched by P4:** the parent `StaleOutputBanner` gate in `Workspace.tsx` (D5) and the legacy `computeBandCoverage` called by `Studio.tsx` (D6) are outside every P4 edit (P4 changes no output tab, no `Studio.tsx` and no `lib/bands`).
 - Station demand: `FormattedNumberInput` integer mode. Add-customer form: empty demand **blocks** submit (incl. JADE per-product, which used to turn a blank into 0). An **already-added** customer's demand cell emptied → **not saved**; on blur it reverts to the last valid value. No aria-label is added to demand inputs. JADE Plants base + added share ONE filter menu. Delivery Costs keeps its inline "+ Add row"; delivery gets no entity adds. Modal lat/lng editable from a table, prefilled read-only from the map.
 - Known by-design e2e breaks rewritten here: "Page 1 of 1" pager asserts (`bundle5-homepage-distances.spec.ts`), `workspace-fixups-2.spec.ts` "no FilterMenu on the 26-row non-JADE warehouses tab", and the `Number(inputValue())` demand reads (`import.spec.ts`, `chen-bands-units-qa.spec.ts`, `max-coverage.spec.ts`).
 
@@ -54,7 +62,7 @@ Each is the smallest correct reading where the spec/plans and the repo disagree 
 
 1. **One commit per tab, not per matrix row.** The matrix counts base and added rows as separate instances (#17–#30), but each tab renders them as ONE `DataTable` with two `sections` under one toolbar, one FilterMenu and one pager (spec B2.2 "base and added sections share one menu"). Splitting base from added would leave an intermediate commit whose filter covers only half the rows, i.e. a B2.2 violation on `main`'s history. So: Warehouses + Refineries (#17–#20, one component) = SCU-2.P4.10; scalar + JADE Customers (#21–#24, one component) = SCU-2.P4.11; Plants (#25–#26), Mines (#27–#28), Stations (#29–#30) one each. The seven distance/cost tables are one commit each (#10–#16). 21 instances → 12 migration commits.
 2. **B2.8 modal first, B2.9 folded in.** The table mode of `CreateEntityDialog` lands alone (SCU-2.P4.2, no consumers) so each entity migration wires it directly instead of first porting six inline forms into section footers and deleting them a commit later. The B2.9 demand application is folded into the Customers (P4.11) and Stations (P4.14) migrations: writing a throwaway `<Input type="number">` cell and replacing it in the next commit would double the e2e rewrites for no benefit.
-3. **Adapters do not memoise `columns`.** P1's "memoise columns" note is a performance hint: `DataTable` derives descriptors with `useMemo([columns, rows])`, and neither `DataTable` nor `FilterMenu` holds any effect keyed on the columns' identity (measured: `FilterMenu.tsx` has no hook at all). Input cells close over live props, and Workspace passes inline `onChange` arrows over `updateInputsField`; a memoised column array would write through a stale closure. P4 adapters rebuild `columns` per render (DeliveryCosts memoises only its ~10,329 `rows`).
+3. **Adapters do not memoise `columns`.** P1's "memoise columns" note is a performance hint: `DataTable` derives descriptors with `useMemo([columns, rows])`, and neither `DataTable` nor `FilterMenu` holds any effect keyed on the columns' identity (measured: `FilterMenu.tsx` has no hook at all). Input cells close over live props, and Workspace passes inline `onChange` arrows over `updateInputsField`; a memoised column array would write through a stale closure. P4 adapters rebuild `columns` per render (DeliveryCosts memoises only its ~10,329 `rows`). The P1 plan's adapter rule now reads "adapters may rebuild columns each render; DataTable/FilterMenu must not key effects on column identity", pinned by a P1.4 `DataTable.test.tsx` case (a new `columns` array with the same ids keeps the filter state and the page).
 4. **Deleting a row resets to page 1** (spec rev 4 B2.2: the reset key is the key set of ALL effective rows). `DistancesTab.test.tsx`'s "clamps down on delete … lands on the new last page" becomes "deleting a row resets to page 1 of the new page count".
 5. **Banners move above the toolbar.** `DataTable` owns the toolbar row, so the Distances / JADE Distances reference loading/error banners (matrix G19) render above it, and the compat wrappers `distances-reference-section` / `jadedistances-reference-section` now wrap the whole `DataTable` (toolbar included). No e2e references either wrapper (matrix §2b).
 6. **Focus token includes the row count.** Today's focus effect depended on the merged row list, so a jump requested before the reference matrix loaded ran again once it had. `DataTable`'s focus runs on `token` change only, so Distances / JADE Distances pass `token: \`${focusEntityId}|${rows.length}\``. LegDistances / LaneCosts focus used to be scroll-only; through `DataTable` it now also clears filters and pages (spec B2.2's one focus behaviour).
@@ -70,6 +78,8 @@ Each is the smallest correct reading where the spec/plans and the repo disagree 
 16. **`DataTable.distancesReplica.test.tsx` (P1.5) is deleted in SCU-2.P4.3.** It renders the real `DistancesTab` next to a test adapter and expects the real set *plus* a FilterMenu trigger; once the real tab is the DataTable, that expectation double-counts the trigger and the test fails by construction. Its job (proving the API before any consumer) is done; `DistancesTab.dataTable.test.tsx` replaces it with direct assertions.
 17. **A D2 wiring guard** (`historyReadOnlyTabs.test.ts`, SCU-2.P4.1) scans every input-tab mount in `Workspace.tsx` for `readOnly={isBrowsingHistoryNow}` / `disabled={isBrowsingHistoryNow}`; each migration flips its tab from `"pending"` (which asserts the prop is still absent) to the prop it wires, and the last one asserts nothing is pending. It is the UI-side companion of the existing `historyReadOnlyGuards.test.ts` (write side). Like every syntactic guard it cannot see a mount that passes the flag through another name — the explicit allow-list is the mitigation (root gotcha on syntactic enumerations), and P4.15's browser pass is the behavioural check.
 18. **The legacy table components stay.** `components/tables/{Warehouse,Customer,Mine,Station}Table.tsx` are still rendered by `pages/Studio.tsx`; the Workspace stops rendering them and keeps importing only their override types (unchanged).
+19. **D2 covers transient controls too.** An inline "+ Add row" form or a "+ Add {Entity}" modal that is already open when the student switches to a history run must not stay editable. The five distance/cost tabs disable every add-form input and the confirm button; `CreateEntityDialog` gains `readOnly?: boolean` (table mode) and disables every field, the status radios and submit (and `handleSubmit` returns early). Each disabled control carries `title="Read-only while browsing result history."`; **Cancel stays enabled** so the student can close it. Same title on every JADE Transport Costs input and its Reset (P4.8). Pinned by a rerender test per tab (open the form/modal, rerender with the history flag, nothing editable) and by `CreateEntityDialog.table.test.tsx`.
+20. **The Delivery Costs export sends no `unit`.** Delivery costs are billable miles, never unit-converted (spec B2.7, D1), but `ExportContext.download` appends the resolved distance unit to every entity. P4.7 makes the one-line change there (`unit: entity === "deliveryCosts" ? undefined : unit`) with an `ExportContext.test.tsx` case, and `delivery-teaching.spec.ts` downloads the JSON with the km toggle on and asserts the envelope has no `unit` and the cost is the unconverted value.
 
 ## File Structure
 
@@ -183,11 +193,12 @@ and dispatches without `isolation`. The agent's first Bash command is `cd /Users
 
 A scratch copy of `artifacts/studio` at `46d2f98` with the P1 plan's code applied (the P1 author's scratch), P3's `DownloadMenu.tsx` + `chooseDownload`, and P2's `@workspace/import-schema` source (with `deliveryCosts`) aliased in, `ImportDialog` given P2's `format` prop as a type stub and `ExportEntity`/`INPUT_ENTITIES` given `deliveryCosts`. Every code block and edit script below was produced from, and applied back onto, that copy:
 - `tsc -p tsconfig.json --noEmit` exit 0 **after every task, applied in task order** (a step checker replayed P4.1 → P4.14's operations one task at a time and ran tsc plus that task's touched test files after each); the replayed end state equals the hand-built implementation byte for byte except the position of two `readOnly=` props.
-- Full studio vitest on the end state (scratch with a fake repo root so the manifest-scanning tests resolve): **149 files, 2,575 tests, all passing** (re-run after the 2026-10-17 answers); `tsc --noEmit` exit 0.
+- Full studio vitest on the end state (scratch with a fake repo root so the manifest-scanning tests resolve): **149 files, 2,589 tests, all passing** (re-run after the Codex review folds); `tsc --noEmit` exit 0.
 - Every new `*.dataTable.test.tsx` was run against the **pre-migration** tab and fails there (counts quoted in each task's "verify it fails" step), so none is vacuous.
 - The plan's own code blocks (every `cat > … <<'SCU_EOF'` and every edit script, in document order) were executed against a fresh baseline copy; the result equals the scratch implementation byte for byte (apart from the two `readOnly=` prop positions) for `src/` and the Bundle 1 tip `e2e/` tree.
 - Every Workspace.tsx / `Workspace.test.tsx` / `Workspace.Jade.test.tsx` anchor was also checked to occur exactly once in the **Bundle 1 tip** (`scnd-upgrades-b1`) versions of those files, and every e2e edit was applied to the Bundle 1 tip `e2e/` tree and type-checked (`tsc`, exit 0 apart from the pre-existing `sidebar-rail.spec.ts` dom.iterable error in the scratch config).
 - After the 2026-10-17 answers and the P1/P3 revisions (`downloadAlign`, P3.7's `descriptors.length > 0` filter condition, both mirrored into the scratch `DataTable`), the per-task replay, fail-first check and plan-block replay were re-run: unchanged results, P4.1 now 21 tests.
+- **Codex review folds (2026-10-17):** the P4 e2e edits were replayed against a simulated `P3_TIP` `e2e/` tree (the Bundle 1 tip tree plus every e2e edit of the committed P3 plan, applied with P3's own `insert-after.py` and `download.ts`): 40 anchors across P4.3, P4.5, P4.7, P4.10, P4.11 and P4.12, each counted **exactly 1**, 0 mismatches, `tsc` clean on the result. Each task's own anchor checks against the real base stay in place. The per-task replay (tsc exit 0 after every task), fail-first check (counts updated in each task) and plan-block replay were re-run after the folds.
 - Not run at plan time: Playwright (needs the two local servers and the real P1–P3 code), api-server tests, pytest, Docker. Each task runs them.
 - Deliberate breaks (non-vacuity) measured: P4.1 Step 5; the D2 guard flip (`DistancesTab: "disabled"` → 1 failed / 12 passed).
 
@@ -855,8 +866,9 @@ No tab renders the new pieces yet: `grep -rn 'useEntityFileMenus\|ExpectedFields
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -865,6 +877,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -903,7 +916,7 @@ git commit artifacts/studio/src/components/data-table/ExpectedFieldsPanel.tsx ar
 
 ## Task SCU-2.P4.2: `CreateEntityDialog` table mode — the "+ Add {Entity}" modal (B2.8, B2.9 add-form rule)
 
-**Owner role:** frontend-engineer. **Spec:** B2.8; B2.9 ("the add-customer form … blocks submit when a demand field is empty"); user decisions 2026-10-17 (modal lat/lng editable from a table, JADE per-product blank no longer 0). **Deviations:** 2, 9.
+**Owner role:** frontend-engineer. **Spec:** B2.8; B2.9 ("the add-customer form … blocks submit when a demand field is empty"); user decisions 2026-10-17 (modal lat/lng editable from a table, JADE per-product blank no longer 0). **Deviations:** 2, 9, 19.
 
 **Files:**
 - Modify: `artifacts/studio/src/components/workspace/map/dialogs/CreateEntityDialog.tsx`
@@ -913,9 +926,9 @@ git commit artifacts/studio/src/components/data-table/ExpectedFieldsPanel.tsx ar
 
 **Interfaces:**
 - Consumes: `FormattedNumberInput` (P1); `WAREHOUSE_ROLE`, `REFINERY_ROLE`, `CUSTOMER_ROLE`, `PLANT_ROLE`, `MINE_ROLE`, `STATION_ROLE`, `AddedWarehouseInput`, `AddedCustomerInput`, `AddedPlantInput` (`map/types.ts`); `newUid`, `nextDisplayCode` (`lib/entityId.ts` — `pl` = `ap-`/`PL-…`, identical to `PlantsTab`'s local helpers); `lookupCity` (`lib/gazetteer.ts`).
-- Produces: `CreateEntityKind`, `CreateEntitySubmit`, `AddedMineInput`, `AddedStationInput`, `MapCreateEntityDialogProps`, `CreateEntityDialogProps` (= map | `{ source: "table", entityKind, capacityMode?, hasStateColumn?, products?, existingCodes, onCreate, onCancel }`). Consumed by P4.10–P4.14; the map callers (`InputMapTab.tsx`, 4 sites) are unchanged.
+- Produces: `CreateEntityKind`, `CreateEntitySubmit`, `AddedMineInput`, `AddedStationInput`, `MapCreateEntityDialogProps`, `CreateEntityDialogProps` (= map | `{ source: "table", entityKind, capacityMode?, hasStateColumn?, products?, existingCodes, readOnly?, onCreate, onCancel }`). Consumed by P4.10–P4.14; the map callers (`InputMapTab.tsx`, 4 sites) are unchanged.
 
-**Table-mode rules (all pinned by the new test):** lat/lng are text inputs, filled from the gazetteer on City/State blur until the student first focuses them (which clears the auto-fill — the inline forms' rule); the display code is always generated with `nextDisplayCode` (`lib/entityId.ts:49`) from City/State, known or unknown city (user answer 2026-10-17), and stays editable; a typed code is collision-checked; validation order and messages are the inline forms' verbatim — "City and state are both required." / "City is required." (no state column) → "Display code '{c}' is already in use by another {label} in this scenario." → "Latitude and longitude must both be numbers." → "Capacity must be a positive number, or left blank." (warehouse) / "… or left blank for unconstrained." (mine) → "Demand must be a number ≥ 0." / "Demand for {product} must be a number ≥ 0." (an **empty** demand fails); fields per kind: warehouse status (+ capacity when `per_wh`), refinery status, plant none, mine capacity, customer demand (JADE: one per product), station demand (integer); demand inputs are `FormattedNumberInput` with "Units" (customers) / "tons" (stations); `capacity` is omitted when not shown; ids `aw-`/`ac-`/`ap-`/`am-`/`as-`.
+**Table-mode rules (all pinned by the new test):** lat/lng are text inputs, filled from the gazetteer on City/State blur until the student first focuses them (which clears the auto-fill — the inline forms' rule); the display code is always generated with `nextDisplayCode` (`lib/entityId.ts:49`) from City/State, known or unknown city (user answer 2026-10-17), and stays editable; a typed code is collision-checked; validation order and messages are the inline forms' verbatim — "City and state are both required." / "City is required." (no state column) → "Display code '{c}' is already in use by another {label} in this scenario." → "Latitude and longitude must both be numbers." → "Capacity must be a positive number, or left blank." (warehouse) / "… or left blank for unconstrained." (mine) → "Demand must be a number ≥ 0." / "Demand for {product} must be a number ≥ 0." (an **empty** demand fails); fields per kind: warehouse status (+ capacity when `per_wh`), refinery status, plant none, mine capacity, customer demand (JADE: one per product), station demand (integer); demand inputs are `FormattedNumberInput` with "Units" (customers) / "tons" (stations); `readOnly` (history, D2) disables every field, the status radios and submit with `title="Read-only while browsing result history."`, and Cancel stays enabled; `capacity` is omitted when not shown; ids `aw-`/`ac-`/`ap-`/`am-`/`as-`.
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -953,7 +966,15 @@ import {
   type CreateEntitySubmit,
 } from "@/components/workspace/map/dialogs/CreateEntityDialog";
 
-function open(entityKind: CreateEntityKind, extra: Partial<{ capacityMode: "none" | "uniform" | "per_wh"; hasStateColumn: boolean; products: { id: string; name: string }[]; existingCodes: string[] }> = {}) {
+function open(
+  entityKind: CreateEntityKind,
+  extra: Partial<{
+    capacityMode: "none" | "uniform" | "per_wh";
+    hasStateColumn: boolean;
+    products: { id: string; name: string }[];
+    existingCodes: string[];
+  }> = {},
+) {
   const onCreate = vi.fn<(r: CreateEntitySubmit) => void>();
   const onCancel = vi.fn();
   render(
@@ -1085,7 +1106,10 @@ describe("CreateEntityDialog — table mode (SCU-2.P4.2)", () => {
   });
 
   it("JADE: an empty per-product demand blocks submit with that product's message (no silent 0)", () => {
-    const products = [{ id: "product-1", name: "Hats" }, { id: "product-2", name: "Shoes" }];
+    const products = [
+      { id: "product-1", name: "Hats" },
+      { id: "product-2", name: "Shoes" },
+    ];
     const { onCreate } = open("customer", { products });
     expect(screen.queryByTestId("create-entity-demand")).toBeNull();
     fillLocation();
@@ -1137,6 +1161,41 @@ describe("CreateEntityDialog — table mode (SCU-2.P4.2)", () => {
     if (kind === "refinery") expect(r.entity).not.toHaveProperty("capacity");
   });
 
+  it("readOnly (D2 history) disables every field and submit with the read-only title; Cancel stays enabled", () => {
+    const onCreate = vi.fn<(r: CreateEntitySubmit) => void>();
+    const onCancel = vi.fn();
+    render(
+      <CreateEntityDialog
+        source="table"
+        entityKind="warehouse"
+        existingCodes={[]}
+        capacityMode="per_wh"
+        readOnly
+        onCreate={onCreate}
+        onCancel={onCancel}
+      />,
+    );
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-capacity",
+      "create-entity-status-forced_open",
+      "create-entity-submit",
+    ];
+    for (const id of fields) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("create-entity-cancel"));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("Cancel calls onCancel and never onCreate", () => {
     const { onCreate, onCancel } = open("plant");
     fireEvent.click(screen.getByTestId("create-entity-cancel"));
@@ -1150,7 +1209,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/CreateEntityDialog.table.test.tsx`
-Expected: FAIL — `Tests  21 failed | 2 passed (23)` (measured at plan time) — `CreateEntityKind` / `CreateEntitySubmit` are not exported and `source="table"` renders the map form (no editable `create-entity-lat` input, no `create-entity-error`).
+Expected: FAIL — `Tests  22 failed | 2 passed (24)` (measured at plan time) — `CreateEntityKind` / `CreateEntitySubmit` are not exported and `source="table"` renders the map form (no editable `create-entity-lat` input, no `create-entity-error`).
 
 - [ ] **Step 4: Implement**
 
@@ -1305,6 +1364,8 @@ interface TableCreateEntityDialogProps {
   existingCodes: Iterable<string>;
   onCreate: (result: CreateEntitySubmit) => void;
   onCancel: () => void;
+  /** History read-only (D2): every field and Add are disabled; Cancel stays enabled. */
+  readOnly?: boolean;
 }
 
 export type CreateEntityDialogProps = MapCreateEntityDialogProps | TableCreateEntityDialogProps;
@@ -1322,6 +1383,8 @@ const TABLE_ROLE: Record<CreateEntityKind, EntityRoleConfig> = {
   station: STATION_ROLE,
 };
 
+const READ_ONLY_TITLE = "Read-only while browsing result history.";
+
 const CAPACITY_ERROR: Partial<Record<CreateEntityKind, string>> = {
   warehouse: "Capacity must be a positive number, or left blank.",
   mine: "Capacity must be a positive number, or left blank for unconstrained.",
@@ -1335,6 +1398,7 @@ function TableCreateEntityDialog({
   existingCodes,
   onCreate,
   onCancel,
+  readOnly = false,
 }: TableCreateEntityDialogProps) {
   const role = TABLE_ROLE[entityKind];
   const id = useMemo(() => newUid(role.uidKind), [role.uidKind]);
@@ -1374,6 +1438,7 @@ function TableCreateEntityDialog({
   }
 
   function handleSubmit() {
+    if (readOnly) return;
     const c = city.trim();
     const st = state.trim();
     if (!c || (hasStateColumn && !st)) {
@@ -1463,13 +1528,13 @@ function TableCreateEntityDialog({
             {field(
               "create-entity-city",
               "City",
-              <Input id="create-entity-city" value={city} onChange={e => setCity(e.target.value)} onBlur={handleCityStateBlur} data-testid="create-entity-city" />,
+              <Input id="create-entity-city" value={city} onChange={e => setCity(e.target.value)} onBlur={handleCityStateBlur} disabled={readOnly} title={readOnly ? READ_ONLY_TITLE : undefined} data-testid="create-entity-city" />,
             )}
             {hasStateColumn &&
               field(
                 "create-entity-state",
                 "State",
-                <Input id="create-entity-state" value={state} onChange={e => setState(e.target.value)} onBlur={handleCityStateBlur} data-testid="create-entity-state" />,
+                <Input id="create-entity-state" value={state} onChange={e => setState(e.target.value)} onBlur={handleCityStateBlur} disabled={readOnly} title={readOnly ? READ_ONLY_TITLE : undefined} data-testid="create-entity-state" />,
               )}
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -1488,6 +1553,8 @@ function TableCreateEntityDialog({
                 }}
                 onChange={e => setLat(e.target.value)}
                 className={`font-mono ${!latTouched && lat ? "bg-muted text-muted-foreground" : ""}`}
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_TITLE : undefined}
                 data-testid="create-entity-lat"
               />,
             )}
@@ -1506,6 +1573,8 @@ function TableCreateEntityDialog({
                 }}
                 onChange={e => setLng(e.target.value)}
                 className={`font-mono ${!lngTouched && lng ? "bg-muted text-muted-foreground" : ""}`}
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_TITLE : undefined}
                 data-testid="create-entity-lng"
               />,
             )}
@@ -1517,6 +1586,8 @@ function TableCreateEntityDialog({
               id="create-entity-display-code"
               value={displayCode}
               onChange={e => setTypedCode(e.target.value)}
+              disabled={readOnly}
+              title={readOnly ? READ_ONLY_TITLE : undefined}
               data-testid="create-entity-display-code"
             />,
           )}
@@ -1524,10 +1595,10 @@ function TableCreateEntityDialog({
           {showStatus && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-foreground">Status</Label>
-              <RadioGroup value={status} onValueChange={v => setStatus(v as WhStatus)} data-testid="create-entity-status">
+              <RadioGroup value={status} onValueChange={v => setStatus(v as WhStatus)} disabled={readOnly} data-testid="create-entity-status">
                 {STATUS_OPTIONS.map(option => (
                   <div key={option} className="flex items-center gap-2">
-                    <RadioGroupItem value={option} id={`create-entity-status-${option}`} data-testid={`create-entity-status-${option}`} />
+                    <RadioGroupItem value={option} id={`create-entity-status-${option}`} title={readOnly ? READ_ONLY_TITLE : undefined} data-testid={`create-entity-status-${option}`} />
                     <Label htmlFor={`create-entity-status-${option}`} className="text-sm font-normal">
                       {warehouseStatusPresentation[option].label}
                     </Label>
@@ -1547,6 +1618,8 @@ function TableCreateEntityDialog({
                 value={capacity}
                 onChange={e => setCapacity(e.target.value)}
                 className="font-mono"
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_TITLE : undefined}
                 data-testid="create-entity-capacity"
               />,
             )}
@@ -1561,6 +1634,8 @@ function TableCreateEntityDialog({
                     onChange={v => setDemands(prev => ({ ...prev, [p.id]: v }))}
                     suffix="Units"
                     className="font-mono"
+                    disabled={readOnly}
+                    title={readOnly ? READ_ONLY_TITLE : undefined}
                     data-testid={`create-entity-demand-${p.id}`}
                   />,
                 ),
@@ -1576,6 +1651,8 @@ function TableCreateEntityDialog({
                   suffix={entityKind === "station" ? "tons" : "Units"}
                   integer={entityKind === "station"}
                   className="font-mono"
+                  disabled={readOnly}
+                  title={readOnly ? READ_ONLY_TITLE : undefined}
                   data-testid="create-entity-demand"
                 />,
               )}
@@ -1590,7 +1667,13 @@ function TableCreateEntityDialog({
           <Button type="button" variant="outline" onClick={onCancel} data-testid="create-entity-cancel">
             Cancel
           </Button>
-          <Button type="button" onClick={handleSubmit} data-testid="create-entity-submit">
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={readOnly}
+            title={readOnly ? READ_ONLY_TITLE : undefined}
+            data-testid="create-entity-submit"
+          >
             Add {role.label}
           </Button>
         </DialogFooter>
@@ -1614,7 +1697,7 @@ PY
 - [ ] **Step 5: Run the dialog tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/CreateEntityDialog.table.test.tsx src/__tests__/CreateEntityDialog.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 63 tests in 3 files (measured at plan time; `CreateEntityDialog.test.tsx`'s 27 map-flow tests unchanged). Also run the map consumers, unchanged: `pnpm --filter studio exec vitest run src/__tests__/InputMapTabV2.test.tsx src/__tests__/InputMapV2.integration.test.tsx src/__tests__/InputMapTabV2.jade.test.tsx src/__tests__/InputMapTabV2.transport.test.tsx src/__tests__/InputMapTabV2.twoEchelon.test.tsx src/__tests__/InputMapTabV2.customerStatus.test.tsx` → PASS. Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 64 tests in 3 files (measured at plan time; `CreateEntityDialog.test.tsx`'s 27 map-flow tests unchanged). Also run the map consumers, unchanged: `pnpm --filter studio exec vitest run src/__tests__/InputMapTabV2.test.tsx src/__tests__/InputMapV2.integration.test.tsx src/__tests__/InputMapTabV2.jade.test.tsx src/__tests__/InputMapTabV2.transport.test.tsx src/__tests__/InputMapTabV2.twoEchelon.test.tsx src/__tests__/InputMapTabV2.customerStatus.test.tsx` → PASS. Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 6: Prove the new test can fail**
 
@@ -1630,8 +1713,9 @@ Expected: pass.
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -1640,6 +1724,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -1650,7 +1735,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 ### SCU-2.P4.2 — CreateEntityDialog table mode
 
 - `CreateEntityDialog` gains `source: "table"` (six kinds, discriminated `CreateEntitySubmit`, editable lat/lng with the inline forms' touched rule, editable derived display code, inline validation messages verbatim, `FormattedNumberInput` demand with Units, empty demand blocks — incl. JADE per-product). Map flow unchanged (its test now types props as `MapCreateEntityDialogProps`). No table consumers yet.
-- Deviations 2, 9.
+- `readOnly` (D2, deviation 19): every field, the status radios and submit disabled with the read-only title; Cancel stays enabled.
+- Deviations 2, 9, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -1667,14 +1753,14 @@ git add artifacts/studio/src/__tests__/CreateEntityDialog.table.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/CreateEntityDialog.table.test.tsx artifacts/studio/src/__tests__/CreateEntityDialog.test.tsx artifacts/studio/src/components/workspace/map/dialogs/CreateEntityDialog.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.2] add table mode to CreateEntityDialog for the +Add modal" -m "source=table: six kinds, discriminated submit, editable lat/lng, inline validation messages, empty demand blocks submit (B2.8, B2.9). Map flow byte-unchanged. Deviations 2, 9." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/CreateEntityDialog.table.test.tsx artifacts/studio/src/__tests__/CreateEntityDialog.test.tsx artifacts/studio/src/components/workspace/map/dialogs/CreateEntityDialog.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.2] add table mode to CreateEntityDialog for the +Add modal" -m "source=table: six kinds, discriminated submit, editable lat/lng, inline validation messages, empty demand blocks submit (B2.8, B2.9), readOnly for history (D2). Map flow byte-unchanged. Deviations 2, 9, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.3: Distances on DataTable (p-median-us, p-median-brazil, max-coverage-us) + real-browser focus check
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #10, §2b Distances. **Spec:** B2.1–B2.4, D2; P1 hand-off (focus-jump browser check). **Deviations:** 3, 4, 5, 6, 7, 15, 16, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #10, §2b Distances. **Spec:** B2.1–B2.4, D2; P1 hand-off (focus-jump browser check). **Deviations:** 3, 4, 5, 6, 7, 15, 16, 17, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/DistancesTab.dataTable.test.tsx`
@@ -1922,6 +2008,39 @@ describe("DistancesTab on DataTable (SCU-2.P4.3)", () => {
     expect(screen.getByTestId("row-distance-WH03-C001")).toBeInTheDocument();
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
+  it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-distance-row"));
+    for (const id of [
+      "input-new-distance-from",
+      "input-new-distance-to",
+      "input-new-distance-value",
+      "button-add-distance-confirm",
+    ])
+      expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <DistancesTab
+        distanceOverrides={current}
+        savedDistanceOverrides={saved}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        canonicalUnit="mi"
+        scenarioId={1}
+        readOnly
+      />,
+    );
+    for (const id of [
+      "input-new-distance-from",
+      "input-new-distance-to",
+      "input-new-distance-value",
+      "button-add-distance-confirm",
+    ]) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    expect(screen.getByTestId("button-add-distance-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -1929,7 +2048,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DistancesTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  6 failed | 3 passed (9)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  7 failed | 3 passed (10)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `DistancesTab.tsx`**
 
@@ -2477,6 +2596,8 @@ export function DistancesTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-distance-from"
       />
       <Input
@@ -2484,6 +2605,8 @@ export function DistancesTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-distance-to"
       />
       <Input
@@ -2491,7 +2614,8 @@ export function DistancesTab({
         inputMode="decimal"
         placeholder={unitSuffix("Distance")}
         value={newDistanceText}
-        disabled={newDistanceDraft.disabled}
+        disabled={readOnly || newDistanceDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newDistanceDraft.onChange(e.target.value)}
         onBlur={newDistanceDraft.commit}
         onKeyDown={e => {
@@ -2501,7 +2625,14 @@ export function DistancesTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-distance-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-distance-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-distance-confirm"
+      >
         Add
       </Button>
       <Button
@@ -2889,7 +3020,7 @@ git rm artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DistancesTab.dataTable.test.tsx src/__tests__/DistancesTab.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 86 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 87 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -3039,8 +3170,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -3049,6 +3181,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -3060,7 +3193,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 - `DistancesTab` on DataTable: FilterMenu replaces From/To (`from`/`to` = display code, + Base/Override ranges); pager > 50 only; Upload ▾/Download ▾ + expected fields; history read-only (D2: override, remove, + Add row); numbers centred; focus via DataTable (`token` = id + row count).
 - P1.5 replica test deleted (deviation 16). Real-browser focus check added (input-map-v2: filter cleared, page ≠ 1, row `toBeInViewport`).
-- Deviations 3, 4, 5, 6, 7, 15, 16, 17.
+- Deviations 3, 4, 5, 6, 7, 15, 16, 17, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -3077,14 +3210,14 @@ git add artifacts/studio/src/__tests__/DistancesTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/DistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/DistancesTab.tsx artifacts/studio/src/__tests__/DistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/bundle5-homepage-distances.spec.ts artifacts/studio/e2e/bundle6.1-legend-distances.spec.ts artifacts/studio/e2e/chen-bands-units-qa.spec.ts artifacts/studio/e2e/max-coverage.spec.ts artifacts/studio/e2e/input-map-v2.spec.ts artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.3] move Distances onto DataTable" -m "FilterMenu replaces From/To, pager >50, Upload/Download menus, D2 read-only, numbers centred, focus via DataTable + browser viewport check. Replica test retired (dev 16). Deviations 3-7, 15-17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/DistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/DistancesTab.tsx artifacts/studio/src/__tests__/DistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/bundle5-homepage-distances.spec.ts artifacts/studio/e2e/bundle6.1-legend-distances.spec.ts artifacts/studio/e2e/chen-bands-units-qa.spec.ts artifacts/studio/e2e/max-coverage.spec.ts artifacts/studio/e2e/input-map-v2.spec.ts artifacts/studio/src/__tests__/DataTable.distancesReplica.test.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.3] move Distances onto DataTable" -m "FilterMenu replaces From/To, pager >50, Upload/Download menus, D2 read-only, numbers centred, focus via DataTable + browser viewport check. Replica test retired (dev 16). Deviations 3-7, 15-17, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.4: Leg Distances on DataTable (two-echelon-gold-au)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #11, §2b LegDistances. **Spec:** B2.1–B2.4, D2. **Deviations:** 3, 6, 7, 15, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #11, §2b LegDistances. **Spec:** B2.1–B2.4, D2. **Deviations:** 3, 6, 7, 15, 17, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/LegDistancesTab.dataTable.test.tsx`
@@ -3283,6 +3416,40 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
     expect(screen.getByTestId("input-legdistance-cunnamulla-sydney")).toHaveValue("700");
     expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).toHaveClass("bg-amber-50");
   });
+  it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-legdistance-row"));
+    for (const id of [
+      "input-new-legdistance-from",
+      "input-new-legdistance-to",
+      "input-new-legdistance-value",
+      "button-add-legdistance-confirm",
+    ])
+      expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <LegDistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={saved}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        canonicalUnit="km"
+        scenarioId={1}
+        readOnly
+      />,
+    );
+    for (const id of [
+      "input-new-legdistance-from",
+      "input-new-legdistance-to",
+      "input-new-legdistance-value",
+      "button-add-legdistance-confirm",
+    ]) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    expect(screen.getByTestId("button-add-legdistance-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -3290,7 +3457,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/LegDistancesTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  5 failed | 2 passed (7)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  6 failed | 2 passed (8)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `LegDistancesTab.tsx`**
 
@@ -3663,6 +3830,8 @@ export function LegDistancesTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-44"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-legdistance-from"
       />
       <Input
@@ -3670,6 +3839,8 @@ export function LegDistancesTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-44"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-legdistance-to"
       />
       <Input
@@ -3677,7 +3848,8 @@ export function LegDistancesTab({
         inputMode="decimal"
         placeholder={unitSuffix("Distance")}
         value={newDistanceText}
-        disabled={newDistanceDraft.disabled}
+        disabled={readOnly || newDistanceDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newDistanceDraft.onChange(e.target.value)}
         onBlur={newDistanceDraft.commit}
         onKeyDown={e => {
@@ -3687,7 +3859,14 @@ export function LegDistancesTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-legdistance-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-legdistance-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-legdistance-confirm"
+      >
         Add
       </Button>
       <Button
@@ -3911,7 +4090,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/LegDistancesTab.dataTable.test.tsx src/__tests__/LegDistancesTab.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 50 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 51 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -3929,8 +4108,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -3939,6 +4119,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -3949,7 +4130,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 ### SCU-2.P4.4 — Leg Distances on DataTable
 
 - `LegDistancesTab` on DataTable: FilterMenu (from/to/leg/distance), pager > 50 (new), Upload ▾/Download ▾, D2 read-only, focus clears filters + pages.
-- Deviations 3, 6, 7, 15, 17.
+- Deviations 3, 6, 7, 15, 17, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -3966,14 +4147,14 @@ git add artifacts/studio/src/__tests__/LegDistancesTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/LegDistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/LegDistancesTab.tsx artifacts/studio/src/__tests__/LegDistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.4] move Leg Distances onto DataTable" -m "FilterMenu replaces From/To, pager >50 (new), Upload/Download menus, D2 read-only, focus via DataTable. Deviations 3, 6, 7, 15, 17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/LegDistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/LegDistancesTab.tsx artifacts/studio/src/__tests__/LegDistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.4] move Leg Distances onto DataTable" -m "FilterMenu replaces From/To, pager >50 (new), Upload/Download menus, D2 read-only, focus via DataTable. Deviations 3, 6, 7, 15, 17, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.5: JADE Distances on DataTable + real-browser focus check
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #12, §2b JadeDistances. **Spec:** B2.1–B2.4, D2; P1 hand-off. **Deviations:** 3, 5, 6, 7, 15, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #12, §2b JadeDistances. **Spec:** B2.1–B2.4, D2; P1 hand-off. **Deviations:** 3, 5, 6, 7, 15, 17, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/JadeDistancesTab.dataTable.test.tsx`
@@ -4044,7 +4225,13 @@ const customerIds = ["cust-1", "cust-2"];
 // plant-9 is an unknown plant; the very last row is unsaved (Changed).
 const rows: JadeDistanceOverride[] = [
   ...["plant-1", "plant-9"].flatMap(p =>
-    warehouseIds.map((w, i) => ({ leg: "plant_to_warehouse" as const, fromId: p, toId: w, distance: 200 + i, estimated: p === "plant-1" && i === 0 })),
+    warehouseIds.map((w, i) => ({
+      leg: "plant_to_warehouse" as const,
+      fromId: p,
+      toId: w,
+      distance: 200 + i,
+      estimated: p === "plant-1" && i === 0,
+    })),
   ),
   ...warehouseIds.map((w, i) => ({ leg: "warehouse_to_customer" as const, fromId: w, toId: "cust-1", distance: 50 + i })),
 ];
@@ -4180,6 +4367,42 @@ describe("JadeDistancesTab on DataTable (SCU-2.P4.5)", () => {
     expect(screen.getByTestId(id)).toHaveValue("333");
     expect(screen.getByTestId("badge-jadedistance-changed-plant_to_warehouse-plant-1-wh-2")).toBeInTheDocument();
   });
+  it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-jadedistance-row"));
+    for (const id of [
+      "select-new-jadedistance-leg",
+      "input-new-jadedistance-from",
+      "input-new-jadedistance-to",
+      "input-new-jadedistance-value",
+      "button-add-jadedistance-confirm",
+    ])
+      expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <JadeDistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={saved}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        canonicalUnit="mi"
+        scenarioId={1}
+        readOnly
+      />,
+    );
+    for (const id of [
+      "select-new-jadedistance-leg",
+      "input-new-jadedistance-from",
+      "input-new-jadedistance-to",
+      "input-new-jadedistance-value",
+      "button-add-jadedistance-confirm",
+    ]) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    expect(screen.getByTestId("button-add-jadedistance-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -4187,7 +4410,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/JadeDistancesTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  4 failed | 3 passed (7)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  5 failed | 3 passed (8)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `JadeDistancesTab.tsx`**
 
@@ -4829,6 +5052,8 @@ export function JadeDistancesTab({
         value={newLeg}
         onChange={e => setNewLeg(e.target.value as JadeLeg)}
         className="h-7 text-xs border rounded px-1"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="select-new-jadedistance-leg"
       >
         <option value="plant_to_warehouse">Plant → Warehouse</option>
@@ -4839,6 +5064,8 @@ export function JadeDistancesTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-jadedistance-from"
       />
       <Input
@@ -4846,6 +5073,8 @@ export function JadeDistancesTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-jadedistance-to"
       />
       <Input
@@ -4853,7 +5082,8 @@ export function JadeDistancesTab({
         inputMode="decimal"
         placeholder={unitSuffix("Distance")}
         value={newDistanceText}
-        disabled={newDistanceDraft.disabled}
+        disabled={readOnly || newDistanceDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newDistanceDraft.onChange(e.target.value)}
         onBlur={newDistanceDraft.commit}
         onKeyDown={e => {
@@ -4863,7 +5093,14 @@ export function JadeDistancesTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-jadedistance-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-jadedistance-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-jadedistance-confirm"
+      >
         Add
       </Button>
       <Button
@@ -5030,7 +5267,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/JadeDistancesTab.dataTable.test.tsx src/__tests__/JadeDistancesTab.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 75 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 76 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -5080,8 +5317,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -5090,6 +5328,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -5101,7 +5340,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 - `JadeDistancesTab` on DataTable: FilterMenu (from/to search text kept; + leg/base/override/$-per-ton/min), pager > 50 only, Upload ▾/Download ▾, D2 read-only, focus token = id + row count.
 - Real-browser focus check added to jade-two-echelon step 6.
-- Deviations 3, 5, 6, 7, 15, 17.
+- Deviations 3, 5, 6, 7, 15, 17, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -5118,14 +5357,14 @@ git add artifacts/studio/src/__tests__/JadeDistancesTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/JadeDistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/JadeDistancesTab.tsx artifacts/studio/src/__tests__/JadeDistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/jade-two-echelon.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.5] move JADE Distances onto DataTable" -m "FilterMenu kept (+ derived columns), pager >50, Upload/Download menus, D2 read-only, focus via DataTable + browser viewport check. Deviations 3, 5, 6, 7, 15, 17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/JadeDistancesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/JadeDistancesTab.tsx artifacts/studio/src/__tests__/JadeDistancesTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/jade-two-echelon.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.5] move JADE Distances onto DataTable" -m "FilterMenu kept (+ derived columns), pager >50, Upload/Download menus, D2 read-only, focus via DataTable + browser viewport check. Deviations 3, 5, 6, 7, 15, 17, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.6: Lane Costs on DataTable (transport-coal)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #13, §2b LaneCosts. **Spec:** B2.1–B2.4, D2. **Deviations:** 3, 6, 7, 15, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #13, §2b LaneCosts. **Spec:** B2.1–B2.4, D2. **Deviations:** 3, 6, 7, 15, 17, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx`
@@ -5273,13 +5512,55 @@ describe("LaneCostsTab on DataTable (SCU-2.P4.6)", () => {
   it("edit round-trip through a stateful parent", () => {
     function Parent() {
       const [r, setR] = useState(rows.slice(0, 2));
-      return <LaneCostsTab laneCostOverrides={r} savedLaneCostOverrides={rows.slice(0, 2)} mineIds={mineIds} stationIds={stationIds} onChange={setR} canonicalUnit="mi" />;
+      return (
+        <LaneCostsTab
+          laneCostOverrides={r}
+          savedLaneCostOverrides={rows.slice(0, 2)}
+          mineIds={mineIds}
+          stationIds={stationIds}
+          onChange={setR}
+          canonicalUnit="mi"
+        />
+      );
     }
     render(<Parent />, { wrapper: Providers });
     fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST002"), { target: { value: "999" } });
     fireEvent.blur(screen.getByTestId("input-lanecost-MN01-ST002"));
     expect(screen.getByTestId("input-lanecost-MN01-ST002")).toHaveValue("999");
     expect(screen.getByTestId("badge-lanecost-changed-MN01-ST002")).toBeInTheDocument();
+  });
+  it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-lanecost-row"));
+    for (const id of [
+      "input-new-lanecost-from",
+      "input-new-lanecost-to",
+      "input-new-lanecost-value",
+      "button-add-lanecost-confirm",
+    ])
+      expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <LaneCostsTab
+        laneCostOverrides={rows}
+        savedLaneCostOverrides={saved}
+        mineIds={mineIds}
+        stationIds={stationIds}
+        onChange={vi.fn()}
+        canonicalUnit="mi"
+        scenarioId={1}
+        readOnly
+      />,
+    );
+    for (const id of [
+      "input-new-lanecost-from",
+      "input-new-lanecost-to",
+      "input-new-lanecost-value",
+      "button-add-lanecost-confirm",
+    ]) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    expect(screen.getByTestId("button-add-lanecost-cancel")).toBeEnabled();
   });
 });
 SCU_EOF
@@ -5288,7 +5569,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/LaneCostsTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  4 failed | 2 passed (6)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  5 failed | 2 passed (7)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `LaneCostsTab.tsx`**
 
@@ -5637,6 +5918,8 @@ export function LaneCostsTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-lanecost-from"
       />
       <Input
@@ -5644,6 +5927,8 @@ export function LaneCostsTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-lanecost-to"
       />
       <Input
@@ -5651,7 +5936,8 @@ export function LaneCostsTab({
         inputMode="decimal"
         placeholder={unitSuffix("Cost")}
         value={newCostText}
-        disabled={newCostDraft.disabled}
+        disabled={readOnly || newCostDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newCostDraft.onChange(e.target.value)}
         onBlur={newCostDraft.commit}
         onKeyDown={e => {
@@ -5661,7 +5947,14 @@ export function LaneCostsTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-lanecost-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-lanecost-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-lanecost-confirm"
+      >
         Add
       </Button>
       <Button
@@ -5877,7 +6170,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/LaneCostsTab.dataTable.test.tsx src/__tests__/LaneCostsTab.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 51 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 52 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -5895,8 +6188,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -5905,6 +6199,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -5915,7 +6210,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 ### SCU-2.P4.6 — Lane Costs on DataTable
 
 - `LaneCostsTab` on DataTable: FilterMenu, pager > 50 (new), Upload ▾/Download ▾, D2 read-only, focus via DataTable.
-- Deviations 3, 6, 7, 15, 17.
+- Deviations 3, 6, 7, 15, 17, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -5932,14 +6227,14 @@ git add artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/LaneCostsTab.tsx artifacts/studio/src/__tests__/LaneCostsTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.6] move Lane Costs onto DataTable" -m "FilterMenu replaces From/To, pager >50 (new), Upload/Download menus, D2 read-only. Deviations 3, 6, 7, 15, 17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/LaneCostsTab.tsx artifacts/studio/src/__tests__/LaneCostsTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.6] move Lane Costs onto DataTable" -m "FilterMenu replaces From/To, pager >50 (new), Upload/Download menus, D2 read-only. Deviations 3, 6, 7, 15, 17, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.7: Delivery Costs on DataTable + `deliveryCosts` Upload/Download (delivery-teaching-us)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #14, §2b DeliveryCosts. **Spec:** B2.1–B2.4, B2.7, D1, D2. **Deviations:** 3, 7, 15, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #14, §2b DeliveryCosts. **Spec:** B2.1–B2.4, B2.7, D1, D2. **Deviations:** 3, 7, 15, 17, 19, 20.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/DeliveryCostsTab.dataTable.test.tsx`
@@ -5947,6 +6242,8 @@ git commit artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx artifa
 - Modify: `artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx`
 - Modify: `artifacts/studio/src/pages/Workspace.tsx`
 - Modify: `artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts`
+- Modify: `artifacts/studio/src/contexts/ExportContext.tsx`
+- Modify: `artifacts/studio/src/__tests__/ExportContext.test.tsx`
 - Modify: `artifacts/studio/e2e/delivery-teaching.spec.ts`
 - Modify: `docs/CHANGELOG-implementation.md` (append `### SCU-2.P4.7`)
 
@@ -5958,7 +6255,8 @@ git commit artifacts/studio/src/__tests__/LaneCostsTab.dataTable.test.tsx artifa
 - Upload ▾ / Download ▾ for the sparse `deliveryCosts` entity (new — the tab had no file toolbar).
 - From/To boxes → FilterMenu (+ Base/Cost ranges).
 - Pager only above 50 rows (was always on) — matrix §5 item 2.
-- History read-only on cost cells, remove and "+ Add row" (D2; they were never disabled). Inline "+ Add row" kept (B2.7).
+- History read-only on cost cells, remove and "+ Add row" (D2; they were never disabled), including an add-row form already open (deviation 19). Inline "+ Add row" kept (B2.7).
+- The `deliveryCosts` download sends no `unit` (`ExportContext.download`; billable miles, never converted — deviation 20).
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -6004,14 +6302,22 @@ vi.mock("@workspace/api-client-react", () => ({
 const downloadEntityExport = vi.fn();
 vi.mock("@/lib/exportEntity", () => ({ downloadEntityExport: (...a: unknown[]) => downloadEntityExport(...a) }));
 vi.mock("@/components/ImportDialog", () => ({
-  ImportDialog: (p: { entity: string; format: string }) => <div data-testid="stub-import-dialog" data-entity={p.entity} data-format={p.format} />,
+  ImportDialog: (p: { entity: string; format: string }) => (
+    <div data-testid="stub-import-dialog" data-entity={p.entity} data-format={p.format} />
+  ),
 }));
 
 import { DeliveryCostsTab } from "@/components/workspace/tabs/DeliveryCostsTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 
 function pairs(n: number) {
-  return Array.from({ length: n }, (_, i) => ({ fromId: `W${(i % 33) + 1}`, fromCode: "", toId: `C${i + 1}`, toCode: "", cost: 10 + i }));
+  return Array.from({ length: n }, (_, i) => ({
+    fromId: `W${(i % 33) + 1}`,
+    fromCode: "",
+    toId: `C${i + 1}`,
+    toCode: "",
+    cost: 10 + i,
+  }));
 }
 
 beforeEach(() => {
@@ -6022,7 +6328,13 @@ beforeEach(() => {
 
 const renderTab = (props: Partial<React.ComponentProps<typeof DeliveryCostsTab>> = {}) =>
   render(
-    <DeliveryCostsTab laneCostOverrides={[{ fromId: "W1", toId: "C1", cost: 99 }]} onChange={vi.fn()} modelId="delivery-teaching-us" scenarioId={3} {...props} />,
+    <DeliveryCostsTab
+      laneCostOverrides={[{ fromId: "W1", toId: "C1", cost: 99 }]}
+      onChange={vi.fn()}
+      modelId="delivery-teaching-us"
+      scenarioId={3}
+      {...props}
+    />,
     { wrapper: AllProviders },
   );
 
@@ -6049,7 +6361,8 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
     renderTab();
     fireEvent.click(screen.getByTestId("button-download-deliverycosts"));
     fireEvent.click(screen.getByTestId("button-export-deliverycosts-json"));
-    expect(downloadEntityExport).toHaveBeenCalledWith(1, "deliveryCosts", "json", { unit: "mi", runId: undefined });
+    // billable miles: no unit= is sent for deliveryCosts (B2.7, D1)
+    expect(downloadEntityExport).toHaveBeenCalledWith(1, "deliveryCosts", "json", { unit: undefined, runId: undefined });
     fireEvent.click(screen.getByTestId("button-import-deliverycosts"));
     fireEvent.click(screen.getByTestId("button-import-deliverycosts-csv"));
     expect(screen.getByTestId("stub-import-dialog")).toHaveAttribute("data-entity", "deliveryCosts");
@@ -6059,7 +6372,11 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
     const { unmount } = renderTab();
     expect(screen.queryByTestId("delivery-costs-page-indicator")).toBeNull();
     unmount();
-    mockUseGetReferenceCosts.mockReturnValue({ data: { pairs: pairs(51), distanceUnit: "mi" }, isLoading: false, isError: false });
+    mockUseGetReferenceCosts.mockReturnValue({
+      data: { pairs: pairs(51), distanceUnit: "mi" },
+      isLoading: false,
+      isError: false,
+    });
     renderTab();
     expect(screen.getByTestId("delivery-costs-page-indicator")).toHaveTextContent("Page 1 of 2");
   });
@@ -6103,6 +6420,36 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
     expect(screen.getByTestId("badge-deliverycost-overridden-W2-C2")).toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W2-C2")).toHaveClass("bg-amber-50");
   });
+  it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-deliverycost-row"));
+    for (const id of [
+      "input-new-deliverycost-from",
+      "input-new-deliverycost-to",
+      "input-new-deliverycost-value",
+      "button-add-deliverycost-confirm",
+    ])
+      expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <DeliveryCostsTab
+        laneCostOverrides={[{ fromId: "W1", toId: "C1", cost: 99 }]}
+        onChange={vi.fn()}
+        modelId="delivery-teaching-us"
+        scenarioId={3}
+        readOnly
+      />,
+    );
+    for (const id of [
+      "input-new-deliverycost-from",
+      "input-new-deliverycost-to",
+      "input-new-deliverycost-value",
+      "button-add-deliverycost-confirm",
+    ]) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+    expect(screen.getByTestId("button-add-deliverycost-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -6110,7 +6457,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  5 failed | 2 passed (7)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  6 failed | 2 passed (8)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `DeliveryCostsTab.tsx`**
 
@@ -6447,6 +6794,8 @@ export function DeliveryCostsTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-from"
       />
       <Input
@@ -6454,6 +6803,8 @@ export function DeliveryCostsTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-to"
       />
       <Input
@@ -6463,9 +6814,18 @@ export function DeliveryCostsTab({
         value={newCost}
         onChange={e => setNewCost(e.target.value)}
         className="h-7 text-xs w-24 font-mono"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-deliverycost-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-deliverycost-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-deliverycost-confirm"
+      >
         Add
       </Button>
       <Button
@@ -6542,7 +6902,7 @@ SCU_EOF
 
 - [ ] **Step 5: Wire Workspace, flip the D2 guard, rewrite the by-design test breaks**
 
-Wires `scenarioId`, `onImportApplied`, `readOnly` on the `<DeliveryCostsTab` mount (and updates its comment), flips the guard, and rewrites `DeliveryCostsTab.test.tsx`'s render seam (the menus need `ExportProvider`) and its two filter tests (fixtures padded to 11 rows). The add-row tests stay unchanged (P2 / B2.7):
+Wires `scenarioId`, `onImportApplied`, `readOnly` on the `<DeliveryCostsTab` mount (and updates its comment), flips the guard, makes `ExportContext.download` send no `unit` for `deliveryCosts` (with its `ExportContext.test.tsx` case — deviation 20), and rewrites `DeliveryCostsTab.test.tsx`'s render seam (the menus need `ExportProvider`) and its two filter tests (fixtures padded to 11 rows). The add-row tests stay unchanged (P2 / B2.7):
 
 ```bash
 python3 - <<'PY'
@@ -6643,6 +7003,28 @@ interface Pair {'''),
     ('artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts',
      '''  DeliveryCostsTab: "pending", // SCU-2.P4.7''',
      '''  DeliveryCostsTab: "readOnly", // SCU-2.P4.7'''),
+    ('artifacts/studio/src/contexts/ExportContext.tsx',
+     '''      await downloadEntityExport(scenarioId, entity, format, { unit, runId });''',
+     '''      // SCU-2.P4.7 (B2.7, D1) — deliveryCosts are billable miles, never unit-converted
+      // and exported without a unit, so no unit= is sent for that entity.
+      await downloadEntityExport(scenarioId, entity, format, { unit: entity === "deliveryCosts" ? undefined : unit, runId });'''),
+    ('artifacts/studio/src/__tests__/ExportContext.test.tsx',
+     '''    it("forwards runId to the helper when injected", async () => {''',
+     '''    // SCU-2.P4.7 (B2.7, D1) — billable miles: deliveryCosts never sends unit=.
+    it("sends no unit for deliveryCosts, whatever the resolved unit", async () => {
+      for (const unit of ["km", "mi"] as const) {
+        mockedDownload.mockClear();
+        const { result } = renderHook(() => useExport(), {
+          wrapper: exportProviderWrapper({ scenarioId: 5, unit }),
+        });
+        await act(async () => {
+          await result.current.download("deliveryCosts", "json");
+        });
+        expect(mockedDownload).toHaveBeenCalledWith(5, "deliveryCosts", "json", { unit: undefined, runId: undefined });
+      }
+    });
+
+    it("forwards runId to the helper when injected", async () => {'''),
 ]
 for path, old, new in EDITS:
     f = pathlib.Path(path)
@@ -6657,8 +7039,8 @@ PY
 
 - [ ] **Step 6: Run the task's tests**
 
-Run: `pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.dataTable.test.tsx src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 36 tests in 3 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Run: `pnpm --filter studio exec vitest run src/__tests__/DeliveryCostsTab.dataTable.test.tsx src/__tests__/DeliveryCostsTab.test.tsx src/__tests__/ExportContext.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
+Expected: PASS — 57 tests in 4 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -6666,7 +7048,7 @@ Sweep (matrix §3 prefixes for this instance; `labs.spec.ts` excluded):
 ```bash
 grep -rn -E 'delivery-costs-|row-deliverycost-|input-deliverycost-|badge-deliverycost-|input-filter-(from|to)' artifacts/studio/e2e --include='*.ts' | grep -v labs.spec.ts
 ```
-Rewritten below: the From/To fills. Unchanged: `delivery-costs-tab`, `input-deliverycost-*`, `badge-deliverycost-overridden-*`; no spec touches the pager.
+Rewritten below: the From/To fills; new step 10 edits one cost, re-solves, switches to km and downloads the `deliveryCosts` JSON through `downloadVia` (P3), asserting the envelope has no `unit` and the cost is unconverted (deviation 20). Unchanged: `delivery-costs-tab`, `input-deliverycost-*`, `badge-deliverycost-overridden-*`; no spec touches the pager.
 
 Apply the rewrites (each anchor is asserted unique; verified against the Bundle 1 tip `e2e/` tree and type-checked at plan time):
 
@@ -6679,6 +7061,7 @@ EDITS = [
 ''',
      '''import { test, expect, type Page } from "./fixtures";
 import { closePopover, fillTableFilter } from "./helpers/inputTable";
+import { downloadVia } from "./helpers/download";
 '''),
     ('artifacts/studio/e2e/delivery-teaching.spec.ts',
      '''    await page.getByTestId("input-filter-from").fill(OVERRIDE_LANE.fromId);
@@ -6687,6 +7070,35 @@ import { closePopover, fillTableFilter } from "./helpers/inputTable";
     await fillTableFilter(page, "from", OVERRIDE_LANE.fromId);
     await fillTableFilter(page, "to", OVERRIDE_LANE.toId);
     await closePopover(page);'''),
+    ('artifacts/studio/e2e/delivery-teaching.spec.ts',
+     '''    const excludedC1 = await solveViaUi(page, id);
+    expect(excludedC1.details.assignments.length).toBe(312);
+''',
+     '''    const excludedC1 = await solveViaUi(page, id);
+    expect(excludedC1.details.assignments.length).toBe(312);
+
+    // ── 10. SCU-2.P4.7 (B2.7, D1) — Download ▾ JSON of the sparse
+    // deliveryCosts entity: the envelope carries NO unit, and a cost is
+    // billable miles, exported unconverted even under a km display. ────────
+    await page.getByTestId("sidebar-input-deliveryCosts").click();
+    await expect(page.getByTestId("delivery-costs-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await fillTableFilter(page, "from", OVERRIDE_LANE.fromId);
+    await fillTableFilter(page, "to", OVERRIDE_LANE.toId);
+    await closePopover(page);
+    const laneCost = page.getByTestId(`input-deliverycost-${OVERRIDE_LANE.fromId}-${OVERRIDE_LANE.toId}`);
+    await laneCost.fill("123.5");
+    await laneCost.press("Enter");
+    await solveViaUi(page, id); // persists the draft, like every override above
+    await page.getByTestId("unit-toggle-km").click();
+    await page.getByTestId("sidebar-input-deliveryCosts").click();
+    await expect(page.getByTestId("delivery-costs-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const dc = JSON.parse((await downloadVia(page, "button-download-deliverycosts", "button-export-deliverycosts-json")).text);
+    expect(dc.entity).toBe("deliveryCosts");
+    expect("unit" in dc).toBe(false);
+    expect(dc.rows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ fromId: OVERRIDE_LANE.fromId, toId: OVERRIDE_LANE.toId, cost: 123.5 })]),
+    );
+'''),
 ]
 for path, old, new in EDITS:
     f = pathlib.Path(path)
@@ -6707,8 +7119,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -6717,6 +7130,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -6726,8 +7140,9 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P4.7 — Delivery Costs on DataTable + `deliveryCosts` Upload/Download
 
-- `DeliveryCostsTab` on DataTable: Upload ▾/Download ▾ for `deliveryCosts` (sparse, D1), FilterMenu, pager > 50 only (was always on), override-present amber kept, D2 read-only, loading/error/empty testids kept.
-- Deviations 3, 7, 15, 17.
+- `DeliveryCostsTab` on DataTable: Upload ▾/Download ▾ for `deliveryCosts` (sparse, D1), FilterMenu, pager > 50 only (was always on), override-present amber kept, D2 read-only (incl. an open add-row form), loading/error/empty testids kept.
+- `ExportContext.download` sends no `unit` for `deliveryCosts`; e2e downloads the JSON with km on and asserts no `unit` and the unconverted cost.
+- Deviations 3, 7, 15, 17, 19, 20.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -6744,14 +7159,14 @@ git add artifacts/studio/src/__tests__/DeliveryCostsTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/DeliveryCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/delivery-teaching.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.7] move Delivery Costs onto DataTable with deliveryCosts upload/download" -m "Sparse deliveryCosts Upload/Download (B2.7, D1), FilterMenu, pager >50 only, D2 read-only; inline + Add row kept. Deviations 3, 7, 15, 17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/DeliveryCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx artifacts/studio/src/__tests__/DeliveryCostsTab.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/src/contexts/ExportContext.tsx artifacts/studio/src/__tests__/ExportContext.test.tsx artifacts/studio/e2e/delivery-teaching.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.7] move Delivery Costs onto DataTable with deliveryCosts upload/download" -m "Sparse deliveryCosts Upload/Download (B2.7, D1), exported without a unit, FilterMenu, pager >50 only, D2 read-only incl. an open add form; inline + Add row kept. Deviations 3, 7, 15, 17, 19, 20." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.8: JADE Transport Costs on DataTable (no Upload/Download)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #15, §2b TransportCosts. **Spec:** B2.1 (rendering), B2.3/B2.4 exclusion. **Deviations:** 3.
+**Owner role:** frontend-engineer. **Matrix:** §1 #15, §2b TransportCosts. **Spec:** B2.1 (rendering), B2.3/B2.4 exclusion. **Deviations:** 3, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/TransportCostsTab.dataTable.test.tsx`
@@ -6764,6 +7179,7 @@ git commit artifacts/studio/src/__tests__/DeliveryCostsTab.dataTable.test.tsx ar
 
 **Behaviour changes (record each in the changelog):**
 - Rendered through DataTable (two fixed rows: no filter, no pager); numbers centred; inputs `w-full`. No Upload/Download (spec scope).
+- History: every input and Reset carry the read-only title (deviation 19).
 
 - [ ] **Step 0: Invoke the simplicity skills**
 
@@ -6851,8 +7267,28 @@ describe("TransportCostsTab on DataTable (SCU-2.P4.8)", () => {
 
   it("history read-only disables every field and Reset", () => {
     renderTab(true);
-    for (const id of ["input-transport-ic-rate", "input-transport-ob-rate", "input-transport-ic-min", "input-transport-ob-min", "button-transport-reset"]) {
+    for (const id of [
+      "input-transport-ic-rate",
+      "input-transport-ob-rate",
+      "input-transport-ic-min",
+      "input-transport-ob-min",
+      "button-transport-reset",
+    ]) {
       expect(screen.getByTestId(id)).toBeDisabled();
+      expect(screen.getByTestId(id)).toHaveAttribute("title", "Read-only while browsing result history.");
+    }
+  });
+
+  it("outside history no field or Reset carries the read-only title", () => {
+    renderTab();
+    for (const id of [
+      "input-transport-ic-rate",
+      "input-transport-ob-rate",
+      "input-transport-ic-min",
+      "input-transport-ob-min",
+      "button-transport-reset",
+    ]) {
+      expect(screen.getByTestId(id)).not.toHaveAttribute("title");
     }
   });
 });
@@ -6862,7 +7298,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/TransportCostsTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  1 failed | 2 passed (3)` (measured at plan time against the pre-migration tab) — only the centring test fails: every testid already exists, the numeric headers are not `text-center` yet.
+Expected: FAIL — `Tests  2 failed | 2 passed (4)` (measured at plan time against the pre-migration tab) — the centring test and the exact read-only title test fail: every testid already exists, but the numeric headers are not `text-center` and the disabled inputs/Reset carry no title yet.
 
 - [ ] **Step 4: Implement — `TransportCostsTab.tsx`**
 
@@ -6897,6 +7333,8 @@ import {
 // charge alone — which is why the two field kinds pass different
 // `convert` pairs into the one shared draft hook rather than this file
 // re-implementing the draft state machine.
+
+const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 interface TransportCostsTabProps {
   canonicalUnit: CanonicalUnit | null;
@@ -6993,6 +7431,7 @@ function TransportCostField({
         aria-label={label}
         value={draft.text}
         disabled={disabled || draft.disabled}
+        title={disabled ? READ_ONLY_TITLE : undefined}
         onChange={e => {
           setRejected(null);
           draft.onChange(e.target.value);
@@ -7163,6 +7602,7 @@ export function TransportCostsTab({
         variant="outline"
         className="h-7 px-2 text-xs"
         disabled={disabled || !isCustom}
+        title={disabled ? READ_ONLY_TITLE : undefined}
         onClick={onReset}
         data-testid="button-transport-reset"
       >
@@ -7177,7 +7617,7 @@ SCU_EOF
 - [ ] **Step 5: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/TransportCostsTab.dataTable.test.tsx src/__tests__/historyReadOnlyTabs.test.ts src/__tests__/TransportCostsTab.test.tsx`
-Expected: PASS — 16 tests in 2 files (measured at plan time), plus `TransportCostsTab.test.tsx` unchanged (19 tests). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 17 tests in 2 files (measured at plan time), plus `TransportCostsTab.test.tsx` unchanged (19 tests). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 6: e2e sweep, rewrites and local run**
 
@@ -7195,8 +7635,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 7: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -7205,6 +7646,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 8: Changelog**
 
@@ -7214,8 +7656,8 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 ### SCU-2.P4.8 — JADE Transport Costs on DataTable
 
-- `TransportCostsTab` on DataTable (2 fixed rows, header testid via `headerTestId`, numbers centred). No Upload/Download (spec). History read-only unchanged (`disabled`).
-- Deviation 3.
+- `TransportCostsTab` on DataTable (2 fixed rows, header testid via `headerTestId`, numbers centred). No Upload/Download (spec). History read-only unchanged (`disabled`), now with the read-only title on every input and Reset.
+- Deviations 3, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -7232,7 +7674,7 @@ git add artifacts/studio/src/__tests__/TransportCostsTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/TransportCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/TransportCostsTab.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.8] render JADE Transport Costs through DataTable" -m "Two fixed rows through the shared shell; numbers centred; no upload/download (spec scope). Deviation 3." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/TransportCostsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/TransportCostsTab.tsx docs/CHANGELOG-implementation.md -m "[SCU-2.P4.8] render JADE Transport Costs through DataTable" -m "Two fixed rows through the shared shell; numbers centred; no upload/download (spec scope). Deviations 3, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -7305,10 +7747,21 @@ const plants = Array.from({ length: 11 }, (_, i) => ({
   lat: 1,
   lng: 1,
 }));
-const baseCapabilities = plants.flatMap(p => products.map(pr => ({ plantId: p.id, productId: pr.id, capacity: pr.id === "product-1" ? 1000 : 0 })));
+const baseCapabilities = plants.flatMap(p =>
+  products.map(pr => ({ plantId: p.id, productId: pr.id, capacity: pr.id === "product-1" ? 1000 : 0 })),
+);
 
 const renderTab = (props: Partial<React.ComponentProps<typeof CapabilityMatrixTab>> = {}) =>
-  render(<CapabilityMatrixTab plants={plants} products={products} baseCapabilities={baseCapabilities} overrides={[]} onChange={vi.fn()} {...props} />);
+  render(
+    <CapabilityMatrixTab
+      plants={plants}
+      products={products}
+      baseCapabilities={baseCapabilities}
+      overrides={[]}
+      onChange={vi.fn()}
+      {...props}
+    />,
+  );
 
 describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
   it("emits every testid in the matrix map", () => {
@@ -7330,11 +7783,11 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
     expect(plantCell.tagName).toBe("TD");
     // e2e (workspace-fixups.spec.ts) counts the EntityIdCell's two spans inside the <td>.
     expect(plantCell.querySelectorAll(":scope > div > span")).toHaveLength(2);
-    expect(within(screen.getByTestId("capability-matrix-tab")).getAllByRole("columnheader").map(h => h.textContent)).toEqual([
-      "Plant",
-      "Copper",
-      "Aluminum",
-    ]);
+    expect(
+      within(screen.getByTestId("capability-matrix-tab"))
+        .getAllByRole("columnheader")
+        .map(h => h.textContent),
+    ).toEqual(["Plant", "Copper", "Aluminum"]);
   });
 
   it("keeps the plant text filter and the filter-only state select (no rendered State column)", () => {
@@ -7363,13 +7816,22 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
 
   it("history read-only (D2): every checkbox is disabled", () => {
     renderTab({ readOnly: true });
-    for (const p of plants) for (const pr of products) expect(screen.getByTestId(`checkbox-capability-${p.id}-${pr.id}`)).toBeDisabled();
+    for (const p of plants)
+      for (const pr of products) expect(screen.getByTestId(`checkbox-capability-${p.id}-${pr.id}`)).toBeDisabled();
   });
 
   it("toggle round-trip through a stateful parent", () => {
     function Parent() {
       const [o, setO] = useState<CapabilityOverride[]>([]);
-      return <CapabilityMatrixTab plants={plants.slice(0, 2)} products={products} baseCapabilities={baseCapabilities} overrides={o} onChange={setO} />;
+      return (
+        <CapabilityMatrixTab
+          plants={plants.slice(0, 2)}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={o}
+          onChange={setO}
+        />
+      );
     }
     render(<Parent />);
     const box = screen.getByTestId("checkbox-capability-plant-1-product-2");
@@ -7635,8 +8097,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -7645,6 +8108,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -7679,7 +8143,7 @@ git commit artifacts/studio/src/__tests__/CapabilityMatrixTab.dataTable.test.tsx
 
 ## Task SCU-2.P4.10: Warehouses + Refineries on DataTable with the +Add modal
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #17–#20, §2c Warehouses/Refineries base + added. **Spec:** B2.1–B2.4, B2.8, D2, D4. **Deviations:** 1, 3, 9, 13, 14, 15, 17, 18.
+**Owner role:** frontend-engineer. **Matrix:** §1 #17–#20, §2c Warehouses/Refineries base + added. **Spec:** B2.1–B2.4, B2.8, D2, D4. **Deviations:** 1, 3, 9, 13, 14, 15, 17, 18, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/components/data-table/entityCells.tsx`
@@ -7744,8 +8208,25 @@ import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 
-const base = Array.from({ length: 10 }, (_, i) => ({ id: `WH${i + 1}`, city: `City${i + 1}`, state: i < 5 ? "IL" : "OH", lat: 41 + i, lng: -87 - i }));
-const added: AddedWarehouse[] = [{ id: "aw-1", city: "Denver", state: "CO", lat: 39.7, lng: -105, capacity: 500, status: "active", displayCode: "WH-CO-DENVER-01" }];
+const base = Array.from({ length: 10 }, (_, i) => ({
+  id: `WH${i + 1}`,
+  city: `City${i + 1}`,
+  state: i < 5 ? "IL" : "OH",
+  lat: 41 + i,
+  lng: -87 - i,
+}));
+const added: AddedWarehouse[] = [
+  {
+    id: "aw-1",
+    city: "Denver",
+    state: "CO",
+    lat: 39.7,
+    lng: -105,
+    capacity: 500,
+    status: "active",
+    displayCode: "WH-CO-DENVER-01",
+  },
+];
 
 function renderTab(props: Partial<React.ComponentProps<typeof WarehousesTab>> = {}) {
   return render(
@@ -7857,7 +8338,15 @@ describe("WarehousesTab on DataTable (SCU-2.P4.10)", () => {
     expect(onAdded).toHaveBeenCalledTimes(1);
     const next = onAdded.mock.calls[0]![0] as AddedWarehouse[];
     expect(next).toHaveLength(2);
-    expect(next[1]).toMatchObject({ city: "Akron", state: "OH", lat: 41.08, lng: -81.52, capacity: 900, status: "active", displayCode: "WH-OH-AKRON-01" });
+    expect(next[1]).toMatchObject({
+      city: "Akron",
+      state: "OH",
+      lat: 41.08,
+      lng: -81.52,
+      capacity: 900,
+      status: "active",
+      displayCode: "WH-OH-AKRON-01",
+    });
     expect(screen.queryByTestId("create-entity-dialog")).toBeNull();
   });
 
@@ -7874,13 +8363,54 @@ describe("WarehousesTab on DataTable (SCU-2.P4.10)", () => {
     function Parent() {
       const [o, setO] = useState<WarehouseOverride[]>([]);
       const [a, setA] = useState<AddedWarehouse[]>(added);
-      return <WarehousesTab warehouses={base} overrides={o} capacityMode="per_wh" onChange={setO} addedWarehouses={a} onAddedWarehousesChange={setA} onDeleteWarehouse={vi.fn()} />;
+      return (
+        <WarehousesTab
+          warehouses={base}
+          overrides={o}
+          capacityMode="per_wh"
+          onChange={setO}
+          addedWarehouses={a}
+          onAddedWarehousesChange={setA}
+          onDeleteWarehouse={vi.fn()}
+        />
+      );
     }
     render(<Parent />, { wrapper: AllProviders });
     fireEvent.click(screen.getByTestId("button-wh-WH3-inactive"));
     expect(screen.getByTestId("button-wh-WH3-inactive")).toHaveClass("bg-destructive");
     fireEvent.change(screen.getByTestId("input-added-wh-capacity-aw-1"), { target: { value: "750" } });
     expect(screen.getByTestId("input-added-wh-capacity-aw-1")).toHaveValue(750);
+  });
+  it("an OPEN +Add modal goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-capacity",
+      "create-entity-status-forced_open",
+      "create-entity-submit",
+    ];
+    for (const id of fields) expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <WarehousesTab
+        warehouses={base}
+        overrides={[{ id: "WH2", status: "forced_open" }]}
+        capacityMode="per_wh"
+        onChange={vi.fn()}
+        scenarioId={1}
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+        disabled
+      />,
+    );
+    for (const id of fields) expect(screen.getByTestId(id)).toBeDisabled();
+    expect(screen.getByTestId("create-entity-submit")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
   });
 });
 SCU_EOF
@@ -7889,7 +8419,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/WarehousesTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  6 failed | 3 passed (9)` (measured at plan time against the pre-migration tab) — `WarehousesTab.dataTable.test.tsx` fails — no shared filter over added rows, no modal (`create-entity-dialog`), added controls not disabled in history, no Download ▾ trigger.
+Expected: FAIL — `Tests  7 failed | 3 passed (10)` (measured at plan time against the pre-migration tab) — `WarehousesTab.dataTable.test.tsx` fails — no shared filter over added rows, no modal (`create-entity-dialog`), added controls not disabled in history, no Download ▾ trigger.
 
 - [ ] **Step 4: Implement — `entityCells.tsx`**
 
@@ -8402,6 +8932,7 @@ export function WarehousesTab({
       {adding && (
         <CreateEntityDialog
           source="table"
+          readOnly={disabled}
           entityKind={entity === "refineries" ? "refinery" : "warehouse"}
           capacityMode={capacityMode}
           hasStateColumn={hasStateColumn}
@@ -8971,7 +9502,7 @@ PY
 - [ ] **Step 7: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/WarehousesTab.dataTable.test.tsx src/__tests__/WarehousesTab.test.tsx src/__tests__/Workspace.Analytics.test.tsx src/__tests__/Workspace.Brazil.test.tsx src/__tests__/Workspace.TwoEchelon.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 280 tests in 7 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 281 tests in 7 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 8: e2e sweep, rewrites and local run**
 
@@ -9048,8 +9579,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 9: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -9058,6 +9590,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 10: Changelog**
 
@@ -9070,7 +9603,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 - Warehouses + Refineries on DataTable: base + added sections, one FilterMenu on every model (was JADE-only), pager > 50, Upload ▾/Download ▾ + expected fields, "+ Add" modal (D4 id kept), D2 read-only on base AND added controls, numbers centred.
 - New `entityCells.tsx` (StatusToggle, DeleteRowButton, DraftNumberInput). Legacy `WarehouseTable` no longer rendered by the Workspace (Studio.tsx keeps it).
 - By design: `workspace-fixups-2.spec.ts` now asserts one FilterMenu on the 26-row non-JADE tab.
-- Deviations 1, 3, 9, 13, 14, 15, 17, 18.
+- Deviations 1, 3, 9, 13, 14, 15, 17, 18, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -9087,14 +9620,14 @@ git add artifacts/studio/src/components/data-table/entityCells.tsx artifacts/stu
 ```
 
 ```bash
-git commit artifacts/studio/src/components/data-table/entityCells.tsx artifacts/studio/src/__tests__/WarehousesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/WarehousesTab.tsx artifacts/studio/src/__tests__/WarehousesTab.test.tsx artifacts/studio/src/__tests__/Workspace.Analytics.test.tsx artifacts/studio/src/__tests__/Workspace.TwoEchelon.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.Brazil.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/e2e/workspace-fixups.spec.ts artifacts/studio/e2e/workspace-fixups-2.spec.ts artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.10] move Warehouses and Refineries onto DataTable with the add modal" -m "Base+added sections, one FilterMenu on all models, Upload/Download menus, +Add modal (D4 id kept), D2 read-only on added controls. One commit for #17-#20 (dev 1). Deviations 1, 3, 9, 13-15, 17, 18." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/components/data-table/entityCells.tsx artifacts/studio/src/__tests__/WarehousesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/WarehousesTab.tsx artifacts/studio/src/__tests__/WarehousesTab.test.tsx artifacts/studio/src/__tests__/Workspace.Analytics.test.tsx artifacts/studio/src/__tests__/Workspace.TwoEchelon.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.Brazil.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/e2e/workspace-fixups.spec.ts artifacts/studio/e2e/workspace-fixups-2.spec.ts artifacts/studio/e2e/jade-ch9-workspace-bundle.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.10] move Warehouses and Refineries onto DataTable with the add modal" -m "Base+added sections, one FilterMenu on all models, Upload/Download menus, +Add modal (D4 id kept), D2 read-only on added controls. One commit for #17-#20 (dev 1). Deviations 1, 3, 9, 13-15, 17, 18, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.11: Customers (scalar + JADE per-product) on DataTable with the demand cell and the +Add modal
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #21–#24, §2c Customers + JADE per-product base/added. **Spec:** B2.1–B2.4, B2.8, B2.9, D2, D3; user decisions 2026-10-17. **Deviations:** 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18.
+**Owner role:** frontend-engineer. **Matrix:** §1 #21–#24, §2c Customers + JADE per-product base/added. **Spec:** B2.1–B2.4, B2.8, B2.9, D2, D3; user decisions 2026-10-17. **Deviations:** 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/CustomersTab.dataTable.test.tsx`
@@ -9162,8 +9695,17 @@ import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import { CustomersTab, type AddedCustomer, type CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 
-const customers = Array.from({ length: 10 }, (_, i) => ({ id: `C${i + 1}`, city: `City${i + 1}`, state: "NY", lat: 40 + i, lng: -74 - i, demand: 1000 * (i + 1) + 234 }));
-const added: AddedCustomer[] = [{ id: "ac-1", city: "Denver", state: "CO", lat: 39.7, lng: -105, demand: 5000, displayCode: "CS-CO-DENVER-01" }];
+const customers = Array.from({ length: 10 }, (_, i) => ({
+  id: `C${i + 1}`,
+  city: `City${i + 1}`,
+  state: "NY",
+  lat: 40 + i,
+  lng: -74 - i,
+  demand: 1000 * (i + 1) + 234,
+}));
+const added: AddedCustomer[] = [
+  { id: "ac-1", city: "Denver", state: "CO", lat: 39.7, lng: -105, demand: 5000, displayCode: "CS-CO-DENVER-01" },
+];
 const products = [
   { id: "product-1", name: "Copper" },
   { id: "product-2", name: "Aluminum" },
@@ -9257,7 +9799,16 @@ describe("CustomersTab on DataTable (SCU-2.P4.11)", () => {
   it("a typed demand commits (decimals allowed, D3) through a stateful parent", () => {
     function Parent() {
       const [a, setA] = useState<AddedCustomer[]>(added);
-      return <CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} addedCustomers={a} onAddedCustomersChange={setA} onDeleteCustomer={vi.fn()} />;
+      return (
+        <CustomersTab
+          customers={customers}
+          overrides={[]}
+          onChange={vi.fn()}
+          addedCustomers={a}
+          onAddedCustomersChange={setA}
+          onDeleteCustomer={vi.fn()}
+        />
+      );
     }
     render(<Parent />, { wrapper: AllProviders });
     fireEvent.change(screen.getByTestId("input-added-customer-demand-ac-1"), { target: { value: "12345.5" } });
@@ -9267,14 +9818,23 @@ describe("CustomersTab on DataTable (SCU-2.P4.11)", () => {
   it("Brazil (demandEditable false): BASE demand locked with the textbook title, ADDED demand editable", () => {
     renderTab({ demandEditable: false });
     expect(screen.getByTestId("input-customer-demand-C1")).toBeDisabled();
-    expect(screen.getByTestId("input-customer-demand-C1")).toHaveAttribute("title", "Demand for this row is fixed by the textbook dataset and can't be edited.");
+    expect(screen.getByTestId("input-customer-demand-C1")).toHaveAttribute(
+      "title",
+      "Demand for this row is fixed by the textbook dataset and can't be edited.",
+    );
     expect(screen.getByTestId("button-customer-C1-excluded")).toBeEnabled();
     expect(screen.getByTestId("input-added-customer-demand-ac-1")).toBeEnabled();
   });
 
   it("history read-only (D2): base demand + status, added demand + delete, and the add trigger are disabled", () => {
     renderTab({ disabled: true });
-    for (const id of ["input-customer-demand-C1", "button-customer-C1-excluded", "input-added-customer-demand-ac-1", "button-delete-added-customer-ac-1", "button-add-customer-row"]) {
+    for (const id of [
+      "input-customer-demand-C1",
+      "button-customer-C1-excluded",
+      "input-added-customer-demand-ac-1",
+      "button-delete-added-customer-ac-1",
+      "button-add-customer-row",
+    ]) {
       expect(screen.getByTestId(id)).toBeDisabled();
     }
     expect(screen.getByTestId("input-customer-demand-C1")).toHaveAttribute("title", "Read-only while browsing result history.");
@@ -9295,7 +9855,12 @@ describe("CustomersTab on DataTable (SCU-2.P4.11)", () => {
     renderTab({ onAddedCustomersChange: onAdded });
     fireEvent.click(screen.getByTestId("button-add-customer-row"));
     const d = screen.getByTestId("create-entity-dialog");
-    for (const [id, v] of [["create-entity-city", "Akron"], ["create-entity-state", "OH"], ["create-entity-lat", "41.08"], ["create-entity-lng", "-81.52"]] as const) {
+    for (const [id, v] of [
+      ["create-entity-city", "Akron"],
+      ["create-entity-state", "OH"],
+      ["create-entity-lat", "41.08"],
+      ["create-entity-lng", "-81.52"],
+    ] as const) {
       fireEvent.change(within(d).getByTestId(id), { target: { value: v } });
     }
     fireEvent.click(within(d).getByTestId("create-entity-submit"));
@@ -9304,7 +9869,11 @@ describe("CustomersTab on DataTable (SCU-2.P4.11)", () => {
     fireEvent.change(within(d).getByTestId("create-entity-demand"), { target: { value: "205375" } });
     fireEvent.click(within(d).getByTestId("create-entity-submit"));
     expect(onAdded).toHaveBeenCalledTimes(1);
-    expect((onAdded.mock.calls[0]![0] as AddedCustomer[])[1]).toMatchObject({ city: "Akron", demand: 205375, displayCode: "CS-OH-AKRON-01" });
+    expect((onAdded.mock.calls[0]![0] as AddedCustomer[])[1]).toMatchObject({
+      city: "Akron",
+      demand: 205375,
+      displayCode: "CS-OH-AKRON-01",
+    });
   });
 });
 
@@ -9342,30 +9911,48 @@ describe("CustomersTab JADE per-product on DataTable (SCU-2.P4.11)", () => {
     expect(screen.getByTestId("input-customer-demand-C1-product-1")).not.toHaveAttribute("aria-label");
     expect(describedSuffix(screen.getByTestId("input-customer-demand-C1-product-1"))).toHaveTextContent("Units");
     // the base table's headers: one demand column per product, State always shown
-    const baseHeaders = within(screen.getByTestId("customer-product-table")).getAllByRole("columnheader").map(h => h.textContent);
+    const baseHeaders = within(screen.getByTestId("customer-product-table"))
+      .getAllByRole("columnheader")
+      .map(h => h.textContent);
     expect(baseHeaders).toEqual(["ID", "City", "State", "Latitude", "Longitude", "Copper", "Aluminum", "Status"]);
   });
 
   it("history read-only (D2) now covers JADE base AND added per-product demand + status (was live)", () => {
     renderJade({ disabled: true });
-    for (const id of ["input-customer-demand-C1-product-1", "button-customer-C1-excluded", "input-added-customer-demand-ac-1-product-2", "button-delete-added-customer-ac-1"]) {
+    for (const id of [
+      "input-customer-demand-C1-product-1",
+      "button-customer-C1-excluded",
+      "input-added-customer-demand-ac-1-product-2",
+      "button-delete-added-customer-ac-1",
+    ]) {
       expect(screen.getByTestId(id)).toBeDisabled();
     }
   });
 
   it("emptying a JADE base product demand deletes that product's override (D3)", () => {
     function Parent() {
-      const [o, setO] = useState<CustomerProductOverride[]>([{ id: "C1", status: "active", demands: { "product-1": 5, "product-2": 6 } }]);
+      const [o, setO] = useState<CustomerProductOverride[]>([
+        { id: "C1", status: "active", demands: { "product-1": 5, "product-2": 6 } },
+      ]);
       return (
         <>
-          <CustomersTab customers={jadeCustomers} overrides={[]} onChange={vi.fn()} products={products} productOverrides={o} onProductOverridesChange={setO} />
+          <CustomersTab
+            customers={jadeCustomers}
+            overrides={[]}
+            onChange={vi.fn()}
+            products={products}
+            productOverrides={o}
+            onProductOverridesChange={setO}
+          />
           <output data-testid="overrides">{JSON.stringify(o)}</output>
         </>
       );
     }
     render(<Parent />, { wrapper: AllProviders });
     fireEvent.change(screen.getByTestId("input-customer-demand-C1-product-1"), { target: { value: "" } });
-    expect(JSON.parse(screen.getByTestId("overrides").textContent ?? "")).toEqual([{ id: "C1", status: "active", demands: { "product-2": 6 } }]);
+    expect(JSON.parse(screen.getByTestId("overrides").textContent ?? "")).toEqual([
+      { id: "C1", status: "active", demands: { "product-2": 6 } },
+    ]);
     fireEvent.blur(screen.getByTestId("input-customer-demand-C1-product-1"));
     expect(screen.getByTestId("input-customer-demand-C1-product-1")).toHaveValue("1,200");
   });
@@ -9379,6 +9966,35 @@ describe("CustomersTab JADE per-product on DataTable (SCU-2.P4.11)", () => {
     fireEvent.blur(input);
     expect(screen.getByTestId("input-added-customer-demand-ac-1-product-1")).toHaveValue("40");
   });
+  it("an OPEN +Add modal goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-customer-row"));
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-demand",
+      "create-entity-submit",
+    ];
+    for (const id of fields) expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={1}
+        addedCustomers={added}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+        disabled
+      />,
+    );
+    for (const id of fields) expect(screen.getByTestId(id)).toBeDisabled();
+    expect(screen.getByTestId("create-entity-submit")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -9386,7 +10002,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/CustomersTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  12 failed | 1 passed (13)` (measured at plan time against the pre-migration tab) — `CustomersTab.dataTable.test.tsx` fails — demand inputs are `type=number` without grouping or Units, JADE rows not disabled in history, no modal, no shared filter over added rows.
+Expected: FAIL — `Tests  13 failed | 1 passed (14)` (measured at plan time against the pre-migration tab) — `CustomersTab.dataTable.test.tsx` fails — demand inputs are `type=number` without grouping or Units, JADE rows not disabled in history, no modal, no shared filter over added rows.
 
 - [ ] **Step 4: Implement — `CustomersTab.tsx`**
 
@@ -9866,6 +10482,7 @@ export function CustomersTab({
       {adding && (
         <CreateEntityDialog
           source="table"
+          readOnly={disabled}
           entityKind="customer"
           hasStateColumn={hasStateColumn}
           products={productMode ? products : undefined}
@@ -10457,7 +11074,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/CustomersTab.dataTable.test.tsx src/__tests__/CustomersTab.test.tsx src/__tests__/Workspace.Brazil.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 250 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 251 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -10548,8 +11165,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -10558,6 +11176,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -10570,7 +11189,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 - Customers (scalar + JADE) on DataTable: base + added sections, one FilterMenu on every model, pager > 50, Upload ▾/Download ▾, "+ Add customer" modal (empty demand blocks, incl. JADE per-product).
 - B2.9: `DemandCell` (FormattedNumberInput, Units suffix, no aria-label; base empty → clear override, added empty → not saved, reverts on blur); Brazil lock base-only; D2 read-only on base, added and JADE rows (JADE was live).
 - e2e demand reads rewritten for grouped values (import, chen-bands-units-qa, max-coverage).
-- Deviations 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18.
+- Deviations 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -10587,14 +11206,14 @@ git add artifacts/studio/src/__tests__/CustomersTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/CustomersTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/CustomersTab.tsx artifacts/studio/src/__tests__/CustomersTab.test.tsx artifacts/studio/src/components/data-table/entityCells.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.Brazil.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/e2e/import.spec.ts artifacts/studio/e2e/max-coverage.spec.ts artifacts/studio/e2e/chen-bands-units-qa.spec.ts artifacts/studio/e2e/jade-two-echelon.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.11] move Customers onto DataTable with the formatted demand cell and add modal" -m "Scalar + JADE per-product in one DataTable (sections), FormattedNumberInput demand (B2.9), empty demand blocks add, D2 read-only incl. JADE, one FilterMenu. One commit for #21-#24 (dev 1). Deviations 1-3, 9-11, 13-15, 17, 18." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/CustomersTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/CustomersTab.tsx artifacts/studio/src/__tests__/CustomersTab.test.tsx artifacts/studio/src/components/data-table/entityCells.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.Brazil.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/e2e/import.spec.ts artifacts/studio/e2e/max-coverage.spec.ts artifacts/studio/e2e/chen-bands-units-qa.spec.ts artifacts/studio/e2e/jade-two-echelon.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.11] move Customers onto DataTable with the formatted demand cell and add modal" -m "Scalar + JADE per-product in one DataTable (sections), FormattedNumberInput demand (B2.9), empty demand blocks add, D2 read-only incl. JADE, one FilterMenu. One commit for #21-#24 (dev 1). Deviations 1-3, 9-11, 13-15, 17, 18, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.12: JADE Plants on DataTable (one shared filter menu) with the +Add modal
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #25–#26, §2c Plants base + added. **Spec:** B2.1–B2.4, B2.8, D2; user decision 2026-10-17 (one menu). **Deviations:** 1, 3, 9, 13, 15, 17.
+**Owner role:** frontend-engineer. **Matrix:** §1 #25–#26, §2c Plants base + added. **Spec:** B2.1–B2.4, B2.8, D2; user decision 2026-10-17 (one menu). **Deviations:** 1, 3, 9, 13, 15, 17, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/PlantsTab.dataTable.test.tsx`
@@ -10658,12 +11277,31 @@ const plants = [
 const added: AddedPlant[] = [{ id: "ap-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, displayCode: "PL-TX-DALLAS-01" }];
 
 const renderTab = (props: Partial<React.ComponentProps<typeof PlantsTab>> = {}) =>
-  render(<PlantsTab plants={plants} scenarioId={1} addedPlants={added} onAddedPlantsChange={vi.fn()} onDeletePlant={vi.fn()} {...props} />, { wrapper: AllProviders });
+  render(
+    <PlantsTab
+      plants={plants}
+      scenarioId={1}
+      addedPlants={added}
+      onAddedPlantsChange={vi.fn()}
+      onDeletePlant={vi.fn()}
+      {...props}
+    />,
+    { wrapper: AllProviders },
+  );
 
 describe("PlantsTab on DataTable (SCU-2.P4.12)", () => {
   it("emits every testid in the matrix map", () => {
     renderTab();
-    for (const id of ["plants-tab", "plants-tab-toolbar", "button-import-plants", "button-download-plants", "button-add-plant-row", "added-plants-section", "row-added-plant-ap-1", "button-delete-added-plant-ap-1"]) {
+    for (const id of [
+      "plants-tab",
+      "plants-tab-toolbar",
+      "button-import-plants",
+      "button-download-plants",
+      "button-add-plant-row",
+      "added-plants-section",
+      "row-added-plant-ap-1",
+      "button-delete-added-plant-ap-1",
+    ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     // base rows show the plant NAME (unchanged), added rows the display code
@@ -10690,7 +11328,12 @@ describe("PlantsTab on DataTable (SCU-2.P4.12)", () => {
     const d = screen.getByTestId("create-entity-dialog");
     expect(within(d).queryByTestId("create-entity-status")).toBeNull();
     expect(within(d).queryByTestId("create-entity-capacity")).toBeNull();
-    for (const [id, v] of [["create-entity-city", "Akron"], ["create-entity-state", "OH"], ["create-entity-lat", "41.08"], ["create-entity-lng", "-81.52"]] as const) {
+    for (const [id, v] of [
+      ["create-entity-city", "Akron"],
+      ["create-entity-state", "OH"],
+      ["create-entity-lat", "41.08"],
+      ["create-entity-lng", "-81.52"],
+    ] as const) {
       fireEvent.change(within(d).getByTestId(id), { target: { value: v } });
     }
     fireEvent.click(within(d).getByTestId("create-entity-submit"));
@@ -10699,6 +11342,32 @@ describe("PlantsTab on DataTable (SCU-2.P4.12)", () => {
     expect(next[1]!.id).toMatch(/^ap-/);
     expect(next[1]).toMatchObject({ city: "Akron", state: "OH", lat: 41.08, lng: -81.52, displayCode: "PL-OH-AKRON-01" });
   });
+  it("an OPEN +Add modal goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-plant-row"));
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-submit",
+    ];
+    for (const id of fields) expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <PlantsTab
+        plants={plants}
+        scenarioId={1}
+        addedPlants={added}
+        onAddedPlantsChange={vi.fn()}
+        onDeletePlant={vi.fn()}
+        readOnly
+      />,
+    );
+    for (const id of fields) expect(screen.getByTestId(id)).toBeDisabled();
+    expect(screen.getByTestId("create-entity-submit")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -10706,7 +11375,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/PlantsTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  3 failed | 1 passed (4)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  4 failed | 1 passed (5)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `PlantsTab.tsx`**
 
@@ -10941,6 +11610,7 @@ export function PlantsTab({
       {adding && (
         <CreateEntityDialog
           source="table"
+          readOnly={readOnly}
           entityKind="plant"
           existingCodes={addedPlants.map(p => p.displayCode).filter((c): c is string => !!c)}
           onCreate={r => {
@@ -11193,7 +11863,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/PlantsTab.dataTable.test.tsx src/__tests__/PlantsTab.test.tsx src/__tests__/Workspace.Jade.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 46 tests in 4 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 47 tests in 4 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -11245,8 +11915,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -11255,6 +11926,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -11265,7 +11937,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 ### SCU-2.P4.12 — JADE Plants on DataTable
 
 - JADE Plants on DataTable: one shared FilterMenu over base + added (user decision), "+ Add plant" modal, D2 read-only (new prop), Upload ▾/Download ▾, numbers centred.
-- Deviations 1, 3, 9, 13, 15, 17.
+- Deviations 1, 3, 9, 13, 15, 17, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -11282,14 +11954,14 @@ git add artifacts/studio/src/__tests__/PlantsTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/PlantsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/PlantsTab.tsx artifacts/studio/src/__tests__/PlantsTab.test.tsx artifacts/studio/src/__tests__/Workspace.Jade.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/workspace-fixups-2.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.12] move JADE Plants onto DataTable with one shared filter and the add modal" -m "Base + added share one FilterMenu (user decision), +Add plant modal, D2 read-only, Upload/Download menus. One commit for #25-#26 (dev 1). Deviations 1, 3, 9, 13, 15, 17." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/PlantsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/PlantsTab.tsx artifacts/studio/src/__tests__/PlantsTab.test.tsx artifacts/studio/src/__tests__/Workspace.Jade.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts artifacts/studio/e2e/workspace-fixups-2.spec.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.12] move JADE Plants onto DataTable with one shared filter and the add modal" -m "Base + added share one FilterMenu (user decision), +Add plant modal, D2 read-only, Upload/Download menus. One commit for #25-#26 (dev 1). Deviations 1, 3, 9, 13, 15, 17, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.13: Mines on DataTable with the +Add modal (transport-coal)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #27–#28, §2c Mines base + added. **Spec:** B2.1–B2.4, B2.8, D2. **Deviations:** 1, 3, 9, 13, 15, 17, 18.
+**Owner role:** frontend-engineer. **Matrix:** §1 #27–#28, §2c Mines base + added. **Spec:** B2.1–B2.4, B2.8, D2. **Deviations:** 1, 3, 9, 13, 15, 17, 18, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/MinesTab.dataTable.test.tsx`
@@ -11351,27 +12023,62 @@ const mines = [
   { id: "KY", city: "Pikeville", state: "KY", lat: 37.5, lng: -82.5 },
   { id: "WV", city: "Beckley", state: "WV", lat: 37.8, lng: -81.2 },
 ];
-const added: AddedMine[] = [{ id: "am-1", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 1000, displayCode: "MN-VA-BRISTOL-01" }];
+const added: AddedMine[] = [
+  { id: "am-1", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 1000, displayCode: "MN-VA-BRISTOL-01" },
+];
 
 const renderTab = (props: Partial<React.ComponentProps<typeof MinesTab>> = {}) =>
-  render(<MinesTab mines={mines} overrides={[]} onChange={vi.fn()} scenarioId={1} addedMines={added} onAddedMinesChange={vi.fn()} onDeleteMine={vi.fn()} {...props} />, {
-    wrapper: AllProviders,
-  });
+  render(
+    <MinesTab
+      mines={mines}
+      overrides={[]}
+      onChange={vi.fn()}
+      scenarioId={1}
+      addedMines={added}
+      onAddedMinesChange={vi.fn()}
+      onDeleteMine={vi.fn()}
+      {...props}
+    />,
+    {
+      wrapper: AllProviders,
+    },
+  );
 
 describe("MinesTab on DataTable (SCU-2.P4.13)", () => {
   it("emits every testid in the matrix map; headers unchanged", () => {
     renderTab();
-    for (const id of ["mines-tab", "mines-tab-toolbar", "button-import-mines", "button-download-mines", "button-add-mine-row", "input-mine-capacity-KY", "added-mines-section", "row-added-mine-am-1", "input-added-mine-capacity-am-1", "button-delete-added-mine-am-1"]) {
+    for (const id of [
+      "mines-tab",
+      "mines-tab-toolbar",
+      "button-import-mines",
+      "button-download-mines",
+      "button-add-mine-row",
+      "input-mine-capacity-KY",
+      "added-mines-section",
+      "row-added-mine-am-1",
+      "input-added-mine-capacity-am-1",
+      "button-delete-added-mine-am-1",
+    ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     expect(screen.getByTestId("input-mine-capacity-KY")).toHaveAttribute("placeholder", "base capacity");
     expect(screen.getByTestId("input-added-mine-capacity-am-1")).toHaveValue(1000);
-    expect(screen.getAllByRole("columnheader").map(h => h.textContent).slice(0, 6)).toEqual(["ID", "City", "State", "Latitude", "Longitude", "Capacity override (tons)"]);
+    expect(
+      screen
+        .getAllByRole("columnheader")
+        .map(h => h.textContent)
+        .slice(0, 6),
+    ).toEqual(["ID", "City", "State", "Latitude", "Longitude", "Capacity override (tons)"]);
   });
 
   it("history read-only (D2): base + added capacity, delete and the add trigger are disabled", () => {
     renderTab({ readOnly: true });
-    for (const id of ["input-mine-capacity-KY", "input-added-mine-capacity-am-1", "button-delete-added-mine-am-1", "button-add-mine-row"]) {
+    for (const id of [
+      "input-mine-capacity-KY",
+      "input-added-mine-capacity-am-1",
+      "button-delete-added-mine-am-1",
+      "button-add-mine-row",
+    ]) {
       expect(screen.getByTestId(id)).toBeDisabled();
     }
   });
@@ -11382,7 +12089,13 @@ describe("MinesTab on DataTable (SCU-2.P4.13)", () => {
     fireEvent.click(screen.getByTestId("button-add-mine-row"));
     const d = screen.getByTestId("create-entity-dialog");
     expect(within(d).queryByTestId("create-entity-status")).toBeNull();
-    for (const [id, v] of [["create-entity-city", "Pikeville"], ["create-entity-state", "KY"], ["create-entity-lat", "37.54"], ["create-entity-lng", "-82.75"], ["create-entity-capacity", "25000000"]] as const) {
+    for (const [id, v] of [
+      ["create-entity-city", "Pikeville"],
+      ["create-entity-state", "KY"],
+      ["create-entity-lat", "37.54"],
+      ["create-entity-lng", "-82.75"],
+      ["create-entity-capacity", "25000000"],
+    ] as const) {
       fireEvent.change(within(d).getByTestId(id), { target: { value: v } });
     }
     fireEvent.click(within(d).getByTestId("create-entity-submit"));
@@ -11402,6 +12115,35 @@ describe("MinesTab on DataTable (SCU-2.P4.13)", () => {
     fireEvent.change(screen.getByTestId("input-mine-capacity-KY"), { target: { value: "" } });
     expect(screen.getByTestId("input-mine-capacity-KY")).toHaveValue(null);
   });
+  it("an OPEN +Add modal goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-mine-row"));
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-capacity",
+      "create-entity-submit",
+    ];
+    for (const id of fields) expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <MinesTab
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={1}
+        addedMines={added}
+        onAddedMinesChange={vi.fn()}
+        onDeleteMine={vi.fn()}
+        readOnly
+      />,
+    );
+    for (const id of fields) expect(screen.getByTestId(id)).toBeDisabled();
+    expect(screen.getByTestId("create-entity-submit")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -11409,7 +12151,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/MinesTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  3 failed | 1 passed (4)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  4 failed | 1 passed (5)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `MinesTab.tsx`**
 
@@ -11721,6 +12463,7 @@ export function MinesTab({
       {adding && (
         <CreateEntityDialog
           source="table"
+          readOnly={readOnly}
           entityKind="mine"
           existingCodes={addedMines.map(m => m.displayCode).filter((c): c is string => !!c)}
           onCreate={r => {
@@ -11945,7 +12688,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/MinesTab.dataTable.test.tsx src/__tests__/MinesTab.test.tsx src/__tests__/Workspace.TransportCoal.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 205 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 206 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -11963,8 +12706,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -11973,6 +12717,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -11983,7 +12728,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 ### SCU-2.P4.13 — Mines on DataTable with the +Add modal
 
 - Mines on DataTable: base + added sections, "+ Add mine" modal, D2 read-only (new prop), FilterMenu, Upload ▾/Download ▾. Legacy `MineTable` no longer rendered by the Workspace.
-- Deviations 1, 3, 9, 13, 15, 17, 18.
+- Deviations 1, 3, 9, 13, 15, 17, 18, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -12000,14 +12745,14 @@ git add artifacts/studio/src/__tests__/MinesTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/MinesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/MinesTab.tsx artifacts/studio/src/__tests__/MinesTab.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.TransportCoal.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.13] move Mines onto DataTable with the add modal" -m "Base + added sections, +Add mine modal, D2 read-only, Upload/Download menus. One commit for #27-#28 (dev 1). Deviations 1, 3, 9, 13, 15, 17, 18." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/MinesTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/MinesTab.tsx artifacts/studio/src/__tests__/MinesTab.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.TransportCoal.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.13] move Mines onto DataTable with the add modal" -m "Base + added sections, +Add mine modal, D2 read-only, Upload/Download menus. One commit for #27-#28 (dev 1). Deviations 1, 3, 9, 13, 15, 17, 18, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ## Task SCU-2.P4.14: Stations on DataTable with the integer demand cell and the +Add modal (transport-coal)
 
-**Owner role:** frontend-engineer. **Matrix:** §1 #29–#30, §2c Stations base + added. **Spec:** B2.1–B2.4, B2.8, B2.9 (integer mode), D2; user decision 2026-10-17. **Deviations:** 1, 2, 3, 9, 10, 12, 13, 15, 17, 18.
+**Owner role:** frontend-engineer. **Matrix:** §1 #29–#30, §2c Stations base + added. **Spec:** B2.1–B2.4, B2.8, B2.9 (integer mode), D2; user decision 2026-10-17. **Deviations:** 1, 2, 3, 9, 10, 12, 13, 15, 17, 18, 19.
 
 **Files:**
 - Create: `artifacts/studio/src/__tests__/StationsTab.dataTable.test.tsx`
@@ -12072,18 +12817,40 @@ const stations = [
   { id: "LAX", city: "Los Angeles", state: "CA", lat: 33.97, lng: -118.25 },
   { id: "SEA", city: "Seattle", state: "WA", lat: 47.6, lng: -122.3 },
 ];
-const added: AddedStation[] = [{ id: "as-1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000, displayCode: "ST-NC-NEWTOWN-01" }];
+const added: AddedStation[] = [
+  { id: "as-1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000, displayCode: "ST-NC-NEWTOWN-01" },
+];
 
 const renderTab = (props: Partial<React.ComponentProps<typeof StationsTab>> = {}) =>
   render(
-    <StationsTab stations={stations} overrides={[{ id: "SEA", demand: 1234567 }]} onChange={vi.fn()} scenarioId={1} addedStations={added} onAddedStationsChange={vi.fn()} onDeleteStation={vi.fn()} {...props} />,
+    <StationsTab
+      stations={stations}
+      overrides={[{ id: "SEA", demand: 1234567 }]}
+      onChange={vi.fn()}
+      scenarioId={1}
+      addedStations={added}
+      onAddedStationsChange={vi.fn()}
+      onDeleteStation={vi.fn()}
+      {...props}
+    />,
     { wrapper: AllProviders },
   );
 
 describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
   it("emits every testid in the matrix map; base demand blank when not overridden, grouped when it is", () => {
     renderTab();
-    for (const id of ["stations-tab", "stations-tab-toolbar", "button-import-stations", "button-download-stations", "button-add-station-row", "input-station-demand-LAX", "added-stations-section", "row-added-station-as-1", "input-added-station-demand-as-1", "button-delete-added-station-as-1"]) {
+    for (const id of [
+      "stations-tab",
+      "stations-tab-toolbar",
+      "button-import-stations",
+      "button-download-stations",
+      "button-add-station-row",
+      "input-station-demand-LAX",
+      "added-stations-section",
+      "row-added-station-as-1",
+      "input-added-station-demand-as-1",
+      "button-delete-added-station-as-1",
+    ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     expect(screen.getByTestId("input-station-demand-LAX")).toHaveValue("");
@@ -12108,7 +12875,14 @@ describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
       const [a, setA] = useState<AddedStation[]>(added);
       return (
         <>
-          <StationsTab stations={stations} overrides={o} onChange={setO} addedStations={a} onAddedStationsChange={setA} onDeleteStation={vi.fn()} />
+          <StationsTab
+            stations={stations}
+            overrides={o}
+            onChange={setO}
+            addedStations={a}
+            onAddedStationsChange={setA}
+            onDeleteStation={vi.fn()}
+          />
           <output data-testid="state">{JSON.stringify({ o, a: a.map(s => s.demand) })}</output>
         </>
       );
@@ -12126,7 +12900,12 @@ describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
 
   it("history read-only (D2): base + added demand, delete and the add trigger are disabled", () => {
     renderTab({ readOnly: true });
-    for (const id of ["input-station-demand-LAX", "input-added-station-demand-as-1", "button-delete-added-station-as-1", "button-add-station-row"]) {
+    for (const id of [
+      "input-station-demand-LAX",
+      "input-added-station-demand-as-1",
+      "button-delete-added-station-as-1",
+      "button-add-station-row",
+    ]) {
       expect(screen.getByTestId(id)).toBeDisabled();
     }
   });
@@ -12136,7 +12915,12 @@ describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
     renderTab({ onAddedStationsChange: onAdded });
     fireEvent.click(screen.getByTestId("button-add-station-row"));
     const d = screen.getByTestId("create-entity-dialog");
-    for (const [id, v] of [["create-entity-city", "Akron"], ["create-entity-state", "OH"], ["create-entity-lat", "41.08"], ["create-entity-lng", "-81.52"]] as const) {
+    for (const [id, v] of [
+      ["create-entity-city", "Akron"],
+      ["create-entity-state", "OH"],
+      ["create-entity-lat", "41.08"],
+      ["create-entity-lng", "-81.52"],
+    ] as const) {
       fireEvent.change(within(d).getByTestId(id), { target: { value: v } });
     }
     fireEvent.click(within(d).getByTestId("create-entity-submit"));
@@ -12147,6 +12931,35 @@ describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
     expect(next[1]!.id).toMatch(/^as-/);
     expect(next[1]).toMatchObject({ city: "Akron", demand: 8000000, displayCode: "ST-OH-AKRON-01" });
   });
+  it("an OPEN +Add modal goes read-only when history browsing starts (D2, transient controls)", () => {
+    const { rerender } = renderTab();
+    fireEvent.click(screen.getByTestId("button-add-station-row"));
+    const fields = [
+      "create-entity-city",
+      "create-entity-state",
+      "create-entity-lat",
+      "create-entity-lng",
+      "create-entity-display-code",
+      "create-entity-demand",
+      "create-entity-submit",
+    ];
+    for (const id of fields) expect(screen.getByTestId(id)).toBeEnabled();
+    rerender(
+      <StationsTab
+        stations={stations}
+        overrides={[{ id: "SEA", demand: 1234567 }]}
+        onChange={vi.fn()}
+        scenarioId={1}
+        addedStations={added}
+        onAddedStationsChange={vi.fn()}
+        onDeleteStation={vi.fn()}
+        readOnly
+      />,
+    );
+    for (const id of fields) expect(screen.getByTestId(id)).toBeDisabled();
+    expect(screen.getByTestId("create-entity-submit")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("create-entity-cancel")).toBeEnabled();
+  });
 });
 SCU_EOF
 ```
@@ -12154,7 +12967,7 @@ SCU_EOF
 - [ ] **Step 3: Run it to verify it fails**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/StationsTab.dataTable.test.tsx`
-Expected: FAIL — `Tests  5 failed (5)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
+Expected: FAIL — `Tests  6 failed (6)` (measured at plan time against the pre-migration tab) — the history test finds enabled controls (and `readOnly` is not yet a prop — a type error under `pnpm --filter studio typecheck`), and the menu/filter/centring assertions find today's single buttons, From/To boxes and left-aligned numbers.
 
 - [ ] **Step 4: Implement — `StationsTab.tsx`**
 
@@ -12469,6 +13282,7 @@ export function StationsTab({
       {adding && (
         <CreateEntityDialog
           source="table"
+          readOnly={readOnly}
           entityKind="station"
           existingCodes={addedStations.map(s => s.displayCode).filter((c): c is string => !!c)}
           onCreate={r => {
@@ -12699,7 +13513,7 @@ PY
 - [ ] **Step 6: Run the task's tests**
 
 Run: `pnpm --filter studio exec vitest run src/__tests__/StationsTab.dataTable.test.tsx src/__tests__/StationsTab.test.tsx src/__tests__/Workspace.TransportCoal.test.tsx src/__tests__/Workspace.test.tsx src/__tests__/historyReadOnlyTabs.test.ts`
-Expected: PASS — 207 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
+Expected: PASS — 208 tests in 5 files (measured at plan time). Then `pnpm --filter studio typecheck` → exit 0.
 
 - [ ] **Step 7: e2e sweep, rewrites and local run**
 
@@ -12717,8 +13531,9 @@ Expected: every test passes (a failure → flake registry by test name, two isol
 
 - [ ] **Step 8: Gate**
 
-Run each separately (Global Constraints):
-1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]`
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
 2. `pnpm run typecheck`
 3. `pnpm --filter studio typecheck:e2e`
 4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
@@ -12727,6 +13542,7 @@ Run each separately (Global Constraints):
 7. `pnpm --filter @workspace/import-schema test`
 
 Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 9: Changelog**
 
@@ -12738,7 +13554,7 @@ Append to the bottom of `docs/CHANGELOG-implementation.md`:
 
 - Stations on DataTable: integer FormattedNumberInput demand (B2.9 user decision; "tons" suffix — user answer 2026-10-17), added empty → not saved, "+ Add station" modal (empty demand blocks), D2 read-only (new prop), FilterMenu, Upload ▾/Download ▾. Legacy `StationTable` no longer rendered by the Workspace.
 - D2 guard: no input tab left pending.
-- Deviations 1, 2, 3, 9, 10, 12, 13, 15, 17, 18.
+- Deviations 1, 2, 3, 9, 10, 12, 13, 15, 17, 18, 19.
 - Gate: studio <N passed>, api-server <N passed>, pytest <N passed>, import-schema <N passed>. e2e (local, `E2E_BASE_URL` set): <spec: pass/fail per spec>.
 ```
 
@@ -12755,7 +13571,7 @@ git add artifacts/studio/src/__tests__/StationsTab.dataTable.test.tsx
 ```
 
 ```bash
-git commit artifacts/studio/src/__tests__/StationsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/StationsTab.tsx artifacts/studio/src/__tests__/StationsTab.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.TransportCoal.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.14] move Stations onto DataTable with the integer demand cell and add modal" -m "Integer FormattedNumberInput demand (B2.9), +Add station modal, D2 read-only, Upload/Download menus; guard asserts nothing pending. One commit for #29-#30 (dev 1). Deviations 1-3, 9, 10, 12, 13, 15, 17, 18." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit artifacts/studio/src/__tests__/StationsTab.dataTable.test.tsx artifacts/studio/src/components/workspace/tabs/StationsTab.tsx artifacts/studio/src/__tests__/StationsTab.test.tsx artifacts/studio/src/__tests__/Workspace.test.tsx artifacts/studio/src/__tests__/Workspace.TransportCoal.test.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/historyReadOnlyTabs.test.ts docs/CHANGELOG-implementation.md -m "[SCU-2.P4.14] move Stations onto DataTable with the integer demand cell and add modal" -m "Integer FormattedNumberInput demand (B2.9), +Add station modal, D2 read-only, Upload/Download menus; guard asserts nothing pending. One commit for #29-#30 (dev 1). Deviations 1-3, 9, 10, 12, 13, 15, 17, 18, 19." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -12798,7 +13614,20 @@ Expected: 0 failures. Every failure: flake registry by test name → two isolate
 
 - [ ] **Step 5: Local `nos-api` Docker build** — from the worktree root: `docker build -t nos-api-scu-2-p4 .` → exit 0 (record duration). The studio build: `pnpm --filter studio... build` → exit 0.
 
-- [ ] **Step 6: Gate** — the seven Global Constraints commands, each separately, all exit 0.
+- [ ] **Step 6: Gate**
+
+<!-- gate:begin -->
+Run each command separately and judge it by its own exit status:
+1. `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ]` — alone, never chained with `&&`.
+2. `pnpm run typecheck`
+3. `pnpm --filter studio typecheck:e2e`
+4. `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server test`
+5. `pnpm --filter studio test`
+6. `(cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)`
+7. `pnpm --filter @workspace/import-schema test`
+
+Expected: every command exits 0. Then `git diff --stat "$P3_TIP"..HEAD -- artifacts/api-server lib/db lib/api-spec` prints nothing.
+<!-- gate:end -->
 
 - [ ] **Step 7: Changelog + commit** — append `### SCU-2.P4.15 — QA: input tables in a real browser + full e2e gate` with the per-model × per-table × (a)–(h) verdict table, the `e2e:gate` pass/fail/flaky counts, the quarantine result, the solver-script results, the Docker build result, every repaired spec (and which task's sweep missed it) and every flake-registry entry added.
 ```bash
@@ -12817,7 +13646,7 @@ Add each repaired `artifacts/studio/e2e/<spec>.spec.ts` and `docs/superpowers/fl
 
 **Files:** `docs/CHANGELOG-implementation.md` (Bundle 2 summary); `docs/superpowers/metrics/*.csv` (written by `/harness-retro`).
 
-- [ ] **Step 1: Bundle 2 summary** — append `### SCU-B2 — bundle summary` under `## SCU-B2`: the SHA of every `[SCU-2.P1.N]`, `[SCU-2.P2.N]`, `[SCU-2.P3.N]`, `[SCU-2.P4.N]` commit (`git log --oneline <bundle-2 base>..scnd-upgrades`); the user-visible changes of P4 (FilterMenu replaces From/To on every table > 10 rows on every model; pagers only above 50 rows, incl. Delivery Costs' formerly always-on pager; Upload ▾/Download ▾ CSV+JSON with an expected-fields panel on every input table except the Capability Matrix and Transport Costs; Delivery Costs import/export; the "+ Add {Entity}" modal; grouped demand with Units and the empty-demand rules; history read-only on every input control, D2; numbers centred); P4 deviations 1–18 one line each; the three user answers folded in (below). Commit on the bundle branch:
+- [ ] **Step 1: Bundle 2 summary** — append `### SCU-B2 — bundle summary` under `## SCU-B2`: the SHA of every `[SCU-2.P1.N]`, `[SCU-2.P2.N]`, `[SCU-2.P3.N]`, `[SCU-2.P4.N]` commit (`git log --oneline <bundle-2 base>..scnd-upgrades`); the user-visible changes of P4 (FilterMenu replaces From/To on every table > 10 rows on every model; pagers only above 50 rows, incl. Delivery Costs' formerly always-on pager; Upload ▾/Download ▾ CSV+JSON with an expected-fields panel on every input table except the Capability Matrix and Transport Costs; Delivery Costs import/export; the "+ Add {Entity}" modal; grouped demand with Units and the empty-demand rules; history read-only on every input control, D2; numbers centred); P4 deviations 1–20 one line each; the three user answers folded in (below). Commit on the bundle branch:
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1
 ```
@@ -12855,6 +13684,10 @@ git commit docs/CHANGELOG-implementation.md -m "[SCU-B2] summarise Bundle 2 in t
 |---|---|
 | B2.1 every P4 instance on DataTable (matrix #10–#30), required `ctx`, literal testids, number centring, `w-full` inputs | P4.3–P4.14 (each `*.dataTable.test.tsx` "emits every testid in the matrix map" + centring test) |
 | B2.1 `readOnly` on every editable cell in base, added, JADE rows (D2) | P4.3–P4.14 history tests; D2 wiring guard (P4.1, flips per task, "nothing pending" P4.14); browser check P4.15 (g) |
+| D2 transient controls: an open "+ Add row" form / "+ Add {Entity}" modal goes read-only when history starts (Cancel stays enabled); read-only title on JADE Transport Costs inputs + Reset (deviation 19) | P4.2 (`readOnly` prop + test), rerender test in each of P4.3–P4.7 and P4.10–P4.14, P4.8 exact-title test |
+| B2.7 / D1 Delivery Costs export carries no `unit`, costs unconverted (deviation 20) | P4.7 (`ExportContext.test.tsx` + `delivery-teaching.spec.ts` step 10) |
+| D5 / D6 preserved (StaleOutputBanner gate; legacy `computeBandCoverage`) | untouched by every P4 task ("Decisions applied") |
+| P1 adapter rule: columns may be rebuilt per render; no effect keyed on column identity | P1 plan rule + P1.4 test (deviation 3) |
 | B2.2 FilterMenu > 10 rows all models, replaces From/To, one menu for base + added (incl. JADE Plants), `(empty)` token | P4.3–P4.7 (From/To), P4.10–P4.14 (sections), P4.12 (one Plants menu), P4.15 (c) |
 | B2.2 pager only > 50 filtered rows; reset on filter/row-set change | P4.3/P4.5/P4.7 tests; deviation 4; P4.15 (d) |
 | B2.2 focus jump: clear filters, page against the unfiltered list, scroll — jsdom + real browser (P1 hand-off) | P4.3, P4.5 (RTL + Playwright `toBeInViewport`) |
@@ -12870,6 +13703,12 @@ git commit docs/CHANGELOG-implementation.md -m "[SCU-B2] summarise Bundle 2 in t
 | e2e by-design breaks: "Page 1 of 1", workspace-fixups-2 no-filter, `Number(value)` demand reads | P4.3, P4.10, P4.11 |
 | Verification: gate every task; full e2e:gate + browser QA + Docker before merge | every task; P4.15 |
 | Close-out: changelog, `/harness-retro SCU-B2`, finishing skill, STOP; merge/push/deploy separate; `deploy:preflight` | P4.16 |
+
+**Gate blocks identical:** every task's Gate step (P4.1–P4.15) is the canonical block from Global Constraints, byte for byte. Check:
+```bash
+python3 -c "import re,sys; b=re.findall(r'<!-- gate:begin -->\n(.*?)<!-- gate:end -->', open(sys.argv[1]).read(), re.S); print(len(b), len(set(b)))" docs/superpowers/plans/2026-10-17-scnd-upgrades-bundle2-p4.md
+```
+Expected: `16 1` (the canonical block + 15 task gates, one distinct text).
 
 **Placeholder scan:** the only angle-bracket tokens are measured-at-run-time values (`<N passed>`, `<B1_TIP short>`, `<P3_TIP short>`, per-spec pass/fail, `<deployed-sha>`), each with its derivation and `unknown` as the fallback. No "TBD", "similar to Task N" or "add tests here": every test file, tab file and edit is spelled out.
 
