@@ -27,7 +27,7 @@ const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"
   LaneCostsTab: "readOnly", // SCU-2.P4.6
   DeliveryCostsTab: "readOnly", // SCU-2.P4.7
   CapabilityMatrixTab: "readOnly", // SCU-2.P4.9
-  PlantsTab: "pending", // SCU-2.P4.12
+  PlantsTab: "readOnly", // SCU-2.P4.12
   MinesTab: "pending", // SCU-2.P4.13
   StationsTab: "pending", // SCU-2.P4.14
 };

@@ -3532,6 +3532,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <PlantsTab
+          readOnly={isBrowsingHistoryNow}
           plants={dataset.plants ?? []}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}

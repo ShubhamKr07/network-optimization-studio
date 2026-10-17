@@ -14,6 +14,7 @@ function render(
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlantsTab } from "@/components/workspace/tabs/PlantsTab";
+import { chooseInputDownload, chooseUpload } from "@/__tests__/helpers/inputTable";
 
 // T11 (Chapter 9 JADE) — a plant has neither status nor capacity of its
 // own (spec §6): all of a plant's editable behavior lives in the
@@ -78,11 +79,11 @@ describe("PlantsTab", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-plant-row"));
-    await userEvent.type(screen.getByTestId("input-new-plant-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-plant-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-plant-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-plant-lng"), "-104.99");
-    await userEvent.click(screen.getByTestId("button-add-plant-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedPlantsChange).toHaveBeenCalledTimes(1);
     const [added] = onAddedPlantsChange.mock.calls[0][0];
@@ -98,12 +99,12 @@ describe("PlantsTab", () => {
       <PlantsTab plants={plants} addedPlants={[]} onAddedPlantsChange={onAddedPlantsChange} onDeletePlant={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId("button-add-plant-row"));
-    await userEvent.type(screen.getByTestId("input-new-plant-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-plant-lng"), "-104.99");
-    await userEvent.click(screen.getByTestId("button-add-plant-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedPlantsChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-plant-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   it("renders an added plant row with a delete button, and clicking it calls onDeletePlant with its id", async () => {
@@ -132,8 +133,8 @@ describe("PlantsTab — Upload/Download", () => {
         <PlantsTab plants={plants} />
       </ExportProviderTestWrapper>,
     );
-    expect(screen.getByTestId("button-export-plants-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-plants-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-plants")).toBeDisabled();
     expect(screen.getByTestId("button-import-plants")).toBeDisabled();
   });
 
@@ -148,7 +149,7 @@ describe("PlantsTab — Upload/Download", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-plants-csv"));
+    chooseInputDownload("plants", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -160,7 +161,7 @@ describe("PlantsTab — Upload/Download", () => {
   it("Upload button opens ImportDialog scoped to entity=plants", async () => {
     renderWithQueryClient(<PlantsTab plants={plants} scenarioId={7} />);
     expect(screen.queryByText("Import plants")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-plants"));
+    chooseUpload("plants", "csv");
     expect(screen.getByText("Import plants")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-plants")).toBeInTheDocument();
   });
@@ -176,7 +177,7 @@ describe("PlantsTab — Upload/Download", () => {
     const onImportApplied = vi.fn();
     renderWithQueryClient(<PlantsTab plants={plants} scenarioId={7} onImportApplied={onImportApplied} />);
 
-    await userEvent.click(screen.getByTestId("button-import-plants"));
+    chooseUpload("plants", "csv");
     const file = new File(["id,city\nplant-1,Daggar Hills"], "plants.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-plants"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
@@ -208,7 +209,7 @@ describe("PlantsTab — base table + inline add-section always render together (
     );
     expect(screen.getByTestId("plants-tab")).toBeInTheDocument();
     expect(screen.getByTestId("plants-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("button-export-plants-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-plants")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-plants")).toBeInTheDocument();
     expect(screen.getByText("Daggar Hills")).toBeInTheDocument();
     expect(screen.getByTestId("added-plants-section")).toBeInTheDocument();
@@ -222,9 +223,9 @@ describe("PlantsTab — base table + inline add-section always render together (
         {...addedPlantsProps}
       />,
     );
-    expect(screen.queryByTestId("add-plant-row-form")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-plant-row"));
-    expect(screen.getByTestId("add-plant-row-form")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-dialog")).toBeInTheDocument();
     expect(screen.getByTestId("plants-tab")).toBeInTheDocument();
     expect(screen.getByText("Daggar Hills")).toBeInTheDocument();
   });
@@ -255,7 +256,10 @@ describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
     expect(within(toolbar).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
   });
 
-  it("the Added-plants table with >10 added rows SHOWS its own FilterMenu (positive test), independent of the (4-row, hidden) base table", () => {
+  // SCU-2.P4.12 (spec B2.2, user decision 2026-10-17) — base and added plants
+  // now share ONE FilterMenu in the toolbar (there used to be two). It shows
+  // once base + added rows exceed 10, and filters both sections.
+  it("4 base + 11 added plants: ONE FilterMenu, in the toolbar (none in the added section)", () => {
     render(
       <PlantsTab
         plants={fourPlants}
@@ -264,15 +268,12 @@ describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
         onDeletePlant={vi.fn()}
       />,
     );
-    const toolbar = screen.getByTestId("plants-tab-toolbar");
-    const addedSection = screen.getByTestId("added-plants-section");
-    // Base table (4 rows) still hides its own menu...
-    expect(within(toolbar).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
-    // ...while the Added-plants table (11 rows, >10) shows its own.
-    expect(within(addedSection).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(screen.getAllByTestId("button-filter-menu-trigger")).toHaveLength(1);
+    expect(within(screen.getByTestId("plants-tab-toolbar")).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(within(screen.getByTestId("added-plants-section")).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
   });
 
-  it("filtering the Added-plants table narrows its rows without affecting the (unfiltered) base table", async () => {
+  it("the shared filter narrows base AND added rows together", async () => {
     render(
       <PlantsTab
         plants={fourPlants}
@@ -285,16 +286,13 @@ describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
     expect(within(addedSection).getAllByTestId(/^row-added-plant-/).length).toBe(11);
 
     const user = userEvent.setup();
-    await user.click(within(addedSection).getByTestId("button-filter-menu-trigger"));
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
     await user.type(screen.getByTestId("input-filter-city"), "AddedCity1");
 
     // "AddedCity1" matches AddedCity1 and AddedCity10/11 (substring) — 3 rows.
-    expect(within(addedSection).getAllByTestId(/^row-added-plant-/).length).toBe(3);
-    // Base table is completely unaffected.
-    expect(screen.getByText("Daggar Hills")).toBeInTheDocument();
-    expect(screen.getByText("Cunnamulla")).toBeInTheDocument();
-    expect(screen.getByText("Brisbane")).toBeInTheDocument();
-    expect(screen.getByText("Toowoomba")).toBeInTheDocument();
+    expect(within(screen.getByTestId("added-plants-section")).getAllByTestId(/^row-added-plant-/).length).toBe(3);
+    // ...and the base plants (no match) are filtered out too — one menu, both sections.
+    expect(screen.queryByText("Daggar Hills")).not.toBeInTheDocument();
   });
 
   // T8 (Workspace fixups 2, item 3) — PlantsTab already mounts the base
@@ -312,7 +310,7 @@ describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
     }));
     render(<PlantsTab plants={manyPlants} />);
     const toolbar = screen.getByTestId("plants-tab-toolbar");
-    expect(within(toolbar).getByTestId("button-export-plants-csv")).toBeInTheDocument();
+    expect(within(toolbar).getByTestId("button-download-plants")).toBeInTheDocument();
     expect(within(toolbar).getByTestId("button-import-plants")).toBeInTheDocument();
     expect(within(toolbar).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
   });

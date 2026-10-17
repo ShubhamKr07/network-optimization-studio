@@ -497,12 +497,15 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await expect(page.getByTestId("plants-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("added-plants-section")).toBeVisible();
 
+      // SCU-2.P4.12 (B2.8) — "+ Add plant" opens the CreateEntityDialog modal.
       await page.getByTestId("button-add-plant-row").click();
-      await page.getByTestId("input-new-plant-city").fill("Testburg");
-      await page.getByTestId("input-new-plant-state").fill("ZZ");
-      await page.getByTestId("input-new-plant-lat").fill("41.0");
-      await page.getByTestId("input-new-plant-lng").fill("-80.0");
-      await page.getByTestId("button-add-plant-confirm").click();
+      await expect(page.getByTestId("create-entity-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("create-entity-city").fill("Testburg");
+      await page.getByTestId("create-entity-state").fill("ZZ");
+      await page.getByTestId("create-entity-lat").fill("41.0");
+      await page.getByTestId("create-entity-lng").fill("-80.0");
+      await page.getByTestId("create-entity-submit").click();
+      await expect(page.getByTestId("create-entity-dialog")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
       const addedPlantRow = page.locator('[data-testid="added-plants-section"] [data-testid^="row-added-plant-"]');
       await expect(addedPlantRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });

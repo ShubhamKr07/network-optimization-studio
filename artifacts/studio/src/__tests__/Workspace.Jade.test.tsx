@@ -255,11 +255,11 @@ describe("Workspace — two-echelon-jade-us Save reconciliation (Gate 6.5)", () 
     // back inline on the base Plants tab.
     fireEvent.click(screen.getByTestId("sidebar-input-plants"));
     fireEvent.click(screen.getByTestId("button-add-plant-row"));
-    fireEvent.change(screen.getByTestId("input-new-plant-city"), { target: { value: "Dallas" } });
-    fireEvent.change(screen.getByTestId("input-new-plant-state"), { target: { value: "TX" } });
-    fireEvent.change(screen.getByTestId("input-new-plant-lat"), { target: { value: "32.78" } });
-    fireEvent.change(screen.getByTestId("input-new-plant-lng"), { target: { value: "-96.8" } });
-    fireEvent.click(screen.getByTestId("button-add-plant-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Dallas" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "TX" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "32.78" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-96.8" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     // Dirty (unsaved) before Save.
     expect(screen.getByTestId("button-save")).toBeEnabled();

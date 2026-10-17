@@ -1,44 +1,11 @@
 import { useState } from "react";
 import type { Plant, Scenario } from "@workspace/api-client-react";
-import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Download, Upload, X } from "lucide-react";
-import { useExport } from "@/contexts/ExportContext";
-import { lookupCity } from "@/lib/gazetteer";
-import { cityCode } from "@/lib/entityId";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
-
-// T11 (Chapter 9 JADE) — a plant's uid prefix + display-code minting is
-// deliberately NOT threaded through `lib/entityId.ts`'s shared
-// `UID_PREFIX`/`DISPLAY_CODE_PREFIX` maps here: that consolidation is T12's
-// job (plan's Wave 3 file list — "lib/entityId.ts — plant UID prefix
-// (`ap-…`) in `newUid` and `nextDisplayCode`"), and T11/T12 are executed as
-// separate, potentially concurrent leaves-first tasks per the plan's
-// concurrency map. Minting the same-shaped id/display-code locally here
-// avoids a merge collision on that shared file while still matching the
-// eventual convention exactly (`ap-<uuid>` / `PL-STATE-CITY-SEQ`) — `T12`
-// folding this into the shared module is a pure refactor, not a behavior
-// change, once it lands.
-function newPlantUid(): string {
-  const uuid =
-    globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
-  return `ap-${uuid}`;
-}
-
-function nextPlantDisplayCode(state: string, city: string, existingCodes: Iterable<string>): string {
-  const taken = new Set(existingCodes);
-  const base = `PL-${state}-${cityCode(city)}`;
-  let seq = 1;
-  let candidate = `${base}-${String(seq).padStart(2, "0")}`;
-  while (taken.has(candidate)) {
-    seq += 1;
-    candidate = `${base}-${String(seq).padStart(2, "0")}`;
-  }
-  return candidate;
-}
+import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
+import { DataTable } from "@/components/data-table/DataTable";
+import type { ColumnDef } from "@/components/data-table/types";
+import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
+import { DeleteRowButton, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 
 // T11 — matches `jadeInputsSchema`'s `addedPlants[]` shape exactly
 // (`{ id, displayCode?, city, state, lat, lng }`, spec §5): geometry only.
@@ -78,16 +45,29 @@ interface PlantsTabProps {
    * update (spec §6's plant delete/copy reconciliation — T12's job to wire,
    * this tab only fires the intent). */
   onDeletePlant?: (id: string) => void;
+  /** SCU-2.P4.12 (D2) — browsing result history: the delete buttons and the
+   * "+ Add plant" trigger are disabled (base plants have no editable cells). */
+  readOnly?: boolean;
 }
 
-// T11 — Chapter 9 JADE's Plants input tab. Same shape as WarehousesTab/
-// CustomersTab/MinesTab (A1.1/A1.3/A5.1): a thin read-only base table plus
-// an Upload/Download toolbar (backend registration is T7's job — this is
-// purely the frontend half of Gate 1.9) and an "Added plants" add/delete-row
-// section (B5.2/Task-30-style UX), gated on `onAddedPlantsChange != null`
-// (capability-based, matching WarehousesTab/CustomersTab/MinesTab's own
-// established fix for the "gate on one branch, forget the sibling"
-// recurring bug class).
+/** One effective row: a base dataset plant (read-only) or an added plant. */
+interface PlantRow {
+  id: string;
+  /** Base: `name ?? id` (unchanged); added: `displayCode ?? id`. Also the ID filter value. */
+  displayId: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+  added: boolean;
+}
+
+// T11 → SCU-2.P4.12 (spec B2.1–B2.4, B2.8, D2) — JADE's Plants tab on the
+// shared DataTable: base (read-only) and added plants are two sections under
+// ONE toolbar and ONE filter menu (user decision 2026-10-17 — it had two
+// independent menus), "+ Add plant" opens the CreateEntityDialog modal (the
+// plant uid/code helpers this file used to carry are lib/entityId's `pl`
+// kind, `ap-` / `PL-…`, identical output).
 export function PlantsTab({
   plants,
   scenarioId,
@@ -95,326 +75,167 @@ export function PlantsTab({
   addedPlants = [],
   onAddedPlantsChange,
   onDeletePlant,
+  readOnly = false,
 }: PlantsTabProps) {
-  const [importOpen, setImportOpen] = useState(false);
-  const { download, disabledReasonFor } = useExport();
+  const files = useEntityFileMenus({
+    entity: "plants",
+    testIdEntity: "plants",
+    modelId: "two-echelon-jade-us",
+    scenarioId,
+    onImportApplied,
+  });
+  const [adding, setAdding] = useState(false);
 
-  // B7 (JADE Ch.9 Workspace Bundle, spec §10) — base plants and "Added
-  // plants" stay TWO SEPARATE physical tables (unchanged structure); each
-  // gets its OWN `FilterMenu`, shown/hidden by its OWN unfiltered row count
-  // (`>10`), independent of the other table's count.
-  const plantFilterDescriptors: ColumnFilterDescriptor<Plant>[] = [
-    { key: "id", label: "ID", type: "text", accessor: p => p.name ?? p.id },
-    { key: "city", label: "City", type: "text", accessor: p => p.city },
-    { key: "state", label: "State", type: "text", accessor: p => p.state },
+  const rows: PlantRow[] = [
+    ...plants.map(p => ({
+      id: p.id,
+      displayId: p.name ?? p.id,
+      city: p.city,
+      state: p.state,
+      lat: p.lat,
+      lng: p.lng,
+      added: false,
+    })),
+    ...addedPlants.map(p => ({
+      id: p.id,
+      displayId: p.displayCode ?? p.id,
+      city: p.city,
+      state: p.state,
+      lat: p.lat,
+      lng: p.lng,
+      added: true,
+    })),
   ];
-  const plantTableFilters = useTableFilters(plants, plantFilterDescriptors);
-  const displayedPlants = plantTableFilters.filteredRows;
-  const showPlantFilterMenu = plants.length > 10;
 
-  const addedPlantFilterDescriptors: ColumnFilterDescriptor<AddedPlant>[] = [
-    { key: "id", label: "ID", type: "text", accessor: p => p.displayCode ?? p.id },
-    { key: "city", label: "City", type: "text", accessor: p => p.city },
-    { key: "state", label: "State", type: "text", accessor: p => p.state },
+  const columns: ColumnDef<PlantRow>[] = [
+    {
+      id: "id",
+      header: "ID",
+      kind: "text",
+      filter: "text",
+      value: r => r.displayId,
+      cellClassName: "font-mono text-xs",
+      cell: r => r.displayId,
+    },
+    { id: "city", header: "City", kind: "text", filter: "text", value: r => r.city, cellClassName: "text-xs", cell: r => r.city },
+    {
+      id: "state",
+      header: "State",
+      kind: "text",
+      filter: "text",
+      value: r => r.state || null,
+      cellClassName: "text-xs",
+      cell: r => r.state,
+    },
+    {
+      id: "lat",
+      header: "Latitude",
+      kind: "number",
+      value: r => r.lat,
+      cellClassName: "text-xs font-mono",
+      cell: r => r.lat.toFixed(4),
+    },
+    {
+      id: "lng",
+      header: "Longitude",
+      kind: "number",
+      value: r => r.lng,
+      cellClassName: "text-xs font-mono",
+      cell: r => r.lng.toFixed(4),
+    },
   ];
-  const addedPlantTableFilters = useTableFilters(addedPlants, addedPlantFilterDescriptors);
-  const displayedAddedPlants = addedPlantTableFilters.filteredRows;
-  const showAddedPlantFilterMenu = addedPlants.length > 10;
+  const addedColumns: ColumnDef<PlantRow>[] = [
+    ...columns,
+    {
+      id: "delete",
+      header: "",
+      kind: "text",
+      filter: false,
+      value: () => null,
+      cell: r => (
+        <DeleteRowButton
+          label={`Delete added plant ${r.id}`}
+          onClick={() => onDeletePlant?.(r.id)}
+          disabled={readOnly}
+          testId={`button-delete-added-plant-${r.id}`}
+        />
+      ),
+    },
+  ];
 
-  const [addingRow, setAddingRow] = useState(false);
-  const [newCity, setNewCity] = useState("");
-  const [newState, setNewState] = useState("");
-  const [newLat, setNewLat] = useState("");
-  const [newLng, setNewLng] = useState("");
-  const [newDisplayCode, setNewDisplayCode] = useState("");
-  const [addError, setAddError] = useState<string | null>(null);
-
-  const [latTouched, setLatTouched] = useState(false);
-  const [lngTouched, setLngTouched] = useState(false);
-  const [displayCodeTouched, setDisplayCodeTouched] = useState(false);
-
-  function touchLat() {
-    if (!latTouched) {
-      setLatTouched(true);
-      setNewLat("");
-    }
-  }
-  function touchLng() {
-    if (!lngTouched) {
-      setLngTouched(true);
-      setNewLng("");
-    }
-  }
-  function touchDisplayCode() {
-    if (!displayCodeTouched) {
-      setDisplayCodeTouched(true);
-      setNewDisplayCode("");
-    }
-  }
-
-  function handleCityStateBlur() {
-    const city = newCity.trim();
-    const state = newState.trim();
-    if (!city || !state) return;
-    const hit = lookupCity(city, state);
-    if (!hit) return;
-    if (!latTouched) setNewLat(String(hit.lat));
-    if (!lngTouched) setNewLng(String(hit.lng));
-    if (!displayCodeTouched) {
-      const existingCodes = addedPlants.map(p => p.displayCode).filter((c): c is string => !!c);
-      setNewDisplayCode(nextPlantDisplayCode(state, city, existingCodes));
-    }
-  }
-
-  function resetAddForm() {
-    setAddingRow(false);
-    setNewCity("");
-    setNewState("");
-    setNewLat("");
-    setNewLng("");
-    setNewDisplayCode("");
-    setLatTouched(false);
-    setLngTouched(false);
-    setDisplayCodeTouched(false);
-    setAddError(null);
-  }
-
-  function handleAddRow() {
-    const city = newCity.trim();
-    const state = newState.trim();
-    const lat = parseFloat(newLat);
-    const lng = parseFloat(newLng);
-
-    if (!city || !state) {
-      setAddError("City and state are both required.");
-      return;
-    }
-    const displayCode = newDisplayCode.trim() || undefined;
-    if (displayCode && addedPlants.some(p => p.displayCode === displayCode)) {
-      setAddError(`Display code '${displayCode}' is already in use by another plant in this scenario.`);
-      return;
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setAddError("Latitude and longitude must both be numbers.");
-      return;
-    }
-
-    const id = newPlantUid();
-    onAddedPlantsChange?.([...addedPlants, { id, city, state, lat, lng, displayCode }]);
-    resetAddForm();
-  }
-
-  const toolbar = (
-    <div className="flex items-center gap-1.5 mb-2" data-testid="plants-tab-toolbar">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("plants", "csv")}
-        disabled={disabledReasonFor("plants") != null}
-        title={disabledReasonFor("plants")}
-        data-testid="button-export-plants-csv"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> CSV
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("plants", "json")}
-        disabled={disabledReasonFor("plants") != null}
-        title={disabledReasonFor("plants")}
-        data-testid="button-export-plants-json"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> JSON
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setImportOpen(true)}
-        disabled={scenarioId == null}
-        data-testid="button-import-plants"
-        className="h-7 text-xs"
-      >
-        <Upload className="w-3.5 h-3.5 mr-1" /> Upload
-      </Button>
-      {showPlantFilterMenu && (
-        <div className="ml-auto">
-          <FilterMenu descriptors={plantFilterDescriptors} tableFilters={plantTableFilters} />
-        </div>
-      )}
-    </div>
+  const addTrigger = onAddedPlantsChange != null && (
+    <Button
+      size="sm"
+      variant="outline"
+      className="h-7 px-2 text-xs"
+      onClick={() => setAdding(true)}
+      disabled={readOnly}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
+      data-testid="button-add-plant-row"
+    >
+      + Add plant
+    </Button>
   );
-
-  const importDialog = importOpen && scenarioId != null && (
-    <ImportDialog
-      open={importOpen}
-      onOpenChange={setImportOpen}
-      scenarioId={scenarioId}
-      entity="plants"
-      onApplied={onImportApplied}
-    />
-  );
-
-  // The "Added plants" section — no status/capacity column at all (a plant
-  // has neither concept; see the AddedPlant type's header comment).
-  const addedSection = onAddedPlantsChange != null && (
-    <div className="mt-4" data-testid="added-plants-section">
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <h3 className="text-xs font-semibold text-muted-foreground">Added plants</h3>
-        {showAddedPlantFilterMenu && (
-          <FilterMenu descriptors={addedPlantFilterDescriptors} tableFilters={addedPlantTableFilters} />
-        )}
-      </div>
-      {addedPlants.length === 0 ? (
-        <p className="text-xs text-muted-foreground mb-2" data-testid="added-plants-empty">
-          No added plants yet — use "+ Add plant" below to create one.
-        </p>
-      ) : (
-        <div className="max-h-[40vh] overflow-y-auto mb-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Latitude</TableHead>
-                <TableHead>Longitude</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayedAddedPlants.map(p => (
-                <TableRow key={p.id} data-testid={`row-added-plant-${p.id}`}>
-                  <TableCell className="font-mono text-xs">{p.displayCode ?? p.id}</TableCell>
-                  <TableCell className="text-xs">{p.city}</TableCell>
-                  <TableCell className="text-xs">{p.state}</TableCell>
-                  <TableCell className="text-xs font-mono">{p.lat.toFixed(4)}</TableCell>
-                  <TableCell className="text-xs font-mono">{p.lng.toFixed(4)}</TableCell>
-                  <TableCell>
-                    <button
-                      type="button"
-                      aria-label={`Delete added plant ${p.id}`}
-                      onClick={() => onDeletePlant?.(p.id)}
-                      data-testid={`button-delete-added-plant-${p.id}`}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      {addingRow ? (
-        <div className="flex items-start gap-1.5 flex-wrap" data-testid="add-plant-row-form">
-          <Input
-            placeholder="City"
-            value={newCity}
-            onChange={e => setNewCity(e.target.value)}
-            onBlur={handleCityStateBlur}
-            className="h-7 text-xs w-28"
-            data-testid="input-new-plant-city"
-          />
-          <Input
-            placeholder="State"
-            value={newState}
-            onChange={e => setNewState(e.target.value)}
-            onBlur={handleCityStateBlur}
-            className="h-7 text-xs w-16"
-            data-testid="input-new-plant-state"
-          />
-          <Input
-            type="number"
-            placeholder="Lat"
-            value={newLat}
-            onChange={e => setNewLat(e.target.value)}
-            onFocus={touchLat}
-            className={`h-7 text-xs w-20 font-mono ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
-            data-testid="input-new-plant-lat"
-          />
-          <Input
-            type="number"
-            placeholder="Lng"
-            value={newLng}
-            onChange={e => setNewLng(e.target.value)}
-            onFocus={touchLng}
-            className={`h-7 text-xs w-20 font-mono ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
-            data-testid="input-new-plant-lng"
-          />
-          <Input
-            placeholder="Display code (auto)"
-            value={newDisplayCode}
-            onChange={e => setNewDisplayCode(e.target.value)}
-            onFocus={touchDisplayCode}
-            className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
-            data-testid="input-new-plant-display-code"
-          />
-          <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-plant-confirm">
-            Add
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={resetAddForm} data-testid="button-add-plant-cancel">
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAddingRow(true)} data-testid="button-add-plant-row">
-          + Add plant
-        </Button>
-      )}
-      {addError && (
-        <p className="text-[11px] text-destructive mt-1" data-testid="text-add-plant-error">
-          {addError}
-        </p>
-      )}
-    </div>
-  );
-
-  if (plants.length === 0) {
-    return (
-      <div>
-        {toolbar}
-        <p className="text-sm text-muted-foreground" data-testid="plants-tab-empty">
-          No plants in this dataset.
-        </p>
-        {addedSection}
-        {importDialog}
-      </div>
-    );
-  }
 
   return (
     <div data-testid="plants-tab">
-      {toolbar}
-      <div className="max-h-[60vh] overflow-y-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Latitude</TableHead>
-              <TableHead>Longitude</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {displayedPlants.map(p => (
-              <TableRow key={p.id}>
-                <TableCell className="font-mono text-xs">{p.name ?? p.id}</TableCell>
-                <TableCell className="text-xs">{p.city}</TableCell>
-                <TableCell className="text-xs">{p.state}</TableCell>
-                <TableCell className="text-xs font-mono">{p.lat.toFixed(4)}</TableCell>
-                <TableCell className="text-xs font-mono">{p.lng.toFixed(4)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      {addedSection}
-      {importDialog}
+      <DataTable<PlantRow>
+        rows={rows}
+        rowKey={r => `${r.added ? "added" : "base"}:${r.id}`}
+        columns={columns}
+        ctx={{ readOnly, demandEditable: false, isAdded: r => r.added }}
+        testIds={{
+          toolbar: "plants-tab-toolbar",
+          pagerPrev: "button-plants-prev",
+          pagerNext: "button-plants-next",
+          pageIndicator: "plants-page-indicator",
+        }}
+        toolbar={{ upload: files.upload, download: files.download, add: addTrigger }}
+        sections={[
+          {
+            id: "base",
+            includes: r => !r.added,
+            scrollClassName: "max-h-[60vh] overflow-y-auto",
+            emptyState: (
+              <p className="text-sm text-muted-foreground" data-testid="plants-tab-empty">
+                No plants in this dataset.
+              </p>
+            ),
+          },
+          ...(onAddedPlantsChange != null
+            ? [
+                {
+                  id: "added",
+                  title: "Added plants",
+                  testId: "added-plants-section",
+                  includes: (r: PlantRow) => r.added,
+                  columns: addedColumns,
+                  rowTestId: (r: PlantRow) => `row-added-plant-${r.id}`,
+                  scrollClassName: "max-h-[40vh] overflow-y-auto",
+                  emptyState: (
+                    <p className="text-xs text-muted-foreground" data-testid="added-plants-empty">
+                      No added plants yet — use "+ Add plant" above to create one.
+                    </p>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+      {adding && (
+        <CreateEntityDialog
+          source="table"
+          readOnly={readOnly}
+          entityKind="plant"
+          existingCodes={addedPlants.map(p => p.displayCode).filter((c): c is string => !!c)}
+          onCreate={r => {
+            if (r.kind === "plant") onAddedPlantsChange?.([...addedPlants, r.entity]);
+            setAdding(false);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+      {files.dialog}
     </div>
   );
 }

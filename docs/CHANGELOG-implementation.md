@@ -3960,3 +3960,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18, 19. All 29 + 13 plan anchors matched exactly once on the real base (no drift).
 - Counts: affected studio files 241 -> 255 (4 -> 5 files; +14 new). Fail-first: new file 13 failed | 1 passed pre-migration.
 - Gate: studio 2715 passed (152 files), api-server 2033 passed (3 registered-flake failures in jobRunnerDispatcher/resultEnvelope; 27/27 isolated x2), pytest 355 passed, import-schema 22 passed. e2e (local 5411/3411, workers=1, retries=0): import, chen-bands-units-qa, max-coverage, bundle2-fastfollow, jade-two-echelon, delivery-teaching, workspace-fixups — 18/18 passed.
+
+### SCU-2.P4.12 — JADE Plants on DataTable
+
+- JADE Plants on DataTable: one shared FilterMenu over base + added (user decision), "+ Add plant" modal, D2 read-only (new prop), Upload ▾/Download ▾, numbers centred.
+- Deviations 1, 3, 9, 13, 15, 17, 19. No distance column, so no `filterResetKey`.
+- Tests: baseline 42 (PlantsTab, Workspace.Jade, historyReadOnlyTabs); after 47 in 4 files incl. new PlantsTab.dataTable (fail-first vs pre-migration tab: 4 failed / 1 passed).
+- Gate: studio 2720 passed, api-server 2033 passed / 3 load flakes (loginRateLimitProxy, resultEnvelope x2; isolated 20/20 on two re-runs, one earlier isolated run had a resultEnvelope brazil flake), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): workspace-fixups 2/2 pass, workspace-fixups-2 4/4 pass.
