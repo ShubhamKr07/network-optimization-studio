@@ -680,10 +680,10 @@ export function applyRefineryOverrides(overrides: RefineryOverride[], addedRefin
 // studio's clientCsv.csvCell: STRING cells starting with = + - @ tab CR get a
 // leading ' (spreadsheet formula injection) unless they are plain numbers;
 // numeric/boolean cells are never prefixed. Quotes on " , CR LF. import.ts
-// strips the ' back off text fields so download -> edit -> upload round-trips.
+// strips the ' back off text fields (a stored `'=x` is double-prefixed so it survives) so download -> edit -> upload round-trips.
 export function csvCell(value: string | number | boolean | null | undefined): string {
   let s = String(value ?? "");
-  if (typeof value === "string" && /^[=+\-@\t\r]/.test(s) && !(s.trim() !== "" && Number.isFinite(Number(s)))) s = `'${s}`;
+  if (typeof value === "string" && /^'?[=+\-@\t\r]/.test(s) && !(s.trim() !== "" && Number.isFinite(Number(s)))) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

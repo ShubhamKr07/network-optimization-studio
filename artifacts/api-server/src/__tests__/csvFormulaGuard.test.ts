@@ -10,6 +10,7 @@ import { TEMPLATE_VERSION } from "@workspace/import-schema";
 const added = [
   { id: "W-X1", displayCode: "=HYPERLINK(\"x\")", city: "@cmd", state: "-NY", lat: 40.5, lng: -74.25, capacity: 5, status: "active" as const },
   { id: "W-X2", displayCode: "A,B", city: "Line\rBreak", state: "+x", lat: -10, lng: -20, capacity: 7, status: "forced_open" as const },
+  { id: "W-Q", displayCode: "Q", city: "'=quoted", state: "NY", lat: 1, lng: 2, capacity: 1, status: "active" as const },
 ];
 const parse = (csv: string) => Papa.parse<string[]>(csv.trim(), { skipEmptyLines: true }).data;
 
@@ -38,10 +39,18 @@ describe("warehouse export + import round trip (real writer)", () => {
     expect(x2.slice(2, 5)).toEqual(["A,B", "Line\rBreak", "'+x"]);
     expect(rows.find(r => r[1] === "W-X2")![5]).toBe("-10");
   });
-  it("re-uploading the unedited export yields zero changes and no errors", () => {
-    const preview = parseAndValidateImport("warehouses", csv, { addedWarehouses: added } as never, 5);
+  it("export -> upload as add-mode rows stores the ORIGINAL formula-leading text (non-vacuous: needs the strip)", () => {
+    const [header, ...body] = parse(csv);
+    const addRows = body.filter(r => r[1].startsWith("W-X") || r[1] === "W-Q").map(r => { const c = [...r]; c[1] = ""; c[2] = ""; return c; });
+    const preview = parseAndValidateImport("warehouses", Papa.unparse([header, ...addRows], { newline: "\n" }), {} as never, 5);
     expect(preview.errors).toEqual([]);
-    expect(preview.changes).toEqual([]);
+    const json = JSON.stringify(preview.changes);
+    for (const v of ["@cmd", "-NY", "'=quoted", "Line\rBreak"]) expect(json).toContain(JSON.stringify(v));
+    expect(json).not.toContain("\"'@cmd\"");
+    expect(json).not.toContain("\"''=quoted\"");
+  });
+  it("a stored value already starting with ' + formula char survives export -> upload", () => {
+    expect(csvCell("'=x")).toBe("''=x");
   });
   it("an add-mode row's guarded text cells are stored without the ' (strip is not vacuous)", () => {
     const header = csv.split("\n")[0];
