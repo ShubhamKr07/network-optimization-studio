@@ -1998,3 +1998,36 @@ describe("NetworkMap — Output Map tooltips are opaque nos-map-tooltip (SCU-1.8
     }
   });
 });
+
+// ERR-2 — FitBounds received a freshly-built bounds array on every NetworkMap
+// render, so its effect re-ran an (animated) fitBounds() on ANY re-render:
+// a user's zoom snapped back, and each call opened Leaflet's 250 ms
+// zoom-animation window that SCND_STUDIO-3 crashes in.
+describe("NetworkMap FitBounds runs only when the bounds change (ERR-2)", () => {
+  it("does not call fitBounds again on a re-render with the same bounds", async () => {
+    const L = (await import("leaflet")).default;
+    const fitBounds = vi.spyOn(L.Map.prototype, "fitBounds");
+    const props = {
+      dataset,
+      warehouseStatuses: [],
+      result: null,
+      showRoutes: false,
+      bands: [500, 1000, 1500, 2000],
+      multiSelectedCustomerIds: [],
+      onToggleWarehouseMultiSelect: () => {},
+      onToggleCustomerMultiSelect: () => {},
+    };
+    const { rerender } = render(
+      <UnitProvider><NetworkMap {...props} multiSelectedWarehouseIds={[]} /></UnitProvider>,
+    );
+    const afterMount = fitBounds.mock.calls.length;
+    expect(afterMount).toBeGreaterThan(0);
+
+    // A new (but equal) prop array forces a re-render without moving any marker.
+    rerender(<UnitProvider><NetworkMap {...props} multiSelectedWarehouseIds={[]} /></UnitProvider>);
+    rerender(<UnitProvider><NetworkMap {...props} multiSelectedWarehouseIds={[]} /></UnitProvider>);
+
+    expect(fitBounds.mock.calls.length).toBe(afterMount);
+    fitBounds.mockRestore();
+  });
+});

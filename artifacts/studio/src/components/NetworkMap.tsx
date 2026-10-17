@@ -223,11 +223,15 @@ function padBounds([[minLat, minLng], [maxLat, maxLng]]: [LatLngTuple, LatLngTup
 // E5.1: fits the map to the model's manifest-derived bounds on mount (and
 // whenever the bounds themselves change, e.g. switching lab/model) rather
 // than guessing a fixed zoom level.
+// ERR-2: keyed on the four numbers, not the array — NetworkMap rebuilds that
+// array every render, so an identity dependency refit (and undid the user's
+// zoom) on ANY re-render.
 function FitBounds({ bounds }: { bounds: [[number, number], [number, number]] }) {
   const map = useMap();
+  const [[s, w], [n, e]] = bounds;
   useEffect(() => {
-    map.fitBounds(bounds);
-  }, [map, bounds]);
+    map.fitBounds([[s, w], [n, e]]);
+  }, [map, s, w, n, e]);
   return null;
 }
 

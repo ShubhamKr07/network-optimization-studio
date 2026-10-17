@@ -41,6 +41,8 @@ export function initErrorTracking(): void {
     environment: import.meta.env.MODE,
     sendDefaultPii: false,
     tracesSampleRate: 0,
+    // Microsoft's link scanner (Outlook Safe Links) opening emailed links, not our code.
+    ignoreErrors: ["Object Not Found Matching Id:"],
     beforeSend: scrubEvent,
   });
   initialized = true;
