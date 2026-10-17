@@ -13,6 +13,8 @@ import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, 
 import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
 import { getManifest } from "../registry/modelRegistry.js";
+import { csvColumns } from "@workspace/import-schema";
+import type { ImportEntity } from "@workspace/import-schema";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -78,7 +80,8 @@ export interface ImportPreview {
 // header comment on `distances` for why composite-keyed entities don't fit
 // the generic single-id loop, and PLANT_CAPABILITY_COLUMNS below for its own
 // dedicated parsing function (parsePlantCapabilityRows).
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "plants" | "distances" | "laneCosts" | "legDistances" | "plantCapabilities";
+// SCU-2.P2.1 (B2.5) — single source: @workspace/import-schema's IMPORT_ENTITIES.
+export type { ImportEntity };
 
 // Entities that fit the generic single-id-row model below — everything
 // EXCEPT the composite-keyed entities (distances, laneCosts, legDistances,
@@ -97,13 +100,13 @@ type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDist
 // and they're each parsed by a wholly separate function
 // (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows/
 // parsePlantCapabilityRows), not this file's generic per-row loop.
-const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
+const DISTANCES_COLUMNS = csvColumns("distances", TEMPLATE_VERSION);
 // T8 — v2 header for the same entity: gains a `unit` column right after
 // `template_version` (Part E, locked column order). A file matching this
 // header is interpreted as v2 (unit-labeled); a file matching
 // DISTANCES_COLUMNS above is interpreted as v1 (unitless, canonical) —
 // both are accepted, never one superseding the other (backward compat).
-const DISTANCES_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "distance"];
+const DISTANCES_COLUMNS_V2 = csvColumns("distances", DISTANCE_TEMPLATE_VERSION);
 // The only two units this app knows about (`@workspace/units`'s
 // `CanonicalUnit`). A v2 file's `unit` column must be one of these, on
 // every row, uniformly — see checkUniformUnitAndVersion below.
@@ -113,10 +116,10 @@ const KNOWN_UNITS = new Set<string>(["km", "mi"]);
 // "cost" (not "distance"), matching stage 1-3's own established vocabulary
 // decision for this model (transportLp.ts's laneCostOverrideSchema) even
 // though the underlying values are the same kind of quantity.
-const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
+const LANE_COST_COLUMNS = csvColumns("laneCosts", TEMPLATE_VERSION);
 // T8 — v2 header for laneCosts, same shape/reasoning as DISTANCES_COLUMNS_V2
 // above (keeps the "cost" value-column name, per-entity vocabulary).
-const LANE_COST_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "cost"];
+const LANE_COST_COLUMNS_V2 = csvColumns("laneCosts", DISTANCE_TEMPLATE_VERSION);
 // B6.2 stage 4 — two-echelon-gold-au's composite-keyed entity. Same 4-column
 // shape as DISTANCES_COLUMNS (this model's own vocabulary is "distance",
 // not "cost" — B6.2 stage 1's naming decision) — reuses DISTANCES_COLUMNS
@@ -128,7 +131,7 @@ const LANE_COST_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "c
 
 // jade-T7 — plantCapabilities' own 4-column shape: a plant x product
 // "can-make" toggle (`enabled`, a boolean, not a numeric distance/cost).
-const PLANT_CAPABILITY_COLUMNS = ["template_version", "plant_id", "product_id", "enabled"];
+const PLANT_CAPABILITY_COLUMNS = csvColumns("plantCapabilities", TEMPLATE_VERSION);
 
 // Singular display label per entity, used in a handful of free-text error
 // messages below (id-collision, add-mode "lat/lng required"/"city and state
@@ -200,15 +203,15 @@ function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | 
 // comment — the only per-plant lever is plantCapabilities, a separate
 // composite-keyed entity, below).
 const COLUMNS: Record<SingleIdEntity, string[]> = {
-  warehouses: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"],
-  customers: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"],
-  mines: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity"],
-  stations: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand"],
+  warehouses: csvColumns("warehouses", TEMPLATE_VERSION),
+  customers: csvColumns("customers", TEMPLATE_VERSION),
+  mines: csvColumns("mines", TEMPLATE_VERSION),
+  stations: csvColumns("stations", TEMPLATE_VERSION),
   // Refineries have status but no value column at all (two-echelon-gold-au
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
-  refineries: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "status"],
-  plants: ["template_version", "id", "display_code", "city", "state", "lat", "lng"],
+  refineries: csvColumns("refineries", TEMPLATE_VERSION),
+  plants: csvColumns("plants", TEMPLATE_VERSION),
 };
 
 // Which entities carry lat/lng columns (see COLUMNS' comment above) — used
