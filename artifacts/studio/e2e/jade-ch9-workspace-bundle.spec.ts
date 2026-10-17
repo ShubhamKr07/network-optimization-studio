@@ -440,6 +440,15 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
         .locator('[data-testid="plant-production-section"] thead th')
         .allInnerTexts();
       expect(plantProdHeaders).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
+      // SCU-2.P3.9 — tab-level Download ▾ (outside the Plant Production DataTable):
+      // CSV and JSON carry the same rows; no pager at 16 rows.
+      const ssCsv = await downloadVia(page, "button-download-service-stats", "button-download-service-stats-csv");
+      expect(ssCsv.name).toBe("serviceStats.csv");
+      const ssJson = JSON.parse((await downloadVia(page, "button-download-service-stats", "button-download-service-stats-json")).text);
+      expect([ssJson.entity, ssJson.unit]).toEqual(["serviceStats", "mi"]);
+      expect(ssJson.rows.length).toBeGreaterThan(0);
+      expect(ssJson.rows).toHaveLength(csvDataLines(ssCsv.text).length);
+      await expect(page.getByTestId("plant-production-page-indicator")).toHaveCount(0);
       // Full effective 4 plants × 4 products grid — every combo present,
       // including disabled/zero-production ones (not dropped).
       await expect(page.locator('[data-testid^="row-plant-production-"]')).toHaveCount(16);

@@ -30,7 +30,7 @@ describe("buildResultNarrative — p-median", () => {
     expect(buildResultNarrative("p-median-us", pmedian, { bands: BANDS, distance: MI, solveTimeSec: 2 })!.summary).toEqual([
       "Objective: 29,873,735,731, solved in 2.0s.",
       "2 warehouses open: CHI, ATL.",
-      "Demand by distance band: 0–200 mi 60%, 200–400 mi 30%, 400–800 mi 0%, 800–1600 mi 10%, > 1600 mi 0%.",
+      "Demand by distance band: 0–200 mi 60%, 200–400 mi 30%, 400–800 mi 0%, 800–1,600 mi 10%, > 1,600 mi 0%.",
       "Weighted average distance: 195.0 mi.",
     ]);
   });
@@ -87,7 +87,7 @@ describe("buildResultNarrative — transport", () => {
     expect(n.summary).toEqual([
       "Objective: 123,456.",
       "Coal ships from 2 mines to 2 power stations over 3 lanes.",
-      "Tonnage by distance band: 0–200 mi 70%, 200–400 mi 0%, 400–800 mi 30%, 800–1600 mi 0%, > 1600 mi 0%.",
+      "Tonnage by distance band: 0–200 mi 70%, 200–400 mi 0%, 400–800 mi 30%, 800–1,600 mi 0%, > 1,600 mi 0%.",
       "Weighted average distance: 213.0 mi.",
     ]);
     expect(n.summary.join(" ")).not.toMatch(/warehouse/i);
@@ -133,7 +133,7 @@ describe("buildResultNarrative — delivery", () => {
     expect(n.summary).toEqual([
       "Objective: 88,240,913,478.1.",
       "3 warehouses open: W1, W2, W60.",
-      "Demand by distance band: 0–400 mi 66.67%, 400–800 mi 0%, 800–1200 mi 33.33%, 1200–1600 mi 0%, > 1600 mi 0%.",
+      "Demand by distance band: 0–400 mi 66.67%, 400–800 mi 0%, 800–1,200 mi 33.33%, 1,200–1,600 mi 0%, > 1,600 mi 0%.",
       "Weighted average distance: 422.6 mi.",
     ]);
     expect(n.summary.join(" ")).not.toMatch(/capacity|utili/i);
@@ -163,8 +163,8 @@ describe("buildResultNarrative — two-echelon", () => {
     expect(buildResultNarrative("two-echelon-gold-au", gold, { bands: BANDS, distance: MI })!.summary).toEqual([
       "Objective: 98,765.43.",
       "1 refinery open: REF1.",
-      "Mine → Refinery flow by distance band: 0–200 mi 0%, 200–400 mi 0%, 400–800 mi 0%, 800–1600 mi 100%, > 1600 mi 0%.",
-      "Refinery → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 40%, 400–800 mi 0%, 800–1600 mi 0%, > 1600 mi 0%.",
+      "Mine → Refinery flow by distance band: 0–200 mi 0%, 200–400 mi 0%, 400–800 mi 0%, 800–1,600 mi 100%, > 1,600 mi 0%.",
+      "Refinery → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 40%, 400–800 mi 0%, 800–1,600 mi 0%, > 1,600 mi 0%.",
       "Average Mine → Refinery distance: 1464.5 mi.",
       "Average Refinery → Customer distance: 160.0 mi.",
     ]);
@@ -191,8 +191,8 @@ describe("buildResultNarrative — two-echelon", () => {
     expect(n.summary).toEqual([
       "Objective: 4,567,890.123.",
       "2 warehouses open: wh-11, wh-14.",
-      "Plant → Warehouse flow by distance band: 0–200 mi 0%, 200–400 mi 70%, 400–800 mi 0%, 800–1600 mi 30%, > 1600 mi 0%.",
-      "Warehouse → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 0%, 400–800 mi 40%, 800–1600 mi 0%, > 1600 mi 0%.",
+      "Plant → Warehouse flow by distance band: 0–200 mi 0%, 200–400 mi 70%, 400–800 mi 0%, 800–1,600 mi 30%, > 1,600 mi 0%.",
+      "Warehouse → Customer flow by distance band: 0–200 mi 60%, 200–400 mi 0%, 400–800 mi 40%, 800–1,600 mi 0%, > 1,600 mi 0%.",
       "Average Plant → Warehouse distance: 480.0 mi.",
       "Average Warehouse → Customer distance: 290.0 mi.",
     ]);

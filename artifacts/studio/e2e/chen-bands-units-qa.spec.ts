@@ -363,6 +363,12 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       const overflowLabel = (await overflowRow.innerText()).trim();
       expect(overflowLabel.startsWith(">")).toBe(true);
       expect(overflowLabel).not.toMatch(/-\d/); // no negative distance ever rendered
+      // SCU-2.P3.9 (user decision 2026-10-17) — km band labels round like every other
+      // displayed distance (formatDistanceDisplay, at most 2 dp): never "1086.8688 km".
+      await page.getByTestId("unit-toggle-km").click();
+      await expect(overflowRow).toContainText(" km", { timeout: HEADER_TIMEOUT });
+      expect((await overflowRow.innerText()).trim()).toMatch(/^> [\d,]+(\.\d{1,2})? km/);
+      await page.getByTestId("unit-toggle-auto").click();
 
       // ── Non-integer boundary via unit toggle ────────────────────────────
       // CH4O-8 flipped the canonical unit to mi, so the "away from auto"

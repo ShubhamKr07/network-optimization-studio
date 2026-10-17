@@ -93,9 +93,8 @@ function bandSentence(prefix: string, edges: Edge[], bands: number[], decimals: 
   if (edges.length === 0) return null;
   const rows = computeExclusiveBandCoverage(edges, bands, decimals);
   if (rows.length === 0) return null;
-  const fmt = (v: number) => d.toDisplay(v).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
   // rows = sorted boundaries, then the overflow row (always last).
-  const labels = exclusiveBandLabels(rows.slice(0, -1).map(r => r.band), fmt, d.unit);
+  const labels = exclusiveBandLabels(rows.slice(0, -1).map(r => r.band), d.toDisplay, d.unit);
   return `${prefix}${rows.map((r, i) => `${labels[i]} ${r.percent}%`).join(", ")}.`;
 }
 

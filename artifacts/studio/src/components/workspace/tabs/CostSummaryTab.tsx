@@ -16,6 +16,7 @@ import { downloadTextFile } from "@/lib/clientCsv";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 
 // chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
 // `distanceUnitLabel` below are this file's single choke point for turning a
@@ -39,7 +40,7 @@ function formatDistanceValueOnly(raw: number | null | undefined, canonical: Cano
 function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (boundaries.length === 0) return "no bands";
   if (canonical == null) return "—";
-  const converted = boundaries.map(b => unit.toDisplay(b, canonical).toLocaleString()).join("/");
+  const converted = boundaries.map(b => formatDistanceDisplay(unit.toDisplay(b, canonical))).join("/");
   return `${converted} ${unit.effectiveUnit(canonical)}`;
 }
 
@@ -795,11 +796,9 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // column shares the same real boundaries.
   if (sharedBands) {
     const boundaries = bandBoundaries(results[0]);
-    const fmt = (v: number) =>
-      unit.toDisplay(v, canonicalDistanceUnit!).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false });
     const labels = unitLabel == null
       ? [...boundaries, OVERFLOW_BAND].map(() => "—")
-      : exclusiveBandLabels(boundaries, fmt, unitLabel);
+      : exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);
     const exclusiveByColumn = compareScenarios.map(s =>
       frozenBandCoverageToExclusive(s.result!.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId)),
     );

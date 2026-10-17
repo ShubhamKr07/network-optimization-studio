@@ -6,6 +6,7 @@ import * as exportEntity from "@/lib/exportEntity";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 
 // chen-bands-units, T13 — ServiceStatsTab now calls `useDisplayUnit()`
 // unconditionally (no legacy/new split here — this component always
@@ -92,7 +93,7 @@ describe("ServiceStatsTab", () => {
   it("calls downloadEntityExport with entity=serviceStats on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-    fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
+    chooseDownload("button-download-service-stats", "button-download-service-stats-csv");
     expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi" });
   });
 
@@ -106,7 +107,7 @@ describe("ServiceStatsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      const button = screen.getByTestId("button-download-service-stats-csv");
+      const button = screen.getByTestId("button-download-service-stats");
       expect(button).toBeDisabled();
       expect(button).toHaveAttribute("title", "No run recorded for this entry.");
     });
@@ -120,7 +121,7 @@ describe("ServiceStatsTab", () => {
           </ExportProvider>
         </UnitProvider>,
       );
-      fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
+      chooseDownload("button-download-service-stats", "button-download-service-stats-csv");
       expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi", runId: 5 });
     });
   });
@@ -193,9 +194,9 @@ describe("ServiceStatsTab", () => {
     it("renders a separately labelled '> 1200 mi' overflow row, not folded into the 1200 row", () => {
       render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
       const overflowRow = screen.getByTestId("service-stats-band--1");
-      expect(overflowRow).toHaveTextContent("> 1200 mi");
+      expect(overflowRow).toHaveTextContent("> 1,200 mi");
       expect(percentOf("service-stats-band--1")).toBe("12%");
-      expect(screen.getByTestId("service-stats-band-1200")).toHaveTextContent("800–1200 mi");
+      expect(screen.getByTestId("service-stats-band-1200")).toHaveTextContent("800–1,200 mi");
     });
 
     it("always renders the overflow row, at 0% when nothing exceeds the last boundary", () => {
@@ -567,7 +568,7 @@ describe("ServiceStatsTab", () => {
         />,
       );
       const overflowRow = screen.getByTestId("service-stats-band--1");
-      expect(overflowRow).toHaveTextContent("> 1000 mi");
+      expect(overflowRow).toHaveTextContent("> 1,000 mi");
       expect(overflowRow).toHaveTextContent("40%"); // 400/1000
     });
 
@@ -627,7 +628,7 @@ describe("ServiceStatsTab", () => {
       expect(percentOf("service-stats-band-600")).toBe("30%");
       expect(percentOf("service-stats-band-1000")).toBe("0%");
       const overflowRow = screen.getByTestId("service-stats-band--1");
-      expect(overflowRow).toHaveTextContent("> 1000 mi");
+      expect(overflowRow).toHaveTextContent("> 1,000 mi");
       expect(overflowRow).toHaveTextContent("40%"); // the 1500-distance edge (400/1000)
     });
 
@@ -795,12 +796,12 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
     // be the identity and this test could not fail.
     render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="synthetic-km-model" />);
     // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
-    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("0–372.8227 mi");
+    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("0–372.82 mi");
     const overflowRow = screen.getByTestId("service-stats-band--1");
     // The overflow row's shown boundary (600, the max REAL boundary) is
     // converted exactly the same way — never the literal sentinel `-1`
     // itself (that would produce a nonsense negative distance).
-    expect(overflowRow).toHaveTextContent("> 372.8227 mi");
+    expect(overflowRow).toHaveTextContent("> 372.82 mi");
     expect(overflowRow).not.toHaveTextContent("-1");
     expect(percentOf("service-stats-band--1")).toBe("34%");
   });
@@ -851,6 +852,97 @@ describe("ServiceStatsTab — no duplicate title (SCU-1.4)", () => {
   it("renders no 'Service Stats' title and keeps Download right-aligned", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     expect(screen.queryByText("Service Stats")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-download-service-stats-csv").closest("div.border-b")).toHaveClass("justify-end");
+    expect(screen.getByTestId("button-download-service-stats").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});
+
+// SCU-2.P3.9 (spec B2.1/B2.2/B2.4, matrix §2a "ServiceStats Plant
+// Production") — Plant Production on DataTable + the tab-level Download ▾.
+// Own fixture (4 plants × 4 products = 16 rows, the real JADE shape).
+describe("ServiceStatsTab Plant Production on DataTable — testid map (SCU-2.P3.9)", () => {
+  const plants = ["p1", "p2", "p3", "p4"].map((id, i) => ({ id, name: `Plant ${i + 1}`, city: `City${i + 1}`, state: "ST", lat: 0, lng: 0 }));
+  const products = ["product-1", "product-2", "product-3", "product-4"].map((id, i) => ({ id, name: `Product ${i + 1}` }));
+  const baseCapabilities = plants.flatMap((pl, pi) => products.map((pr, ki) => ({ plantId: pl.id, productId: pr.id, capacity: pi === ki ? 1000 : 0 })));
+  const jade = {
+    ...result,
+    metrics: {},
+    edges: [{ fromId: "p1", toId: "w1", leg: "plant_to_warehouse" as const, productId: "product-1", flow: 400, distance: 10 }],
+  };
+  const renderJade = () =>
+    render(
+      <ServiceStatsTab result={jade} scenarioId={1} modelId="two-echelon-jade-us" effectivePlants={plants} products={products} baseCapabilities={baseCapabilities} />,
+    );
+
+  it("section root contains the title, filter trigger and the exact thead contract", () => {
+    renderJade();
+    const section = screen.getByTestId("plant-production-section");
+    expect(section).toHaveTextContent("Plant Production");
+    expect(section).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
+    const heads = [...section.querySelectorAll("thead th")];
+    expect(heads.map(h => h.textContent)).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
+    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, true, true, true]);
+  });
+
+  it("emits row-plant-production-{plant}-{product} on 16 <tr>s; remaining '—' for a disabled cell", () => {
+    renderJade();
+    expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(16);
+    expect(screen.getByTestId("row-plant-production-p1-product-1").tagName).toBe("TR");
+    expect(screen.getByTestId("row-plant-production-p1-product-1")).toHaveTextContent("600");
+    expect(screen.getByTestId("row-plant-production-p1-product-2")).toHaveTextContent("—");
+  });
+
+  it("filter keys are today's (plant/product select, actual/capacity range) plus the derived remaining range", async () => {
+    const user = userEvent.setup();
+    renderJade();
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    for (const id of ["select-filter-plant", "select-filter-product", "input-filter-actual-min", "input-filter-capacity-min", "input-filter-remaining-min"]) {
+      expect(screen.getByTestId(id)).toBeInTheDocument();
+    }
+    await user.click(screen.getByTestId("checkbox-filter-plant-p1 — City1, ST"));
+    expect(screen.getByTestId("text-filter-count")).toHaveTextContent("4 of 16");
+    expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(4);
+  });
+
+  it("the tab-level states stay outside DataTable: service-stats-empty, -unit-pending, -no-bands", () => {
+    const a = render(<ServiceStatsTab result={null} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-empty")).toBeInTheDocument();
+    a.unmount();
+    const b = render(<ServiceStatsTab result={result} scenarioId={1} modelId="model-not-in-manifest" />);
+    expect(screen.getByTestId("service-stats-unit-pending")).toBeInTheDocument();
+    b.unmount();
+    render(<ServiceStatsTab result={{ ...result, metrics: {} }} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-no-bands")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-service-stats")).toBeInTheDocument();
+  });
+
+  it("tab-level Download ▾ offers CSV and JSON through the server serviceStats export", () => {
+    const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    chooseDownload("button-download-service-stats", "button-download-service-stats-json");
+    expect(spy).toHaveBeenCalledWith(1, "serviceStats", "json", { unit: "mi" });
+    spy.mockRestore();
+  });
+});
+
+// SCU-2.P3.9 (user decision 2026-10-17) — band labels round like every other
+// displayed distance (formatDistanceDisplay, ≤ 2 dp): a mi-canonical model
+// shown in km reads "0–321.87 km", never "0–321.8688 km"; mi stays exact.
+describe("ServiceStatsTab — band labels round in km and mi (SCU-2.P3.9)", () => {
+  const banded = { ...result, metrics: { bandCoverage: [{ band: 200, percent: 30 }, { band: 400, percent: 45 }] } };
+
+  it("km display: converted boundaries print at most 2 dp", () => {
+    window.localStorage.setItem(STORAGE_KEY, "km");
+    render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–321.87 km");
+    expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("321.87–643.74 km");
+    expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 643.74 km");
+    expect(screen.getByTestId("service-stats-band-200")).not.toHaveTextContent("321.8688");
+  });
+
+  it("mi display: whole-number boundaries are unchanged", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
+    expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 400 mi");
   });
 });
