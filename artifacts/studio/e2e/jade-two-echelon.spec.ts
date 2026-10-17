@@ -181,6 +181,22 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("sidebar-output-flows").click({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid^="jade-flow-pw-row-"]').first()).toBeVisible({ timeout: HEADER_TIMEOUT });
 
+      // SCU-2.P3.5 — the client-built download IS the on-screen table (all rows);
+      // an open menu does not survive a leg switch and focus stays on the leg control.
+      const pwCount = await page.locator('[data-testid^="jade-flow-pw-row-"]').count();
+      const pwCsv = await downloadVia(page, "button-download-jade-flows-pw", "button-download-jade-flows-pw-csv");
+      expect(pwCsv.name).toBe("jade-flows-plant-warehouse.csv");
+      expect(pwCsv.text.split("\n")[0]).toBe("Plant,Warehouse,Distance (mi),Flow,Distance Band");
+      expect(csvDataLines(pwCsv.text)).toHaveLength(pwCount);
+      const pwJson = JSON.parse((await downloadVia(page, "button-download-jade-flows-pw", "button-download-jade-flows-pw-json")).text);
+      expect([pwJson.entity, pwJson.unit, pwJson.rows.length]).toEqual(["jadeFlowsPlantWarehouse", "mi", pwCount]);
+      await page.getByTestId("button-download-jade-flows-pw").click();
+      await expect(page.getByTestId("button-download-jade-flows-pw-csv")).toBeVisible();
+      await page.getByTestId("button-jade-flows-inner-warehouse-customer").click();
+      await expect(page.getByTestId("button-download-jade-flows-pw-csv")).toHaveCount(0);
+      await expect(page.getByTestId("button-jade-flows-inner-warehouse-customer")).toBeFocused();
+      await page.getByTestId("button-jade-flows-inner-plant-warehouse").click();
+
       await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("cost-summary-list")).toBeVisible({ timeout: HEADER_TIMEOUT });
 

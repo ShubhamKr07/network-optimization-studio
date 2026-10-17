@@ -5,13 +5,16 @@ import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { bandLabel, bandRangeLabel } from "@/lib/bands";
 import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { AllProviders, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
 // JadeFlowsTab now calls useDisplayUnit() unconditionally — every render
 // needs a UnitProvider ancestor. Shadowing `render` keeps every existing
 // call site (incl. `rerender`, which reuses the same tree) byte-identical,
 // same pattern as AppShell.test.tsx's renderShell.
 function render(ui: ReactElement) {
-  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+  // SCU-2.P3.5 — JadeFlowsTab reads useExport() for its download guard.
+  return rtlRender(ui, { wrapper: AllProviders });
 }
 
 // jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so
@@ -95,7 +98,7 @@ describe("JadeFlowsTab", () => {
     render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
     await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
     expect(screen.getByTestId("jade-flows-wc-table")).toBeInTheDocument();
-    expect(screen.queryByTestId("jade-flows-pw-table")).not.toBeInTheDocument();
+    expect(screen.getByTestId("jade-flows-pw-table")).not.toBeVisible(); // SCU-2.P3.5: kept mounted (filters survive a leg switch), hidden
   });
 
   describe("Plant -> Warehouse", () => {
@@ -240,12 +243,12 @@ describe("JadeFlowsTab", () => {
 
     it("hides the FilterMenu on Plant -> Warehouse when unfiltered row count is <= 10", () => {
       render(<JadeFlowsTab result={makeResult(manyPwEdges(10))} dataset={dataset} bands={bands} />);
-      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("button-filter-jade-flows-pw")).not.toBeInTheDocument();
     });
 
     it("shows the FilterMenu on Plant -> Warehouse when unfiltered row count is > 10", () => {
       render(<JadeFlowsTab result={makeResult(manyPwEdges(11))} dataset={dataset} bands={bands} />);
-      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+      expect(screen.getByTestId("button-filter-jade-flows-pw")).toBeInTheDocument();
     });
 
     it("Plant -> Warehouse crossing >10 does NOT show the FilterMenu on the Warehouse -> Customer tab when its own row count stays <= 10", async () => {
@@ -253,7 +256,7 @@ describe("JadeFlowsTab", () => {
       const result = makeResult([...manyPwEdges(11), ...fewWcEdges(2)]);
       render(<JadeFlowsTab result={result} dataset={dataset} bands={bands} />);
       // Confirm PW is over threshold first.
-      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+      expect(screen.getByTestId("button-filter-jade-flows-pw")).toBeInTheDocument();
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
       expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
     });
@@ -262,7 +265,7 @@ describe("JadeFlowsTab", () => {
       const user = userEvent.setup();
       // flow = 10 + i for i in 0..10 -> flows 10..20 (11 rows).
       render(<JadeFlowsTab result={makeResult(manyPwEdges(11))} dataset={dataset} bands={bands} />);
-      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       const popover = screen.getByTestId("filter-menu-popover");
       // Number filter (inclusive min) on Flow: min=15 excludes flows 10..14
       // (5 rows), leaving 15..20 (6 rows).
@@ -276,31 +279,6 @@ describe("JadeFlowsTab", () => {
     // `Blob` constructor itself and read back the parts array
     // `downloadClientCsv` passed it (`new Blob([text], ...)`, so
     // `calls[0][0][0]` is the exact joined CSV string) instead.
-    it("Plant -> Warehouse 'Download CSV' produces a client-side CSV of exactly that leg's on-screen columns", async () => {
-      // Capture the real constructor before spying, and delegate through it
-      // in the mock implementation — spying on a class constructor with no
-      // implementation throws ("cannot be invoked without 'new'") under this
-      // vitest/tinyspy version.
-      const RealBlob = globalThis.Blob;
-      const blobSpy = vi.spyOn(globalThis, "Blob").mockImplementation((parts, opts) => new RealBlob(parts, opts));
-      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake-url");
-      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-      const user = userEvent.setup();
-      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
-
-      await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
-
-      expect(blobSpy).toHaveBeenCalledTimes(1);
-      const text = blobSpy.mock.calls[0][0]?.[0] as string;
-      const lines = text.split("\n");
-      expect(lines[0]).toBe("Plant,Warehouse,Distance,Flow,Distance Band");
-      expect(lines).toHaveLength(3); // header + 2 aggregated rows
-      // Values containing a comma (e.g. "plant-1 — Bethlehem, PA") are CSV-quoted.
-      // Item 2: the Plant column is "<id> — City, State", not just "City, State".
-      expect(text).toContain('"plant-1 — Bethlehem, PA","Chicago, IL",293.7 mi,1400,Band 2');
-      expect(text).not.toMatch(/product/i);
-    });
 
     it("Warehouse -> Customer 'Download CSV' produces a client-side CSV with the exact 'Flows' header, independent of the P->W CSV", async () => {
       const RealBlob = globalThis.Blob;
@@ -377,7 +355,7 @@ describe("JadeFlowsTab", () => {
         { id: "plant-1", city: "Reading", state: "PA", lat: 1, lng: 1 },
         { id: "plant-2", city: "Houston", state: "TX", lat: 2, lng: 2 },
       ];
-      rerender(<UnitProvider><JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={movedPlants} /></UnitProvider>);
+      rerender(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={movedPlants} />);
       expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("plant-1 — Reading, PA");
     });
   });
@@ -422,7 +400,7 @@ describe("JadeFlowsTab", () => {
       const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
       render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
 
-      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       let popover = screen.getByTestId("filter-menu-popover");
       let labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
@@ -453,9 +431,9 @@ describe("JadeFlowsTab", () => {
       // JadeFlowsTab performs no data fetching at all (pure-props component)
       // — there is nothing to spy on for "no network call"; the memo-deps fix
       // is proven by the options actually changing on a plain prop rerender.
-      rerender(<UnitProvider><JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" /></UnitProvider>);
+      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
 
-      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       const popover = screen.getByTestId("filter-menu-popover");
       const labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
@@ -469,7 +447,7 @@ describe("JadeFlowsTab", () => {
       const { rerender } = render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
 
       // Plant -> Warehouse: select a band range + a non-band (flow) filter.
-      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       let popover = screen.getByTestId("filter-menu-popover");
       await user.click(
         within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(100, spreadBands, "mi")}`),
@@ -492,7 +470,7 @@ describe("JadeFlowsTab", () => {
       await user.keyboard("{Escape}");
 
       // Change bands — both tables' own "band" filter should clear.
-      rerender(<UnitProvider><JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" /></UnitProvider>);
+      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
 
       // Still on the Warehouse -> Customer tab: band cleared, customer filter survives.
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
@@ -503,7 +481,7 @@ describe("JadeFlowsTab", () => {
 
       // Switch back to Plant -> Warehouse: its own band filter was cleared independently too, flow filter survives.
       await user.click(screen.getByTestId("button-jade-flows-inner-plant-warehouse"));
-      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       popover = screen.getByTestId("filter-menu-popover");
       expect(within(popover).queryByTestId("button-clear-filter-band")).not.toBeInTheDocument();
       expect(within(popover).getByTestId("button-clear-filter-flow")).toBeInTheDocument();
@@ -658,6 +636,112 @@ describe("JadeFlowsTab — no duplicate tab-level title (SCU-1.4)", () => {
     render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
     expect(screen.queryByText("Flows", { selector: "span" })).not.toBeInTheDocument();
     expect(screen.getByText("Warehouse → Customer")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-jade-flows-pw")).toBeInTheDocument();
+  });
+});
+
+// SCU-2.P3.5 (spec B2.1/B2.2/B2.4, matrix §2a "JadeFlows P→W") — Plant ->
+// Warehouse on DataTable: every testid in the instance map; Download ▾ is
+// client-built and is EXACTLY the on-screen table (user decision 2026-10-17).
+describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.P3.5)", () => {
+  function captureDownloads() {
+    const RealBlob = globalThis.Blob;
+    const blobSpy = vi.spyOn(globalThis, "Blob").mockImplementation((parts, opts) => new RealBlob(parts, opts));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake-url");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+    return { names, text: (i: number) => blobSpy.mock.calls[i][0]?.[0] as string };
+  }
+
+  it("emits the root, count, row and five cell testids; Download ▾ is last in the toolbar", () => {
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    const root = screen.getByTestId("jade-flows-pw-table");
+    const key = "plant-1|wh-11";
+    expect(within(root).getByTestId("jade-flow-pw-row-plant-1-wh-11").tagName).toBe("TR");
+    for (const col of ["plant", "warehouse", "distance", "flow", "band"]) {
+      expect(within(root).getByTestId(`cell-jade-flow-pw-${col}-${key}`).tagName).toBe("TD");
+    }
+    expect(within(root).getByTestId("text-jadeflows-pw-count")).toHaveTextContent("2 of 2");
+    const dl = within(root).getByTestId("button-download-jade-flows-pw");
+    expect(dl.parentElement!.lastElementChild).toBe(dl);
+    // thead th texts are the e2e contract (jade-ch9-workspace-bundle.spec.ts:407-408)
+    expect([...root.querySelectorAll("thead th")].map(th => th.textContent)).toEqual(["Plant", "Warehouse", "Distance", "Flow", "Distance Band"]);
+    expect([...root.querySelectorAll("thead th")].map(th => th.classList.contains("text-center"))).toEqual([false, false, true, true, false]);
+  });
+
+  it("CSV = the on-screen table: same headers (unit in Distance), same aggregated rows, as jade-flows-plant-warehouse.csv", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
+    expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv"]);
+    expect(dl.text(0).split("\n")).toEqual([
+      "Plant,Warehouse,Distance (mi),Flow,Distance Band",
+      '"plant-1 — Bethlehem, PA","Chicago, IL",293.7,1400,Band 2',
+      '"plant-2 — Houston, TX","Dallas, TX",1200,300,Overflow',
+    ]);
+  });
+
+  it("JSON = { entity, unit, rows } with one typed object per on-screen row", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-json"));
+    expect(dl.names).toEqual(["jade-flows-plant-warehouse.json"]);
+    expect(JSON.parse(dl.text(0))).toEqual({
+      entity: "jadeFlowsPlantWarehouse",
+      unit: "mi",
+      rows: [
+        { plant: "plant-1 — Bethlehem, PA", warehouse: "Chicago, IL", distance: 293.7, flow: 1400, distanceBand: "Band 2" },
+        { plant: "plant-2 — Houston, TX", warehouse: "Dallas, TX", distance: 1200, flow: 300, distanceBand: "Overflow" },
+      ],
+    });
+  });
+
+  it("> 50 rows: pager with jade-flows-pw literals, and the download still carries ALL rows", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    const edges = Array.from({ length: 51 }, (_, i) => ({
+      fromId: `plant-${i + 1}`, toId: "wh-11", flow: 1, distance: 10, leg: "plant_to_warehouse" as const, productId: "product-1",
+    }));
+    render(<JadeFlowsTab result={makeResult(edges)} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    expect(screen.getByTestId("jade-flows-pw-page-indicator")).toHaveTextContent("Page 1 of 2");
+    expect(screen.getAllByTestId(/^jade-flow-pw-row-/)).toHaveLength(50);
+    await user.click(screen.getByTestId("button-jade-flows-pw-next"));
+    expect(screen.getByTestId("jade-flow-pw-row-plant-51-wh-11")).toBeInTheDocument();
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
+    expect(dl.text(0).split("\n")).toHaveLength(1 + 51);
+  });
+
+  it("Download ▾ is disabled with the export reason while browsing an unaddressable history entry, and while the unit loads", () => {
+    const { unmount } = rtlRender(
+      <UnitProvider>
+        <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "This result predates run history." })}>
+          <JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />
+        </ExportProvider>
+      </UnitProvider>,
+    );
+    const dl = screen.getByTestId("button-download-jade-flows-pw");
+    expect(dl).toBeDisabled();
+    expect(dl).toHaveAttribute("title", "This result predates run history.");
+    unmount();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+    expect(screen.getByTestId("button-download-jade-flows-pw")).toBeDisabled();
+  });
+
+  it("switching legs closes an open Download ▾ (no portaled menu left) and focus is on the leg control", async () => {
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
     expect(screen.getByTestId("button-download-jade-flows-pw-csv")).toBeInTheDocument();
+    await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+    expect(screen.queryByTestId("button-download-jade-flows-pw-csv")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
   });
 });
