@@ -3935,3 +3935,10 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Fail-first: `TransportCostsTab.dataTable.test.tsx` run against the pre-migration tab = 2 failed | 2 passed (centring, exact title); after = 4/4. With `TransportCostsTab.test.tsx` and `historyReadOnlyTabs.test.ts`: 36/36.
 - No `filterResetKey` (user decision 2026-10-17 rule): rate/min columns have no range filter (2 rows, no FilterMenu), so no deviation added. Deviations 3, 19.
 - Gate: studio 2685 passed (149 files; baseline 2681/148), api-server 2033 passed / 3 load-flakes (`jobRunnerDispatcher`, `resultEnvelope` x2; 27/27 x2 isolated, registered), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL=http://localhost:5408`): `jade-transport-costs.spec.ts` 1/1 pass.
+
+### SCU-2.P4.9 — Plant Capability Matrix on DataTable
+
+- `CapabilityMatrixTab` on DataTable: plant text + filter-only state select kept, count via `testIds.count`, capacity label in `toolbar.extra`, history read-only on checkboxes (D2, new). No Upload/Download. No unit-valued column, so no `filterResetKey`.
+- Deviations 3, 15, 17.
+- Fail-first: new test file against the pre-migration tab = 1 failed | 5 passed (history test only). After: 6/6; with `historyReadOnlyTabs` + `CapabilityMatrixTab.test.tsx` = 41 passed (baseline for those two files: 35 passed).
+- Gate: studio 2691 passed (150 files), api-server 2033 passed / 3 load flakes (jobRunnerDispatcher, resultEnvelope x2; green 27/27 x2 isolated), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): jade-ch9-workspace-bundle 2/2, jade-two-echelon 1/1, workspace-fixups 2/2 pass.

@@ -3550,6 +3550,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CapabilityMatrixTab
+          readOnly={isBrowsingHistoryNow}
           plants={mergeEffectivePlants(dataset, localInputs)}
           products={dataset.products ?? []}
           baseCapabilities={dataset.plantProductCapabilities ?? []}
