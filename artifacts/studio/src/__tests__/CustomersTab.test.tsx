@@ -14,6 +14,7 @@ function render(
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import { chooseInputDownload, chooseUpload } from "@/__tests__/helpers/inputTable";
 
 const customers = [
   { id: "C1", city: "New York", state: "NY", lat: 40.71, lng: -74.0, demand: 100 },
@@ -161,12 +162,12 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "500");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     // T9 — same identity model as WarehousesTab: `id` is a T3 stable uid
     // (matches CreateEntityDialog), asserted by shape, not an exact string.
@@ -198,13 +199,13 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "500");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedCustomersChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   // T9 (team-lead decision) — mirrors WarehousesTab's own T9 collision test
@@ -225,16 +226,16 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
-    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
-    await userEvent.clear(screen.getByTestId("input-new-customer-display-code"));
-    await userEvent.type(screen.getByTestId("input-new-customer-display-code"), "DUPE");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Boston");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "MA");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    await userEvent.clear(screen.getByTestId("create-entity-display-code"));
+    await userEvent.type(screen.getByTestId("create-entity-display-code"), "DUPE");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "500");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedCustomersChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   it("renders an added customer row with a delete button, and clicking it calls onDeleteCustomer with its id", async () => {
@@ -339,13 +340,13 @@ describe("CustomersTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
-    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Boston");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "MA");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
 
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(42.338551);
-    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(-71.018253);
-    expect(screen.getByTestId("input-new-customer-display-code")).toHaveValue("CS-MA-BOSTON-01");
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("42.338551");
+    expect(screen.getByTestId("create-entity-lng")).toHaveValue("-71.018253");
+    expect(screen.getByTestId("create-entity-display-code")).toHaveValue("CS-MA-BOSTON-01");
   });
 
   it("a manual edit to the auto-filled Lat cell sticks — a later City/State blur does not re-overwrite it", async () => {
@@ -360,17 +361,17 @@ describe("CustomersTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
-    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(42.338551);
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Boston");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "MA");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("42.338551");
 
-    await userEvent.clear(screen.getByTestId("input-new-customer-lat"));
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "1.2345");
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(1.2345);
+    await userEvent.clear(screen.getByTestId("create-entity-lat"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "1.2345");
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("1.2345");
 
-    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(1.2345);
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("1.2345");
   });
 
   it("a gazetteer miss (unknown city/state) leaves Lat/Lng blank for manual entry, and no display code is assigned", async () => {
@@ -385,13 +386,14 @@ describe("CustomersTab — add-row grid-mirror auto-fill (T9)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Nowheresville");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "ZZ");
-    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Nowheresville");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "ZZ");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
 
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(null);
-    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(null);
-    expect(screen.getByTestId("input-new-customer-display-code")).toHaveValue("");
+    // SCU-2.P4.11 (B2.8) — text inputs; the modal always derives a display code.
+    expect(screen.getByTestId("create-entity-lat")).toHaveValue("");
+    expect(screen.getByTestId("create-entity-lng")).toHaveValue("");
+    expect(screen.getByTestId("create-entity-display-code")).toHaveValue("CS-ZZ-NOWHERESVILLE-01");
   });
 });
 
@@ -405,8 +407,8 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
         <CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />
       </ExportProviderTestWrapper>,
     );
-    expect(screen.getByTestId("button-export-customers-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-customers-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-customers")).toBeDisabled();
     expect(screen.getByTestId("button-import-customers")).toBeDisabled();
   });
 
@@ -421,7 +423,7 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-customers-csv"));
+    chooseInputDownload("customers", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -434,7 +436,7 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
     fetchMock.mockResolvedValue(jsonResponse({ customers: [] }));
     renderWithQueryClient(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} scenarioId={7} />);
 
-    await userEvent.click(screen.getByTestId("button-export-customers-json"));
+    chooseInputDownload("customers", "json");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -447,7 +449,7 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
 
     expect(screen.queryByText("Import customers")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByTestId("button-import-customers"));
+    chooseUpload("customers", "csv");
 
     expect(screen.getByText("Import customers")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-customers")).toBeInTheDocument();
@@ -472,7 +474,7 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-customers"));
+    chooseUpload("customers", "csv");
     const file = new File(["id,demand\nC1,250"], "customers.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-customers"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
@@ -506,7 +508,7 @@ describe("CustomersTab — base table + inline add-section always render togethe
     );
     expect(screen.getByTestId("customers-tab")).toBeInTheDocument();
     expect(screen.getByTestId("customers-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("button-export-customers-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-customers")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-customers")).toBeInTheDocument();
     expect(screen.getByText("C1")).toBeInTheDocument();
     expect(screen.getByTestId("added-customers-section")).toBeInTheDocument();
@@ -522,9 +524,9 @@ describe("CustomersTab — base table + inline add-section always render togethe
         {...addedCustomersProps}
       />,
     );
-    expect(screen.queryByTestId("add-customer-row-form")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    expect(screen.getByTestId("add-customer-row-form")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-dialog")).toBeInTheDocument();
     expect(screen.getByTestId("customers-tab")).toBeInTheDocument();
     expect(screen.getByText("C1")).toBeInTheDocument();
   });
@@ -570,8 +572,9 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
     expect(screen.getByTestId("customer-product-table")).toBeInTheDocument();
     expect(screen.getByText("Copper")).toBeInTheDocument();
     expect(screen.getByText("Aluminum")).toBeInTheDocument();
-    expect(screen.getByTestId("input-customer-demand-customer-1-product-1")).toHaveValue(10);
-    expect(screen.getByTestId("input-customer-demand-customer-1-product-2")).toHaveValue(20);
+    // SCU-2.P4.11 (B2.9) — FormattedNumberInput: a text input with grouped display.
+    expect(screen.getByTestId("input-customer-demand-customer-1-product-1")).toHaveValue("10");
+    expect(screen.getByTestId("input-customer-demand-customer-1-product-2")).toHaveValue("20");
     // Legacy scalar "Demand" column/input is NOT rendered in product mode.
     expect(screen.queryByTestId("input-customer-demand-customer-1")).not.toBeInTheDocument();
   });
@@ -626,17 +629,17 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    expect(screen.queryByTestId("input-new-customer-demand")).not.toBeInTheDocument();
-    expect(screen.getByTestId("input-new-customer-demand-product-1")).toBeInTheDocument();
-    expect(screen.getByTestId("input-new-customer-demand-product-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-demand")).not.toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-demand-product-1")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-demand-product-2")).toBeInTheDocument();
 
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-1"), "40");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-2"), "60");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-demand-product-1"), "40");
+    await userEvent.type(screen.getByTestId("create-entity-demand-product-2"), "60");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
     const [added] = onAddedCustomersChange.mock.calls[0][0];
@@ -648,7 +651,9 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
     });
   });
 
-  it("a blank product demand cell on the add-row form defaults to 0, not a blocking error", async () => {
+  // SCU-2.P4.11 (B2.9, user decision 2026-10-17) — an empty per-product demand
+  // now BLOCKS submit with a validation message (it used to become 0).
+  it("a blank product demand cell on the add form blocks submit with that product's message (no silent 0)", async () => {
     const onAddedCustomersChange = vi.fn();
     render(
       <CustomersTab
@@ -664,18 +669,16 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-1"), "40");
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-demand-product-1"), "40");
     // product-2 left blank
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
-    expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
-    const [added] = onAddedCustomersChange.mock.calls[0][0];
-    expect(added.demands).toEqual({ "product-1": 40, "product-2": 0 });
-    expect(added.demand).toBe(40);
+    expect(onAddedCustomersChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("create-entity-error")).toHaveTextContent(`Demand for ${products[1].name} must be a number ≥ 0.`);
   });
 
   it("an added customer row in product mode renders one demand column per product, and editing one cell recomputes the scalar demand sum", () => {
@@ -696,8 +699,8 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
         onDeleteCustomer={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-1")).toHaveValue(40);
-    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-2")).toHaveValue(0);
+    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-1")).toHaveValue("40");
+    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-2")).toHaveValue("0");
     fireEvent.change(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-2"), { target: { value: "25" } });
     const [nextAdded] = onAddedCustomersChange.mock.calls[0][0];
     expect(nextAdded).toMatchObject({ demands: { "product-1": 40, "product-2": 25 }, demand: 65 });
@@ -737,7 +740,7 @@ describe("CustomersTab — hasStateColumn (Chen's Cosmetics, no state data)", ()
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    expect(screen.queryByTestId("input-new-customer-state")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-state")).not.toBeInTheDocument();
   });
 
   it("hasStateColumn=false: add-row succeeds with city+lat+lng+demand only (no state), state stored as empty string", async () => {
@@ -754,11 +757,11 @@ describe("CustomersTab — hasStateColumn (Chen's Cosmetics, no state data)", ()
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Shanghai");
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "31.23");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "121.47");
-    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Shanghai");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "121.47");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "500");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
     const [added] = onAddedCustomersChange.mock.calls[0][0];
@@ -779,12 +782,12 @@ describe("CustomersTab — hasStateColumn (Chen's Cosmetics, no state data)", ()
       />,
     );
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "31.23");
-    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "121.47");
-    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedCustomersChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-customer-error")).toHaveTextContent("City is required.");
+    expect(screen.getByTestId("create-entity-error")).toHaveTextContent("City is required.");
   });
 });
 
@@ -801,9 +804,11 @@ describe("CustomersTab — enableFilters (B7, opt-in shared FilterMenu)", () => 
     demand: 100 + i,
   }));
 
-  it("omitting enableFilters never renders the FilterMenu trigger, even with >10 rows", () => {
+  // SCU-2.P4.11 (spec B2.2) — the FilterMenu shows above 10 rows on every
+  // model; enableFilters now only reaches ImportDialog's preview grids.
+  it("without enableFilters the FilterMenu still shows above 10 rows (B2.2: all models)", () => {
     render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} />);
-    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
   });
 
   it("enableFilters=true hides the FilterMenu at <=10 rows", () => {
@@ -843,14 +848,13 @@ describe("CustomersTab — FilterMenu placement (T8, item 3)", () => {
   it("JADE-enabled tab: the FilterMenu trigger is inside the SAME toolbar row as the Import/Export buttons", () => {
     render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} enableFilters />);
     const toolbar = screen.getByTestId("customers-tab-toolbar");
-    expect(toolbar).toContainElement(screen.getByTestId("button-export-customers-csv"));
+    expect(toolbar).toContainElement(screen.getByTestId("button-download-customers"));
     expect(toolbar).toContainElement(screen.getByTestId("button-import-customers"));
     expect(toolbar).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
   });
 
-  it("non-JADE tab (enableFilters omitted): no FilterMenu anywhere, even with >10 rows", () => {
+  it("non-JADE tab (enableFilters omitted): the FilterMenu sits in the same toolbar row (B2.2)", () => {
     render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} />);
-    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
-    expect(screen.getByTestId("customers-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("customers-tab-toolbar")).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
   });
 });

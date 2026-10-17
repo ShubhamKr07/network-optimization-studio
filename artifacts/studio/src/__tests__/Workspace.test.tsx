@@ -799,12 +799,12 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     // back inline on the base Customers tab.
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));
     fireEvent.click(screen.getByTestId("button-add-customer-row"));
-    fireEvent.change(screen.getByTestId("input-new-customer-city"), { target: { value: "Denver" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-state"), { target: { value: "CO" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-lat"), { target: { value: "39.74" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-lng"), { target: { value: "-104.99" } });
-    fireEvent.change(screen.getByTestId("input-new-customer-demand"), { target: { value: "500" } });
-    fireEvent.click(screen.getByTestId("button-add-customer-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-104.99" } });
+    fireEvent.change(screen.getByTestId("create-entity-demand"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     fireEvent.click(screen.getByTestId("button-save"));
 

@@ -42,7 +42,7 @@
  */
 import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
-import { closePopover, fillTableFilter } from "./helpers/inputTable";
+import { closePopover, fillTableFilter, grouped, readGroupedNumber } from "./helpers/inputTable";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 120_000;
@@ -548,7 +548,8 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await page.getByTestId("sidebar-input-customers").click();
       const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
       await expect(demandInput).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const original = Number(await demandInput.inputValue()) || 0;
+      // SCU-2.P4.11 (B2.9) — demand is displayed grouped; read it as a number.
+      const original = (await readGroupedNumber(demandInput)) || 0;
       await demandInput.fill(String(original + 1000));
       await saveViaHeader(page);
       await solveViaUi(page, id);
@@ -564,7 +565,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       const demandInput2 = page.locator('[data-testid^="input-customer-demand-"]').first();
       const demand2TestId = (await demandInput2.getAttribute("data-testid"))!;
       const dirtyCustomerId = demand2TestId.replace("input-customer-demand-", "");
-      const beforeDirtyValue = await demandInput2.inputValue();
+      const beforeDirtyValue = String(await readGroupedNumber(demandInput2));
       await demandInput2.fill(String(Number(beforeDirtyValue) + 500));
 
       // ── Step back -> dirty-nav prompt intercepts navigation ─────────────
@@ -577,7 +578,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await page.getByTestId("dirty-nav-cancel").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toHaveCount(0);
       await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2");
-      await expect(page.locator('[data-testid^="input-customer-demand-"]').first()).toHaveValue(String(Number(beforeDirtyValue) + 500));
+      await expect(page.locator('[data-testid^="input-customer-demand-"]').first()).toHaveValue(grouped(Number(beforeDirtyValue) + 500));
 
       // ── Reject Save: intercept the whole-input PATCH to fail ────────────
       await page.getByTestId("button-result-back").click();
@@ -697,7 +698,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       const latestDemand2 = page.locator('[data-testid^="input-customer-demand-"]').first();
       const latestDemandTestId = (await latestDemand2.getAttribute("data-testid"))!;
       const latestDemandCustomerId = latestDemandTestId.replace("input-customer-demand-", "");
-      const savedLatestValue = await latestDemand2.inputValue();
+      const savedLatestValue = String(await readGroupedNumber(latestDemand2));
       await latestDemand2.fill(String(Number(savedLatestValue) + 42));
       await page.getByTestId("button-result-back").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toBeVisible({ timeout: HEADER_TIMEOUT });

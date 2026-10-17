@@ -46,7 +46,7 @@
 import { test, expect, type Page } from "./fixtures";
 import { expectCsvJsonDownload } from "./helpers/download";
 import { readSolvedAt } from "./helpers/solvedAt";
-import { chooseMenuItem, closePopover, fillTableFilter } from "./helpers/inputTable";
+import { chooseMenuItem, closePopover, fillTableFilter, readGroupedNumber } from "./helpers/inputTable";
 // FU-8 — was a local `coverageInputs()`, byte-identical to
 // `nonjade-servicestats-live-coverage.spec.ts`'s copy. The helper carries the
 // `objective: "coverage"` rationale (CH4OS).
@@ -297,7 +297,8 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
       await page.getByTestId("sidebar-input-customers").click();
       const demandInput = page.locator('[data-testid^="input-customer-demand-"]').first();
       await expect(demandInput).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const currentDemand = Number(await demandInput.inputValue()) || 0;
+      // SCU-2.P4.11 (B2.9) — grouped display ("1,234"): Number() of it is NaN.
+      const currentDemand = (await readGroupedNumber(demandInput)) || 0;
       await demandInput.fill(String(currentDemand + 100_000_000)); // large, served → moves the objective
 
       const afterDemand = await solveViaUi(page, id);
@@ -410,7 +411,7 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
 
       await page.getByTestId("sidebar-input-customers").click();
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click();
+      await chooseMenuItem(page, "button-import-customers", "button-import-customers-csv");
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",

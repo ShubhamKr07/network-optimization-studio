@@ -3622,14 +3622,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           hasStateColumn={hasStateColumn}
-          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
-          // true only on the JADE path; every other model sharing this
-          // branch keeps the default `false`.
+          // jade-INT (#9) — JADE-only FilterMenu on the ImportDialog preview
+          // grids. SCU-2.P4.11 (B2.2): the table's own FilterMenu shows on
+          // every model above 10 rows and no longer reads this.
           enableFilters={isJade}
-          // chen-bands-units follow-up (QA defect) — see the Warehouses tab
-          // call site's identical comment for the full rationale. Has no
-          // effect on JADE's own separate productMode table (out of this
-          // fix's scope — see CustomersTabProps.disabled's own comment).
+          modelId={modelId}
+          // History read-only (decision 1h; SCU-2.P4.11 D2) — base, added AND
+          // JADE per-product rows.
           disabled={isBrowsingHistoryNow}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other

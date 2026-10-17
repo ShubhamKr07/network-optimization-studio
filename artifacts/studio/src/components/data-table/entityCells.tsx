@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { FormattedNumberInput } from "./FormattedNumberInput";
 
 export const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
@@ -107,6 +108,63 @@ export function DraftNumberInput({
       title={disabled ? READ_ONLY_TITLE : undefined}
       placeholder={placeholder}
       className="h-7 text-xs w-full min-w-24 font-mono"
+      data-testid={testId}
+    />
+  );
+}
+
+/** SCU-2.P4.11 (spec B2.9) — a demand cell: grouped FormattedNumberInput with
+ * a visible suffix linked by aria-describedby (no aria-label is added). The
+ * suffix is the adapter's: customers "Units", stations "tons" (user decision).
+ * Emptying the field shows it blank until blur, then:
+ *  - `clearCommits` (base rows, D3): the override is cleared → the base value
+ *    returns on blur;
+ *  - otherwise (added rows, user decision 2026-10-17): nothing is saved → the
+ *    last valid value returns on blur.
+ * Without the local `blank` flag FormattedNumberInput would snap back to the
+ * unchanged prop value on the very next render, mid-edit. */
+export function DemandCell({
+  value,
+  onCommit,
+  clearCommits,
+  suffix,
+  integer,
+  disabled,
+  title,
+  placeholder,
+  testId,
+}: {
+  value: number | null;
+  onCommit: (value: number | null) => void;
+  clearCommits: boolean;
+  /** Visible unit after the input ("Units" for customers, "tons" for stations). */
+  suffix: string;
+  integer?: boolean;
+  disabled: boolean;
+  title?: string;
+  placeholder?: string;
+  testId: string;
+}) {
+  const [blank, setBlank] = useState(false);
+  return (
+    <FormattedNumberInput
+      value={blank ? null : value}
+      onChange={v => {
+        if (v === null) {
+          setBlank(true);
+          if (clearCommits) onCommit(null);
+          return;
+        }
+        setBlank(false);
+        onCommit(v);
+      }}
+      onBlur={() => setBlank(false)}
+      suffix={suffix}
+      integer={integer}
+      disabled={disabled}
+      title={title}
+      placeholder={placeholder}
+      className="h-7 text-xs font-mono min-w-24"
       data-testid={testId}
     />
   );

@@ -22,7 +22,7 @@ import { test, expect, type Page } from "./fixtures";
 import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
-import { closePopover, fillTableFilter } from "./helpers/inputTable";
+import { chooseMenuItem, closePopover, fillTableFilter } from "./helpers/inputTable";
 
 // Both JADE siblings (jade-transport-costs.spec.ts, jade-ch9-workspace-
 // bundle.spec.ts) already set this — without it, an action with no explicit
@@ -362,7 +362,8 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
 
       await page.getByTestId("sidebar-input-customers").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("button-import-customers").click({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P4.11 (B2.3) — Upload ▾ → CSV.
+      await chooseMenuItem(page, "button-import-customers", "button-import-customers-csv");
       await page.getByTestId("input-import-file-customers").setInputFiles({
         name: "customers.csv",
         mimeType: "text/csv",

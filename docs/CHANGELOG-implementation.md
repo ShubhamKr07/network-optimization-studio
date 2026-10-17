@@ -3951,3 +3951,12 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviations 1, 3, 9, 13, 14, 15, 17, 18, 19.
 - Counts: affected studio files 275 -> 285 (6 -> 7 files; +10 new). Fail-first: new file 7 failed | 3 passed pre-migration.
 - Gate: studio 2701 passed, api-server 2032 passed (4 registered-flake failures in jobRunnerDispatcher/resultEnvelope; 27/27 isolated x2), pytest 355 passed, import-schema 22 passed. e2e (local 5410/3410): workspace-fixups, workspace-fixups-2, jade-ch9-workspace-bundle, tab-coverage, delivery-teaching, bundle6-ui-tweaks all pass (19 tests).
+
+### SCU-2.P4.11 — Customers
+
+- Customers (scalar + JADE) on DataTable: base + added sections, one FilterMenu on every model, pager > 50, Upload ▾/Download ▾, "+ Add customer" modal (empty demand blocks, incl. JADE per-product).
+- B2.9: `DemandCell` (FormattedNumberInput, Units suffix, no aria-label; base empty → clear override, added empty → not saved, reverts on blur) appended to `entityCells.tsx`; Brazil lock base-only; D2 read-only on base, added and JADE rows (JADE was live) and on an open modal.
+- e2e demand reads rewritten for grouped values (import, chen-bands-units-qa, max-coverage); Upload clicks go through Upload ▾ → CSV (import, max-coverage, jade-two-echelon). Applied the e2e edits before the first e2e run. No distance column, so no `filterResetKey`.
+- Deviations 1, 2, 3, 9, 10, 11, 13, 14, 15, 17, 18, 19. All 29 + 13 plan anchors matched exactly once on the real base (no drift).
+- Counts: affected studio files 241 -> 255 (4 -> 5 files; +14 new). Fail-first: new file 13 failed | 1 passed pre-migration.
+- Gate: studio 2715 passed (152 files), api-server 2033 passed (3 registered-flake failures in jobRunnerDispatcher/resultEnvelope; 27/27 isolated x2), pytest 355 passed, import-schema 22 passed. e2e (local 5411/3411, workers=1, retries=0): import, chen-bands-units-qa, max-coverage, bundle2-fastfollow, jade-two-echelon, delivery-teaching, workspace-fixups — 18/18 passed.
