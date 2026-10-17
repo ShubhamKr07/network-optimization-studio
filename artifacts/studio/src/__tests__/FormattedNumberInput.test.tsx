@@ -126,6 +126,41 @@ describe("FormattedNumberInput", () => {
     expect(input().selectionStart).toBe(2);
   });
 
+  it("renders with a NaN value without an infinite re-render loop", () => {
+    expect(() => render(<FormattedNumberInput value={NaN} onChange={() => {}} data-testid="input-customer-demand-C1" />)).not.toThrow();
+  });
+
+  it("Backspace right after a grouping comma deletes the digit before it", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={1234} />);
+    await user.click(input());
+    input().setSelectionRange(2, 2); // "1,|234"
+    await user.keyboard("{Backspace}");
+    expect(input().value).toBe("234");
+    expect(input().selectionStart).toBe(0);
+  });
+
+  it("Delete right before a grouping comma deletes the digit after it", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={1234} />);
+    await user.click(input());
+    input().setSelectionRange(1, 1); // "1|,234"
+    await user.keyboard("{Delete}");
+    expect(input().value).toBe("134");
+    expect(input().selectionStart).toBe(1);
+  });
+
+  it("does not leave a stale caret that applies on a later rerender", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<FormattedNumberInput value={1234} onChange={() => {}} data-testid="input-customer-demand-C1" />);
+    await user.click(input());
+    input().setSelectionRange(5, 5);
+    await user.type(input(), "x"); // rejected: no state change
+    input().setSelectionRange(1, 1);
+    rerender(<FormattedNumberInput value={1234} onChange={() => {}} suffix="Units" data-testid="input-customer-demand-C1" />);
+    expect(input().selectionStart).toBe(1);
+  });
+
   it("paste strips grouping commas and spaces", async () => {
     const onValue = vi.fn();
     const user = userEvent.setup();

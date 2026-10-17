@@ -495,3 +495,35 @@ describe("DataTable — focus jump", () => {
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
   });
 });
+
+describe("DataTable — focus edge cases", () => {
+  it("re-attempts an unmatched focus once the row appears, only while the token is unconsumed", async () => {
+    const focus: DataTableFocus<Row> = { token: 7, matches: r => r.id === "C75" };
+    const props = { ctx: CTX, rowKey: (r: Row) => r.id, columns, focus, testIds: { row: (r: Row) => `row-${r.id}`, pageIndicator: "t-ind" } };
+    const { rerender } = render(<DataTable<Row> {...props} rows={makeRows(60)} />);
+    expect(screen.queryByTestId("row-C75")).toBeNull();
+    (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
+    rerender(<DataTable<Row> {...props} rows={makeRows(120)} />);
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
+    expect(screen.getByTestId("row-C75")).toBeInTheDocument();
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    // consumed: more rows must not jump again
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /prev|previous/i }));
+    rerender(<DataTable<Row> {...props} rows={makeRows(121)} />);
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 1 of 3");
+  });
+
+  it("clears pendingScrollKey when the row is in no section instead of re-querying forever", () => {
+    const spy = vi.spyOn(Element.prototype, "querySelectorAll");
+    const sections = [{ id: "a", includes: (r: Row) => r.id === "C1" }];
+    const focus: DataTableFocus<Row> = { token: 1, matches: r => r.id === "C2" };
+    const props = { ctx: CTX, rowKey: (r: Row) => r.id, columns, focus, sections };
+    const { rerender } = render(<DataTable<Row> {...props} rows={makeRows(3)} />);
+    spy.mockClear();
+    rerender(<DataTable<Row> {...props} rows={makeRows(3)} />);
+    rerender(<DataTable<Row> {...props} rows={makeRows(3)} />);
+    expect(spy.mock.calls.filter(c => c[0] === "tr[data-row-key]")).toHaveLength(0);
+    spy.mockRestore();
+  });
+});

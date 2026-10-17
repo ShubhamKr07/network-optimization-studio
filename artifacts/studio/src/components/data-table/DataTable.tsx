@@ -72,15 +72,19 @@ export function DataTable<T>({
   // scroll that row into view once its page has rendered.
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingScrollKey = useRef<string | null>(null);
+  const consumedToken = useRef<string | number | null>(null);
+  // Re-runs on `rows` so a focus whose row arrives later is retried — but only
+  // while its token is unconsumed (one jump per token).
   useEffect(() => {
-    if (!focus) return;
+    if (!focus || consumedToken.current === focus.token) return;
     const idx = rows.findIndex(focus.matches);
     if (idx < 0) return;
+    consumedToken.current = focus.token;
     clearAll();
     paged.setPage(Math.floor(idx / PAGE_SIZE) + 1, clearedKey);
     pendingScrollKey.current = rowKey(rows[idx]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus?.token]);
+  }, [focus?.token, rows]);
   useEffect(() => {
     const key = pendingScrollKey.current;
     if (key === null || !rootRef.current) return;
@@ -89,6 +93,9 @@ export function DataTable<T>({
     );
     if (el) {
       el.scrollIntoView({ block: "center" });
+      pendingScrollKey.current = null;
+    } else if (paged.pageRows.some(r => rowKey(r) === key)) {
+      // On the current page yet never rendered (row belongs to no section): give up.
       pendingScrollKey.current = null;
     }
   });

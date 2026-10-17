@@ -131,7 +131,7 @@ export interface DataTableFocus<T> {
 export interface DataTableProps<T> {
   /** Already-effective rows (base ⊕ saved overrides ⊕ current edits ⊕ added), base rows first. */
   rows: T[];
-  /** Unique per row; composite keys allowed (e.g. `${fromId}|${toId}`). */
+  /** Unique per row; composite keys allowed (e.g. `${fromId}|${toId}`). Keep it stable and cheap: `pageResetKey` calls it for every row and sorts all keys on each render. */
   rowKey: (row: T) => string;
   /** May be rebuilt each render; DataTable/FilterMenu must not key effects on this array's identity. */
   columns: ColumnDef<T>[];

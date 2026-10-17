@@ -86,7 +86,7 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
 
     // External value change (scenario switch, import, reset): resync unless the
     // current text already means that value (e.g. "12." while typing 12.5).
-    if (value !== seenValue) {
+    if (!Object.is(value, seenValue)) {
       setSeenValue(value);
       const current = sanitizeNumberText(text, integer);
       if (current === null || parse(current) !== value) setText(formatNumberValue(value));
@@ -104,11 +104,15 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
       const clean = sanitizeNumberText(raw, integer);
       const next = clean === null ? null : parse(clean);
       // Rejected: no state change, so React restores the controlled value to `text`.
-      if (clean === null || (next !== null && next > Number.MAX_SAFE_INTEGER)) return;
+      if (clean === null || (next !== null && next > Number.MAX_SAFE_INTEGER)) {
+        pendingCaret.current = null;
+        return;
+      }
       let sig = 0;
       for (let i = 0; i < caret && i < raw.length; i++) if (isSig(raw[i])) sig++;
       const formatted = groupNumberText(clean);
       pendingCaret.current = caretAfterSig(formatted, sig);
+      if (formatted === text) pendingCaret.current = null; // no re-render will consume it
       setText(formatted);
       if (next !== value) {
         setSeenValue(next);
@@ -138,7 +142,21 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
               setText(raw);
               return;
             }
-            accept(raw, e.target.selectionStart ?? raw.length);
+            const caret = e.target.selectionStart ?? raw.length;
+            // Backspace/Delete over a grouping comma reformats to identical text
+            // (no state change, caret would jump): delete the adjacent digit instead.
+            const type = (e.nativeEvent as InputEvent).inputType;
+            if (raw.length === text.length - 1 && text[caret] === "," && text.slice(0, caret) + text.slice(caret + 1) === raw) {
+              if (type === "deleteContentBackward" && caret > 0) {
+                accept(text.slice(0, caret - 1) + text.slice(caret + 1), caret - 1);
+                return;
+              }
+              if (type === "deleteContentForward" && caret + 1 < text.length) {
+                accept(text.slice(0, caret) + text.slice(caret + 2), caret);
+                return;
+              }
+            }
+            accept(raw, caret);
           }}
           onCompositionStart={e => {
             composing.current = true;
