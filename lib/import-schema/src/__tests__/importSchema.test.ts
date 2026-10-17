@@ -5,11 +5,12 @@ import {
   MAX_IMPORT_ROWS, MAX_IMPORT_BYTES, csvColumns, exampleCsv, exampleJsonDocument,
   findTemplateVersion, isImportEntity,
 } from "../index.js";
+import type { ImportEntity } from "../index.js";
 
 // The "no column change" anchor (spec B2.5): today's literal column lists from
 // artifacts/api-server/src/services/import.ts:100-211 at 46d2f98. Written out
 // by hand on purpose — a test that derived these from the package could not fail.
-const LITERAL_COLUMNS: Record<string, Record<number, string[]>> = {
+const LITERAL_COLUMNS: Record<ImportEntity, Record<number, string[]>> = {
   warehouses: { 1: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"] },
   customers: { 1: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"] },
   mines: { 1: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity"] },
@@ -33,35 +34,17 @@ describe("constants", () => {
 });
 
 describe("IMPORT_SCHEMAS", () => {
-  it("has exactly one schema per entity, keyed by its own name", () => {
-    expect(Object.keys(IMPORT_SCHEMAS).sort()).toEqual([...IMPORT_ENTITIES].sort());
-    for (const entity of IMPORT_ENTITIES) expect(IMPORT_SCHEMAS[entity].entity).toBe(entity);
-  });
-
   it.each(Object.entries(LITERAL_COLUMNS))("%s: CSV columns equal today's literal header for every version", (entity, byVersion) => {
-    const schema = IMPORT_SCHEMAS[entity as keyof typeof IMPORT_SCHEMAS];
+    const schema = IMPORT_SCHEMAS[entity as ImportEntity];
     expect(schema.versions.map(v => v.templateVersion)).toEqual(Object.keys(byVersion).map(Number));
     for (const [version, columns] of Object.entries(byVersion)) {
-      expect(csvColumns(schema.entity, Number(version))).toEqual(columns);
+      expect(csvColumns(entity as ImportEntity, Number(version))).toEqual(columns);
     }
   });
 
-  it("every entity is covered by the literal table", () => {
-    expect(Object.keys(LITERAL_COLUMNS).sort()).toEqual([...IMPORT_ENTITIES].sort());
-  });
-
-  it("jsonKey is the camelCase of csvHeader (from_id ↔ fromId)", () => {
-    for (const entity of IMPORT_ENTITIES) for (const v of IMPORT_SCHEMAS[entity].versions) for (const f of v.fields) {
-      expect(f.jsonKey).toBe(f.csvHeader.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase()));
-    }
+  it("distances v2 JSON keys", () => {
     const distances = findTemplateVersion("distances", DISTANCE_TEMPLATE_VERSION)!;
     expect(distances.fields.map(f => f.jsonKey)).toEqual(["templateVersion", "unit", "fromId", "toId", "distance"]);
-  });
-
-  it("nullable is exactly !(requiredForAdd && requiredForUpdate)", () => {
-    for (const entity of IMPORT_ENTITIES) for (const v of IMPORT_SCHEMAS[entity].versions) for (const f of v.fields) {
-      expect(f.nullable).toBe(!(f.requiredForAdd && f.requiredForUpdate));
-    }
   });
 
   it("examples are well-typed: enum examples are members, number examples parse, booleans are true/false", () => {

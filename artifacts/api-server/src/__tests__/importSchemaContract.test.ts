@@ -106,3 +106,10 @@ describe("strict oneOf: generated Zod and readImportRequest agree on every case"
     expect(readImportRequest(body, "apply").ok).toBe(accepted);
   });
 });
+
+describe("templateVersion must be an integer (OpenAPI type: integer; generated Zod is a bare number())", () => {
+  it.each(["preview", "apply"] as const)("%s — 1.5 → 400 malformed with field", (route) => {
+    const result = readImportRequest({ ...JSON_REQ, document: { ...DOC, templateVersion: 1.5 } }, route);
+    expect(result).toMatchObject({ ok: false, status: 400, body: { errorClass: "malformed", field: "templateVersion" } });
+  });
+});

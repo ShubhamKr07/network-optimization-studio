@@ -62,6 +62,16 @@ export interface ApplyScenarioInputWriteParams {
  * This is why the routine takes `userId`, unlike the spec's three-argument
  * sketch — that form cannot scope the locked SELECT.
  */
+// Key-order-insensitive: jsonb returns keys length-then-bytewise, Zod re-emits
+// schema order, so plain JSON.stringify calls identical objects "changed".
+// Arrays keep their order.
+const canonicalJson = (v: unknown): string | undefined =>
+  JSON.stringify(v, (_k, val) =>
+    val && typeof val === "object" && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : val,
+  );
+
 export async function applyScenarioInputWrite(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle's tx type is not exported
   tx: any,
@@ -100,7 +110,7 @@ export async function applyScenarioInputWrite(
   const changed = new Set([
     ...Object.keys(persistedInputs),
     ...Object.keys(inputsToStore),
-  ].filter((k) => JSON.stringify(persistedInputs[k]) !== JSON.stringify(inputsToStore[k])));
+  ].filter((k) => canonicalJson(persistedInputs[k]) !== canonicalJson(inputsToStore[k])));
   // CH4OS — `objective` is a real student input now: changing it alone is a
   // geometric change (bumps inputsUpdatedAt + solve_input_revision), so an
   // existing result goes stale. No key is exempted from the diff.

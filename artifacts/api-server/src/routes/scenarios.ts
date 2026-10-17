@@ -1555,21 +1555,10 @@ function mergeDistanceChangesIntoOverrides(
 // Task 30 (B6.1 stage 4) — laneCostOverrides persists overrides as an array
 // keyed by the composite (fromId, toId) pair, the exact transport-coal
 // analogue of mergeDistanceChangesIntoOverrides above (field name aside —
-// `cost` instead of `distance`).
+// `cost` instead of `distance`). Also serves deliveryCosts (SCU-2.P2.3): a
+// reset-to-base change (after.status "base", set by the parser on override
+// PRESENCE) removes the override, keeping laneCostOverrides sparse.
 function mergeLaneCostChangesIntoOverrides(
-  currentOverrides: Array<{ fromId: string; toId: string; cost: number }>,
-  changes: ImportRowChange[],
-): Array<{ fromId: string; toId: string; cost: number }> {
-  const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
-  const rest = currentOverrides.filter(o => !changedKeys.has(`${o.fromId}|${o.toId}`));
-  const applied = changes.map(c => ({ fromId: c.fromId!, toId: c.toId!, cost: c.after.value! }));
-  return [...rest, ...applied];
-}
-
-// SCU-2.P2.3 (B2.7, D1; review #8) - upsert; a reset-to-base change
-// (after.status "base", set by the parser on override PRESENCE) removes the
-// override, keeping laneCostOverrides sparse.
-function mergeDeliveryCostChangesIntoOverrides(
   currentOverrides: Array<{ fromId: string; toId: string; cost: number }>,
   changes: ImportRowChange[],
 ): Array<{ fromId: string; toId: string; cost: number }> {
@@ -1837,7 +1826,7 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
     const nextLaneCostOverrides = mergeLaneCostChangesIntoOverrides(currentLaneCostOverrides, preview.changes);
     nextInputs = { ...inputs, laneCostOverrides: nextLaneCostOverrides };
   } else if (entity === "deliveryCosts") {
-    nextInputs = { ...inputs, laneCostOverrides: mergeDeliveryCostChangesIntoOverrides(inputs.laneCostOverrides ?? [], preview.changes) };
+    nextInputs = { ...inputs, laneCostOverrides: mergeLaneCostChangesIntoOverrides(inputs.laneCostOverrides ?? [], preview.changes) };
   } else if (entity === "warehouses" || entity === "customers") {
     // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
     // blank id + valid new-entity data — T11 changed the trigger from
@@ -1979,14 +1968,8 @@ router.post("/scenarios/:scenarioId/import/apply", loadOwnedImportScenario, impo
   // CH4O-P1 — this comment previously explained the route in terms of
   // `stepEpoch` and "the precise failure CH4-7 exists to prevent"; the
   // Chapter 4 overhaul deleted both branch-wide.
-  // SCU-2.P2.3 (B2.7, review #9): a deliveryCosts no-op must not advance the
-  // revision. applyScenarioInputWrite diffs persisted vs candidate with
-  // JSON.stringify, and jsonb reorders object keys on read ({cost,toId,fromId}),
-  // so re-writing identical override rows would look changed and bump anyway.
-  if (entity === "deliveryCosts" && preview.changes.length === 0) {
-    res.json({ scenario: toApiScenario(scenario), applied: 0, errors: preview.errors });
-    return;
-  }
+  // No-op imports are detected inside applyScenarioInputWrite (key-order-
+  // insensitive diff), so they do not bump the revision.
   const writeOutcome = await db.transaction(async (tx) =>
     applyScenarioInputWrite(tx, {
       scenarioId: id,

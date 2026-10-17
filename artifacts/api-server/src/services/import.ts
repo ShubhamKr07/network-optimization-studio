@@ -14,7 +14,8 @@ import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
 import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { getManifest } from "../registry/modelRegistry.js";
-import { csvColumns, IMPORT_ENTITIES, IMPORT_SCHEMAS, MAX_IMPORT_ROWS, findTemplateVersion, isImportEntity } from "@workspace/import-schema";
+import { PreviewScenarioImportBody, ApplyScenarioImportBody } from "@workspace/api-zod";
+import { csvColumns, IMPORT_SCHEMAS, MAX_IMPORT_ROWS, findTemplateVersion } from "@workspace/import-schema";
 import type { ImportEntity, ImportFieldDescriptor, ImportJsonDocument } from "@workspace/import-schema";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
@@ -1483,43 +1484,35 @@ export type ReadImportRequestResult =
   | { ok: true; entity: ImportEntity; payload: ImportPayload; mode: "all_or_nothing" | "partial" }
   | { ok: false; status: 400 | 422; body: { error: string; errorClass?: "malformed"; field?: string } };
 
-const REQUEST_KEYS = { csv: ["entity", "format", "csvText"], json: ["entity", "format", "document"] } as const;
-const DOCUMENT_KEYS = new Set(["templateVersion", "entity", "unit", "rows"]);
-const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
-
 /**
- * The hand-written twin of the strict OpenAPI oneOf (additionalProperties:
- * false). importSchemaContract.test.ts pins it case-for-case to the generated
- * Zod. Request-envelope violations → 422; `document` schema violations → 400
- * malformed. Runs AFTER the ownership lookup (the route mounts it that way).
+ * Validates the request against the generated strict OpenAPI oneOf (the single
+ * source). Issues under `document` → 400 malformed; any other envelope
+ * violation → 422. Runs AFTER the ownership lookup (the route mounts it so).
  */
 export function readImportRequest(body: unknown, route: "preview" | "apply"): ReadImportRequestResult {
-  const invalid = (error: string): ReadImportRequestResult => ({ ok: false, status: 422, body: { error } });
-  const malformed = (error: string, field: string): ReadImportRequestResult => ({ ok: false, status: 400, body: { error, errorClass: "malformed", field } });
-
-  if (!isPlainObject(body)) return invalid("request body must be a JSON object");
-  if (!isImportEntity(body.entity)) return invalid(`entity must be one of: ${IMPORT_ENTITIES.join(", ")}`);
-  const format = "format" in body ? body.format : "csv"; // omitted = csv; null is rejected below
-  if (format !== "csv" && format !== "json") return invalid("format must be 'csv' or 'json'");
-  const allowed = new Set<string>([...REQUEST_KEYS[format], ...(route === "apply" ? ["mode"] : [])]);
-  const unknownKey = Object.keys(body).find(k => !allowed.has(k));
-  if (unknownKey !== undefined) return invalid(`Unknown request field "${unknownKey}"`);
-  const mode = "mode" in body ? body.mode : "all_or_nothing";
-  if (mode !== "all_or_nothing" && mode !== "partial") return invalid("mode must be 'all_or_nothing' or 'partial'");
-
-  if (format === "csv") {
-    if (typeof body.csvText !== "string") return invalid("csvText is required");
-    return { ok: true, entity: body.entity, payload: { format, csvText: body.csvText }, mode };
+  const schema = route === "preview" ? PreviewScenarioImportBody : ApplyScenarioImportBody;
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    // A failed union nests per-branch issues; the json branch is the 2nd member.
+    const issues = parsed.error.issues.flatMap(i =>
+      i.code === "invalid_union" ? i.unionErrors[(body as { format?: unknown } | null)?.format === "json" ? 1 : 0].issues : [i]);
+    const envelope = issues.find(i => i.path[0] !== "document");
+    if (envelope || issues.length === 0) return { ok: false, status: 422, body: { error: envelope?.message ?? "request body must be a JSON object" } };
+    const issue = issues[0];
+    const field = issue.code === "unrecognized_keys" ? issue.keys[0] : String(issue.path[1] ?? "document");
+    return { ok: false, status: 400, body: { error: issue.message, errorClass: "malformed", field } };
   }
-  const doc = body.document;
-  if (!isPlainObject(doc)) return malformed("document must be a JSON object", "document");
-  const unknownDocKey = Object.keys(doc).find(k => !DOCUMENT_KEYS.has(k));
-  if (unknownDocKey !== undefined) return malformed(`Unknown document field "${unknownDocKey}"`, unknownDocKey);
-  if (typeof doc.templateVersion !== "number") return malformed("document.templateVersion must be a number", "templateVersion");
-  if (!isImportEntity(doc.entity)) return malformed(`document.entity must be one of: ${IMPORT_ENTITIES.join(", ")}`, "entity");
-  if ("unit" in doc && doc.unit !== "km" && doc.unit !== "mi") return malformed("document.unit must be 'km' or 'mi'", "unit");
-  if (!Array.isArray(doc.rows) || !doc.rows.every(isPlainObject)) return malformed("document.rows must be an array of JSON objects", "rows");
-  return { ok: true, entity: body.entity, payload: { format, document: doc as unknown as ImportJsonDocument }, mode };
+  const data = parsed.data as { entity: ImportEntity; format?: "csv" | "json"; csvText?: string; document?: ImportJsonDocument; mode?: "all_or_nothing" | "partial" };
+  const mode = data.mode ?? "all_or_nothing";
+  if (data.format === "json") {
+    const document = data.document!;
+    // OpenAPI says integer; the generated Zod emits a bare number().
+    if (!Number.isInteger(document.templateVersion)) {
+      return { ok: false, status: 400, body: { error: "document.templateVersion must be an integer", errorClass: "malformed", field: "templateVersion" } };
+    }
+    return { ok: true, entity: data.entity, payload: { format: "json", document }, mode };
+  }
+  return { ok: true, entity: data.entity, payload: { format: "csv", csvText: data.csvText! }, mode };
 }
 
 export function previewImport(

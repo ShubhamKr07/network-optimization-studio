@@ -81,7 +81,6 @@ export interface ImportTemplateVersion {
 }
 
 export interface ImportEntitySchema {
-  readonly entity: ImportEntity;
   readonly models: readonly ModelId[];
   /** Models where a blank `id` adds a new entity (the blank-id = add-mode rule). [] for pair entities. */
   readonly addModels: readonly ModelId[];
@@ -152,7 +151,6 @@ const distanceValue = (example: string) =>
 
 export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> = {
   warehouses: {
-    entity: "warehouses",
     models: ["p-median-us", "p-median-brazil", "two-echelon-jade-us", "max-coverage-us", "delivery-teaching-us"],
     addModels: ["p-median-us", "p-median-brazil", "two-echelon-jade-us", "max-coverage-us"],
     versions: [{
@@ -165,7 +163,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: ["overridden"],
   },
   customers: {
-    entity: "customers",
     models: ["p-median-us", "p-median-brazil", "two-echelon-gold-au", "two-echelon-jade-us", "max-coverage-us", "delivery-teaching-us"],
     addModels: ["p-median-us", "p-median-brazil", "two-echelon-gold-au", "max-coverage-us"],
     versions: [{
@@ -179,7 +176,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: ["overridden"],
   },
   mines: {
-    entity: "mines",
     models: ["transport-coal"],
     addModels: ["transport-coal"],
     versions: [{
@@ -191,7 +187,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: ["overridden"],
   },
   stations: {
-    entity: "stations",
     models: ["transport-coal"],
     addModels: ["transport-coal"],
     versions: [{
@@ -203,7 +198,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: ["overridden"],
   },
   refineries: {
-    entity: "refineries",
     models: ["two-echelon-gold-au"],
     addModels: ["two-echelon-gold-au"],
     versions: [{
@@ -215,14 +209,12 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: [],
   },
   distances: {
-    entity: "distances",
     models: ["p-median-us", "p-median-brazil", "max-coverage-us"],
     addModels: [],
     versions: pairVersions("ALN", "C1", distanceValue("123.4"), true),
     exportOnlyJsonKeys: ["overridden"],
   },
   laneCosts: {
-    entity: "laneCosts",
     models: ["transport-coal"],
     addModels: [],
     // transport-coal's lane "cost" IS a geographic distance, so it converts under unit= (templates.ts:1171-1191).
@@ -230,14 +222,12 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: ["overridden"],
   },
   legDistances: {
-    entity: "legDistances",
     models: ["two-echelon-gold-au", "two-echelon-jade-us"],
     addModels: [],
     versions: pairVersions("kalgoorlie", "cunnamulla", distanceValue("1500"), true),
     exportOnlyJsonKeys: ["overridden"],
   },
   deliveryCosts: {
-    entity: "deliveryCosts",
     models: ["delivery-teaching-us"],
     addModels: [],
     // D1: sparse overrides of inputs.laneCostOverrides. cost = BILLABLE MILES, never
@@ -246,7 +236,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: [],
   },
   plants: {
-    entity: "plants",
     models: ["two-echelon-jade-us"],
     addModels: ["two-echelon-jade-us"],
     versions: [{
@@ -256,7 +245,6 @@ export const IMPORT_SCHEMAS: Readonly<Record<ImportEntity, ImportEntitySchema>> 
     exportOnlyJsonKeys: [],
   },
   plantCapabilities: {
-    entity: "plantCapabilities",
     models: ["two-echelon-jade-us"],
     addModels: [],
     versions: [{
