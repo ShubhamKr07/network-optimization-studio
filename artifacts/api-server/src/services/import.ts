@@ -418,10 +418,10 @@ export function parseAndValidateImport(
   }
   const header = rows[0]?.map(h => h.trim()) ?? [];
   if (stripFormulaGuard) {
-    // Text columns only (numbers never carry the guard). Strip ONE leading ' iff the rest starts with = + - @ tab CR.
+    // Text columns only (numbers never carry the guard). Strip ONE leading ' iff the rest starts with = + - @ tab CR, or with ' then one of those (csvCell double-prefixes a stored `'=x`).
     const textCols = new Set(IMPORT_SCHEMAS[entity].versions.flatMap(v => v.fields.filter(f => f.type !== "number" && f.type !== "boolean").map(f => f.csvHeader)));
     for (const row of rows.slice(1)) {
-      row.forEach((cell, i) => { if (textCols.has(header[i]) && /^'[=+\-@\t\r]/.test(cell)) row[i] = cell.slice(1); });
+      row.forEach((cell, i) => { if (textCols.has(header[i]) && /^''?[=+\-@\t\r]/.test(cell)) row[i] = cell.slice(1); });
     }
   }
 
