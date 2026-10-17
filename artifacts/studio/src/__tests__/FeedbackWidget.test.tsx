@@ -147,4 +147,22 @@ describe("FeedbackWidget", () => {
     // anonymously" — it covers the request, not just the row.
     expect(text).not.toMatch(/feedback is anonymous/i);
   });
+
+  // SCU-1.7 (spec B1.6) — launcher right-aligned in the footer; the panel
+  // opens upward anchored to the RIGHT edge (never centred, which would push
+  // it off-screen from a right-hand launcher), width clamped to the viewport.
+  // Class-level only — jsdom has no layout; the real geometry is asserted in
+  // e2e/feedback.spec.ts.
+  it("right-aligns the launcher and anchors the panel to the right edge", async () => {
+    const user = userEvent.setup();
+    render(<FeedbackWidget />);
+    const wrapper = screen.getByTestId("feedback-button").parentElement!;
+    expect(wrapper).toHaveClass("justify-end");
+    expect(wrapper).not.toHaveClass("justify-center");
+    await user.click(screen.getByTestId("feedback-button"));
+    const panel = document.getElementById("feedback-panel")!;
+    expect(panel).toHaveClass("right-0", "bottom-full", "w-[min(20rem,calc(100vw-2rem))]");
+    expect(panel).not.toHaveClass("left-1/2");
+    expect(panel).not.toHaveClass("-translate-x-1/2");
+  });
 });

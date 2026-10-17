@@ -13,17 +13,17 @@
  *      cost table is no longer this model's only editable surface; facility
  *      status and customer demand/exclusion are also editable, geometry
  *      stays fixed).
- *   3. The Input Map renders `fixedGeography`: no add/move/delete/Save
+ *   3. The Input Map renders `fixedGeography`: no add/move/delete (Save is inline in the Layers row, SCU-1.5)
  *      affordance (geometry stays fixed — Task 6's inversion only lifted
  *      status/demand editing, not the map's own add/move/delete controls;
  *      the map's right-click action menu shows an Edit action only, proven
  *      by InputMapTab.deliveryFixedGeography.test.tsx at the unit layer).
  *   4. Solve (real CBC) → Scenario 1's golden: open {W1, W2, W60}, weighted
- *      avg distance 422.6 mi (the on-screen 1dp form), Service Stats 81.45%
- *      at the 800mi band.
+ *      avg distance 422.6 mi (the on-screen 1dp form), Service Stats 22.07%
+ *      in the 400–800 mi band (exclusive, SCU-1.2).
  *   5. Click Adjust Cost Table → the three rate fields default to 800/1/10 →
- *      re-solve → open set flips to {W6, W43, W45}, 800mi coverage rises to
- *      97.19%.
+ *      re-solve → open set flips to {W6, W43, W45}, the 400–800 mi band rises to
+ *      70.76%.
  *   6. Toggle back off (reproduces Scenario 1 — deterministic CBC) → override
  *      the W60→C3 lane (Scenario 1's first positive-distance assignment,
  *      distance 317.5506mi, demand 7,773,000 units) to cost 0 → re-solve →
@@ -189,15 +189,17 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     await expect(page.getByTestId("sidebar-input-optimization-parameters")).toBeVisible();
     expect(await page.locator('[data-testid^="sidebar-input-"]').count()).toBe(5);
 
-    // ── 3. Input Map renders fixedGeography: no add/move/delete/Save
-    // affordance — geometry stays fixed even though status/demand editing
-    // moved to the Warehouses/Customers tabs (Task 6's inversion) ─────────
+    // ── 3. Input Map renders fixedGeography: no add/move/delete affordance —
+    // geometry stays fixed. SCU-1.5 (spec B1.2) — Save IS here now, inline
+    // in the Layers row (status/demand edits are real), and the separate
+    // shared toolbar row is suppressed on this view ─────────────────────
     await page.getByTestId("sidebar-input-input-map").click();
     const inputMap = page.getByTestId("input-map-tab");
     await expect(inputMap).toBeVisible({ timeout: HEADER_TIMEOUT });
     await expect(inputMap.getByTestId("button-input-map-place-wh")).toHaveCount(0);
     await expect(inputMap.getByTestId("button-input-map-place-cs")).toHaveCount(0);
-    await expect(inputMap.getByTestId("button-save")).toHaveCount(0);
+    await expect(page.getByTestId("pmedian-map-toolbar").getByTestId("button-save")).toHaveCount(1);
+    await expect(page.getByTestId("workspace-toolbar-row")).toHaveCount(0);
 
     // ── 4. Solve (real CBC) → Scenario 1 golden ──────────────────────────────
     const scenario1 = await solveViaUi(page, id);
@@ -208,10 +210,10 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     await expect(page.getByTestId("cost-summary-value-weighted-avg-distance")).toContainText("422.6 mi", { timeout: HEADER_TIMEOUT });
 
     await page.getByTestId("sidebar-output-service-stats").click();
-    await expect(page.getByTestId("service-stats-band-800")).toContainText("81.45%", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("service-stats-band-800")).toContainText("22.07%", { timeout: HEADER_TIMEOUT });
 
     // ── 5. Adjust Cost Table: fields default to 800/1/10, re-solve → flips
-    // open set and raises 800mi coverage to 97.19% ───────────────────────────
+    // open set and raises the 400–800 mi band to 70.76% ───────────────────────────
     await page.getByTestId("sidebar-input-optimization-parameters").click();
     await page.getByTestId("button-adjust-cost-table").click();
     await expect(page.getByTestId("input-distance-threshold")).toHaveValue("800");
@@ -222,7 +224,7 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     expect(openSet(scenario2)).toEqual(new Set(["W6", "W43", "W45"]));
 
     await page.getByTestId("sidebar-output-service-stats").click();
-    await expect(page.getByTestId("service-stats-band-800")).toContainText("97.19%", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("service-stats-band-800")).toContainText("70.76%", { timeout: HEADER_TIMEOUT });
 
     // ── 6. Toggle back off (reproduces Scenario 1 — deterministic CBC) →
     // override the W60→C3 lane to cost 0 → re-solve → open set unchanged,

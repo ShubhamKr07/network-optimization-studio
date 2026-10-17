@@ -1142,7 +1142,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     infeasibilityReason: null,
   };
 
-  it("renders a translucent, pointer-events-none Tooltip on the route polyline with cities + distance in the model's unit (default mi)", () => {
+  it("renders an opaque, pointer-events-none Tooltip on the route polyline with cities + distance in the model's unit (default mi)", () => {
     tooltipCalls.length = 0;
     render(
       <UnitProvider><NetworkMap
@@ -1163,9 +1163,10 @@ describe("NetworkMap route hover tooltip (A4)", () => {
       return container.textContent?.includes("Testville") && container.textContent?.includes("Sampleburg");
     });
     expect(routeTooltip).toBeDefined();
-    // translucent (opacity < 1) and pointer-events-none, distinct from the
-    // fully-opaque marker Tooltips (opacity={1}) elsewhere in this file.
-    expect(routeTooltip!.props.opacity).toBeLessThan(1);
+    // SCU-1.8 (spec B1.7) — now OPAQUE like the marker tooltips, on the
+    // shared solid `nos-map-tooltip` surface; still pointer-events-none.
+    expect(routeTooltip!.props.opacity).toBe(1);
+    expect(routeTooltip!.props.className).toContain("nos-map-tooltip");
     expect(routeTooltip!.props.className).toContain("pointer-events-none");
 
     const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
@@ -1950,5 +1951,50 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
     // Non-zero-area on both axes — the "always PAD" requirement.
     expect(maxBounds[1][0] - maxBounds[0][0]).toBeGreaterThan(0);
     expect(maxBounds[1][1] - maxBounds[0][1]).toBeGreaterThan(0);
+  });
+});
+
+// SCU-1.8 (spec B1.7) — every Output Map tooltip (lane, customer, warehouse,
+// plant) carries the solid `nos-map-tooltip` class at opacity 1.
+describe("NetworkMap — Output Map tooltips are opaque nos-map-tooltip (SCU-1.8)", () => {
+  it("lane, customer, warehouse and plant tooltips all carry nos-map-tooltip with opacity 1", () => {
+    tooltipCalls.length = 0;
+    const tooltipDataset = {
+      warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+      customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
+    };
+    const tooltipResult = {
+      status: "optimal" as const, objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: 123 }],
+      metrics: { weightedAvgDistance: 123, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["W1"], assignments: [] },
+      solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    render(
+      <UnitProvider><NetworkMap
+        dataset={tooltipDataset}
+        warehouseStatuses={[]}
+        result={tooltipResult}
+        showRoutes={true}
+        bands={[200, 400]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={[{ id: "P1", city: "Plantown", state: "PL", lat: 42, lng: -92 }]}
+        showPlantMarkers={true}
+      /></UnitProvider>,
+    );
+    // The mock records every render, so assert by CONTENT that all four
+    // sites were exercised, then that every recorded call is opaque + classed.
+    const texts = tooltipCalls.map(c => render(<>{c.children}</>).container.textContent ?? "");
+    expect(texts.some(t => t.includes("Testville → Sampleburg"))).toBe(true); // lane
+    expect(texts.some(t => t.includes("Customer · C1"))).toBe(true);          // customer
+    expect(texts.some(t => t.includes("Warehouse · W1"))).toBe(true);         // warehouse
+    expect(texts.some(t => t.includes("Plant · P1"))).toBe(true);             // plant
+    for (const call of tooltipCalls) {
+      expect(call.props.className).toContain("nos-map-tooltip");
+      expect(call.props.opacity).toBe(1);
+    }
   });
 });

@@ -329,3 +329,11 @@ describe("AssignmentsTab", () => {
     expect(row).not.toHaveTextContent("WH-CO-DENVER-99-DRAFT");
   });
 });
+
+describe("AssignmentsTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Customer Assignments' title and keeps Download right-aligned", () => {
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
+    expect(screen.queryByText("Customer Assignments")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-assignments-csv").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});

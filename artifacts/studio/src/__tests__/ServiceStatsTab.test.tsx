@@ -20,6 +20,11 @@ function render(
   return rtlRender(ui, { wrapper: AllProviders, ...options });
 }
 
+// SCU-1.2 — the percent cell alone (span #2 of a band row: label, bar div,
+// percent). Row text concatenates label + percent ("200–400 mi15%"), so a
+// bare toHaveTextContent("0%") would also match "10%"/"100%".
+const percentOf = (testId: string) => screen.getByTestId(testId).querySelectorAll("span")[1]?.textContent;
+
 beforeEach(() => {
   window.localStorage.clear();
 });
@@ -68,8 +73,10 @@ const result = {
 describe("ServiceStatsTab", () => {
   it("renders one bar per band with its exclusive percent", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
-    expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("45%");
+    // frozen cumulative [200:30, 400:45] -> exclusive 30 / 15 / overflow 55
+    expect(percentOf("service-stats-band-200")).toBe("30%");
+    expect(percentOf("service-stats-band-400")).toBe("15%");
+    expect(percentOf("service-stats-band--1")).toBe("55%");
   });
 
   it("shows a no-bands message when bandCoverage is absent", () => {
@@ -127,12 +134,12 @@ describe("ServiceStatsTab", () => {
 
   it("uses the model's distanceUnit ('mi') on p-median-us band labels", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
   });
 
   it("uses the model's distanceUnit ('mi') on a two-echelon-gold-au render", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
   });
 
   // chen-bands-units, T13, Step 3b — DELIBERATE behavior change: the `?? "mi"`
@@ -157,43 +164,43 @@ describe("ServiceStatsTab", () => {
     expect(percentCell).toHaveClass("font-mono");
   });
 
-  // jade-T14 — model-integration-precheck.md Gate 4: an explicit, separately
-  // labelled overflow row (band: -1), never folded into the last boundary.
-  describe("Chapter 9 JADE — cumulative coverage + explicit overflow row", () => {
+  // jade-T14 / SCU-1.2 (deviation 1) — JADE's frozen bandCoverage is
+  // EXCLUSIVE (solve.py:1320-1327, :1381-1385). Fixture = a real local run of
+  // test_jade.GROUND_TRUTH_INPUTS with bands [200,400,800,1200]: it sums to
+  // 101, so the residual rule takes 1 from the largest row (31 -> 30).
+  describe("Chapter 9 JADE — exclusive frozen coverage + explicit overflow row", () => {
     const jadeResult = {
       ...result,
       metrics: {
         bandCoverage: [
-          { band: 200, percent: 10 },
-          { band: 400, percent: 30 },
-          { band: 800, percent: 60 },
-          { band: 1600, percent: 85 },
-          { band: -1, percent: 15 },
+          { band: 200, percent: 21 },
+          { band: 400, percent: 12 },
+          { band: 800, percent: 31 },
+          { band: 1200, percent: 25 },
+          { band: -1, percent: 12 },
         ],
       },
     };
 
-    it("renders cumulative coverage at all four boundaries", () => {
+    it("renders the exclusive shares at every boundary (not re-differenced)", () => {
       render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
-      expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("10%");
-      expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("30%");
-      expect(screen.getByTestId("service-stats-band-800")).toHaveTextContent("60%");
-      expect(screen.getByTestId("service-stats-band-1600")).toHaveTextContent("85%");
+      expect(percentOf("service-stats-band-200")).toBe("21%");
+      expect(percentOf("service-stats-band-400")).toBe("12%");
+      expect(percentOf("service-stats-band-800")).toBe("30%");
+      expect(percentOf("service-stats-band-1200")).toBe("25%");
     });
 
-    it("renders a separately labelled '> 1600 mi' overflow row, not folded into the 1600 row", () => {
+    it("renders a separately labelled '> 1200 mi' overflow row, not folded into the 1200 row", () => {
       render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
       const overflowRow = screen.getByTestId("service-stats-band--1");
-      expect(overflowRow).toHaveTextContent("> 1600 mi");
-      expect(overflowRow).toHaveTextContent("15%");
-      // The 1600-boundary row is untouched by the overflow (85%, not 100%).
-      expect(screen.getByTestId("service-stats-band-1600")).toHaveTextContent("≤ 1600 mi");
-      expect(screen.getByTestId("service-stats-band-1600")).not.toHaveTextContent("100%");
+      expect(overflowRow).toHaveTextContent("> 1200 mi");
+      expect(percentOf("service-stats-band--1")).toBe("12%");
+      expect(screen.getByTestId("service-stats-band-1200")).toHaveTextContent("800–1200 mi");
     });
 
-    it("does not render an overflow row when bandCoverage has no band: -1 entry (no regression)", () => {
-      render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-      expect(screen.queryByTestId("service-stats-band--1")).not.toBeInTheDocument();
+    it("always renders the overflow row, at 0% when nothing exceeds the last boundary", () => {
+      render(<ServiceStatsTab result={{ ...result, metrics: { bandCoverage: [{ band: 200, percent: 30 }, { band: 400, percent: 100 }] } }} scenarioId={1} modelId="p-median-us" />);
+      expect(percentOf("service-stats-band--1")).toBe("0%");
     });
   });
 
@@ -224,7 +231,7 @@ describe("ServiceStatsTab", () => {
     it("still renders the existing band rows (unaffected by the KPI block's removal)", () => {
       render(<ServiceStatsTab result={ch4Result} scenarioId={1} modelId="max-coverage-us" />);
       expect(screen.getByTestId("service-stats-band-450")).toHaveTextContent("66%");
-      expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
+      expect(percentOf("service-stats-band-5000")).toBe("34%");
     });
 
     it("renders no coverage KPI block for a non-Chapter-4 model either (no regression)", () => {
@@ -502,7 +509,7 @@ describe("ServiceStatsTab", () => {
     });
   });
 
-  // B4 (spec §2 R2-3/§6) — JADE two-leg band-coverage recompute: cumulative,
+  // B4 (spec §2 R2-3/§6) — JADE two-leg band-coverage recompute: exclusive,
   // over warehouse_to_customer edges ONLY, from the live `presentationBands`
   // instead of the frozen result.metrics.bandCoverage.
   describe("Chapter 9 JADE — coverage recompute from live bands, warehouse_to_customer only", () => {
@@ -533,7 +540,7 @@ describe("ServiceStatsTab", () => {
     };
     const editedBands = [100, 300, 600, 1000];
 
-    it("recomputes cumulative coverage from live bands over warehouse_to_customer edges only, excluding inbound flow", () => {
+    it("recomputes exclusive coverage from live bands over warehouse_to_customer edges only, excluding inbound flow", () => {
       render(
         <ServiceStatsTab
           result={jadeResult}
@@ -544,10 +551,10 @@ describe("ServiceStatsTab", () => {
       );
       // totalFlow = 100+200+300+400 = 1000 (outbound only — the 99,999-flow
       // inbound edge at distance 10 is excluded, or band-100 would read ~99%).
-      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
-      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("30%");
-      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("60%");
-      expect(screen.getByTestId("service-stats-band-1000")).toHaveTextContent("60%");
+      expect(percentOf("service-stats-band-100")).toBe("10%");
+      expect(percentOf("service-stats-band-300")).toBe("20%");
+      expect(percentOf("service-stats-band-600")).toBe("30%");
+      expect(percentOf("service-stats-band-1000")).toBe("0%");
     });
 
     it("renders a distinct overflow row above the highest edited boundary", () => {
@@ -583,8 +590,8 @@ describe("ServiceStatsTab", () => {
   describe("Frozen-coverage regression — presentationBands absent", () => {
     it("a model with no presentationBands prop reads the frozen bars", () => {
       render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-      expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
-      expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("45%");
+      expect(percentOf("service-stats-band-200")).toBe("30%");
+      expect(percentOf("service-stats-band-400")).toBe("15%");
     });
 
     it("JADE itself keeps the frozen bars when presentationBands is not wired yet", () => {
@@ -615,10 +622,10 @@ describe("ServiceStatsTab", () => {
       );
       // totalFlow = 100+200+300+400 = 1000, all edges included (no leg to
       // filter on for a single-echelon model).
-      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
-      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("30%");
-      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("60%");
-      expect(screen.getByTestId("service-stats-band-1000")).toHaveTextContent("60%");
+      expect(percentOf("service-stats-band-100")).toBe("10%");
+      expect(percentOf("service-stats-band-300")).toBe("20%");
+      expect(percentOf("service-stats-band-600")).toBe("30%");
+      expect(percentOf("service-stats-band-1000")).toBe("0%");
       const overflowRow = screen.getByTestId("service-stats-band--1");
       expect(overflowRow).toHaveTextContent("> 1000 mi");
       expect(overflowRow).toHaveTextContent("40%"); // the 1500-distance edge (400/1000)
@@ -640,9 +647,8 @@ describe("ServiceStatsTab", () => {
       );
       // totalFlow = 100+900 = 1000 (outbound only) — if the 99,999-flow
       // inbound edge leaked in, band-100 would read close to 100%.
-      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
-      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
-      expect(screen.queryByTestId("service-stats-band--1")).not.toBeInTheDocument();
+      expect(percentOf("service-stats-band-300")).toBe("90%");
+      expect(percentOf("service-stats-band--1")).toBe("0%");
     });
 
     it("an edited boundary reclassifies the bars with no network call (same rendered props, different bands)", () => {
@@ -727,8 +733,7 @@ describe("ServiceStatsTab", () => {
           presentationBands={[100, 300]}
         />,
       );
-      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
-      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
+      expect(percentOf("service-stats-band-300")).toBe("90%");
     });
   });
 });
@@ -790,14 +795,14 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
     // be the identity and this test could not fail.
     render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="synthetic-km-model" />);
     // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
-    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("≤ 372.8227 mi");
+    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("0–372.8227 mi");
     const overflowRow = screen.getByTestId("service-stats-band--1");
     // The overflow row's shown boundary (600, the max REAL boundary) is
     // converted exactly the same way — never the literal sentinel `-1`
     // itself (that would produce a nonsense negative distance).
     expect(overflowRow).toHaveTextContent("> 372.8227 mi");
     expect(overflowRow).not.toHaveTextContent("-1");
-    expect(overflowRow).toHaveTextContent("15%");
+    expect(percentOf("service-stats-band--1")).toBe("34%");
   });
 
   it("renders a disabled placeholder and computes nothing until the Chen manifest resolves", () => {
@@ -806,5 +811,46 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="not-a-real-model"  />);
     expect(screen.getByTestId("service-stats-unit-pending")).toBeInTheDocument();
     expect(screen.queryByTestId("service-stats-band-200")).not.toBeInTheDocument();
+  });
+});
+
+// SCU-1.2 (review fold 2) — LIVE exclusive rows from populated edges: every
+// edge classified by assignBandOrOverflow, rows + always-present overflow,
+// range labels; two-echelon excludes the inbound leg yet shows real
+// (non-zero) overflow from the outbound leg.
+describe("ServiceStatsTab — live exclusive rows from populated edges (SCU-1.2)", () => {
+  const ids = (bands: string[]) => bands.map(b => `service-stats-band-${b}`);
+
+  it("single-echelon: boundary-equal and zero-distance edges land low; overflow carries the far edge", () => {
+    const edges = [
+      { fromId: "w1", toId: "c1", flow: 250, distance: 0 },
+      { fromId: "w1", toId: "c2", flow: 250, distance: 200 },
+      { fromId: "w2", toId: "c3", flow: 300, distance: 350 },
+      { fromId: "w2", toId: "c4", flow: 200, distance: 5000 },
+    ];
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="p-median-us" presentationBands={[200, 400, 800]} />);
+    const rows = ids(["200", "400", "800", "-1"]);
+    expect(rows.map(percentOf)).toEqual(["50%", "30%", "0%", "20%"]);
+    expect(rows.map(id => screen.getByTestId(id).querySelector("span")!.textContent)).toEqual(["0–200 mi", "200–400 mi", "400–800 mi", "> 800 mi"]);
+  });
+
+  it("two-echelon: the inbound mine_to_refinery leg is excluded; outbound rows + non-zero overflow", () => {
+    const edges = [
+      { fromId: "m1", toId: "r1", leg: "mine_to_refinery" as const, flow: 99_999, distance: 10 },
+      { fromId: "r1", toId: "c1", leg: "refinery_to_customer" as const, flow: 100, distance: 50 },
+      { fromId: "r1", toId: "c2", leg: "refinery_to_customer" as const, flow: 900, distance: 250 },
+      { fromId: "r1", toId: "c3", leg: "refinery_to_customer" as const, flow: 300, distance: 2000 },
+    ];
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="two-echelon-gold-au" presentationBands={[100, 300]} />);
+    // outbound total 1300: 100/1300 -> 8, 900/1300 -> 69, 300/1300 -> 23 (sum 100; computed)
+    expect(ids(["100", "300", "-1"]).map(percentOf)).toEqual(["8%", "69%", "23%"]);
+  });
+});
+
+describe("ServiceStatsTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Service Stats' title and keeps Download right-aligned", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.queryByText("Service Stats")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-service-stats-csv").closest("div.border-b")).toHaveClass("justify-end");
   });
 });

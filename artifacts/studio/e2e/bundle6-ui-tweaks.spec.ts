@@ -209,6 +209,7 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       await page.getByTestId("sidebar-output-cost-summary").click();
+      await page.getByTestId("button-toggle-compare").click({ timeout: HEADER_TIMEOUT }); // SCU-1.3 — picker is hidden by default
       await expect(page.getByTestId("cost-summary-compare-toggles")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
       // B is selected by default (the active scenario); add A to compare.

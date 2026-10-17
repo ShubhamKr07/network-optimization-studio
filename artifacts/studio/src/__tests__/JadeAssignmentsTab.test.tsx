@@ -444,3 +444,11 @@ describe("JadeAssignmentsTab", () => {
     });
   });
 });
+
+describe("JadeAssignmentsTab — no duplicate title (SCU-1.4)", () => {
+  it("renders no 'Customer Assignments' title and keeps the count/filter/Download group right-aligned", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
+    expect(screen.queryByText("Customer Assignments")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-download-jadeassignments-csv").closest("div.border-b")).toHaveClass("justify-end");
+  });
+});

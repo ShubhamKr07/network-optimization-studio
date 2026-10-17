@@ -25,19 +25,25 @@ import {
   OVERFLOW_BAND,
   assignBandOrOverflow,
   computeCumulativeBandCoverage,
+  computeExclusiveBandCoverage,
+  frozenBandCoverageToExclusive,
   serviceEdgesFor,
   bandLabelOrOverflow,
   type BandEdge,
   type BandCoverageEntry,
+  type FrozenBandShape,
 } from "@workspace/units";
 
 export {
   OVERFLOW_BAND,
   assignBandOrOverflow,
   computeCumulativeBandCoverage,
+  computeExclusiveBandCoverage,
+  frozenBandCoverageToExclusive,
   serviceEdgesFor,
   type BandEdge,
   type BandCoverageEntry,
+  type FrozenBandShape,
 };
 
 // This frontend's established name for the shared label helper.
@@ -120,4 +126,34 @@ export function bandRangeLabel(distance: number, bands: number[], unit: string):
   if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
   if (index === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
   return `Band ${index + 1}: ${sorted[index - 1]} ${unit} - ${sorted[index]} ${unit}`;
+}
+
+// SCU-1.1 (spec B1.9) — band precision per model: delivery-teaching-us
+// reports 2 dp (spec §5.7 of its own design); every other model's tests are
+// pinned to integers. The single place this rule lives (it used to be inline
+// in ServiceStatsTab.tsx).
+export function bandDecimals(modelId: string | undefined): number {
+  return modelId === "delivery-teaching-us" ? 2 : 0;
+}
+
+// SCU-1.1 (deviation 1) — the shape of a solved result's FROZEN
+// metrics.bandCoverage, a fact about solve.py's output: JADE buckets each
+// outbound lane exactly once (solve.py:1320-1327, :1381-1385); every other
+// model accumulates cumulatively (solve.py:497-501, :670-673, :863-868,
+// :1052-1076, :1633, :1842-1845).
+export function frozenBandShape(modelId: string | undefined): FrozenBandShape {
+  return modelId === "two-echelon-jade-us" ? "exclusive" : "cumulative";
+}
+
+// SCU-1.1 (spec B1.9 "Display") — one label per exclusive row, aligned with
+// computeExclusiveBandCoverage / frozenBandCoverageToExclusive output:
+// "0–200 mi", "200–400 mi", …, "> 1600 mi". `format` turns a CANONICAL
+// boundary into display text (unit conversion is the caller's, via
+// useDisplayUnit), `unit` is the display unit label.
+export function exclusiveBandLabels(boundaries: number[], format: (canonical: number) => string, unit: string): string[] {
+  const sorted = [...boundaries].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const labels = sorted.map((b, i) => `${i === 0 ? "0" : format(sorted[i - 1])}–${format(b)} ${unit}`);
+  labels.push(`> ${format(sorted[sorted.length - 1])} ${unit}`);
+  return labels;
 }

@@ -10,6 +10,7 @@ import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
+import { downloadClientCsv } from "@/lib/clientCsv";
 
 // B3 (JADE Ch.9 Workspace Bundle, spec §5b) — Chapter 9 JADE's Flows tab.
 // JADE has TWO distinct facility->facility legs (plant_to_warehouse inbound,
@@ -179,27 +180,6 @@ function renderJadeEntityCell(
     );
   }
   return fallbackLabel;
-}
-
-// Minimal client-side CSV writer — deliberately local, not a shared
-// dependency. This is a client-side-only export of the ON-SCREEN columns for
-// one leg, distinct from the server-backed combined `entity=flows` export
-// (`downloadEntityExport`) the backend serves for both legs at once (spec
-// §5c/OQ-2 — the two are independent by design).
-function csvCell(value: string | number): string {
-  const s = String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-function downloadClientCsv(filename: string, headers: string[], rows: (string | number)[][]): void {
-  const text = [headers, ...rows].map(r => r.map(csvCell).join(",")).join("\n");
-  const blob = new Blob([text], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export function JadeFlowsTab({
@@ -393,7 +373,6 @@ export function JadeFlowsTab({
     <div className="flex flex-col h-full overflow-hidden" data-testid="jade-flows-tab">
       <div className="flex items-center justify-between gap-2 p-2 border-b flex-shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Flows</span>
           {segmentedControl}
         </div>
         {innerTab === "plant-warehouse" ? (

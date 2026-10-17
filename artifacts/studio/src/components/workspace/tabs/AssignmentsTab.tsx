@@ -167,8 +167,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Customer Assignments</span>
+      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
         <button
           type="button"
           data-testid="button-download-assignments-csv"

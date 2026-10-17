@@ -157,16 +157,6 @@ export type InputMapTabProps =
        *  suppressed, "Save" is the more misleading of the two, because it
        *  implies a whole-input write that is not what will happen. */
       saveLabel?: string;
-      /** COSM-2 — false for max-coverage-us, whose Save lives in the shared
-       *  toolbar row beside the step toggle (that row renders on every
-       *  Chapter 4 view, so Save stays reachable). Optional and defaulted
-       *  true, so p-median-us and p-median-brazil — which share this same
-       *  "pmedian" arm and keep their Layers-row Save — are untouched.
-       *  A capability-style boolean rather than a `modelId ===` check inside
-       *  this shared component, matching `fixedGeography`/`demandEditable`:
-       *  a boolean prop cannot silently miss a sibling model the way an
-       *  in-component model check can. */
-      showInlineSave?: boolean;
       /** ch5-del-9 — delivery-teaching-us's only editable dataset surface was
        * the cost table (Task 8's fixed three-tab surface); Input Map was
        * pure geography context there. ch5-edit-6 (§14.5) — narrowed: §14
@@ -184,12 +174,14 @@ export type InputMapTabProps =
        * "Edit…" action still render — a status/demand edit still reaches
        * `onInputsChange` — but every GEOMETRY-changing affordance (arming
        * chips, armed bar, right-click add menu, the action menu's
-       * Move/Copy/Delete, draggable added-entity markers, Layers-row Save)
+       * Move/Copy/Delete, draggable added-entity markers)
        * stays suppressed at this arm's own render sites below, never inside
        * the shared AddEntityMenu/MapActionMenu components (those are reused
        * by transport/twoEchelon/jade too — see FixedGeographyActionMenu's
        * own comment on why this arm renders its own small menu instead of
-       * widening MapActionMenu's props for all four modes). Defaults false —
+       * widening MapActionMenu's props for all four modes). SCU-1.5 (spec B1.2)
+       * — the Layers-row Save is NOT a geometry affordance and is gated on
+       * `onSave` alone. Defaults false —
        * every existing caller (InputMapTabV2.test.tsx etc.) keeps today's
        * fully-editable behavior unchanged. */
       fixedGeography?: boolean;
@@ -762,7 +754,6 @@ function PMedianInputMap({
   onSave,
   saving,
   saveLabel,
-  showInlineSave = true,
   demandEditable = true,
   modelId,
   fixedGeography = false,
@@ -1036,20 +1027,12 @@ function PMedianInputMap({
             used so no existing assertion needs to know WHERE Save lives,
             only that it's present and behaves the same. `ml-auto` pins it to
             the row's right edge regardless of how many layer/placement chips
-            precede it. ch5-del-9/ch5-edit-6 — also gated on
-            `!fixedGeography`: §14.5 keeps this Layers-row Save hidden even
-            though status/demand edits now flow through `onInputsChange` —
-            delivery-teaching-us's Save affordance lives on the Warehouses/
-            Customers/Delivery Costs tabs' shared toolbar instead (same
-            `localInputs.warehouseOverrides`/`customerOverrides` a map edit
-            writes into), not here, so even if a future caller mistakenly
-            wired an `onSave` for it, no dirty-state Save renders in this
-            row. COSM-2 — also gated on `showInlineSave`: max-coverage-us
-            passes false, because its Save moved into the shared toolbar row
-            so it can sit beside the step toggle on every Chapter 4 view.
-            Gated, never deleted — p-median-us/p-median-brazil render this
-            same arm and keep this Save. */}
-        {!fixedGeography && showInlineSave && onSave && (
+            precede it. SCU-1.5 (spec B1.2) — gated on `onSave` ALONE:
+            every "pmedian"-arm model (p-median-us, p-median-brazil,
+            max-coverage-us, delivery-teaching-us) wires it, and
+            `fixedGeography` no longer hides it — saving a status/demand
+            edit is not a geometry change. */}
+        {onSave && (
           <div className="flex items-center gap-2 ml-auto">
             {isDirty && (
               <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">

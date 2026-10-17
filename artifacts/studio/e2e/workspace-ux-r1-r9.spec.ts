@@ -242,6 +242,7 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
 
     await gotoScenario(page, "/chapter-3", id);
     await page.getByTestId("sidebar-output-cost-summary").click();
+    await page.getByTestId("button-toggle-compare").click({ timeout: HEADER_TIMEOUT }); // SCU-1.3 — picker is hidden by default
     await expect(page.getByTestId("cost-summary-compare-toggles")).toBeVisible({ timeout: HEADER_TIMEOUT });
     const toggle2 = page.locator(`[data-testid="cost-summary-compare-toggle-${id2}"] input[type="checkbox"]`);
     await toggle2.check();
@@ -284,6 +285,7 @@ test.describe("Workspace UX bundle (R1-R9)", () => {
     try {
       await gotoScenario(page, "/chapter-5/transport", idA);
       await page.getByTestId("sidebar-output-cost-summary").click();
+      await page.getByTestId("button-toggle-compare").click({ timeout: HEADER_TIMEOUT }); // SCU-1.3 — picker is hidden by default
       await expect(page.getByTestId("cost-summary-compare-toggles")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const toggleB = page.locator(`[data-testid="cost-summary-compare-toggle-${idB}"] input[type="checkbox"]`);
       await toggleB.check();

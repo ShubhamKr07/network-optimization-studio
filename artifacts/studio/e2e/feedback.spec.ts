@@ -37,6 +37,19 @@ test("homepage feedback widget submits and thanks the user", async ({ page }) =>
   });
 
   await page.goto("/");
+  // SCU-1.7 (spec B1.6) — the launcher sits bottom-right: its right edge
+  // within 32 px of the viewport's right edge, and its bottom above the
+  // DeveloperCredit block (the footer's "Developed by Shubham" line).
+  const launcher = page.getByTestId("feedback-button");
+  await expect(launcher).toBeVisible({ timeout: TIMEOUT });
+  const viewport = page.viewportSize();
+  const launcherBox = await launcher.boundingBox();
+  const creditBox = await page.getByTestId("homepage-credit-footer").getByText("Developed by Shubham").boundingBox();
+  expect(viewport).not.toBeNull();
+  expect(launcherBox).not.toBeNull();
+  expect(creditBox).not.toBeNull();
+  expect(viewport!.width - (launcherBox!.x + launcherBox!.width)).toBeLessThanOrEqual(32);
+  expect(launcherBox!.y + launcherBox!.height).toBeLessThanOrEqual(creditBox!.y);
   // Every interaction carries an explicit timeout — an unbounded .click() on a
   // never-actionable target inherits the whole remaining test budget and
   // surfaces the failure at an unrelated later line.
