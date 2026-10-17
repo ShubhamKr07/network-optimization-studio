@@ -18,6 +18,7 @@ import { JadeDistancesTab } from "@/components/workspace/tabs/JadeDistancesTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
+import { chooseInputDownload, chooseUpload } from "@/__tests__/helpers/inputTable";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer), a visible Leg column,
@@ -892,8 +893,8 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
       undefined,
       { scenarioId: null },
     );
-    expect(screen.getByTestId("button-export-legdistances-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-legdistances-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-legdistances")).toBeDisabled();
     expect(screen.getByTestId("button-import-legdistances")).toBeDisabled();
   });
 
@@ -918,7 +919,7 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
       { scenarioId: 7 },
     );
 
-    await userEvent.click(screen.getByTestId("button-export-legdistances-csv"));
+    chooseInputDownload("legdistances", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -941,7 +942,7 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
     );
 
     expect(screen.queryByText("Import legDistances")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-legdistances"));
+    chooseUpload("legdistances", "csv");
     expect(screen.getByText("Import legDistances")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-legDistances")).toBeInTheDocument();
   });
@@ -982,7 +983,7 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
       />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-legdistances"));
+    chooseUpload("legdistances", "csv");
     const file = new File(["template_version,from_id,to_id,distance\n1,plant-1,wh-1,120.5"], "legDistances.csv", {
       type: "text/csv",
     });

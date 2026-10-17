@@ -3906,3 +3906,11 @@ Studio + e2e + docs fold of the Phase 3 reviews. No API, contract, `DownloadMenu
 - Deviation (user decision 2026-10-17): `filterResetKey: pref` (from `useDisplayUnit()`) on the Leg `distance` range column and, left out by P4.3, on DistancesTab `base` and `override`; one RTL test each (range set, unit toggled, range cleared), deliberate-break verified.
 - Deviations 3, 6, 7, 15, 17, 19.
 - Gate: studio 2655 passed (145 files), api-server 2031 passed + 5 load-flake failures (98/98 x2 isolated), pytest 355 passed, import-schema 22 passed. e2e (local, `E2E_BASE_URL` set): bundle2-fastfollow 3/3 pass, bundle6.1-legend-distances 3/3 pass (incl. both @flaky).
+
+### SCU-2.P4.5 - JADE Distances on DataTable + real-browser focus check
+
+- `JadeDistancesTab` on DataTable: FilterMenu (from/to "City, ST code" text kept; + leg select, Base/Override/$-per-ton ranges, Min?), pager > 50 only, Upload/Download menus (`legDistances`), D2 read-only (incl. open add-row form), focus token = id + row count, numbers centred.
+- Real-browser focus-jump check added to `jade-two-echelon.spec.ts` (Distances-tab save with a hiding filter, toast jump: filter cleared, page != 1, estimated row `toBeInViewport`).
+- Deviation (user decision 2026-10-17): `filterResetKey: pref` on the Base and Override range columns (plan omitted it); RTL test sets an Override max, toggles unit, range cleared (fails without the key).
+- Deviations 3, 5, 6, 7, 15, 17, 19. Baseline: JadeDistancesTab.test + historyReadOnlyTabs 68 tests; after: 77 (3 files). New test fail-first against the old tab: 6 failed / 3 passed.
+- Gate: studio 2664 passed (146 files), import-schema 22 passed, api-server 2034 passed + 2 load-flake failures (`resultEnvelope` x2, 16/16 isolated x2), pytest full `-x` runs stopped at load-flake failures (see flake registry; `test_delivery.py` 29/29 x2 isolated). e2e (local 3405/5405, `E2E_BASE_URL` set): jade-two-echelon 1/1, jade-transport-costs 1/1.

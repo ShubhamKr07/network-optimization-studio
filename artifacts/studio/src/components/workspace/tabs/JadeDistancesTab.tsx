@@ -1,19 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, Upload, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { AlertTriangle, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
 import { roundForFile, type CanonicalUnit } from "@workspace/units";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { ImportDialog } from "@/components/ImportDialog";
-import { useExport } from "@/contexts/ExportContext";
+import { DataTable } from "@/components/data-table/DataTable";
+import type { ColumnDef } from "@/components/data-table/types";
+import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
-import { FilterMenu } from "@/components/tables/FilterMenu";
-import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "@/lib/useTableFilters";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { formatDistanceDisplay, stripGrouping } from "@/lib/formatDistanceDisplay";
@@ -140,6 +138,9 @@ interface JadeDistancesTabProps {
    *  these columns recompute from the same live draft, so they cannot
    *  drift. Defaults to the textbook values for a caller that omits it. */
   transportCosts?: TransportCosts;
+  /** SCU-2.P4.5 (D2) — browsing result history: override cells, remove
+   * buttons and the add-row trigger are disabled. */
+  readOnly?: boolean;
 }
 
 const LEG_LABEL: Record<JadeLeg, string> = {
@@ -169,6 +170,7 @@ function JadeDistanceOverrideCell({
   onCommitValid,
   inputTestId,
   errorTestId,
+  readOnly,
 }: {
   canonicalUnit: CanonicalUnit | null;
   currentValue: number | undefined;
@@ -176,6 +178,7 @@ function JadeDistanceOverrideCell({
   onCommitValid: (canonicalValue: number) => void;
   inputTestId: string;
   errorTestId: string;
+  readOnly: boolean;
 }) {
   const draft = useDistanceDraft({
     canonicalUnit,
@@ -197,9 +200,7 @@ function JadeDistanceOverrideCell({
   const trimmed = stripGrouping(text).trim();
   const numeric = trimmed === "" ? null : Number(trimmed);
   const error =
-    trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0)
-      ? "Distance must be a positive number."
-      : null;
+    trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0) ? "Distance must be a positive number." : null;
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -210,7 +211,8 @@ function JadeDistanceOverrideCell({
         type="text"
         inputMode="decimal"
         value={text}
-        disabled={draft.disabled}
+        disabled={readOnly || draft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => draft.onChange(e.target.value)}
         onFocus={draft.onFocus}
         onBlur={draft.commit}
@@ -219,7 +221,7 @@ function JadeDistanceOverrideCell({
           else if (e.key === "Escape") draft.discard();
         }}
         aria-invalid={error ? "true" : undefined}
-        className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
+        className={`h-7 text-xs w-full min-w-24 font-mono ${error ? "border-destructive" : ""}`}
         data-testid={inputTestId}
       />
       {error && (
@@ -235,47 +237,7 @@ function tripleKey(leg: string, fromId: string, toId: string): string {
   return `${leg}|${fromId}|${toId}`;
 }
 
-function Pager({
-  page,
-  pageCount,
-  onPrev,
-  onNext,
-  idPrefix,
-}: {
-  page: number;
-  pageCount: number;
-  onPrev: () => void;
-  onNext: () => void;
-  idPrefix: string;
-}) {
-  return (
-    <div className="flex items-center justify-end gap-2 mt-1 text-xs">
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-6 px-2 text-xs"
-        disabled={page <= 1}
-        onClick={onPrev}
-        data-testid={`button-${idPrefix}-prev`}
-      >
-        Prev
-      </Button>
-      <span className="font-mono text-[11px] text-muted-foreground" data-testid={`${idPrefix}-page-indicator`}>
-        Page {page} of {pageCount}
-      </span>
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-6 px-2 text-xs"
-        disabled={page >= pageCount}
-        onClick={onNext}
-        data-testid={`button-${idPrefix}-next`}
-      >
-        Next
-      </Button>
-    </div>
-  );
-}
+const READ_ONLY_TITLE = "Read-only while browsing result history.";
 
 // `base === null` means there's genuinely no reference pair for this
 // (leg, fromId, toId) — either it's a scenario-local added-entity pair, or
@@ -288,6 +250,9 @@ interface MergedRow {
   override?: JadeDistanceOverride;
 }
 
+// SCU-2.P4.5 (B2.1/B2.2) — rendered by the shared DataTable: FilterMenu
+// (from/to search "City, ST code" as before, plus auto-derived leg/number
+// filters) above 10 rows, pager above 50, numbers centred, history read-only.
 export function JadeDistancesTab({
   distanceOverrides,
   savedDistanceOverrides,
@@ -307,18 +272,22 @@ export function JadeDistancesTab({
   identityById,
   canonicalUnit = null,
   transportCosts = TEXTBOOK_TRANSPORT_COSTS,
+  readOnly = false,
 }: JadeDistancesTabProps) {
-  const [importOpen, setImportOpen] = useState(false);
-  const { download, disabledReasonFor } = useExport();
+  const files = useEntityFileMenus({
+    entity: "legDistances",
+    testIdEntity: "legdistances",
+    modelId,
+    scenarioId,
+    onImportApplied,
+  });
   const [addingRow, setAddingRow] = useState(false);
   const [newLeg, setNewLeg] = useState<JadeLeg>("plant_to_warehouse");
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  // chen-bands-units, Task 12 — display-unit label + the add-row Distance
-  // field's own draft (mirrors DistancesTab's identical pattern).
-  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  const { effectiveUnit, toDisplay, pref } = useDisplayUnit();
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
   const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
   const newDistanceCanonicalRef = useRef<number | null>(null);
@@ -332,12 +301,6 @@ export function JadeDistancesTab({
   });
   const newDistanceText = newDistanceDraft.isDirty ? newDistanceDraft.text : "";
 
-  const PAGE_SIZE = 50;
-  const [page, setPage] = useState(1);
-
-  // Called UNCONDITIONALLY (Rules of Hooks) with `enabled` gating the actual
-  // request. `staleTime: Infinity` — the base matrix is immutable (DD-1),
-  // fetched once per model per session; a tab remount must not revalidate.
   const referenceEnabled = Boolean(referenceCapable && modelId);
   const referenceQuery = useGetReferenceDistances(modelId ?? "", {
     query: {
@@ -370,12 +333,6 @@ export function JadeDistancesTab({
 
   const displayValue = (id: string) => displayCodeById?.[id] ?? id;
 
-  // T11 (workspace-fixups-2, item 2) — compatibility resolver: prefer
-  // `identityById`, else the existing `locationById`/`displayCodeById`
-  // sources, else the canonical id. This table is already-rich (JADE always
-  // passes `locationById`), so no `>10` gate is needed here (unlike
-  // DistancesTab's p-median-us/brazil path, which previously had no
-  // location source at all).
   function resolvedLocation(id: string): { city: string; state: string } | undefined {
     const entry = identityById?.[id];
     if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
@@ -385,33 +342,20 @@ export function JadeDistancesTab({
     return identityById?.[id]?.displayId ?? displayCodeById?.[id] ?? id;
   }
 
-  // "City, ST" primary label for From/To (base dataset ∪ added entities).
-  // undefined when the id has no known location — caller falls back to the id.
   const locationLabel = (id: string) => {
     const loc = resolvedLocation(id);
     return loc ? formatCityState(loc.city, loc.state) : undefined;
   };
-  // Combined text a From/To filter matches against: the "City, ST" label AND
-  // the id/displayCode, so filtering by either city or id works.
+  // The from/to filters search "City, ST code" (unchanged from the pre-DataTable FilterMenu).
   const searchText = (id: string) => `${locationLabel(id) ?? ""} ${displayValue(id)}`;
 
-  // A warehouse sits in the MIDDLE of both legs: `inactiveWarehouseIds`
-  // suppresses a pair on whichever side of that leg the warehouse occupies
-  // (toId for the inbound leg, fromId for the outbound leg). Plants have no
-  // status concept at all (jadeInputs.ts's own header comment — no
-  // `addedPlantSchema.status` field, no `warehouseOverrides`-equivalent for
-  // plants), so the inbound leg's fromId is never filtered.
   function passesStatus(leg: JadeLeg, fromId: string, toId: string): boolean {
-    if (leg === "plant_to_warehouse") {
-      return !inactiveWarehouseIdSet.has(toId);
-    }
+    if (leg === "plant_to_warehouse") return !inactiveWarehouseIdSet.has(toId);
     return !inactiveWarehouseIdSet.has(fromId) && !excludedCustomerIdSet.has(toId);
   }
 
-  // Complete, UNFILTERED (no text search) merged row list: a base pair
-  // passes when it's active/included OR it carries a current or saved
-  // override (a saved-but-now-cleared override is a pending deletion that
-  // must stay visible + "Changed" until Save).
+  // Effective rows: base triples (status-filtered unless they carry a current
+  // or saved override), then added triples.
   const mergedRowsAll: MergedRow[] = useMemo(() => {
     const base: MergedRow[] = referencePairs
       .filter(p => {
@@ -437,98 +381,14 @@ export function JadeDistancesTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referencePairs, distanceOverrides, baseByKey, overrideByKey, savedByKey, inactiveWarehouseIdSet, excludedCustomerIdSet]);
 
-  // B7 (JADE Ch.9 Workspace Bundle, spec §10) — migrated from the old
-  // free-text From/To `Input`s to the shared A3 `FilterMenu`/
-  // `useTableFilters`. Descriptor keys are deliberately "from"/"to" —
-  // `FilterMenu` derives each control's `data-testid` as
-  // `input-filter-${key}`, so this preserves the pre-migration testids
-  // (`input-filter-from`/`input-filter-to`) exactly, just now rendered
-  // inside a popover. `searchText` (defined above) is unchanged — same
-  // "City, ST" ∪ display-code/id substring match as before.
-  const distanceFilterDescriptors: ColumnFilterDescriptor<MergedRow>[] = [
-    { key: "from", label: "From", type: "text", accessor: r => searchText(r.fromId) },
-    { key: "to", label: "To", type: "text", accessor: r => searchText(r.toId) },
-  ];
-  const rawTableFilters = useTableFilters(mergedRowsAll, distanceFilterDescriptors);
-  const mergedRows: MergedRow[] = rawTableFilters.filteredRows;
-
-  // Page resets to 1 on any user-driven filter EDIT (mirrors the old
-  // per-`Input` `onChange`'s own `setPage(1)`), but NOT when the focus
-  // effect below clears filters as part of a deliberate page jump — hence a
-  // SEPARATE wrapped object (`filterMenuTableFilters`) passed only to
-  // `<FilterMenu>`, while the focus effect calls the raw, unwrapped
-  // `rawTableFilters.clearAll()` directly.
-  const filterMenuTableFilters = {
-    ...rawTableFilters,
-    setFilter: (key: string, value: FilterValue | undefined) => {
-      rawTableFilters.setFilter(key, value);
-      setPage(1);
-    },
-    clearAll: () => {
-      rawTableFilters.clearAll();
-      setPage(1);
-    },
-  };
-
-  const pageCount = Math.max(1, Math.ceil(mergedRows.length / PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  const pagedRows = mergedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  // Post-Save precheck toast's "jump to it" action: clear the filters (so
-  // the target row can't be filtered out of view), then select the target's
-  // page, computed against the UNFILTERED merged list.
-  //
-  // B7 — the `Object.keys(...).length > 0` guard is load-bearing, not
-  // cosmetic: `rawTableFilters.clearAll()` (`useTableFilters.ts`) always
-  // calls `setFilterState({})` with a BRAND NEW object, which React never
-  // bails out of (unlike the pre-migration `setFromFilter("")`'s idempotent
-  // same-primitive-value bail-out). `mergedRowsAll` is itself a new array
-  // reference on every render whenever `referenceCapable` is falsy (its own
-  // `referencePairs = referenceQuery.data?.pairs ?? []` yields a fresh `[]`
-  // each render while `data` stays undefined) — this effect's own
-  // `[focusEntityId, mergedRowsAll]` deps therefore re-fire every render,
-  // and an unconditional `clearAll()` would re-trigger a state change every
-  // time, an infinite render loop. Only actually clear when there's
-  // something to clear.
-  useEffect(() => {
-    if (!focusEntityId) return;
-    if (Object.keys(rawTableFilters.filterState).length > 0) rawTableFilters.clearAll();
-    const idx = mergedRowsAll.findIndex(r => r.fromId === focusEntityId || r.toId === focusEntityId);
-    if (idx < 0) return;
-    setPage(Math.floor(idx / PAGE_SIZE) + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusEntityId, mergedRowsAll]);
-
-  useEffect(() => {
-    if (!focusEntityId) return;
-    const prefix = "row-jadedistance-";
-    for (const row of Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`))) {
-      const suffix = (row.getAttribute("data-testid") ?? "").slice(prefix.length);
-      if (suffix.includes(`-${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`) || suffix.startsWith(`${focusEntityId}-`)) {
-        row.scrollIntoView({ block: "center" });
-        break;
-      }
-    }
-  }, [focusEntityId, page, pagedRows]);
-
-  // True when the row's override presence/value differs from the SAVED
-  // state, including a just-cleared-but-unsaved override.
   function isChangedRow(r: MergedRow): boolean {
-    const key = tripleKey(r.leg, r.fromId, r.toId);
-    const saved = savedByKey.get(key);
+    const saved = savedByKey.get(tripleKey(r.leg, r.fromId, r.toId));
     const current = r.override;
     if (!saved && !current) return false;
     if (!saved || !current) return true;
     return saved.distance !== current.distance;
   }
 
-  // chen-bands-units, Task 12 — commit-to-parent logic invoked from
-  // `JadeDistanceOverrideCell`'s `onCommitValid` (fires only for a
-  // grammar-complete, positive canonical value on blur/Enter).
   function commitOverride(r: MergedRow, canonicalValue: number) {
     const key = tripleKey(r.leg, r.fromId, r.toId);
     const nextOverride: JadeDistanceOverride = {
@@ -550,34 +410,17 @@ export function JadeDistancesTab({
     onChange(distanceOverrides.filter(o => tripleKey(o.leg, o.fromId, o.toId) !== key));
   }
 
-  // loading: base cells show a spinner (not "—"), added-entity override rows
-  // stay editable. error: base cells show "unavailable", override rows stay
-  // editable. Only on SUCCESS does a genuinely base-absent pair (`base ===
-  // null`) show "—". chen-bands-units, Task 12 — an unresolved canonicalUnit
-  // is treated as its own loading state, ahead of every other branch.
   function baseCell(r: MergedRow) {
     if (canonicalUnit == null) {
-      return (
-        <Spinner
-          className="w-3 h-3"
-          data-testid={`spinner-jadedistance-unit-${r.leg}-${r.fromId}-${r.toId}`}
-        />
-      );
+      return <Spinner className="w-3 h-3" data-testid={`spinner-jadedistance-unit-${r.leg}-${r.fromId}-${r.toId}`} />;
     }
     if (referenceCapable) {
       if (referenceQuery.isLoading) {
-        return (
-          <Spinner
-            className="w-3 h-3"
-            data-testid={`spinner-jadedistance-base-${r.leg}-${r.fromId}-${r.toId}`}
-          />
-        );
+        return <Spinner className="w-3 h-3" data-testid={`spinner-jadedistance-base-${r.leg}-${r.fromId}-${r.toId}`} />;
       }
       if (referenceQuery.isError) return "unavailable";
     }
     if (r.base == null) return "—";
-    // ch4-fixes item 4 — grouped, max 2 dp. `roundForFile` (4 dp, ungrouped)
-    // stays the EXPORT contract and is untouched; this is display only.
     return formatDistanceDisplay(toDisplay(r.base, canonicalUnit));
   }
 
@@ -588,11 +431,168 @@ export function JadeDistancesTab({
     return leg === "plant_to_warehouse" ? warehouseIdSet : customerIdSet;
   }
 
+  // ch9-tc — $/ton from the effective (override ?? base) CANONICAL distance.
+  function laneCost(r: MergedRow): { cost: number; binds: boolean } | null {
+    const effective = r.override?.distance ?? r.base;
+    if (effective == null) return null;
+    const { rate, min } = laneRates(r.leg, transportCosts);
+    return { cost: laneCostPerTon(effective, rate, min), binds: minChargeBinds(effective, rate, min) };
+  }
+
+  const displayNumber = (v: number | null | undefined) =>
+    v == null || canonicalUnit == null ? null : toDisplay(v, canonicalUnit);
+
+  // Rebuilt every render: cells close over live props (see DistancesTab).
+  const columns: ColumnDef<MergedRow>[] = [
+    {
+      id: "leg",
+      header: "Leg",
+      kind: "enum",
+      value: r => LEG_LABEL[r.leg],
+      cell: r => (
+        <Badge variant="secondary" data-testid={`badge-leg-${r.leg}-${r.fromId}-${r.toId}`}>
+          {LEG_LABEL[r.leg]}
+        </Badge>
+      ),
+    },
+    {
+      id: "from",
+      header: "From",
+      kind: "text",
+      filter: "text",
+      value: r => searchText(r.fromId),
+      cellClassName: "text-xs",
+      cell: r => (
+        <div className="flex items-center gap-1">
+          <EntityIdCell entityId={r.fromId} displayId={resolvedDisplayId(r.fromId)} location={resolvedLocation(r.fromId)} />
+          {!fromRoleId(r.leg).has(r.fromId) && (
+            <span title="Unknown ID for this leg's From role" data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}>
+              <AlertTriangle className="w-3 h-3 text-amber-600" />
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "to",
+      header: "To",
+      kind: "text",
+      filter: "text",
+      value: r => searchText(r.toId),
+      cellClassName: "text-xs",
+      cell: r => (
+        <div className="flex items-center gap-1">
+          <EntityIdCell entityId={r.toId} displayId={resolvedDisplayId(r.toId)} location={resolvedLocation(r.toId)} />
+          {!toRoleId(r.leg).has(r.toId) && (
+            <span title="Unknown ID for this leg's To role" data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}>
+              <AlertTriangle className="w-3 h-3 text-amber-600" />
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "base",
+      header: unitSuffix("Base"),
+      filterLabel: "Base",
+      kind: "number",
+      filterResetKey: pref,
+      value: r => displayNumber(r.base),
+      cellClassName: "font-mono text-xs",
+      cell: r => baseCell(r),
+    },
+    {
+      id: "override",
+      header: unitSuffix("Override"),
+      filterLabel: "Override",
+      kind: "number",
+      filterResetKey: pref,
+      value: r => displayNumber(r.override?.distance),
+      cell: r => (
+        <div className="flex items-center justify-center gap-1.5">
+          <JadeDistanceOverrideCell
+            canonicalUnit={canonicalUnit}
+            currentValue={r.override?.distance}
+            resetKey={`${scenarioId ?? ""}:${r.override ? "1" : "0"}`}
+            onCommitValid={v => commitOverride(r, v)}
+            inputTestId={`input-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
+            errorTestId={`text-jadedistance-error-${r.leg}-${r.fromId}-${r.toId}`}
+            readOnly={readOnly}
+          />
+          {r.override?.estimated && (
+            <span
+              className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+              data-testid={`badge-jadedistance-estimated-${r.leg}-${r.fromId}-${r.toId}`}
+            >
+              Estimated
+            </span>
+          )}
+          {isChangedRow(r) && (
+            <span
+              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              data-testid={`badge-jadedistance-changed-${r.leg}-${r.fromId}-${r.toId}`}
+            >
+              Changed
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "cost",
+      header: "$/ton",
+      kind: "number",
+      value: r => laneCost(r)?.cost ?? null,
+      cellClassName: "font-mono text-xs",
+      cellTestId: r => `cell-jadedistance-cost-${r.leg}-${r.fromId}-${r.toId}`,
+      cell: r => {
+        const c = laneCost(r);
+        return c == null ? "—" : c.cost.toFixed(2);
+      },
+    },
+    {
+      id: "min",
+      header: "Min?",
+      kind: "enum",
+      value: r => (laneCost(r)?.binds ? "min" : null),
+      cellClassName: "text-xs",
+      cell: r =>
+        laneCost(r)?.binds && (
+          <span
+            className="text-[10px] text-slate-700 bg-slate-100 border border-slate-300 rounded px-1"
+            title="The minimum charge, not the rate, is what this lane pays"
+            data-testid={`badge-jadedistance-min-${r.leg}-${r.fromId}-${r.toId}`}
+          >
+            min
+          </span>
+        ),
+    },
+    {
+      id: "remove",
+      header: "",
+      kind: "text",
+      filter: false,
+      value: () => null,
+      cell: r =>
+        (r.override || r.base == null) && (
+          <button
+            type="button"
+            aria-label={`Remove distance override ${r.fromId} → ${r.toId} (${LEG_LABEL[r.leg]})`}
+            onClick={() => clearOverride(r)}
+            disabled={readOnly}
+            title={readOnly ? READ_ONLY_TITLE : undefined}
+            data-testid={`button-remove-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
+            className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        ),
+    },
+  ];
+
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    // Resolve any pending typed value synchronously — see DistancesTab's
-    // identical pattern/comment.
     newDistanceDraft.commit();
     const distance = newDistanceCanonicalRef.current;
 
@@ -628,63 +628,14 @@ export function JadeDistancesTab({
     setAddError(null);
   }
 
-  const toolbar = (
-    <div className="flex items-center gap-1.5 mb-2 flex-wrap" data-testid="jadedistances-tab-toolbar">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("legDistances", "csv")}
-        disabled={disabledReasonFor("legDistances") != null}
-        title={disabledReasonFor("legDistances")}
-        data-testid="button-export-legdistances-csv"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> CSV
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => download("legDistances", "json")}
-        disabled={disabledReasonFor("legDistances") != null}
-        title={disabledReasonFor("legDistances")}
-        data-testid="button-export-legdistances-json"
-        className="h-7 text-xs"
-      >
-        <Download className="w-3.5 h-3.5 mr-1" /> JSON
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setImportOpen(true)}
-        disabled={scenarioId == null}
-        data-testid="button-import-legdistances"
-        className="h-7 text-xs"
-      >
-        <Upload className="w-3.5 h-3.5 mr-1" /> Upload
-      </Button>
-      <div className="flex-1" />
-      {mergedRowsAll.length > 10 && (
-        <FilterMenu descriptors={distanceFilterDescriptors} tableFilters={filterMenuTableFilters} />
-      )}
-    </div>
-  );
-
-  const importDialog = importOpen && scenarioId != null && (
-    <ImportDialog
-      open={importOpen}
-      onOpenChange={setImportOpen}
-      scenarioId={scenarioId}
-      entity="legDistances"
-      onApplied={onImportApplied}
-    />
-  );
-
   const addRowUi = addingRow ? (
     <div className="flex items-start gap-1.5 mt-2 flex-wrap" data-testid="add-jadedistance-row-form">
       <select
         value={newLeg}
         onChange={e => setNewLeg(e.target.value as JadeLeg)}
         className="h-7 text-xs border rounded px-1"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="select-new-jadedistance-leg"
       >
         <option value="plant_to_warehouse">Plant → Warehouse</option>
@@ -695,6 +646,8 @@ export function JadeDistancesTab({
         value={newFrom}
         onChange={e => setNewFrom(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-jadedistance-from"
       />
       <Input
@@ -702,6 +655,8 @@ export function JadeDistancesTab({
         value={newTo}
         onChange={e => setNewTo(e.target.value)}
         className="h-7 text-xs w-36"
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="input-new-jadedistance-to"
       />
       <Input
@@ -709,7 +664,8 @@ export function JadeDistancesTab({
         inputMode="decimal"
         placeholder={unitSuffix("Distance")}
         value={newDistanceText}
-        disabled={newDistanceDraft.disabled}
+        disabled={readOnly || newDistanceDraft.disabled}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
         onChange={e => newDistanceDraft.onChange(e.target.value)}
         onBlur={newDistanceDraft.commit}
         onKeyDown={e => {
@@ -719,10 +675,23 @@ export function JadeDistancesTab({
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-jadedistance-value"
       />
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-jadedistance-confirm">
+      <Button
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={handleAddRow}
+        disabled={readOnly}
+        title={readOnly ? READ_ONLY_TITLE : undefined}
+        data-testid="button-add-jadedistance-confirm"
+      >
         Add
       </Button>
-      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancelAddRow} data-testid="button-add-jadedistance-cancel">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs"
+        onClick={cancelAddRow}
+        data-testid="button-add-jadedistance-cancel"
+      >
         Cancel
       </Button>
     </div>
@@ -732,209 +701,68 @@ export function JadeDistancesTab({
       variant="outline"
       className="h-7 px-2 text-xs mt-2"
       onClick={() => setAddingRow(true)}
+      disabled={readOnly}
+      title={readOnly ? READ_ONLY_TITLE : undefined}
       data-testid="button-add-jadedistance-row"
     >
       + Add row
     </Button>
   );
 
-  const referenceErrorBanner = referenceCapable && referenceQuery.isError && (
-    <p className="text-xs text-destructive mb-2" data-testid="jadedistances-reference-error">
-      Failed to load reference distances.
-    </p>
-  );
-  const referenceLoadingBanner = referenceCapable && referenceQuery.isLoading && (
-    <p className="text-xs text-muted-foreground mb-2" data-testid="jadedistances-reference-loading">
-      Loading reference distances…
-    </p>
-  );
-
-  const tableSection =
-    mergedRowsAll.length === 0 ? (
-      <p className="text-sm text-muted-foreground" data-testid="jade-distances-tab-empty">
-        No distance overrides yet — add one below, or upload a CSV/JSON file.
-      </p>
-    ) : (
-      <>
-        <div className="max-h-[55vh] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Leg</TableHead>
-                <TableHead>From</TableHead>
-                <TableHead>To</TableHead>
-                <TableHead>{unitSuffix("Base")}</TableHead>
-                <TableHead>{unitSuffix("Override")}</TableHead>
-                <TableHead>$/ton</TableHead>
-                <TableHead>Min?</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pagedRows.map(r => {
-                const key = tripleKey(r.leg, r.fromId, r.toId);
-                const changed = isChangedRow(r);
-                const fromUnknown = !fromRoleId(r.leg).has(r.fromId);
-                const toUnknown = !toRoleId(r.leg).has(r.toId);
-                return (
-                  <TableRow
-                    key={key}
-                    data-testid={`row-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
-                    className={changed ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined}
-                  >
-                    <TableCell>
-                      <Badge variant="secondary" data-testid={`badge-leg-${r.leg}-${r.fromId}-${r.toId}`}>
-                        {LEG_LABEL[r.leg]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="flex items-center gap-1">
-                        <EntityIdCell
-                          entityId={r.fromId}
-                          displayId={resolvedDisplayId(r.fromId)}
-                          location={resolvedLocation(r.fromId)}
-                        />
-                        {fromUnknown && (
-                          <span
-                            title="Unknown ID for this leg's From role"
-                            data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="flex items-center gap-1">
-                        <EntityIdCell
-                          entityId={r.toId}
-                          displayId={resolvedDisplayId(r.toId)}
-                          location={resolvedLocation(r.toId)}
-                        />
-                        {toUnknown && (
-                          <span
-                            title="Unknown ID for this leg's To role"
-                            data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{baseCell(r)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <JadeDistanceOverrideCell
-                          canonicalUnit={canonicalUnit}
-                          currentValue={r.override?.distance}
-                          resetKey={`${scenarioId ?? ""}:${r.override ? "1" : "0"}`}
-                          onCommitValid={v => commitOverride(r, v)}
-                          inputTestId={`input-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
-                          errorTestId={`text-jadedistance-error-${r.leg}-${r.fromId}-${r.toId}`}
-                        />
-                        {r.override?.estimated && (
-                          <span
-                            className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
-                            data-testid={`badge-jadedistance-estimated-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            Estimated
-                          </span>
-                        )}
-                        {changed && (
-                          <span
-                            className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
-                            data-testid={`badge-jadedistance-changed-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            Changed
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    {(() => {
-                      const effective = r.override?.distance ?? r.base;
-                      const { rate, min } = laneRates(r.leg, transportCosts);
-                      return (
-                        <>
-                          <TableCell
-                            className="font-mono text-xs"
-                            data-testid={`cell-jadedistance-cost-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            {effective == null ? "—" : laneCostPerTon(effective, rate, min).toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {effective != null && minChargeBinds(effective, rate, min) && (
-                              <span
-                                className="text-[10px] text-slate-700 bg-slate-100 border border-slate-300 rounded px-1"
-                                title="The minimum charge, not the rate, is what this lane pays"
-                                data-testid={`badge-jadedistance-min-${r.leg}-${r.fromId}-${r.toId}`}
-                              >
-                                min
-                              </span>
-                            )}
-                          </TableCell>
-                        </>
-                      );
-                    })()}
-                    <TableCell>
-                      {(r.override || r.base == null) && (
-                        <button
-                          type="button"
-                          aria-label={`Remove distance override ${r.fromId} → ${r.toId} (${LEG_LABEL[r.leg]})`}
-                          onClick={() => clearOverride(r)}
-                          data-testid={`button-remove-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {mergedRows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-xs text-muted-foreground text-center py-3">
-                    No rows match the current filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        <Pager
-          page={page}
-          pageCount={pageCount}
-          onPrev={() => setPage(p => Math.max(1, p - 1))}
-          onNext={() => setPage(p => Math.min(pageCount, p + 1))}
-          idPrefix="jadedistances"
-        />
-      </>
-    );
-
-  const mainSection = (
-    <>
-      {referenceErrorBanner}
-      {referenceLoadingBanner}
-      {tableSection}
-    </>
+  const table = (
+    <DataTable<MergedRow>
+      rows={mergedRowsAll}
+      rowKey={r => tripleKey(r.leg, r.fromId, r.toId)}
+      columns={columns}
+      ctx={{ readOnly, demandEditable: false, isChanged: isChangedRow }}
+      rowClassName={(r, ctx) => (ctx.isChanged(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
+      testIds={{
+        toolbar: "jadedistances-tab-toolbar",
+        row: r => `row-jadedistance-${r.leg}-${r.fromId}-${r.toId}`,
+        pagerPrev: "button-jadedistances-prev",
+        pagerNext: "button-jadedistances-next",
+        pageIndicator: "jadedistances-page-indicator",
+        empty: "jade-distances-tab-empty",
+      }}
+      toolbar={{ upload: files.upload, download: files.download }}
+      scrollClassName="max-h-[55vh] overflow-y-auto"
+      emptyState={
+        <p className="text-sm text-muted-foreground">No distance overrides yet — add one below, or upload a CSV/JSON file.</p>
+      }
+      // Jump-to-it (today's behaviour): clear filters, page to the first
+      // matching row of the unfiltered list, scroll it into view. Row count in
+      // the token re-runs a jump requested before the reference matrix loaded.
+      focus={
+        focusEntityId
+          ? {
+              token: `${focusEntityId}|${mergedRowsAll.length}`,
+              matches: r => r.fromId === focusEntityId || r.toId === focusEntityId,
+            }
+          : null
+      }
+    />
   );
 
   return (
     <div data-testid="jade-distances-tab">
-      {toolbar}
-      {/* `jadedistances-reference-section` compat wrapper mirrors
-          DistancesTab.tsx's `distances-reference-section` — present exactly
-          when the model actually has a base×base matrix. */}
-      {referenceCapable ? <div data-testid="jadedistances-reference-section">{mainSection}</div> : mainSection}
-
+      {referenceCapable && referenceQuery.isError && (
+        <p className="text-xs text-destructive mb-2" data-testid="jadedistances-reference-error">
+          Failed to load reference distances.
+        </p>
+      )}
+      {referenceCapable && referenceQuery.isLoading && (
+        <p className="text-xs text-muted-foreground mb-2" data-testid="jadedistances-reference-loading">
+          Loading reference distances…
+        </p>
+      )}
+      {referenceCapable ? <div data-testid="jadedistances-reference-section">{table}</div> : table}
       {addRowUi}
       {addError && (
         <p className="text-[11px] text-destructive mt-1" data-testid="text-add-jadedistance-error">
           {addError}
         </p>
       )}
-
-      {importDialog}
+      {files.dialog}
     </div>
   );
 }

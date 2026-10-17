@@ -3813,6 +3813,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <JadeDistancesTab
+          readOnly={isBrowsingHistoryNow}
           canonicalUnit={canonicalUnit}
           distanceOverrides={jadeDistanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={jadeDistanceOverridesFromInputs(savedInputsRef.current)}

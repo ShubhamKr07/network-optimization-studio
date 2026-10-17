@@ -22,6 +22,7 @@ import { test, expect, type Page } from "./fixtures";
 import { expectCsvJsonDownload } from "./helpers/download";
 import { skipIfJadeLocked } from "./helpers/modelLock";
 import { readSolvedAt } from "./helpers/solvedAt";
+import { closePopover, fillTableFilter } from "./helpers/inputTable";
 
 // Both JADE siblings (jade-transport-costs.spec.ts, jade-ch9-workspace-
 // bundle.spec.ts) already set this — without it, an action with no explicit
@@ -295,11 +296,33 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       await page.getByTestId("create-entity-submit").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // The map's own Layers row carries Save for this mode (saveInLayersRowJade).
-      const mapSaveButton = page.locator('[data-testid="input-map-tab"] [data-testid="button-save"]');
-      await expect(mapSaveButton).toBeEnabled({ timeout: HEADER_TIMEOUT });
-      await mapSaveButton.click({ timeout: HEADER_TIMEOUT });
-      await expect(mapSaveButton).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P4.5 — P1 hand-off (Codex finding 6): a real-browser focus-jump
+      // check. Save from the Distances tab with a filter that hides every row,
+      // then take the estimated-distance toast's "Distances" jump: the filter
+      // must be cleared, the pager must leave page 1 (the new warehouse's
+      // triples follow every base triple) and the target row must be on screen.
+      await page.getByTestId("sidebar-input-distances").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("jade-distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await fillTableFilter(page, "to", "zz-no-such-id");
+      await closePopover(page);
+      await expect(page.locator('[data-testid^="row-jadedistance-"]')).toHaveCount(0);
+      const toolbarSave = page.getByTestId("button-save");
+      await expect(toolbarSave).toBeEnabled({ timeout: HEADER_TIMEOUT });
+      await toolbarSave.click({ timeout: HEADER_TIMEOUT });
+      await expect(toolbarSave).toBeDisabled({ timeout: HEADER_TIMEOUT });
+      const escapedWhCode = newWhDisplayCode.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const estimateToast = page.getByRole("region").locator("li").filter({
+        hasText: new RegExp(`distances? estimated for ${escapedWhCode}`),
+      });
+      await expect(estimateToast).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await estimateToast.getByRole("button", { name: "Distances" }).click({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("button-filter-menu-trigger").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("input-filter-to")).toHaveValue("");
+      await closePopover(page);
+      await expect(page.getByTestId("jadedistances-page-indicator")).not.toHaveText(/^Page 1 of/, { timeout: HEADER_TIMEOUT });
+      await expect(page.locator('tr:has([data-testid^="badge-jadedistance-estimated-"])').first()).toBeInViewport({
+        timeout: HEADER_TIMEOUT,
+      });
 
       // The new warehouse's estimated plant→warehouse distances now appear
       // in the Distances tab, filtered by its display code (raw uids don't
