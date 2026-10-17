@@ -29,7 +29,7 @@ const INPUT_TAB_HISTORY_PROP: Record<string, "readOnly" | "disabled" | "pending"
   CapabilityMatrixTab: "readOnly", // SCU-2.P4.9
   PlantsTab: "readOnly", // SCU-2.P4.12
   MinesTab: "readOnly", // SCU-2.P4.13
-  StationsTab: "pending", // SCU-2.P4.14
+  StationsTab: "readOnly", // SCU-2.P4.14
 };
 
 /** Every `<Name … />` mount's prop text (from the tag to its own `/>` line). */
@@ -56,6 +56,10 @@ describe("Workspace — every input tab mount receives the history flag (D2)", (
         expect(m).toContain(`${prop}={isBrowsingHistoryNow}`);
       }
     }
+  });
+
+  it("no input tab is left pending (every P4 migration wired its flag)", () => {
+    expect(Object.entries(INPUT_TAB_HISTORY_PROP).filter(([, prop]) => prop === "pending")).toEqual([]);
   });
 
   it("the mount scanner is not vacuous: it finds both WarehousesTab mounts", () => {

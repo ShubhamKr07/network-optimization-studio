@@ -14,6 +14,7 @@ function render(
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StationsTab } from "@/components/workspace/tabs/StationsTab";
+import { chooseInputDownload, chooseUpload } from "@/__tests__/helpers/inputTable";
 
 const stations = [
   { id: "S1", city: "Chicago", state: "IL", lat: 41.8781, lng: -87.6298 },
@@ -67,8 +68,8 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
         <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} />
       </ExportProviderTestWrapper>,
     );
-    expect(screen.getByTestId("button-export-stations-csv")).toBeDisabled();
-    expect(screen.getByTestId("button-export-stations-json")).toBeDisabled();
+    // SCU-2.P4 (B2.3/B2.4) — one Download ▾ trigger now carries the disabled state.
+    expect(screen.getByTestId("button-download-stations")).toBeDisabled();
     expect(screen.getByTestId("button-import-stations")).toBeDisabled();
   });
 
@@ -83,7 +84,7 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByTestId("button-export-stations-csv"));
+    chooseInputDownload("stations", "csv");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url] = fetchMock.mock.calls[0];
@@ -95,7 +96,7 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
   it("Upload button opens ImportDialog scoped to entity=stations", async () => {
     renderWithQueryClient(<StationsTab stations={stations} overrides={[]} onChange={vi.fn()} scenarioId={7} />);
     expect(screen.queryByText("Import stations")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-import-stations"));
+    chooseUpload("stations", "csv");
     expect(screen.getByText("Import stations")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-stations")).toBeInTheDocument();
   });
@@ -113,7 +114,7 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
       <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} scenarioId={7} onImportApplied={onImportApplied} />,
     );
 
-    await userEvent.click(screen.getByTestId("button-import-stations"));
+    chooseUpload("stations", "csv");
     const file = new File(["id,demand\nS1,2000"], "stations.csv", { type: "text/csv" });
     await userEvent.upload(screen.getByTestId("input-import-file-stations"), file);
     await waitFor(() => expect(screen.getByTestId("button-import-confirm")).toBeInTheDocument());
@@ -151,12 +152,12 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-station-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-104.99");
-    await userEvent.type(screen.getByTestId("input-new-station-demand"), "900000");
-    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "900000");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedStationsChange).toHaveBeenCalledTimes(1);
     const [added] = onAddedStationsChange.mock.calls[0][0];
@@ -178,15 +179,15 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "CO");
-    await userEvent.type(screen.getByTestId("input-new-station-lat"), "39.74");
-    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Denver");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "CO");
+    await userEvent.type(screen.getByTestId("create-entity-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("create-entity-lng"), "-104.99");
     // Demand left blank on purpose.
-    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedStationsChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-station-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   // T11 (Step A) — displayCode is now the user-facing, collision-checked
@@ -200,16 +201,16 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Chicago");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "IL");
-    fireEvent.blur(screen.getByTestId("input-new-station-state"));
-    await userEvent.clear(screen.getByTestId("input-new-station-display-code"));
-    await userEvent.type(screen.getByTestId("input-new-station-display-code"), "DUPE");
-    await userEvent.type(screen.getByTestId("input-new-station-demand"), "500");
-    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+    await userEvent.type(screen.getByTestId("create-entity-city"), "Chicago");
+    await userEvent.type(screen.getByTestId("create-entity-state"), "IL");
+    fireEvent.blur(screen.getByTestId("create-entity-state"));
+    await userEvent.clear(screen.getByTestId("create-entity-display-code"));
+    await userEvent.type(screen.getByTestId("create-entity-display-code"), "DUPE");
+    await userEvent.type(screen.getByTestId("create-entity-demand"), "500");
+    await userEvent.click(screen.getByTestId("create-entity-submit"));
 
     expect(onAddedStationsChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-add-station-error")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-error")).toBeInTheDocument();
   });
 
   it("renders an added station row with a delete button, and clicking it calls onDeleteStation with its id", async () => {
@@ -284,7 +285,7 @@ describe("StationsTab — base table + inline add-section always render together
     );
     expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
     expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("button-export-stations-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-stations")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-stations")).toBeInTheDocument();
     expect(screen.getByText("S1")).toBeInTheDocument();
     expect(screen.getByTestId("added-stations-section")).toBeInTheDocument();
@@ -300,9 +301,9 @@ describe("StationsTab — base table + inline add-section always render together
         {...addedStationsProps}
       />,
     );
-    expect(screen.queryByTestId("add-station-row-form")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-entity-dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    expect(screen.getByTestId("add-station-row-form")).toBeInTheDocument();
+    expect(screen.getByTestId("create-entity-dialog")).toBeInTheDocument();
     expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
     expect(screen.getByText("S1")).toBeInTheDocument();
   });

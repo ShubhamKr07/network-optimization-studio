@@ -143,7 +143,7 @@ describe("Workspace — transport-coal (A5.1)", () => {
     expect(screen.getByTestId("button-import-mines")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
-    expect(screen.getByTestId("button-export-stations-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-stations")).toBeInTheDocument();
     expect(screen.getByTestId("button-import-stations")).toBeInTheDocument();
   });
 

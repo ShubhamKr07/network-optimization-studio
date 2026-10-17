@@ -1020,12 +1020,12 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
     fireEvent.click(screen.getByTestId("button-add-station-row"));
     // T11 (Step A, grid-mirror) — mirrors the mine test's own comment above.
-    fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
-    fireEvent.change(screen.getByTestId("input-new-station-state"), { target: { value: "NC" } });
-    fireEvent.change(screen.getByTestId("input-new-station-lat"), { target: { value: "35.5" } });
-    fireEvent.change(screen.getByTestId("input-new-station-lng"), { target: { value: "-80.2" } });
-    fireEvent.change(screen.getByTestId("input-new-station-demand"), { target: { value: "900000" } });
-    fireEvent.click(screen.getByTestId("button-add-station-confirm"));
+    fireEvent.change(screen.getByTestId("create-entity-city"), { target: { value: "Newtown" } });
+    fireEvent.change(screen.getByTestId("create-entity-state"), { target: { value: "NC" } });
+    fireEvent.change(screen.getByTestId("create-entity-lat"), { target: { value: "35.5" } });
+    fireEvent.change(screen.getByTestId("create-entity-lng"), { target: { value: "-80.2" } });
+    fireEvent.change(screen.getByTestId("create-entity-demand"), { target: { value: "900000" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
 
     fireEvent.click(screen.getByTestId("button-save"));
 

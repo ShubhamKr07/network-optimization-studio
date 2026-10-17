@@ -3701,6 +3701,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <StationsTab
+          readOnly={isBrowsingHistoryNow}
           stations={dataset.customers}
           overrides={stationOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
