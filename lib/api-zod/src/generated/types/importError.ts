@@ -9,7 +9,17 @@ import type { ImportErrorErrorClass } from './importErrorErrorClass';
 
 export interface ImportError {
   errorClass: ImportErrorErrorClass;
-  /** @nullable */
+  /**
+     * CSV only — 1-based file line (header = 1). null for JSON imports and whole-file errors.
+     * @nullable
+     */
   line: number | null;
+  /**
+     * JSON only — 0-based index into document.rows.
+     * @minimum 0
+     */
+  rowIndex?: number;
+  /** JSON only — the row key (or envelope key) the error is about, when one key is to blame. */
+  field?: string;
   message: string;
 }

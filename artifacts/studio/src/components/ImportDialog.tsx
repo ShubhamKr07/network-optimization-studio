@@ -3,7 +3,8 @@ import {
   usePreviewScenarioImport,
   useApplyScenarioImport,
 } from "@workspace/api-client-react";
-import type { Scenario, ImportApplyRequestMode, ImportError, ImportRowChange } from "@workspace/api-client-react";
+import type { Scenario, ImportApplyMode, ImportDocument, ImportError, ImportRequest, ImportRowChange } from "@workspace/api-client-react";
+import { MAX_IMPORT_BYTES, type ImportEntity } from "@workspace/import-schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,12 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scenarioId: number;
-  // T11 (Chapter 9 JADE) — "plants"/"plantCapabilities" added, matching T3.5's
-  // already-generated `ImportRequestEntity` (openapi.yaml) exactly.
-  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "plants" | "plantCapabilities";
+  // SCU-2.P2.2 — @workspace/import-schema's IMPORT_ENTITIES, the list the OpenAPI
+  // ImportEntity enum is pinned to (importSchemaContract.test.ts). Passing it
+  // into the generated request type is a compile-time check of the same thing.
+  entity: ImportEntity;
+  /** SCU-2.P2.2 (B2.6) — which file the user picks. Defaults to csv (every existing caller). */
+  format?: "csv" | "json";
   onApplied?: (scenario: Scenario) => void;
   /** B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in gate for the shared
    * A3 `FilterMenu`/`useTableFilters`, wired into the Errors and Changes
@@ -32,17 +36,41 @@ interface ImportDialogProps {
   enableFilters?: boolean;
 }
 
-export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied, enableFilters = false }: ImportDialogProps) {
+const LIMIT_MESSAGE = `File is larger than the ${MAX_IMPORT_BYTES / (1024 * 1024)} MB import limit.`; // same sentence for the client check and a server 413
+
+/** A 413 is the body limit; say it the way the client-side guard does, never as the raw code. */
+function describeImportError(err: unknown, fallback: string): string {
+  return (err as { status?: unknown } | null)?.status === 413 ? LIMIT_MESSAGE : describeWriteError(err, fallback);
+}
+
+/** null unless the text is a JSON object with a rows array (anything else the server would 400). */
+function parseJsonDocument(text: string): ImportDocument | null {
+  try {
+    const doc: unknown = JSON.parse(text);
+    if (doc !== null && typeof doc === "object" && !Array.isArray(doc) && Array.isArray((doc as { rows?: unknown }).rows)) {
+      return doc as ImportDocument;
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return null;
+}
+
+const rowLabel = (rowIndex: number | undefined) => (rowIndex === undefined ? undefined : `row ${rowIndex}`);
+
+export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = "csv", onApplied, enableFilters = false }: ImportDialogProps) {
   const [fileName, setFileName] = useState<string | null>(null);
-  const [csvText, setCsvText] = useState("");
-  const [mode, setMode] = useState<ImportApplyRequestMode>("all_or_nothing");
+  const [request, setRequest] = useState<ImportRequest | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [mode, setMode] = useState<ImportApplyMode>("all_or_nothing");
 
   const previewMutation = usePreviewScenarioImport();
   const applyMutation = useApplyScenarioImport();
 
   function reset() {
     setFileName(null);
-    setCsvText("");
+    setRequest(null);
+    setFileError(null);
     setMode("all_or_nothing");
     previewMutation.reset();
     applyMutation.reset();
@@ -58,19 +86,40 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
     e.target.value = "";
     if (!file) return;
     applyMutation.reset();
+    previewMutation.reset();
+    setRequest(null);
+    setFileName(file.name);
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? "");
-      setCsvText(text);
-      setFileName(file.name);
-      previewMutation.mutate({ scenarioId, data: { entity, csvText: text } });
+      let next: ImportRequest;
+      if (format === "json") {
+        const document = parseJsonDocument(text);
+        if (!document) {
+          setFileError("File is not a valid import document (a JSON object with a rows array).");
+          return;
+        }
+        next = { entity, format: "json", document };
+      } else {
+        next = { entity, csvText: text };
+      }
+      // SCU-2.P2.2 (B2.6; review #10) — the limit is on the WIRE body, so measure
+      // the serialized request (with mode, the larger of preview/apply), never file.size.
+      if (new Blob([JSON.stringify({ ...next, mode: "all_or_nothing" })]).size > MAX_IMPORT_BYTES) {
+        setFileError(LIMIT_MESSAGE);
+        return;
+      }
+      setFileError(null);
+      setRequest(next);
+      previewMutation.mutate({ scenarioId, data: next });
     };
     reader.readAsText(file);
   }
 
   function handleConfirm() {
+    if (!request) return;
     applyMutation.mutate(
-      { scenarioId, data: { entity, csvText, mode } },
+      { scenarioId, data: { ...request, mode } },
       {
         onSuccess: (result) => {
           toast({
@@ -121,18 +170,21 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
           <div className="flex items-center gap-2">
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept={format === "json" ? ".json,application/json" : ".csv,text/csv"}
               onChange={handleFileChange}
               data-testid={`input-import-file-${entity}`}
               className="text-xs"
             />
             {fileName && <span className="text-xs text-muted-foreground">{fileName}</span>}
           </div>
+          {fileError && (
+            <p className="text-xs text-destructive" data-testid="import-file-error">{fileError}</p>
+          )}
 
           {previewMutation.isPending && <p className="text-xs text-muted-foreground">Parsing…</p>}
           {previewMutation.isError && (
             <p className="text-xs text-destructive" data-testid="import-preview-error">
-              {describeWriteError(previewMutation.error, "Could not parse file.")}
+              {describeImportError(previewMutation.error, "Could not parse file.")}
             </p>
           )}
 
@@ -158,7 +210,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
                       <TableBody>
                         {displayedErrors.map((err, i) => (
                           <TableRow key={i} className="bg-red-50" data-testid={`import-error-row-${i}`}>
-                            <TableCell className="text-xs">{err.line ?? "—"}</TableCell>
+                            <TableCell className="text-xs">{err.line ?? rowLabel(err.rowIndex) ?? "—"}</TableCell>
                             <TableCell className="text-xs">
                               <Badge variant="outline" className="text-[10px] text-red-700 border-red-300">
                                 {err.errorClass}
@@ -195,7 +247,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
                         {displayedChanges.map((c, i) => (
                           <TableRow key={i} className="bg-green-50" data-testid={`import-change-row-${i}`}>
                             <TableCell className="text-xs font-mono">{c.id}</TableCell>
-                            <TableCell className="text-xs">{c.line}</TableCell>
+                            <TableCell className="text-xs">{rowLabel(c.rowIndex) ?? c.line}</TableCell>
                             <TableCell className="text-xs font-mono">{JSON.stringify(c.before)}</TableCell>
                             <TableCell className="text-xs font-mono">{JSON.stringify(c.after)}</TableCell>
                           </TableRow>
@@ -236,7 +288,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
 
               {applyMutation.isError && (
                 <p className="text-xs text-destructive" data-testid="import-apply-error">
-                  {describeWriteError(applyMutation.error, "Import failed.")}
+                  {describeImportError(applyMutation.error, "Import failed.")}
                 </p>
               )}
             </>

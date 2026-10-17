@@ -31,8 +31,10 @@ import type {
   GetDatasetParams,
   GetSolveHistoryParams,
   HealthStatus,
+  ImportApplyRejection,
   ImportApplyRequest,
   ImportApplyResult,
+  ImportMalformedError,
   ImportPreview,
   ImportRequest,
   LandingSummary,
@@ -41,6 +43,7 @@ import type {
   LoginRequest,
   LogoutSuccess,
   ModelInfo,
+  PayloadTooLargeError,
   PrecheckResult,
   ReferenceCosts,
   ReferenceDistances,
@@ -1237,7 +1240,7 @@ export const getPreviewScenarioImportUrl = (scenarioId: number,) => {
 }
 
 /**
- * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ * @summary Parse and validate a CSV or JSON import against the scenario's current state, without applying it
  */
 export const previewScenarioImport = async (scenarioId: number,
     importRequest: ImportRequest, options?: RequestInit): Promise<ImportPreview> => {
@@ -1255,7 +1258,7 @@ export const previewScenarioImport = async (scenarioId: number,
 
 
 
-export const getPreviewScenarioImportMutationOptions = <TError = ErrorType<void>,
+export const getPreviewScenarioImportMutationOptions = <TError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext> => {
 
@@ -1284,12 +1287,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type PreviewScenarioImportMutationResult = NonNullable<Awaited<ReturnType<typeof previewScenarioImport>>>
     export type PreviewScenarioImportMutationBody = BodyType<ImportRequest>
-    export type PreviewScenarioImportMutationError = ErrorType<void>
+    export type PreviewScenarioImportMutationError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ErrorEnvelope>
 
     /**
- * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ * @summary Parse and validate a CSV or JSON import against the scenario's current state, without applying it
  */
-export const usePreviewScenarioImport = <TError = ErrorType<void>,
+export const usePreviewScenarioImport = <TError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof previewScenarioImport>>,
@@ -1309,7 +1312,7 @@ export const getApplyScenarioImportUrl = (scenarioId: number,) => {
 }
 
 /**
- * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ * @summary Re-validate and apply a CSV or JSON import onto the scenario's overrides
  */
 export const applyScenarioImport = async (scenarioId: number,
     importApplyRequest: ImportApplyRequest, options?: RequestInit): Promise<ImportApplyResult> => {
@@ -1327,7 +1330,7 @@ export const applyScenarioImport = async (scenarioId: number,
 
 
 
-export const getApplyScenarioImportMutationOptions = <TError = ErrorType<void>,
+export const getApplyScenarioImportMutationOptions = <TError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ImportApplyRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext> => {
 
@@ -1356,12 +1359,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ApplyScenarioImportMutationResult = NonNullable<Awaited<ReturnType<typeof applyScenarioImport>>>
     export type ApplyScenarioImportMutationBody = BodyType<ImportApplyRequest>
-    export type ApplyScenarioImportMutationError = ErrorType<void>
+    export type ApplyScenarioImportMutationError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ImportApplyRejection>
 
     /**
- * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ * @summary Re-validate and apply a CSV or JSON import onto the scenario's overrides
  */
-export const useApplyScenarioImport = <TError = ErrorType<void>,
+export const useApplyScenarioImport = <TError = ErrorType<ImportMalformedError | void | PayloadTooLargeError | ImportApplyRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof applyScenarioImport>>,

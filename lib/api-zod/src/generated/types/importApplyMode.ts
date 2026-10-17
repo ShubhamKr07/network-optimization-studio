@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
+export type ImportApplyMode = typeof ImportApplyMode[keyof typeof ImportApplyMode];
 
 
-export const ImportApplyRequestMode = {
+export const ImportApplyMode = {
   all_or_nothing: 'all_or_nothing',
   partial: 'partial',
 } as const;

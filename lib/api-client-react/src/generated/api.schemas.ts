@@ -865,10 +865,13 @@ export interface PrecheckResult {
   errors: PrecheckError[];
 }
 
-export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof ImportRequestEntity];
+/**
+ * Importable input entities. Single source is lib/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.
+ */
+export type ImportEntity = typeof ImportEntity[keyof typeof ImportEntity];
 
 
-export const ImportRequestEntity = {
+export const ImportEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
   mines: 'mines',
@@ -881,10 +884,57 @@ export const ImportRequestEntity = {
   plantCapabilities: 'plantCapabilities',
 } as const;
 
-export interface ImportRequest {
-  entity: ImportRequestEntity;
+export type ImportDocumentUnit = typeof ImportDocumentUnit[keyof typeof ImportDocumentUnit];
+
+
+export const ImportDocumentUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+export type ImportDocumentRowsItem = { [key: string]: unknown };
+
+/**
+ * The JSON envelope GET /scenarios/{scenarioId}/export?format=json emits, accepted back unchanged. Row keys are the entity's JSON keys (lib/import-schema). A row may omit templateVersion (it defaults to the envelope's). unit is present exactly for templateVersion 2 of a unit-bearing entity. Only these four top-level keys are allowed. Round trip = structural JSON equality of the re-export; added (scenario-local) entities round-trip into the same scenario only.
+ */
+export interface ImportDocument {
+  templateVersion: number;
+  entity: ImportEntity;
+  unit?: ImportDocumentUnit;
+  rows: ImportDocumentRowsItem[];
+}
+
+/**
+ * Optional; omitted means csv (backward compatible).
+ */
+export type ImportCsvRequestFormat = typeof ImportCsvRequestFormat[keyof typeof ImportCsvRequestFormat];
+
+
+export const ImportCsvRequestFormat = {
+  csv: 'csv',
+} as const;
+
+export interface ImportCsvRequest {
+  entity: ImportEntity;
+  /** Optional; omitted means csv (backward compatible). */
+  format?: ImportCsvRequestFormat;
   csvText: string;
 }
+
+export type ImportJsonRequestFormat = typeof ImportJsonRequestFormat[keyof typeof ImportJsonRequestFormat];
+
+
+export const ImportJsonRequestFormat = {
+  json: 'json',
+} as const;
+
+export interface ImportJsonRequest {
+  entity: ImportEntity;
+  format: ImportJsonRequestFormat;
+  document: ImportDocument;
+}
+
+export type ImportRequest = ImportCsvRequest | ImportJsonRequest;
 
 export type ImportErrorErrorClass = typeof ImportErrorErrorClass[keyof typeof ImportErrorErrorClass];
 
@@ -897,8 +947,18 @@ export const ImportErrorErrorClass = {
 
 export interface ImportError {
   errorClass: ImportErrorErrorClass;
-  /** @nullable */
+  /**
+     * CSV only — 1-based file line (header = 1). null for JSON imports and whole-file errors.
+     * @nullable
+     */
   line: number | null;
+  /**
+     * JSON only — 0-based index into document.rows.
+     * @minimum 0
+     */
+  rowIndex?: number;
+  /** JSON only — the row key (or envelope key) the error is about, when one key is to blame. */
+  field?: string;
   message: string;
 }
 
@@ -908,7 +968,13 @@ export type ImportRowChangeAfter = { [key: string]: unknown };
 
 export interface ImportRowChange {
   id: string;
+  /** CSV-equivalent line (rowIndex + 2 for a JSON import). */
   line: number;
+  /**
+     * JSON only — 0-based index into document.rows.
+     * @minimum 0
+     */
+  rowIndex?: number;
   before: ImportRowChangeBefore;
   after: ImportRowChangeAfter;
 }
@@ -919,34 +985,75 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportApplyRequestEntity = typeof ImportApplyRequestEntity[keyof typeof ImportApplyRequestEntity];
+export type ImportApplyMode = typeof ImportApplyMode[keyof typeof ImportApplyMode];
 
 
-export const ImportApplyRequestEntity = {
-  warehouses: 'warehouses',
-  customers: 'customers',
-  mines: 'mines',
-  stations: 'stations',
-  refineries: 'refineries',
-  distances: 'distances',
-  laneCosts: 'laneCosts',
-  legDistances: 'legDistances',
-  plants: 'plants',
-  plantCapabilities: 'plantCapabilities',
-} as const;
-
-export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
-
-
-export const ImportApplyRequestMode = {
+export const ImportApplyMode = {
   all_or_nothing: 'all_or_nothing',
   partial: 'partial',
 } as const;
 
-export interface ImportApplyRequest {
-  entity: ImportApplyRequestEntity;
+export type ImportCsvApplyRequestFormat = typeof ImportCsvApplyRequestFormat[keyof typeof ImportCsvApplyRequestFormat];
+
+
+export const ImportCsvApplyRequestFormat = {
+  csv: 'csv',
+} as const;
+
+export interface ImportCsvApplyRequest {
+  entity: ImportEntity;
+  format?: ImportCsvApplyRequestFormat;
   csvText: string;
-  mode?: ImportApplyRequestMode;
+  mode?: ImportApplyMode;
+}
+
+export type ImportJsonApplyRequestFormat = typeof ImportJsonApplyRequestFormat[keyof typeof ImportJsonApplyRequestFormat];
+
+
+export const ImportJsonApplyRequestFormat = {
+  json: 'json',
+} as const;
+
+export interface ImportJsonApplyRequest {
+  entity: ImportEntity;
+  format: ImportJsonApplyRequestFormat;
+  document: ImportDocument;
+  mode?: ImportApplyMode;
+}
+
+export type ImportApplyRequest = ImportCsvApplyRequest | ImportJsonApplyRequest;
+
+export type ImportMalformedErrorErrorClass = typeof ImportMalformedErrorErrorClass[keyof typeof ImportMalformedErrorErrorClass];
+
+
+export const ImportMalformedErrorErrorClass = {
+  malformed: 'malformed',
+} as const;
+
+export interface ImportMalformedError {
+  error: string;
+  errorClass: ImportMalformedErrorErrorClass;
+  /** The document key to blame, when one is (e.g. rows, entity, an unknown key). */
+  field?: string;
+}
+
+export type PayloadTooLargeErrorError = typeof PayloadTooLargeErrorError[keyof typeof PayloadTooLargeErrorError];
+
+
+export const PayloadTooLargeErrorError = {
+  payload_too_large: 'payload_too_large',
+} as const;
+
+export interface PayloadTooLargeError {
+  error: PayloadTooLargeErrorError;
+}
+
+/**
+ * 422 from import/apply. preview is present only for an all_or_nothing rejection.
+ */
+export interface ImportApplyRejection {
+  error: string;
+  preview?: ImportPreview;
 }
 
 export interface ImportApplyResult {

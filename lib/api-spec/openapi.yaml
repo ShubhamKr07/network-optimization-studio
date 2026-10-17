@@ -404,7 +404,7 @@ paths:
     post:
       operationId: previewScenarioImport
       tags: [scenarios]
-      summary: Parse and validate a CSV import against the scenario's current state, without applying it
+      summary: Parse and validate a CSV or JSON import against the scenario's current state, without applying it
       parameters:
         - name: scenarioId
           in: path
@@ -424,18 +424,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportPreview"
+        "400":
+          description: The request body is not valid JSON, or document violates ImportDocument (not an object, unknown top-level key, entity not an ImportEntity, unit not km/mi, rows not an array of objects). Only after auth and ownership — a non-owned scenario is 404 whatever the body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportMalformedError"
         "401":
           description: Not authenticated
         "404":
-          description: Not found
+          description: Not found (also a scenario owned by another user — never 403)
+        "413":
+          description: Request body exceeds the 2 MiB import wire limit (import routes only; checked after ownership)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayloadTooLargeError"
         "422":
-          description: Invalid entity, or this scenario's model doesn't support import
+          description: Invalid entity, format (incl. null) or unknown request key, csvText missing for a CSV import, or this scenario's model doesn't support the entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /scenarios/{scenarioId}/import/apply:
     post:
       operationId: applyScenarioImport
       tags: [scenarios]
-      summary: Re-validate and apply a CSV import onto the scenario's overrides
+      summary: Re-validate and apply a CSV or JSON import onto the scenario's overrides
       parameters:
         - name: scenarioId
           in: path
@@ -455,12 +471,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportApplyResult"
+        "400":
+          description: The request body is not valid JSON, or document violates ImportDocument (not an object, unknown top-level key, entity not an ImportEntity, unit not km/mi, rows not an array of objects). Only after auth and ownership — a non-owned scenario is 404 whatever the body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportMalformedError"
         "401":
           description: Not authenticated
         "404":
-          description: Not found
+          description: Not found (also a scenario owned by another user — never 403)
+        "413":
+          description: Request body exceeds the 2 MiB import wire limit (import routes only; checked after ownership)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayloadTooLargeError"
         "422":
-          description: Invalid entity, model unsupported, or (all_or_nothing mode) the import had errors and nothing was applied
+          description: Invalid entity, format, mode or unknown request key, model unsupported, merged inputs failed validation, or (all_or_nothing mode) the import had errors and nothing was applied — the last case carries the preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportApplyRejection"
 
   /scenarios/{scenarioId}/clone:
     post:
@@ -1939,15 +1971,68 @@ components:
           items:
             $ref: "#/components/schemas/PrecheckError"
 
-    ImportRequest:
+    ImportEntity:
+      type: string
+      description: Importable input entities. Single source is lib/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.
+      enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
+
+    ImportDocument:
       type: object
+      description: >-
+        The JSON envelope GET /scenarios/{scenarioId}/export?format=json emits,
+        accepted back unchanged. Row keys are the entity's JSON keys
+        (lib/import-schema). A row may omit templateVersion (it defaults to
+        the envelope's). unit is present exactly for templateVersion 2 of a
+        unit-bearing entity. Only these four top-level keys are allowed.
+        Round trip = structural JSON equality of the re-export; added
+        (scenario-local) entities round-trip into the same scenario only.
+      example: { templateVersion: 1, entity: warehouses, rows: [{ templateVersion: 1, id: ALN, displayCode: null, city: Allentown, state: PA, lat: 40.602812, lng: -75.470433, capacity: null, status: forced_open, overridden: true }] }
+      additionalProperties: false
+      properties:
+        templateVersion:
+          type: integer
+        entity:
+          $ref: "#/components/schemas/ImportEntity"
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            type: object
+      required: [templateVersion, entity, rows]
+
+    ImportCsvRequest:
+      type: object
+      additionalProperties: false
       properties:
         entity:
+          $ref: "#/components/schemas/ImportEntity"
+        format:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
+          enum: [csv]
+          description: Optional; omitted means csv (backward compatible).
         csvText:
           type: string
       required: [entity, csvText]
+
+    ImportJsonRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        entity:
+          $ref: "#/components/schemas/ImportEntity"
+        format:
+          type: string
+          enum: [json]
+        document:
+          $ref: "#/components/schemas/ImportDocument"
+      required: [entity, format, document]
+
+    ImportRequest:
+      oneOf:
+        - $ref: "#/components/schemas/ImportCsvRequest"
+        - $ref: "#/components/schemas/ImportJsonRequest"
 
     ImportError:
       type: object
@@ -1957,6 +2042,14 @@ components:
           enum: [format, syntax, logic]
         line:
           type: ["integer", "null"]
+          description: CSV only — 1-based file line (header = 1). null for JSON imports and whole-file errors.
+        rowIndex:
+          type: integer
+          minimum: 0
+          description: JSON only — 0-based index into document.rows.
+        field:
+          type: string
+          description: JSON only — the row key (or envelope key) the error is about, when one key is to blame.
         message:
           type: string
       required: [errorClass, line, message]
@@ -1968,6 +2061,11 @@ components:
           type: string
         line:
           type: integer
+          description: CSV-equivalent line (rowIndex + 2 for a JSON import).
+        rowIndex:
+          type: integer
+          minimum: 0
+          description: JSON only — 0-based index into document.rows.
         before:
           type: object
         after:
@@ -1991,18 +2089,75 @@ components:
             type: string
       required: [errors, changes, warnings]
 
-    ImportApplyRequest:
+    ImportApplyMode:
+      type: string
+      enum: [all_or_nothing, partial]
+
+    ImportCsvApplyRequest:
       type: object
+      additionalProperties: false
       properties:
         entity:
+          $ref: "#/components/schemas/ImportEntity"
+        format:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
+          enum: [csv]
         csvText:
           type: string
         mode:
-          type: string
-          enum: [all_or_nothing, partial]
+          $ref: "#/components/schemas/ImportApplyMode"
       required: [entity, csvText]
+
+    ImportJsonApplyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        entity:
+          $ref: "#/components/schemas/ImportEntity"
+        format:
+          type: string
+          enum: [json]
+        document:
+          $ref: "#/components/schemas/ImportDocument"
+        mode:
+          $ref: "#/components/schemas/ImportApplyMode"
+      required: [entity, format, document]
+
+    ImportApplyRequest:
+      oneOf:
+        - $ref: "#/components/schemas/ImportCsvApplyRequest"
+        - $ref: "#/components/schemas/ImportJsonApplyRequest"
+
+    ImportMalformedError:
+      type: object
+      properties:
+        error:
+          type: string
+        errorClass:
+          type: string
+          enum: [malformed]
+        field:
+          type: string
+          description: The document key to blame, when one is (e.g. rows, entity, an unknown key).
+      required: [error, errorClass]
+
+    PayloadTooLargeError:
+      type: object
+      properties:
+        error:
+          type: string
+          enum: [payload_too_large]
+      required: [error]
+
+    ImportApplyRejection:
+      type: object
+      description: 422 from import/apply. preview is present only for an all_or_nothing rejection.
+      properties:
+        error:
+          type: string
+        preview:
+          $ref: "#/components/schemas/ImportPreview"
+      required: [error]
 
     ImportApplyResult:
       type: object

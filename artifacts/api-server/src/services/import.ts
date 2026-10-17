@@ -13,20 +13,25 @@ import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, 
 import { fromDisplay, roundForFile } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
 import { getManifest } from "../registry/modelRegistry.js";
-import { csvColumns } from "@workspace/import-schema";
-import type { ImportEntity } from "@workspace/import-schema";
+import { csvColumns, IMPORT_ENTITIES, IMPORT_SCHEMAS, MAX_IMPORT_ROWS, findTemplateVersion, isImportEntity } from "@workspace/import-schema";
+import type { ImportEntity, ImportFieldDescriptor, ImportJsonDocument } from "@workspace/import-schema";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
 export interface ImportError {
   errorClass: ImportErrorClass;
-  line: number | null; // null for whole-file format errors (no single row to blame)
+  line: number | null; // null for whole-file format errors (no single row to blame) and for every JSON-import error
   message: string;
+  // SCU-2.P2.2 (B2.6) — JSON imports only: the 0-based document.rows index, and the key to blame.
+  rowIndex?: number;
+  field?: string;
 }
 
 export interface ImportRowChange {
   id: string;
   line: number;
+  // SCU-2.P2.2 (B2.6) — JSON imports only; `line` is then rowIndex + 2 (the CSV-equivalent line).
+  rowIndex?: number;
   before: { status: string; value: number | null };
   after: { status: string; value: number | null };
   // Populated only for the composite-keyed `distances` entity (B4.1) —
@@ -399,6 +404,10 @@ export function parseAndValidateImport(
   }
 
   const rows = parsed.data;
+  if (rows.length - 1 > MAX_IMPORT_ROWS) {
+    errors.push(tooManyRowsError(rows.length - 1));
+    return { errors, changes, warnings };
+  }
   const header = rows[0]?.map(h => h.trim()) ?? [];
 
   // T8 (Part E) — distances/laneCosts/legDistances now accept EITHER the v1
@@ -1387,4 +1396,150 @@ function parsePlantCapabilityRows(
   }
 
   return { errors, changes };
+}
+
+// ---------------------------------------------------------------------------
+// SCU-2.P2.2 (B2.6) — JSON import. The JSON document is the export envelope.
+// It gets NO second validator: the envelope and each row's keys/types are
+// checked against @workspace/import-schema (the document's SHAPE was already
+// checked by readImportRequest), the rows become CSV text in the
+// entity's own header order, and the existing CSV validator above decides
+// everything else (ids, duplicates, values, add mode). Its line numbers are
+// then mapped back to document.rows indexes.
+// ---------------------------------------------------------------------------
+
+function tooManyRowsError(count: number): ImportError {
+  return { errorClass: "format", line: null, message: `File has ${count} data rows; the maximum is ${MAX_IMPORT_ROWS} per import.` };
+}
+
+export type ImportPayload =
+  | { format: "csv"; csvText: string }
+  | { format: "json"; document: ImportJsonDocument };
+
+export type ReadImportRequestResult =
+  | { ok: true; entity: ImportEntity; payload: ImportPayload; mode: "all_or_nothing" | "partial" }
+  | { ok: false; status: 400 | 422; body: { error: string; errorClass?: "malformed"; field?: string } };
+
+const REQUEST_KEYS = { csv: ["entity", "format", "csvText"], json: ["entity", "format", "document"] } as const;
+const DOCUMENT_KEYS = new Set(["templateVersion", "entity", "unit", "rows"]);
+const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * The hand-written twin of the strict OpenAPI oneOf (additionalProperties:
+ * false). importSchemaContract.test.ts pins it case-for-case to the generated
+ * Zod. Request-envelope violations → 422; `document` schema violations → 400
+ * malformed. Runs AFTER the ownership lookup (the route mounts it that way).
+ */
+export function readImportRequest(body: unknown, route: "preview" | "apply"): ReadImportRequestResult {
+  const invalid = (error: string): ReadImportRequestResult => ({ ok: false, status: 422, body: { error } });
+  const malformed = (error: string, field: string): ReadImportRequestResult => ({ ok: false, status: 400, body: { error, errorClass: "malformed", field } });
+
+  if (!isPlainObject(body)) return invalid("request body must be a JSON object");
+  if (!isImportEntity(body.entity)) return invalid(`entity must be one of: ${IMPORT_ENTITIES.join(", ")}`);
+  const format = "format" in body ? body.format : "csv"; // omitted = csv; null is rejected below
+  if (format !== "csv" && format !== "json") return invalid("format must be 'csv' or 'json'");
+  const allowed = new Set<string>([...REQUEST_KEYS[format], ...(route === "apply" ? ["mode"] : [])]);
+  const unknownKey = Object.keys(body).find(k => !allowed.has(k));
+  if (unknownKey !== undefined) return invalid(`Unknown request field "${unknownKey}"`);
+  const mode = "mode" in body ? body.mode : "all_or_nothing";
+  if (mode !== "all_or_nothing" && mode !== "partial") return invalid("mode must be 'all_or_nothing' or 'partial'");
+
+  if (format === "csv") {
+    if (typeof body.csvText !== "string") return invalid("csvText is required");
+    return { ok: true, entity: body.entity, payload: { format, csvText: body.csvText }, mode };
+  }
+  const doc = body.document;
+  if (!isPlainObject(doc)) return malformed("document must be a JSON object", "document");
+  const unknownDocKey = Object.keys(doc).find(k => !DOCUMENT_KEYS.has(k));
+  if (unknownDocKey !== undefined) return malformed(`Unknown document field "${unknownDocKey}"`, unknownDocKey);
+  if (typeof doc.templateVersion !== "number") return malformed("document.templateVersion must be a number", "templateVersion");
+  if (!isImportEntity(doc.entity)) return malformed(`document.entity must be one of: ${IMPORT_ENTITIES.join(", ")}`, "entity");
+  if ("unit" in doc && doc.unit !== "km" && doc.unit !== "mi") return malformed("document.unit must be 'km' or 'mi'", "unit");
+  if (!Array.isArray(doc.rows) || !doc.rows.every(isPlainObject)) return malformed("document.rows must be an array of JSON objects", "rows");
+  return { ok: true, entity: body.entity, payload: { format, document: doc as unknown as ImportJsonDocument }, mode };
+}
+
+export function previewImport(
+  entity: ImportEntity,
+  payload: ImportPayload,
+  currentOverrides: ImportCurrentOverrides,
+  pValue: number,
+  modelId: string,
+): ImportPreview {
+  return payload.format === "csv"
+    ? parseAndValidateImport(entity, payload.csvText, currentOverrides, pValue, modelId)
+    : parseAndValidateJsonImport(entity, payload.document, currentOverrides, pValue, modelId);
+}
+
+const JSON_TYPE_PHRASE = { string: "a string", enum: "a string", number: "a number", boolean: "true or false" } as const;
+
+/** One JSON value → its CSV cell text; undefined = wrong JSON type. null/absent → blank cell. */
+function jsonCell(value: unknown, field: ImportFieldDescriptor): string | undefined {
+  if (value === null || value === undefined) return "";
+  if (field.type === "number") return typeof value === "number" ? String(value) : undefined;
+  if (field.type === "boolean") return typeof value === "boolean" ? String(value) : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+export function parseAndValidateJsonImport(
+  entity: ImportEntity,
+  document: ImportJsonDocument, // shape already guaranteed by readImportRequest
+  currentOverrides: ImportCurrentOverrides,
+  pValue: number,
+  modelId: string = "p-median-us",
+): ImportPreview {
+  const formatError = (field: string, message: string): ImportPreview =>
+    ({ errors: [{ errorClass: "format", line: null, field, message }], changes: [], warnings: [] });
+
+  if (document.entity !== entity) {
+    return formatError("entity", `Document entity ${JSON.stringify(document.entity)} does not match the import target "${entity}".`);
+  }
+  const schema = IMPORT_SCHEMAS[entity];
+  const version = typeof document.templateVersion === "number" ? findTemplateVersion(entity, document.templateVersion) : undefined;
+  if (!version) {
+    return formatError("templateVersion", `templateVersion ${JSON.stringify(document.templateVersion)} is not supported for ${entity} (expected ${schema.versions.map(v => v.templateVersion).join(" or ")}).`);
+  }
+  const takesUnit = version.fields.some(f => f.envelopeKey === "unit");
+  if (takesUnit && document.unit === undefined) return formatError("unit", `unit is required for ${entity} templateVersion ${version.templateVersion}.`);
+  if (!takesUnit && document.unit !== undefined) return formatError("unit", `unit is not allowed for ${entity} templateVersion ${version.templateVersion}.`);
+  if (document.rows.length > MAX_IMPORT_ROWS) return { errors: [tooManyRowsError(document.rows.length)], changes: [], warnings: [] };
+
+  const allowedKeys = new Set<string>([...version.fields.map(f => f.jsonKey), ...schema.exportOnlyJsonKeys]);
+  const shapeErrors: ImportError[] = [];
+  const csvRows: string[][] = [];
+  const rowIndexByLine = new Map<number, number>(); // CSV line (header = 1) → document.rows index
+
+  document.rows.forEach((record, rowIndex) => {
+    const unknownKey = Object.keys(record).find(k => !allowedKeys.has(k));
+    if (unknownKey !== undefined) {
+      shapeErrors.push({ errorClass: "syntax", line: null, rowIndex, field: unknownKey, message: `Unknown field "${unknownKey}".` });
+      return;
+    }
+    const cells: string[] = [];
+    for (const f of version.fields) {
+      const value = f.jsonKey in record ? record[f.jsonKey] : f.envelopeKey ? document[f.envelopeKey] : null;
+      const cell = jsonCell(value, f);
+      if (cell === undefined) {
+        shapeErrors.push({ errorClass: "syntax", line: null, rowIndex, field: f.jsonKey, message: `${f.jsonKey} must be ${JSON_TYPE_PHRASE[f.type]}${f.nullable ? " or null" : ""}.` });
+        return;
+      }
+      cells.push(cell);
+    }
+    rowIndexByLine.set(csvRows.length + 2, rowIndex);
+    csvRows.push(cells);
+  });
+
+  const csvText = Papa.unparse([version.fields.map(f => f.csvHeader), ...csvRows], { newline: "\n" });
+  const csvPreview = parseAndValidateImport(entity, csvText, currentOverrides, pValue, modelId);
+
+  const mapped: ImportError[] = csvPreview.errors.map(e => {
+    const rowIndex = e.line === null ? undefined : rowIndexByLine.get(e.line);
+    return rowIndex === undefined ? { ...e, line: null } : { ...e, line: null, rowIndex };
+  });
+  const errors = [...shapeErrors, ...mapped].sort((a, b) => (a.rowIndex ?? -1) - (b.rowIndex ?? -1));
+  const changes = csvPreview.changes.map(c => {
+    const rowIndex = rowIndexByLine.get(c.line)!;
+    return { ...c, line: rowIndex + 2, rowIndex };
+  });
+  return { errors, changes, warnings: csvPreview.warnings };
 }

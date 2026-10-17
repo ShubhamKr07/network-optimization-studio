@@ -66,6 +66,14 @@ export default defineConfig({
         },
         useDates: true,
         useBigInt: true,
+        // SCU-2.P2.2 (B2.6) — additionalProperties:false only becomes .strict()
+        // with Orval's strict.body flag. Scoped to the two import operations:
+        // the global flag would also make auth's Register/Login/ForgotPassword/
+        // ResetPassword bodies strict (auth.ts:114,170,312,349 parse with them).
+        operations: {
+          previewScenarioImport: { zod: { strict: { body: true } } },
+          applyScenarioImport: { zod: { strict: { body: true } } },
+        },
       },
     },
   },

@@ -6,10 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof ImportRequestEntity];
+/**
+ * Importable input entities. Single source is lib/import-schema (IMPORT_ENTITIES); importSchemaContract.test.ts pins the two together.
+ */
+export type ImportEntity = typeof ImportEntity[keyof typeof ImportEntity];
 
 
-export const ImportRequestEntity = {
+export const ImportEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
   mines: 'mines',
