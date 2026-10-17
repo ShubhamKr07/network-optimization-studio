@@ -3792,3 +3792,10 @@ Gate: typecheck, studio typecheck:e2e clean; import-schema 22/22; api-server 203
 - Behaviour change: a filter change now returns to page 1 (spec B2.2; today it only clamped). Deviations 1, 2, 9, 10.
 - Vitest procs before the gate: 0. Baseline (Step 1): JadeAssignmentsTab 28, Workspace.TabCoverage 8; after: 33 (28 + 5 added, 0 deleted), TabCoverage 8.
 - Gate: studio 2550 passed (140 files), api-server 2032 passed / 1 failed in the full run (`dispatcherRecovery` restart-mid-load, registered flake; 27/27 on two isolated runs), pytest 355 passed, import-schema 22 passed, typecheck + typecheck:e2e clean. e2e (ports 3303/5303): `jade-two-echelon.spec.ts` (new 8-page pager + 400-row CSV/JSON assertions) + `jade-ch9-workspace-bundle` + `workspace-fixups` + `workspace-fixups-2` all passed (11/11). A first 4-spec run at machine load avg ~84 timed out on `POST /api/scenarios` (15s) in every file; re-run at load ~12 was green (load sighting, not a regression).
+
+### SCU-2.P3.4 — Flows on DataTable
+
+- Shared `FlowsTab` (transport-coal, two-echelon-gold-au) renders through `DataTable`: filter above 10 rows (new), pager above 50, Distance/Flow centred, Download ▾ CSV/JSON (server `flows`); `flow-row-{from}-{to}[-{product}]` kept.
+- G-3 fixed (user decision D): `Workspace.tsx` now passes `distanceUnit={canonicalUnit}` to `FlowsTab`, so transport-coal/gold-au distances render under `Distance (mi)` and follow the unit toggle (RTL: TabCoverage + FlowsTab; e2e: `two-echelon.spec.ts`). Download ▾ right-aligned. Deviations 1, 2, 8, 10.
+- Vitest procs before baseline and gate: 0. Baseline (Step 1): FlowsTab 21, Workspace.TabCoverage 8; after: FlowsTab 27 (21 + 6 added, 0 deleted), TabCoverage 9 (+1, the G-3 test).
+- Gate: studio 2557 passed (140 files), api-server 2033 passed (78 files), pytest 355 passed, import-schema 22 passed, typecheck + typecheck:e2e clean. e2e (local, api 3304 / studio 5304, 1 worker, 0 retries): `tab-coverage.spec.ts` + `two-echelon.spec.ts` 6/6 passed.

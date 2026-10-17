@@ -38,6 +38,7 @@
  * solve outcome.
  */
 import { test, expect, type Page } from "./fixtures";
+import { csvDataLines, downloadVia } from "./helpers/download";
 
 const HEADER_TIMEOUT = 10_000;
 const SOLVE_TIMEOUT = 60_000;
@@ -120,6 +121,23 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       await solveAndWait(page);
       await page.getByTestId("sidebar-output-open-warehouses").click();
       await expect(page.getByText(/cunnamulla/i).first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // SCU-2.P3.4 — gold-au Flows: distances render under the canonical unit (G-3
+      // fixed), follow the display-unit toggle, and Download ▾ exports every row.
+      await page.getByTestId("sidebar-output-flows").click();
+      const flowRows = page.locator('[data-testid^="flow-row-"]');
+      await expect(flowRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
+      await expect(flowRows.first().locator("td").nth(2)).toHaveText(/^\d+\.\d$/);
+      await page.getByTestId("unit-toggle-km").click();
+      await expect(page.getByRole("columnheader", { name: "Distance (km)" })).toBeVisible();
+      await page.getByTestId("unit-toggle-mi").click();
+      await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
+      const flowCount = await flowRows.count();
+      const flCsv = await downloadVia(page, "button-download-flows", "button-download-flows-csv");
+      expect(flCsv.name).toBe("flows.csv");
+      expect(csvDataLines(flCsv.text)).toHaveLength(flowCount);
+      const flJson = JSON.parse((await downloadVia(page, "button-download-flows", "button-download-flows-json")).text);
+      expect([flJson.entity, flJson.unit, flJson.rows.length]).toEqual(["flows", "mi", flowCount]);
 
       // ── 2. Clone → BOM 2.0 → re-solve → Daggar Hills ────────────────────
       // Sidebar-only scenario ops now (button-scenario-dropdown is gone) —

@@ -4181,7 +4181,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           />
         );
       if (activeView.entity === "flows")
-        return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} identityById={outputIdentityById} />;
+        return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} identityById={outputIdentityById} distanceUnit={canonicalUnit} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
       // jade-INT (#4/#5, spec §6) — JADE-only Plant Production snapshot

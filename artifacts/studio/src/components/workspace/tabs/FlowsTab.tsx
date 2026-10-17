@@ -1,6 +1,10 @@
-import type { SolveResult } from "@workspace/api-client-react";
+import { useMemo } from "react";
+import type { Edge, SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import type { ColumnDef } from "@/components/data-table/types";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
@@ -89,69 +93,92 @@ function flowRows(result: SolveResult) {
   return result.edges.filter(e => !(e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg)));
 }
 
+// SCU-2.P3.4 — filter text for one entity cell (raw text, never the JSX):
+// "City, ST id" when a location is known, else the display id.
+function entityFilterText(
+  id: string,
+  locationById: Record<string, { city: string; state: string }> | undefined,
+  identityById: Record<string, EntityIdentity> | undefined,
+): string {
+  const identity = identityById?.[id];
+  if (identity) return identity.city || identity.state ? `${identity.city}, ${identity.state} ${identity.displayId}` : identity.displayId;
+  const loc = locationById?.[id];
+  return loc ? `${loc.city}, ${loc.state} ${id}` : id;
+}
+
+// Per-product plant->warehouse edges can share the same (fromId,toId) pair
+// across products — the productId must be part of the row identity, or two
+// products' rows would collide on both `key` and `data-testid`.
+function flowRowKey(e: Edge): string {
+  return e.productId != null ? `${e.fromId}-${e.toId}-${e.productId}` : `${e.fromId}-${e.toId}`;
+}
+
+// SCU-2.P3.4 (spec B2.1/B2.2/B2.4) — rendered by the shared DataTable: filter
+// menu > 10 rows, pager > 50, number columns centred, Download ▾ CSV/JSON
+// (server `flows`).
 export function FlowsTab({ result, scenarioId, locationById, identityById, distanceUnit }: FlowsTabProps) {
   const unit = useDisplayUnit();
   const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
-  const formatRowDistance = (raw: number): string =>
-    canonicalResolved ? unit.toDisplay(raw, distanceUnit).toFixed(1) : "—";
+  const rows = useMemo(() => (result ? flowRows(result) : []), [result]);
+  // jade-T14 — Product column only when at least one row carries a productId
+  // (data-driven, never gated on modelId).
+  const hasProduct = rows.some(r => r.productId != null);
+
+  const columns = useMemo<ColumnDef<Edge>[]>(() => {
+    const cols: ColumnDef<Edge>[] = [
+      { id: "from", header: "From", kind: "text", value: e => entityFilterText(e.fromId, locationById, identityById), cell: e => resolveCell(e.fromId, locationById, identityById) },
+      { id: "to", header: "To", kind: "text", value: e => entityFilterText(e.toId, locationById, identityById), cell: e => resolveCell(e.toId, locationById, identityById) },
+    ];
+    if (hasProduct) cols.push({ id: "product", header: "Product", kind: "enum", value: e => e.productId ?? null, cell: e => e.productId ?? "—" });
+    cols.push(
+      {
+        id: "distance",
+        header: distanceHeaderLabel,
+        kind: "number",
+        cellClassName: "font-mono",
+        value: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit) : null),
+        cell: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit).toFixed(1) : "—"),
+      },
+      { id: "flow", header: "Flow", kind: "number", cellClassName: "font-mono", value: e => e.flow, cell: e => e.flow.toLocaleString() },
+    );
+    return cols;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationById, identityById, hasProduct, distanceHeaderLabel, canonicalResolved, distanceUnit, unit.pref]);
+
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="flows-empty">No solved result yet.</div>;
   }
-  const rows = flowRows(result);
-  // jade-T14 — JADE's plant->warehouse edges are per-product (one edge per
-  // positive (plant,warehouse,product) flow), so `productId` is shown only
-  // when at least one row actually carries it — additive, data-driven, never
-  // gated on modelId. transport-coal/Ch10 rows have no `productId` at all, so
-  // this column is absent for them exactly as before this task.
-  const hasProduct = rows.some(r => r.productId != null);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-end p-2 border-b flex-shrink-0">
-        <button
-          type="button"
-          data-testid="button-download-flows-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
-          onClick={() => download("flows", "csv")}
-          disabled={disabledReasonFor("flows") != null}
-          title={disabledReasonFor("flows")}
-        >
-          Download CSV
-        </button>
-      </div>
-      <div className="overflow-auto flex-1">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-background border-b">
-            <tr>
-              <th className="text-left p-2">From</th>
-              <th className="text-left p-2">To</th>
-              {hasProduct && <th className="text-left p-2">Product</th>}
-              <th className="text-right p-2">{distanceHeaderLabel}</th>
-              <th className="text-right p-2">Flow</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(e => {
-              // Per-product plant->warehouse edges can share the same
-              // (fromId,toId) pair across products — the productId must be
-              // part of the row identity, not just an appended display
-              // column, or two products' rows would collide on both `key`
-              // and `data-testid`.
-              const rowKey = e.productId != null ? `${e.fromId}-${e.toId}-${e.productId}` : `${e.fromId}-${e.toId}`;
-              return (
-                <tr key={rowKey} data-testid={`flow-row-${rowKey}`} className="border-b">
-                  <td className="p-2">{resolveCell(e.fromId, locationById, identityById)}</td>
-                  <td className="p-2">{resolveCell(e.toId, locationById, identityById)}</td>
-                  {hasProduct && <td className="p-2">{e.productId ?? "—"}</td>}
-                  <td className="p-2 text-right font-mono">{formatRowDistance(e.distance)}</td>
-                  <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="overflow-auto flex-1 p-2">
+        <DataTable<Edge>
+          rows={rows}
+          rowKey={flowRowKey}
+          columns={columns}
+          ctx={{ readOnly: true, demandEditable: false }}
+          testIds={{
+            row: e => `flow-row-${flowRowKey(e)}`,
+            pager: "flows-pager",
+            pagerPrev: "button-flows-prev",
+            pagerNext: "button-flows-next",
+            pageIndicator: "flows-page-indicator",
+          }}
+          toolbar={{
+            download: (
+              <DownloadMenu
+                testId="button-download-flows"
+                itemTestIds={{ csv: "button-download-flows-csv", json: "button-download-flows-json" }}
+                onDownload={format => download("flows", format)}
+                disabledReason={disabledReasonFor("flows")}
+              />
+            ),
+            // SCU-2.P3 (user decision 2026-10-17) — output tables keep Download on the right (B1.4).
+            downloadAlign: "right",
+          }}
+        />
       </div>
     </div>
   );
