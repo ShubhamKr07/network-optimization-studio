@@ -3677,3 +3677,11 @@ Process: four parallel waves on pre-created locked worktrees (no `isolation: "wo
 Pre-existing, out of scope, surfaced by QA: km band labels show unrounded conversions (`0–321.8688 km`; the pre-bundle `≤` labels used the same 4-dp format); transport-coal Flows shows `—` distances because `Workspace.tsx` never passes `distanceUnit` to `FlowsTab` (unchanged since `d3d4ee2`).
 
 Next: Bundle 2 (shared DataTable, P1–P4) builds on this branch's tip.
+
+### SCU-1.RR — merged-state review fold
+
+Whole-branch review on merged local `main` (`1eca51a`, Opus, read-only): **SHIP-with-notes**. Fixed on `scu-1.rr-work` (off `aa7141a`; the Bundle 2 session asked that `scnd-upgrades-b1` stay untouched):
+- **M1 (MEDIUM), regression from SCU-1.R:** `frozenBandCoverageToExclusive`'s zero-flow heuristic turned all-zero cumulative rows into all-zero output. `p-median-us`/`p-median-brazil`/`transport-coal` never freeze a `-1` row (`solve.py:501,673,865`), so `[0, 0]` there means "all flow beyond the last boundary", and Compare + frozen-path Service Stats would have shown 0/0/0 instead of 0/0/100. Reverted to `overflow = max(0, 100 − cum[last])`; the test now pins `[0,0] → [0,0,100]`. Known ceiling (`ponytail:` comment): true zero flow is indistinguishable from frozen rows alone and only uncapacitated p-median can freeze it; spec B1.9's "total flow 0 → every row 0" is satisfied on the live path (`computeExclusiveBandCoverage`).
+- **L1:** stale "byte-identical" comment in `lib/clientCsv.ts` corrected.
+- Not changed (notes): `aria-controls` on the Compare toggle points at the picker that is unmounted while closed; `" =x"` (leading space) is deliberately not formula-guarded.
+Gate on the fix worktree: units 58/58 (RED observed first), `pnpm run typecheck` exit 0, affected studio files (exclusiveBands, bandsSingleSource, ServiceStatsTab, CostSummaryTab, compareCsv, clientCsv) 147/147. Full gate re-run on the re-merged `main`.

@@ -179,10 +179,12 @@ describe("frozenBandCoverageToExclusive", () => {
     ]);
   });
 
-  it("zero total flow (every cumulative row 0, no positive overflow row) -> every row 0, not overflow 100", () => {
-    const rows = frozenBandCoverageToExclusive([{ band: 200, percent: 0 }, { band: 400, percent: 0 }], 0, "cumulative");
-    expect(pct(rows)).toEqual([0, 0, 0]);
-    // all flow beyond the last boundary is NOT zero flow: the explicit -1 row says so.
+  it("all-zero cumulative rows mean ALL flow lies beyond the last boundary -> overflow 100", () => {
+    // p-median-us/brazil and transport-coal freeze cumulative rows with NO -1
+    // row (solve.py:501,673,865), so [0, 0] is "everything beyond 400", not
+    // zero flow; frozen rows alone cannot tell true zero flow apart.
+    expect(pct(frozenBandCoverageToExclusive([{ band: 200, percent: 0 }, { band: 400, percent: 0 }], 0, "cumulative")))
+      .toEqual([0, 0, 100]);
     expect(pct(frozenBandCoverageToExclusive(
       [{ band: 200, percent: 0 }, { band: 400, percent: 0 }, { band: OVERFLOW_BAND, percent: 100 }], 0, "cumulative"))).toEqual([0, 0, 100]);
   });
