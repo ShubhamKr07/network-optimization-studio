@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, onTestFinished } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -2007,6 +2007,7 @@ describe("NetworkMap FitBounds runs only when the bounds change (ERR-2)", () => 
   it("does not call fitBounds again on a re-render with the same bounds", async () => {
     const L = (await import("leaflet")).default;
     const fitBounds = vi.spyOn(L.Map.prototype, "fitBounds");
+    onTestFinished(() => fitBounds.mockRestore()); // restores even if an assertion fails
     const props = {
       dataset,
       warehouseStatuses: [],
@@ -2028,6 +2029,5 @@ describe("NetworkMap FitBounds runs only when the bounds change (ERR-2)", () => 
     rerender(<UnitProvider><NetworkMap {...props} multiSelectedWarehouseIds={[]} /></UnitProvider>);
 
     expect(fitBounds.mock.calls.length).toBe(afterMount);
-    fitBounds.mockRestore();
   });
 });
