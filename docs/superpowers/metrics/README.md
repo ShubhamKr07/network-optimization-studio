@@ -156,18 +156,6 @@ auto-decide. It **gates** (exit code 3, STOP-and-ask) on any `risky` grant or a 
 tool denied this window that was the `top_denied_tool` of a prior audit) — the 2nd-occurrence
 philosophy of rule 1, applied to permissions.
 
-### `permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)
-
-Not CSVs — the weekly permission-review loop's artifacts (see the harness section of the root
-`CLAUDE.md` + `docs/ops/permission-review-cron.md`). `permissions-review/<week>.json` is the
-authoritative, redacted candidate list (grants worth promoting to the allowlist, denials, revoke
-proposals); `<week>.md` is its generated review view rendered into the Monday PR. **No raw secret ever
-enters these** — a secret-scanned command is `sensitive — review locally` with no rule (promotable
-only via a local apply, never CI). `permissions-managed.json` is the rule-keyed provenance map
-(owner/rationale/first+last-seen/count/expiry) for rules promoted into `.claude/settings.json`, so the
-loop can propose `revoke` for unused ones. Written by `pnpm harness:permissions:capture`; applied into
-the tracked project settings by `pnpm harness:permissions:apply` (deterministic, code-enforced).
-
 ### `benchmark-raw.csv` — one row per solver microbenchmark observation
 
 Written by `benchmark.report.write_raw()` (`artifacts/api-server/src/solver/tests/benchmark/`),
