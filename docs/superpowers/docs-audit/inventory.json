@@ -4,7 +4,7 @@
     "origin": "repo",
     "title": "MEMORY.md",
     "headings": [],
-    "lastChange": "2026-06-20",
+    "lastChange": "2026-09-29",
     "inboundLinks": [],
     "references": {
       "paths": [],
@@ -42,7 +42,7 @@
         "line": 31
       }
     ],
-    "lastChange": "2026-06-20",
+    "lastChange": "2026-09-29",
     "inboundLinks": [
       ".agents/memory/MEMORY.md"
     ],
@@ -50,12 +50,14 @@
       "paths": [],
       "scripts": [],
       "envVars": [],
-      "symbols": [],
+      "symbols": [
+        "SolveInput"
+      ],
       "routes": [],
       "services": [],
       "files": [
         "artifacts/api-server/src/solver/solve.py",
-        "artifacts/api-server/src/solver/pmedian.ts"
+        "artifacts/api-server/src/solver/jobRunner.ts"
       ]
     }
   },
@@ -134,22 +136,18 @@
   {
     "path": ".agents/memory/studio-stack.md",
     "origin": "repo",
-    "title": "Solver decision",
+    "title": "Schema: result stored in scenarios table",
     "headings": [
       {
-        "text": "Solver decision",
+        "text": "Schema: result stored in scenarios table",
         "line": 6
       },
       {
-        "text": "Schema: result stored in scenarios table",
-        "line": 12
-      },
-      {
         "text": "Utilization: API returns 0-100 integers",
-        "line": 16
+        "line": 10
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-28",
     "inboundLinks": [],
     "references": {
       "paths": [],
@@ -191,7 +189,7 @@
         "line": 32
       }
     ],
-    "lastChange": "2026-09-22",
+    "lastChange": "2026-10-05",
     "inboundLinks": [],
     "references": {
       "paths": [
@@ -247,8 +245,10 @@
         "line": 30
       }
     ],
-    "lastChange": "2026-09-22",
-    "inboundLinks": [],
+    "lastChange": "2026-10-05",
+    "inboundLinks": [
+      "docs/superpowers/HARNESS.md"
+    ],
     "references": {
       "paths": [
         ".github/workflows/**",
@@ -306,7 +306,7 @@
         "line": 32
       }
     ],
-    "lastChange": "2026-09-22",
+    "lastChange": "2026-10-05",
     "inboundLinks": [],
     "references": {
       "paths": [
@@ -328,6 +328,7 @@
       "routes": [],
       "services": [],
       "files": [
+        "artifacts/studio/CLAUDE.md",
         "docs/CHANGELOG-implementation.md",
         "docs/superpowers/HARNESS.md",
         "docs/superpowers/specs/<date>-<feature>-design.md"
@@ -421,7 +422,7 @@
         "line": 35
       }
     ],
-    "lastChange": "2026-09-22",
+    "lastChange": "2026-10-05",
     "inboundLinks": [],
     "references": {
       "paths": [
@@ -543,7 +544,7 @@
         "line": 85
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-10-05",
     "inboundLinks": [],
     "references": {
       "paths": [],
@@ -576,16 +577,19 @@
       },
       {
         "text": "Steps",
-        "line": 23
+        "line": 40
       },
       {
         "text": "Notes",
-        "line": 92
+        "line": 121
       }
     ],
-    "lastChange": "2026-09-15",
+    "lastChange": "2026-10-05",
     "inboundLinks": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md",
+      "docs/superpowers/gates/other.md",
+      "docs/superpowers/gates/review_caught.md"
     ],
     "references": {
       "paths": [],
@@ -595,6 +599,42 @@
       "routes": [],
       "services": [],
       "files": []
+    }
+  },
+  {
+    "path": ".claude/skills/render-ops/SKILL.md",
+    "origin": "repo",
+    "title": "Render operations — gotchas",
+    "headings": [
+      {
+        "text": "Render operations — gotchas",
+        "line": 6
+      }
+    ],
+    "lastChange": "2026-10-05",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "docs/ops/v2-write-activation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/api-server/**",
+        "solvers/**",
+        "solvers/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio"
+      ],
+      "files": [
+        "solvers/*/manifest.json",
+        "solvers/max-coverage-us/manifest.json",
+        "docs/superpowers/plans/2026-07-24-render-migration.md"
+      ]
     }
   },
   {
@@ -616,20 +656,21 @@
       },
       {
         "text": "Coordination protocol (every teammate follows this)",
-        "line": 32
+        "line": 38
       },
       {
         "text": "File-ownership map",
-        "line": 43
+        "line": 49
       },
       {
         "text": "When NOT to use the full team",
-        "line": 57
+        "line": 63
       }
     ],
-    "lastChange": "2026-09-22",
+    "lastChange": "2026-10-05",
     "inboundLinks": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -653,6 +694,7 @@
       "envVars": [],
       "symbols": [
         "Agent",
+        "Skill",
         "SendMessage",
         "TaskCreate",
         "TaskList",
@@ -685,34 +727,34 @@
       },
       {
         "text": "Architecture (30 seconds)",
-        "line": 21
+        "line": 25
       },
       {
         "text": "Commands",
-        "line": 36
+        "line": 31
       },
       {
         "text": "Harness self-monitoring (OBS-1…OBS-11)",
-        "line": 60
+        "line": 55
       },
       {
         "text": "Hard rules",
-        "line": 69
+        "line": 64
       },
       {
         "text": "Branch discipline (standing)",
-        "line": 87
+        "line": 85
       },
       {
         "text": "v2 implementation progress",
-        "line": 100
+        "line": 137
       },
       {
         "text": "Gotchas",
-        "line": 113
+        "line": 150
       }
     ],
-    "lastChange": "2026-09-28",
+    "lastChange": "2026-10-10",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -720,26 +762,45 @@
       ".claude/agents/qa-sdet.md",
       ".claude/agents/solver-engineer.md",
       ".claude/glm-delegation-disabled.md",
+      ".claude/skills/render-ops/SKILL.md",
       "AGENTS.md",
       "NETWORK_MIGRATION_PLAN.md",
+      "artifacts/api-server/CLAUDE.md",
+      "artifacts/api-server/src/solver/CLAUDE.md",
+      "artifacts/studio/CLAUDE.md",
+      "artifacts/studio/e2e/CLAUDE.md",
       "attached_assets/NOTEBOOKS.md",
       "docs/CHANGELOG-implementation.md",
+      "docs/ops/ch4-miles-migration-runbook.md",
+      "docs/ops/ch4-two-step-rollout.md",
       "docs/ops/shutdown-budget.md",
-      "docs/ops/smoke.md",
-      "docs/ops/v2-write-activation.md",
+      "docs/ops/timestamptz-migration.md",
       "docs/superpowers/HARNESS.md",
+      "docs/superpowers/flake-registry.md",
+      "docs/superpowers/gates/config_preflight.md",
+      "docs/superpowers/gates/deploy_config.md",
       "docs/superpowers/gates/doc_drift.md",
-      "docs/superpowers/metrics/README.md"
+      "docs/superpowers/gates/flaky_test.md",
+      "docs/superpowers/gates/other.md",
+      "docs/superpowers/metrics/README.md",
+      "lib/db/CLAUDE.md"
     ],
     "references": {
-      "paths": [],
+      "paths": [
+        "lib/db/src/schema/**",
+        "docs/ops/"
+      ],
       "scripts": [],
-      "envVars": [],
-      "symbols": [],
+      "envVars": [
+        "AND"
+      ],
+      "symbols": [
+        "SolveInput"
+      ],
       "routes": [
         "POST /scenarios/:id/solve",
-        "POST /login",
-        "GET /models/:id/reference-distances"
+        "GET /api/auth/user",
+        "POST /login"
       ],
       "services": [
         "nos-api",
@@ -748,10 +809,11 @@
       ],
       "files": [
         "docs/CHANGELOG-implementation.md",
+        "docs/superpowers/flake-registry.md",
         "docs/superpowers/HARNESS.md",
         "docs/superpowers/metrics/README.md",
         "docs/superpowers/specs/<date>-<feature>-design.md",
-        "docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md",
+        "docs/ops/schema-push-before-deploy.md",
         "lib/api-spec/openapi.yaml"
       ]
     }
@@ -1374,7 +1436,7 @@
         "line": 260
       }
     ],
-    "lastChange": "2026-09-28",
+    "lastChange": "2026-09-29",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
@@ -1555,6 +1617,69 @@
     }
   },
   {
+    "path": "artifacts/api-server/CLAUDE.md",
+    "origin": "repo",
+    "title": "API server (`artifacts/api-server/`) — gotchas",
+    "headings": [
+      {
+        "text": "API server (`artifacts/api-server/`) — gotchas",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "artifacts/studio/CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/api-server/",
+        "artifacts/api-server"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "DrizzleQueryError"
+      ],
+      "routes": [
+        "POST /api/feedback",
+        "GET /models/:id/reference-distances"
+      ],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "artifacts/api-server/src/solver/CLAUDE.md",
+    "origin": "repo",
+    "title": "Solver (`artifacts/api-server/src/solver/`) — gotchas",
+    "headings": [
+      {
+        "text": "Solver (`artifacts/api-server/src/solver/`) — gotchas",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/solver/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "TestSingleSource"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
     "path": "artifacts/api-server/src/solver/tests/fixtures/cbc/README.md",
     "origin": "repo",
     "title": "CBC termination-evidence fixtures (P0R.1 spike)",
@@ -1601,6 +1726,101 @@
     }
   },
   {
+    "path": "artifacts/studio/CLAUDE.md",
+    "origin": "repo",
+    "title": "Studio frontend (`artifacts/studio/`) — gotchas",
+    "headings": [
+      {
+        "text": "Studio frontend (`artifacts/studio/`) — gotchas",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [
+      ".claude/agents/frontend-engineer.md",
+      "CLAUDE.md",
+      "artifacts/api-server/CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/studio/"
+      ],
+      "scripts": [],
+      "envVars": [
+        "ALLOWED_EMPTY_CATCHES"
+      ],
+      "symbols": [
+        "AuthedRouter",
+        "UnauthedRouter",
+        "Route",
+        "Switch",
+        "TransportCostsTab",
+        "ALLOWED_EMPTY_CATCHES",
+        "ResizeObserver"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/studio/src/lib/transportCosts.ts",
+        "lib/describeWriteError.ts",
+        "artifacts/api-server/CLAUDE.md",
+        "lib/exportEntity.ts"
+      ]
+    }
+  },
+  {
+    "path": "artifacts/studio/e2e/CLAUDE.md",
+    "origin": "repo",
+    "title": "Playwright e2e (`artifacts/studio/e2e/`) — gotchas",
+    "headings": [
+      {
+        "text": "Playwright e2e (`artifacts/studio/e2e/`) — gotchas",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md",
+      "docs/superpowers/gates/config_preflight.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/studio/e2e/",
+        "artifacts/studio"
+      ],
+      "scripts": [
+        "e2e:gate"
+      ],
+      "envVars": [
+        "VITE_POSTHOG_KEY",
+        "VITE_SENTRY_DSN",
+        "E2E_BASE_URL",
+        "API_PROXY_TARGET",
+        "SOLVE_TIMEOUT",
+        "BASE_URL"
+      ],
+      "symbols": [
+        "E2E_BASE_URL",
+        "API_PROXY_TARGET",
+        "VITE_POSTHOG_KEY",
+        "VITE_SENTRY_DSN",
+        "ChenDistanceInput",
+        "SOLVE_TIMEOUT",
+        "BASE_URL"
+      ],
+      "routes": [
+        "GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}"
+      ],
+      "services": [],
+      "files": [
+        "artifacts/studio/e2e/labs.spec.ts",
+        "artifacts/studio/e2e/helpers/solvedAt.ts"
+      ]
+    }
+  },
+  {
     "path": "attached_assets/NOTEBOOKS.md",
     "origin": "repo",
     "title": "Source notebooks — provenance",
@@ -1611,15 +1831,15 @@
       },
       {
         "text": "Chapter 4 — verbatim",
-        "line": 20
+        "line": 23
       },
       {
         "text": "Chapter 9 — MODIFIED: plotly.js replaced with a CDN reference",
-        "line": 63
+        "line": 66
       },
       {
-        "text": "Chapter 5 — no notebook",
-        "line": 104
+        "text": "Chapter 5 — mixed: no notebook for two models, sources committed for `delivery-teaching-us`",
+        "line": 107
       }
     ],
     "lastChange": "2026-09-28",
@@ -1872,34 +2092,386 @@
       },
       {
         "text": "SCND correctness/measurement — approval and decision record (2026-09-22 → 2026-09-23)",
-        "line": 259
+        "line": 273
       },
       {
         "text": "login-fix — email normalization + password length cap (2026-09-24)",
-        "line": 284
+        "line": 298
       },
       {
         "text": "ch4-unlock — Chapter 4 (Chen's Cosmetics) reopened to students (2026-09-26)",
-        "line": 397
+        "line": 411
       },
       {
         "text": "attached-assets — source notebooks committed for Chapters 4 and 9 (2026-09-26)",
-        "line": 417
+        "line": 431
       },
       {
         "text": "Chapter 4 — US dataset migration (`chens-cosmetics-cn` → `max-coverage-us`) + whole-branch review fixes (2026-09-28)",
-        "line": 463
+        "line": 485
       },
       {
         "text": "Chapter 4 — two-step workflow (`ch4-2s-1`–`ch4-2s-9`)",
-        "line": 583
+        "line": 605
       },
       {
         "text": "Process deviation — Chapter 4 two-step bundle skipped two closing gates (2026-09-29)",
-        "line": 759
+        "line": 781
+      },
+      {
+        "text": "Chapter 5 (modified) — Delivery Company Teaching Example (`delivery-teaching-us`, `ch5-del-1`–`ch5-del-13`)",
+        "line": 825
+      },
+      {
+        "text": "CI green for the first time, the 11 rotted e2e specs repaired, Compare made step-aware (2026-09-30)",
+        "line": 961
+      },
+      {
+        "text": "Chapter 4 UX fixes — output lock, editable solve dialog, blocking solve overlay (`CH4UX-1`–`CH4UX-8`, 2026-09-30)",
+        "line": 1017
+      },
+      {
+        "text": "What each task landed",
+        "line": 1029
+      },
+      {
+        "text": "Verification gate — numbers observed on 2026-09-30, not copied from the plan",
+        "line": 1047
+      },
+      {
+        "text": "e2e — measured against a real parent baseline, not against CI's red-but-non-blocking job (pre-merge snapshot)",
+        "line": 1064
+      },
+      {
+        "text": "Cold-mount regression — CH4UX-1 re-targeted `selectedStep` on cold load, non-deterministically — found and fixed",
+        "line": 1104
+      },
+      {
+        "text": "Real-browser QA (Step 4) — 47/51 checks pass",
+        "line": 1161
+      },
+      {
+        "text": "The two prior decisions this branch unwinds",
+        "line": 1218
+      },
+      {
+        "text": "Durable lessons",
+        "line": 1232
+      },
+      {
+        "text": "Known, not fixed by this branch",
+        "line": 1253
+      },
+      {
+        "text": "2026-09-30 — Postgres role investigation: Path A done, Path B closed won't-do",
+        "line": 1269
+      },
+      {
+        "text": "Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)",
+        "line": 1324
+      },
+      {
+        "text": "Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) (2026-09-29)",
+        "line": 1441
+      },
+      {
+        "text": "Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`, 2026-09-30)",
+        "line": 1563
+      },
+      {
+        "text": "The single recurring defect: assertions that could not fail",
+        "line": 1575
+      },
+      {
+        "text": "Counting a shared symbol is harder than it looks",
+        "line": 1629
+      },
+      {
+        "text": "Controller errors worth keeping",
+        "line": 1641
+      },
+      {
+        "text": "Deliberately not done",
+        "line": 1653
+      },
+      {
+        "text": "Amendment to the `ch5-editable` retro — permissions audit closed out (2026-09-30)",
+        "line": 1674
+      },
+      {
+        "text": "ch9-unlock — Chapter 9 (JADE) reopened to students; no chapter is locked any more (2026-09-30)",
+        "line": 1716
+      },
+      {
+        "text": "Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`)",
+        "line": 1829
+      },
+      {
+        "text": "Solve clock showed \"Solving 25200s\" — `timestamp` → `timestamptz` (`HND-B`)",
+        "line": 1919
+      },
+      {
+        "text": "The e2e specs were in no tsc program at all (`HND-D`)",
+        "line": 2048
+      },
+      {
+        "text": "e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard recorded (`HND-F`)",
+        "line": 2131
+      },
+      {
+        "text": "harness-retro steps 5–7 for CH4UX (`HND-G`)",
+        "line": 2229
+      },
+      {
+        "text": "2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`)",
+        "line": 2290
+      },
+      {
+        "text": "`HND-A` whole-branch review — one Critical, folded before push",
+        "line": 2360
+      },
+      {
+        "text": "Chapter 9 (JADE) transportation costs became editable inputs (`ch9-tc-1`…`ch9-tc-10`)",
+        "line": 2430
+      },
+      {
+        "text": "Review findings worth keeping",
+        "line": 2482
+      },
+      {
+        "text": "Gates (measured this run, zero concurrent vitest confirmed first)",
+        "line": 2506
+      },
+      {
+        "text": "Open, for the merge decision",
+        "line": 2520
+      },
+      {
+        "text": "ch9-e2e-findings — what the ch9-unlock e2e follow-up learned (2026-09-30, recorded 2026-10-02)",
+        "line": 2548
+      },
+      {
+        "text": "bands-save — the Input Map's Layers-row Save now honours a lens-only change (2026-10-03)",
+        "line": 2628
+      },
+      {
+        "text": "2026-10-03 — Cosmetic UI bundle (`cosmetic-ui`, COSM-1…COSM-5)",
+        "line": 2676
+      },
+      {
+        "text": "2026-10-03/04 — Sidebar hamburger rail (`sidebar-hamburger-rail`, SBR-1…SBR-5)",
+        "line": 2792
+      },
+      {
+        "text": "claude-md-lazy-load — root CLAUDE.md slimmed via lazy-loaded subsystem files (2026-10-05)",
+        "line": 2865
+      },
+      {
+        "text": "agents-opus-ponytail — review model unpinned to latest Opus; ponytail + karpathy made compulsory for code-writing roles (2026-10-05)",
+        "line": 2869
+      },
+      {
+        "text": "2026-10-09 — Chapter 4 model interface overhaul (`ch4-model-upgrade`, CH4O-1…CH4O-13)",
+        "line": 2885
+      },
+      {
+        "text": "The five Codex review rounds, all before implementation",
+        "line": 2907
+      },
+      {
+        "text": "The branch's worst bug — caught in plan review, before any code",
+        "line": 2921
+      },
+      {
+        "text": "`objective` was stripped from the CREATE path only — every save would have 422'd",
+        "line": 2925
+      },
+      {
+        "text": "The km→mi conversion is lossless — established by evidence, not assumed",
+        "line": 2929
+      },
+      {
+        "text": "The pytest goldens were RE-RUN, not divided — and the proof is the unit-free ones",
+        "line": 2933
+      },
+      {
+        "text": "Deviations",
+        "line": 2953
+      },
+      {
+        "text": "Follow-ups this branch creates and does NOT close",
+        "line": 2962
+      },
+      {
+        "text": "Gates (CH4O-13, measured on a quiet machine)",
+        "line": 2978
+      },
+      {
+        "text": "Whole-branch review (P1) — 3 reviewers, 1 Critical, 4 Important",
+        "line": 2999
+      },
+      {
+        "text": "Not yet done, and each needs its own approval",
+        "line": 3019
+      },
+      {
+        "text": "cors-networkdesignbook-domain — allow the custom domain in nos-api CORS (2026-10-09)",
+        "line": 3023
+      },
+      {
+        "text": "2026-10-10 — Write-failure feedback (`write-feedback`, WF-1…WF-9)",
+        "line": 3031
+      },
+      {
+        "text": "Gate, measured at WF-9 on `9ccb628`",
+        "line": 3049
+      },
+      {
+        "text": "The design decisions",
+        "line": 3063
+      },
+      {
+        "text": "Seven findings of a test that could not fail — none caught by a gate",
+        "line": 3072
+      },
+      {
+        "text": "The project's headline deliverable shipped missed, and green",
+        "line": 3089
+      },
+      {
+        "text": "WF-8's band guard — the counter-example where the process worked",
+        "line": 3097
+      },
+      {
+        "text": "Deliberate decisions and their accepted costs",
+        "line": 3105
+      },
+      {
+        "text": "Verified negatives and other things worth not re-deriving",
+        "line": 3116
+      },
+      {
+        "text": "Not yet done, and each needs its own approval",
+        "line": 3124
+      },
+      {
+        "text": "Whole-branch review round 2 — the eighth weak test, and the last silent mutation",
+        "line": 3128
+      },
+      {
+        "text": "WF retro (`/harness-retro WF`, 2026-10-10, branch `wf-retro`)",
+        "line": 3190
+      },
+      {
+        "text": "Branch-discipline incident records (moved from CLAUDE.md, 2026-10-10)",
+        "line": 3223
+      },
+      {
+        "text": "PWR — self-serve password reset (2026-10-10)",
+        "line": 3239
+      },
+      {
+        "text": "What landed",
+        "line": 3249
+      },
+      {
+        "text": "Gate",
+        "line": 3265
+      },
+      {
+        "text": "Production pre-flight",
+        "line": 3282
+      },
+      {
+        "text": "Accepted risks",
+        "line": 3299
+      },
+      {
+        "text": "Review findings — 16 across four passes, all real",
+        "line": 3317
+      },
+      {
+        "text": "Lessons",
+        "line": 3346
+      },
+      {
+        "text": "Deferred",
+        "line": 3368
+      },
+      {
+        "text": "Production still needs",
+        "line": 3381
+      },
+      {
+        "text": "PWR-review — whole-branch review fixes (findings 1, 2, 3, 6)",
+        "line": 3392
+      },
+      {
+        "text": "PWR-prod-schema — production login outage: missing `reset_*` columns (2026-10-10)",
+        "line": 3399
+      },
+      {
+        "text": "PWR-FU1 — two pre-existing user lookups stop leaking their params into error sinks",
+        "line": 3417
+      },
+      {
+        "text": "PWR-FU3 / PWR-FU4 — register insert stops leaking; boot warns on missing email config",
+        "line": 3423
+      },
+      {
+        "text": "PWR-FU5b — `trust proxy: 2` from the measured hop count; login's limiter per-client; diagnostic removed",
+        "line": 3429
+      },
+      {
+        "text": "CH4OS — Chapter 4 objective selector and sequential solve (2026-10-10 spec)",
+        "line": 3437
+      },
+      {
+        "text": "CH4OS-1 — solver: one LP builder, run plan, sequential Model 1 → Model 2",
+        "line": 3441
+      },
+      {
+        "text": "CH4OS-2 — objective contract (one commit: units, write path, precheck, OpenAPI, studio)",
+        "line": 3453
+      },
+      {
+        "text": "CH4OS-3 — studio results: incumbent gating, max-coverable row, floor-exceeds-max alert",
+        "line": 3466
+      },
+      {
+        "text": "CH4OS-4 — migration: clear the derived objective on floor-0 rows (written, tested, NOT run in production)",
+        "line": 3474
+      },
+      {
+        "text": "CH4OS-5 — e2e: sibling specs rewritten + seeded objective journey",
+        "line": 3483
+      },
+      {
+        "text": "CH4OS-6 — real-browser QA of the five Chapter 4 objective behaviours (real solves, no seeding)",
+        "line": 3490
+      },
+      {
+        "text": "CH4OS-7 — branch gate, retro",
+        "line": 3503
+      },
+      {
+        "text": "CH4OS-R1 — whole-branch review fixes (step 5a, on the branch, re-merged)",
+        "line": 3510
+      },
+      {
+        "text": "CH4OS-ops — runbook: agent sessions may run the production migration with per-step user approval",
+        "line": 3517
+      },
+      {
+        "text": "CH4OS-ship — merge, whole-branch review, push, deploy, migration skipped, branch retirement (2026-10-11)",
+        "line": 3521
+      },
+      {
+        "text": "deploy_config gate — review note on check 1's gap (2026-10-11)",
+        "line": 3532
       }
     ],
-    "lastChange": "2026-09-29",
+    "lastChange": "2026-10-11",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -1908,6 +2480,7 @@
       ".claude/agents/solver-engineer.md",
       "AGENTS.md",
       "CLAUDE.md",
+      "docs/ops/ch4-two-step-rollout.md",
       "docs/ops/measurement-environment.md",
       "docs/ops/shutdown-budget.md",
       "docs/ops/v2-write-activation.md"
@@ -1942,6 +2515,8 @@
       ],
       "envVars": [
         "VITE_API_BASE_URL",
+        "VITE_POSTHOG_KEY",
+        "VITE_SENTRY_DSN",
         "CORS_ALLOWED_ORIGIN",
         "DATABASE_URL",
         "E2E_BASE_URL",
@@ -2100,7 +2675,10 @@
         "GET /models/:id/reference-distances",
         "GET /landing-summary",
         "POST /api/auth/register",
-        "POST /api/scenarios"
+        "POST /api/scenarios",
+        "GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}",
+        "POST /login",
+        "POST /api/auth/login"
       ],
       "services": [
         "nos-api",
@@ -2267,30 +2845,30 @@
       },
       {
         "text": "Design shape (3 layers → 3 build waves)",
-        "line": 36
+        "line": 40
       },
       {
         "text": "Layer 1 — Foundations (tokens + fonts), promoted to global `:root`",
-        "line": 38
+        "line": 42
       },
       {
         "text": "Layer 2 — Band motif + chrome (markup, not just CSS)",
-        "line": 53
+        "line": 57
       },
       {
         "text": "Layer 3 — Studio components close-match + mono-numbers",
-        "line": 62
+        "line": 66
       },
       {
         "text": "Execution",
-        "line": 72
+        "line": 78
       },
       {
         "text": "Open item (decide at spec time)",
-        "line": 83
+        "line": 89
       }
     ],
-    "lastChange": "2026-09-03",
+    "lastChange": "2026-10-03",
     "inboundLinks": [
       "docs/CHANGELOG-implementation.md"
     ],
@@ -2619,7 +3197,7 @@
         "line": 13
       }
     ],
-    "lastChange": "2026-09-03",
+    "lastChange": "2026-10-03",
     "inboundLinks": [],
     "references": {
       "paths": [],
@@ -2657,7 +3235,7 @@
         "line": 43
       }
     ],
-    "lastChange": "2026-09-03",
+    "lastChange": "2026-10-03",
     "inboundLinks": [],
     "references": {
       "paths": [
@@ -2665,7 +3243,9 @@
       ],
       "scripts": [],
       "envVars": [],
-      "symbols": [],
+      "symbols": [
+        "TabBar"
+      ],
       "routes": [],
       "services": [],
       "files": []
@@ -2800,7 +3380,8 @@
     ],
     "lastChange": "2026-09-28",
     "inboundLinks": [
-      "docs/CHANGELOG-implementation.md"
+      "docs/CHANGELOG-implementation.md",
+      "docs/ops/ch4-two-step-rollout.md"
     ],
     "references": {
       "paths": [
@@ -2833,6 +3414,314 @@
     }
   },
   {
+    "path": "docs/ops/ch4-miles-migration-runbook.md",
+    "origin": "repo",
+    "title": "Chapter 4 km → mi scenario migration runbook (CH4O-9)",
+    "headings": [
+      {
+        "text": "Chapter 4 km → mi scenario migration runbook (CH4O-9)",
+        "line": 1
+      },
+      {
+        "text": "Ordering: migration → `nos-api` → `nos-studio`",
+        "line": 19
+      },
+      {
+        "text": "There are THREE moving parts, not two — and `nos-studio` is one of them",
+        "line": 59
+      },
+      {
+        "text": "Suspending the API is the recommended path, not one option among several",
+        "line": 80
+      },
+      {
+        "text": "This migration IS idempotent — unlike `timestamptz-migration.md`",
+        "line": 91
+      },
+      {
+        "text": "Concurrency and consistency guarantees (Important Finding #1)",
+        "line": 110
+      },
+      {
+        "text": "Backup and rollback (Important Finding #2)",
+        "line": 150
+      },
+      {
+        "text": "Pre-run capture (mandatory, before step 2 below)",
+        "line": 163
+      },
+      {
+        "text": "Rollback IS restore-from-backup — there is no inverse script",
+        "line": 204
+      },
+      {
+        "text": "Production Chapter 4 row count — unmeasurable from an agent session",
+        "line": 254
+      },
+      {
+        "text": "Procedure",
+        "line": 270
+      },
+      {
+        "text": "1. Pre-check — count affected rows",
+        "line": 272
+      },
+      {
+        "text": "2. Dry run",
+        "line": 285
+      },
+      {
+        "text": "3. Real run",
+        "line": 347
+      },
+      {
+        "text": "4. Post-check",
+        "line": 387
+      },
+      {
+        "text": "5. Re-run to confirm idempotency (optional, but cheap)",
+        "line": 396
+      },
+      {
+        "text": "6. Re-run once more AFTER the `nos-api` deploy — not optional",
+        "line": 409
+      },
+      {
+        "text": "Local dry-run / real-run output (nos_dev, 2026-10-09)",
+        "line": 432
+      },
+      {
+        "text": "Deviation from the migration convention (hard rule #8)",
+        "line": 492
+      },
+      {
+        "text": "Override-precision backfill (WF-8)",
+        "line": 509
+      },
+      {
+        "text": "What it does, and the one thing it refuses to do",
+        "line": 523
+      },
+      {
+        "text": "Preconditions — identical to the migration above",
+        "line": 577
+      },
+      {
+        "text": "Procedure",
+        "line": 594
+      },
+      {
+        "text": "1. Pre-check — count affected values",
+        "line": 596
+      },
+      {
+        "text": "2. Dry run",
+        "line": 619
+      },
+      {
+        "text": "3. Real run",
+        "line": 640
+      },
+      {
+        "text": "4. Post-check",
+        "line": 648
+      },
+      {
+        "text": "Local dry-run output (nos_dev, 2026-10-10)",
+        "line": 662
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "docs/ops/"
+      ],
+      "scripts": [],
+      "envVars": [
+        "UPDATE",
+        "PATCH",
+        "SELECT"
+      ],
+      "symbols": [
+        "UPDATE",
+        "PATCH",
+        "SELECT",
+        "Expect"
+      ],
+      "routes": [
+        "GET /api/scenarios/:id/export"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "artifacts/api-server/src/migrations/ch4ToMiles.ts",
+        "docs/superpowers/specs/2026-10-09-ch4-model-interface-overhaul-design.md",
+        "docs/ops/timestamptz-migration.md",
+        "lib/db/src/schema/scenarios.ts"
+      ]
+    }
+  },
+  {
+    "path": "docs/ops/ch4-objective-clear-runbook.md",
+    "origin": "repo",
+    "title": "Chapter 4 floor-0 objective clear — runbook (CH4OS-4)",
+    "headings": [
+      {
+        "text": "Chapter 4 floor-0 objective clear — runbook (CH4OS-4)",
+        "line": 1
+      },
+      {
+        "text": "What it does",
+        "line": 28
+      },
+      {
+        "text": "Order — deploy first, migrate second",
+        "line": 37
+      },
+      {
+        "text": "Procedure",
+        "line": 53
+      },
+      {
+        "text": "Rollback",
+        "line": 81
+      },
+      {
+        "text": "Local verification (nos_dev, dry run only)",
+        "line": 90
+      }
+    ],
+    "lastChange": "2026-10-11",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "Independent"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "artifacts/api-server/src/migrations/clearFloorZeroObjective.ts",
+        "docs/superpowers/specs/2026-10-10-ch4-objective-selector-design.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/ops/ch4-two-step-rollout.md",
+    "origin": "repo",
+    "title": "Chapter 4 two-step workflow — rollout and rollback (`ch4-2s` Task 10)",
+    "headings": [
+      {
+        "text": "Chapter 4 two-step workflow — rollout and rollback (`ch4-2s` Task 10)",
+        "line": 1
+      },
+      {
+        "text": "What shipped",
+        "line": 30
+      },
+      {
+        "text": "The only schema change",
+        "line": 64
+      },
+      {
+        "text": "Smoke results that confirmed the rollout live",
+        "line": 119
+      },
+      {
+        "text": "Rollback — two independent levers",
+        "line": 142
+      },
+      {
+        "text": "Lever 1 — code rollback (redeploy a previous build)",
+        "line": 173
+      },
+      {
+        "text": "find the last live deploy whose commit does NOT contain the bundle",
+        "line": 179
+      },
+      {
+        "text": "mcp__render__list_deploys  srv-d9hglg6pbkes73a1j8b0   (nos-api)",
+        "line": 180
+      },
+      {
+        "text": "mcp__render__list_deploys  srv-d9hg4gvlk1mc73dtp67g   (nos-studio)",
+        "line": 181
+      },
+      {
+        "text": "Test against a5335f6 (task 1's content commit), NOT 0a300f8. Testing the merge",
+        "line": 183
+      },
+      {
+        "text": "commit clears any candidate that carries all nine tasks without yet having been",
+        "line": 184
+      },
+      {
+        "text": "merged to main — e.g. 070bf48 or c547e2d, the bundle and repair branch tips,",
+        "line": 185
+      },
+      {
+        "text": "which contain the whole feature but are not descendants of 0a300f8.",
+        "line": 186
+      },
+      {
+        "text": "Lever 2 — drop the index",
+        "line": 269
+      },
+      {
+        "text": "Reversing the index drop",
+        "line": 295
+      },
+      {
+        "text": "only from a checkout at or after a5335f6, and read the statements first",
+        "line": 309
+      },
+      {
+        "text": "Post-rollback verification",
+        "line": 338
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md",
+      "docs/ops/timestamptz-migration.md"
+    ],
+    "references": {
+      "paths": [
+        "lib/db/src/schema/solve_jobs.ts:134-136"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [
+        "GET /api/healthz",
+        "GET /api/scenarios/:id"
+      ],
+      "services": [
+        "nos-postgres",
+        "nos-api",
+        "nos-studio"
+      ],
+      "files": [
+        "docs/superpowers/specs/2026-10-09-ch4-model-interface-overhaul-design.md",
+        "docs/superpowers/specs/2026-09-27-ch4-two-step-workflow-design.md",
+        "docs/superpowers/plans/2026-09-28-ch4-two-step-workflow.md",
+        "docs/CHANGELOG-implementation.md"
+      ]
+    }
+  },
+  {
     "path": "docs/ops/e2e-stale-specs.md",
     "origin": "repo",
     "title": "Stale e2e specs (surfaced by the OBS-3 flake audit, 2026-09-11)",
@@ -2856,27 +3745,56 @@
       {
         "text": "Recommended follow-up (separate task, not part of the harness build)",
         "line": 50
+      },
+      {
+        "text": "STATUS 2026-09-30 — both preconditions are now MET. This section supersedes the two above.",
+        "line": 58
+      },
+      {
+        "text": "The gate is still `continue-on-error: true`, deliberately",
+        "line": 72
+      },
+      {
+        "text": "One half of the repair mandate was NOT done — recorded, not hidden",
+        "line": 86
+      },
+      {
+        "text": "Also still open",
+        "line": 99
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-30",
     "inboundLinks": [
+      "docs/CHANGELOG-implementation.md",
       "docs/superpowers/HARNESS.md"
     ],
     "references": {
-      "paths": [],
+      "paths": [
+        "artifacts/studio/e2e/",
+        "artifacts/api-server/src/routes/",
+        "e2e/**",
+        "e2e/"
+      ],
       "scripts": [
         "e2e:gate",
         "e2e:quarantine"
       ],
-      "envVars": [],
+      "envVars": [
+        "VITE_POSTHOG_KEY",
+        "VITE_SENTRY_DSN"
+      ],
       "symbols": [
         "CreateEntityDialog",
-        "MapDetailsCard"
+        "MapDetailsCard",
+        "VITE_POSTHOG_KEY",
+        "VITE_SENTRY_DSN"
       ],
       "routes": [],
       "services": [],
       "files": [
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "artifacts/studio/e2e/helpers/modelLock.ts",
+        "artifacts/studio/tsconfig.json"
       ]
     }
   },
@@ -2996,6 +3914,54 @@
     }
   },
   {
+    "path": "docs/ops/schema-push-before-deploy.md",
+    "origin": "repo",
+    "title": "Runbook — push the schema to production BEFORE the `nos-api` deploy",
+    "headings": [
+      {
+        "text": "Runbook — push the schema to production BEFORE the `nos-api` deploy",
+        "line": 1
+      },
+      {
+        "text": "Why this exists (PWR, 2026-10-10)",
+        "line": 11
+      },
+      {
+        "text": "Procedure",
+        "line": 37
+      },
+      {
+        "text": "Pre-deploy check",
+        "line": 65
+      },
+      {
+        "text": "If you skipped it and the deploy is already live",
+        "line": 77
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [
+        "lib/db/src/schema/**",
+        "docs/ops/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [
+        "POST /api/auth/login",
+        "GET /api/auth/user"
+      ],
+      "services": [
+        "nos-api"
+      ],
+      "files": []
+    }
+  },
+  {
     "path": "docs/ops/shutdown-budget.md",
     "origin": "repo",
     "title": "Shutdown budget — `nos-api`",
@@ -3065,7 +4031,7 @@
         "line": 13
       },
       {
-        "text": "What each check guards (cross-refs CLAUDE.md \"Gotchas\" + the R0.x migration)",
+        "text": "What each check guards (cross-refs the `render-ops` skill + the R0.x migration)",
         "line": 23
       },
       {
@@ -3073,7 +4039,7 @@
         "line": 38
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-10-05",
     "inboundLinks": [
       "README.md",
       "docs/superpowers/HARNESS.md"
@@ -3095,6 +4061,70 @@
       "services": [
         "nos-api",
         "nos-studio"
+      ],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/ops/timestamptz-migration.md",
+    "origin": "repo",
+    "title": "`timestamp` → `timestamptz` migration (HND-B)",
+    "headings": [
+      {
+        "text": "`timestamp` → `timestamptz` migration (HND-B)",
+        "line": 1
+      },
+      {
+        "text": "The bug, measured",
+        "line": 12
+      },
+      {
+        "text": "What was NOT broken",
+        "line": 56
+      },
+      {
+        "text": "Columns converted",
+        "line": 66
+      },
+      {
+        "text": "The migration",
+        "line": 88
+      },
+      {
+        "text": "Backfill policy: deliberately none",
+        "line": 170
+      },
+      {
+        "text": "Verification",
+        "line": 190
+      },
+      {
+        "text": "Rollback",
+        "line": 227
+      },
+      {
+        "text": "Code changes that accompany this",
+        "line": 283
+      },
+      {
+        "text": "Production apply",
+        "line": 317
+      }
+    ],
+    "lastChange": "2026-10-01",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md",
+      "docs/ops/ch4-miles-migration-runbook.md",
+      "lib/db/CLAUDE.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [
+        "nos-postgres"
       ],
       "files": []
     }
@@ -3157,7 +4187,7 @@
         "line": 200
       }
     ],
-    "lastChange": "2026-09-23",
+    "lastChange": "2026-10-05",
     "inboundLinks": [
       "docs/CHANGELOG-implementation.md"
     ],
@@ -3349,7 +4379,7 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-09-22",
+    "lastChange": "2026-10-01",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -3368,6 +4398,15 @@
         "scripts/harness/",
         "docs/superpowers/metrics/permissions-review/<week>.{json,md}",
         "scripts/harness/permissions-capture-weekly.sh",
+        "artifacts/api-server/src/{routes,services,validation,registry}/**",
+        "artifacts/studio/",
+        "artifacts/api-server/src/",
+        "lib/db/src/schema/solve_jobs.ts:134-136",
+        "artifacts/studio/dist/public",
+        "e2e/.auth",
+        "e2e/report",
+        "lib/datasets/",
+        "solvers/chens-cosmetics-cn/",
         "docs/superpowers/specs/**"
       ],
       "scripts": [
@@ -3378,7 +4417,10 @@
         "harness:report",
         "smoke",
         "docs:audit",
-        "docs:lint"
+        "docs:lint",
+        "script",
+        "audit",
+        "update"
       ],
       "envVars": [
         "NOS_API_BASE",
@@ -3388,7 +4430,12 @@
         "NOS_API_BASE",
         "NOS_STUDIO_BASE"
       ],
-      "routes": [],
+      "routes": [
+        "POST /scenarios/:id/reset-to-baseline",
+        "POST /scenarios/compare",
+        "POST /solve",
+        "POST /login"
+      ],
       "services": [],
       "files": [
         "docs/superpowers/metrics/README.md",
@@ -3399,8 +4446,165 @@
         "docs/ops/permission-review-cron.md",
         "docs/ops/smoke.md",
         "docs/superpowers/docs-audit/inventory.json",
+        "docs/superpowers/specs/<date>-<feature>-design.md",
+        "docs/superpowers/gates/<cause>.md",
+        "e2e/labs.spec.ts",
+        "lib/normalizeEmail.ts",
+        "docs/superpowers/gates/doc_drift.md",
         "docs/ops/e2e-stale-specs.md",
         ".github/workflows/harness-weekly.yml"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/flake-registry.md",
+    "origin": "repo",
+    "title": "Known load-induced test flakes",
+    "headings": [
+      {
+        "text": "Known load-induced test flakes",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-11",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "e2e:gate"
+      ],
+      "envVars": [],
+      "symbols": [
+        "DistancesTab",
+        "JadeDistancesTab",
+        "JadeFlowsTab",
+        "Studio",
+        "Workspace",
+        "CustomerTable",
+        "ImportDialog"
+      ],
+      "routes": [
+        "GET /api/dataset"
+      ],
+      "services": [],
+      "files": [
+        "e2e/report/results.json",
+        "e2e/max-coverage.spec.ts"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/codegen_drift.md",
+    "origin": "repo",
+    "title": "Gate proposal: codegen_drift",
+    "headings": [
+      {
+        "text": "Gate proposal: codegen_drift",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "lib/api-zod/src/generated/",
+        "lib/api-client-react/src/generated/"
+      ],
+      "scripts": [],
+      "envVars": [
+        "COST_SUMMARY_TEMPLATE_VERSION"
+      ],
+      "symbols": [
+        "COST_SUMMARY_TEMPLATE_VERSION"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "lib/api-spec/openapi.yaml"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/config_preflight.md",
+    "origin": "repo",
+    "title": "Gate proposal: config_preflight",
+    "headings": [
+      {
+        "text": "Gate proposal: config_preflight",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "e2e:gate"
+      ],
+      "envVars": [
+        "E2E_BASE_URL",
+        "BASE_URL"
+      ],
+      "symbols": [
+        "E2E_BASE_URL",
+        "BASE_URL"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/deploy_config.md",
+    "origin": "repo",
+    "title": "Gate proposal: deploy_config",
+    "headings": [
+      {
+        "text": "Gate proposal: deploy_config",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-11",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "artifacts/api-server/**",
+        "lib/**",
+        "solvers/**",
+        "artifacts/studio/**",
+        "lib/api-client-react/**",
+        "lib/units/**",
+        "lib/db/src/schema/**",
+        "artifacts/api-server/src/migrations/",
+        "lib/*",
+        "scripts/harness/"
+      ],
+      "scripts": [
+        "deploy:preflight"
+      ],
+      "envVars": [
+        "PWR",
+        "RESEND_API_KEY"
+      ],
+      "symbols": [
+        "RESEND_API_KEY",
+        "Dockerfile"
+      ],
+      "routes": [
+        "GET /api/auth/user"
+      ],
+      "services": [
+        "nos-studio",
+        "nos-api"
+      ],
+      "files": [
+        "solvers/*/manifest.json",
+        "artifacts/api-server/tsconfig.json",
+        "artifacts/studio/tsconfig.json"
       ]
     }
   },
@@ -3416,7 +4620,8 @@
     ],
     "lastChange": "2026-09-12",
     "inboundLinks": [
-      ".claude/skills/docs-apply/SKILL.md"
+      ".claude/skills/docs-apply/SKILL.md",
+      "docs/superpowers/HARNESS.md"
     ],
     "references": {
       "paths": [
@@ -3434,6 +4639,66 @@
         "scripts/src/harness/lib/detectors/staleReference.ts",
         ".github/workflows/ci.yml"
       ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/flaky_test.md",
+    "origin": "repo",
+    "title": "Gate proposal: flaky_test",
+    "headings": [
+      {
+        "text": "Gate proposal: flaky_test",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "scripts/harness/gate.sh"
+      ],
+      "scripts": [
+        "gate"
+      ],
+      "envVars": [
+        "CH4UX"
+      ],
+      "symbols": [
+        "CH4UX"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/studio/vitest.config.ts"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/merge_conflict.md",
+    "origin": "repo",
+    "title": "Gate proposal: merge_conflict",
+    "headings": [
+      {
+        "text": "Gate proposal: merge_conflict",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-30",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/studio/src/__tests__/"
+      ],
+      "scripts": [],
+      "envVars": [
+        "CH4UX"
+      ],
+      "symbols": [
+        "CH4UX"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
     }
   },
   {
@@ -3465,6 +4730,116 @@
     }
   },
   {
+    "path": "docs/superpowers/gates/other.md",
+    "origin": "repo",
+    "title": "Gate: `other` — resolved by splitting the cause",
+    "headings": [
+      {
+        "text": "Gate: `other` — resolved by splitting the cause",
+        "line": 1
+      },
+      {
+        "text": "Decision 1 — preflight for the config case: ENABLED",
+        "line": 22
+      },
+      {
+        "text": "Decision 2 — the review-caught case: NO GATE, BY DESIGN",
+        "line": 36
+      },
+      {
+        "text": "Decision 3 — split the taxonomy: DONE",
+        "line": 56
+      },
+      {
+        "text": "The pattern worth keeping",
+        "line": 68
+      }
+    ],
+    "lastChange": "2026-10-05",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "lib/db/src/index.ts:8",
+        "lib/db",
+        "solvers/**"
+      ],
+      "scripts": [],
+      "envVars": [
+        "DATABASE_URL",
+        "SBR"
+      ],
+      "symbols": [
+        "DATABASE_URL"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/scripts/preflight-db-url.mjs",
+        "artifacts/api-server/package.json"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/review_caught.md",
+    "origin": "repo",
+    "title": "Gate proposal: review_caught",
+    "headings": [
+      {
+        "text": "Gate proposal: review_caught",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-09",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "DATABASE_URL"
+      ],
+      "symbols": [
+        "DATABASE_URL"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/spec_gap.md",
+    "origin": "repo",
+    "title": "Gate proposal: spec_gap",
+    "headings": [
+      {
+        "text": "Gate proposal: spec_gap",
+        "line": 1
+      },
+      {
+        "text": "Proposed automated gate — three parts",
+        "line": 15
+      },
+      {
+        "text": "changed .ts/.tsx lines in src/ must be covered; threshold is the knob, not the mechanism",
+        "line": 42
+      }
+    ],
+    "lastChange": "2026-10-10",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  {
     "path": "docs/superpowers/metrics/README.md",
     "origin": "repo",
     "title": "Harness metrics store",
@@ -3490,43 +4865,47 @@
         "line": 26
       },
       {
-        "text": "`failures.csv` — one row per gate failure",
+        "text": "The two lagging fields — when `unknown` is the CORRECT value, not a gap",
         "line": 43
       },
       {
+        "text": "`failures.csv` — one row per gate failure",
+        "line": 89
+      },
+      {
         "text": "`flake.csv` — one row per test per audit",
-        "line": 55
+        "line": 101
       },
       {
         "text": "`deploys.csv` — one row per service per smoke run",
-        "line": 67
-      },
-      {
-        "text": "`docs-audit.csv` — one row per sweep",
-        "line": 78
-      },
-      {
-        "text": "`permissions.csv` — one row per retro permission audit (`pnpm harness:permissions`)",
-        "line": 93
-      },
-      {
-        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
         "line": 113
       },
       {
+        "text": "`docs-audit.csv` — one row per sweep",
+        "line": 124
+      },
+      {
+        "text": "`permissions.csv` — one row per retro permission audit (`pnpm harness:permissions`)",
+        "line": 139
+      },
+      {
+        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
+        "line": 159
+      },
+      {
         "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
-        "line": 125
+        "line": 171
       },
       {
         "text": "`benchmark-aggregates.csv` — one row per usable/unusable cell",
-        "line": 150
+        "line": 196
       },
       {
         "text": "Finding states (docs pipeline)",
-        "line": 172
+        "line": 218
       }
     ],
-    "lastChange": "2026-09-23",
+    "lastChange": "2026-10-01",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
@@ -3567,6 +4946,33 @@
     }
   },
   {
+    "path": "lib/db/CLAUDE.md",
+    "origin": "repo",
+    "title": "Drizzle schema (`lib/db/`) — gotchas",
+    "headings": [
+      {
+        "text": "Drizzle schema (`lib/db/`) — gotchas",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-10-05",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
+    ],
+    "references": {
+      "paths": [
+        "lib/db/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
     "path": "model-integration-precheck.md",
     "origin": "repo",
     "title": "Model integration pre-check",
@@ -3580,47 +4986,47 @@
         "line": 14
       },
       {
-        "text": "Gate 1 — The ten registration points",
+        "text": "Gate 1 — The registration points",
         "line": 32
       },
       {
         "text": "Gate 2 — Dataset integrity",
-        "line": 90
+        "line": 150
       },
       {
         "text": "Gate 3 — Solver hygiene",
-        "line": 116
+        "line": 176
       },
       {
         "text": "Gate 4 — Distance bands",
-        "line": 142
-      },
-      {
-        "text": "Gate 5 — Contract & caching",
-        "line": 156
-      },
-      {
-        "text": "Gate 6 — Frontend",
-        "line": 171
-      },
-      {
-        "text": "Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)",
         "line": 202
       },
       {
+        "text": "Gate 5 — Contract & caching",
+        "line": 216
+      },
+      {
+        "text": "Gate 6 — Frontend",
+        "line": 231
+      },
+      {
+        "text": "Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)",
+        "line": 262
+      },
+      {
         "text": "Gate 7 — Tests",
-        "line": 257
+        "line": 317
       },
       {
         "text": "Gate 8 — Rollout",
-        "line": 290
+        "line": 350
       },
       {
         "text": "Quick reference — the nine silent failures",
-        "line": 307
+        "line": 367
       }
     ],
-    "lastChange": "2026-09-15",
+    "lastChange": "2026-10-09",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -3637,6 +5043,12 @@
       "paths": [
         "lib/api-client-react",
         "lib/api-zod",
+        "lib/units/src/objective.ts:20",
+        "artifacts/studio/src/pages/Workspace.tsx:1247",
+        "artifacts/api-server/src/services/precheck.ts:1407",
+        "artifacts/api-server/src/routes/index.ts:19-27",
+        "artifacts/api-server/src/services/templates.ts:1389-1413",
+        "lib/dataset-schema/src/index.ts:284",
         "lib/dataset-schema"
       ],
       "scripts": [
@@ -3649,6 +5061,8 @@
         "COLUMNS",
         "ENTITY_HAS_VALUE",
         "VALID_STATUSES",
+        "SOLVABLE",
+        "MODEL_IDS",
         "CHAPTERS",
         "TRUCKLOAD_KG"
       ],
@@ -3661,6 +5075,9 @@
         "COLUMNS",
         "ENTITY_HAS_VALUE",
         "VALID_STATUSES",
+        "ObjectiveBar",
+        "SOLVABLE",
+        "MODEL_IDS",
         "WarehouseEntry",
         "MineEntry",
         "CHAPTERS",
