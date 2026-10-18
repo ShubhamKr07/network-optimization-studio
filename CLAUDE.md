@@ -12,12 +12,12 @@ This file is auto-loaded into every agent and subagent. **The docs below are not
 |---|---|
 | What already landed, why a thing is the way it is, a past bug's fix, a commit SHA, prior gate counts, known deferred follow-ups | [`docs/CHANGELOG-implementation.md`](docs/CHANGELOG-implementation.md) — grep it by model id, bundle name, or task id (e.g. `D5.1`, `bundle6.1`, `chens`) |
 | Whether a failing test is a known load-induced flake | [`docs/superpowers/flake-registry.md`](docs/superpowers/flake-registry.md) — match by test **name**, and add new sightings there |
-| To run/modify a `harness:*`, `smoke`, `docs:audit`, or flake command; the permission-review loop; the weekly PR pipeline | [`docs/superpowers/HARNESS.md`](docs/superpowers/HARNESS.md) |
+| To run/modify a `harness:*`, `smoke`, `docs:audit`, or flake command; the weekly PR pipeline | [`docs/superpowers/HARNESS.md`](docs/superpowers/HARNESS.md) |
 | A metrics CSV's exact columns | [`docs/superpowers/metrics/README.md`](docs/superpowers/metrics/README.md) |
 | To register a new model, entity, or output grid — the 18 registration points | `model-integration-precheck.md` (**mandatory** for that work; this repo's most-repeated bug class) |
 | The design rationale for a specific feature | `docs/superpowers/specs/<date>-<feature>-design.md` + `plans/<date>-<feature>.md` (historical, never audited) |
 | **A schema change that is about to be deployed** | [`docs/ops/schema-push-before-deploy.md`](docs/ops/schema-push-before-deploy.md) — **mandatory** when the deploy range touches `lib/db/src/schema/**`; `drizzle-kit push` is manual, nothing in `render.yaml` runs it, and a missed push breaks EVERY read of the table, not just the new feature |
-| Deploy/ops runbooks | `docs/ops/` — ten files. Start with `{smoke,e2e-stale-specs,permission-review-cron}.md`. **Before running any production-database migration, read that migration's own runbook end to end** — `ch4-miles-migration-runbook.md` (Chapter 4 km→mi; destructive, irreversible for `solve_jobs.result`) and `timestamptz-migration.md` (**not idempotent** — running it twice shifts every row again, silently) |
+| Deploy/ops runbooks | `docs/ops/` — eleven files. Start with `{smoke,e2e-stale-specs}.md`. **Before running any production-database migration, read that migration's own runbook end to end** — `ch4-miles-migration-runbook.md` (Chapter 4 km→mi; destructive, irreversible for `solve_jobs.result`) and `timestamptz-migration.md` (**not idempotent** — running it twice shifts every row again, silently) |
 | The agent-team contract (roles, dispatch protocol, model policy) | `AGENTS.md` |
 | A gotcha scoped to one subsystem (studio, e2e, api-server, solver, db) | that directory's `CLAUDE.md` — auto-loads when you work there |
 | Render deploy / resource / production-DB gotchas | the `render-ops` skill (`.claude/skills/render-ops/SKILL.md`) |

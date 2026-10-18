@@ -3,29 +3,5 @@
   "env": {
     "NOS_GLM_DELEGATION": "disabled",
     "PONYTAIL_SUBAGENT_MATCHER": "^(backend|frontend|solver|devops)-engineer$"
-  },
-  "hooks": {
-    "PermissionRequest": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-ledger.mjs\""
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-ledger.mjs\""
-          }
-        ]
-      }
-    ]
   }
 }
