@@ -6,7 +6,7 @@ Six textbook models from Watson et al., *Supply Chain Network Design*, are imple
 
 [![CI](https://github.com/ShubhamKr07/network-optimization-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/ShubhamKr07/network-optimization-studio/actions/workflows/ci.yml)
 
-🔗 **Live:** [nos-studio.onrender.com](https://nos-studio.onrender.com) · API: [`/api/models`](https://nos-api-uwf8.onrender.com/api/models) (Render free tier — first request wakes the service, give it ~30s)
+🔗 **Live:** [[https://app.networkdesignbook.com](https://app.networkdesignbook.com)] · API: [`/api/models`](https://nos-api-uwf8.onrender.com/api/models) (Render free tier — first request wakes the service, give it ~30s)
 
 ---
 
