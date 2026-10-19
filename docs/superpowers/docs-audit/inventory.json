@@ -747,14 +747,14 @@
       },
       {
         "text": "v2 implementation progress",
-        "line": 137
+        "line": 138
       },
       {
         "text": "Gotchas",
-        "line": 150
+        "line": 151
       }
     ],
-    "lastChange": "2026-10-10",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -782,7 +782,6 @@
       "docs/superpowers/gates/doc_drift.md",
       "docs/superpowers/gates/flaky_test.md",
       "docs/superpowers/gates/other.md",
-      "docs/superpowers/metrics/README.md",
       "lib/db/CLAUDE.md"
     ],
     "references": {
@@ -1356,87 +1355,11 @@
         "line": 96
       },
       {
-        "text": "Research & engineering notes",
-        "line": 153
-      },
-      {
-        "text": "We found a real bug in the published textbook notebook",
-        "line": 157
-      },
-      {
-        "text": "Goldens transcribed verbatim, then defended",
-        "line": 161
-      },
-      {
-        "text": "Business rules enter as data, never as branches",
-        "line": 169
-      },
-      {
-        "text": "Scenario-local network edits",
-        "line": 173
-      },
-      {
-        "text": "Units, geography, and data provenance",
-        "line": 177
-      },
-      {
-        "text": "Security posture",
-        "line": 183
-      },
-      {
-        "text": "A recurring bug class, closed by construction",
-        "line": 187
-      },
-      {
-        "text": "The development harness measures itself",
-        "line": 191
-      },
-      {
-        "text": "Bugs only production could find",
-        "line": 195
-      },
-      {
-        "text": "Quality gates",
-        "line": 201
-      },
-      {
-        "text": "Getting started",
-        "line": 223
-      },
-      {
-        "text": "API (needs DATABASE_URL)",
-        "line": 231
-      },
-      {
-        "text": "schema push (no migration files — Drizzle push)",
-        "line": 235
-      },
-      {
-        "text": "frontend, proxied to the API so cookies are same-origin",
-        "line": 238
-      },
-      {
-        "text": "1. edit lib/api-spec/openapi.yaml",
-        "line": 248
-      },
-      {
-        "text": "2. regenerate — never hand-edit src/generated/",
-        "line": 249
-      },
-      {
-        "text": "3. commit spec + regenerated output together",
-        "line": 251
-      },
-      {
-        "text": "Deploying",
-        "line": 254
-      },
-      {
         "text": "Credits",
-        "line": 260
+        "line": 153
       }
     ],
-    "lastChange": "2026-09-29",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
@@ -1449,9 +1372,7 @@
     "references": {
       "paths": [],
       "scripts": [],
-      "envVars": [
-        "VITE_API_BASE_URL"
-      ],
+      "envVars": [],
       "symbols": [],
       "routes": [
         "GET /api/models",
@@ -1460,9 +1381,7 @@
         "GET /scenarios/:id/solve-jobs/:jobId"
       ],
       "services": [
-        "nos-studio",
-        "nos-api",
-        "nos-postgres"
+        "nos-api"
       ],
       "files": []
     }
@@ -2469,9 +2388,321 @@
       {
         "text": "deploy_config gate — review note on check 1's gap (2026-10-11)",
         "line": 3532
+      },
+      {
+        "text": "DCG-1 — `pnpm deploy:preflight` (approved trimmed `deploy_config` gate, 2026-10-12)",
+        "line": 3536
+      },
+      {
+        "text": "jade-ledger-t17 — close the stale T17 row in the Ch9 JADE ledger (2026-10-16)",
+        "line": 3543
+      },
+      {
+        "text": "SCU-B1 — SCND upgrades Bundle 1 (2026-10-16 spec)",
+        "line": 3547
+      },
+      {
+        "text": "SCU-1.1 — exclusive band helpers",
+        "line": 3551
+      },
+      {
+        "text": "SCU-1.5 — inline Save for delivery-teaching-us and max-coverage-us",
+        "line": 3557
+      },
+      {
+        "text": "SCU-1.6 — sidebar expanded on load, collapses on Run Optimizer",
+        "line": 3563
+      },
+      {
+        "text": "SCU-1.7 — feedback launcher bottom-right",
+        "line": 3571
+      },
+      {
+        "text": "SCU-1.8 — opaque Output Map tooltips",
+        "line": 3577
+      },
+      {
+        "text": "SCU-1.2 — exclusive band rows in Service Stats and Compare",
+        "line": 3585
+      },
+      {
+        "text": "SCU-1.9 — Output Map narrative",
+        "line": 3594
+      },
+      {
+        "text": "SCU-1.3 — Solution Summary bar and compare CSV",
+        "line": 3604
+      },
+      {
+        "text": "SCU-1.4 — duplicate titles removed, Plant Capability Matrix",
+        "line": 3615
+      },
+      {
+        "text": "SCU-1.R — whole-branch review fold",
+        "line": 3624
+      },
+      {
+        "text": "SCU-1.10 — QA: real-browser pass + full e2e gate",
+        "line": 3637
+      },
+      {
+        "text": "SCU-B1 — bundle summary",
+        "line": 3667
+      },
+      {
+        "text": "SCU-1.RR — merged-state review fold",
+        "line": 3681
+      },
+      {
+        "text": "SCU-B2 — SCND upgrades Bundle 2 (2026-10-16 spec)",
+        "line": 3689
+      },
+      {
+        "text": "SCU-2.P1.1 — B2.10 migration matrix",
+        "line": 3693
+      },
+      {
+        "text": "SCU-2.P1.2 — DataTable contract types + filter auto-derivation",
+        "line": 3699
+      },
+      {
+        "text": "SCU-2.P1.3 — usePagedRows + TablePager",
+        "line": 3705
+      },
+      {
+        "text": "SCU-2.P1.6 — FormattedNumberInput",
+        "line": 3712
+      },
+      {
+        "text": "SCU-B2.P2 — SCND upgrades Bundle 2 Phase P2 (2026-10-16 spec)",
+        "line": 3718
+      },
+      {
+        "text": "SCU-2.P2.1 — `@workspace/import-schema` package + wiring (B2.5)",
+        "line": 3722
+      },
+      {
+        "text": "SCU-2.P2.2 — JSON import contract (B2.6)",
+        "line": 3730
+      },
+      {
+        "text": "SCU-2.P1.4 — DataTable shell",
+        "line": 3740
+      },
+      {
+        "text": "SCU-2.P2.3 — deliveryCosts entity (B2.7, D1)",
+        "line": 3746
+      },
+      {
+        "text": "SCU-2.P1.5 — DistancesTab replica harness",
+        "line": 3757
+      },
+      {
+        "text": "SCU-2.R2 — P1+P2 review fold (studio)",
+        "line": 3762
+      },
+      {
+        "text": "SCU-2.R1 — P1+P2 review fold (server)",
+        "line": 3766
+      },
+      {
+        "text": "SCU-2.P3.1 — OpenWarehouses on DataTable + Download ▾",
+        "line": 3777
+      },
+      {
+        "text": "SCU-2.P3.2 — Customer Assignments on DataTable",
+        "line": 3783
+      },
+      {
+        "text": "SCU-2.P3.3 — JADE Customer Assignments on DataTable",
+        "line": 3789
+      },
+      {
+        "text": "SCU-2.P3.4 — Flows on DataTable",
+        "line": 3796
+      },
+      {
+        "text": "SCU-2.P3.5 — JADE Flows Plant → Warehouse on DataTable + on-screen export",
+        "line": 3803
+      },
+      {
+        "text": "SCU-2.P3.6 — JADE Flows Warehouse → Customer on DataTable + on-screen export",
+        "line": 3809
+      },
+      {
+        "text": "SCU-2.P3.7 — Solution Summary (single) on DataTable",
+        "line": 3815
+      },
+      {
+        "text": "SCU-2.P3.8 — Solution Summary compare on DataTable + compare JSON",
+        "line": 3821
+      },
+      {
+        "text": "SCU-2.P3.9 — Plant Production on DataTable + Service Stats Download ▾ + km band labels",
+        "line": 3827
+      },
+      {
+        "text": "SCU-2.P3.10 — P3 real-browser QA + e2e gate",
+        "line": 3834
+      },
+      {
+        "text": "SCU-2.R3 — server output-export row fixes (P3 QA)",
+        "line": 3857
+      },
+      {
+        "text": "SCU-2.R4 — P3 review fold",
+        "line": 3865
+      },
+      {
+        "text": "SCU-2.P4.1 — Shared input-table toolbar, helpers, D2 guard, matrix refresh",
+        "line": 3876
+      },
+      {
+        "text": "SCU-2.P4.2 — CreateEntityDialog table mode",
+        "line": 3886
+      },
+      {
+        "text": "SCU-2.P4.3 — Distances on DataTable",
+        "line": 3894
+      },
+      {
+        "text": "SCU-2.P4.4 — Leg Distances on DataTable",
+        "line": 3903
+      },
+      {
+        "text": "SCU-2.P4.5 - JADE Distances on DataTable + real-browser focus check",
+        "line": 3910
+      },
+      {
+        "text": "SCU-2.P4.6 — Lane Costs on DataTable",
+        "line": 3918
+      },
+      {
+        "text": "SCU-2.P4.7 — Delivery Costs on DataTable + `deliveryCosts` Upload/Download",
+        "line": 3925
+      },
+      {
+        "text": "SCU-2.P4.8 — JADE Transport Costs on DataTable",
+        "line": 3932
+      },
+      {
+        "text": "SCU-2.P4.9 — Plant Capability Matrix on DataTable",
+        "line": 3939
+      },
+      {
+        "text": "SCU-2.P4.10 — Warehouses + Refineries on DataTable with the +Add modal",
+        "line": 3946
+      },
+      {
+        "text": "SCU-2.P4.11 — Customers",
+        "line": 3955
+      },
+      {
+        "text": "SCU-2.P4.12 — JADE Plants on DataTable",
+        "line": 3964
+      },
+      {
+        "text": "SCU-2.P4.13 — Mines on DataTable with the +Add modal",
+        "line": 3971
+      },
+      {
+        "text": "SCU-2.P4.14 — Stations on DataTable with the integer demand cell and the +Add modal",
+        "line": 3978
+      },
+      {
+        "text": "SCU-2.P4.15 — QA: input tables in a real browser + full e2e gate",
+        "line": 3986
+      },
+      {
+        "text": "SCU-2.R5b - fold Phase 4 review findings: tests, e2e specs, QA evidence",
+        "line": 4035
+      },
+      {
+        "text": "SCU-2.R5a — Phase 4 review findings (studio source)",
+        "line": 4047
+      },
+      {
+        "text": "SCU-2.R5a.1 — focus jump re-aims when late-loading rows move the target's page",
+        "line": 4062
+      },
+      {
+        "text": "SCU-B2 — bundle summary",
+        "line": 4066
+      },
+      {
+        "text": "NAR-1 — Output Map narrative rewrite (2026-10-17)",
+        "line": 4092
+      },
+      {
+        "text": "NAR-1.R — review + browser-QA fold",
+        "line": 4106
+      },
+      {
+        "text": "QF-B — feedback launcher floats above the homepage footer line (2026-10-17)",
+        "line": 4110
+      },
+      {
+        "text": "SCU-2.R6a",
+        "line": 4114
+      },
+      {
+        "text": "SCU-2.R6b",
+        "line": 4122
+      },
+      {
+        "text": "SCU-2.R6a.1",
+        "line": 4126
+      },
+      {
+        "text": "Error-tracking triage + fixes (`ERR-1`–`ERR-4`, 2026-10-18)",
+        "line": 4130
+      },
+      {
+        "text": "ERR-1 — pg pool idle-client error no longer crashes the API",
+        "line": 4134
+      },
+      {
+        "text": "ERR-2 — Output Map stops refitting (and undoing the user's zoom) on every re-render",
+        "line": 4138
+      },
+      {
+        "text": "ERR-3 — Leaflet zoom-animation timer no longer crashes a removed map (SCND_STUDIO-3)",
+        "line": 4142
+      },
+      {
+        "text": "ERR-4 — studio Sentry ignores the Microsoft link-scanner rejection (SCND_STUDIO-2)",
+        "line": 4146
+      },
+      {
+        "text": "ERR-5 — the 2026-09-30 `nos_postgres_user` auth outage, reconstructed (correction to the Path A entry)",
+        "line": 4150
+      },
+      {
+        "text": "ERR-R — whole-branch review fold (Opus reviewer, verdict SHIP-with-fixes)",
+        "line": 4154
+      },
+      {
+        "text": "ERR-D — production deploy + error-tracker cleanup (2026-10-18)",
+        "line": 4158
+      },
+      {
+        "text": "PERM-NT — permissions capture branch no longer tracks `origin/main` (2026-10-18)",
+        "line": 4164
+      },
+      {
+        "text": "REV-BOT — `claude-review` accepts the weekly bot PRs (2026-10-19)",
+        "line": 4170
+      },
+      {
+        "text": "PERM-RM — weekly permission-review loop removed (2026-10-19)",
+        "line": 4174
+      },
+      {
+        "text": "FAIL-PTR — `failures.csv` gate pointers backfilled (2026-10-19)",
+        "line": 4184
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -2678,7 +2909,8 @@
         "POST /api/scenarios",
         "GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}",
         "POST /login",
-        "POST /api/auth/login"
+        "POST /api/auth/login",
+        "GET /api/scenarios"
       ],
       "services": [
         "nos-api",
@@ -3867,53 +4099,6 @@
     }
   },
   {
-    "path": "docs/ops/permission-review-cron.md",
-    "origin": "repo",
-    "title": "Weekly permission-review capture (local cron)",
-    "headings": [
-      {
-        "text": "Weekly permission-review capture (local cron)",
-        "line": 1
-      },
-      {
-        "text": "Manual run / smoke check",
-        "line": 14
-      },
-      {
-        "text": "Dry-run (writes nothing, prints the week + candidate count):",
-        "line": 17
-      },
-      {
-        "text": "Real weekly capture + push to the permissions-capture branch:",
-        "line": 20
-      },
-      {
-        "text": "Schedule it (macOS launchd)",
-        "line": 24
-      },
-      {
-        "text": "Notes / caveats",
-        "line": 63
-      }
-    ],
-    "lastChange": "2026-09-19",
-    "inboundLinks": [
-      "docs/superpowers/HARNESS.md",
-      "docs/superpowers/metrics/README.md"
-    ],
-    "references": {
-      "paths": [
-        "scripts/harness/permissions-capture-weekly.sh"
-      ],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
     "path": "docs/ops/schema-push-before-deploy.md",
     "origin": "repo",
     "title": "Runbook — push the schema to production BEFORE the `nos-api` deploy",
@@ -4041,7 +4226,6 @@
     ],
     "lastChange": "2026-10-05",
     "inboundLinks": [
-      "README.md",
       "docs/superpowers/HARNESS.md"
     ],
     "references": {
@@ -4223,6 +4407,70 @@
     }
   },
   {
+    "path": "docs/product-insights/2026-10-12-17.md",
+    "origin": "repo",
+    "title": "Weekly Product Insights — week ending 2026-10-12",
+    "headings": [
+      {
+        "text": "Weekly Product Insights — week ending 2026-10-12",
+        "line": 1
+      },
+      {
+        "text": "Summary",
+        "line": 5
+      },
+      {
+        "text": "Data this week",
+        "line": 9
+      },
+      {
+        "text": "Prioritized recommendations",
+        "line": 21
+      },
+      {
+        "text": "1. Fix or verify runtime and cache instrumentation (high priority, low effort)",
+        "line": 23
+      },
+      {
+        "text": "2. Investigate the created → exported drop-off on `two-echelon-jade-us` (high priority)",
+        "line": 28
+      },
+      {
+        "text": "3. Understand the stale-without-resolve behavior (medium priority)",
+        "line": 33
+      },
+      {
+        "text": "4. Reconcile the funnel event counts (medium priority)",
+        "line": 37
+      },
+      {
+        "text": "5. Note the low adoption of `max-coverage-us` and `p-median-us` (low priority)",
+        "line": 44
+      },
+      {
+        "text": "6. Solve failures and rejections: no action",
+        "line": 47
+      },
+      {
+        "text": "Caveats",
+        "line": 50
+      }
+    ],
+    "lastChange": "2026-10-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/product-insights/aggregates.json"
+      ]
+    }
+  },
+  {
     "path": "docs/product-insights/POSTHOG-2-attribution-note.md",
     "origin": "repo",
     "title": "Commit-attribution note — POSTHOG-2 test",
@@ -4379,7 +4627,7 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-01",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -4396,8 +4644,6 @@
         "scripts/src/harness/",
         "scripts/src/deploy/",
         "scripts/harness/",
-        "docs/superpowers/metrics/permissions-review/<week>.{json,md}",
-        "scripts/harness/permissions-capture-weekly.sh",
         "artifacts/api-server/src/{routes,services,validation,registry}/**",
         "artifacts/studio/",
         "artifacts/api-server/src/",
@@ -4412,8 +4658,6 @@
       "scripts": [
         "harness:record",
         "harness:permissions",
-        "harness:permissions:capture",
-        "harness:permissions:apply",
         "harness:report",
         "smoke",
         "docs:audit",
@@ -4441,9 +4685,8 @@
         "docs/superpowers/metrics/README.md",
         "docs/superpowers/specs/harness-self-monitoring.md",
         "docs/superpowers/plans/harness-self-monitoring.md",
-        "docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md",
+        "docs/ops/{smoke,e2e-stale-specs}.md",
         "docs/superpowers/{specs,plans}/harness-self-monitoring.md",
-        "docs/ops/permission-review-cron.md",
         "docs/ops/smoke.md",
         "docs/superpowers/docs-audit/inventory.json",
         "docs/superpowers/specs/<date>-<feature>-design.md",
@@ -4466,16 +4709,22 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-10-18",
     "inboundLinks": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
-      "paths": [],
-      "scripts": [
-        "e2e:gate"
+      "paths": [
+        "lib/db"
       ],
-      "envVars": [],
+      "scripts": [
+        "e2e:gate",
+        "e2e:quarantine"
+      ],
+      "envVars": [
+        "ECONNRESET"
+      ],
       "symbols": [
         "DistancesTab",
         "JadeDistancesTab",
@@ -4483,15 +4732,22 @@
         "Studio",
         "Workspace",
         "CustomerTable",
-        "ImportDialog"
+        "ImportDialog",
+        "Register",
+        "AssignmentsTab",
+        "CapabilityMatrixTab",
+        "ECONNRESET"
       ],
       "routes": [
-        "GET /api/dataset"
+        "GET /api/dataset",
+        "GET /api/models",
+        "GET /api/scenarios/:id/export"
       ],
       "services": [],
       "files": [
         "e2e/report/results.json",
-        "e2e/max-coverage.spec.ts"
+        "e2e/max-coverage.spec.ts",
+        "e2e/CLAUDE.md"
       ]
     }
   },
@@ -4566,8 +4822,9 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-10-12",
     "inboundLinks": [
+      "CLAUDE.md",
       "docs/CHANGELOG-implementation.md"
     ],
     "references": {
@@ -4587,6 +4844,7 @@
         "deploy:preflight"
       ],
       "envVars": [
+        "VITE_X",
         "PWR",
         "RESEND_API_KEY"
       ],
@@ -4604,7 +4862,8 @@
       "files": [
         "solvers/*/manifest.json",
         "artifacts/api-server/tsconfig.json",
-        "artifacts/studio/tsconfig.json"
+        "artifacts/studio/tsconfig.json",
+        "scripts/src/deploy/preflight.ts"
       ]
     }
   },
@@ -4889,23 +5148,19 @@
         "line": 139
       },
       {
-        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
+        "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
         "line": 159
       },
       {
-        "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
-        "line": 171
-      },
-      {
         "text": "`benchmark-aggregates.csv` — one row per usable/unusable cell",
-        "line": 196
+        "line": 184
       },
       {
         "text": "Finding states (docs pipeline)",
-        "line": 218
+        "line": 206
       }
     ],
-    "lastChange": "2026-10-01",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
@@ -4920,9 +5175,7 @@
         "harness:permissions",
         "smoke",
         "harness:report",
-        "e2e:gate",
-        "harness:permissions:capture",
-        "harness:permissions:apply"
+        "e2e:gate"
       ],
       "envVars": [
         "RUSAGE_SELF",
@@ -4940,8 +5193,7 @@
       ],
       "files": [
         "docs/superpowers/gates/<cause>.md",
-        "scripts/src/harness/lib/permissions.ts",
-        "docs/ops/permission-review-cron.md"
+        "scripts/src/harness/lib/permissions.ts"
       ]
     }
   },
@@ -5035,7 +5287,6 @@
       ".claude/agents/solver-engineer.md",
       "AGENTS.md",
       "CLAUDE.md",
-      "README.md",
       "chapter-10-two-echelon-gold-refinery-integration.md",
       "docs/CHANGELOG-implementation.md"
     ],
