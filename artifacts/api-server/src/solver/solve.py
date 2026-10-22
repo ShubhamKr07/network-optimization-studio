@@ -30,6 +30,7 @@ from merge_inputs import (
     build_merged_transport_dataset,
     build_merged_two_echelon_dataset,
     build_merged_jade_dataset,
+    build_super_dataset,
     build_merged_max_coverage_dataset,
 )
 from merge_inputs import UnresolvableIdError
@@ -1457,6 +1458,21 @@ def solve_jade(inp):
         demands=demands, capability=capability, plant_cost={}, dist=dist, get_bounds=get_bounds,
         p=p, distance_bands=distance_bands, gap=gap, time_limit=time_limit, rates=rates,
         wh_label=lambda w: wh_data[w]['city'], problem_uid="jade")
+
+_SUPER_BOUNDS = {"forced_open": (1, 1), "inactive": (0, 0)}
+
+def solve_super(inp):
+    ds = build_super_dataset(inp)
+    wh = ds["warehouses"]
+    return _solve_two_echelon_core(
+        plants=list(ds["plants"]), warehouses=list(wh), customers=list(ds["customers"]),
+        product_ids=ds["product_ids"], demands=ds["demands"], capability=ds["capability"],
+        plant_cost=ds["plant_cost"], dist=ds["dist"],
+        get_bounds=lambda w: _SUPER_BOUNDS.get(wh[w].get("status"), (0, 1)),
+        p=int(inp["p"]), distance_bands=[], gap=float(inp.get("gap", 0.0)),
+        time_limit=int(inp.get("timeLimitSec", 120)), rates=dict(inp["transportCosts"]),
+        wh_label=lambda w: wh[w].get("city") or wh[w].get("name") or w, problem_uid="super")
+
 
 
 

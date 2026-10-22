@@ -1062,3 +1062,48 @@ def build_merged_max_coverage_dataset(
         "inactive": inactive,
         "excluded": excluded,
     }
+
+
+# ---------------------------------------------------------------------------
+# super-model: the whole network lives in `inputs` (no base dataset).
+# ---------------------------------------------------------------------------
+import math
+
+def haversine_mi(lat1, lng1, lat2, lng2):
+    r = 3959.0  # miles; same constant as autoDistance.ts R_MI
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+def build_super_dataset(inputs):
+    """super-model: the whole network lives in inputs. Overrides win; otherwise
+    haversine miles, x circuityFactor when distanceMethod == "circuity"."""
+    plants = {r["id"]: r for r in inputs.get("plants", [])}
+    warehouses = {r["id"]: r for r in inputs.get("warehouses", [])}
+    customers = {r["id"]: r for r in inputs.get("customers", []) if r.get("status") != "excluded"}
+    product_ids = [r["id"] for r in inputs.get("products", [])]
+    demands = {c: {} for c in customers}
+    for r in inputs.get("demand", []):
+        if r["customerId"] in demands:
+            demands[r["customerId"]][r["productId"]] = float(r["demand"])
+    capability = {(r["plantId"], r["productId"]): float(r["capacity"]) for r in inputs.get("plantProducts", [])}
+    plant_cost = {(r["plantId"], r["productId"]): float(r["costPerUnit"]) for r in inputs.get("plantProducts", [])}
+    overrides = {(r["fromId"], r["toId"]): float(r["miles"]) for r in inputs.get("distanceOverrides", [])}
+    factor = float(inputs.get("circuityFactor", 1.0)) if inputs.get("distanceMethod") == "circuity" else 1.0
+
+    def resolve(a, b):
+        if (a["id"], b["id"]) in overrides:
+            return overrides[(a["id"], b["id"])]
+        return haversine_mi(a["lat"], a["lng"], b["lat"], b["lng"]) * factor
+
+    dist = {}
+    for pl in plants.values():
+        for w in warehouses.values():
+            dist[(pl["id"], w["id"])] = resolve(pl, w)
+    for w in warehouses.values():
+        for c in customers.values():
+            dist[(w["id"], c["id"])] = resolve(w, c)
+    return {"plants": plants, "warehouses": warehouses, "customers": customers,
+            "product_ids": product_ids, "demands": demands, "capability": capability,
+            "plant_cost": plant_cost, "dist": dist}

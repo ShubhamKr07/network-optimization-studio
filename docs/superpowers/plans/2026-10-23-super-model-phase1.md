@@ -16,7 +16,7 @@
 - Distances in miles; haversine Earth radius `3959` mi (same as `autoDistance.ts:41`).
 - `distanceMethod` in Phase 1: `"haversine" | "circuity"` only (`"road"` is added in Phase 3). `circuityFactor` ∈ [1, 3], default `1.17`.
 - Warehouse status `active | forced_open | inactive`; customer status `active | excluded`.
-- Size caps (D1): products ≤ 10, plants ≤ 20, warehouses ≤ 50, customers ≤ 500, warehouses × customers × products ≤ 100,000. Task 2 confirms them by a timed run; if timing forces a change, update the constants in `superInputs.ts` and the spec in the same task.
+- Size caps (D1): products ≤ 10, plants ≤ 20, warehouses ≤ 50, customers ≤ 500, warehouses × customers × products ≤ 50,000 (SM-2's timed run found 100,000 returned no solution in 120 s and halved it; see spec §3.3). Task 2 confirmed them by a timed run; if timing forces a change, update the constants in `superInputs.ts` and the spec in the same task.
 - Big-M (D2): `M = |customers| × |products|` for both models.
 - Row delete (D3): cascade after a confirmation stating the referencing-row count.
 - `transportCosts` defaults: `{ icTransCost: 0.07, icMinTrans: 10, obTransCost: 0.12, obMinTrans: 10 }` (reuse `JADE_TEXTBOOK_TRANSPORT_COSTS`).
@@ -539,7 +539,7 @@ it("GET /api/models lists super-model", async () => {
 import { z } from "zod";
 import { JADE_RATE_MAX, JADE_MIN_CHARGE_MAX, JADE_TEXTBOOK_TRANSPORT_COSTS } from "./jadeInputs.js";
 
-export const SUPER_CAPS = { products: 10, plants: 20, warehouses: 50, customers: 500, whCustProd: 100_000 } as const;
+export const SUPER_CAPS = { products: 10, plants: 20, warehouses: 50, customers: 500, whCustProd: 50_000 } as const;
 
 const id = z.string().trim().min(1);
 const num = z.number().finite();   // every numeric field rejects NaN/±Infinity

@@ -51,3 +51,50 @@ def test_weighted_average_distances_unrounded():
     r = _tiny({})
     m = r["metrics"]
     assert m["avgDistPlantToWh"] == 100.0 and m["avgDistWhToCustomer"] == 150.0
+
+
+import json, math
+from merge_inputs import haversine_mi, build_super_dataset
+from solve import solve_super
+REPO = os.path.abspath(os.path.join(solver_dir, "..", "..", "..", ".."))
+SAMPLE = os.path.join(REPO, "artifacts", "studio", "public", "samples", "super-model-sample.json")
+
+def test_haversine_known_pair():
+    # Los Angeles -> New York City, great-circle ~ 2445 mi with R=3959
+    d = haversine_mi(33.974044, -118.248849, 40.75012, -73.997846)
+    assert 2430 < d < 2460
+
+def _mini_inputs(**kw):
+    base = dict(p=1, gap=0, timeLimitSec=60, distanceMethod="haversine", circuityFactor=1.17,
+        transportCosts=dict(RATES),
+        products=[{"id": "K", "name": "K"}],
+        plants=[{"id": "P1", "name": "P1", "lat": 40.0, "lng": -100.0}],
+        warehouses=[{"id": "W1", "name": "W1", "lat": 40.0, "lng": -99.0, "status": "active"}],
+        customers=[{"id": "C1", "name": "C1", "lat": 40.0, "lng": -98.0, "status": "active"},
+                   {"id": "C2", "name": "C2", "lat": 41.0, "lng": -98.0, "status": "excluded"}],
+        plantProducts=[{"plantId": "P1", "productId": "K", "capacity": 1000, "costPerUnit": 2}],
+        demand=[{"customerId": "C1", "productId": "K", "demand": 10},
+                {"customerId": "C2", "productId": "K", "demand": 99}],
+        distanceOverrides=[])
+    base.update(kw); return base
+
+def test_distance_resolution_precedence():
+    ds = build_super_dataset(_mini_inputs(distanceOverrides=[{"fromId": "P1", "toId": "W1", "miles": 7}]))
+    assert ds["dist"][("P1","W1")] == 7
+    hv = haversine_mi(40.0, -99.0, 40.0, -98.0)
+    assert abs(ds["dist"][("W1","C1")] - hv) < 1e-9
+    ds2 = build_super_dataset(_mini_inputs(distanceMethod="circuity", circuityFactor=1.5))
+    assert abs(ds2["dist"][("W1","C1")] - hv * 1.5) < 1e-9
+    assert "C2" not in ds["customers"] and "C2" not in ds["demands"]
+
+def test_solve_super_mini():
+    r = solve_super(_mini_inputs())
+    assert r["status"] == "optimal"
+    assert abs(r["metrics"]["plantVariableCost"] - 20) < 1e-6
+
+def test_sample_network_reproduces_ch9_golden():
+    inp = json.load(open(SAMPLE))
+    r = solve_super(inp)
+    assert r["status"] == "optimal"
+    assert abs(r["objective"] - 254060828.6157) / 254060828.6157 < 1e-6
+    assert set(r["details"]["openWarehouseIds"]) == {"wh-11", "wh-14"}

@@ -4235,8 +4235,26 @@ Super Model Phase 1, Task 1 (`docs/superpowers/plans/2026-10-23-super-model-phas
 - `solve.py`: `solve_jade`'s ILP body (ic/ob cost through the final `_envelope`) moved verbatim into `_solve_two_echelon_core(...)`; `solve_jade` keeps load guard, merge, bounds, demands and rates, then delegates. Core adds a per-ton plant cost term on `flow_pw` (data, not a branch), a non-finite guard on `plant_cost`, `big_m = |customers| x |products|` (D2) replacing the deleted `JADE_OPEN_BIG_M = 10_000_000`, a capacity-shortfall infeasibility reason, `wh_label`, and four new metrics: `plantVariableCost`, `totalCost` (cents, from unrounded accumulators), `avgDistPlantToWh`, `avgDistWhToCustomer` (unrounded miles). `total_demand` is now computed inside the core.
 - Contract in the same commit: `MetricsSchema` (`resultEnvelope.ts`), OpenAPI result `metrics`, regenerated `lib/api-zod` + `lib/api-client-react` via `pnpm --filter @workspace/api-spec run codegen`; `__tests__/twoEchelonMetricsContract.test.ts` runs a real Ch9 solve through `MetricsSchema`.
 - Tests: new `tests/test_super.py` (5), `test_jade.py` +1 (plant cost 0, totalCost = inbound + outbound).
-- Verification: pytest 364 passed; `e2e_accuracy.py` 99/99, JD-1 objective 254060828.6157 matches to 1e-6, unmodified. `pnpm gate` result in the commit report.
+- Verification: pytest 364 passed; `e2e_accuracy.py` 99/99, JD-1 objective 254060828.6157 matches to 1e-6, unmodified. `pnpm gate` exit 0: typecheck clean, api-server 2053/2053, studio 2767/2767, pytest 368 passed.
 - Deviation: plan step 4b asked to see the contract test fail before the contract change; it was written after the solver change and run green once after codegen (the red state was not observed).
 - Next: SM-2 (`solve_super`, distance resolution, sample network golden, timing run).
 - Deviation: the plan's contract test omitted `import { expect, it } from "vitest"` (api-server tsconfig has no vitest globals; typecheck failed TS2593); import added.
 - Gate: typecheck clean; api-server 2050/2051 on two full runs, the single failure each time a registered flake (`routes` GET /api/dataset 500, then `loginRateLimitProxy` eviction), each green in 2 isolated re-runs (300/300 x2, 4/4 x2); studio 2767/2767; pytest 364/364; `e2e_accuracy.py` 99/99.
+
+### SM-2 — `solve_super`, computed distances, Ch9-equivalent sample golden, timing run (2026-10-23)
+
+Super Model Phase 1, Task 2. Branch `sm-2-work` (based on `b1da227a`).
+
+- `merge_inputs.py`: `haversine_mi` (R = 3959 mi) and `build_super_dataset` (overrides win, else haversine, x `circuityFactor` when `distanceMethod == "circuity"`; `excluded` customers dropped). `solve.py`: `solve_super` over `_solve_two_echelon_core`, status to bounds via the `_SUPER_BOUNDS` dict (data, hard rule #6). **No dispatcher branch** (SM-3 adds it with its TS twin).
+- `SOLVER_CODE_HASH` (`jobRunner.ts`) now hashes `solve.py` + `merge_inputs.py`; every cached result is invalidated once. The plan said to extend "the existing jobRunner hash test", but none exists (the constant is unexported, `jobRunner.test.ts` mocks it away), so new `__tests__/solverCodeHash.test.ts` recomputes the cache key independently through exported `computeInputsHash` (equals hash over both files; differs from solve.py alone). 2/2.
+- `scripts/build-super-sample.py` generates `artifacts/studio/public/samples/super-model-sample.json` (100 customers, 2600 overrides); `super-model-template.json` is hand-written. Golden: sample solves to 254060828.6157 (rel 1e-6), open `{wh-11, wh-14}`.
+- Tests: `test_super.py` +4 (haversine, distance precedence, mini solve, sample golden). Red state observed (collection ImportError) before implementing.
+- **Timing run (D1 caps) — the 100,000 cap FAILED and was halved.** `scripts/super-model-timing.py` (seed 1, 20 plants, 10 products, p=10, gap 0.01, 120 s), outputs verbatim:
+  - 50 warehouses x 200 customers x 10 products = 100,000, run 1: `status=no_solution termination=time_limit runTimeSec=126.35 achievedGap=None`
+  - same, run 2: `status=no_solution termination=time_limit runTimeSec=125.1 achievedGap=None`
+  - Halved to 50 x 100 x 10 = 50,000 (`python3 scripts/super-model-timing.py 50 100`), run 1: `status=optimal termination=optimality_proven runTimeSec=40.94 achievedGap=None`
+  - same, run 2: `status=optimal termination=optimality_proven runTimeSec=43.09 achievedGap=None`
+  - Cap is now warehouses x customers x products <= 50,000 (spec §3.3 and the plan's Global Constraints + `SUPER_CAPS.whCustProd` updated in this commit). The other per-table caps are unchanged. A first 100,000 run was lost to a print bug in the script (`quality` is a string; `achievedGap` is top-level) and re-run after the fix; only the post-fix outputs are recorded.
+- Deviation: the script gained optional `warehouses customers` argv so the halved run needs no edit.
+- Verification: pytest 368 passed; `e2e_accuracy.py` 99/99 unmodified. `pnpm gate` exit 0: typecheck clean, api-server 2053/2053, studio 2767/2767, pytest 368 passed.
+- Next: SM-3 (register `super-model` end to end, dispatcher branch + `modelType: "super_model"`, `SUPER_CAPS` at 50,000).

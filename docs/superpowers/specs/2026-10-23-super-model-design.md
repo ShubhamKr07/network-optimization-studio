@@ -93,9 +93,11 @@ No `distanceBands`: Super shows no band output.
   means 0; a missing plant-product row means cannot make.
 - Every reference (`plantId`, `productId`, `customerId`, `fromId`, `toId`) must resolve.
 - lat ∈ [-90, 90], lng ∈ [-180, 180]; all numbers finite.
-- **Provisional size caps** (confirmed or revised by Phase 1 task 1's measured CBC run on a synthetic
-  network at the cap, recorded with its timing): products ≤ 10, plants ≤ 20, warehouses ≤ 50,
-  customers ≤ 500, and warehouses × customers × products ≤ 100,000 (Ch9 is 10,000). Over-cap writes are
+- **Size caps** (measured by SM-2's timed CBC run, `scripts/super-model-timing.py`: 20 plants, 10 products,
+  p=10, gap 0.01, 120 s limit. At 50 warehouses x 200 customers x 10 products = 100,000 CBC returned
+  `no_solution` (`time_limit`, 126.35 s and 125.1 s); halved to 50 x 100 x 10 = 50,000 it proved optimality
+  in 40.94 s and 43.09 s): products <= 10, plants <= 20, warehouses <= 50, customers <= 500, and
+  warehouses x customers x products <= 50,000 (Ch9 is 10,000). Over-cap writes are
   rejected with a message naming the cap.
 - **Validation authority** is the hand-written Zod schema (`superInputs.ts`), which runs on every write
   path (PATCH, network import). The manifest's `required[]` drives only the studio's missing-values

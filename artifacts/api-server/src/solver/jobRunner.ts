@@ -62,6 +62,9 @@ const SOLVER_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", 
 const SOLVER_CODE_HASH = crypto
   .createHash("sha256")
   .update(readFileSync(SOLVER_PY))
+  // merge_inputs.py holds jade's merge and super's distance resolution; a change
+  // there changes results, so it must invalidate the cache too. [SM-2]
+  .update(readFileSync(path.join(path.dirname(SOLVER_PY), "merge_inputs.py")))
   .digest("hex")
   .slice(0, 12);
 
