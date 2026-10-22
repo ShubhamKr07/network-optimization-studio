@@ -59,8 +59,8 @@ export type MaxCoverageRun = "model1" | "model2" | "sequential";
  * api-server write path and precheck and by the studio form. solve.py carries
  * a Python copy (`resolve_max_coverage_run`); both are tested against
  * `__tests__/maxCoverageRunCases.json`.
- *   floor > 0                         -> "sequential" (Model 1, then Model 2)
- *   floor == 0, objective coverage     -> "model1"
+ *   objective coverage                 -> "model1" (any floor; the floor is ignored)
+ *   floor > 0, objective other/absent  -> "sequential" (Model 1, then Model 2)
  *   floor == 0, objective min_distance -> "model2"
  *   floor == 0, objective absent       -> null (cannot solve)
  */
@@ -68,8 +68,8 @@ export function resolveMaxCoverageRun(
   coverageFloorDemand: number,
   objective: "coverage" | "min_distance" | undefined,
 ): MaxCoverageRun | null {
-  if (coverageFloorDemand > 0) return "sequential";
   if (objective === "coverage") return "model1";
+  if (coverageFloorDemand > 0) return "sequential";
   if (objective === "min_distance") return "model2";
   return null;
 }

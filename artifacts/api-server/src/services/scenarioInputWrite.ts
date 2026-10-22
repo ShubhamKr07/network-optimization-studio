@@ -14,10 +14,10 @@ export const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
 // CH4OS (spec 2026-10-10-ch4-objective-selector-design.md §3) — max-coverage-us's
 // `objective` is CONDITIONALLY client-authored. At a zero floor the student's
 // choice is stored as sent, or left absent (precheck's `objective_required`
-// then blocks the solve). At a positive floor every run is Model 1 then
-// Model 2 whatever was sent, so the stored value is normalised to
-// "min_distance" — keeping details.objective, resultSummary.objectiveMode and
-// Compare's meaning for every positive-floor row. There is no rejection path.
+// then blocks the solve). At a positive floor the choice is also stored as
+// sent ("coverage" runs Model 1 alone, ignoring the floor); an ABSENT choice
+// defaults to "min_distance" (Model 1, then Model 2), the pre-existing
+// positive-floor behaviour. There is no rejection path.
 //
 // Ordering at every call site is fixed: validate -> derive -> persist. Only
 // validation guarantees the floor is an integer, and this reads it.
@@ -28,7 +28,7 @@ export function deriveServerOwnedInputs(
   if (modelId !== MAX_COVERAGE_MODEL_ID) return inputs;
   const floor = inputs.coverageFloorDemand;
   if (typeof floor !== "number") return inputs; // validation already guaranteed this; defensive only
-  if (resolveMaxCoverageRun(floor, undefined) !== "sequential") return inputs;
+  if (inputs.objective !== undefined || resolveMaxCoverageRun(floor, undefined) !== "sequential") return inputs;
   return { ...inputs, objective: "min_distance" };
 }
 

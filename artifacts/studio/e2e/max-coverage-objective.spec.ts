@@ -134,14 +134,23 @@ test.describe("Chapter 4 — objective selector and sequential solve (CH4OS, see
       // ── Floor above Model 1's max → sequential → floor-exceeds-max alert ─
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await page.getByTestId("input-coverage-floor").fill("500100100");
-      await expect(page.getByTestId("objective-select")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+      // The selector stays visible at a positive floor and keeps the choice.
+      await expect(page.getByTestId("objective-select")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("objective-min-distance")).toBeChecked({ timeout: HEADER_TIMEOUT });
+      // Max coverage at a positive floor runs Model 1 alone, floor not applied.
+      await page.getByTestId("objective-coverage").check();
+      await expect(line).toHaveText(
+        "Model 1 — maximize demand within 450 mi, holding average distance at or under 650 mi (coverage floor not applied)",
+        { timeout: HEADER_TIMEOUT },
+      );
+      await page.getByTestId("objective-min-distance").check();
       await expect(line).toHaveText(
         "Model 1, then Model 2 — find the maximum demand coverable within 450 mi, then minimize average distance covering at least 500,100,100, holding average distance at or under 650 mi",
         { timeout: HEADER_TIMEOUT },
       );
       state.seeded = SEEDED_TOO_HIGH;
       await solveSeeded(page);
-      expect(await storedObjective(page, id)).toBe("min_distance");  // server normalises a positive floor
+      expect(await storedObjective(page, id)).toBe("min_distance");
       const mapAlert = page.getByTestId("floor-exceeds-max-alert");
       await expect(mapAlert).toContainText("Coverage floor 500,100,100 exceeds the maximum coverable demand 54,946,145.", { timeout: HEADER_TIMEOUT });
       await expect(mapAlert).toContainText("Lower the floor to at most 54,946,145.");
@@ -151,17 +160,13 @@ test.describe("Chapter 4 — objective selector and sequential solve (CH4OS, see
       await expect(page.getByTestId("cost-summary-max-coverable-demand")).toHaveText("54,946,145");
       await expect(page.getByTestId("cost-summary-value-avg-distance-to-customers")).toHaveText("—");
 
-      // ── Floor back to 0: Solve gates on the LOCAL draft, not the saved row ─
-      // The saved objective is still "min_distance" (server-normalised above),
-      // yet the zero-floor draft has no choice made, so Solve is blocked.
+      // ── Floor back to 0: the choice survives the boundary ───────────────
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await page.getByTestId("input-coverage-floor").fill("0");
       await expect(page.getByTestId("objective-select")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("objective-coverage")).not.toBeChecked({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("objective-min-distance")).not.toBeChecked({ timeout: HEADER_TIMEOUT });
-      await expect(line).toHaveText("Choose an objective to solve.", { timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-run-optimizer")).toBeDisabled({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-run-optimizer")).toHaveAttribute("title", HINT);
+      await expect(page.getByTestId("objective-min-distance")).toBeChecked({ timeout: HEADER_TIMEOUT });
+      await expect(line).toHaveText("Model 2 — minimize average distance, holding average distance at or under 650 mi", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-run-optimizer")).toBeEnabled({ timeout: HEADER_TIMEOUT });
       expect(await storedObjective(page, id)).toBe("min_distance");
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);

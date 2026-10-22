@@ -4205,3 +4205,14 @@ FLK whole-branch review (Opus reviewer, on the merged state) — fixes on the br
 - `rawSqlOrGuard.test.ts`: also matches `sql<T>` and `sql.raw(`; strips only whole-line comments, so a `://` in code cannot swallow a backtick.
 - Not changed: a `DATABASE_URL` check in `gate.sh` (api-server's `pretest` already runs `preflight-db-url.mjs`).
 - Also on this branch, from `/harness-retro FLK` step 5: `tasks.csv` PERM-RM `reverted_within_7d` filled `unknown` → `no` (merged sha `1900f91e`, no revert since 2026-10-15).
+
+### CH4OV — Chapter 4 objective selector shown at every floor (2026-10-22)
+
+User request: the Model 1 / Model 2 options must always show when setting the coverage floor (≥ 0). Decisions (user, 2026-10-22): the choice drives the solve at a positive floor; shown in both the Parameters tab and the Solve dialog; Model 1 at a positive floor ignores the floor; Model 2 at a positive floor still runs Model 1 first (keeps the floor-exceeds-max alert); a positive floor with no objective defaults to Model 2.
+
+- Rule (`lib/units/src/objective.ts` `resolveMaxCoverageRun` + `solve.py` `resolve_max_coverage_run`, one case table): `objective coverage` → `model1` at any floor; floor > 0 otherwise → `sequential`; floor 0 unchanged. Case table 5 → 6 rows.
+- `solve.py`: `_MAX_COVERAGE_FINAL_SOLVE` carries whether the floor row applies (data, hard rule #6); Model 1 solves with floor 0.
+- `deriveServerOwnedInputs`: a sent objective is stored as sent at any floor; only an ABSENT objective at a positive floor is stored as `min_distance`. Existing positive-floor rows were all normalised to `min_distance`, so they keep their current behaviour with no backfill.
+- Studio: radios always rendered; `updateInputsField` no longer drops `objective` when the floor crosses 0; the derived-model line appends "(coverage floor not applied)" for Model 1 at a positive floor.
+- Tests: pytest positive-floor runs now pass `objective: "min_distance"` explicitly (same goldens); new `test_positive_floor_with_coverage_runs_model1_and_ignores_the_floor`. Rewrote the CH4OS routes/Workspace/OptimizationParametersTab cases and `historyReadOnlyGuards`' `setLocalInputs` count (17 → 16). e2e `max-coverage.spec.ts` + `max-coverage-objective.spec.ts` rewritten and run locally (4/4, `--retries=0 --workers=1`).
+- Gate: typecheck clean; pytest 357/357; `e2e_accuracy.py` 99/99; units 59/59; studio 2766/2767 then the one count assertion fixed (11/11); api-server 2048/2050 with `jobRunnerDispatcher` + `loginRateLimitProxy` (registered flake class) 15/15 twice isolated.

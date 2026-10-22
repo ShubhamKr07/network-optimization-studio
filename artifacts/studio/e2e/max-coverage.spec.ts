@@ -265,11 +265,13 @@ test.describe("Chapter 4 — Al's Athletics Max Coverage", () => {
         timeout: HEADER_TIMEOUT,
       });
 
-      // ── 3. Floor := the achieved covered demand → the SEQUENTIAL run
-      // (CH4OS): the selector hides and the line names both models the
-      // INSTANT the floor is typed — a client-side re-render, no save. ──────
+      // ── 3. Floor := the achieved covered demand, objective := Min distance
+      // → the SEQUENTIAL run: the selector stays visible at a positive floor
+      // and the line names both models the INSTANT the choice is made — a
+      // client-side re-render, no save. ─────────────────────────────────────
       await floorInput.fill(String(cov.details.coveredDemand));
-      await expect(page.getByTestId("objective-select")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("objective-select")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("objective-min-distance").check();
       await expect(derivedLine).toContainText(
         `Model 1, then Model 2 — find the maximum demand coverable within 450 mi, then minimize average distance covering at least ${cov.details.coveredDemand!.toLocaleString()}`,
         { timeout: HEADER_TIMEOUT },

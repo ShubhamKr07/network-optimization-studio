@@ -3114,26 +3114,37 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
-  it("raising the floor drops the objective and hides the selector; returning to 0 shows it unselected and disables Solve", () => {
+  it("the objective selector stays visible and keeps its choice at any floor", () => {
     renderChen();   // stored objective "coverage", floor 0
     openParamsTab();
     expect(screen.getByTestId("objective-coverage")).toBeChecked();
 
     fireEvent.change(screen.getByTestId("input-coverage-floor"), { target: { value: "5" } });
-    expect(screen.queryByTestId("objective-select")).not.toBeInTheDocument();
-    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();   // sequential needs no choice
+    expect(screen.getByTestId("objective-coverage")).toBeChecked();
+    expect(screen.getByTestId("derived-model-line")).toHaveTextContent("coverage floor not applied");
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId("objective-min-distance"));
+    expect(screen.getByTestId("objective-min-distance")).toBeChecked();
+    expect(screen.getByTestId("derived-model-line")).toHaveTextContent("Model 1, then Model 2");
 
     fireEvent.change(screen.getByTestId("input-coverage-floor"), { target: { value: "0" } });
-    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
-    expect(screen.getByTestId("objective-min-distance")).not.toBeChecked();
-    expect(screen.getByTestId("button-run-optimizer")).toBeDisabled();
+    expect(screen.getByTestId("objective-min-distance")).toBeChecked();
+    expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
   it("the Solve dialog's own Solve button disables from the same local draft, with the hint, and re-enables on a choice", () => {
-    renderChen();
+    // A positive stored floor with no objective is solvable (Model 1, then
+    // Model 2), so Run Optimizer opens the dialog; editing the floor to 0
+    // there leaves no objective and blocks the dialog's Solve.
+    const { objective: _o, ...noObjective } = maxCoverageCoverageInputs;
+    void _o;
+    const unselected = { ...maxCoverageScenario, inputs: { ...noObjective, coverageFloorDemand: 5 } };
+    mockUseGetScenario.mockReturnValue({ data: unselected } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [unselected] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    fireEvent.change(screen.getByTestId("solve-dialog-input-coverage-floor"), { target: { value: "5" } });
     fireEvent.change(screen.getByTestId("solve-dialog-input-coverage-floor"), { target: { value: "0" } });
 
     expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();

@@ -62,7 +62,7 @@ describe("resolveMaxCoverageRun — the shared case table", () => {
   ) as Array<{ floor: number; objective: "coverage" | "min_distance" | null; run: string | null }>;
 
   it("the table is not vacuous", () => {
-    expect(cases).toHaveLength(5);
+    expect(cases).toHaveLength(6);
     expect(new Set(cases.map((c) => c.run))).toEqual(new Set(["model1", "model2", "sequential", null]));
   });
 

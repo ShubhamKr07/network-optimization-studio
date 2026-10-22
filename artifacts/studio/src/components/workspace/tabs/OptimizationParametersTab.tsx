@@ -107,7 +107,7 @@ export interface OptimizationParametersTabProps {
   // The whole Chen block is gated on `highServiceDistMi != null` (present
   // only for Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a
   // sibling model passing none of these renders none of it, so this stays
-  // generic. CH4OS — `objective` is the student's floor-0 choice (see the
+  // generic. CH4OS — `objective` is the student's choice at any floor (see the
   // prop below); the derived-model-line reads `resolveMaxCoverageRun`.
   /** Chen's two service-distance thresholds (both always visible in the
    * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
@@ -123,11 +123,13 @@ export interface OptimizationParametersTabProps {
   avgServiceDistCapMi?: number;
   /** CH4O-5 — the demand-coverage floor, now a student-authored input and the
    * discriminator that (with `objective`) feeds `resolveMaxCoverageRun`: 0 ->
-   * the student's choice, > 0 -> Model 1 then Model 2. CH4O-7 — this is the editable input rendered below,
+   * the student's choice, > 0 -> Model 1 then Model 2 unless the student picked
+   * Model 1. CH4O-7 — this is the editable input rendered below,
    * via the generic `onChange`; NOT a distance, never unit-converted. */
   coverageFloorDemand?: number;
-  /** CH4OS (spec §6.1) — the student's objective at a zero floor. Undefined =
-   * not chosen (Solve is blocked). Ignored and hidden at a positive floor. */
+  /** CH4OS (spec §6.1) — the student's objective, at any floor. Undefined =
+   * not chosen (Solve is blocked at floor 0; Model 1 then Model 2 at a
+   * positive floor). "coverage" runs Model 1 alone, ignoring the floor. */
   objective?: "coverage" | "min_distance";
   /** CH4OS — a radio choice. Workspace.tsx writes it into `localInputs`. */
   onObjectiveChange?: (objective: "coverage" | "min_distance") => void;
@@ -464,37 +466,35 @@ export function OptimizationParametersTab({
               className="h-8 text-sm mt-1 font-mono"
               data-testid={tid("input-coverage-floor")}
             />
-            {/* CH4OS (spec §6.1) — directly below the floor, only at floor 0,
-                nothing selected by default. Native radios: one `name` per
-                mount (pid) so the tab and the Solve dialog's copy never
-                share a group. */}
-            {(coverageFloorDemand ?? 0) === 0 && (
-              <fieldset className="mt-2 space-y-1" data-testid={tid("objective-select")}>
-                <legend className="text-xs text-muted-foreground">Objective</legend>
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="radio"
-                    name={pid("objective-select")}
-                    value="coverage"
-                    checked={objective === "coverage"}
-                    onChange={() => onObjectiveChange?.("coverage")}
-                    data-testid={tid("objective-coverage")}
-                  />
-                  Max coverage (Model 1)
-                </label>
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="radio"
-                    name={pid("objective-select")}
-                    value="min_distance"
-                    checked={objective === "min_distance"}
-                    onChange={() => onObjectiveChange?.("min_distance")}
-                    data-testid={tid("objective-min-distance")}
-                  />
-                  Min distance (Model 2)
-                </label>
-              </fieldset>
-            )}
+            {/* CH4OS (spec §6.1) — directly below the floor, shown at every
+                floor value, nothing selected by default. Native radios: one
+                `name` per mount (pid) so the tab and the Solve dialog's copy
+                never share a group. */}
+            <fieldset className="mt-2 space-y-1" data-testid={tid("objective-select")}>
+              <legend className="text-xs text-muted-foreground">Objective</legend>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="radio"
+                  name={pid("objective-select")}
+                  value="coverage"
+                  checked={objective === "coverage"}
+                  onChange={() => onObjectiveChange?.("coverage")}
+                  data-testid={tid("objective-coverage")}
+                />
+                Max coverage (Model 1)
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="radio"
+                  name={pid("objective-select")}
+                  value="min_distance"
+                  checked={objective === "min_distance"}
+                  onChange={() => onObjectiveChange?.("min_distance")}
+                  data-testid={tid("objective-min-distance")}
+                />
+                Min distance (Model 2)
+              </label>
+            </fieldset>
             {(() => {
               // Reads the SAME rule (resolveMaxCoverageRun) the server and solve.py use, so the label and the
               // solve that runs cannot disagree. `UnitApi.format` converts AND
@@ -530,7 +530,7 @@ export function OptimizationParametersTab({
               const run = resolveMaxCoverageRun(floor, objective);
               const text =
                 run === "model1"
-                  ? `Model 1 — maximize demand within ${within}${capClause}`
+                  ? `Model 1 — maximize demand within ${within}${capClause}${floor > 0 ? " (coverage floor not applied)" : ""}`
                   : run === "model2"
                     ? `Model 2 — minimize average distance${capClause}`
                     : run === "sequential"

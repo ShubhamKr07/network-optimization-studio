@@ -1234,8 +1234,8 @@ describe("max-coverage-us — distanceBands preserved verbatim on JSON write pat
 
 // CH4OS (spec 2026-10-10 §3) — `objective` is conditionally client-authored.
 // Floor 0: stored as sent, or absent (precheck's objective_required then blocks
-// the solve). Positive floor: stored as "min_distance" whatever was sent — no
-// rejection path. Asserted on what the route hands the (mocked) DB.
+// the solve). Positive floor: stored as sent; absent is stored as
+// "min_distance" — no rejection path. Asserted on what the route hands the (mocked) DB.
 describe("CH4OS — objective on every write path", () => {
   function insertedInputs(chain: ReturnType<typeof makeChain>): Record<string, unknown> {
     const args = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
@@ -1270,14 +1270,14 @@ describe("CH4OS — objective on every write path", () => {
     expect(insertedInputs(chain).objective).toBe("min_distance");
   });
 
-  it("CREATE at a positive floor normalises a sent `coverage` to min_distance — not a 422", async () => {
+  it("CREATE at a positive floor keeps a sent `coverage` (Model 1 ignores the floor) — not a 422", async () => {
     const cookie = await loginAs(OWNER);
     const chain = makeChain([maxCoverageRow]);
     mockDb.insert.mockReturnValue(chain);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "ch4 seq", modelId: "max-coverage-us", inputs: { ...maxCoverageInputs, coverageFloorDemand: 500, objective: "coverage" } });
     expect(res.status).toBe(201);
-    expect(insertedInputs(chain).objective).toBe("min_distance");
+    expect(insertedInputs(chain).objective).toBe("coverage");
   });
 
   it("CREATE at a positive floor with no objective stores min_distance", async () => {
@@ -1349,7 +1349,7 @@ describe("CH4OS — objective on every write path", () => {
     expect(setArgsOf(chain).solveInputRevision).toBeUndefined();
   });
 
-  it("UPDATE re-normalises on a positive floor", async () => {
+  it("UPDATE at a positive floor keeps a sent `coverage`", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
     const chain = makeChain([maxCoverageRow]);
@@ -1357,8 +1357,21 @@ describe("CH4OS — objective on every write path", () => {
     const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
       .send({ inputs: { ...maxCoverageInputs, coverageFloorDemand: 500, objective: "coverage" } });
     expect(res.status).toBe(200);
-    expect(setArgsOf(chain).inputs.objective).toBe("min_distance");
+    expect(setArgsOf(chain).inputs.objective).toBe("coverage");
     expect(setArgsOf(chain).inputs.coverageFloorDemand).toBe(500);
+  });
+
+  it("UPDATE at a positive floor with no objective stores min_distance", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([maxCoverageRow]));
+    const chain = makeChain([maxCoverageRow]);
+    mockDb.update.mockReturnValue(chain);
+    const { objective: _omit, ...withoutObjective } = maxCoverageInputs as Record<string, unknown>;
+    void _omit;
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie)
+      .send({ inputs: { ...withoutObjective, coverageFloorDemand: 500 } });
+    expect(res.status).toBe(200);
+    expect(setArgsOf(chain).inputs.objective).toBe("min_distance");
   });
 });
 
