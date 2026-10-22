@@ -269,9 +269,22 @@ describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", (
   // job, so it is still active when the second enqueue arrives. Without it a
   // max-coverage solve is fast enough to finish in between (seen 1/12 runs
   // with this file alone), and the second request correctly returns 202.
-  // Enqueue itself is unaffected by draining.
+  // Enqueue itself is unaffected by draining. The jobs it leaves queued are
+  // deleted before draining lifts: any process's dispatcher scan claims a
+  // queued row with no owner filter, so a stranded row here would be run by
+  // a concurrent dispatcherRecovery.test.ts ahead of its own work.
   beforeEach(() => { setDraining(true); });
-  afterEach(() => { setDraining(false); });
+  afterEach(async () => {
+    try {
+      await db.delete(solveJobsTable).where(and(
+        inArray(solveJobsTable.scenarioId, scenarioIds),
+        eq(solveJobsTable.modelId, "max-coverage-us"),
+        eq(solveJobsTable.status, "queued"),
+      ));
+    } finally {
+      setDraining(false);
+    }
+  });
 
   const maxCoverageInputs = {
     objective: "coverage",
