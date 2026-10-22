@@ -401,6 +401,107 @@ paths:
         "404":
           description: Not found
 
+  /scenarios/{scenarioId}/network/import:
+    post:
+      operationId: importScenarioNetwork
+      tags: [scenarios]
+      summary: Import a super-model network document (replace or merge) in one atomic write
+      description: >-
+        Super-model only. The body IS the network document (every key of the
+        super inputs optional; unknown keys rejected). mode=replace resets
+        absent keys to defaults; mode=merge upserts table rows by id/pair key
+        and never deletes. The result is validated as a whole; any bad row
+        writes nothing. A scenario that is not the caller's, or is not a
+        super-model, is 404.
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [replace, merge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: The updated scenario
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenario]
+                properties:
+                  scenario:
+                    $ref: "#/components/schemas/Scenario"
+        "400":
+          description: mode missing or not replace/merge, or the body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found (also another user's scenario or a non-super scenario, never 403)
+        "413":
+          description: Request body exceeds the 2 MiB import wire limit (checked after ownership)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayloadTooLargeError"
+        "422":
+          description: The document or the resulting network is invalid; nothing was written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /scenarios/{scenarioId}/network/export:
+    get:
+      operationId: exportScenarioNetwork
+      tags: [scenarios]
+      summary: Export a super-model scenario's network as a JSON document (re-importable with mode=replace)
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        "200":
+          description: The network document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          description: format missing or not json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found (also another user's scenario or a non-super scenario, never 403)
+
   /scenarios/{scenarioId}/import:
     post:
       operationId: previewScenarioImport

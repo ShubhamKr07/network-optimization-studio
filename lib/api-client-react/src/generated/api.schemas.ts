@@ -1449,6 +1449,37 @@ export const ListScenariosModelId = {
   'super-model': 'super-model',
 } as const;
 
+export type ImportScenarioNetworkParams = {
+mode: ImportScenarioNetworkMode;
+};
+
+export type ImportScenarioNetworkMode = typeof ImportScenarioNetworkMode[keyof typeof ImportScenarioNetworkMode];
+
+
+export const ImportScenarioNetworkMode = {
+  replace: 'replace',
+  merge: 'merge',
+} as const;
+
+export type ImportScenarioNetworkBody = { [key: string]: unknown };
+
+export type ImportScenarioNetwork200 = {
+  scenario: Scenario;
+};
+
+export type ExportScenarioNetworkParams = {
+format: ExportScenarioNetworkFormat;
+};
+
+export type ExportScenarioNetworkFormat = typeof ExportScenarioNetworkFormat[keyof typeof ExportScenarioNetworkFormat];
+
+
+export const ExportScenarioNetworkFormat = {
+  json: 'json',
+} as const;
+
+export type ExportScenarioNetwork200 = { [key: string]: unknown };
+
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;
 format: ExportScenarioFormat;

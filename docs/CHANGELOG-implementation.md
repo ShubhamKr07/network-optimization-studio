@@ -4301,3 +4301,13 @@ Super Model Phase 1, Task 7. Branch `sm-7-work` (based on `f8b02d81`). Studio on
 - Deviations: `SuperTableTab` `options` gained `fromIds`/`toIds` (used only by the overrides grid); no `DraftTextInput` was needed (text cells are plain controlled `Input`s); the `pMax` line is still one line but its leading arm changed text, so any source-grepping guard on that line should be rechecked.
 - Tests: `superNetwork.test.ts` (3), `SuperTableTab.test.tsx` (6), `Workspace.Super.test.tsx` (4).
 - Next: SM-8 (outputs), SM-9 (import dialog, readiness panel).
+
+### SM-6 — super-model network import/export endpoints, replace and merge (2026-10-23)
+
+Super Model Phase 1, Task 6. Branch `sm-6-work` (based on `94c7d0dc`).
+
+- `POST /api/scenarios/:id/network/import?mode=replace|merge` (body IS the network document) and `GET /api/scenarios/:id/network/export?format=json`. New `routes/superNetwork.ts` (mounted before `scenariosRouter`) and `services/superNetwork.ts` (`superNetworkDocSchema` strict, `mergeNetwork`). One `db.transaction` through `applyScenarioInputWrite`, so validation, the stale epoch bump and the all-or-nothing write are the existing single authority. `replace` resets absent keys to `SUPER_DEFAULT_INPUTS`; `merge` upserts tables by id/pair key, overwrites supplied parameters, never deletes.
+- Security: ownership lookup AND `modelId === "super-model"` run before the body is parsed; a non-owned or non-super scenario is 404 on both routes (never 403), then `isModelLocked`. `app.ts` `IMPORT_BODY_PATH` carve-out extended so the route-scoped 2 MiB parser (`MAX_IMPORT_BYTES`) applies after auth+ownership; oversize -> 413 `payload_too_large`, bad JSON -> 400 (closing SM-4's finding that the 230 KB sample surfaced as a 500 under the 100 KB default parser).
+- Contract: two OpenAPI paths (`importScenarioNetwork`, `exportScenarioNetwork`), Orval regenerated; `lib/api-zod/src/index.ts` (hand-maintained) gained the explicit type re-exports for the three same-named Zod value / TS type collisions (`ImportScenarioNetworkBody`, `ImportScenarioNetworkParams`, `ExportScenarioNetworkParams`). `toApiScenario` is now exported from `routes/scenarios.ts`.
+- **Deviation from spec §3.2: `distanceOverrides.miles` is `>= 0`, not `> 0`** (`num.min(0)`, still finite). The shipped sample has 25 co-located warehouse->customer pairs at 0.0 miles (found by SM-4/SM-5) and Ch9's own override schema allows 0. SM-5's `precheckSuper.test.ts` no longer filters zero-mile rows; `superModelRegistration.test.ts` asserts 0 accepted, negative and +-Infinity rejected.
+- Tests: `superNetworkImport.test.ts` (12, real DB; imports the unmodified ~192 KB sample, replace/merge/atomic/400/413/401/404 cross-user and non-super/stale/round-trip).

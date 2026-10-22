@@ -4,6 +4,7 @@ import datasetRouter from "./dataset.js";
 import modelsRouter from "./models.js";
 import referenceDistancesRouter from "./referenceDistances.js";
 import referenceCostsRouter from "./referenceCosts.js";
+import superNetworkRouter from "./superNetwork.js";
 import scenariosRouter from "./scenarios.js";
 import solveHistoryRouter from "./solveHistory.js";
 import landingSummaryRouter from "./landingSummary.js";
@@ -33,6 +34,7 @@ router.use(solveHistoryRouter);
 router.use(landingSummaryRouter);
 router.use(feedbackRouter);
 router.use(distanceBandsRouter);
+router.use(superNetworkRouter);
 router.use(scenariosRouter);
 
 export default router;

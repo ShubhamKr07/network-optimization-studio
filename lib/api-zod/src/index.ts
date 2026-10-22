@@ -10,3 +10,6 @@ export type { ExportScenarioParams } from "./generated/types";
 // ambiguous-star-export pattern — a same-named Zod body schema (value, from
 // generated/api) and TS body type (from generated/types).
 export type { UpdateDistanceBandsBody } from "./generated/types";
+// SM-6: the network import/export operations hit the same ambiguous-star-export
+// pattern (Zod path-params value vs same-named TS query-params type).
+export type { ImportScenarioNetworkBody, ImportScenarioNetworkParams, ExportScenarioNetworkParams } from "./generated/types";

@@ -59,6 +59,8 @@ describe("super-model registration", () => {
       plants: [{ id: "p", name: "p", lat: 1, lng: 1 }], warehouses: [{ id: "w", name: "w", lat: 1, lng: 2, status: "active" }] };
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: Infinity }] }).success).toBe(false);
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: -Infinity }] }).success).toBe(false);
+    expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: 0 }] }).success).toBe(true); // co-located pair
+    expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: -1 }] }).success).toBe(false);
     const road = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "sm-road", modelId: "super-model", inputs: { ...SUPER_DEFAULT_INPUTS, distanceMethod: "road" } });
     expect(road.status).toBe(422);

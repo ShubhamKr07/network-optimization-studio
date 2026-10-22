@@ -163,7 +163,7 @@ export function isLegacyUnverifiedResult(raw: Record<string, unknown> | null): b
   return normalizeStoredResult(parsed.data).legacyUnverified;
 }
 
-function toApiScenario(row: typeof scenariosTable.$inferSelect) {
+export function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
     id: row.id,
     name: row.name,

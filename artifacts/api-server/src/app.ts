@@ -68,7 +68,7 @@ app.use(cookieParser(COOKIE_SECRET));
 // SCU-2.P2.2 (B2.6; review #1) — the two import routes parse their own body
 // (route-scoped 2 MiB parser in routes/scenarios.ts, mounted after auth and
 // ownership). Every other route keeps this unchanged global parser.
-const IMPORT_BODY_PATH = /^\/api\/scenarios\/[^/]+\/import(?:\/apply)?\/?$/i;
+const IMPORT_BODY_PATH = /^\/api\/scenarios\/[^/]+\/(?:import(?:\/apply)?|network\/import)\/?$/i;
 const defaultJsonBody = express.json();
 app.use((req, res, next) => (IMPORT_BODY_PATH.test(req.path) ? next() : defaultJsonBody(req, res, next)));
 app.use(express.urlencoded({ extended: true }));

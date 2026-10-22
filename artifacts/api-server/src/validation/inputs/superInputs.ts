@@ -20,7 +20,7 @@ export const superTableSchemas = {
   customers: z.array(z.object({ ...loc, status: z.enum(["active", "excluded"]).default("active") })).max(SUPER_CAPS.customers),
   plantProducts: z.array(z.object({ plantId: id, productId: id, capacity: num.min(0), costPerUnit: num.min(0) })),
   demand: z.array(z.object({ customerId: id, productId: id, demand: num.min(0) })),
-  distanceOverrides: z.array(z.object({ fromId: id, toId: id, miles: num.positive() })),   // num is .finite(): ±Infinity rejected
+  distanceOverrides: z.array(z.object({ fromId: id, toId: id, miles: num.min(0) })),   // num is .finite(): ±Infinity rejected; 0 allowed (co-located pairs, as Ch9)
 };
 
 export const superParamSchemas = {

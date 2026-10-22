@@ -24,6 +24,8 @@ import type {
   Dataset,
   ErrorEnvelope,
   ExportEnvelope,
+  ExportScenarioNetwork200,
+  ExportScenarioNetworkParams,
   ExportScenarioParams,
   FeedbackRequest,
   ForgotPasswordAccepted,
@@ -37,6 +39,9 @@ import type {
   ImportMalformedError,
   ImportPreview,
   ImportRequest,
+  ImportScenarioNetwork200,
+  ImportScenarioNetworkBody,
+  ImportScenarioNetworkParams,
   LandingSummary,
   LegacyResultExportRejection,
   ListScenariosParams,
@@ -1219,6 +1224,177 @@ export function usePrecheckScenario<TData = Awaited<ReturnType<typeof precheckSc
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getPrecheckScenarioQueryOptions(scenarioId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getImportScenarioNetworkUrl = (scenarioId: number,
+    params: ImportScenarioNetworkParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/scenarios/${scenarioId}/network/import?${stringifiedParams}` : `/api/scenarios/${scenarioId}/network/import`
+}
+
+/**
+ * Super-model only. The body IS the network document (every key of the super inputs optional; unknown keys rejected). mode=replace resets absent keys to defaults; mode=merge upserts table rows by id/pair key and never deletes. The result is validated as a whole; any bad row writes nothing. A scenario that is not the caller's, or is not a super-model, is 404.
+ * @summary Import a super-model network document (replace or merge) in one atomic write
+ */
+export const importScenarioNetwork = async (scenarioId: number,
+    importScenarioNetworkBody: ImportScenarioNetworkBody,
+    params: ImportScenarioNetworkParams, options?: RequestInit): Promise<ImportScenarioNetwork200> => {
+
+  return customFetch<ImportScenarioNetwork200>(getImportScenarioNetworkUrl(scenarioId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      importScenarioNetworkBody,)
+  }
+);}
+
+
+
+
+export const getImportScenarioNetworkMutationOptions = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext> => {
+
+const mutationKey = ['importScenarioNetwork'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importScenarioNetwork>>, {scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}> = (props) => {
+          const {scenarioId,data,params} = props ?? {};
+
+          return  importScenarioNetwork(scenarioId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportScenarioNetworkMutationResult = NonNullable<Awaited<ReturnType<typeof importScenarioNetwork>>>
+    export type ImportScenarioNetworkMutationBody = BodyType<ImportScenarioNetworkBody>
+    export type ImportScenarioNetworkMutationError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>
+
+    /**
+ * @summary Import a super-model network document (replace or merge) in one atomic write
+ */
+export const useImportScenarioNetwork = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importScenarioNetwork>>,
+        TError,
+        {scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams},
+        TContext
+      > => {
+      return useMutation(getImportScenarioNetworkMutationOptions(options));
+    }
+
+export const getExportScenarioNetworkUrl = (scenarioId: number,
+    params: ExportScenarioNetworkParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/scenarios/${scenarioId}/network/export?${stringifiedParams}` : `/api/scenarios/${scenarioId}/network/export`
+}
+
+/**
+ * @summary Export a super-model scenario's network as a JSON document (re-importable with mode=replace)
+ */
+export const exportScenarioNetwork = async (scenarioId: number,
+    params: ExportScenarioNetworkParams, options?: RequestInit): Promise<ExportScenarioNetwork200> => {
+
+  return customFetch<ExportScenarioNetwork200>(getExportScenarioNetworkUrl(scenarioId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportScenarioNetworkQueryKey = (scenarioId: number,
+    params?: ExportScenarioNetworkParams,) => {
+    return [
+    `/api/scenarios/${scenarioId}/network/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportScenarioNetworkQueryOptions = <TData = Awaited<ReturnType<typeof exportScenarioNetwork>>, TError = ErrorType<ErrorEnvelope | void>>(scenarioId: number,
+    params: ExportScenarioNetworkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenarioNetwork>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportScenarioNetworkQueryKey(scenarioId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportScenarioNetwork>>> = ({ signal }) => exportScenarioNetwork(scenarioId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scenarioId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportScenarioNetwork>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportScenarioNetworkQueryResult = NonNullable<Awaited<ReturnType<typeof exportScenarioNetwork>>>
+export type ExportScenarioNetworkQueryError = ErrorType<ErrorEnvelope | void>
+
+
+/**
+ * @summary Export a super-model scenario's network as a JSON document (re-importable with mode=replace)
+ */
+
+export function useExportScenarioNetwork<TData = Awaited<ReturnType<typeof exportScenarioNetwork>>, TError = ErrorType<ErrorEnvelope | void>>(
+ scenarioId: number,
+    params: ExportScenarioNetworkParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenarioNetwork>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportScenarioNetworkQueryOptions(scenarioId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

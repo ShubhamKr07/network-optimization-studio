@@ -517,6 +517,107 @@ export const PrecheckScenarioResponse = zod.object({
 
 
 /**
+ * Super-model only. The body IS the network document (every key of the super inputs optional; unknown keys rejected). mode=replace resets absent keys to defaults; mode=merge upserts table rows by id/pair key and never deletes. The result is validated as a whole; any bad row writes nothing. A scenario that is not the caller's, or is not a super-model, is 404.
+ * @summary Import a super-model network document (replace or merge) in one atomic write
+ */
+export const ImportScenarioNetworkParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const ImportScenarioNetworkQueryParams = zod.object({
+  "mode": zod.enum(['replace', 'merge'])
+})
+
+export const ImportScenarioNetworkBody = zod.record(zod.string(), zod.unknown())
+
+export const ImportScenarioNetworkResponse = zod.object({
+  "scenario": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
+  "result": zod.union([zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer', 'plant_to_warehouse', 'warehouse_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.'),
+  "productId": zod.string().optional().describe('Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon-gold-au, plant->warehouse\/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
+  "warehouseId": zod.string(),
+  "city": zod.string(),
+  "utilization": zod.number()
+})).optional(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.'),
+  "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
+  "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
+  "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.'),
+  "plantVariableCost": zod.number().optional().describe('Two-echelon shared core — total plant variable production cost (flow x per-ton plant cost), cents precision. 0 when no plant costs are set. Optional.'),
+  "totalCost": zod.number().optional().describe('Two-echelon shared core — inboundCost + outboundCost + plantVariableCost, summed from unrounded accumulators, cents precision. Optional.'),
+  "avgDistPlantToWh": zod.number().optional().describe('Two-echelon shared core — flow-weighted average plant->warehouse distance in miles, unrounded. Optional.'),
+  "avgDistWhToCustomer": zod.number().optional().describe('Two-echelon shared core — flow-weighted average warehouse->customer distance in miles, unrounded. Optional.'),
+  "transportRates": zod.object({
+  "icTransCost": zod.number().describe('$ per ton-mile, plant -> warehouse.'),
+  "icMinTrans": zod.number().describe('$ per ton minimum charge, plant -> warehouse.'),
+  "obTransCost": zod.number().describe('$ per ton-mile, warehouse -> customer.'),
+  "obMinTrans": zod.number().describe('$ per ton minimum charge, warehouse -> customer.')
+}).optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
+  "solverUsed": zod.string(),
+  "infeasibilityReason": zod.string().nullable()
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
+})
+})
+
+
+/**
+ * @summary Export a super-model scenario's network as a JSON document (re-importable with mode=replace)
+ */
+export const ExportScenarioNetworkParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const ExportScenarioNetworkQueryParams = zod.object({
+  "format": zod.enum(['json'])
+})
+
+export const ExportScenarioNetworkResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
  * @summary Parse and validate a CSV or JSON import against the scenario's current state, without applying it
  */
 export const PreviewScenarioImportParams = zod.object({

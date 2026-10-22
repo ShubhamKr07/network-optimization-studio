@@ -4,9 +4,7 @@ import { precheckSuperInputs } from "../services/precheckSuper.js";
 import { superInputsSchema } from "../validation/inputs/superInputs.js";
 
 const sample = JSON.parse(readFileSync(new URL("../../../studio/public/samples/super-model-sample.json", import.meta.url), "utf8"));
-// The shipped sample carries 25 zero-mile warehouse->customer overrides (co-located pairs) that
-// superInputsSchema rejects (miles must be > 0); drop them so these tests exercise the precheck only.
-const base = { ...sample, distanceOverrides: sample.distanceOverrides.filter((o: { miles: number }) => o.miles > 0) };
+const base = sample;
 const S = (o: object) => superInputsSchema.parse({ ...base, ...o });
 const codes = (o: object) => precheckSuperInputs(S(o)).errors.map(e => e.code);
 
