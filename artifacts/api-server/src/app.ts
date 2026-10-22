@@ -4,7 +4,9 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { setupExpressRequestContext, setupExpressErrorHandler } from "posthog-node";
 import * as Sentry from "@sentry/node";
+import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
 import router from "./routes";
+import { requireAuth } from "./middlewares/auth";
 import { logger } from "./lib/logger";
 import { posthog } from "./lib/posthog";
 
@@ -69,8 +71,20 @@ app.use(cookieParser(COOKIE_SECRET));
 // (route-scoped 2 MiB parser in routes/scenarios.ts, mounted after auth and
 // ownership). Every other route keeps this unchanged global parser.
 const IMPORT_BODY_PATH = /^\/api\/scenarios\/[^/]+\/(?:import(?:\/apply)?|network\/import)\/?$/i;
+// SM-12 — scenario writes carry `inputs` (a super-model network is ~185 KB, over
+// the 100 KiB default), so POST /scenarios and PATCH /scenarios/:id get the same
+// 2 MiB cap as imports. Exact paths only; every other route stays at the default.
+const SCENARIO_WRITE = (m: string, path: string) =>
+  (m === "POST" && /^\/api\/scenarios\/?$/i.test(path)) || (m === "PATCH" && /^\/api\/scenarios\/[^/]+\/?$/i.test(path));
 const defaultJsonBody = express.json();
-app.use((req, res, next) => (IMPORT_BODY_PATH.test(req.path) ? next() : defaultJsonBody(req, res, next)));
+const scenarioWriteJsonBody = express.json({ limit: MAX_IMPORT_BYTES });
+// requireAuth (signed-cookie check, no DB; cookieParser ran above) goes BEFORE the
+// 2 MiB parser so an unauthenticated caller is 401'd without the body being read.
+app.use((req, res, next) => {
+  if (IMPORT_BODY_PATH.test(req.path)) return next();
+  if (!SCENARIO_WRITE(req.method, req.path)) return defaultJsonBody(req, res, next);
+  requireAuth(req, res, (err?: unknown) => (err ? next(err) : scenarioWriteJsonBody(req, res, next)));
+});
 app.use(express.urlencoded({ extended: true }));
 
 // PostHog Express middleware: reads X-POSTHOG-SESSION-ID and
@@ -107,6 +121,11 @@ if (posthog) {
 Sentry.setupExpressErrorHandler(app);
 
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  // SM-12 — body-parser's oversize error is a client error, not a 500.
+  if ((err as { type?: string })?.type === "entity.too.large" && !res.headersSent) {
+    res.status(413).json({ error: "payload_too_large" });
+    return;
+  }
   logger.error({ err }, "Unhandled error in request");
   if (res.headersSent) {
     // Headers already went out (e.g. a streaming response or a route that

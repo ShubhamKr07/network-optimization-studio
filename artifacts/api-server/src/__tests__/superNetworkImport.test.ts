@@ -2,6 +2,8 @@ import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
+import { request as httpRequest } from "node:http";
+import type { AddressInfo } from "node:net";
 import { db, usersTable, scenariosTable } from "@workspace/db";
 import app from "../app.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
@@ -117,5 +119,45 @@ describe("super-model network import/export", () => {
     const res = await imp(id2, "replace", exp.body).expect(200);
     expect(res.body.scenario.inputs).toEqual((await get(id)).inputs);
     expect((await request(app).get(`/api/scenarios/${id}/network/export`).set("Cookie", cookie)).status).toBe(400);
+  });
+});
+
+describe("SM-12 body limits", () => {
+  it("PATCH accepts the full sample-sized inputs and persists them", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const inputs = (await get(id)).inputs; // what Studio Save sends back
+    expect(JSON.stringify({ inputs }).length).toBeGreaterThan(102_400);
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ inputs });
+    expect(res.status).toBe(200);
+    expect((await get(id)).inputs.customers).toHaveLength(sample.customers.length);
+  });
+  it("PATCH over 2 MiB is 413 payload_too_large", async () => {
+    const id = await createEmptySuper();
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ name: "x".repeat(2 * 1024 * 1024 + 10) });
+    expect(res.status).toBe(413);
+    expect(res.body).toEqual({ error: "payload_too_large" });
+  });
+  it("a >100 KiB body to a non-scenario route is 413, not 500", async () => {
+    const res = await request(app).post("/api/auth/login").send({ email: "a@b.test", password: "x".repeat(110_000) });
+    expect(res.status).toBe(413);
+    expect(res.body).toEqual({ error: "payload_too_large" });
+  });
+  it("unauthenticated large PATCH/POST is 401 before the body is parsed", async () => {
+    // Declare a 3 MiB Content-Length but send no body: body-parser would 413 on the header alone,
+    // so only an auth check that runs BEFORE the parser yields 401. (Sending a real 2 MiB body
+    // races the early response and flakes with ECONNRESET.)
+    const server = app.listen(0);
+    const port = (server.address() as AddressInfo).port;
+    const status = (method: string, path: string) => new Promise<number>((resolve, reject) => {
+      const r = httpRequest({ port, method, path, headers: { "content-type": "application/json", "content-length": String(3 * 1024 * 1024) } },
+        (res) => { res.resume(); resolve(res.statusCode!); });
+      r.on("error", reject);
+      r.flushHeaders();
+    });
+    try {
+      expect(await status("PATCH", "/api/scenarios/1")).toBe(401);
+      expect(await status("POST", "/api/scenarios")).toBe(401);
+    } finally { server.closeAllConnections(); server.close(); }
   });
 });

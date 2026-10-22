@@ -190,12 +190,12 @@ describe("body handling is scoped to the import routes and runs after ownership 
     expect((await request(app).post("/api/scenarios/1/import").set("Content-Type", "application/json").send("{not json")).status).toBe(401);
   });
 
-  it("a NON-import route keeps today's global body handling (pre-existing 500, not changed here)", async () => {
+  it("a NON-import route keeps malformed-JSON 500; oversize is 413 (SM-12)", async () => {
     const id = await createScenario(owner, "p-median-us", BASE["p-median-us"]!);
     const malformed = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", owner).set("Content-Type", "application/json").send("{not json");
     expect(malformed.status).toBe(500);
-    const big = await request(app).post("/api/scenarios").set("Cookie", owner).send({ name: "x".repeat(150 * 1024), modelId: "p-median-us", inputs: BASE["p-median-us"] });
-    expect(big.status).toBe(500);
+    const big = await request(app).post("/api/scenarios").set("Cookie", owner).send({ name: "x".repeat(2 * 1024 * 1024 + 10), modelId: "p-median-us", inputs: BASE["p-median-us"] });
+    expect(big.status).toBe(413);
   });
 });
 
