@@ -41,7 +41,10 @@
 | `lib/dataset-schema/src/index.ts` | modify | `PACKAGE_SPECS`, `MODEL_IDS` |
 | `artifacts/api-server/src/validation/inputs/superInputs.ts` | create | Zod schema, caps, `superRefine` integrity |
 | `artifacts/api-server/src/registry/modelRegistry.ts`, `routes/scenarios.ts` (`VALID_MODEL_IDS`), `solver/pmedian.ts`, `routes/dataset.ts` | modify | registration |
-| `artifacts/api-server/src/solver/resultEnvelope.ts` | modify | new metric keys |
+| `artifacts/api-server/src/solver/resultEnvelope.ts` | modify | new metric keys (T1) |
+| `artifacts/api-server/src/solver/jobRunner.ts` | modify | `SOLVER_CODE_HASH` covers `merge_inputs.py` (T2) |
+| `artifacts/api-server/src/services/templates.ts` | modify | cost-summary export columns, template v5 (T4) |
+| `lib/import-schema/src/index.ts` | modify | `MODEL_IDS` (T3) |
 | `artifacts/api-server/src/services/precheckSuper.ts` | create | solver-readiness precheck |
 | `artifacts/api-server/src/services/precheck.ts` | modify | dispatch line |
 | `artifacts/api-server/src/services/superNetwork.ts` | create | replace/merge of an imported network document |
@@ -72,6 +75,11 @@ Role: solver-engineer.
 - Modify: `artifacts/api-server/src/solver/solve.py:1104-1428` (`solve_jade`), `:154` (`JADE_OPEN_BIG_M`)
 - Modify: `artifacts/api-server/src/solver/tests/test_jade.py`
 - Create: `artifacts/api-server/src/solver/tests/test_super.py`
+- Modify: `artifacts/api-server/src/solver/resultEnvelope.ts:34-71` (`MetricsSchema`)
+- Modify: `lib/api-spec/openapi.yaml` (result `metrics` schema — locate with `grep -n "inboundCost" lib/api-spec/openapi.yaml`), then regen `lib/api-zod/src/generated` + `lib/api-client-react/src/generated`
+- Create: `artifacts/api-server/src/solver/__tests__/twoEchelonMetricsContract.test.ts`
+
+The metrics contract lands in this commit, not later: the solver starts emitting the keys here, and a contract change split across commits leaves an intermediate commit whose stored results silently drop them (CLAUDE.md, "A change crossing a layer boundary is ONE commit").
 
 **Interfaces:**
 - Produces (module-level in `solve.py`, names later tasks rely on):
@@ -88,7 +96,10 @@ Role: solver-engineer.
   - `get_bounds`: `callable(wh_id) -> (lb, ub)`
   - `rates`: `{"icTransCost","icMinTrans","obTransCost","obMinTrans"}`
   - `wh_label`: `callable(wh_id) -> str` (city for utilization rows)
-  - New metrics keys emitted for every caller: `plantVariableCost`, `totalCost`, `avgDistPlantToWh`, `avgDistWhToCustomer` (unrounded floats).
+  - New metrics keys emitted for every caller, with this precision:
+    - `plantVariableCost` and `totalCost`: cents, 2 dp, like the existing `inboundCost`/`outboundCost`. `totalCost = round(inbound + outbound + plant, 2)`, summed from the **unrounded** accumulators.
+    - `avgDistPlantToWh` and `avgDistWhToCustomer`: unrounded miles. Display rounds.
+  - Generated client gains optional `plantVariableCost`, `totalCost`, `avgDistPlantToWh`, `avgDistWhToCustomer` on result `metrics`.
 
 - [ ] **Step 1: Write failing tests** in `tests/test_super.py` (same `sys.path` header as `test_jade.py:19-22`):
 
@@ -121,7 +132,7 @@ def test_plant_cost_term_adds_exactly_flow_times_cost():
     assert base["status"] == costed["status"] == "optimal"
     assert abs(m["plantVariableCost"] - 200 * 5.0) < 1e-6
     assert abs(costed["objective"] - (base["objective"] + 1000.0)) < 1e-4
-    assert abs(m["totalCost"] - (m["inboundCost"] + m["outboundCost"] + m["plantVariableCost"])) < 1e-4
+    assert abs(m["totalCost"] - (m["inboundCost"] + m["outboundCost"] + m["plantVariableCost"])) <= 0.011  # each term rounded to cents
 
 def test_plant_cost_changes_sourcing():
     # P1 made expensive -> all inbound flow comes from P2
@@ -177,8 +188,8 @@ def test_weighted_average_distances_unrounded():
      - Utilization rows use `wh_label(w)` instead of `wh_data[w]['city']`.
      - Add to the metrics dict:
        ```python
-       "plantVariableCost": plant_variable_cost,
-       "totalCost": inbound_cost + outbound_cost + plant_variable_cost,
+       "plantVariableCost": round(plant_variable_cost, 2),
+       "totalCost": round(inbound_cost + outbound_cost + plant_variable_cost, 2),
        "avgDistPlantToWh": (leg_dist_flow["plant_to_warehouse"] / leg_flow["plant_to_warehouse"]
                             if leg_flow["plant_to_warehouse"] > 0 else 0.0),
        "avgDistWhToCustomer": (leg_dist_flow["warehouse_to_customer"] / leg_flow["warehouse_to_customer"]
@@ -202,8 +213,39 @@ def test_weighted_average_distances_unrounded():
 def test_ground_truth_plant_cost_zero_and_total_cost():
     m = solve_jade(GROUND_TRUTH_INPUTS)["metrics"]
     assert m["plantVariableCost"] == 0
-    assert abs(m["totalCost"] - (m["inboundCost"] + m["outboundCost"])) < 1.0
+    assert abs(m["totalCost"] - (m["inboundCost"] + m["outboundCost"])) <= 0.011
 ```
+
+- [ ] **Step 4b: Metrics contract test (failing first)** `artifacts/api-server/src/solver/__tests__/twoEchelonMetricsContract.test.ts`. It runs the real solver on Ch9 ground truth (no hand-built fixture) and parses with `MetricsSchema`:
+
+```ts
+import { spawnSync } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
+import { MetricsSchema } from "../resultEnvelope.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url)); // package is ESM — no __dirname
+const SOLVE_PY = path.resolve(here, "../solve.py");
+
+it("MetricsSchema keeps the shared-core summary metrics from a real Ch9 solve", () => {
+  const payload = { modelType: "two_echelon_jade", p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 120,
+    warehouseStatuses: [{ warehouseId: "wh-11", status: "forced_open" }, { warehouseId: "wh-14", status: "forced_open" }] };
+  const r = spawnSync("python3", [SOLVE_PY], { input: JSON.stringify(payload), encoding: "utf8", timeout: 180_000 });
+  const out = JSON.parse(r.stdout.trim().split("\n").pop()!);
+  const m = MetricsSchema.parse(out.metrics);
+  for (const k of ["plantVariableCost", "totalCost", "avgDistPlantToWh", "avgDistWhToCustomer"] as const)
+    expect(typeof m[k]).toBe("number");
+  expect(m.plantVariableCost).toBe(0);
+}, 200_000);
+```
+
+  Under `spawnSync` there is no fd 3, so the envelope arrives on stdout, as in `e2e_accuracy.py`'s `run()`. Run it and expect FAIL: `typeof undefined`, because the keys are stripped.
+
+- [ ] **Step 4c: Contract.**
+  - In `MetricsSchema` add `plantVariableCost: z.number().optional(), totalCost: z.number().optional(), avgDistPlantToWh: z.number().optional(), avgDistWhToCustomer: z.number().optional(),`.
+  - Add the same four optional `type: number` properties to the OpenAPI result `metrics` schema.
+  - Run `pnpm --filter @workspace/api-spec run codegen`.
+  - Re-run the test and expect PASS.
 
 - [ ] **Step 5: Run**
   - `python3 -m pytest tests/ -x -q` — Expected: all pass, including `test_jade.py`'s monkeypatch tests (`JADE_CAPABILITY`, `_run_cbc` still resolve on the `solve` module).
@@ -215,7 +257,7 @@ def test_ground_truth_plant_cost_zero_and_total_cost():
   - Commit:
     ```bash
     [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1
-    git commit artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_super.py artifacts/api-server/src/solver/tests/test_jade.py docs/CHANGELOG-implementation.md -m "[SM-1] extract shared two-echelon core with plant cost term and derived big-M"
+    git commit artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_super.py artifacts/api-server/src/solver/tests/test_jade.py artifacts/api-server/src/solver/resultEnvelope.ts artifacts/api-server/src/solver/__tests__/twoEchelonMetricsContract.test.ts lib/api-spec/openapi.yaml lib/api-zod/src/generated lib/api-client-react/src/generated docs/CHANGELOG-implementation.md -m "[SM-1] extract shared two-echelon core with plant cost term, derived big-M and summary metrics contract"
     ```
 
 ---
@@ -231,7 +273,19 @@ Role: solver-engineer.
 - Create: `scripts/super-model-timing.py`
 - Create (generated): `artifacts/studio/public/samples/super-model-sample.json`
 - Create: `artifacts/studio/public/samples/super-model-template.json`
+- Modify: `artifacts/api-server/src/solver/jobRunner.ts:55-64` (`SOLVER_CODE_HASH`)
 - Test: `artifacts/api-server/src/solver/tests/test_super.py`
+
+**Cache invalidation, which replaces the version bump.** `model-integration-precheck.md`'s "bump `dataset/version.json` on solver logic change" rule predates `SOLVER_CODE_HASH` (`jobRunner.ts:55-64`). The cache key now hashes the solver source, and no dataset file changes in this phase, so no `version.json` bump is needed. But that hash covers **only** `solve.py`. Super's distance logic lives in `merge_inputs.py`, and so does jade's merge. Extend the hash to both files:
+
+```ts
+const SOLVER_CODE_HASH = crypto.createHash("sha256")
+  .update(readFileSync(SOLVER_PY))
+  .update(readFileSync(path.join(path.dirname(SOLVER_PY), "merge_inputs.py")))
+  .digest("hex").slice(0, 12);
+```
+
+This invalidates every cached result once; that is expected. Add a test in the existing `jobRunner` hash test (grep `SOLVER_CODE_HASH` in `__tests__`) asserting that the hash input includes `merge_inputs.py`, or that the value differs from a hash of `solve.py` alone.
 
 **Interfaces:**
 - Consumes: `_solve_two_echelon_core` (Task 1).
@@ -413,7 +467,7 @@ print(f"wrote {OUT}: {len(doc['customers'])} customers, {len(doc['distanceOverri
 
 - [ ] **Step 8: Gate + `e2e_accuracy.py` + changelog + commit** on branch `sm-2-solve-super`:
   ```bash
-  git commit artifacts/api-server/src/solver/merge_inputs.py artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_super.py scripts/build-super-sample.py scripts/super-model-timing.py artifacts/studio/public/samples/ docs/CHANGELOG-implementation.md -m "[SM-2] add solve_super with computed distances and Ch9-equivalent sample golden"
+  git commit artifacts/api-server/src/solver/merge_inputs.py artifacts/api-server/src/solver/jobRunner.ts artifacts/api-server/src/solver/solve.py artifacts/api-server/src/solver/tests/test_super.py scripts/build-super-sample.py scripts/super-model-timing.py artifacts/studio/public/samples/ docs/CHANGELOG-implementation.md -m "[SM-2] add solve_super with computed distances and Ch9-equivalent sample golden"
   ```
 
 ---
@@ -460,6 +514,17 @@ it("rejects an unresolved reference and an over-cap table with 422", async () =>
   expect((await request(app).post("/api/scenarios").set("Cookie", cookie)
     .send({ name: "sm-cap", modelId: "super-model", inputs: many })).status).toBe(422);
 });
+it("rejects non-finite numbers and the Phase-3-only road method with 422", async () => {
+  // JSON cannot carry Infinity; prove it at the schema level instead
+  const { superInputsSchema } = await import("../validation/inputs/superInputs.js");
+  const base = { ...SUPER_DEFAULT_INPUTS,
+    plants: [{ id: "p", name: "p", lat: 1, lng: 1 }], warehouses: [{ id: "w", name: "w", lat: 1, lng: 2, status: "active" }] };
+  expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: Infinity }] }).success).toBe(false);
+  expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: -Infinity }] }).success).toBe(false);
+  const road = await request(app).post("/api/scenarios").set("Cookie", cookie)
+    .send({ name: "sm-road", modelId: "super-model", inputs: { ...SUPER_DEFAULT_INPUTS, distanceMethod: "road" } });
+  expect(road.status).toBe(422);
+});
 it("GET /api/models lists super-model", async () => {
   const res = await request(app).get("/api/models").set("Cookie", cookie).expect(200);
   expect(res.body.map((m: { id: string }) => m.id)).toContain("super-model");
@@ -477,7 +542,7 @@ import { JADE_RATE_MAX, JADE_MIN_CHARGE_MAX, JADE_TEXTBOOK_TRANSPORT_COSTS } fro
 export const SUPER_CAPS = { products: 10, plants: 20, warehouses: 50, customers: 500, whCustProd: 100_000 } as const;
 
 const id = z.string().trim().min(1);
-const num = z.number().finite();
+const num = z.number().finite();   // every numeric field rejects NaN/±Infinity
 const loc = { id, name: z.string().trim().min(1), city: z.string().optional(), state: z.string().optional(),
   lat: num.min(-90).max(90), lng: num.min(-180).max(180) };
 
@@ -493,7 +558,7 @@ export const superTableSchemas = {
   customers: z.array(z.object({ ...loc, status: z.enum(["active", "excluded"]).default("active") })).max(SUPER_CAPS.customers),
   plantProducts: z.array(z.object({ plantId: id, productId: id, capacity: num.min(0), costPerUnit: num.min(0) })),
   demand: z.array(z.object({ customerId: id, productId: id, demand: num.min(0) })),
-  distanceOverrides: z.array(z.object({ fromId: id, toId: id, miles: num.positive() })),
+  distanceOverrides: z.array(z.object({ fromId: id, toId: id, miles: num.positive() })),   // num is .finite(): ±Infinity rejected
 };
 
 export const superParamSchemas = {
@@ -556,6 +621,7 @@ export const SUPER_DEFAULT_INPUTS = {
   - In `lib/dataset-schema/src/index.ts`:
     - Add to `PACKAGE_SPECS` (`:115-177`): `{ modelId: "super-model", files: { "plants.json": z.record(z.string(), z.never()), "warehouses.json": z.record(z.string(), z.never()), "customers.json": z.record(z.string(), z.never()), "products.json": z.record(z.string(), z.never()) } }`.
     - Add `"super-model"` to `MODEL_IDS` (`:284-292`).
+  - In `lib/import-schema/src/index.ts:26-35`, add `"super-model"` to that package's own `MODEL_IDS`, so `importSchemaRouteParity.test.ts`'s typed `modelId` accepts it. Add it to **no** `IMPORT_SCHEMAS[*].models` / `addModels` list; per-entity imports stay rejected for super.
   - Compute `version.json` with the repo's algorithm, `computeSha256` at `:194-202`. Run once: `pnpm --filter @workspace/dataset-schema exec tsx -e 'import {PACKAGE_SPECS,computeSha256} from "./src/index.ts"; console.log(computeSha256(PACKAGE_SPECS.find(s=>s.modelId==="super-model")!))'`. Then write `{ "version": 1, "sha256": "<that output>" }`. If `computeSha256`'s signature differs, read it and adapt the one-liner — do not hand-compute.
 
 - [ ] **Step 5: Manifest** `solvers/super-model/manifest.json`:
@@ -596,7 +662,7 @@ export const SUPER_DEFAULT_INPUTS = {
   - `modelRegistry.ts`: import and add `"super-model": superInputsSchema` to `KNOWN_SCHEMAS` (`:21-39`).
   - `routes/scenarios.ts:94-112`: add `"super-model"` to `VALID_MODEL_IDS`.
   - `routes/scenarios.ts` long `!==` allowlists at `:922`, `:1699`, `:1767`: do **not** add `super-model`. The per-entity import/export routes must keep rejecting it with their existing 422; that is the "rejected" case Step 11 asserts.
-  - `routes/dataset.ts:13-67`: add `if (modelId === "super-model") { res.json({ plants: [], warehouses: [], customers: [], products: [] }); return; }`. Match the response key shape the jade branch at `:39-58` uses.
+  - `routes/dataset.ts:13-67`, the canonical endpoint `GET /api/dataset?modelId=super-model` (Task 11 fixes the spec's `/models/super-model/dataset` wording): add `if (modelId === "super-model") { res.json({ plants: [], warehouses: [], customers: [], products: [] }); return; }`. Match the response key shape the jade branch at `:39-58` uses.
   - `services/templates.ts:1493-1517` `buildEffectiveFacilityCityLookup`: add `: modelId === "super-model" ? {}` before the fallback.
   - `solver/pmedian.ts`:
     - Add `| { modelId: "super-model"; inputs: SuperInputs }` to the `SolveInput` union (`:9-15`).
@@ -680,50 +746,37 @@ export const SUPER_DEFAULT_INPUTS = {
 
 ---
 
-### Task 4 [SM-4]: Metrics contract for the new summary lines
+### Task 4 [SM-4]: Cost-summary export contract for `super-model`
 
-Role: backend-engineer.
+Role: backend-engineer. The result-metrics contract already landed in Task 1. This task is the **export** contract: the `costSummary` entity's rows, CSV/JSON projections, template version and OpenAPI row schema.
 
 **Files:**
-- Modify: `artifacts/api-server/src/solver/resultEnvelope.ts:34-71`
-- Modify: `lib/api-spec/openapi.yaml` (the result `metrics` schema — locate with `grep -n "inboundCost" lib/api-spec/openapi.yaml`), then regen.
-- Test: `artifacts/api-server/src/solver/__tests__/superMetricsContract.test.ts` (new)
+- Modify: `artifacts/api-server/src/services/templates.ts`. Read `:49-68` (`COST_SUMMARY_TEMPLATE_VERSION = 4`), `:1584-1598` (row type), `buildCostSummaryRows` `:1647`, `costSummaryRowsToCsv` `:1687` and the JSON projector at `:1708` before editing.
+- Modify: `artifacts/api-server/src/routes/scenarios.ts` export route model gating (`:887-925`). Allow `entity=costSummary` for `super-model`; every other per-entity export stays rejected.
+- Modify: `lib/api-spec/openapi.yaml` `CostSummaryExportRow` (`:2293-2325`) and the envelope's `templateVersion` enum, then regen.
+- Test: `artifacts/api-server/src/__tests__/superCostSummaryExport.test.ts` (new, real DB).
 
-**Interfaces:** Produces optional metrics `plantVariableCost`, `totalCost`, `avgDistPlantToWh`, `avgDistWhToCustomer` (numbers) on the stored result and the generated client type.
+**Interfaces:**
+- `CostSummaryTemplateRow` gains optional `totalCost`, `inboundCost`, `outboundCost`, `plantVariableCost`, `avgDistPlantToWh` and `avgDistWhToCustomer` (numbers; distances converted by the existing distance-dimension export logic at `:49`).
+- `COST_SUMMARY_TEMPLATE_VERSION` becomes `5`.
 
-- [ ] **Step 1: Failing test.** It runs the real solver on the sample through the same path the job runner uses, then parses the result with the schema. This is a populated real output, not a hand-built fixture.
-
-```ts
-import { spawnSync } from "child_process";
-import { readFileSync } from "fs";
-import path from "path";
-import { MetricsSchema } from "../resultEnvelope.js";
-import { buildPayload } from "../pmedian.js";
-import { superInputsSchema } from "../../validation/inputs/superInputs.js";
-
-it("MetricsSchema keeps every super-model metric from a real solve", () => {
-  const root = path.resolve(__dirname, "../../../../..");
-  const sample = JSON.parse(readFileSync(path.join(root, "artifacts/studio/public/samples/super-model-sample.json"), "utf8"));
-  const payload = buildPayload({ modelId: "super-model", inputs: superInputsSchema.parse(sample) });
-  const r = spawnSync("python3", [path.join(root, "artifacts/api-server/src/solver/solve.py")],
-    { input: JSON.stringify(payload), encoding: "utf8", timeout: 180_000 });
-  const out = JSON.parse(r.stdout.trim().split("\n").pop()!);
-  const m = MetricsSchema.parse(out.metrics);
-  for (const k of ["plantVariableCost", "totalCost", "avgDistPlantToWh", "avgDistWhToCustomer"] as const)
-    expect(typeof m[k]).toBe("number");
-  expect(m.totalCost).toBeCloseTo(m.inboundCost! + m.outboundCost! + m.plantVariableCost!, 2);
-}, 200_000);
-```
-
-  If stdout is not the envelope (fd3 vs stdout), mirror `e2e_accuracy.py`'s `run()`, which reads stdout under subprocess.
-
-- [ ] **Step 2: Run** the test. Expected: FAIL, because `m.plantVariableCost` is undefined (stripped).
-
-- [ ] **Step 3:** In `MetricsSchema`, add `plantVariableCost: z.number().optional(), totalCost: z.number().optional(), avgDistPlantToWh: z.number().optional(), avgDistWhToCustomer: z.number().optional(),`. Add the same four optional `type: number` properties to the OpenAPI result metrics schema, then run `pnpm --filter @workspace/api-spec run codegen`.
-
-- [ ] **Step 4: Run** the test plus `pnpm gate`. Expected: PASS.
-
-- [ ] **Step 5: Changelog + commit** on `sm-4-metrics`: `[SM-4] add super-model summary metrics to the result contract`, including the regenerated code.
+- [ ] **Step 1: Failing test.**
+  - Create a super scenario with the sample inputs (`SUPER_DEFAULT_INPUTS` + sample JSON via PATCH), solve it with the real job runner, and poll `GET .../solve-jobs/:jobId` until done.
+  - `GET /api/scenarios/:id/export?entity=costSummary&format=json`, then:
+    - assert `body.templateVersion === COST_SUMMARY_TEMPLATE_VERSION` — import the constant, **never** the literal `5` (CLAUDE.md gotcha);
+    - assert the populated row has numeric `totalCost` and `plantVariableCost`;
+    - validate the body with the regenerated `@workspace/api-zod` cost-summary envelope schema.
+  - Same request with `format=csv`: assert the header contains `totalCost`, `plantVariableCost`, `avgDistPlantToWh` and `avgDistWhToCustomer`.
+  - Clean up `solveJobsTable`, then the scenarios.
+- [ ] **Step 2: Run.** Expected: FAIL (export rejects the model, or the columns are missing).
+- [ ] **Step 3: Implement.**
+  - Add the six optional fields to the row type and to `buildCostSummaryRows`, read from `result.metrics`.
+  - Extend the CSV header/projector and the JSON projector. Distance fields go through the same unit conversion `weightedAvgDistance` uses.
+  - Bump `COST_SUMMARY_TEMPLATE_VERSION` to `5` and the OpenAPI enum to `[5]` **in the same change**, add the six optional properties to `CostSummaryExportRow`, then regen.
+  - Allow `costSummary` export for super in the route gating.
+  - Grep every consumer of the version constant and fix any literal `4` in tests to reference the constant.
+- [ ] **Step 4: Run** the test and `pnpm gate`. Expected: PASS.
+- [ ] **Step 5: Changelog + commit** on `sm-4-cost-summary-export`: `[SM-4] add super-model cost-summary export columns and bump template version`, including the regenerated code.
 
 ---
 
@@ -806,8 +859,9 @@ Role: backend-engineer.
 **Files:**
 - Create: `artifacts/api-server/src/services/superNetwork.ts`
 - Create: `artifacts/api-server/src/routes/superNetwork.ts`
-- Modify: `routes/index.ts:24-36` (mount before `scenariosRouter`)
-- Modify: `app.ts:71-73` (`IMPORT_BODY_PATH`)
+- Modify: `artifacts/api-server/src/routes/index.ts:24-36` (mount before `scenariosRouter`)
+- Modify: `artifacts/api-server/src/app.ts:71-73` (`IMPORT_BODY_PATH`, path-based; the `?mode=` query does not affect it)
+- Modify: `artifacts/api-server/src/routes/scenarios.ts:165` (export `toApiScenario`)
 - Modify: `lib/api-spec/openapi.yaml` (two paths and schemas), then regen
 - Test: `artifacts/api-server/src/__tests__/superNetworkImport.test.ts`
 
@@ -820,8 +874,8 @@ Role: backend-engineer.
 
 ```ts
 const sample = JSON.parse(readFileSync(path.join(root, "artifacts/studio/public/samples/super-model-sample.json"), "utf8"));
-const imp = (id: number, body: object, c = cookie) =>
-  request(app).post(`/api/scenarios/${id}/network/import`).set("Cookie", c).send(body);
+const imp = (id: number, body: { mode: string; network: object }, c = cookie) =>
+  request(app).post(`/api/scenarios/${id}/network/import?mode=${body.mode}`).set("Cookie", c).send(body.network);
 
 it("replace imports the full sample into an empty scenario", async () => {
   const id = await createEmptySuper();
@@ -852,6 +906,10 @@ it("a bad row writes nothing (atomic) and returns row-level errors", async () =>
   expect(res.status).toBe(422);
   expect(JSON.stringify(res.body)).toContain("ghost");
   expect((await request(app).get(`/api/scenarios/${id}`).set("Cookie", cookie)).body.inputs).toEqual(before);
+});
+it("missing or bad mode -> 400", async () => {
+  const id = await createEmptySuper();
+  expect((await request(app).post(`/api/scenarios/${id}/network/import`).set("Cookie", cookie).send(sample)).status).toBe(400);
 });
 it("another user's scenario and a non-super scenario both 404", async () => {
   const id = await createEmptySuper();
@@ -924,7 +982,7 @@ import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { applyScenarioInputWrite } from "../services/scenarioInputWrite.js";
 import { superNetworkDocSchema, mergeNetwork } from "../services/superNetwork.js";
 import { superInputsSchema } from "../validation/inputs/superInputs.js";
-import { toApiScenario } from "./scenarios.js";                 // export it if it is not exported
+import { toApiScenario } from "./scenarios.js";                 // add `export` to toApiScenario (scenarios.ts:165) in this task
 import { formatInputIssues } from "../validation/formatInputIssues.js"; // same helper validateInputs uses
 
 const router = Router();
@@ -944,9 +1002,9 @@ router.post("/scenarios/:scenarioId/network/import", async (req, res, next) => {
   next();
 }, json({ limit: MAX_IMPORT_BYTES }), async (req, res) => {
   const id = Number(req.params.scenarioId);
-  const mode = req.body?.mode;
+  const mode = req.query.mode;   // spec §7.1: mode is a query parameter; the body IS the network document
   if (mode !== "replace" && mode !== "merge") { res.status(400).json({ error: "mode must be replace or merge" }); return; }
-  const doc = superNetworkDocSchema.safeParse(req.body?.network);
+  const doc = superNetworkDocSchema.safeParse(req.body);
   if (!doc.success) { res.status(422).json({ error: formatInputIssues(doc.error.issues) }); return; }
   const outcome = await db.transaction(async tx => {
     const [cur] = await tx.select().from(scenariosTable)
@@ -978,7 +1036,7 @@ export default router;
 
 - [ ] **Step 5: OpenAPI.**
   - Add path `/scenarios/{scenarioId}/network/import` with `post`, operationId `importScenarioNetwork`:
-    - Request body `NetworkImportRequest {mode: enum[replace, merge], network: object}`, both required.
+    - Query parameter `mode` (required, enum `[replace, merge]`). Request body: the network document (`type: object`), required.
     - Responses: 200 `{scenario: Scenario}`, 400, 404, 413 `PayloadTooLargeError`, 422 `{error: string}`.
   - Add path `/scenarios/{scenarioId}/network/export` with `get`, operationId `exportScenarioNetwork`:
     - Query `format` enum `[json]`.
@@ -995,9 +1053,9 @@ Role: frontend-engineer.
 
 **Files:**
 - Create: `artifacts/studio/src/lib/superNetwork.ts`
-- Create: `components/workspace/super/{SuperTableTab.tsx,superTables.tsx,SuperDistancesTab.tsx}`
-- Modify: `pages/Workspace.tsx` (tab dispatch in `renderTabContent`, `pMax` at `:3232`)
-- Test: `src/__tests__/superNetwork.test.ts`, `src/__tests__/SuperTableTab.test.tsx`, `src/__tests__/Workspace.Super.test.tsx`
+- Create: `artifacts/studio/src/components/workspace/super/{SuperTableTab.tsx,superTables.tsx,SuperDistancesTab.tsx}`
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (tab dispatch in `renderTabContent`, `pMax` at `:3232`)
+- Test: `artifacts/studio/src/__tests__/superNetwork.test.ts`, `artifacts/studio/src/__tests__/SuperTableTab.test.tsx`, `artifacts/studio/src/__tests__/Workspace.Super.test.tsx`
 
 **Interfaces:**
 - `lib/superNetwork.ts`:
@@ -1110,7 +1168,10 @@ export const SUPER_TEMPLATE_URL = "/samples/super-model-template.json";
   - `onDelete` opens the existing confirm dialog primitive used elsewhere in Workspace (grep `AlertDialog`), titled `Delete ${id}?`, with body `This also deletes ${referencingRows(...)} referencing row(s).`. On confirm, `setLocalInputs(cascadeDelete(localInputs, table, id))`.
   - `distances` → `<SuperDistancesTab …/>`, writing `distanceMethod` / `circuityFactor` / `distanceOverrides` through `updateInputsField`.
   - `transportCosts` → reuse `TransportCostsTab` exactly as the jade call site at `:3853` does. Because super's `transportCosts` is required, Reset writes `{ ...TEXTBOOK_TRANSPORT_COSTS }` instead of `clearTransportCosts()`.
-  - `optimization-parameters` → the existing parameters tab. On the `pMax` line (`:3232`, keep it one line) add an arm `modelId === "super-model" ? (localInputs.warehouses ?? []).filter(w => w.status !== "inactive").length :`.
+  - `optimization-parameters` → the existing `OptimizationParametersTab` with `showBandEditor={false}` (prop at `OptimizationParametersTab.tsx:148,260`); super has no distance bands.
+  - `buildWholeInputPayload` (`Workspace.tsx:~2047`) currently injects `distanceBands: activeBandLens` into **every** save. Make it `modelId === "super-model" ? { ...(localInputs ?? {}) } : { ...(localInputs ?? {}), distanceBands: activeBandLens }`. The server schema would strip the key anyway; this keeps the client honest and is what the test asserts.
+  - Test, in `Workspace.Super.test.tsx`: no band editor renders on Optimization Parameters, and the `mockUpdateScenario.mutate` payload's `inputs` has no `distanceBands` key.
+  - On the `pMax` line (`:3232`, keep it one line) add an arm `modelId === "super-model" ? (localInputs.warehouses ?? []).filter(w => w.status !== "inactive").length :`.
 
 - [ ] **Step 9: Workspace test** `Workspace.Super.test.tsx`. Copy `Workspace.Jade.test.tsx`'s mock setup verbatim, with model id `super-model`, the Task 3 manifest capabilities, `useGetScenario` returning a scenario whose inputs are the sample JSON, and the wouter path `/super-model`. Assert:
   - The nine sidebar input entries render.
@@ -1126,13 +1187,13 @@ export const SUPER_TEMPLATE_URL = "/samples/super-model-template.json";
 Role: frontend-engineer.
 
 **Files:**
-- Modify: `components/workspace/tabs/CostSummaryTab.tsx` (single rows near the `JADE_MODEL_ID` block; compare rows near `:683-715`)
-- Modify: `pages/Workspace.tsx` (`outputDataset` at `:3988`, `plants` prop `:4048`, location lookup `:4099`)
-- Modify: `lib/resultNarrative.ts` (`MODELS` `:88-91` + branch)
-- Test: `src/__tests__/CostSummaryTab.Super.test.tsx`, `resultNarrative.test.ts`
+- Modify: `artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx` (single rows near the `JADE_MODEL_ID` block; compare rows near `:683-715`)
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (`outputDataset` at `:3988`, `plants` prop `:4048`, location lookup `:4099`)
+- Modify: `artifacts/studio/src/lib/resultNarrative.ts` (`MODELS` `:88-91` + branch)
+- Test: `artifacts/studio/src/__tests__/CostSummaryTab.Super.test.tsx`, `resultNarrative.test.ts`
 
 - [ ] **Step 1: Failing test.** Render `CostSummaryTab` with `AllProviders` (`helpers/renderWithExportProvider.tsx`) and `modelId="super-model"`.
-  - The result is a stored result fixture **captured from Task 4's real solve**. Save it once to `src/__tests__/fixtures/superResult.json` with the command in Step 2. Do not hand-write it.
+  - The result is a stored result fixture **captured from a real `solve_super` run**. Save it once to `artifacts/studio/src/__tests__/fixtures/superResult.json` with the command in Step 2. Do not hand-write it.
   - Assert these test ids and their formatted values:
 
     | Test id | Value |
@@ -1156,7 +1217,7 @@ Role: frontend-engineer.
   - Skip the generic inbound/outbound/weighted-average rows for super so lines are not duplicated.
   - Add the same seven keys via `pushRow` in compare mode, gated on `modelId === SUPER_MODEL_ID`.
   - `Workspace.tsx`: where jade folds plants into the output dataset (`:3988`, `:4048`, `:4099`), add a super arm that builds the same shapes from `activeOutputInputs` (`plants`, `warehouses`, `customers` rows carry `id`, `name`, `city`, `state`, `lat` and `lng` already) instead of `dataset`. The open-warehouses grid then works unchanged off `result.edges` and `metrics.openFacilityIds`.
-  - `resultNarrative.ts`: add `"super-model"` to `MODELS` plus a branch mirroring jade's, saying how many warehouses opened and the total cost (`metrics.totalCost`). Add a test case.
+  - `resultNarrative.ts`: add `"super-model"` to `MODELS` (`:88-91`) plus its **own** branch placed before the band-dependent code at `:122-137`. Jade's branch needs a largest band and returns null for super. The super narrative reads `metrics.openFacilityIds.length`, `metrics.totalCost`, `metrics.avgDistPlantToWh` and `metrics.avgDistWhToCustomer`, e.g. "Opened 2 warehouses. Total cost $254,060,828.62; plant→warehouse shipments average 412 mi and warehouse→customer deliveries 655 mi." Test it with the captured fixture and `bands: []`, asserting a non-null string containing the formatted total cost.
 
 - [ ] **Step 4: Run** the tests and `pnpm gate`. Then commit on `sm-8-studio-outputs`: `[SM-8] add super-model summary, compare rows and output map wiring`.
 
@@ -1167,15 +1228,15 @@ Role: frontend-engineer.
 Role: frontend-engineer.
 
 **Files:**
-- Create: `components/workspace/super/SuperNetworkImportDialog.tsx`, `components/workspace/super/SuperReadinessPanel.tsx`
-- Modify: `pages/Workspace.tsx` (precheck `enabled` list `:1498-1507`; mount panel + dialog for super; export button)
-- Test: `src/__tests__/SuperNetworkImportDialog.test.tsx`, `src/__tests__/SuperReadinessPanel.test.tsx`
+- Create: `artifacts/studio/src/components/workspace/super/SuperNetworkImportDialog.tsx`, `components/workspace/super/SuperReadinessPanel.tsx`
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (precheck `enabled` list `:1498-1507`; mount panel + dialog for super; export button)
+- Test: `artifacts/studio/src/__tests__/SuperNetworkImportDialog.test.tsx`, `artifacts/studio/src/__tests__/SuperReadinessPanel.test.tsx`
 
 **Interfaces:** Consumes `useImportScenarioNetwork` and `exportScenarioNetwork` (Task 6 generated client), precheck errors (`usePrecheckScenario`), and `SUPER_SAMPLE_URL` / `SUPER_TEMPLATE_URL` (Task 7).
 
 - [ ] **Step 1: Failing dialog test.** Use the `ImportDialog.test.tsx` pattern: a real `QueryClient` with `retry: false`, and `global.fetch = fetchMock` routing on `url.endsWith("/network/import")`.
-  - Choosing a JSON file with mode "Merge by ID" and confirming posts `{mode: "merge", network: <parsed file>}` and calls `onApplied(scenario)`.
-  - On a non-empty scenario, "Replace all" first shows `super-import-confirm-overwrite`; confirming posts `mode: "replace"`.
+  - Choosing a JSON file with mode "Merge by ID" and confirming posts to `…/network/import?mode=merge` with the parsed file as the body and calls `onApplied(scenario)`.
+  - On a non-empty scenario, "Replace all" first shows `super-import-confirm-overwrite`; confirming posts to `…?mode=replace`.
   - A 422 response renders its `error` text under `super-import-error`.
   - A file that is not JSON shows `super-import-file-error` and posts nothing.
 
@@ -1248,6 +1309,11 @@ Role: lead.
 
 - [ ] Run the full gate once more on the integrated branch (`pnpm gate`, `e2e_accuracy.py` 99/99, `E2E_BASE_URL=… pnpm e2e:gate`), with zero concurrent vitest processes.
 - [ ] Check `docs/CHANGELOG-implementation.md` has one entry per task with SHAs, gate counts and the Task 2 timing measurements. Move deferred items (Phase 2, Phase 3) to its "next" line.
+- [ ] Fold the plan-review spec corrections into the spec in this close-out commit:
+  - §3.1: the dataset endpoint is `GET /api/dataset?modelId=super-model`.
+  - §5: costs are stored at cents (2 dp) and summed from unrounded values; average distances are unrounded; display rounds.
+  - §6: template/sample downloads live in the workspace empty state.
+  - §4.2/§3.2: `road` is rejected until Phase 3.
 - [ ] Run `/harness-retro SM`.
 - [ ] Invoke `superpowers:finishing-a-development-branch`, then **stop and ask the user for merge approval** (CLAUDE.md Branch discipline step 3). Merging, the whole-branch review, pushing and deploying are four separate approvals.
 - [ ] Deploy note for later: this phase touches no `lib/db/src/schema/**` (the network lives in `inputs` jsonb) and adds no env var. Confirm with `pnpm deploy:preflight -- <deployed-sha>..HEAD` when deploy approval is requested.
@@ -1267,7 +1333,7 @@ Role: lead.
   | §3.3 staleness | T6 test; `applyScenarioInputWrite` bumps on any non-band change |
   | §4.1 | T1 |
   | §4.2 | T2 |
-  | §5 summary | T1 metrics, T4 contract, T8 UI |
+  | §5 summary | T1 metrics + result contract, T4 cost-summary export contract, T8 UI |
   | §5 Compare | T8 |
   | §6 home | T3 Landing |
   | §6 tabs | T7 |
@@ -1286,3 +1352,29 @@ Role: lead.
   - Wire value `super_model` is identical in T3 and T4.
   - Table ids `plantProducts`, `demand` and `distanceOverrides` are identical in the schema (T3), the tabs (T3/T7) and the merge keys (T6).
 - **Known reads the implementer must do (not placeholders — exact files are named):** the outcome discriminant of `applyScenarioInputWrite`, `computeSha256`'s signature, `scenarios.ts` import paths, and the CostSummary formatter names. Each step says what to match.
+
+## Plan review log
+
+Codex (high effort) reviewed this plan on 2026-10-23. All 14 findings were folded in:
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Contract sequencing | Metrics contract moved into T1 |
+| 2 | Cost-summary export contract missing | T4 rewritten as that contract |
+| 3 | `mode` was in the body | Moved to a query parameter (T6) |
+| 4 | Override distances not finite | `.finite()` + test (T3) |
+| 5 | `road` inconsistent | Rejected in Phase 1 + test (T3); spec note (T11) |
+| 6 | Rounding vs. unrounded summary | Cents for costs, unrounded distances, cent tolerances |
+| 7 | Band editor and band save path | Hidden, and save path skips bands (T7) |
+| 8 | Narrative returns null | Own super branch (T8) |
+| 9 | Dataset version bump | Superseded by `SOLVER_CODE_HASH`, now extended to `merge_inputs.py` (T2) |
+| 10 | import-schema `MODEL_IDS` | Updated (T3) |
+| 11 | ESM `__dirname` | `fileURLToPath` (T1) |
+| 12 | `toApiScenario` export left optional | Explicit export (T6) |
+| 13 | Dataset endpoint wording | Spec fix (T11) |
+| 14 | Studio paths | Normalized to repo-root-relative |
+
+Areas Codex did not cover were checked by the lead:
+- **Solver math:** the tiny-network expectations were hand-verified — averages 100 and 150 mi, +1000 plant cost, P2 sourcing, the shortfall reaching the capacity reason.
+- **Zod:** 3.25 (`z.ZodIssueCode.custom` valid).
+- **Task ordering:** dispatcher and TS registration land together in T3.
