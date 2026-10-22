@@ -65,7 +65,11 @@ export const OUTPUT_TEMPLATE_VERSION = 3;
 // variants, ...) get a version bump they did not earn — exactly the false
 // signal a shared version constant is supposed to prevent. Only
 // buildCostSummaryRows/costSummaryRowsToCsv/toCostSummaryJsonRow read this.
-export const COST_SUMMARY_TEMPLATE_VERSION = 4;
+// SM-4 — bumps 4 -> 5 for the six two-echelon cost/leg-distance columns
+// (totalCost/inboundCost/outboundCost/plantVariableCost/avgDistPlantToWh/
+// avgDistWhToCustomer), appended after solverUsed so the v4 column prefix is
+// unchanged. openapi.yaml's CostSummaryExportEnvelope enum moves with it.
+export const COST_SUMMARY_TEMPLATE_VERSION = 5;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
@@ -1596,6 +1600,14 @@ export interface CostSummaryTemplateRow {
   solutionStatus: string | null;
   terminationReason: string | null;
   solverUsed: string;
+  // SM-4 — monetary (never converted) and per-leg distances (converted under
+  // `unit=`); null unless result.metrics carries them (super-model / jade).
+  totalCost: number | null;
+  inboundCost: number | null;
+  outboundCost: number | null;
+  plantVariableCost: number | null;
+  avgDistPlantToWh: number | null;
+  avgDistWhToCustomer: number | null;
 }
 
 // B6 whole-branch review Finding #2 — mirrors studio's
@@ -1679,6 +1691,12 @@ export function buildCostSummaryRows(
     solutionStatus: result.solutionStatus ?? null,
     terminationReason: result.terminationReason ?? null,
     solverUsed: result.solverUsed,
+    totalCost: result.metrics.totalCost ?? null,
+    inboundCost: result.metrics.inboundCost ?? null,
+    outboundCost: result.metrics.outboundCost ?? null,
+    plantVariableCost: result.metrics.plantVariableCost ?? null,
+    avgDistPlantToWh: result.metrics.avgDistPlantToWh == null ? null : roundForFile(toDisplay(result.metrics.avgDistPlantToWh, canonicalUnit, requestedUnit)),
+    avgDistWhToCustomer: result.metrics.avgDistWhToCustomer == null ? null : roundForFile(toDisplay(result.metrics.avgDistWhToCustomer, canonicalUnit, requestedUnit)),
   }];
 }
 
@@ -1686,9 +1704,9 @@ export function buildCostSummaryRows(
 // between objective_mode and weighted_avg_distance (per plan). Blank for
 // every non-Chapter-4 result (null -> "").
 export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
-  const header = "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used";
+  const header = "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used,total_cost,inbound_cost,outbound_cost,plant_variable_cost,avg_dist_plant_to_wh,avg_dist_wh_to_customer";
   const lines = rows.map(r =>
-    [r.templateVersion, r.objective ?? "", r.objectiveMode ?? "", r.highServiceDist ?? "", r.coveragePct ?? "", r.coveredDemand ?? "", r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", r.quality, r.solutionStatus ?? "", r.terminationReason ?? "", r.solverUsed].map(csvCell).join(","),
+    [r.templateVersion, r.objective ?? "", r.objectiveMode ?? "", r.highServiceDist ?? "", r.coveragePct ?? "", r.coveredDemand ?? "", r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", r.quality, r.solutionStatus ?? "", r.terminationReason ?? "", r.solverUsed, r.totalCost ?? "", r.inboundCost ?? "", r.outboundCost ?? "", r.plantVariableCost ?? "", r.avgDistPlantToWh ?? "", r.avgDistWhToCustomer ?? ""].map(csvCell).join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1723,6 +1741,12 @@ export interface CostSummaryJsonRow {
   solutionStatus: string | null;
   terminationReason: string | null;
   solverUsed: string;
+  totalCost: number | null;
+  inboundCost: number | null;
+  outboundCost: number | null;
+  plantVariableCost: number | null;
+  avgDistPlantToWh: number | null;
+  avgDistWhToCustomer: number | null;
 }
 
 export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJsonRow {
@@ -1738,6 +1762,12 @@ export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJson
     solutionStatus: r.solutionStatus,
     terminationReason: r.terminationReason,
     solverUsed: r.solverUsed,
+    totalCost: r.totalCost,
+    inboundCost: r.inboundCost,
+    outboundCost: r.outboundCost,
+    plantVariableCost: r.plantVariableCost,
+    avgDistPlantToWh: r.avgDistPlantToWh,
+    avgDistWhToCustomer: r.avgDistWhToCustomer,
   };
 }
 

@@ -1088,6 +1088,8 @@ describe("buildCostSummaryRows", () => {
       solutionStatus: "optimal",
       terminationReason: "optimality_proven",
       solverUsed: "CBC",
+      // SM-4 — null for a non-two-echelon result (metrics carry none of them).
+      totalCost: null, inboundCost: null, outboundCost: null, plantVariableCost: null, avgDistPlantToWh: null, avgDistWhToCustomer: null,
     }]);
   });
 
@@ -1174,11 +1176,11 @@ describe("costSummaryRowsToCsv", () => {
   // Task 11 (CH4O) — header gained high_service_dist/coverage_pct/
   // covered_demand between objective_mode and weighted_avg_distance, and
   // the row's own templateVersion moved to the grid-local
-  // COST_SUMMARY_TEMPLATE_VERSION (4), not the shared OUTPUT_TEMPLATE_VERSION.
-  it("emits exactly one data line (plus header) with the v4 column set", () => {
+  // COST_SUMMARY_TEMPLATE_VERSION, not the shared OUTPUT_TEMPLATE_VERSION.
+  it("emits exactly one data line (plus header) with the v5 column set", () => {
     const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).trim().split("\n");
     expect(lines.length).toBe(2);
-    expect(lines[0]).toBe("template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used");
+    expect(lines[0]).toBe("template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used,total_cost,inbound_cost,outbound_cost,plant_variable_cost,avg_dist_plant_to_wh,avg_dist_wh_to_customer");
     expect(lines[1].split(",")[0]).toBe(String(COST_SUMMARY_TEMPLATE_VERSION));
   });
 });
@@ -1192,6 +1194,7 @@ describe("toCostSummaryJsonRow", () => {
       highServiceDist: null, coveragePct: null, coveredDemand: null,
       weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal",
       solutionStatus: "optimal", terminationReason: "optimality_proven", solverUsed: "CBC",
+      totalCost: null, inboundCost: null, outboundCost: null, plantVariableCost: null, avgDistPlantToWh: null, avgDistWhToCustomer: null,
     });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);
@@ -1594,9 +1597,9 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
   });
 
   // Task 11 (CH4O) — costSummary moved OFF this shared v3 onto its own
-  // grid-local COST_SUMMARY_TEMPLATE_VERSION (4); every other grid in this
+  // grid-local COST_SUMMARY_TEMPLATE_VERSION; every other grid in this
   // describe block is unaffected and still carries v3.
-  it("costSummary CSV + JSON row carry COST_SUMMARY_TEMPLATE_VERSION (4), not the shared v3", () => {
+  it("costSummary CSV + JSON row carry COST_SUMMARY_TEMPLATE_VERSION, not the shared v3", () => {
     const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
     expect(row.templateVersion).toBe(COST_SUMMARY_TEMPLATE_VERSION);
     expect(costSummaryRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(COST_SUMMARY_TEMPLATE_VERSION));

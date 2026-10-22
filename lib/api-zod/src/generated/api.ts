@@ -756,7 +756,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "flows": zod.number()
 }).describe('two-echelon-jade-us combined-leg flow row — band is the display-label string.')]))
 }).describe('v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.'),zod.object({
-  "templateVersion": zod.literal(4),
+  "templateVersion": zod.literal(5),
   "entity": zod.enum(['costSummary']),
   "unit": zod.enum(['km', 'mi']),
   "rows": zod.array(zod.object({
@@ -770,9 +770,15 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "quality": zod.string(),
   "solutionStatus": zod.string().nullable(),
   "terminationReason": zod.string().nullable(),
-  "solverUsed": zod.string()
+  "solverUsed": zod.string(),
+  "totalCost": zod.number().nullish().describe('SM-4 (v5), two-echelon models only (super-model, jade) — monetary, never converts under `unit=`.'),
+  "inboundCost": zod.number().nullish().describe('SM-4 (v5), two-echelon models only — plant-to-warehouse transport cost; monetary, never converts.'),
+  "outboundCost": zod.number().nullish().describe('SM-4 (v5), two-echelon models only — warehouse-to-customer transport cost; monetary, never converts.'),
+  "plantVariableCost": zod.number().nullish().describe('SM-4 (v5), two-echelon models only — plant variable production cost; monetary, never converts.'),
+  "avgDistPlantToWh": zod.number().nullish().describe('SM-4 (v5), two-echelon models only — flow-weighted average plant-to-warehouse distance; a distance, so it DOES convert under `unit=`.'),
+  "avgDistWhToCustomer": zod.number().nullish().describe('SM-4 (v5), two-echelon models only — flow-weighted average warehouse-to-customer distance; a distance, so it DOES convert under `unit=`.')
 }).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\". CH4O — `highServiceDist`\/`coveragePct`\/`coveredDemand` are the v4 additions and are CONDITIONAL, not required: only max-coverage-us puts the three source fields on `details`, so for the other six models they are emitted as null (JSON) \/ blank (CSV). They are deliberately absent from `required` so a non-Chapter-4 producer that omits the keys entirely still satisfies this contract.'))
-}).describe('v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib\/units\/src\/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services\/templates.ts\'s COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments\/flows\/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.'),zod.object({
+}).describe('v5 costSummary export (SM-4: adds six optional two-echelon cost\/leg-distance columns). objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib\/units\/src\/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services\/templates.ts\'s COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions and to 5 for the six two-echelon columns while assignments\/flows\/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['serviceStats']),
   "unit": zod.enum(['km', 'mi']),

@@ -39,4 +39,34 @@ export interface CostSummaryExportRow {
   /** @nullable */
   terminationReason: string | null;
   solverUsed: string;
+  /**
+     * SM-4 (v5), two-echelon models only (super-model, jade) — monetary, never converts under `unit=`.
+     * @nullable
+     */
+  totalCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — plant-to-warehouse transport cost; monetary, never converts.
+     * @nullable
+     */
+  inboundCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — warehouse-to-customer transport cost; monetary, never converts.
+     * @nullable
+     */
+  outboundCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — plant variable production cost; monetary, never converts.
+     * @nullable
+     */
+  plantVariableCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — flow-weighted average plant-to-warehouse distance; a distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  avgDistPlantToWh?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — flow-weighted average warehouse-to-customer distance; a distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  avgDistWhToCustomer?: number | null;
 }

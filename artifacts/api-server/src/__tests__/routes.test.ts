@@ -81,6 +81,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
 import { MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
+import { COST_SUMMARY_TEMPLATE_VERSION } from "../services/templates.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { isModelLocked, lockedModelIds, setLockedModelsForTests } from "../middlewares/lockedModel.js";
@@ -2237,11 +2238,11 @@ describe("GET /api/scenarios/:id/export", () => {
   // the unit-aware exports, 1 for openWarehouses (+ distances, an input
   // entity). Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
   // Task 11 (CH4O) — costSummary moved OFF OUTPUT_TEMPLATE_VERSION onto its
-  // own grid-local COST_SUMMARY_TEMPLATE_VERSION (4), since
+  // own grid-local COST_SUMMARY_TEMPLATE_VERSION, since
   // buildCostSummaryRows now stamps rows with that constant; the JSON
   // wrapper follows so it never declares a version its own rows disagree
   // with. serviceStats/openWarehouses are unaffected by this task.
-  it("uses COST_SUMMARY_TEMPLATE_VERSION (4) at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION (3) for serviceStats, v1 for openWarehouses", async () => {
+  it("uses COST_SUMMARY_TEMPLATE_VERSION at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION (3) for serviceStats, v1 for openWarehouses", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
@@ -2252,7 +2253,7 @@ describe("GET /api/scenarios/:id/export", () => {
       }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
-    for (const [entity, expected] of [["costSummary", 4], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
+    for (const [entity, expected] of [["costSummary", COST_SUMMARY_TEMPLATE_VERSION], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
       mockDb.select.mockReturnValue(makeChain([solvedRow]));
       const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
       expect(res.status).toBe(200);
@@ -2289,17 +2290,17 @@ describe("GET /api/scenarios/:id/export", () => {
     const costCsv = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=csv").set("Cookie", cookie);
     expect(costCsv.status).toBe(200);
     expect(costCsv.text.split("\n")[0]).toBe(
-      "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used",
+      "template_version,objective,objective_mode,high_service_dist,coverage_pct,covered_demand,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used,total_cost,inbound_cost,outbound_cost,plant_variable_cost,avg_dist_plant_to_wh,avg_dist_wh_to_customer",
     );
-    expect(costCsv.text).toContain("4,87.5,coverage,450,66.6667,131645389,250.5,mi");
+    expect(costCsv.text).toContain(`${COST_SUMMARY_TEMPLATE_VERSION},87.5,coverage,450,66.6667,131645389,250.5,mi`);
 
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
     expect(cost.status).toBe(200);
     // T9 — `distanceUnit`/`templateVersion` live on the envelope only in
     // JSON (`unit`/`templateVersion`); the row itself never duplicates them.
-    // Task 11 (CH4O) — costSummary's wrapper is now COST_SUMMARY_TEMPLATE_VERSION (4).
-    expect(cost.body.templateVersion).toBe(4);
+    // Task 11 (CH4O) — costSummary's wrapper is now COST_SUMMARY_TEMPLATE_VERSION.
+    expect(cost.body.templateVersion).toBe(COST_SUMMARY_TEMPLATE_VERSION);
     expect(cost.body.unit).toBe("mi");
     expect(cost.body.rows[0]).toMatchObject({
       objectiveMode: "coverage", highServiceDist: 450, coveragePct: 66.6667, coveredDemand: 131645389,

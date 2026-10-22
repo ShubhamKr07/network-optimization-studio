@@ -1238,6 +1238,36 @@ export interface CostSummaryExportRow {
   /** @nullable */
   terminationReason: string | null;
   solverUsed: string;
+  /**
+     * SM-4 (v5), two-echelon models only (super-model, jade) — monetary, never converts under `unit=`.
+     * @nullable
+     */
+  totalCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — plant-to-warehouse transport cost; monetary, never converts.
+     * @nullable
+     */
+  inboundCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — warehouse-to-customer transport cost; monetary, never converts.
+     * @nullable
+     */
+  outboundCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — plant variable production cost; monetary, never converts.
+     * @nullable
+     */
+  plantVariableCost?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — flow-weighted average plant-to-warehouse distance; a distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  avgDistPlantToWh?: number | null;
+  /**
+     * SM-4 (v5), two-echelon models only — flow-weighted average warehouse-to-customer distance; a distance, so it DOES convert under `unit=`.
+     * @nullable
+     */
+  avgDistWhToCustomer?: number | null;
 }
 
 export type AssignmentsExportEnvelopeTemplateVersion = typeof AssignmentsExportEnvelopeTemplateVersion[keyof typeof AssignmentsExportEnvelopeTemplateVersion];
@@ -1308,7 +1338,7 @@ export type CostSummaryExportEnvelopeTemplateVersion = typeof CostSummaryExportE
 
 
 export const CostSummaryExportEnvelopeTemplateVersion = {
-  NUMBER_4: 4,
+  NUMBER_5: 5,
 } as const;
 
 export type CostSummaryExportEnvelopeEntity = typeof CostSummaryExportEnvelopeEntity[keyof typeof CostSummaryExportEnvelopeEntity];
@@ -1327,7 +1357,7 @@ export const CostSummaryExportEnvelopeUnit = {
 } as const;
 
 /**
- * v4 costSummary export. objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib/units/src/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services/templates.ts's COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions while assignments/flows/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.
+ * v5 costSummary export (SM-4: adds six optional two-echelon cost/leg-distance columns). objective converts under `unit=` per the shared seven-model objective-dimension mapping (lib/units/src/ objective.ts); jade monetary and Chen coverage-percent do not convert. CH4O — costSummary is the one output grid on a GRID-LOCAL template version (services/templates.ts's COST_SUMMARY_TEMPLATE_VERSION), bumped to 4 for the three max-coverage-us row additions and to 5 for the six two-echelon columns while assignments/flows/serviceStats stay on the shared v3. The enum is SINGLE-VALUED on purpose: the route emits exactly COST_SUMMARY_TEMPLATE_VERSION, this envelope is computed per request and never persisted or re-imported, so a v3 costSummary envelope can no longer exist — admitting 3 here would only let an emitter that drifted back off the constant pass validation.
  */
 export interface CostSummaryExportEnvelope {
   templateVersion: CostSummaryExportEnvelopeTemplateVersion;
