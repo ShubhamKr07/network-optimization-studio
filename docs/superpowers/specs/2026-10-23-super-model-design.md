@@ -1,12 +1,12 @@
 # Super Model — design
 
-Date: 2026-10-23 · Status: approved in brainstorming, pending written-spec review
+Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; pending written-spec review
 
 ## 1. Goal
 
 Add an 8th model, **Super Model** (`super-model`), as its own home-page block. It is derived from the
 Chapter 9 JADE model (`two-echelon-jade-us`) and becomes the base that later grows a richer objective.
-It ships **no preset dataset**: a scenario starts empty and the user imports a network.
+It ships **no preset network**: a scenario starts empty and the user imports a network.
 
 Changes relative to Ch9:
 
@@ -24,49 +24,85 @@ Changes relative to Ch9:
 |---|---|
 | Solver approach | Shared solver core extracted from `solve_jade`; Ch9 and Super Model both call it |
 | Warehouse decision | Open exactly `p` (as Ch9) |
-| Transport cost | Ch9's global `$/unit-mile` rate with minimum charge, inbound + outbound (`transportCosts`, 4 params) |
+| Transport cost | Ch9's global per-unit rate with per-unit minimum (`transportCosts`, 4 params; §4.1) |
 | Capacity | Hard cap. Missing row or `capacity = 0` ⇒ plant cannot make the product |
 | Distances | Per-scenario method: `haversine`, `circuity` (haversine × user factor), `road` (OpenRouteService). Imported pair overrides always win |
 | Geography | Any valid lat/lng; miles; map auto-fits imported points |
 | Import | Whole network in one shot in three formats: multi-select CSV, XLSX workbook, JSON. Export in same formats |
 | Re-import | User chooses at import time: **Replace all** or **Merge by ID**. Both atomic |
 | Editing | All Ch9 controls: inline edit + add/delete on every table, warehouse status, customer exclude, `p`, rates |
-| Outputs | New summary (§5) + open-warehouses grid + map. Ch9's other grids are not shown for this model |
+| Outputs | New summary (§5) + open-warehouses grid + map. No distance bands, no other Ch9 grids |
 | Home page | Own "Super Model" block after the chapter blocks; blank templates + a downloadable sample network |
-| Size | Classroom caps, numbers fixed in the plan after a measured CBC timing run |
+| Size | Provisional caps in §3.3, confirmed by a measured CBC timing run as Phase 1's first task |
 | Delivery | Three phases (§9) |
 
 ## 3. Data model
 
-All network data lives in `scenarios.inputs` (jsonb). There is no base dataset, so Ch9's
+### 3.1 Dataset package (empty, but present)
+
+The registry requires a `datasetDir` (`ManifestSchema`, `lib/dataset-schema`), and every solve hashes
+`readVersion(modelId)` into its cache key (`jobRunner.ts` `computeInputsHash`). Super Model therefore
+ships a **minimal dataset package** rather than special-casing those paths:
+
+- `solvers/super-model/manifest.json`, `datasetDir: "solvers/super-model/dataset"`
+- `dataset/version.json` (`version: 1`, sha256 over the package as for every other model)
+- empty entity files (`plants.json`, `warehouses.json`, `customers.json`, `products.json` = `{}`)
+- a `PACKAGE_SPECS` entry like the others. `GET /models/super-model/dataset` returns the empty package.
+
+No caching/version code changes. The network itself is never in the package — only in `inputs`.
+
+### 3.2 Inputs
+
+All network data lives in `scenarios.inputs` (jsonb). There is no base network, so Ch9's
 `added*` / `*Overrides` split does not exist here — every table is a plain array.
 
 ```
 inputs = {
   p: integer ≥ 1,
   gap, timeLimitSec,                                  // as Ch9
-  transportCosts: { icTransCost, icMinTrans, obTransCost, obMinTrans },  // as Ch9
-  distanceMethod: "haversine" | "circuity" | "road",  // "road" usable from phase 3
-  circuityFactor: number ≥ 1,                         // read only when distanceMethod = "circuity"
+  transportCosts: { icTransCost, icMinTrans, obTransCost, obMinTrans },  // as Ch9, same bounds
+  distanceMethod: "haversine" | "circuity" | "road",  // "road" accepted from phase 3
+  circuityFactor: number in [1, 3],                   // read only when distanceMethod = "circuity"
   products:      [{ id, name }],
   plants:        [{ id, name, city, state, lat, lng }],
-  warehouses:    [{ id, name, city, state, lat, lng, status: "candidate"|"forcedOpen"|"forcedClosed" }],
+  warehouses:    [{ id, name, city, state, lat, lng, status: "active"|"forced_open"|"inactive" }],
   customers:     [{ id, name, city, state, lat, lng, status: "active"|"excluded" }],
   plantProducts: [{ plantId, productId, capacity ≥ 0, costPerUnit ≥ 0 }],
   demand:        [{ customerId, productId, demand ≥ 0 }],
-  distanceOverrides: [{ fromId, toId, miles > 0 }],   // plant→WH or WH→customer pairs
-  roadDistances?: { fetchedAt, pairs: [{ fromId, toId, miles }] }  // phase 3, server-written cache
+  distanceOverrides: [{ fromId, toId, miles > 0 }],
+  roadDistances?: { fetchedAt, pairs: [{ fromId, toId, miles }] }   // phase 3, server-written only
 }
 ```
 
-Rules:
+Warehouse/customer status values reuse Ch9's existing vocabulary (`jadeInputs.ts`): `active` = eligible
+candidate, `forced_open` = must open (counts toward `p`), `inactive` = cannot open.
 
-- IDs are stable join keys; `name`/`city`/`state` are display-only (city names are not unique).
-- `(plantId, productId)` and `(customerId, productId)` are unique. A missing demand row means 0.
+No `distanceBands`: Super shows no band output.
+
+### 3.3 Rules
+
+- **IDs** are required, non-blank, and stable. They are **globally unique across plants, warehouses and
+  customers** (enforced on every write); product IDs are unique among products. Global uniqueness makes
+  `(fromId, toId)` unambiguous: a pair is plant→warehouse or warehouse→customer by its endpoints' tables,
+  so no `leg` field is needed. Any other endpoint combination is rejected.
+- `(plantId, productId)`, `(customerId, productId)`, `(fromId, toId)` are unique. A missing demand row
+  means 0; a missing plant-product row means cannot make.
 - Every reference (`plantId`, `productId`, `customerId`, `fromId`, `toId`) must resolve.
-- A new scenario's `inputs` holds parameters with defaults and empty tables. `required[]` covers only
-  keys that an empty scenario carries, so the WF-5 "missing required values" notice cannot fire on an
-  empty-but-valid scenario. "Ready to solve" is a separate checklist (§6).
+- lat ∈ [-90, 90], lng ∈ [-180, 180]; all numbers finite.
+- **Provisional size caps** (confirmed or revised by Phase 1 task 1's measured CBC run on a synthetic
+  network at the cap, recorded with its timing): products ≤ 10, plants ≤ 20, warehouses ≤ 50,
+  customers ≤ 500, and warehouses × customers × products ≤ 100,000 (Ch9 is 10,000). Over-cap writes are
+  rejected with a message naming the cap.
+- **Validation authority** is the hand-written Zod schema (`superInputs.ts`), which runs on every write
+  path (PATCH, network import). The manifest's `required[]` drives only the studio's missing-values
+  notice; it lists only keys every new scenario is created with (parameters + the empty tables), so an
+  empty-but-valid scenario never shows that notice. Tests prove an empty scenario validates and an
+  incomplete non-empty row fails.
+- **Distance normalization:** `super-model` is not added to `normalizeAddedEntityDistances`
+  (`autoDistance.ts`); no estimated distance rows are ever written. Computed distances exist only inside
+  the solver run.
+- **Staleness:** every write to `inputs` bumps `inputsUpdatedAt`, including a server write of
+  `roadDistances`. (The Ch9 distance-band exception does not apply — Super has no bands.)
 
 ## 4. Solver
 
@@ -74,55 +110,73 @@ Rules:
 
 Extract the model-building body of `solve_jade` (`artifacts/api-server/src/solver/solve.py`) into a core
 function that receives a resolved network (plants, warehouses + bounds, customers, products, demands,
-capacity map, plant cost map, distance map) and parameters. Constraints C1–C7 are kept exactly:
+capacity map, plant cost map, distance map) and parameters.
 
-- C1 each positive (customer, product) demand served exactly once
-- C2 warehouse flow balance per product, summed over plants
-- C3 plant-product capacity ≤ `capacity`
-- C4 open-if-used big-M
-- C5 exactly `p` open
-- C6 forced open / closed bounds
-- C7 single-source: one warehouse per customer across all products
+Variables and units (as Ch9):
 
-Objective gains one term:
+- `flow_pw[pl,w,k] ≥ 0` continuous, product units shipped plant→warehouse
+- `flow_wc[w,c,k] ∈ {0,1}`, warehouse `w` serves customer `c`'s product `k` demand
+- `open[w] ∈ {0,1}`, `src[w,c] ∈ {0,1}`
+
+Per-unit coefficients (minimum is per unit, exactly as Ch9 today):
+
+- `ic(pl,w) = max(icTransCost × miles(pl,w), icMinTrans)`  $/unit
+- `oc(w,c)  = max(obTransCost × miles(w,c), obMinTrans)`  $/unit
+
+Constraints C1–C7 as Ch9: demand served once per (customer, product) with positive demand; warehouse
+flow balance per product summed over plants; plant-product capacity; open-if-used; exactly `p` open;
+status bounds; single source per customer across all products.
+
+**C4 big-M** becomes derived: `M = |customers| × |products|`, the maximum possible
+`Σ_c,k flow_wc[w,c,k]`. Valid by construction for any network size, and replaces the fixed
+`JADE_OPEN_BIG_M` for Ch9 too (same integer-feasible set; `e2e_accuracy.py` proves the objective is
+unchanged).
+
+Objective:
 
 ```
-min  Σ flow_pw[pl,w,k] · ic_cost(pl,w)
-   + Σ flow_wc[w,c,k] · ob_cost(w,c) · demand[c,k]
+min  Σ flow_pw[pl,w,k] · ic(pl,w)
+   + Σ flow_wc[w,c,k] · oc(w,c) · demand[c,k]
    + Σ flow_pw[pl,w,k] · costPerUnit[pl,k]          ← new
 ```
 
-`solve_jade` passes an empty cost map, so the new term is 0 and its objective is byte-identical. This is a
-coefficient change, not a branch (hard rule #6). The existing non-finite-coefficient guard extends to
-`costPerUnit`. Infeasibility reasons are reused unchanged (forced-open > p, too few active warehouses,
-product with demand but no capable plant, …).
+`solve_jade` passes an empty cost map, so the new term is 0. A coefficient change, not a branch (hard
+rule #6). The non-finite-coefficient guard extends to `costPerUnit`. Infeasibility reasons are reused
+(forced-open > p, too few eligible warehouses, product with demand but no capable plant) plus one new
+reason: a product's total capacity < its total active demand.
 
 ### 4.2 Super Model entry point
 
 `solve_super` resolves `inputs` into the core's network shape:
 
-- excluded customers and their demand rows dropped; warehouse status → bounds
-- capacity / cost maps from `plantProducts` (missing pair ⇒ capacity 0)
-- distance for every plant→WH and WH→customer pair, resolved in the merge layer:
+- excluded customers and their demand rows dropped; status → bounds
+- capacity / cost maps from `plantProducts`
+- distance for every plant→WH and WH→customer pair:
   1. `distanceOverrides` pair if present
-  2. else `road` → `roadDistances` pair (solve refused if the cache is incomplete)
-  3. else `haversine` miles, × `circuityFactor` when method is `circuity`
-
-Computed distances are not stored. The Python merge layer is the single authority for them.
+  2. else, if method is `road`, the `roadDistances` pair (precheck refuses solve if any pair is missing)
+  3. else haversine miles, × `circuityFactor` when method is `circuity`
 
 ## 5. Output summary
 
-| Line | Definition |
-|---|---|
-| Objective | Solver objective value (equals Total Cost today; its meaning will change as the model grows) |
-| Total Cost | Inbound + Outbound + Plant Variable |
-| Total Inbound Transportation Cost | Σ flow_pw · ic_cost |
-| Total Outbound Transportation Cost | Σ flow_wc · ob_cost · demand |
-| Total Plant Variable Cost | Σ flow_pw · costPerUnit |
-| Weighted Avg Distance — Plant to WH | Σ(units × miles) / Σ units over plant→WH flows, all products |
-| Weighted Avg Distance — WH to Customer | Σ(units × miles) / Σ units over served demand, all products |
+Computed from **unrounded** solver values; display rounding happens only at render/export.
 
-Shown with the open-warehouses grid and the map. Distances in miles.
+| Line | Metric key | Definition |
+|---|---|---|
+| Objective | `objective` | Solver objective value (equals Total Cost today; its meaning changes as the model grows) |
+| Total Cost | `totalCost` | inbound + outbound + plant variable |
+| Total Inbound Transportation Cost | `inboundCost` | Σ flow_pw · ic |
+| Total Outbound Transportation Cost | `outboundCost` | Σ flow_wc · oc · demand |
+| Total Plant Variable Cost | `plantVariableCost` | Σ flow_pw · costPerUnit |
+| Weighted Avg Distance — Plant to WH | `avgDistPlantToWh` | Σ(flow_pw × miles) / Σ flow_pw, all products (mi) |
+| Weighted Avg Distance — WH to Customer | `avgDistWhToCustomer` | Σ(flow_wc × demand × miles) / Σ(flow_wc × demand) (mi) |
+
+Contract (one task, per the "version constant + contract are one change" gotcha): the keys are added to
+`solve.py`'s output, `resultEnvelope.ts` `MetricsSchema`, the OpenAPI result/cost-summary schemas,
+regenerated Orval output, the cost-summary export rows, and the Studio summary renderer. A contract test
+validates a real `solve_super` result (populated, not hand-built).
+
+**Compare:** Super scenarios compare only with other Super scenarios. Compare renders the seven lines
+above; a test covers a Super-vs-Super compare.
 
 ## 6. UI (Studio)
 
@@ -132,40 +186,70 @@ Shown with the open-warehouses grid and the map. Distances in miles.
   Products · Plants · Warehouses (status) · Customers (status, no demand column) ·
   Plant Capability (plant, product, capacity, cost/unit) · Demand (customer, product, demand) ·
   Distances (override list, method selector, circuity factor) · Parameters (`p`, rates, gap, time limit).
-- Every table: inline edit, add row, delete row. Deleting a product/plant/customer/warehouse removes the
-  rows that reference it, after a confirmation that names how many.
-- **Empty state:** "Import network" prompt. Solve is disabled with a readiness checklist until there is
-  ≥ 1 product, plant, warehouse, active customer, plant-product row with capacity > 0, demand row > 0,
-  and `p` ≤ number of non-forced-closed warehouses.
-- Cached result shows the existing stale badge whenever inputs change after a solve.
+- Every table: inline edit, add row, delete row. Deleting a product/plant/customer/warehouse also deletes
+  the plant-product, demand and distance-override rows that reference it, after a confirmation stating
+  how many rows go with it.
+- **Empty state:** "Import network" prompt.
+- **Solve readiness** comes from the server precheck (the same one the solve route enforces), shown as a
+  checklist. It fails when: any of products / plants / warehouses / active customers is empty; no
+  positive demand; any product's total capacity < its total active demand; `p` > eligible warehouses;
+  forced-open count > `p`; method `road` with an incomplete cache; any non-finite coefficient.
+- Cached result shows the existing stale badge whenever `inputsUpdatedAt > solvedAt`.
 
 ## 7. Import / export
 
-- One "Import network" action, three formats, each a full network:
-  - **CSV:** multi-select files (native `<input multiple>`), matched by filename —
-    `products.csv`, `plants.csv`, `warehouses.csv`, `customers.csv`, `plant_products.csv`, `demand.csv`,
-    `distance_overrides.csv`, `parameters.csv`. Unknown filenames rejected by name.
-  - **XLSX:** one workbook, one sheet per table, same names. New dependency chosen in the plan.
-  - **JSON:** one document shaped like §3.
-- All formats are parsed to the same network object and validated by one server path (§3 rules +
-  size caps). Errors are row-level and name the file/sheet, row, and column. Nothing is written on any
-  error.
-- The user picks **Replace all** (confirm overwrite) or **Merge by ID** (upsert by ID per table;
-  rows not mentioned are kept) each time. Replace on an empty scenario skips the confirm.
-- Import writes inputs through the existing scenario write path, so ownership (404 on non-owned) and
-  staleness behave as for every other model.
-- Export produces the same three formats; export → import round-trips to an identical network.
-- Existing CSV formula-injection handling applies to CSV and XLSX text cells.
+### 7.1 Contract
+
+New network-level endpoints; Super does not use the existing per-entity import routes (which stay as
+they are for other models):
+
+- `POST /scenarios/:id/network/import?mode=replace|merge` — `multipart/form-data` (CSV files or one XLSX
+  file) or `application/json` (one network document).
+- `GET /scenarios/:id/network/export?format=json|xlsx|csv` — csv returns a zip of the per-table files
+  (download convenience only; CSV import stays multi-select files).
+
+Both scoped to the authenticated owner; non-owned or non-Super scenario ⇒ 404. Added to `openapi.yaml`
+and regenerated in the same task.
+
+### 7.2 Formats
+
+- **CSV:** multi-select files (native `<input multiple>`), matched by filename — `products.csv`,
+  `plants.csv`, `warehouses.csv`, `customers.csv`, `plant_products.csv`, `demand.csv`,
+  `distance_overrides.csv`, `parameters.csv` (key/value rows). Unknown filenames rejected by name.
+  Missing files = table absent.
+- **XLSX:** one workbook, sheets with the same names. New dependency chosen in the plan.
+- **JSON:** one document shaped like §3.2 (no `roadDistances`).
+- Request limits: existing `MAX_IMPORT_ROWS` per table and the §3.3 caps on the resulting network.
+  Existing CSV formula-injection handling applies to CSV and XLSX text cells.
+
+### 7.3 Semantics
+
+Order: parse all files → per-table row validation → build resulting network → whole-network validation
+(§3.3) → single write. Any error ⇒ nothing written; errors name file/sheet, row, column.
+
+- **Replace:** every table and parameter in the import replaces the scenario's; a table absent from the
+  import becomes empty; parameters absent keep defaults. `roadDistances` is cleared. UI confirms the
+  overwrite unless the scenario is empty.
+- **Merge:** per table, a row whose ID (or composite key, for plant-product / demand / override rows)
+  matches an existing row replaces that row whole; a new ID inserts; rows not mentioned are kept; merge
+  never deletes. Parameters present overwrite. `roadDistances` pairs touching any changed or new
+  location are dropped. The merged result must pass whole-network validation (references, global ID
+  uniqueness, caps).
+- The write goes through the existing scenario input write path, so ownership and `inputsUpdatedAt`
+  behave as for every other write.
+- Export → import (replace) round-trips to identical `inputs` minus `roadDistances`.
 
 ## 8. Road distances (OpenRouteService) — phase 3
 
-- `distanceMethod: "road"` exposes a "Fetch road distances" action. An API-server job calls the ORS
-  matrix API for all plant→WH and WH→customer pairs and writes `roadDistances` with `fetchedAt`.
-- Editing a location, or adding/removing an entity, invalidates the cache; solve with `road` is refused
-  until it is complete again.
-- ORS API key: new `nos-api` env var (deploy checklist item).
-- ORS free-tier quota and per-request location limits are verified in the phase-3 plan before batching
-  is designed. No numbers are assumed here.
+- With `distanceMethod: "road"`, a "Fetch road distances" action starts an API-server job that calls the
+  ORS matrix API for all plant→WH and WH→customer pairs, converts meters → miles, and writes
+  `roadDistances` in one atomic write when every pair has succeeded. A failed or partial job writes
+  nothing and reports which batch failed.
+- The API key is a secret env var `ORS_API_KEY` on the `nos-api` Render service (`sync: false`), never
+  logged or returned. Its addition is a deploy-checklist item.
+- Batching, per-request location limits, timeouts, retries and quota handling are designed in the
+  phase-3 plan from ORS's current published limits — no numbers are assumed here.
+- Unroutable pairs (ORS returns null) fail the job with the pair named; the user can add an override.
 - Privacy: before the first fetch, the UI states that plant/warehouse/customer coordinates are sent to
   OpenRouteService.
 
@@ -173,28 +257,38 @@ Shown with the open-warehouses grid and the map. Distances in miles.
 
 Each phase ends in a usable model and follows branch discipline (branch per commit, prompt before merge).
 
-1. Model registration (all 18 points in `model-integration-precheck.md`), shared solver core, `solve_super`,
-   all tabs and editing, readiness checklist, JSON import/export with replace/merge, blank templates,
-   sample network, `haversine` + `circuity` distances, output summary.
-2. Multi-select CSV and XLSX import/export.
+1. Timing run to confirm caps; dataset package; model registration; shared solver core + `solve_super`;
+   metrics contract; precheck; all tabs and editing; network import/export endpoints in JSON with
+   replace/merge; blank templates; sample network; `haversine` + `circuity`; output summary; Compare.
+   The plan must include a table mapping each of the 18 points in `model-integration-precheck.md`
+   (`KNOWN_SCHEMAS`/`VALID_MODEL_IDS`, OpenAPI enums, `chapters.ts`, `lib/units` objective dimension,
+   precheck dispatch, `Workspace.tsx` tabs, `pMax`, import/export allowlists, result narrative, …) to
+   the task and files that satisfy it, including regenerated code and registration-test updates.
+2. Multi-select CSV and XLSX import, CSV-zip and XLSX export.
 3. OpenRouteService road distances.
 
 ## 10. Testing
 
 - **pytest:** shared core — plant-cost term changes the objective by exactly Σ flow·cost; capacity cap
-  binds; missing row ⇒ cannot make; both distance methods; override precedence; summary arithmetic.
-- **`e2e_accuracy.py` unmodified** — proves Ch9 is unchanged by the core extraction.
-- **New golden:** the sample network (Ch9 JADE data, costPerUnit = 0, JADE distance matrix as overrides,
-  same `p` and rates) reproduces Ch9's published objective.
-- **API (vitest + supertest, real Postgres):** validation errors, ownership 404, replace vs merge,
-  atomicity (bad row ⇒ nothing written), size caps, format parity (CSV / XLSX / JSON of one network give
-  identical `inputs`), export → import round-trip. At least one test goes through the real writer, not a
-  hand-built fixture.
-- **RTL:** each tab's edit/add/delete, readiness checklist, import mode dialog.
+  binds; missing row ⇒ cannot make; derived big-M; both distance methods; override precedence; summary
+  arithmetic from unrounded values; new capacity-shortfall infeasibility reason.
+- **`e2e_accuracy.py` unmodified** — proves Ch9 is unchanged by the core extraction and the derived M.
+- **New golden (sample network):** Ch9 JADE data reshaped — plants, warehouses, customers, products,
+  diagonal capability with the dataset's capacities, `costPerUnit = 0`, demand rows from customer
+  `demands`, every JADE distance as an override, default rates, `p = 2`, `wh-11` and `wh-14`
+  `forced_open`, `gap = 0`. Asserts objective `254060828.6157` (rel. 1e-6) and open set
+  `{wh-11, wh-14}` — the same case as `e2e_accuracy.py`'s Notebook scenario_1. The downloadable sample
+  file is this fixture.
+- **API (vitest + supertest, real Postgres):** validation errors; ownership 404; replace vs merge;
+  atomicity (bad row ⇒ nothing written); global ID uniqueness; caps; staleness bump on every write;
+  format parity (CSV / XLSX / JSON of one network give identical `inputs`); export → import round-trip.
+  At least one test goes through the real writer, not a hand-built fixture.
+- **RTL:** each tab's edit/add/delete incl. cascade confirmation, readiness checklist, import mode
+  dialog.
 - **Playwright (QA task):** real browser — new scenario → import sample → solve → summary values.
   Sibling e2e specs grepped for any changed testid/string.
 
 ## 11. Out of scope
 
 Warehouse fixed costs, per-lane or per-product transport rates, unmet-demand penalties, per-product
-summary breakdowns, km units, Compare changes beyond what the registration points provide by default.
+summary breakdowns, distance bands, km units, cross-model Compare.
