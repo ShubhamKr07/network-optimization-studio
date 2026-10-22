@@ -4348,3 +4348,10 @@ Super Model Phase 1, Task 10 (qa-sdet). Branch `sm-10-work` (based on `567e8902`
 - Gate evidence (api 3101 / studio 5201): `E2E_BASE_URL=http://localhost:5201 pnpm e2e:gate` before the sibling fix = 70 passed, 8 failed, 3 flaky of 81 (16.1 min): 5 bundle breakage (fixed), 1 Test C (real bug above), 1 each `delivery-teaching`, `sentry-capture` (load flakes, recorded in `docs/superpowers/flake-registry.md`); 3 further flaky-on-retry. The 7 containing sibling files re-run `--workers=1 --retries=0` = 21 passed. `pnpm --filter studio test` = 163 files / 2800 tests passed.
 - Environment note: a fresh worktree has no `node_modules`; `pnpm install --offline --frozen-lockfile` fixed it in 10 s. `pnpm --filter api-server run dev` is build-then-start (no watch), so a source probe needs a server restart (and the old PID must be killed explicitly).
 - Next: SM-11 (close-out). Test C stays red until the PATCH body limit is fixed.
+
+### SM-13 - Super Model opens on the Products tab so the import prompt shows (2026-10-23)
+
+Super Model Phase 1 follow-up (gap found by SM-10 Playwright). Branch `sm-13-work` (based on `764c1212`). A new super-model scenario opened with no tab selected; the SuperReadinessPanel empty state (Import network + template/sample downloads) only appeared after clicking an input tab.
+- Fix: the existing once-per-model seed effect in `Workspace.tsx` (the one that opens Input Map) now falls back to the first input entry (`products`) for `super-model`, which has no `input-map` entry. No new mechanism; other models unchanged.
+- Test: `Workspace.Super.test.tsx` "SM-13: an empty scenario opens on the import prompt with no sidebar click" (failed before the fix, passes after). `e2e/super-model.spec.ts` Test A: dropped the "click Products first" workaround (not re-run here; SM re-run task owns Playwright).
+- Gate: studio 163 files / 2801 tests pass; `pnpm run typecheck` clean.

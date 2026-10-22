@@ -41,9 +41,7 @@ async function createScenarioViaUi(page: Page): Promise<string> {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: HEADER_TIMEOUT });
   await dialog.getByRole("button", { name: /create/i }).click();
-  // A new super-model scenario opens with no tab selected ("Pick an item from the
-  // sidebar"); the empty state lives inside every input tab, so open one.
-  await page.getByTestId("sidebar-input-products").click({ timeout: HEADER_TIMEOUT });
+  // SM-13: a new super-model scenario opens on the Products tab, so the empty state shows immediately.
   await expect(page.getByTestId("super-empty-state")).toBeVisible({ timeout: HEADER_TIMEOUT });
   const id = new URL(page.url()).searchParams.get("scenario");
   expect(id, "created scenario id must be in the URL").toBeTruthy();

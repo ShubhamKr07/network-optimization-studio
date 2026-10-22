@@ -207,6 +207,14 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(screen.getByTestId("super-download-template")).toBeInTheDocument();
   });
 
+  it("SM-13: an empty scenario opens on the import prompt with no sidebar click", () => {
+    const empty = { ...scenario, inputs: { ...sample, products: [], plants: [], warehouses: [], customers: [], plantProducts: [], demand: [], distanceOverrides: [] } };
+    mockUseGetScenario.mockReturnValue({ data: empty } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("super-open-import")).toBeInTheDocument();
+  });
+
   it("SM-9: Replace still needs the overwrite confirmation when every row was deleted locally but not saved", async () => {
     // A tiny SAVED scenario (one row per entity table) keeps this to ~4 UI deletions; the
     // behaviour under test (saved rows exist, local draft is empty) does not depend on size.

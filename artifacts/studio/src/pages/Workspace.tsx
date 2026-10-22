@@ -2444,7 +2444,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (!currentScenario) return;
     if (didSeedTabRef.current === modelId) return; // already seeded for this model
     didSeedTabRef.current = modelId;
-    const entry = inputEntriesForModel(modelId).find(e => e.id === "input-map");
+    const entries = inputEntriesForModel(modelId);
+    // SM-13 — super-model has no Input Map; open its first input tab so the empty-state import prompt shows.
+    const entry = entries.find(e => e.id === "input-map") ?? (modelId === "super-model" ? entries[0] : undefined);
     if (entry) openTab("input", entry);
   }, [currentScenario, modelId]);
 
