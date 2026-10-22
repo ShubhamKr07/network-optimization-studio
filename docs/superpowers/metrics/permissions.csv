@@ -27,3 +27,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-17T22:25:23.472Z,err-fixes,869,unknown,0,0,,101,0,"allow_new INVALID as 869: run from worktree /Users/shubhamkr/nos-err-fixes, whose gitignored .harness/permissions/allow-baseline.json does not exist, so every standing grant counted as new; recorded as unknown. allow_total/broad/risky read the main checkout settings and are valid. 0 risky, 0 denials in window: no gate."
 2026-10-18T19:30:19.816Z,PERM-RM,869,0,0,0,,101,0,
 2026-10-22T17:07:37.066Z,FLK,869,0,0,0,,101,0,
+2026-10-22T18:12:59.997Z,CH4OV,869,0,0,0,,101,0,

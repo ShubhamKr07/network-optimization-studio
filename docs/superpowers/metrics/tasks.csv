@@ -39,4 +39,5 @@ SCU-B2,scnd-upgrades,2026-10-17T10:38:15+05:30,2026-10-18T01:45:37+05:30,unknown
 NAR-1,quick-fixes,2026-10-17T18:48:47+05:30,2026-10-17T21:30:40+05:30,unknown,no,no,unknown,161,unknown,unknown,unknown,unknown
 err-fixes,err-fixes,2026-10-18T03:36:57+05:30,2026-10-18T03:54:43+05:30,unknown,no,no,1,unknown,unknown,unknown,unknown,unknown
 PERM-RM,perm-loop-removal,unknown,2026-10-19T00:53:52+05:30,unknown,no,no,unknown,unknown,unknown,1900f91e30d2389dabb2b3cd70efab8643c5b0e7,no,unknown
-FLK,flake-fixes,unknown,2026-10-22T22:28:54+05:30,0,yes,no,unknown,unknown,unknown,3dd58073ef443f13d272b8277eb098e6f8f86c87,unknown,unknown
+FLK,flake-fixes,unknown,2026-10-22T22:28:54+05:30,0,yes,no,unknown,unknown,unknown,3dd58073ef443f13d272b8277eb098e6f8f86c87,no,unknown
+CH4OV,ch4-objective-always-visible,unknown,2026-10-22T23:42:48+05:30,unknown,no,no,1,unknown,unknown,34623ff201b0665f980ea17777fc5a05afea3db1,unknown,unknown
