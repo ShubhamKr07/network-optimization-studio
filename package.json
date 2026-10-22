@@ -11,6 +11,7 @@
     "harness:record": "pnpm --filter @workspace/scripts harness:record --",
     "harness:permissions": "pnpm --filter @workspace/scripts harness:permissions --",
     "e2e:gate": "pnpm --filter studio e2e:gate --",
+    "gate": "bash scripts/harness/gate.sh",
     "e2e:quarantine": "pnpm --filter studio e2e:quarantine --",
     "smoke": "pnpm --filter @workspace/scripts smoke --",
     "deploy:preflight": "pnpm --filter @workspace/scripts deploy:preflight --",

@@ -4,11 +4,11 @@
 // `db.transaction` cannot prove — see routes.test.ts's own comment on why
 // its solve-route tests deliberately mock enqueueScenarioSolve away instead
 // of re-proving this here.
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeEach } from "vitest";
 import request from "supertest";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
-import { enqueueScenarioSolve, RECOVERY_CONTRACT_IDENTITY } from "../jobRunner.js";
+import { enqueueScenarioSolve, RECOVERY_CONTRACT_IDENTITY, setDraining } from "../jobRunner.js";
 import app from "../../app.js";
 
 const TEST_USER_ID = `a1-scenario-atomicity-${Date.now()}`;
@@ -238,7 +238,12 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
       .set({ latestSolveJobId: outcomeA.jobId })
       .where(and(
         eq(scenariosTable.id, scenario.id),
-        sql`${scenariosTable.latestSolveJobId} IS NULL OR ${scenariosTable.latestSolveJobId} < ${outcomeA.jobId}`,
+        // or(), never a raw sql`… OR …`: drizzle does not parenthesise a raw
+        // fragment inside and(), so `id = $1 AND x IS NULL OR x < $2` bound as
+        // `(id = $1 AND x IS NULL) OR x < $2` and rewrote EVERY scenario in the
+        // database with a lower pointer — including concurrently-running test
+        // files' rows (the dispatcherRecovery "superseded" flake, FLK-1).
+        or(isNull(scenariosTable.latestSolveJobId), lt(scenariosTable.latestSolveJobId, outcomeA.jobId)),
       ));
 
     const [afterLateA] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenario.id));
@@ -260,6 +265,14 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
 // resolves cleanly to `{kind:"conflict", ...}` a second time, rather than
 // rejecting, is because the check runs before the insert.
 describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", () => {
+  // FLK-1 — draining stops THIS process's worker pool from claiming the first
+  // job, so it is still active when the second enqueue arrives. Without it a
+  // max-coverage solve is fast enough to finish in between (seen 1/12 runs
+  // with this file alone), and the second request correctly returns 202.
+  // Enqueue itself is unaffected by draining.
+  beforeEach(() => { setDraining(true); });
+  afterEach(() => { setDraining(false); });
+
   const maxCoverageInputs = {
     objective: "coverage",
     p: 3,
