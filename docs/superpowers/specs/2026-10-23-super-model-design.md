@@ -1,6 +1,6 @@
 # Super Model — design
 
-Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; pending written-spec review
+Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23
 
 ## 1. Goal
 
@@ -35,6 +35,10 @@ Changes relative to Ch9:
 | Home page | Own "Super Model" block after the chapter blocks; blank templates + a downloadable sample network |
 | Size | Provisional caps in §3.3, confirmed by a measured CBC timing run as Phase 1's first task |
 | Delivery | Three phases (§9) |
+| D1 Size caps | Provisional caps of §3.3 accepted |
+| D2 Big-M | Derived `M = |customers| × |products|` for both models (§4.1) |
+| D3 Row delete | Cascade after a confirmation stating the row count (§6) |
+| D4 CSV export | Single zip of the per-table CSVs (§7.1) |
 
 ## 3. Data model
 
