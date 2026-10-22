@@ -47,6 +47,7 @@ Python needs `pulp` and `pytest` (`pip install pulp pytest --break-system-packag
 pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
+Prefer `pnpm gate` (`scripts/harness/gate.sh`): the same four steps, but it exits **3** instead of reporting pass/fail when any vitest run hits a test/hook timeout — a timed-out run measures machine load, not the code, so re-run serially with zero concurrent vitest. Exit 1 is a real failure.
 
 **Re-gating e2e:** run `E2E_BASE_URL=http://localhost:<studio-port> pnpm e2e:gate` — **the env var is not optional: without it the gate silently tests a remote Replit deployment instead of your local code** (`playwright.config.ts:3-5` defaults `BASE_URL` to a `kirk.replit.dev` URL; full rule and the local two-server run recipe are in `artifacts/studio/e2e/CLAUDE.md`). Playwright, excludes `@flaky`-tagged tests. Quarantined tests run separately via `pnpm e2e:quarantine`. `labs.spec.ts` stays excluded (pre-D0, dead). Flakiness is quantified on a frozen commit with `bash scripts/harness/flake-audit.sh --runs 20` (writes `docs/superpowers/metrics/flake.csv`); e2e should seed solver results and leave real CBC timing to pytest.
 

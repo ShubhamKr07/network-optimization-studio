@@ -23,4 +23,8 @@ Optionally also: `--no-file-parallelism` in the gate path only, trading ~3x wall
 - api-server's vitest config → same
 - new `scripts/harness/gate.sh` wrapping the suites with the timeout-count check; reference it from `CLAUDE.md`'s verification-gate block
 
-**Status:** proposed — awaiting human approval (not enabled)
+**Status:** APPROVED AND ENABLED (human decision, 2026-10-22; FLK-2). Two changes from the proposal as written:
+- `hookTimeout: 30000` alongside `testTimeout: 15000` in both configs — `failures.csv` already records hook timeouts at the 10 s default (CH4OS-4), which the proposal's testTimeout-only change would have left in place.
+- The wrapper matches `Test timed out` **and** `Hook timed out`. It is `scripts/harness/gate.sh`, run as `pnpm gate`; exit 0 green, 1 a real step failure, 3 a timeout seen (result not trustworthy). Local only — CI calls the suites directly and runs unloaded.
+
+Verified: a probe test sleeping 16 s exits 3; a probe asserting `1 === 2` exits 1. The first probe attempt of the failure path also exited 3 — at load average ~32 with zero vitest running, three real tests still timed out at 15 s (`jobRunnerDispatcher` ×2, `resultEnvelope` p-median-brazil) — which is the gate working, not a defect: 15 s narrows the window, it does not make a swapping 8-core machine trustworthy.
