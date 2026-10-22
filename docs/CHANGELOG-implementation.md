@@ -4216,3 +4216,8 @@ User request: the Model 1 / Model 2 options must always show when setting the co
 - Studio: radios always rendered; `updateInputsField` no longer drops `objective` when the floor crosses 0; the derived-model line appends "(coverage floor not applied)" for Model 1 at a positive floor.
 - Tests: pytest positive-floor runs now pass `objective: "min_distance"` explicitly (same goldens); new `test_positive_floor_with_coverage_runs_model1_and_ignores_the_floor`. Rewrote the CH4OS routes/Workspace/OptimizationParametersTab cases and `historyReadOnlyGuards`' `setLocalInputs` count (17 → 16). e2e `max-coverage.spec.ts` + `max-coverage-objective.spec.ts` rewritten and run locally (4/4, `--retries=0 --workers=1`).
 - Gate: typecheck clean; pytest 357/357; `e2e_accuracy.py` 99/99; units 59/59; studio 2766/2767 then the one count assertion fixed (11/11); api-server 2048/2050 with `jobRunnerDispatcher` + `loginRateLimitProxy` (registered flake class) 15/15 twice isolated.
+
+CH4OV whole-branch review (general-purpose reviewer, on the merged state): no blockers, no majors. Folded on the branch before push:
+- `test_max_coverage.py`: `TestInfeasibleMessageNamesOnlyRealCandidates` gains `model1-positive-floor` (Model 1 at floor 54946145, cap 1 → infeasible, message must not blame the floor). Pytest 358/358, `e2e_accuracy.py` 99/99.
+- `solve.py`: comment that `details.coverageFloorDemand` echoes the input and a Model 1 run does not apply it; `maxCoverableDemand` is the enforced-floor signal. Behaviour unchanged.
+- Stale old-rule comments reworded: `test_max_coverage.py`, `Workspace.test.tsx`, `precheck.test.ts`, `pmedian.ts`, `benchmark/{translate,corpus,test_corpus}.py`.

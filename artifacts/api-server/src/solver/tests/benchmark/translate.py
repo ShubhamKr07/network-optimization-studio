@@ -193,8 +193,9 @@ def _translate_max_coverage(i: dict[str, Any]) -> dict[str, Any]:
     # CH4O-5 -- `avgServiceDistCapMi`/`coverageFloorDemand` are
     # UNCONDITIONALLY required, so both are emitted unconditionally. CH4OS --
     # `objective` is forwarded as-is (None when absent), exactly as
-    # buildPayload does: at a zero floor it selects Model 1 or Model 2
-    # (solve.py's resolve_max_coverage_run); above zero it is ignored.
+    # buildPayload does: "coverage" selects Model 1 at any floor; otherwise a
+    # zero floor selects Model 2 and a positive floor the sequential run
+    # (solve.py's resolve_max_coverage_run).
     out: dict[str, Any] = {
         "modelType": "max_coverage_us",
         "objective": i.get("objective"),

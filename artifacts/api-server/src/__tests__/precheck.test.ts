@@ -1451,8 +1451,9 @@ const MAX_COVERAGE_BASE_COVERAGE: MaxCoverageInputs = {
   distanceOverrides: [],
 };
 
-// A POSITIVE floor runs Model 1 then Model 2; the write path stores
-// "min_distance" for it, so the fixture does too.
+// A POSITIVE floor with "min_distance" runs Model 1 then Model 2 (the write
+// path also stores "min_distance" when no objective is sent), so the fixture
+// carries it.
 const MAX_COVERAGE_BASE_MIN_DISTANCE: MaxCoverageInputs = {
   ...MAX_COVERAGE_BASE_COVERAGE,
   objective: "min_distance",

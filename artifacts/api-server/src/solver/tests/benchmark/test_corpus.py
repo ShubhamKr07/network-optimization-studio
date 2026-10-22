@@ -56,7 +56,8 @@ def test_weights_must_sum_to_one(tmp_path):
 # CH4O-5 -- `avgServiceDistCapMi` and `coverageFloorDemand` are
 # UNCONDITIONALLY required for max-coverage-us, so the manifest's flat
 # `required` list is the whole load-time rule. CH4OS -- `objective` is a
-# conditional input (chosen at floor 0, ignored above it) and deliberately
+# conditional input (chosen at any floor; absent at a
+# positive floor means sequential) and deliberately
 # NOT in required[], so load-time validation never demands it.
 def _max_coverage_case(case_id, extra=None):
     # CH4O-8 -- miles (§2.1), matching defaultInputsForModel's seeds. These
@@ -101,8 +102,8 @@ def test_max_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
         load_manifest(str(p))
 
 def test_max_coverage_objective_is_optional_at_load_time(tmp_path):
-    # CH4OS -- `objective` is a conditional input: chosen at floor 0, ignored
-    # at a positive floor. It is NOT in the manifest's required[] (spec §3), so
+    # CH4OS -- `objective` is a conditional input: chosen at any floor; absent
+    # at a positive floor means the sequential run. It is NOT in the manifest's required[] (spec §3), so
     # load-time validation accepts a case with or without it; a floor-0 case
     # without it is rejected later, by precheck (objective_required) / solve.py.
     for extra in ({}, {"objective": "coverage"}, {"coverageFloorDemand": 1}):
