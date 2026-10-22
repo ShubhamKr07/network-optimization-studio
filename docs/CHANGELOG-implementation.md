@@ -4290,3 +4290,14 @@ Super Model Phase 1, Task 5. Branch `sm-5-work` (based on `f8b02d81`).
 - Deviations: unit test lives in `src/__tests__/` (no `services/__tests__` dir exists) and reads the sample via `readFileSync`; the test drops the sample's zero-mile overrides (see hotspot).
 - **Hotspot (not fixed, belongs to SM-2/SM-3):** `super-model-sample.json` contains 25 `distanceOverrides` with `miles: 0` (co-located warehouse/customer pairs, e.g. `wh-1 -> customer-1`), which `superInputsSchema` rejects (`miles` must be > 0). The shipped sample therefore fails schema validation as-is; SM-6's "replace imports the full sample" test will hit this. Fix either the generator (omit zero pairs) or relax the schema.
 - Next: SM-6 (network import/export).
+
+### SM-7 — Super Model studio input tabs with cascade delete (2026-10-23)
+
+Super Model Phase 1, Task 7. Branch `sm-7-work` (based on `f8b02d81`). Studio only; no API/OpenAPI change.
+
+- New: `lib/superNetwork.ts` (`referencingRows`, `cascadeDelete`, sample/template URLs), `components/workspace/super/{superTables.tsx,SuperTableTab.tsx,SuperDistancesTab.tsx}`. Six table tabs, Distances (method select, circuity factor 1-3, overrides grid), Transportation Costs (reuses `TransportCostsTab`; Reset writes the textbook values because `transportCosts` is required for super) and Optimization Parameters (`showBandEditor: false`).
+- `Workspace.tsx`: tab dispatch for `super-model` ahead of the generic branches; `SUPER_INPUT_TABS` added to `isEditableInputTab` so Save appears; D3 delete goes through an `AlertDialog` stating the referencing-row count, then one `setLocalInputs(cascadeDelete(...))`; `buildWholeInputPayload` omits `distanceBands` for super; `pMax` arm counts non-inactive warehouses.
+- Row identity: `SuperTableTab` hands `DataTable` `{r, i}` items keyed by array index, so editing an id cell (whose semantic key changes per keystroke) never remounts its row. Test ids still use the semantic key (`super-${table}-${rowKey}-${col}`).
+- Deviations: `SuperTableTab` `options` gained `fromIds`/`toIds` (used only by the overrides grid); no `DraftTextInput` was needed (text cells are plain controlled `Input`s); the `pMax` line is still one line but its leading arm changed text, so any source-grepping guard on that line should be rechecked.
+- Tests: `superNetwork.test.ts` (3), `SuperTableTab.test.tsx` (6), `Workspace.Super.test.tsx` (4).
+- Next: SM-8 (outputs), SM-9 (import dialog, readiness panel).

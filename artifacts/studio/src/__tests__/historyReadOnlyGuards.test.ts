@@ -105,6 +105,10 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
     //
     // Back to 16: the objective selector now shows at every floor, so the
     // zero-floor-crossing branch that dropped `objective` is gone (-1).
-    ).toBe(16);
+    //
+    // SM-7 — was 16. Two Super Model user edits (+2), both guarded inline by
+    // `isBrowsingHistoryNow` at the call site rather than via a named mutator:
+    // the Distances tab's `onChange` patch and the cascade-delete confirm.
+    ).toBe(18);
   });
 });

@@ -67,7 +67,21 @@ import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTa
 import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
 import { TransportCostsTab } from "@/components/workspace/tabs/TransportCostsTab";
-import { hasCustomTransportCosts, transportCostsFromInputs } from "@/lib/transportCosts";
+import { SuperTableTab } from "@/components/workspace/super/SuperTableTab";
+import { SuperDistancesTab } from "@/components/workspace/super/SuperDistancesTab";
+import { isEntityTable } from "@/components/workspace/super/superTables";
+import { cascadeDelete, referencingRows, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { hasCustomTransportCosts, transportCostsFromInputs, TEXTBOOK_TRANSPORT_COSTS, TRANSPORT_COST_KEYS } from "@/lib/transportCosts";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import { DirtyNavPrompt } from "@/components/workspace/DirtyNavPrompt";
 import { ExportProvider, type ExportProviderValue } from "@/contexts/ExportContext";
@@ -1222,6 +1236,9 @@ function warehouseStatusesFromInputs(
 // p-median-brazil shares this array with p-median-us (the switch's default
 // case) so it gets the exact same sidebar entries — T5 (Bundle 2) wired
 // every one of them to real content.
+// SM-7 — the Super Model input tabs that edit `localInputs`.
+const SUPER_INPUT_TABS = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"];
+
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
     // Super Model: written out so it never inherits p-median's tab set.
@@ -2063,7 +2080,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // branch — a second whole-input writer that would otherwise persist a
   // stale `localInputs.distanceBands` over the active lens.
   function buildWholeInputPayload(): Record<string, unknown> {
-    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
+    // Super Model has no distance bands (spec §6): never inject the lens.
+    return modelId === "super-model" ? { ...(localInputs ?? {}) } : { ...(localInputs ?? {}), distanceBands: activeBandLens };
   }
 
   // CH4OS (spec §6.1) — Solve is gated on the LOCAL draft, not the persisted
@@ -2245,6 +2263,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const isEditableInputTab =
     activeView?.kind === "input" &&
     (activeView.entity === "optimization-parameters" ||
+      // SM-7 — every Super Model input tab writes into localInputs.
+      (modelId === "super-model" && SUPER_INPUT_TABS.includes(activeView.entity)) ||
       // T8 (Input Map v2) — the map tab's own edits (add/move/copy/delete,
       // in-place override edits) write into localInputs exactly like every
       // other editable tab, so it needs the same manual-Save toolbar.
@@ -2710,6 +2730,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const cloneScenario = useCloneScenario();
   const deleteScenario = useDeleteScenario();
 
+  // SM-7 (D3) — a Super Model entity delete waits for this confirmation,
+  // which states how many referencing rows go with it.
+  const [superDeleteTarget, setSuperDeleteTarget] = useState<{ table: "products" | "plants" | "warehouses" | "customers"; id: string } | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newScenarioName, setNewScenarioName] = useState("");
 
@@ -3231,13 +3254,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // the one prop that legitimately differs between the two renders (see
   // below). `showBandEditor` is deliberately absent because the tab's call
   // site does not pass it either; adding it would be a behaviour change
-  // smuggled in under a verbatim move.
+  // smuggled in under a verbatim move. (SM-7 is the one exception:
+  // `showBandEditor` is false for super-model, which has no distance bands.)
   const optimizationParamsBaseProps = localInputs && {
     modelId,
     p: pFromInputs(localInputs),
     gap: gapFromInputs(localInputs),
     timeLimitSec: timeLimitSecFromInputs(localInputs),
     distanceBands: activeBandLens,
+    showBandEditor: modelId !== "super-model",
     capacityFactor: capacityFactorFromInputs(localInputs),
     singleSource: singleSourceFromInputs(localInputs),
     capacityInactive: capacityInactiveFromInputs(localInputs),
@@ -3247,7 +3272,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // MIG-8 regression test greps this exact source text for the
     // max-coverage-us cap and would otherwise stop matching this
     // occurrence if it were split across lines.
-    pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
+    pMax: modelId === "super-model" ? (Array.isArray(localInputs.warehouses) ? (localInputs.warehouses as { status?: string }[]).filter(w => w.status !== "inactive").length : 0) : modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
     // CH4OS — the student's objective (any floor) and its writer; the model line
     // and Solve gating both read `resolveMaxCoverageRun` (never a second copy).
     objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
@@ -3733,6 +3758,58 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           precheckErrors={precheck?.errors}
         />
       );
+    }
+
+    // SM-7 — Super Model input tabs. Written before the generic
+    // transportCosts / optimization-parameters branches so they win for this model.
+    if (activeView.kind === "input" && modelId === "super-model") {
+      const e = activeView.entity;
+      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      const rowsOf = (k: string) => (Array.isArray(localInputs[k]) ? (localInputs[k] as Record<string, unknown>[]) : []);
+      const idsOf = (k: string) => rowsOf(k).map(r => String(r.id));
+      if (e === "products" || e === "plants" || e === "warehouses" || e === "customers" || e === "plantProducts" || e === "demand") {
+        return (
+          <SuperTableTab
+            table={e}
+            rows={rowsOf(e)}
+            onChange={rows => updateInputsField(e, rows)}
+            onDelete={row => isEntityTable(e) && !isBrowsingHistoryNow && setSuperDeleteTarget({ table: e, id: String(row.id) })}
+            readOnly={isBrowsingHistoryNow}
+            options={{ productIds: idsOf("products"), plantIds: idsOf("plants"), customerIds: idsOf("customers") }}
+          />
+        );
+      }
+      if (e === "distances") {
+        return (
+          <SuperDistancesTab
+            distanceMethod={localInputs.distanceMethod === "circuity" ? "circuity" : "haversine"}
+            circuityFactor={typeof localInputs.circuityFactor === "number" ? localInputs.circuityFactor : 1.17}
+            overrides={rowsOf("distanceOverrides")}
+            onChange={patch => {
+              if (!isBrowsingHistoryNow) setLocalInputs(prev => (prev ? { ...prev, ...patch } : prev));
+            }}
+            readOnly={isBrowsingHistoryNow}
+            plantIds={idsOf("plants")}
+            warehouseIds={idsOf("warehouses")}
+            customerIds={idsOf("customers")}
+          />
+        );
+      }
+      if (e === "transportCosts") {
+        const tc = transportCostsFromInputs(localInputs);
+        return (
+          <TransportCostsTab
+            canonicalUnit={canonicalUnit}
+            transportCosts={tc}
+            isCustom={TRANSPORT_COST_KEYS.some(k => tc[k] !== TEXTBOOK_TRANSPORT_COSTS[k])}
+            onChange={next => updateInputsField("transportCosts", next)}
+            // transportCosts is required for super, so Reset writes the textbook values instead of deleting the key.
+            onReset={() => updateInputsField("transportCosts", { ...TEXTBOOK_TRANSPORT_COSTS })}
+            disabled={isBrowsingHistoryNow}
+            scenarioId={currentScenario?.id}
+          />
+        );
+      }
     }
 
     if (activeView.kind === "input" && activeView.entity === "optimization-parameters") {
@@ -4560,6 +4637,32 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         onDiscard={handleDirtyNavDiscard}
         onCancel={handleDirtyNavCancel}
       />
+
+      {/* SM-7 (D3) — cascade-delete confirmation. Workspace has one
+          unconditional return, so this is always reachable. */}
+      <AlertDialog open={superDeleteTarget != null} onOpenChange={o => { if (!o) setSuperDeleteTarget(null); }}>
+        <AlertDialogContent data-testid="super-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {superDeleteTarget?.id}?</AlertDialogTitle>
+            <AlertDialogDescription data-testid="super-delete-count">
+              This also deletes {superDeleteTarget && localInputs ? referencingRows(localInputs as SuperInputsLike, superDeleteTarget.table, superDeleteTarget.id) : 0} referencing row(s).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="super-delete-confirm-button"
+              onClick={() => {
+                const t = superDeleteTarget;
+                setSuperDeleteTarget(null);
+                if (t && !isBrowsingHistoryNow) setLocalInputs(prev => (prev ? cascadeDelete(prev as SuperInputsLike, t.table, t.id) : prev));
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* A4.1 — create-scenario dialog, triggered by SidebarTree's "+".
           Workspace.tsx has a single unconditional return (no early-return
