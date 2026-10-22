@@ -102,6 +102,9 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
     // first statement is the history guard) gains a second `setLocalInputs`
     // call for the zero-floor-crossing branch that drops `objective` (+1).
     // A USER EDIT inside an already-guarded mutator, so no list change.
-    ).toBe(17);
+    //
+    // Back to 16: the objective selector now shows at every floor, so the
+    // zero-floor-crossing branch that dropped `objective` is gone (-1).
+    ).toBe(16);
   });
 });

@@ -1451,22 +1451,25 @@ def resolve_max_coverage_run(floor, objective):
     (lib/units/src/objective.ts) -- solve.py cannot import TypeScript. Both
     copies are tested against ONE case table,
     lib/units/src/__tests__/maxCoverageRunCases.json.
-      floor > 0                         -> "sequential"
-      floor == 0, objective coverage     -> "model1"
+      objective coverage                 -> "model1" (any floor; floor ignored)
+      floor > 0, objective other/absent  -> "sequential"
       floor == 0, objective min_distance -> "model2"
       floor == 0, objective absent       -> None (cannot solve)
     """
+    if objective == "coverage":
+        return "model1"
     if floor > 0:
         return "sequential"
-    return {"coverage": "model1", "min_distance": "model2"}.get(objective)
+    return {"min_distance": "model2"}.get(objective)
 
 
-# The final solve of each run, as DATA: (LP sense, details.objective label).
-# "sequential" additionally runs Model 1 first -- that is the only difference.
+# The final solve of each run, as DATA: (LP sense, details.objective label,
+# whether the coverage floor row applies). Model 1 ignores the floor at any
+# value. "sequential" additionally runs Model 1 first.
 _MAX_COVERAGE_FINAL_SOLVE = {
-    "model1": ("max_coverage", "coverage"),
-    "model2": ("min_distance", "min_distance"),
-    "sequential": ("min_distance", "min_distance"),
+    "model1": ("max_coverage", "coverage", False),
+    "model2": ("min_distance", "min_distance", True),
+    "sequential": ("min_distance", "min_distance", True),
 }
 
 
@@ -1613,10 +1616,11 @@ def solve_max_coverage(inp):
                   # on the true maximum ("best found", never "maximum").
                   "optimal": cbc1.solutionStatus == "optimal"}
         limit = max(1, limit - (time.time() - t1))
-    sense, mode = _MAX_COVERAGE_FINAL_SOLVE[run]
-    prob, a, o, cbc = _run_max_coverage_lp(ctx, sense, floor, gap, limit)
+    sense, mode, uses_floor = _MAX_COVERAGE_FINAL_SOLVE[run]
+    lp_floor = floor if uses_floor else 0
+    prob, a, o, cbc = _run_max_coverage_lp(ctx, sense, lp_floor, gap, limit)
     if cbc.lpStatus != "Optimal":
-        env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2), floor)
+        env = _max_coverage_no_network_envelope(cbc, round(time.time() - t, 2), lp_floor)
         # Spec §5: ONLY an infeasible Model 2 after a sequential Model 1 gets
         # Model 1's summary and the floor-too-high message. A no_solution/
         # error Model 2 returns its own envelope AS IS (it becomes an fd3

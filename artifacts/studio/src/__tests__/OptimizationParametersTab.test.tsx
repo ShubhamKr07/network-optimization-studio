@@ -942,9 +942,11 @@ describe("OptimizationParametersTab — CH4OS objective selector", () => {
     expect(onObjectiveChange).toHaveBeenCalledWith("min_distance");
   });
 
-  it("is hidden at a positive floor", () => {
+  it("is shown at a positive floor, with the stored choice checked", () => {
     render(<OptimizationParametersTab {...ch4Props} coverageFloorDemand={500} objective="min_distance" onObjectiveChange={vi.fn()} />);
-    expect(screen.queryByTestId("objective-select")).not.toBeInTheDocument();
+    expect(screen.getByTestId("objective-select")).toBeInTheDocument();
+    expect(screen.getByTestId("objective-min-distance")).toBeChecked();
+    expect(screen.getByTestId("objective-coverage")).not.toBeChecked();
   });
 
   it("namespaces its test ids and radio-group name inside the Solve dialog", () => {

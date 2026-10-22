@@ -99,7 +99,7 @@ def test_min_distance_golden():
     # Sanity (not a golden): 387.94 <= the coverage run's 394.65, and <= the 650
     # cap -- so the cap does NOT bind here, which is what makes
     # TestCapBindsInBothModes' loose case a real no-op check.
-    r = run({**BASE, "coverageFloorDemand": 54946145})
+    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145})
     assert r["status"] == "optimal"
     assert r["objective"] == pytest.approx(30269639699.0, abs=0.05)
     assert r["metrics"]["weightedAvgDistance"] == pytest.approx(387.94, abs=0.05)
@@ -113,7 +113,7 @@ def test_floor_above_model1_max_is_infeasible_and_carries_model1():
     # objective 0, NOT null -- solverProcessMessage.ts requires a number) plus
     # Model 1's summary. M is read off a real Model 1 run, never a literal.
     m = run(BASE)["details"]["coveredDemand"]
-    r = run({**BASE, "coverageFloorDemand": 500100100})
+    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 500100100})
     assert r["status"] == "infeasible"
     assert r["objective"] == 0
     assert r["edges"] == []
@@ -154,7 +154,7 @@ def test_sequential_golden_reports_model1_max_alongside_model2():
     # test_min_distance_golden); maxCoverableDemand equals the Model 1
     # golden's coveredDemand, asserted by RUNNING Model 1, not a literal copy.
     model1 = run(BASE)
-    r = run({**BASE, "coverageFloorDemand": 54946145})
+    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145})
     assert r["status"] == "optimal"
     assert r["objective"] == pytest.approx(30269639699.0, abs=0.05)
     assert r["metrics"]["weightedAvgDistance"] == pytest.approx(387.94, abs=0.05)
@@ -234,11 +234,11 @@ def test_distance_override_changes_assignment():
     # the ~54.9M demand any feasible assignment covers, so the problem solved
     # is the same unconstrained min-distance one this test has always used.
     forced = [{"id": w, "status": "forced_open"} for w in ("DAL", "LA", "PIT")]
-    base = run({**BASE, "coverageFloorDemand": 1,
+    base = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 1,
                 "warehouseOverrides": forced})
     e0 = next(e for e in base["edges"] if e["toId"] == "C1")
     w0 = e0["fromId"]
-    r = run({**BASE, "coverageFloorDemand": 1,
+    r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 1,
              "warehouseOverrides": forced,
              "distanceOverrides": [{"fromId": w0, "toId": "C1", "distance": 10}]})
     assert r["status"] == "optimal"
@@ -334,7 +334,7 @@ def test_slack_floor_equals_pmedian():
     An exact equality is the strongest form of this check and the one a mangled
     re-keying would break.
     """
-    mc = run({**BASE, "coverageFloorDemand": 1, "avgServiceDistCapMi": 100000})
+    mc = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 1, "avgServiceDistCapMi": 100000})
     pm = run({"modelType": "p_median", "pValue": 3, "distanceBands": [200, 400, 800, 1600],
               "capacityMode": "none", "uniformCapacity": None, "warehouseStatuses": [],
               "gap": 0.0, "timeLimitSec": 120, "singleSource": False,
@@ -361,7 +361,7 @@ def test_min_distance_at_achieved_coverage_is_always_feasible():
     """
     step1 = run(BASE)
     floor = step1["details"]["coveredDemand"]
-    step2 = run({**BASE, "coverageFloorDemand": floor})
+    step2 = run({**BASE, "objective": "min_distance", "coverageFloorDemand": floor})
     assert step2["status"] == "optimal"
     assert step2["details"]["coveredDemand"] >= floor
     assert step2["metrics"]["weightedAvgDistance"] <= step1["metrics"]["weightedAvgDistance"]
@@ -380,7 +380,7 @@ class TestCapBindsInBothModes:
     """
 
     def test_loose_cap_leaves_min_distance_optimum_unchanged(self):
-        r = run({**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 650})
+        r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 650})
         assert r["status"] == "optimal"
         assert r["metrics"]["weightedAvgDistance"] == pytest.approx(387.94, abs=0.05)
         assert set(r["details"]["openWarehouseIds"]) == {"DAL", "LA", "PIT"}
@@ -401,13 +401,13 @@ class TestCapBindsInBothModes:
         # `test_cap_below_any_feasible_average_is_infeasible` with a
         # different number. This version asserts the real, single-branch
         # property directly.
-        loose = run({**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 650})
+        loose = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 650})
         tight_cap = loose["metrics"]["weightedAvgDistance"] - 20
-        r = run({**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": tight_cap})
+        r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": tight_cap})
         assert r["status"] == "infeasible"
 
     def test_cap_below_any_feasible_average_is_infeasible(self):
-        r = run({**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1.0})
+        r = run({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1.0})
         assert r["status"] == "infeasible"
 
 
@@ -425,7 +425,7 @@ with open(_RUN_CASES_PATH) as _f:
 
 class TestResolveMaxCoverageRun:
     def test_case_table_is_not_vacuous(self):
-        assert len(RUN_CASES) == 5
+        assert len(RUN_CASES) == 6
         assert {c["run"] for c in RUN_CASES} == {"model1", "model2", "sequential", None}
 
     @pytest.mark.parametrize("case", RUN_CASES, ids=lambda c: f'{c["floor"]}-{c["objective"]}')
@@ -448,10 +448,21 @@ class TestRunPlanReportsWhatRan:
         assert r["details"]["objective"] == "min_distance"
         assert "maxCoverableDemand" not in r["details"]
 
-    def test_positive_floor_ignores_a_sent_objective_and_runs_sequentially(self):
-        r = run({**BASE, "coverageFloorDemand": 54946145, "objective": "coverage"})
+    def test_positive_floor_with_min_distance_runs_sequentially(self):
+        r = run({**BASE, "coverageFloorDemand": 54946145, "objective": "min_distance"})
         assert r["details"]["objective"] == "min_distance"
         assert isinstance(r["details"]["maxCoverableDemand"], int)
+
+    def test_positive_floor_with_coverage_runs_model1_and_ignores_the_floor(self):
+        # A floor far above the maximum coverable demand would make any
+        # floor-constrained run infeasible -- optimal here proves it is ignored.
+        zero = run(BASE)
+        r = run({**BASE, "coverageFloorDemand": 500100100, "objective": "coverage"})
+        assert r["status"] == "optimal"
+        assert r["details"]["objective"] == "coverage"
+        assert "maxCoverableDemand" not in r["details"]
+        assert r["objective"] == pytest.approx(zero["objective"], abs=1e-3)
+        assert set(r["details"]["openWarehouseIds"]) == set(zero["details"]["openWarehouseIds"])
 
     def test_absent_objective_at_floor_zero_is_an_error_envelope(self):
         payload = {k: v for k, v in BASE.items() if k != "objective"}
@@ -494,12 +505,12 @@ class TestSequentialTimeBudget:
 
     def test_model1_gets_half_and_model2_gets_the_remainder(self, monkeypatch):
         limits = self._stub(monkeypatch, 25.0)
-        solve.solve({**BASE, "coverageFloorDemand": 54946145, "timeLimitSec": 60})
+        solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "timeLimitSec": 60})
         assert limits == [30, 35.0]
 
     def test_both_limits_floor_at_one_second(self, monkeypatch):
         limits = self._stub(monkeypatch, 25.0)
-        solve.solve({**BASE, "coverageFloorDemand": 54946145, "timeLimitSec": 3})
+        solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "timeLimitSec": 3})
         assert limits == [1, 1]
 
     @pytest.mark.parametrize("objective", ["coverage", "min_distance"])
@@ -542,7 +553,7 @@ class TestSequentialOutcomeMatrix:
 
     def test_m1_optimal_m2_solved_returns_model2_with_model1(self, monkeypatch):
         limits = _script_cbc(monkeypatch, [])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.FEASIBLE})
         assert len(limits) == 2
         assert r["status"] == "optimal"
         assert r["details"]["model1"]["optimal"] is True
@@ -551,7 +562,7 @@ class TestSequentialOutcomeMatrix:
     def test_m1_optimal_m2_infeasible_says_maximum(self, monkeypatch):
         m = solve.solve(BASE)["details"]["coveredDemand"]
         _script_cbc(monkeypatch, [])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.TOO_HIGH})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.TOO_HIGH})
         assert r["status"] == "infeasible"
         assert r["objective"] == 0
         assert r["infeasibilityReason"] == (
@@ -560,7 +571,7 @@ class TestSequentialOutcomeMatrix:
 
     def test_m1_feasible_m2_solved_flags_model1_not_optimal(self, monkeypatch):
         _script_cbc(monkeypatch, ["feasible"])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.FEASIBLE})
         assert r["status"] == "optimal"
         assert r["details"]["model1"]["optimal"] is False
         assert isinstance(r["details"]["maxCoverableDemand"], int)
@@ -568,7 +579,7 @@ class TestSequentialOutcomeMatrix:
     def test_m1_feasible_m2_infeasible_says_best_found_never_maximum(self, monkeypatch):
         m = solve.solve(BASE)["details"]["coveredDemand"]
         _script_cbc(monkeypatch, ["feasible"])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.TOO_HIGH})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.TOO_HIGH})
         assert r["status"] == "infeasible"
         assert r["details"]["model1"]["optimal"] is False
         assert r["infeasibilityReason"] == (
@@ -583,7 +594,7 @@ class TestSequentialOutcomeMatrix:
         # Model 2's own generic message (an error envelope becomes an fd3
         # failure; nothing in it is published).
         limits = _script_cbc(monkeypatch, [m1, "no_solution"])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.FEASIBLE})
         assert len(limits) == 2
         assert r["status"] == "error"
         assert r["_failureReason"] == "solver_error"
@@ -593,7 +604,7 @@ class TestSequentialOutcomeMatrix:
 
     def test_m1_infeasible_returns_model1_envelope_and_never_runs_model2(self, monkeypatch):
         limits = _script_cbc(monkeypatch, ["infeasible"])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.FEASIBLE})
         assert len(limits) == 1
         assert r["status"] == "infeasible"
         assert "maxCoverableDemand" not in r["details"]
@@ -601,7 +612,7 @@ class TestSequentialOutcomeMatrix:
 
     def test_m1_no_solution_returns_model1_envelope_and_never_runs_model2(self, monkeypatch):
         limits = _script_cbc(monkeypatch, ["no_solution"])
-        r = solve.solve({**BASE, "coverageFloorDemand": self.FEASIBLE})
+        r = solve.solve({**BASE, "objective": "min_distance", "coverageFloorDemand": self.FEASIBLE})
         assert len(limits) == 1
         assert r["status"] == "error"
         assert "maxCoverableDemand" not in r["details"]
@@ -617,7 +628,7 @@ class TestInfeasibleMessageNamesOnlyRealCandidates:
     @pytest.mark.parametrize("payload", [
         {**BASE, "objective": "coverage", "avgServiceDistCapMi": 1},
         {**BASE, "objective": "min_distance", "avgServiceDistCapMi": 1},
-        {**BASE, "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1},
+        {**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1},
     ], ids=["model1", "model2", "sequential-model1"])
     def test_cap_infeasible_does_not_blame_the_floor(self, payload):
         r = run(payload)

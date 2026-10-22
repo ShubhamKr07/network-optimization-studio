@@ -3,14 +3,14 @@ import { z } from "zod";
 // C4.6 — Al's Athletics — Max Coverage (`max-coverage-us`, Chapter 4) scenario
 // `inputs` validator. A US single-echelon warehouse->customer service-level
 // model with TWO objectives (spec 2026-10-10-ch4-objective-selector-design.md):
-//   - floor == 0  ->  the student picks `objective`: "coverage" (Model 1,
-//                     maximize demand within highServiceDistMi) or
-//                     "min_distance" (Model 2, minimize demand-weighted
-//                     distance). Absent is storable but not solvable
-//                     (precheck `objective_required`).
-//   - floor  > 0  ->  Model 1, then Model 2 covering at least the floor; the
-//                     write path stores "min_distance" whatever was sent
-//                     (services/scenarioInputWrite.ts).
+//   - the student picks `objective` at any floor: "coverage" (Model 1,
+//     maximize demand within highServiceDistMi; the floor is ignored) or
+//     "min_distance" (Model 2, minimize demand-weighted distance).
+//   - floor == 0, objective absent -> storable but not solvable (precheck
+//     `objective_required`).
+//   - floor  > 0, "min_distance" -> Model 1, then Model 2 covering at least
+//     the floor; an absent objective is stored as "min_distance"
+//     (services/scenarioInputWrite.ts).
 // The weighted-average service-distance cap (avgServiceDistCapMi) is a
 // constraint in BOTH models, so it and the floor are unconditionally required.
 //
@@ -101,8 +101,8 @@ const distanceBandsSchema = z
 
 export const maxCoverageInputsSchema = z
   .object({
-    // CH4OS — optional, client-authored at a zero floor; normalised to
-    // "min_distance" at a positive floor by deriveServerOwnedInputs.
+    // CH4OS — optional and client-authored at any floor; defaulted to
+    // "min_distance" when absent at a positive floor by deriveServerOwnedInputs.
     objective: z.enum(["coverage", "min_distance"]).optional(),
     p: z.number().int().min(1).max(26),
     // RAW MILE thresholds. The cross-field `highServiceDistMi < maxDistMi`

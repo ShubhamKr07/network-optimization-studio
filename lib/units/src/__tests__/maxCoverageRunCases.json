@@ -3,5 +3,6 @@
   { "floor": 0, "objective": "min_distance", "run": "model2" },
   { "floor": 0, "objective": null, "run": null },
   { "floor": 1, "objective": null, "run": "sequential" },
-  { "floor": 54946145, "objective": "coverage", "run": "sequential" }
+  { "floor": 1, "objective": "min_distance", "run": "sequential" },
+  { "floor": 54946145, "objective": "coverage", "run": "model1" }
 ]

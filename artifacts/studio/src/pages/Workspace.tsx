@@ -1887,16 +1887,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function updateInputsField(key: string, value: unknown) {
     if (isBrowsingHistoryNow) return;
     if (!localInputs) return;
-    // CH4OS (spec §6.1) — crossing the zero-floor boundary in EITHER direction
-    // drops `objective` from the draft: above 0 the selector is hidden (any
-    // positive floor runs Model 1 then Model 2; the server stores
-    // min_distance), and back at 0 it must show with nothing selected.
-    if (key === "coverageFloorDemand" && (coverageFloorDemandFromInputs(localInputs) === 0) !== (value === 0)) {
-      const { objective: _dropped, ...rest } = localInputs;
-      void _dropped;
-      setLocalInputs({ ...rest, [key]: value });
-      return;
-    }
     setLocalInputs({ ...localInputs, [key]: value });
   }
 
@@ -3001,8 +2991,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // CH4O-P1 — adopt the RESPONSE inputs, exactly as
           // `saveWholeInputsAsync` does (:2089), NEVER the pre-send `inputs`.
           // The response is the persisted row, which can differ from the
-          // request (CH4OS: a positive floor is normalised to
-          // objective "min_distance" server-side), and `isDirty` is a
+          // request (CH4OS: a positive floor with no objective is stored
+          // as "min_distance" server-side), and `isDirty` is a
           // JSON.stringify comparison — so adopting the request would leave
           // the draft permanently "Unsaved changes".
           onSuccess: updated => {
@@ -3240,7 +3230,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // max-coverage-us cap and would otherwise stop matching this
     // occurrence if it were split across lines.
     pMax: modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "max-coverage-us" ? 26 : modelId === "delivery-teaching-us" ? 33 : undefined,
-    // CH4OS — the student's floor-0 objective and its writer; the model line
+    // CH4OS — the student's objective (any floor) and its writer; the model line
     // and Solve gating both read `resolveMaxCoverageRun` (never a second copy).
     objective: modelId === "max-coverage-us" ? objectiveFromInputs(localInputs) : undefined,
     onObjectiveChange: handleObjectiveChange,
