@@ -4322,3 +4322,16 @@ Super Model Phase 1, Task 8. Branch `sm-8-work` (based on `fc3643a4`). Studio on
 - Fixture `__tests__/fixtures/superResult.json` is the raw stdout of `solve.py` on the shipped sample (objective 254060828.6157, open wh-11/wh-14), not hand-written.
 - Tests: `CostSummaryTab.Super.test.tsx` (2), `resultNarrative.test.ts` (+1), `Workspace.Super.test.tsx` (+1, verified to fail without the Workspace wiring).
 - Next: SM-9 (import dialog, readiness panel).
+
+### SM-9 — Super Model studio: network import/export dialog, readiness panel, downloads (2026-10-23)
+
+Super Model Phase 1, Task 9. Branch `sm-9-work` (based on `c5026291`). Studio only; no API/OpenAPI change.
+
+- `SuperNetworkImportDialog` (new): native file input -> `FileReader` (jsdom's `File` has no `.text()`) -> `JSON.parse`; `MAX_IMPORT_BYTES` check; Replace/Merge radios (default Replace when the scenario is empty, else Merge); Replace on a non-empty scenario shows `super-import-confirm-overwrite` and the same confirm button must be pressed again. Posts via `useImportScenarioNetwork` with `params: { mode }` and the parsed document AS the body. Errors via `describeImportError` (now exported from `ImportDialog.tsx` together with `LIMIT_MESSAGE`, so a 413 reads like the CSV dialog).
+- `SuperReadinessPanel` (new): empty state (heading, `super-open-import`, `super-download-template` / `super-download-sample` with `download`) or precheck errors / "Ready to solve". Per Global Constraint C2 the template/sample links live only here.
+- `Workspace.tsx`: precheck query enabled for `super-model`; the panel replaces the content of every input tab when all seven tables are empty and sits above Optimization Parameters otherwise; header "Import network" / "Export network (JSON)" (export = `exportScenarioNetwork(id, {format:"json"})` saved with `downloadAs`); the dialog is mounted once, unconditionally for super (multi-branch-Dialog gotcha); `onApplied` = `handleImportApplied`.
+- SM-8 follow-up 1: `buildEntityIdentityById` treats `inputs.plants|warehouses|customers` as the base rows for `super-model` (its dataset is empty), so compare "Open facilities" shows "Phoenix, AZ" not `wh-11`.
+- SM-8 follow-up 2: `warehouseStatusesFromInputs` reads `status` from the super warehouse rows, so the Output Map styles forced_open / inactive. Both follow-up tests verified to fail without the fix.
+- Data-loss guard (lead review): the dialog's `isEmpty` (default mode + whether the Replace overwrite confirmation is skipped) is derived from the SAVED `currentScenario.inputs`, not `localInputs`, because Replace overwrites the persisted scenario; the empty-state panel stays driven by the local draft. Regression test deletes every row locally without saving and asserts Replace still shows `super-import-confirm-overwrite` (verified failing before the fix).
+- Tests: `SuperNetworkImportDialog.test.tsx` (5), `SuperReadinessPanel.test.tsx` (3), `Workspace.Super.test.tsx` (+4), `CostSummaryTab.Super.test.tsx` (+1).
+- Next: SM-10 (Playwright QA).

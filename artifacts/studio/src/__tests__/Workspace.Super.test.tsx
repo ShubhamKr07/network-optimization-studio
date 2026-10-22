@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // chen-bands-units, Part D — components rendered inside this tree now read the
@@ -90,11 +90,20 @@ vi.mock("@workspace/api-client-react", () => ({
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  useImportScenarioNetwork: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false })),
+  exportScenarioNetwork: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
 }));
+
+// SM-9 — spy on the props Workspace hands the Output Map (real component still renders).
+const mapProps = vi.hoisted(() => ({ current: null as null | { warehouseStatuses: { warehouseId: string; status: string }[] } }));
+vi.mock("@/components/workspace/tabs/OutputMapTab", async importOriginal => {
+  const real = await importOriginal<typeof import("@/components/workspace/tabs/OutputMapTab")>();
+  return { ...real, OutputMapTab: (p: React.ComponentProps<typeof real.OutputMapTab>) => { mapProps.current = p as never; return <real.OutputMapTab {...p} />; } };
+});
 
 import { Workspace } from "@/pages/Workspace";
 
@@ -166,4 +175,55 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
     expect(screen.getByText(/Phoenix/)).toBeInTheDocument();
   });
+
+  it("SM-9: Output Map styles forced_open / inactive warehouses from the super warehouse rows", () => {
+    const inputs = { ...sample, warehouses: sample.warehouses.map((w: { id: string }, i: number) => (i === 1 ? { ...w, status: "inactive" } : w)) };
+    const solved = { ...scenario, inputs, result: JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8")) };
+    mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solved] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    const statuses = mapProps.current!.warehouseStatuses;
+    expect(statuses).toContainEqual({ warehouseId: "wh-11", status: "forced_open" });
+    expect(statuses).toContainEqual({ warehouseId: inputs.warehouses[1].id, status: "inactive" });
+    expect(statuses.every(s => s.status !== "active")).toBe(true);
+  });
+
+  it("SM-9: header has import/export; Optimization Parameters shows the readiness panel", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("super-header-import")).toBeInTheDocument();
+    expect(screen.getByTestId("super-header-export")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
+  });
+
+  it("SM-9: an empty scenario shows the empty state on every input tab", () => {
+    const empty = { ...scenario, inputs: { ...sample, products: [], plants: [], warehouses: [], customers: [], plantProducts: [], demand: [], distanceOverrides: [] } };
+    mockUseGetScenario.mockReturnValue({ data: empty } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    expect(screen.getByTestId("super-download-sample")).toBeInTheDocument();
+    expect(screen.getByTestId("super-download-template")).toBeInTheDocument();
+  });
+
+  it("SM-9: Replace still needs the overwrite confirmation when every row was deleted locally but not saved", async () => {
+    renderWorkspace();
+    for (const table of ["products", "plants", "warehouses", "customers"]) {
+      fireEvent.click(screen.getByTestId(`sidebar-input-${table}`));
+      let btn: Element | null;
+      while ((btn = document.querySelector(`[data-testid^="super-${table}-"][data-testid$="-delete"]`))) {
+        fireEvent.click(btn);
+        fireEvent.click(screen.getByTestId("super-delete-confirm-button"));
+      }
+    }
+    // local draft is now empty (empty-state panel is shown) but the SAVED scenario still has rows
+    expect(screen.getByTestId("super-empty-state")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-import-mode-replace"));
+    fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
+    await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("super-import-confirm"));
+    expect(screen.getByTestId("super-import-confirm-overwrite")).toBeInTheDocument();
+  }, 60_000); // ~130 UI deletions
 });

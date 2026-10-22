@@ -107,7 +107,6 @@ export function buildEntityIdentityById(
   dataset: Pick<Dataset, "warehouses" | "customers" | "plants"> | null | undefined,
   inputs: Record<string, unknown> | null | undefined,
 ): Record<string, EntityIdentity> {
-  void modelId;
   const map: Record<string, EntityIdentity> = {};
 
   // Added rows first (lower precedence) — base rows below overwrite on id
@@ -123,7 +122,12 @@ export function buildEntityIdentityById(
   }
 
   // Base rows always win.
-  for (const row of baseRows(dataset)) {
+  // SM-9 — super-model's GET /dataset is empty (every table is scenario-owned), so its
+  // plants/warehouses/customers rows ARE the base rows.
+  const base = modelId === "super-model"
+    ? (["plants", "warehouses", "customers"] as const).flatMap(k => readAddedRows(inputs, k) as BaseDatasetRow[])
+    : baseRows(dataset);
+  for (const row of base) {
     map[row.id] = {
       city: row.city ?? "",
       state: row.state ?? "",

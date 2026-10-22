@@ -15,6 +15,7 @@ import {
   useGetSolveJob,
   useListModels,
   usePrecheckScenario,
+  exportScenarioNetwork,
   precheckScenario,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
@@ -71,6 +72,9 @@ import { TransportCostsTab } from "@/components/workspace/tabs/TransportCostsTab
 import { SuperTableTab } from "@/components/workspace/super/SuperTableTab";
 import { SuperDistancesTab } from "@/components/workspace/super/SuperDistancesTab";
 import { isEntityTable } from "@/components/workspace/super/superTables";
+import { SuperNetworkImportDialog } from "@/components/workspace/super/SuperNetworkImportDialog";
+import { SuperReadinessPanel } from "@/components/workspace/super/SuperReadinessPanel";
+import { downloadAs } from "@/lib/clientCsv";
 import { cascadeDelete, referencingRows, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
 import {
   AlertDialog,
@@ -1235,6 +1239,12 @@ function warehouseStatusesFromInputs(
   modelId: StudioModelType,
 ): { warehouseId: string; status: "forced_open" | "inactive" }[] {
   if (modelId === "transport-coal") return [];
+  // SM-9 — super-model keeps status on the warehouse rows themselves, not in an overrides array.
+  if (modelId === "super-model") {
+    return superRowsFromInputs(inputs, "warehouses")
+      .filter(w => w.status === "forced_open" || w.status === "inactive")
+      .map(w => ({ warehouseId: w.id, status: w.status as "forced_open" | "inactive" }));
+  }
   const overrides = modelId === "two-echelon-gold-au" ? refineryOverridesFromInputs(inputs) : warehouseOverridesFromInputs(inputs);
   return overrides
     .filter(o => o.status !== "active")
@@ -1558,7 +1568,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // (zero_demand/no_feasible_route/objective_required +
       // completeness), and this task's Input-Map/Warehouses/Customers add-row
       // chips are its first frontend consumer.
-      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us"),
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "max-coverage-us" || modelId === "super-model"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -2751,6 +2761,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   // SM-7 (D3) — a Super Model entity delete waits for this confirmation,
   // which states how many referencing rows go with it.
+  const [superImportOpen, setSuperImportOpen] = useState(false);
+  const SUPER_TABLE_KEYS = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distanceOverrides"];
+  const superTablesEmpty = (inputs: Record<string, unknown> | null | undefined) =>
+    !!inputs && SUPER_TABLE_KEYS.every(k => !Array.isArray(inputs[k]) || (inputs[k] as unknown[]).length === 0);
+  const superIsEmpty = modelId === "super-model" && superTablesEmpty(localInputs);
+  // Replace overwrites the PERSISTED scenario, so the overwrite confirmation is decided from the saved inputs, never unsaved local edits.
+  const superSavedIsEmpty = superTablesEmpty(currentScenario?.inputs as Record<string, unknown> | undefined);
+  async function handleSuperExport() {
+    if (!currentScenario) return;
+    try {
+      downloadAs(`super-model-network-${currentScenario.id}`, "json", await exportScenarioNetwork(currentScenario.id, { format: "json" }));
+    } catch (err) {
+      toast({ title: "Export failed", description: describeWriteError(err, "Could not export the network."), variant: "destructive" });
+    }
+  }
   const [superDeleteTarget, setSuperDeleteTarget] = useState<{ table: "products" | "plants" | "warehouses" | "customers"; id: string } | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newScenarioName, setNewScenarioName] = useState("");
@@ -4473,6 +4498,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             {/* CH4UX-6 — also disabled while a solve is in flight: the
                 overlay is modal, but this header button is the one control
                 a keyboard user could still reach mid-run. */}
+            {modelId === "super-model" && currentScenario && (
+              <>
+                <Button size="sm" variant="outline" disabled={isBrowsingHistoryNow} onClick={() => setSuperImportOpen(true)} data-testid="super-header-import">
+                  Import network
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleSuperExport} data-testid="super-header-export">
+                  Export network (JSON)
+                </Button>
+              </>
+            )}
             <Button
               size="sm"
               disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
@@ -4571,7 +4606,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                     </Button>
                   </div>
                 ) : activeView ? (
-                  renderTabContent()
+                  modelId === "super-model" && activeView.kind === "input" && (superIsEmpty || activeView.entity === "optimization-parameters") ? (
+                    <>
+                      <SuperReadinessPanel precheck={precheck} isEmpty={superIsEmpty} onImport={() => setSuperImportOpen(true)} />
+                      {!superIsEmpty && renderTabContent()}
+                    </>
+                  ) : (
+                    renderTabContent()
+                  )
                 ) : (
                   <span className="text-muted-foreground">Pick an item from the sidebar to view it.</span>
                 )}
@@ -4665,6 +4707,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
       {/* SM-7 (D3) — cascade-delete confirmation. Workspace has one
           unconditional return, so this is always reachable. */}
+      {modelId === "super-model" && currentScenario && (
+        <SuperNetworkImportDialog
+          open={superImportOpen}
+          onOpenChange={setSuperImportOpen}
+          scenarioId={currentScenario.id}
+          isEmpty={superSavedIsEmpty}
+          onApplied={handleImportApplied}
+        />
+      )}
       <AlertDialog open={superDeleteTarget != null} onOpenChange={o => { if (!o) setSuperDeleteTarget(null); }}>
         <AlertDialogContent data-testid="super-delete-confirm">
           <AlertDialogHeader>

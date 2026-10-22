@@ -36,10 +36,10 @@ interface ImportDialogProps {
   enableFilters?: boolean;
 }
 
-const LIMIT_MESSAGE = `File is larger than the ${MAX_IMPORT_BYTES / (1024 * 1024)} MB import limit.`; // same sentence for the client check and a server 413
+export const LIMIT_MESSAGE = `File is larger than the ${MAX_IMPORT_BYTES / (1024 * 1024)} MB import limit.`; // same sentence for the client check and a server 413
 
 /** A 413 is the body limit; say it the way the client-side guard does, never as the raw code. */
-function describeImportError(err: unknown, fallback: string): string {
+export function describeImportError(err: unknown, fallback: string): string {
   return (err as { status?: unknown } | null)?.status === 413 ? LIMIT_MESSAGE : describeWriteError(err, fallback);
 }
 

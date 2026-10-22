@@ -51,4 +51,16 @@ describe("CostSummaryTab — super-model", () => {
     }
     expect(screen.queryByTestId("cost-summary-compare-distance-1")).not.toBeInTheDocument();
   });
+
+  it("compare 'Open facilities' shows city names (not raw ids) from the solved inputs", () => {
+    const row = (id: string, city: string, state: string) => ({ id, name: city, city, state, lat: 0, lng: 0 });
+    const inputs = { plants: [], customers: [], warehouses: [row("wh-11", "Phoenix", "AZ"), row("wh-14", "Denver", "CO")] };
+    const [a, b] = [{ ...scenario(1), inputs }, { ...scenario(2), inputs }] as Scenario[];
+    wrap(<CostSummaryTab result={a.result} scenarioId={1} modelId="super-model" scenarios={[a, b]} locationById={{}} />);
+    fireEvent.click(screen.getByTestId("button-toggle-compare"));
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    const cell = screen.getByTestId("cost-summary-compare-open-facility-1-wh-11");
+    expect(cell).toHaveTextContent("Phoenix, AZ");
+    expect(screen.getByTestId("cost-summary-compare-open-facility-1-wh-14")).toHaveTextContent("Denver, CO");
+  });
 });
