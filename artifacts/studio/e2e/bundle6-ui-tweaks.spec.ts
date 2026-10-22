@@ -314,7 +314,7 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
       // T1+T5 item 8 — stats line counts visible-only (the transport-coal
       // solve is excluded; Chapter 9 is visible but has no scenarios here).
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "4 labs · 2 scenarios · 2 solved",
+        "5 labs · 2 scenarios · 2 solved",
         { timeout: HEADER_TIMEOUT },
       );
 
@@ -366,6 +366,6 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
     // transport-coal, and p-median-brazil stay hiddenFromLanding, so none of
     // them appear here regardless of lock state — see
     // bundle4-auth-landing.spec.ts's matching assertion.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9");
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Super Model");
   });
 });

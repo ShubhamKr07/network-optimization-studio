@@ -57,7 +57,7 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     // unlocked, so the strip shows Chapter 3, Chapter 4, Chapter 5, then
     // Chapter 9. (The strip is derived from visibility alone; the lock never
     // affected it either way.)
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9");
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Super Model");
 
     const credit = page.getByTestId("auth-credit");
     await expect(credit).toBeVisible();
@@ -123,7 +123,7 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     // stats line is computed from the visible-only perChapter rows.
     const stats = page.getByTestId("landing-stats-line");
     await expect(stats).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(stats).toHaveText("4 labs · 0 scenarios · 0 solved");
+    await expect(stats).toHaveText("5 labs · 0 scenarios · 0 solved");
 
     const footer = page.getByTestId("landing-card-footer-p-median-us");
     await expect(footer).toContainText("no scenarios yet");
@@ -161,9 +161,9 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
     // (max-coverage-us), Chapter 5 (delivery-teaching-us), and Chapter 9
     // (JADE) are visible; Chapter 10, transport-coal, and p-median-brazil
     // stay hidden — so this and every stats-line assertion below reads
-    // "4 labs".
+    // "5 labs" (Super Model, SM-3, is visible).
     await expect(page.getByTestId("landing-stats-line")).toHaveText(
-      "4 labs · 0 scenarios · 0 solved",
+      "5 labs · 0 scenarios · 0 solved",
       { timeout: HEADER_TIMEOUT },
     );
 
@@ -193,7 +193,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // should reflect the scenario count without a solved badge yet.
       await page.reload();
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "4 labs · 1 scenarios · 0 solved",
+        "5 labs · 1 scenarios · 0 solved",
         { timeout: HEADER_TIMEOUT },
       );
       const footerUnsolved = page.getByTestId("landing-card-footer-p-median-us");
@@ -222,7 +222,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // completed solve.
       await page.reload();
       const stats = page.getByTestId("landing-stats-line");
-      await expect(stats).toHaveText("4 labs · 1 scenarios · 1 solved", {
+      await expect(stats).toHaveText("5 labs · 1 scenarios · 1 solved", {
         timeout: HEADER_TIMEOUT,
       });
 

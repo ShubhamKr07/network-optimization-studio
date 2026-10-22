@@ -208,6 +208,19 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
   });
 
   it("SM-9: Replace still needs the overwrite confirmation when every row was deleted locally but not saved", async () => {
+    // A tiny SAVED scenario (one row per entity table) keeps this to ~4 UI deletions; the
+    // behaviour under test (saved rows exist, local draft is empty) does not depend on size.
+    const tiny = {
+      ...scenario,
+      inputs: {
+        ...sample,
+        products: sample.products.slice(0, 1), plants: sample.plants.slice(0, 1),
+        warehouses: sample.warehouses.slice(0, 1), customers: sample.customers.slice(0, 1),
+        plantProducts: [], demand: [], distanceOverrides: [],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: tiny } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [tiny] } as unknown as ReturnType<typeof mockUseListScenarios>);
     renderWorkspace();
     for (const table of ["products", "plants", "warehouses", "customers"]) {
       fireEvent.click(screen.getByTestId(`sidebar-input-${table}`));
@@ -225,5 +238,5 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("super-import-confirm"));
     expect(screen.getByTestId("super-import-confirm-overwrite")).toBeInTheDocument();
-  }, 60_000); // ~130 UI deletions
+  });
 });
