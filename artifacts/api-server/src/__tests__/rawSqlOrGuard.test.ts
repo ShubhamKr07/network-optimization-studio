@@ -31,7 +31,7 @@ function tsFiles(dir: string): string[] {
 
 // True when the fragment has an OR at parenthesis depth 0. ${…} placeholders
 // are blanked first so their contents cannot fake a depth change.
-export function hasTopLevelOr(fragment: string): boolean {
+function hasTopLevelOr(fragment: string): boolean {
   const text = fragment.replace(/\$\{[^}]*\}/g, "_");
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
@@ -56,10 +56,11 @@ describe("FLK-1 — no raw sql`` fragment with a top-level OR", () => {
     let scanned = 0;
     for (const root of ROOTS) {
       for (const file of tsFiles(join(REPO, root))) {
-        // Line comments stripped (newlines kept, so line numbers hold): this
-        // file's own header, and the fix site's note, quote the bad shape.
-        const src = readFileSync(file, "utf8").replace(/\/\/.*$/gm, "");
-        for (const m of src.matchAll(/sql`([^`]*)`/g)) {
+        // Whole-line comments blanked (newlines kept, so line numbers hold):
+        // this file's header and the fix site's note quote the bad shape.
+        // Only whole lines, so a "://" inside code cannot swallow a backtick.
+        const src = readFileSync(file, "utf8").replace(/^[ \t]*\/\/.*$/gm, "");
+        for (const m of src.matchAll(/\bsql(?:<[^>`]*>)?(?:\.raw\()?`([^`]*)`/g)) {
           scanned++;
           if (hasTopLevelOr(m[1])) {
             fragments.push({ file: relative(REPO, file), line: src.slice(0, m.index).split("\n").length });

@@ -11,7 +11,7 @@
 set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
-LOG="$(mktemp -t nos-gate)"
+LOG="$(mktemp "${TMPDIR:-/tmp}/nos-gate.XXXXXX")"
 trap 'rm -f "$LOG"' EXIT
 
 step() {
@@ -19,8 +19,9 @@ step() {
   echo "== gate: $name"
   "$@" 2>&1 | tee "$LOG"
   local rc=${PIPESTATUS[0]}
-  if grep -qE "(Test|Hook) timed out" "$LOG"; then
-    echo "GATE RESULT NOT TRUSTWORTHY — '$name' hit a vitest timeout ($(grep -cE "(Test|Hook) timed out" "$LOG") lines)."
+  local timeouts; timeouts=$(grep -cE "(Test|Hook) timed out" "$LOG")
+  if [ "$timeouts" -gt 0 ]; then
+    echo "GATE RESULT NOT TRUSTWORTHY — '$name' hit a vitest timeout ($timeouts lines)."
     echo "Re-run serially with zero concurrent vitest before reading this as pass or fail."
     exit 3
   fi
