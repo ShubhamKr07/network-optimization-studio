@@ -42,6 +42,12 @@ def test_ground_truth_objective_and_facilities():
     assert set(result["details"]["openWarehouseIds"]) == {"wh-11", "wh-14"}
 
 
+def test_ground_truth_plant_cost_zero_and_total_cost():
+    m = solve_jade(GROUND_TRUTH_INPUTS)["metrics"]
+    assert m["plantVariableCost"] == 0
+    assert abs(m["totalCost"] - (m["inboundCost"] + m["outboundCost"])) <= 0.011
+
+
 def test_single_source_per_customer():
     result = solve_jade(GROUND_TRUTH_INPUTS)
     assert result["status"] == "optimal"

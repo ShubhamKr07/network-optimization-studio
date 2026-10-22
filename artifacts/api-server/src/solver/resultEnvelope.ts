@@ -55,6 +55,11 @@ export const MetricsSchema = z.object({
   totalDemand: z.number().optional(),
   inboundCost: z.number().optional(),
   outboundCost: z.number().optional(),
+  // Shared two-echelon core summary metrics (SM-1).
+  plantVariableCost: z.number().optional(),
+  totalCost: z.number().optional(),
+  avgDistPlantToWh: z.number().optional(),
+  avgDistWhToCustomer: z.number().optional(),
   // ch9-tc — Chapter 9 JADE: the four rates this result was solved at
   // (spec §2.5). Optional and deliberately NOT `.default(...)` — an
   // envelope persisted before this field existed must keep validating,

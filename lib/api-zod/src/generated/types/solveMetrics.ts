@@ -24,5 +24,13 @@ export interface SolveMetrics {
   inboundCost?: number;
   /** Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional. */
   outboundCost?: number;
+  /** Two-echelon shared core — total plant variable production cost (flow x per-ton plant cost), cents precision. 0 when no plant costs are set. Optional. */
+  plantVariableCost?: number;
+  /** Two-echelon shared core — inboundCost + outboundCost + plantVariableCost, summed from unrounded accumulators, cents precision. Optional. */
+  totalCost?: number;
+  /** Two-echelon shared core — flow-weighted average plant->warehouse distance in miles, unrounded. Optional. */
+  avgDistPlantToWh?: number;
+  /** Two-echelon shared core — flow-weighted average warehouse->customer distance in miles, unrounded. Optional. */
+  avgDistWhToCustomer?: number;
   transportRates?: TransportRates;
 }

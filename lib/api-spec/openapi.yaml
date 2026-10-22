@@ -1377,6 +1377,18 @@ components:
         outboundCost:
           type: number
           description: Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.
+        plantVariableCost:
+          type: number
+          description: Two-echelon shared core — total plant variable production cost (flow x per-ton plant cost), cents precision. 0 when no plant costs are set. Optional.
+        totalCost:
+          type: number
+          description: Two-echelon shared core — inboundCost + outboundCost + plantVariableCost, summed from unrounded accumulators, cents precision. Optional.
+        avgDistPlantToWh:
+          type: number
+          description: Two-echelon shared core — flow-weighted average plant->warehouse distance in miles, unrounded. Optional.
+        avgDistWhToCustomer:
+          type: number
+          description: Two-echelon shared core — flow-weighted average warehouse->customer distance in miles, unrounded. Optional.
         transportRates:
           $ref: "#/components/schemas/TransportRates"
 

@@ -151,7 +151,6 @@ JADE_OB_RATE    = 0.12        # $ per ton-mile, warehouse -> customer
 JADE_OB_MIN     = 10.0        # $ per ton minimum charge, warehouse -> customer
 JADE_IC_RATE    = 0.07        # $ per ton-mile, plant -> warehouse
 JADE_IC_MIN     = 10.0        # $ per ton minimum charge, plant -> warehouse
-JADE_OPEN_BIG_M = 10_000_000  # big-M for the open-if-used constraint (spec §2.5.4)
 
 def _jade_distances():
     """Plant->warehouse and warehouse->customer distances in miles, one flat
@@ -1101,86 +1100,22 @@ def solve_two_echelon(inp):
 # and added entities/distance overrides are just extra rows in the sets and
 # distance maps (build_merged_jade_dataset).
 # ---------------------------------------------------------------------------
-def solve_jade(inp):
-    if _LOAD_ERRORS.get("two-echelon-jade-us"):
-        return _load_error_envelope("two-echelon-jade-us")
-
-    p              = int(inp.get('p', 2))
-    distance_bands = sorted(inp.get('distanceBands', [200, 400, 800, 1600]))
-    gap            = float(inp.get('gap', 0.0))
-    time_limit     = int(inp.get('timeLimitSec', 120))
-    wh_statuses    = {ws['warehouseId']: ws['status'] for ws in inp.get('warehouseStatuses', [])}
-    customer_demand_overrides = inp.get('customerDemands', {})
-
-    product_ids = list(JADE_PRODUCTS.keys())
-
-    # jade-T4: per-call, non-mutating merge of the base package with this
-    # scenario's edits (addedPlants/addedWarehouses/addedCustomers,
-    # distanceOverrides, capabilityOverrides, excludedCustomerIds) --
-    # mirrors every prior build_merged_*_dataset wiring. Never mutates
-    # JADE_PLANTS/JADE_WAREHOUSES/JADE_CUSTOMERS/JADE_CAPABILITY/
-    # _jade_distances() module-level data. Empty inputs (the default)
-    # produce a merged dataset equal to the base globals.
-    merged = build_merged_jade_dataset(
-        inp, JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_CAPABILITY,
-        product_ids, _jade_distances(),
-    )
-    plant_data = merged['plants']
-    wh_data    = merged['warehouses']
-    cust_data  = merged['customers']    # already excludes excludedCustomerIds (base + added alike)
-    capability = merged['capability']
-    dist       = merged['distance']
-    added_warehouses_by_id = merged['addedWarehousesById']
-    added_customers_by_id  = merged['addedCustomersById']
-
-    plants     = list(plant_data.keys())
-    warehouses = list(wh_data.keys())
-    customers  = list(cust_data.keys())
-
-    def get_bounds(w):
-        added = added_warehouses_by_id.get(w)
-        s = added['status'] if added is not None else wh_statuses.get(w, 'active')
-        if s == 'forced_open': return (1, 1)
-        if s == 'inactive':    return (0, 0)
-        return (0, 1)
-
-    def get_demands(c):
-        # Added customer's own record wins (mirrors every prior model's
-        # "own record wins over the sparse base-entity override map"
-        # precedent); base customers layer a sparse per-product override
-        # onto their base demands dict.
-        added = added_customers_by_id.get(c)
-        if added is not None:
-            return added['demands']
-        merged_demands = dict(cust_data[c]['demands'])
-        override = customer_demand_overrides.get(c)
-        if override:
-            merged_demands.update(override)
-        return merged_demands
-
-    demands = {c: get_demands(c) for c in customers}
-    total_demand = sum(sum(dk.values()) for dk in demands.values())
-
-    # ch9-tc — the four transportation cost parameters are scenario inputs
-    # with the module constants as their named defaults (spec §4). Absence
-    # of `transportCosts` is byte-identical to the pre-change objective,
-    # which is the hard-rule-2 back-compat lock. Pure coefficient
-    # substitution: no business-rule branch (hard rule 6).
-    tc      = inp.get("transportCosts") or {}
-    ic_rate = tc.get("icTransCost", JADE_IC_RATE)
-    ic_min  = tc.get("icMinTrans",  JADE_IC_MIN)
-    ob_rate = tc.get("obTransCost", JADE_OB_RATE)
-    ob_min  = tc.get("obMinTrans",  JADE_OB_MIN)
-    transport_rates = {
-        "icTransCost": ic_rate, "icMinTrans": ic_min,
-        "obTransCost": ob_rate, "obMinTrans": ob_min,
-    }
-
+def _solve_two_echelon_core(*, plants, warehouses, customers, product_ids, demands,
+                            capability, plant_cost, dist, get_bounds, p, distance_bands,
+                            gap, time_limit, rates, wh_label, problem_uid):
+    """Shared two-echelon (plant -> warehouse -> customer) single-source ILP.
+    Returns the standard _envelope(...) dict. plant_cost / capability are keyed
+    (plant_id, product_id); a missing key means 0."""
     def ic_cost(pl, w):
         return max(ic_rate * dist.get((pl, w), 9999), ic_min)
 
     def ob_cost(w, c):
         return max(ob_rate * dist.get((w, c), 9999), ob_min)
+
+    total_demand = sum(sum(dk.values()) for dk in demands.values())
+    ic_rate, ic_min = rates["icTransCost"], rates["icMinTrans"]
+    ob_rate, ob_min = rates["obTransCost"], rates["obMinTrans"]
+    transport_rates = dict(rates)
 
     # ch9-tc defense-in-depth: reject non-finite coefficients before CBC ever
     # runs. This mirrors the actual objective terms -- inbound flow_pw is a
@@ -1192,6 +1127,10 @@ def solve_jade(inp):
     # coefficient.
     if not math.isfinite(total_demand):
         raise ValueError(f"non-finite JADE transport coefficient: total_demand={total_demand!r}")
+    for (pl, k), c_pc in plant_cost.items():
+        if not math.isfinite(c_pc):
+            raise ValueError(
+                f"non-finite JADE transport coefficient: plant_cost plantId={pl!r} productId={k!r} cost={c_pc!r}")
     for pl in plants:
         for w in warehouses:
             c_ic = ic_cost(pl, w)
@@ -1225,7 +1164,7 @@ def solve_jade(inp):
     facility_vars = LpVariable.dicts("Open", warehouses, cat='Binary')
     single_source = LpVariable.dicts("Src", [(w, c) for w in warehouses for c in customers], 0, 1, cat='Binary')
 
-    prob += (lpSum(flow_pw[pl, w, k] * ic_cost(pl, w)
+    prob += (lpSum(flow_pw[pl, w, k] * (ic_cost(pl, w) + plant_cost.get((pl, k), 0.0))
                    for pl in plants for w in warehouses for k in product_ids)
              + lpSum(flow_wc[w, c, k] * ob_cost(w, c) * demands[c].get(k, 0)
                      for w in warehouses for c in customers for k in product_ids))
@@ -1255,11 +1194,12 @@ def solve_jade(inp):
                 lpSum(flow_pw[pl, w, k] for w in warehouses),
                 LpConstraintLE, f"cap_{pl}_{k}", capability.get((pl, k), 0))
 
-    # C4 -- open-if-used big-M
+    # C4 -- open-if-used big-M (derived: no warehouse can carry more than every (customer, product) pair)
+    big_m = len(customers) * len(product_ids)
     for w in warehouses:
         prob += LpConstraint(
             lpSum(flow_wc[w, c, k] for c in customers for k in product_ids)
-            - JADE_OPEN_BIG_M * facility_vars[w],
+            - big_m * facility_vars[w],
             LpConstraintLE, f"open_link_{w}", 0)
 
     # C5 -- exactly P open
@@ -1281,7 +1221,7 @@ def solve_jade(inp):
         prob += LpConstraint(lpSum(single_source[w, c] for w in warehouses),
                              LpConstraintLE, f"onesrc_{c}", 1)
 
-    cbc = _run_cbc(prob, gap, time_limit, problem_uid="jade")
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid=problem_uid)
 
     run_time   = time.time() - start
     status_str = cbc.lpStatus
@@ -1294,6 +1234,9 @@ def solve_jade(inp):
             if sum(demands[c].get(k, 0) for c in customers) > 0
             and sum(capability.get((pl, k), 0) for pl in plants) <= 0
         ]
+        short = [k for k in product_ids
+                 if sum(capability.get((pl, k), 0) for pl in plants)
+                    < sum(demands[c].get(k, 0) for c in customers)]
         if forced_open > p:
             reason = (f"Forced-open warehouses ({forced_open}) exceed p={p}. "
                       "Increase P or unforce some warehouses.")
@@ -1303,6 +1246,9 @@ def solve_jade(inp):
         elif zero_capacity_products:
             reason = (f"No enabled plant can make {', '.join(zero_capacity_products)}, but customer "
                       "demand for it is positive. Enable at least one plant's capability for this product.")
+        elif short:
+            reason = (f"Total plant capacity is below total demand for product(s): {', '.join(short)}. "
+                      "Raise capacity or reduce demand.")
         else:
             reason = (f"Model is infeasible with P={p}. Total demand is {total_demand:,.0f} tons; "
                       "check plant-product capability coverage and warehouse force/inactive bounds.")
@@ -1335,6 +1281,7 @@ def solve_jade(inp):
     wh_demand_served = {w: 0.0 for w in open_ids}
     inbound_cost  = 0.0
     outbound_cost = 0.0
+    plant_variable_cost = 0.0
 
     # Inbound edges: one per positive (plant, warehouse, product) flow.
     for pl in plants:
@@ -1347,6 +1294,7 @@ def solve_jade(inp):
                 leg_dist_flow["plant_to_warehouse"] += d * f
                 leg_flow["plant_to_warehouse"]      += f
                 inbound_cost += f * ic_cost(pl, w)
+                plant_variable_cost += f * plant_cost.get((pl, k), 0.0)
                 edges.append({
                     "fromId": pl, "toId": w, "flow": round(f), "distance": d,
                     "leg": "plant_to_warehouse", "productId": k,
@@ -1405,7 +1353,7 @@ def solve_jade(inp):
         if band_overflow > 0:
             band_coverage.append({"band": -1, "percent": round(band_overflow * 100 / total_demand)})
 
-    utilization = [{"warehouseId": w, "city": wh_data[w]['city'],
+    utilization = [{"warehouseId": w, "city": wh_label(w),
                     "utilization": round(wh_demand_served.get(w, 0.0))} for w in open_ids]
 
     return _envelope(
@@ -1420,12 +1368,97 @@ def solve_jade(inp):
             "inboundCost": round(inbound_cost, 2),
             "outboundCost": round(outbound_cost, 2),
             "transportRates": transport_rates,
+            "plantVariableCost": round(plant_variable_cost, 2),
+            "totalCost": round(inbound_cost + outbound_cost + plant_variable_cost, 2),
+            "avgDistPlantToWh": (leg_dist_flow["plant_to_warehouse"] / leg_flow["plant_to_warehouse"]
+                                 if leg_flow["plant_to_warehouse"] > 0 else 0.0),
+            "avgDistWhToCustomer": (leg_dist_flow["warehouse_to_customer"] / leg_flow["warehouse_to_customer"]
+                                    if leg_flow["warehouse_to_customer"] > 0 else 0.0),
         },
         {"openWarehouseIds": open_ids, "assignments": details_assignments},
         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
         solver_incumbent_objective=cbc.solverIncumbentObjective,
         solver_best_bound=cbc.solverBestBound,
     )
+
+def solve_jade(inp):
+    if _LOAD_ERRORS.get("two-echelon-jade-us"):
+        return _load_error_envelope("two-echelon-jade-us")
+
+    p              = int(inp.get('p', 2))
+    distance_bands = sorted(inp.get('distanceBands', [200, 400, 800, 1600]))
+    gap            = float(inp.get('gap', 0.0))
+    time_limit     = int(inp.get('timeLimitSec', 120))
+    wh_statuses    = {ws['warehouseId']: ws['status'] for ws in inp.get('warehouseStatuses', [])}
+    customer_demand_overrides = inp.get('customerDemands', {})
+
+    product_ids = list(JADE_PRODUCTS.keys())
+
+    # jade-T4: per-call, non-mutating merge of the base package with this
+    # scenario's edits (addedPlants/addedWarehouses/addedCustomers,
+    # distanceOverrides, capabilityOverrides, excludedCustomerIds) --
+    # mirrors every prior build_merged_*_dataset wiring. Never mutates
+    # JADE_PLANTS/JADE_WAREHOUSES/JADE_CUSTOMERS/JADE_CAPABILITY/
+    # _jade_distances() module-level data. Empty inputs (the default)
+    # produce a merged dataset equal to the base globals.
+    merged = build_merged_jade_dataset(
+        inp, JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_CAPABILITY,
+        product_ids, _jade_distances(),
+    )
+    plant_data = merged['plants']
+    wh_data    = merged['warehouses']
+    cust_data  = merged['customers']    # already excludes excludedCustomerIds (base + added alike)
+    capability = merged['capability']
+    dist       = merged['distance']
+    added_warehouses_by_id = merged['addedWarehousesById']
+    added_customers_by_id  = merged['addedCustomersById']
+
+    plants     = list(plant_data.keys())
+    warehouses = list(wh_data.keys())
+    customers  = list(cust_data.keys())
+
+    def get_bounds(w):
+        added = added_warehouses_by_id.get(w)
+        s = added['status'] if added is not None else wh_statuses.get(w, 'active')
+        if s == 'forced_open': return (1, 1)
+        if s == 'inactive':    return (0, 0)
+        return (0, 1)
+
+    def get_demands(c):
+        # Added customer's own record wins (mirrors every prior model's
+        # "own record wins over the sparse base-entity override map"
+        # precedent); base customers layer a sparse per-product override
+        # onto their base demands dict.
+        added = added_customers_by_id.get(c)
+        if added is not None:
+            return added['demands']
+        merged_demands = dict(cust_data[c]['demands'])
+        override = customer_demand_overrides.get(c)
+        if override:
+            merged_demands.update(override)
+        return merged_demands
+
+    demands = {c: get_demands(c) for c in customers}
+    # ch9-tc -- the four transportation cost parameters are scenario inputs
+    # with the module constants as their named defaults (spec §4). Absence
+    # of `transportCosts` is byte-identical to the pre-change objective,
+    # which is the hard-rule-2 back-compat lock. Pure coefficient
+    # substitution: no business-rule branch (hard rule 6).
+    tc = inp.get("transportCosts") or {}
+    rates = {
+        "icTransCost": tc.get("icTransCost", JADE_IC_RATE),
+        "icMinTrans":  tc.get("icMinTrans",  JADE_IC_MIN),
+        "obTransCost": tc.get("obTransCost", JADE_OB_RATE),
+        "obMinTrans":  tc.get("obMinTrans",  JADE_OB_MIN),
+    }
+
+    return _solve_two_echelon_core(
+        plants=plants, warehouses=warehouses, customers=customers, product_ids=product_ids,
+        demands=demands, capability=capability, plant_cost={}, dist=dist, get_bounds=get_bounds,
+        p=p, distance_bands=distance_bands, gap=gap, time_limit=time_limit, rates=rates,
+        wh_label=lambda w: wh_data[w]['city'], problem_uid="jade")
+
+
 
 # ---------------------------------------------------------------------------
 # Al's Athletics — Max Coverage solver (Chapter 4)
