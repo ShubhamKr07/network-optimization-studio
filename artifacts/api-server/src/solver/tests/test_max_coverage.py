@@ -48,10 +48,11 @@ def run(payload):
     return json.loads(r.stdout)
 
 
-# CH4OS (spec 2026-10-10 §3) -- `objective` is a student input again at a ZERO
-# floor: floor 0 + "coverage" runs Model 1, floor 0 + "min_distance" runs
-# Model 2, floor 0 + no objective cannot solve, and ANY positive floor runs
-# Model 1 then Model 2 whatever objective is sent. BASE is the Model 1 case.
+# CH4OS/CH4OV -- `objective` is a student input at every floor: "coverage"
+# runs Model 1 at any floor (floor ignored), floor 0 + "min_distance" runs
+# Model 2, floor 0 + no objective cannot solve, and a positive floor with
+# "min_distance" or no objective runs Model 1 then Model 2. BASE is the
+# Model 1 case.
 BASE = {"modelType": "max_coverage_us", "objective": "coverage",
         "p": 3, "highServiceDistMi": 450, "maxDistMi": 3400,
         "avgServiceDistCapMi": 650, "coverageFloorDemand": 0,
@@ -629,7 +630,8 @@ class TestInfeasibleMessageNamesOnlyRealCandidates:
         {**BASE, "objective": "coverage", "avgServiceDistCapMi": 1},
         {**BASE, "objective": "min_distance", "avgServiceDistCapMi": 1},
         {**BASE, "objective": "min_distance", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1},
-    ], ids=["model1", "model2", "sequential-model1"])
+        {**BASE, "objective": "coverage", "coverageFloorDemand": 54946145, "avgServiceDistCapMi": 1},
+    ], ids=["model1", "model2", "sequential-model1", "model1-positive-floor"])
     def test_cap_infeasible_does_not_blame_the_floor(self, payload):
         r = run(payload)
         assert r["status"] == "infeasible"

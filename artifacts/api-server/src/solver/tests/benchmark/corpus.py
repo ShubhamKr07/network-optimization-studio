@@ -27,8 +27,8 @@ def _required_inputs(model_id):
 # UNCONDITIONALLY required (the cap binds in both objectives; the floor is the
 # mode discriminator), so solvers/max-coverage-us/manifest.json's flat
 # `required` list expresses the whole rule and `_required_inputs` above already
-# enforces it. CH4OS -- `objective` is a conditional input (chosen at floor 0,
-# ignored above it) and is not in required[], so there is still nothing to
+# enforces it. CH4OS -- `objective` is a conditional input (chosen at any floor;
+# absent at a positive floor means sequential) and is not in required[], so there is still nothing to
 # discriminate on at load time. If a future model needs a rule the flat list cannot express, reintroduce a
 # per-model_id table here rather than branching inside `validate`'s loop.
 

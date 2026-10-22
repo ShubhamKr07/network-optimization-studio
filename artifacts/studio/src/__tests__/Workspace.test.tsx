@@ -2985,7 +2985,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
   });
 
-  // CH4OS — the history entry's own objective goes into the CREATE body unchanged; the server keeps it (floor 0) or normalises it (positive floor).
+  // CH4OS — the history entry's own objective goes into the CREATE body unchanged; the server keeps it at any floor (only an absent objective at a positive floor is stored as min_distance).
   it("carries the history entry's objective into the Save-as-scenario CREATE body (CH4OS)", async () => {
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 11 }),

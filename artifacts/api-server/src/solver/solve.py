@@ -1635,6 +1635,9 @@ def solve_max_coverage(inp):
     metrics = {"openFacilityIds": s["openIds"], "weightedAvgDistance": s["weightedAvgDistance"],
                "utilizationByNode": [],
                "bandCoverage": [{"band": hi, "percent": cov}, {"band": mx, "percent": 100.0}]}
+    # coverageFloorDemand echoes the INPUT; a Model 1 run does not apply it
+    # (see _MAX_COVERAGE_FINAL_SOLVE). Read maxCoverableDemand, not this, to
+    # tell whether a floor was enforced.
     details = {"objective": mode, "p": p, "highServiceDistMi": hi, "maxDistMi": mx,
                "avgServiceDistCapMi": inp.get("avgServiceDistCapMi"), "coverageFloorDemand": inp.get("coverageFloorDemand"),
                "openWarehouseIds": s["openIds"], "coveragePct": cov, "coveredDemand": s["coveredDemand"],
