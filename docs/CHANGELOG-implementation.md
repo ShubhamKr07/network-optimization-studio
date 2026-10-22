@@ -4221,3 +4221,9 @@ CH4OV whole-branch review (general-purpose reviewer, on the merged state): no bl
 - `test_max_coverage.py`: `TestInfeasibleMessageNamesOnlyRealCandidates` gains `model1-positive-floor` (Model 1 at floor 54946145, cap 1 → infeasible, message must not blame the floor). Pytest 358/358, `e2e_accuracy.py` 99/99.
 - `solve.py`: comment that `details.coverageFloorDemand` echoes the input and a Model 1 run does not apply it; `maxCoverableDemand` is the enforced-floor signal. Behaviour unchanged.
 - Stale old-rule comments reworded: `test_max_coverage.py`, `Workspace.test.tsx`, `precheck.test.ts`, `pmedian.ts`, `benchmark/{translate,corpus,test_corpus}.py`.
+
+### CH4OV-D — production deploy + branch retirement (2026-10-23)
+
+Push `d6188d1..d8eaa63` to `origin/main` (user-approved). Neither Render service auto-deployed (`render deploys list` showed both still on `f8f65ef`), so this deploy carried everything since ERR-D: CH4OV, FLK, FAIL-PTR, PERM-RM, REV-BOT, PERM-NT, ERR-D's note, the README edits and the two weekly-bot PRs (#29, #30). Preflight `f8f65ef8..HEAD`: both services, no schema change, no migrations, no new env vars. Deploys (user-approved, via the Render CLI because the Render MCP server failed to connect; in preflight order): `nos-api` `dep-dbd5rbeq1p3s73cknjvg` live 19:03:40Z, then `nos-studio` live 19:04:14Z, both at `d8eaa63`. Checks: `pnpm deploy:preflight -- --verify-studio …/compare` 200 with `id="root"`; `GET /api/models` 200. The new Model 1 / Model 2 behaviour at a positive floor was not exercised in production. The first deploy attempt was refused by Claude Code's auto-mode permission classifier and then run on the user's retry.
+
+Branch `ch4-objective-always-visible` retired (user-approved) with `git branch -d`, after `git cherry main <branch>` returned nothing, `git merge-base --is-ancestor` confirmed it, the working tree was clean, no worktree held it, and it had never been pushed.
