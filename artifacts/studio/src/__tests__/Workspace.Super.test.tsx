@@ -155,4 +155,15 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(args.data.inputs).not.toHaveProperty("distanceBands");
     expect(args.data.inputs.products[0].name).toBe("Renamed");
   });
+
+  it("SM-8: solved scenario opens the output map and a city-labelled open-warehouses grid built from inputs", () => {
+    const solved = { ...scenario, result: JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8")) };
+    mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solved] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(screen.getByTestId("output-map-tab")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(screen.getByText(/Phoenix/)).toBeInTheDocument();
+  });
 });

@@ -86,7 +86,7 @@ function failureText(result: SolveResult): string {
 
 const MODELS = new Set([
   "p-median-us", "p-median-brazil", "transport-coal", "max-coverage-us",
-  "delivery-teaching-us", "two-echelon-gold-au", "two-echelon-jade-us",
+  "delivery-teaching-us", "two-echelon-gold-au", "two-echelon-jade-us", "super-model",
 ]);
 
 export function buildResultNarrative(modelId: string, result: SolveResult, ctx: NarrativeContext): ResultNarrative | null {
@@ -105,6 +105,18 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
   const unitWord = d.unit === "mi" ? "miles" : d.unit;
   const num = (canonical: number) => grouped(Math.round(d.toDisplay(canonical)));
   const dist = (canonical: number) => `${num(canonical)} ${unitWord}`;
+
+  // SM-8 — super-model has no distance bands, so its narrative never touches
+  // largestBand; it reads the cost/distance summary metrics only.
+  if (modelId === "super-model") {
+    const total = finite(metrics.totalCost);
+    const pw = finite(metrics.avgDistPlantToWh);
+    const wc = finite(metrics.avgDistWhToCustomer);
+    const ids = stringIds(metrics.openFacilityIds);
+    if (total == null || pw == null || wc == null || !ids) return null;
+    const cost = `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return { text: `Opened ${ids.length} ${ids.length === 1 ? "warehouse" : "warehouses"}. Total cost ${cost}; plant\u2192warehouse shipments average ${dist(pw)} and warehouse\u2192customer deliveries ${dist(wc)}.` };
+  }
 
   // "(41 miles shorter than your previous run)" — only against an earlier
   // incumbent of the same objective; nothing when the displayed values match.

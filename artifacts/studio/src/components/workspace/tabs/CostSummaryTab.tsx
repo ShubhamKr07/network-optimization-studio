@@ -56,6 +56,23 @@ function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi):
 // Gated on `modelId`, deliberately NOT on presence — presence-only gating
 // cannot render a fallback when EVERY selected envelope is a legacy one.
 const JADE_MODEL_ID = "two-echelon-jade-us";
+const SUPER_MODEL_ID = "super-model";
+// SM-8 / C1 — super costs are cents-precise in storage; display shows them to the cent.
+const money = (v: number): string => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// The seven summary lines; [key, label, value]. Distances are the unrounded
+// metrics (C1), converted/rounded only by formatDistance at render.
+const SUPER_METRIC_ROWS: Array<[string, string, "money" | "dist"]> = [
+  ["total-cost", "Total Cost", "money"],
+  ["inbound", "Total Inbound Transportation Cost", "money"],
+  ["outbound", "Total Outbound Transportation Cost", "money"],
+  ["plant-variable-cost", "Total Plant Variable Cost", "money"],
+  ["dist-plant-wh", "Weighted Avg Distance — Plant to WH", "dist"],
+  ["dist-wh-customer", "Weighted Avg Distance — WH to Customer", "dist"],
+];
+const superMetric = (r: SolveResult, key: string): number | undefined => {
+  const m = r.metrics;
+  return { "total-cost": m.totalCost, inbound: m.inboundCost, outbound: m.outboundCost, "plant-variable-cost": m.plantVariableCost, "dist-plant-wh": m.avgDistPlantToWh, "dist-wh-customer": m.avgDistWhToCustomer }[key];
+};
 const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
 
 interface SolvedAtRates {
@@ -520,15 +537,24 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         "cost-summary-max-coverable-demand",
       ]);
     }
-    if (result.metrics.inboundCost != null) {
+    const isSuper = modelId === SUPER_MODEL_ID;
+    if (isSuper) {
+      for (const [key, label, kind] of SUPER_METRIC_ROWS) {
+        const v = superMetric(result, key);
+        rows.push([label, v == null ? "—" : kind === "money" ? money(v) : formatDistance(v, canonicalDistanceUnit, unit), true]);
+      }
+    }
+    if (!isSuper && result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
     }
-    if (result.metrics.outboundCost != null) {
+    if (!isSuper && result.metrics.outboundCost != null) {
       rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
     }
-    rows.push(
+    if (!isSuper) rows.push(
       [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
        noIncumbent ? "—" : formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
+    );
+    rows.push(
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       // B4.1 — the truthful outcome (never the raw solver `result.quality`,
       // which was hardcoded "optimal" pre-B2 regardless of a gap/time-limit
@@ -682,13 +708,29 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   // ch4-fixes item 3 — JADE inbound/outbound cost split, gated on PRESENCE
   // across the selection, never on modelId; a column lacking it shows "—".
-  if (compareScenarios.some(s => s.result!.metrics.inboundCost != null)) {
+  const isSuperCompare = modelId === SUPER_MODEL_ID;
+  if (isSuperCompare) {
+    for (const [key, label, kind] of SUPER_METRIC_ROWS) {
+      const suffix = kind === "dist" ? unitSuffix : "";
+      pushRow(
+        { key, label, csvLabel: `${label}${suffix}`, mono: true, testId: id => `cost-summary-compare-${key}-${id}` },
+        s => {
+          const v = superMetric(s.result!, key);
+          if (v == null) return EMPTY;
+          return kind === "money"
+            ? { raw: v, display: money(v) }
+            : { raw: toDisplayOrNull(v), display: formatDistanceValueOnly(v, canonicalDistanceUnit, unit) };
+        },
+      );
+    }
+  }
+  if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.inboundCost != null)) {
     pushRow(
       { key: "inbound", label: "Inbound cost", csvLabel: "Inbound cost", mono: true, testId: id => `cost-summary-compare-inbound-${id}` },
       s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: s.result!.metrics.inboundCost.toLocaleString() } : EMPTY,
     );
   }
-  if (compareScenarios.some(s => s.result!.metrics.outboundCost != null)) {
+  if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.outboundCost != null)) {
     pushRow(
       { key: "outbound", label: "Outbound cost", csvLabel: "Outbound cost", mono: true, testId: id => `cost-summary-compare-outbound-${id}` },
       s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: s.result!.metrics.outboundCost.toLocaleString() } : EMPTY,
@@ -732,7 +774,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   }
 
   const distanceLabel = `${compareShowCoverageRows ? "Avg distance to customers" : "Weighted avg. distance"}${unitSuffix}`;
-  pushRow(
+  if (!isSuperCompare) pushRow(
     { key: "distance", label: distanceLabel, csvLabel: distanceLabel, mono: true, testId: id => `cost-summary-compare-distance-${id}` },
     s => noIncumbentFor(s)
       ? EMPTY

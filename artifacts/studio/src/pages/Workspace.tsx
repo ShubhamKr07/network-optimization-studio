@@ -24,6 +24,7 @@ import {
   type Scenario,
   type SolveResult,
   type Plant,
+  type Dataset,
   type SolveJob,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
@@ -684,6 +685,24 @@ function jadePlantsAsWarehouseCandidates(
   dataset: { plants?: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
 ): { id: string; city: string; state: string; lat: number; lng: number }[] {
   return (dataset?.plants ?? []).map(p => ({ id: p.id, city: p.city, state: p.state, lat: p.lat, lng: p.lng }));
+}
+
+// SM-8 — super-model's GET /dataset is empty (every table is scenario-owned),
+// so the Output Map's dataset is built from the SOLVED inputs snapshot. Plants
+// fold into `warehouses` so plant_to_warehouse edges resolve their endpoint
+// (same trade-off as jadePlantsAsWarehouseCandidates).
+function superRowsFromInputs(inputs: Record<string, unknown> | null, key: string): Array<Record<string, any> & { id: string }> {
+  const raw = inputs?.[key];
+  return Array.isArray(raw) ? raw : [];
+}
+function superOutputDataset(inputs: Record<string, unknown> | null): Dataset {
+  const pick = (r: Record<string, any> & { id: string }) => ({ id: r.id, name: r.name, city: r.city, state: r.state, lat: r.lat, lng: r.lng });
+  const demand = new Map<string, number>();
+  for (const d of superRowsFromInputs(inputs, "demand")) demand.set(d.customerId, (demand.get(d.customerId) ?? 0) + (d.demand ?? 0));
+  return {
+    warehouses: [...superRowsFromInputs(inputs, "warehouses"), ...superRowsFromInputs(inputs, "plants")].map(pick),
+    customers: superRowsFromInputs(inputs, "customers").map(c => ({ ...pick(c), demand: demand.get(c.id) ?? 0 })),
+  };
 }
 
 // B5.2 — readers for the add/delete grids, same convention as
@@ -4082,7 +4101,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const outputDataset =
         modelId === "two-echelon-jade-us"
           ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers }
-          : dataset;
+          : modelId === "super-model"
+            ? superOutputDataset(activeOutputInputs)
+            : dataset;
       return (
         <OutputMapTab
           dataset={outputDataset}
@@ -4140,7 +4161,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // matching every other prop on this call). undefined for every
           // non-JADE model — OutputMapTab's own `plants = []` default
           // keeps them unaffected.
-          plants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, activeOutputInputs) : undefined}
+          plants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, activeOutputInputs) : modelId === "super-model" ? superRowsFromInputs(activeOutputInputs, "plants") as Plant[] : undefined}
           // jade-INT (#8, spec §9) — the displayed history entry's own
           // frozen timing; suppressed by OutputMapTab itself when absent.
           timing={displayedTiming}
@@ -4191,7 +4212,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // rendering" (back-compat default) — the gate lives HERE, never inside
       // the shared components themselves.
       const jadeOutputLocationById =
-        modelId === "two-echelon-jade-us" ? jadeLocationMapFromInputs(dataset, activeOutputInputs) : undefined;
+        modelId === "two-echelon-jade-us"
+          ? jadeLocationMapFromInputs(dataset, activeOutputInputs)
+          : modelId === "super-model"
+            ? jadeLocationMapFromInputs({ plants: superRowsFromInputs(activeOutputInputs, "plants"), warehouses: superRowsFromInputs(activeOutputInputs, "warehouses"), customers: superRowsFromInputs(activeOutputInputs, "customers") }, null)
+            : undefined;
       // ch4-tab-city-labels — same SAME-snapshot pattern as jadeOutputLocationById
       // above, Chen-only. Only wired into Open Warehouses/Customer Assignments
       // (this task's explicit scope) — Solution Summary/Flows stay JADE-only,

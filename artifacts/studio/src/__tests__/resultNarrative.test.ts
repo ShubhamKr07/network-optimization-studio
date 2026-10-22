@@ -251,4 +251,12 @@ describe("buildResultNarrative — compare to previous run", () => {
     const t = buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 6.3e6 } as SolveResult })!.text;
     expect(t).toContain("is $182.0M ($6.3M less than your previous run), about $118 per ton");
   });
+
+  it("super-model has its own band-free narrative (real solve envelope, bands: [])", () => {
+    const r = JSON.parse(readFileSync(path.join(__dirname, "fixtures/superResult.json"), "utf8"));
+    const text = buildResultNarrative("super-model", r, { bands: [], distance: MI })?.text;
+    expect(text).toBe(
+      "Opened 2 warehouses. Total cost $254,060,828.62; plant\u2192warehouse shipments average 1,229 miles and warehouse\u2192customer deliveries 650 miles.",
+    );
+  });
 });

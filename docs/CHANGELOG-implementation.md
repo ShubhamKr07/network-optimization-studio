@@ -4311,3 +4311,14 @@ Super Model Phase 1, Task 6. Branch `sm-6-work` (based on `94c7d0dc`).
 - Contract: two OpenAPI paths (`importScenarioNetwork`, `exportScenarioNetwork`), Orval regenerated; `lib/api-zod/src/index.ts` (hand-maintained) gained the explicit type re-exports for the three same-named Zod value / TS type collisions (`ImportScenarioNetworkBody`, `ImportScenarioNetworkParams`, `ExportScenarioNetworkParams`). `toApiScenario` is now exported from `routes/scenarios.ts`.
 - **Deviation from spec §3.2: `distanceOverrides.miles` is `>= 0`, not `> 0`** (`num.min(0)`, still finite). The shipped sample has 25 co-located warehouse->customer pairs at 0.0 miles (found by SM-4/SM-5) and Ch9's own override schema allows 0. SM-5's `precheckSuper.test.ts` no longer filters zero-mile rows; `superModelRegistration.test.ts` asserts 0 accepted, negative and +-Infinity rejected.
 - Tests: `superNetworkImport.test.ts` (12, real DB; imports the unmodified ~192 KB sample, replace/merge/atomic/400/413/401/404 cross-user and non-super/stale/round-trip).
+
+### SM-8 — Super Model studio outputs: summary, compare, output map, narrative (2026-10-23)
+
+Super Model Phase 1, Task 8. Branch `sm-8-work` (based on `fc3643a4`). Studio only; no API/OpenAPI change.
+
+- `CostSummaryTab.tsx`: `SUPER_MODEL_ID`, a cents `money()` formatter and one `SUPER_METRIC_ROWS` table drive both the six metric lines after Objective in the single view (default testids, e.g. `cost-summary-value-total-cost`) and the same rows in compare (`cost-summary-compare-<key>-<id>`, keys `total-cost|inbound|outbound|plant-variable-cost|dist-plant-wh|dist-wh-customer`). The generic Inbound/Outbound/Weighted-avg rows (single and compare) are skipped for super; no jade rate rows. Distances use the existing `formatDistance` (1 dp), costs show to the cent (C1: unrounded in storage, rounded only at render).
+- `Workspace.tsx`: `superOutputDataset(activeOutputInputs)` builds the Output Map dataset (plants folded into warehouses so plant_to_warehouse edges resolve; customer demand summed from the `demand` table) because super's `GET /dataset` is empty; `plants` prop and the open-warehouses city/state `locationById` (reusing `jadeLocationMapFromInputs`) also come from the solved-inputs snapshot.
+- `resultNarrative.ts`: `super-model` added to `MODELS` with its own branch ahead of every band-dependent helper (reads `openFacilityIds`, `totalCost`, `avgDistPlantToWh`, `avgDistWhToCustomer`; works with `bands: []`).
+- Fixture `__tests__/fixtures/superResult.json` is the raw stdout of `solve.py` on the shipped sample (objective 254060828.6157, open wh-11/wh-14), not hand-written.
+- Tests: `CostSummaryTab.Super.test.tsx` (2), `resultNarrative.test.ts` (+1), `Workspace.Super.test.tsx` (+1, verified to fail without the Workspace wiring).
+- Next: SM-9 (import dialog, readiness panel).
