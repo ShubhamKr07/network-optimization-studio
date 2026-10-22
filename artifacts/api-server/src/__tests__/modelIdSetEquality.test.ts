@@ -28,6 +28,7 @@ const WIRE_MODEL_TYPE_BY_MODEL_ID = {
   "two-echelon-jade-us": "two_echelon_jade",
   "max-coverage-us": "max_coverage_us",
   "delivery-teaching-us": "delivery",
+  "super-model": "super_model",
 } satisfies Record<(typeof MODEL_IDS)[number], string>;
 
 describe("model-id registries are one set", () => {

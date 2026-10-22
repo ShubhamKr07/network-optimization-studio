@@ -8,6 +8,7 @@ import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
+import { superInputsSchema } from "../validation/inputs/superInputs.js";
 import { formatInputIssues } from "../validation/formatInputIssues.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
@@ -36,6 +37,7 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   // "listable" (ch5-del-2 manifest) to "solvable" — OBS-5's registration-
   // points gate needs all three at once.
   "delivery-teaching-us": deliveryInputsSchema,
+  "super-model": superInputsSchema,
 };
 
 // The model ids that are fully implemented (have a Zod input validator here). This is the

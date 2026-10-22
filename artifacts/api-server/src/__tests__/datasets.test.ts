@@ -9,6 +9,7 @@ const EXPECTED_COUNTS: Record<string, Record<string, number>> = {
   "two-echelon-jade-us": { "plants.json": 4, "products.json": 4, "warehouses.json": 25, "customers.json": 100, "distances.json": 2600, "plant_product_capability.json": 16 },
   "max-coverage-us": { "warehouses.json": 26, "customers.json": 200, "distances.json": 5200 },
   "delivery-teaching-us": { "warehouses.json": 33, "customers.json": 313, "distances.json": 10329, "costs.json": 10329 },
+  "super-model": { "plants.json": 0, "warehouses.json": 0, "customers.json": 0, "products.json": 0 },
 };
 
 describe("solvers/<model-id>/dataset packages", () => {

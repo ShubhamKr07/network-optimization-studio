@@ -27,6 +27,7 @@ export function objectiveDimension(modelId: string, objectiveMode: string | null
     case "two-echelon-gold-au":
       return "truckload-distance";
     case "two-echelon-jade-us":
+    case "super-model":
       return "monetary";
     case "max-coverage-us":
       return objectiveMode === "coverage" ? "percent" : "demand-distance";

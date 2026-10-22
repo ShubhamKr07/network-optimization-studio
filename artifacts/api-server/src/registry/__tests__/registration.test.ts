@@ -13,6 +13,7 @@ import {
 import { PACKAGE_SPECS, readVersion, MODEL_IDS } from "@workspace/dataset-schema";
 import { VALID_MODEL_IDS } from "../../routes/scenarios.js";
 import { buildPayload, type SolveInput } from "../../solver/pmedian.js";
+import { SUPER_DEFAULT_INPUTS } from "../../validation/inputs/superInputs.js";
 
 // The five models that are fully solvable end-to-end today (each has a
 // manifest + dataset package + Zod input validator + solver dispatch).
@@ -36,6 +37,8 @@ const SOLVABLE = [
   // atomic commit that registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS +
   // buildPayload branch simultaneously (OBS-5 needs all three at once).
   "delivery-teaching-us",
+  // SM-3: Super Model joins in the atomic commit that registers it everywhere.
+  "super-model",
 ];
 
 describe("model registration consistency", () => {
@@ -95,7 +98,7 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
   // M-4 (whole-branch review) — title corrected to match the actual
   // `toHaveLength(7)` assertion below (delivery-teaching-us, ch5-del-2,
   // brought the manifest count to 7; the title was never updated).
-  it("GET /api/models returns 7 models, including two-echelon-jade-us", async () => {
+  it("GET /api/models returns 8 models, including two-echelon-jade-us", async () => {
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);
@@ -104,7 +107,8 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     // model's KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
     // Chapter 5 (ch5-del-2) — delivery-teaching-us is the 7th manifest,
     // listable-only (same pattern max-coverage-us went through pre-C4.6).
-    expect(res.body).toHaveLength(7);
+    // SM-3 — super-model is the 8th.
+    expect(res.body).toHaveLength(8);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
   });
@@ -153,6 +157,7 @@ const STUB_INPUTS: Record<string, unknown> = {
     // .filter()s these; the stub must carry them like every other model's.
     warehouseOverrides: [], customerOverrides: [],
   },
+  "super-model": SUPER_DEFAULT_INPUTS,
 };
 
 /** model-id → modelType wire string, read straight from buildPayload (the real mapping). */
@@ -258,6 +263,17 @@ describe("model registration consistency", () => {
   it("solve.py dispatches the delivery-teaching-us wire value", () => {
     const src = readSrc("artifacts/api-server/src/solver/solve.py");
     expect(src).toContain("if model_type == 'delivery':");
+  });
+
+  it("buildPayload has a branch for super-model emitting the declared wire value (SM-3)", () => {
+    const src = readSrc("artifacts/api-server/src/solver/pmedian.ts");
+    expect(src).toContain('input.modelId === "super-model"');
+    expect(src).toContain('modelType: "super_model"');
+  });
+
+  it("solve.py dispatches the super-model wire value", () => {
+    const src = readSrc("artifacts/api-server/src/solver/solve.py");
+    expect(src).toContain("if model_type == 'super_model':");
   });
 
   it("no source file still references the retired model id", () => {

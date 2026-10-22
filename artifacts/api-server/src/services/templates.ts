@@ -1509,6 +1509,7 @@ export function buildEffectiveFacilityCityLookup(
     // it has no addedWarehouses input at all — so `inputs.addedWarehouses`
     // below is always empty for it, harmlessly).
     : modelId === "delivery-teaching-us" ? DELIVERY_WAREHOUSES
+    : modelId === "super-model" ? [] // no base dataset; warehouses live in scenario inputs
     : [];
   for (const w of base) lookup.set(w.id, w.city);
   for (const w of inputs.addedWarehouses ?? []) lookup.set(w.id, w.city);

@@ -31,6 +31,7 @@ export const MODEL_IDS = [
   "two-echelon-jade-us",
   "max-coverage-us",
   "delivery-teaching-us",
+  "super-model",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 

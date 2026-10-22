@@ -4,6 +4,7 @@ import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import type { DeliveryInputs } from "../validation/inputs/delivery.js";
+import type { SuperInputs } from "../validation/inputs/superInputs.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
@@ -12,7 +13,8 @@ export type SolveInput =
   | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs }
   | { modelId: "two-echelon-jade-us"; inputs: JadeInputs }
   | { modelId: "max-coverage-us"; inputs: MaxCoverageInputs }
-  | { modelId: "delivery-teaching-us"; inputs: DeliveryInputs };
+  | { modelId: "delivery-teaching-us"; inputs: DeliveryInputs }
+  | { modelId: "super-model"; inputs: SuperInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -210,6 +212,10 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
         .filter(o => o.status !== "active")
         .map(o => ({ warehouseId: o.id, status: o.status })),
     };
+  }
+
+  if (input.modelId === "super-model") {
+    return { modelType: "super_model", ...input.inputs };
   }
 
   const i = input.inputs;

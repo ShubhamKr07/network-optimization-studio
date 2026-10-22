@@ -25,7 +25,7 @@ export const HealthCheckResponse = zod.object({
 export const getDatasetQueryModelIdDefault = `p-median-us`;
 
 export const GetDatasetQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au', 'p-median-brazil', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']).default(getDatasetQueryModelIdDefault)
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au', 'p-median-brazil', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']).default(getDatasetQueryModelIdDefault)
 })
 
 export const GetDatasetResponse = zod.object({
@@ -211,13 +211,13 @@ export const GetLandingSummaryResponse = zod.object({
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
 })
 
 export const ListScenariosResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -291,7 +291,7 @@ export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
  */
 export const CreateScenarioBody = zod.object({
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough()
@@ -308,7 +308,7 @@ export const GetScenarioParams = zod.object({
 export const GetScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -393,7 +393,7 @@ export const UpdateScenarioBody = zod.object({
 export const UpdateScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -603,7 +603,7 @@ export const ApplyScenarioImportResponse = zod.object({
   "scenario": zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -803,7 +803,7 @@ export const UpdateDistanceBandsBody = zod.object({
 export const UpdateDistanceBandsResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max-coverage-us', 'delivery-teaching-us', 'super-model']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),

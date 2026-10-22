@@ -1,0 +1,27 @@
+{
+  "id": "super-model",
+  "name": "Super Model — Import-Driven Multi-Product Two-Echelon",
+  "chapter": "Super Model",
+  "datasetDir": "solvers/super-model/dataset",
+  "countryBounds": { "sw": [25.78, -122.69], "ne": [47.61, -71.05] },
+  "capabilities": {
+    "supportsP": true, "capacityModes": [], "demandEditable": true,
+    "outputGrids": ["openWarehouses", "costSummary"],
+    "supportsFacilityStatus": true
+  },
+  "distanceUnit": "mi",
+  "inputsSchema": {
+    "type": "object",
+    "required": ["p", "gap", "timeLimitSec", "transportCosts", "distanceMethod", "circuityFactor",
+                 "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distanceOverrides"],
+    "properties": {
+      "p": { "type": "integer", "minimum": 1 }, "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 }, "transportCosts": { "type": "object" },
+      "distanceMethod": { "type": "string", "enum": ["haversine", "circuity"] },
+      "circuityFactor": { "type": "number", "minimum": 1, "maximum": 3 },
+      "products": { "type": "array" }, "plants": { "type": "array" }, "warehouses": { "type": "array" },
+      "customers": { "type": "array" }, "plantProducts": { "type": "array" }, "demand": { "type": "array" },
+      "distanceOverrides": { "type": "array" }
+    }
+  }
+}

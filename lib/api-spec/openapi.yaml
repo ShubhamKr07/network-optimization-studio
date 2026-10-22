@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, max-coverage-us, delivery-teaching-us]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, max-coverage-us, delivery-teaching-us, super-model]
             default: p-median-us
       responses:
         "200":
@@ -207,6 +207,7 @@ paths:
               - two-echelon-jade-us
               - max-coverage-us
               - delivery-teaching-us
+              - super-model
       responses:
         "200":
           description: List of scenarios
@@ -1733,6 +1734,7 @@ components:
             - two-echelon-jade-us
             - max-coverage-us
             - delivery-teaching-us
+            - super-model
         inputs:
           type: object
           description: Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape).
@@ -1945,6 +1947,7 @@ components:
             - two-echelon-jade-us
             - max-coverage-us
             - delivery-teaching-us
+            - super-model
         inputs:
           type: object
       required:

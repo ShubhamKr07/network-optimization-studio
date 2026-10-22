@@ -1,4 +1,4 @@
-export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us" | "max-coverage-us" | "delivery-teaching-us";
+export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us" | "max-coverage-us" | "delivery-teaching-us" | "super-model";
 
 export interface Chapter {
   path: string;
@@ -110,6 +110,16 @@ export const CHAPTERS: Chapter[] = [
     workspace: true,
     labHeaderTitle: "JADE Network · Model Lab",
     labHeaderSubtitle: "Ch 9 · two-echelon multi-product · plants → warehouses → customers",
+  },
+  {
+    path: "/super-model",
+    modelId: "super-model",
+    chapter: "Super Model",
+    title: "Super Model — Import Your Network",
+    description: "Import your own plants, warehouses, customers, products and demand, set plant capacities and per-unit costs, and choose which warehouses to open at minimum total cost.",
+    workspace: true,
+    labHeaderTitle: "Super Model · Model Lab",
+    labHeaderSubtitle: "Import-driven · multi-product · plants → warehouses → customers",
   },
 ];
 

@@ -1940,6 +1940,8 @@ def solve(inp):
         return solve_pmedian(inp)
     if model_type == 'delivery':
         return solve_delivery(inp)
+    if model_type == 'super_model':
+        return solve_super(inp)
     env = _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
                      f"Unknown modelType: {model_type}")
     env["_failureStage"] = "dispatch"

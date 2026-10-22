@@ -1,0 +1,15 @@
+{
+  "p": 1,
+  "gap": 0,
+  "timeLimitSec": 120,
+  "transportCosts": { "icTransCost": 0.07, "icMinTrans": 10, "obTransCost": 0.12, "obMinTrans": 10 },
+  "distanceMethod": "haversine",
+  "circuityFactor": 1.17,
+  "products": [],
+  "plants": [],
+  "warehouses": [],
+  "customers": [],
+  "plantProducts": [],
+  "demand": [],
+  "distanceOverrides": []
+}

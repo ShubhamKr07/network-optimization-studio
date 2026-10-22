@@ -4258,3 +4258,13 @@ Super Model Phase 1, Task 2. Branch `sm-2-work` (based on `b1da227a`).
 - Deviation: the script gained optional `warehouses customers` argv so the halved run needs no edit.
 - Verification: pytest 368 passed; `e2e_accuracy.py` 99/99 unmodified. `pnpm gate` exit 0: typecheck clean, api-server 2053/2053, studio 2767/2767, pytest 368 passed.
 - Next: SM-3 (register `super-model` end to end, dispatcher branch + `modelType: "super_model"`, `SUPER_CAPS` at 50,000).
+
+### SM-3 — register `super-model` across api, solver dispatch, openapi and studio (2026-10-23)
+
+Super Model Phase 1, Task 3. Branch `sm-3-work` (based on `9c09adb4`). One commit because the id-set equality tests compare across every registry.
+
+- Registration points (`model-integration-precheck.md` Gate 1, 18): 1 manifest + 2 `version.json` (sha via `computeSha256`) + 5 `PACKAGE_SPECS` + 18 `MODEL_IDS` (also `lib/import-schema` `MODEL_IDS`); 3 `superInputs.ts` + `KNOWN_SCHEMAS`; 4 `VALID_MODEL_IDS`; 6 `SolveInput` + `buildPayload` (`modelType: "super_model"`); 7 four OpenAPI `modelId` enums + codegen; 8 `solve.py` dispatcher; 11 `objectiveDimension` -> `monetary`; 12 explicit `inputEntriesForModel` case (9 tabs); 15 `buildEffectiveFacilityCityLookup`; 17 `registration.test.ts` block. Deliberately NOT done: 9 (per-entity import/export allowlists keep rejecting super-model; asserted by `importSchemaRouteParity` and `superModelRegistration`), 10 (map multi-select, no map in SM-3), 13 (precheck is SM-5), 14 (no model-scoped router), 16 (`pMax` left default 50 = warehouse cap; no override needed).
+- `SUPER_CAPS.whCustProd = 50_000` (per SM-2's timing run).
+- Studio: `chapters.ts` entry, Landing `chapterNumber` returns `SM` for a digit-less label, `superDefaults.json` (server-side drift guard in `superModelRegistration.test.ts`), `entityIcons` for `products`/`plantProducts`/`demand`, `MISSING_INPUT_LABELS` and api-server `INPUT_FIELD_LABELS` entries for super's fields (both label-completeness tests caught these; 0 production rows are affected since the model is new).
+- Deviations: plan's `Object.fromEntries` + cast in `superInputsSchema` failed typecheck (TS2349), replaced with seven explicit `.default([])` fields; `entityIcons` uses `ListChecks` for `plantProducts` because icons must be unique across the whole set and `Factory` is `plants`; Landing/`deliveryRegistration` visible-lab counts 4 -> 5; `importSchemaRouteParity` exempts super-model from the "at least one accepted entity" check; the new registration test was written alongside the schema, red state not observed.
+- Next: SM-4 (cost-summary export contract).

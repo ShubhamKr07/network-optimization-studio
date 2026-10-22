@@ -13,6 +13,7 @@ const MODEL_IDS: StudioModelType[] = [
   "two-echelon-jade-us",
   "max-coverage-us",
   "delivery-teaching-us",
+  "super-model",
 ];
 
 // Mirrors OUTPUT_ENTRIES in src/pages/Workspace.tsx:1347-1354, which is

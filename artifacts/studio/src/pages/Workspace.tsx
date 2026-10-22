@@ -92,6 +92,7 @@ import type {
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
 import { workspaceViewId, type WorkspaceView } from "@/lib/workspaceView";
 import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
+import superDefaults from "@/lib/superDefaults.json";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
@@ -206,6 +207,8 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         warehouseOverrides: [],
         customerOverrides: [],
       };
+    case "super-model":
+      return structuredClone(superDefaults);
     case "p-median-us":
     default:
       return { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
@@ -1221,6 +1224,21 @@ function warehouseStatusesFromInputs(
 // every one of them to real content.
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
+    // Super Model: written out so it never inherits p-median's tab set.
+    // Tab content lands in SM-7; until then these ids render the existing
+    // "not available" placeholder.
+    case "super-model":
+      return [
+        { id: "products", label: "Products" },
+        { id: "plants", label: "Plants" },
+        { id: "warehouses", label: "Warehouses" },
+        { id: "customers", label: "Customers" },
+        { id: "plantProducts", label: "Plant Capability" },
+        { id: "demand", label: "Demand" },
+        { id: "distances", label: "Distances" },
+        { id: "transportCosts", label: "Transportation Costs" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
     // Chapter 5 (delivery-teaching-us) - §14 makes customer demand, customer
     // exclusion and warehouse open/close status editable via their own
     // Warehouses/Customers tabs (manifest capabilities demandEditable and

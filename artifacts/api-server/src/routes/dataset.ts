@@ -64,6 +64,11 @@ router.get("/dataset", (req, res) => {
     res.json({ warehouses: DELIVERY_WAREHOUSES, customers: DELIVERY_CUSTOMERS });
     return;
   }
+  if (modelId === "super-model") {
+    // No base dataset: the student imports every entity into scenario inputs.
+    res.json({ plants: [], warehouses: [], customers: [], products: [] });
+    return;
+  }
   res.status(400).json({ error: `Unknown modelId: ${modelId}` });
 });
 

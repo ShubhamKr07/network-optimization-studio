@@ -9,6 +9,16 @@ import { CHAPTERS, chapterForModelId, chapterPathForModelId } from "./chapters";
 // registered model gets its own distinct entry by construction — these tests
 // pin that invariant down for two-echelon-jade-us specifically.
 
+describe("chapters — super-model (SM-3) registration", () => {
+  it("resolves its own entry, registered exactly once", () => {
+    const chapter = chapterForModelId("super-model");
+    expect(chapter?.path).toBe("/super-model");
+    expect(chapter?.workspace).toBe(true);
+    expect(chapter?.labHeaderTitle).toMatch(/Super Model/);
+    expect(CHAPTERS.filter((c) => c.modelId === "super-model")).toHaveLength(1);
+  });
+});
+
 describe("chapters — two-echelon-jade-us (Chapter 9) registration", () => {
   it("chapterForModelId resolves the JADE entry with the expected fields", () => {
     const chapter = chapterForModelId("two-echelon-jade-us");

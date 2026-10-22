@@ -11,8 +11,8 @@ import type { CanonicalUnit } from "@workspace/units";
 import { isRetryableFailureCode } from "@/lib/solveFailure";
 
 function chapterNumber(chapterLabel: string): string {
-  const n = chapterLabel.match(/\d+/)?.[0] ?? "";
-  return n.padStart(2, "0");
+  const n = chapterLabel.match(/\d+/)?.[0];
+  return n ? n.padStart(2, "0") : "SM";
 }
 
 // `GetSolveHistoryResponseItem.distanceUnit` is a plain `string` at the

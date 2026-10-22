@@ -9,6 +9,7 @@ describe("objectiveDimension — the seven-model contract", () => {
     ["transport-coal",       null,           "flow-distance",     true],
     ["two-echelon-gold-au",  null,           "truckload-distance",true],
     ["two-echelon-jade-us",  null,           "monetary",          false],
+    ["super-model",          null,           "monetary",          false],
     ["max-coverage-us",   "coverage",     "percent",           false],
     ["max-coverage-us",   "min_distance", "demand-distance",   true],
     ["delivery-teaching-us", "base",          "demand-distance",   true],

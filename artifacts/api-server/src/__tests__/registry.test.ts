@@ -14,9 +14,9 @@ const testApp = express();
 testApp.use("/api", modelsRouter);
 
 describe("modelRegistry", () => {
-  it("listModels() returns the seven known models", () => {
+  it("listModels() returns the eight known models", () => {
     const ids = listModels().map(m => m.id).sort();
-    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "super-model", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   it("omits datasetDir (server-internal) from the public listing", () => {
@@ -37,11 +37,11 @@ describe("modelRegistry", () => {
 });
 
 describe("GET /api/models", () => {
-  it("returns 200 with the seven known models, unauthenticated", async () => {
+  it("returns 200 with the eight known models, unauthenticated", async () => {
     const res = await request(testApp).get("/api/models");
     expect(res.status).toBe(200);
     const ids = res.body.map((m: { id: string }) => m.id).sort();
-    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
+    expect(ids).toEqual(["delivery-teaching-us", "max-coverage-us", "p-median-brazil", "p-median-us", "super-model", "transport-coal", "two-echelon-gold-au", "two-echelon-jade-us"]);
   });
 
   // R5 (Workspace UX bundle) — every model must always report a

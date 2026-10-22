@@ -109,6 +109,7 @@ export const VALID_MODEL_IDS = new Set([
   // Chapter 5 (ch5-del-4) — delivery-teaching-us — registered here alongside
   // KNOWN_SCHEMAS + buildPayload (same atomic commit) per OBS-5 Gate 1.4.
   "delivery-teaching-us",
+  "super-model",
 ]);
 
 // Derived, never stored — true when inputs changed after the last solve.

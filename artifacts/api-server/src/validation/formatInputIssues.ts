@@ -56,6 +56,15 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   stationDemands: "Station demands",
   addedMines: "Added mines",
   addedStations: "Added stations",
+  // super-model. `transportCosts` and `distanceOverrides` are labelled above.
+  distanceMethod: "Distance method",
+  circuityFactor: "Circuity factor",
+  products: "Products",
+  plants: "Plants",
+  warehouses: "Warehouses",
+  customers: "Customers",
+  plantProducts: "Plant capability",
+  demand: "Demand",
 };
 
 /**

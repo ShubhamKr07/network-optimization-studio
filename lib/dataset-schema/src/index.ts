@@ -174,6 +174,16 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
       "costs.json": DistanceMap,
     },
   },
+  {
+    // Super Model: no base dataset; every entity is imported into scenario inputs.
+    modelId: "super-model",
+    files: {
+      "plants.json": z.record(z.string(), z.never()),
+      "warehouses.json": z.record(z.string(), z.never()),
+      "customers.json": z.record(z.string(), z.never()),
+      "products.json": z.record(z.string(), z.never()),
+    },
+  },
 ];
 
 function packageDir(modelId: string): string {
@@ -289,6 +299,7 @@ export const MODEL_IDS = [
   "two-echelon-jade-us",
   "max-coverage-us",
   "delivery-teaching-us",
+  "super-model",
 ] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */

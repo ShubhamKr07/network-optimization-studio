@@ -222,6 +222,17 @@ export const MISSING_INPUT_LABELS: Record<string, string> = {
   costPerMileOver: "Cost per mile over the threshold",
   // two-echelon-gold-au
   bomRatio: "BOM ratio",
+  // super-model
+  transportCosts: "Transportation costs",
+  distanceMethod: "Distance method",
+  circuityFactor: "Circuity factor",
+  products: "Products",
+  plants: "Plants",
+  warehouses: "Warehouses",
+  customers: "Customers",
+  plantProducts: "Plant capability",
+  demand: "Demand",
+  distanceOverrides: "Distances",
 };
 
 // A1.2 — grid-style editor over the scalar solve-parameter fields

@@ -17,4 +17,5 @@ export const GetDatasetModelId = {
   'two-echelon-jade-us': 'two-echelon-jade-us',
   'max-coverage-us': 'max-coverage-us',
   'delivery-teaching-us': 'delivery-teaching-us',
+  'super-model': 'super-model',
 } as const;
