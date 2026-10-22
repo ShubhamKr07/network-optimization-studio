@@ -12,6 +12,8 @@ import { JADE_TEXTBOOK_TRANSPORT_COSTS } from "../validation/inputs/jadeInputs.j
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import type { DeliveryInputs } from "../validation/inputs/delivery.js";
+import type { SuperInputs } from "../validation/inputs/superInputs.js";
+import { precheckSuperInputs } from "./precheckSuper.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { resolveMaxCoverageRun } from "@workspace/units";
 
@@ -1559,6 +1561,9 @@ export function runNetworkEditsPrecheckForModel(modelId: string, inputs: Record<
   }
   if (modelId === "delivery-teaching-us") {
     return precheckDeliveryInputs(inputs as unknown as DeliveryInputs);
+  }
+  if (modelId === "super-model") {
+    return precheckSuperInputs(inputs as unknown as SuperInputs);
   }
   return { ok: true, errors: [] };
 }

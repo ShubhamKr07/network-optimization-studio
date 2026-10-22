@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
-import { db, usersTable, scenariosTable } from "@workspace/db";
+import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
 import app from "../app.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
 
@@ -11,6 +11,7 @@ const scenarioIds: number[] = [];
 let cookie = "";
 
 afterAll(async () => {
+  for (const id of scenarioIds) await db.delete(solveJobsTable).where(eq(solveJobsTable.scenarioId, id));
   for (const id of scenarioIds) await db.delete(scenariosTable).where(eq(scenariosTable.id, id));
   for (const id of registeredUserIds) await db.delete(usersTable).where(eq(usersTable.id, id));
 });
@@ -78,5 +79,15 @@ describe("super-model registration", () => {
     scenarioIds.push(c.body.id);
     const res = await request(app).get(`/api/scenarios/${c.body.id}/export?entity=warehouses&format=json`).set("Cookie", cookie);
     expect(res.status).toBe(422);
+  });
+
+  it("solving an empty super-model scenario returns 422 with a completeness precheck error", async () => {
+    const c = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "sm-solve-empty", modelId: "super-model", inputs: SUPER_DEFAULT_INPUTS }).expect(201);
+    scenarioIds.push(c.body.id);
+    const res = await request(app).post(`/api/scenarios/${c.body.id}/solve`).set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Network-edit precheck failed");
+    expect(res.body.errors.some((e: { code: string }) => e.code === "completeness")).toBe(true);
   });
 });

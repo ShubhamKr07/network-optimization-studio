@@ -4280,3 +4280,13 @@ Super Model Phase 1, Task 4. Branch `sm-4-work` (based on `f8b02d81`). Constant 
 - Findings (not fixed here): `super-model-sample.json` fails its own schema, 25 wh->customer `distanceOverrides` are `0.0` miles but the schema requires `positive()`; and its ~230 KB exceeds `express.json()`'s 100 KB default, which surfaces as a 500 (not 413/422) through the app error handler. The test omits `distanceOverrides` (haversine recomputes them). Whichever task builds the import endpoint will hit both.
 - Verification: `pnpm gate` exit 0 on the second run: typecheck clean, api-server 2087/2087, studio 2770/2770, pytest 368. The first run's only non-flake failure was a missed literal `4` in `routes.test.ts` (fixed); `scenarioPublicationCas` (two A7 cases) is registered flake, 309/309 green with `routes.test.ts` isolated.
 - Next: SM-5 (solver-readiness precheck).
+
+### SM-5 — super-model solve-readiness precheck (2026-10-23)
+
+Super Model Phase 1, Task 5. Branch `sm-5-work` (based on `f8b02d81`).
+
+- New `services/precheckSuper.ts` (`precheckSuperInputs`), dispatched from `runNetworkEditsPrecheckForModel` for `super-model`. Reuses existing codes only (`completeness | zero_demand | capacity | p_range | coefficient_range`); `openapi.yaml` untouched. The solve route returns 422 `Network-edit precheck failed` for an empty scenario.
+- Tests: `__tests__/precheckSuper.test.ts` (6) and one solve-route case appended to `superModelRegistration.test.ts` (with `solveJobsTable` cleanup).
+- Deviations: unit test lives in `src/__tests__/` (no `services/__tests__` dir exists) and reads the sample via `readFileSync`; the test drops the sample's zero-mile overrides (see hotspot).
+- **Hotspot (not fixed, belongs to SM-2/SM-3):** `super-model-sample.json` contains 25 `distanceOverrides` with `miles: 0` (co-located warehouse/customer pairs, e.g. `wh-1 -> customer-1`), which `superInputsSchema` rejects (`miles` must be > 0). The shipped sample therefore fails schema validation as-is; SM-6's "replace imports the full sample" test will hit this. Fix either the generator (omit zero pairs) or relax the schema.
+- Next: SM-6 (network import/export).
