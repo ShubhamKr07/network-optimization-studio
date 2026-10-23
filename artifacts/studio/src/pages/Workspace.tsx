@@ -75,7 +75,7 @@ import { isEntityTable } from "@/components/workspace/super/superTables";
 import { SuperNetworkImportDialog } from "@/components/workspace/super/SuperNetworkImportDialog";
 import { SuperReadinessPanel } from "@/components/workspace/super/SuperReadinessPanel";
 import { downloadAs } from "@/lib/clientCsv";
-import { cascadeDelete, referencingRows, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
+import { cascadeDelete, referencingRows, superTablesEmpty, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1273,6 +1273,7 @@ export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
     // Super Model: written out so it never inherits p-median's tab set.
     case "super-model":
       return [
+        { id: "input-map", label: "Input Map" },
         { id: "products", label: "Products" },
         { id: "plants", label: "Plants" },
         { id: "warehouses", label: "Warehouses" },
@@ -2271,6 +2272,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // to land. Also invalidates both queries Studio.tsx invalidates, so any
   // other consumer (sidebar scenario list, a background refetch) doesn't
   // see stale data either.
+  // SM2-1 (§6.1) — after any successful Super import: resync like every import, open the Input Map, refit.
+  function handleSuperImportApplied(updated: Scenario) {
+    handleImportApplied(updated);
+    openTab("input", { id: "input-map", label: "Input Map" });
+    setSuperFitKey(k => k + 1);
+  }
   function handleImportApplied(updated: Scenario) {
     setLocalInputs(updated.inputs);
     savedInputsRef.current = updated.inputs;
@@ -2443,8 +2450,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (didSeedTabRef.current === modelId) return; // already seeded for this model
     didSeedTabRef.current = modelId;
     const entries = inputEntriesForModel(modelId);
-    // SM-13 — super-model has no Input Map; open its first input tab so the empty-state import prompt shows.
-    const entry = entries.find(e => e.id === "input-map") ?? (modelId === "super-model" ? entries[0] : undefined);
+    // SM-13 / SM2-1 — an empty super scenario opens on the import prompt (first table tab); a non-empty one on the Input Map.
+    const entry = modelId === "super-model"
+      ? entries.find(e => e.id === (superTablesEmpty(currentScenario.inputs as Record<string, unknown>) ? "products" : "input-map"))
+      : entries.find(e => e.id === "input-map");
     if (entry) openTab("input", entry);
   }, [currentScenario, modelId]);
 
@@ -2762,9 +2771,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // SM-7 (D3) — a Super Model entity delete waits for this confirmation,
   // which states how many referencing rows go with it.
   const [superImportOpen, setSuperImportOpen] = useState(false);
-  const SUPER_TABLE_KEYS = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distanceOverrides"];
-  const superTablesEmpty = (inputs: Record<string, unknown> | null | undefined) =>
-    !!inputs && SUPER_TABLE_KEYS.every(k => !Array.isArray(inputs[k]) || (inputs[k] as unknown[]).length === 0);
+  const [superFitKey, setSuperFitKey] = useState(0);
   const superIsEmpty = modelId === "super-model" && superTablesEmpty(localInputs);
   // Replace overwrites the PERSISTED scenario, so the overwrite confirmation is decided from the saved inputs, never unsaved local edits.
   const superSavedIsEmpty = superTablesEmpty(currentScenario?.inputs as Record<string, unknown> | undefined);
@@ -3374,6 +3381,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // InputMapTab.tsx's mode union (cleanup pass) along with this file's own
     // now-unreferenced pinsForModel/placementOptionsForModel/handlePlacePoint.
     if (activeView.kind === "input" && activeView.entity === "input-map") {
+      if (modelId === "super-model") {
+        if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+        return <InputMapTab mode="super" inputs={localInputs as SuperInputsLike} fitKey={superFitKey} />;
+      }
       if (modelId === "two-echelon-gold-au") {
         if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
         return (
@@ -4606,7 +4617,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                     </Button>
                   </div>
                 ) : activeView ? (
-                  modelId === "super-model" && activeView.kind === "input" && (superIsEmpty || activeView.entity === "optimization-parameters") ? (
+                  modelId === "super-model" && activeView.kind === "input" && ((superIsEmpty && activeView.entity !== "input-map") || activeView.entity === "optimization-parameters") ? (
                     <>
                       <SuperReadinessPanel precheck={precheck} isEmpty={superIsEmpty} onImport={() => setSuperImportOpen(true)} />
                       {!superIsEmpty && renderTabContent()}
@@ -4713,7 +4724,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onOpenChange={setSuperImportOpen}
           scenarioId={currentScenario.id}
           isEmpty={superSavedIsEmpty}
-          onApplied={handleImportApplied}
+          onApplied={handleSuperImportApplied}
         />
       )}
       <AlertDialog open={superDeleteTarget != null} onOpenChange={o => { if (!o) setSuperDeleteTarget(null); }}>

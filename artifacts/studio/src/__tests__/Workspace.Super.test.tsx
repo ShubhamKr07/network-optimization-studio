@@ -122,9 +122,9 @@ beforeEach(() => {
 const rowCount = (table: string) => document.querySelectorAll(`[data-testid^="super-row-${table}-"]`).length;
 
 describe("Workspace — super-model input tabs (SM-7)", () => {
-  it("renders the nine sidebar input entries", () => {
+  it("renders the ten sidebar input entries", () => {
     renderWorkspace();
-    for (const id of ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
+    for (const id of ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
       expect(screen.getByTestId(`sidebar-input-${id}`)).toBeInTheDocument();
     }
   });
@@ -213,6 +213,36 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
     renderWorkspace();
     expect(screen.getByTestId("super-open-import")).toBeInTheDocument();
+  });
+
+  it("SM2-1: a non-empty scenario opens on the Input Map", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument();
+  });
+  it("SM2-1: an empty scenario's Input Map shows the map, not the import prompt", () => {
+    const empty = { ...scenario, inputs: { ...sample, products: [], plants: [], warehouses: [], customers: [], plantProducts: [], demand: [], distanceOverrides: [] } };
+    mockUseGetScenario.mockReturnValue({ data: empty } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("super-open-import")).toBeInTheDocument(); // SM-13 unchanged
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("super-empty-state")).not.toBeInTheDocument();
+  });
+  it("SM2-1: a successful import switches to the Input Map", async () => {
+    const { useImportScenarioNetwork } = await import("@workspace/api-client-react");
+    vi.mocked(useImportScenarioNetwork).mockReturnValue({
+      mutate: (_v: unknown, o: { onSuccess: (r: { scenario: typeof scenario }) => void }) => o.onSuccess({ scenario }),
+      reset: vi.fn(), isPending: false, isError: false,
+    } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-import-mode-merge"));
+    fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
+    await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("super-import-confirm"));
+    await waitFor(() => expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument());
   });
 
   it("SM-9: Replace still needs the overwrite confirmation when every row was deleted locally but not saved", async () => {
