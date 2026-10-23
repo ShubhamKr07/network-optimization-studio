@@ -1,6 +1,6 @@
 # Super Model — design
 
-Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23; Phases 2–3 + Input Map (D5–D9) folded in from brainstorming 2026-10-23; Phase 2–3 plan review (Codex high) folded in 2026-10-23 (§7.1 issue paths, §7.2 formula guard, §7.3 in-file duplicates, §8 busy / empty sides / timers / Render gate)
+Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23; Phases 2–3 + Input Map (D5–D9) folded in from brainstorming 2026-10-23; Phase 2–3 plan review (Codex high) folded in 2026-10-23 (§7.1 issue paths, §7.2 formula guard, §7.3 in-file duplicates, §8 busy / empty sides / timers / Render gate); implementation decisions D13–D15 folded at SM2-12 close-out
 
 ## 1. Goal
 
@@ -47,7 +47,9 @@ Changes relative to Ch9:
 | D10 Duplicate keys in an import | Rejected per table with document-relative issues, before merge (§7.3); never last-wins |
 | D11 Map move dialog | `MoveConfirmDialog` `preserveIdentity` prop (§6.1) |
 | D12 Road error statuses | 503 unavailable · 429 quota · 502 failed · 422 unroutable · 409 busy, contractual in OpenAPI (§8) |
-| D13 XLSX library | SheetJS from `cdn.sheetjs.com`, conditional on the plan's Task 4 checks; any failed check ⇒ re-plan (§7.2) |
+| D13 XLSX library | SheetJS 0.20.3, **vendored** at `artifacts/studio/vendor/xlsx-0.20.3.tgz` via `file:` (lockfile sha512 integrity), plus fflate for zip; chosen after the CDN URL failed the integrity check (pnpm records no hash for tarball URLs) (§7.2) |
+| D14 Super request limit | 4 MiB (`SUPER_NETWORK_MAX_BYTES`) for super-model network import and scenario PATCH; every other model keeps 2 MiB (§7.2) |
+| D15 ORS 403 | ORS returns 403 for the daily quota (and for a rejected key) and 429 per minute; both map to `road_distances_quota` / HTTP 429, the 403 message naming both causes (§8) |
 
 ## 3. Data model
 
@@ -200,7 +202,8 @@ above; a test covers a Super-vs-Super compare.
 - **Home page:** new "Super Model" block after the chapter blocks, labelled "SM" instead of a chapter number. The card opens
   the workspace; blank-template and sample-network downloads live in the workspace empty state (decision C2 — a
   home card is a single link, so it cannot hold nested download links). Phase 1 ships the JSON template; Phase 2
-  adds the blank template and the sample network as a CSV zip and as an XLSX workbook.
+  adds the blank template and the sample network as a CSV zip and as an XLSX workbook, generated in the
+  browser from the shipped JSON files.
 - **Workspace tabs** (reuse Ch9 components where they fit):
   Products · Plants · Warehouses (status) · Customers (status, no demand column) ·
   Plant Capability (plant, product, capacity, cost/unit) · Demand (customer, product, demand) ·
@@ -251,7 +254,7 @@ warehouse and customer point (all statuses), padding 40 px, max zoom 10. With on
 - Layer toggles for plants, warehouses and customers. No flows (they belong to the Output Map).
 
 **Save, readiness, stale.** Map edits change `localInputs` exactly as table edits do and are written by
-the same Save; there is no map-only write. Readiness and the stale badge read **saved** state, as today:
+the same toolbar Save; there is no map-only write. Readiness and the stale badge read **saved** state, as today:
 an unsaved move changes neither, and after Save `inputsUpdatedAt` bumps, so the badge shows.
 
 **Registration delta.** The plan maps this feature against `model-integration-precheck.md`'s 18 points
@@ -285,8 +288,8 @@ and regenerated in the same task.
   `distance_overrides.csv`, `parameters.csv`. Unknown filenames rejected by name. Missing file = table
   absent. Parsed with papaparse (already a workspace dependency).
 - **XLSX:** one workbook, sheets with the same names minus `.csv`. Unknown sheet names rejected by name.
-  One new Studio dependency (and one zip library for CSV-zip export), chosen in the plan after a version
-  and `pnpm audit` check, both loaded with a dynamic `import()`.
+  One new Studio dependency, SheetJS 0.20.3 vendored as a `file:` tarball (D13), and fflate for CSV-zip
+  export, both loaded with a dynamic `import()` (initial bundle +0.47 kB gzip; xlsx chunk 161.55 kB gzip).
 - **JSON:** one document shaped like §3.2, without `roadDistances`.
 
 **Table files.** Row 1 is a header naming the §3.2 fields of that table, in any order; unknown columns
@@ -313,9 +316,11 @@ as string cells and numbers as numeric cells, never formulas, so no prefix is ad
 **Limits.** Super does not use the per-entity `MAX_IMPORT_ROWS`. Table sizes are bounded by §3.3's caps
 plus the schema's existing duplicate and reference rules (`superInputs.ts`): `plantProducts` ≤ plants ×
 products (200), `demand` ≤ customers × products (5,000), `distanceOverrides` ≤ all plant→WH +
-WH→customer pairs (26,000). `MAX_IMPORT_BYTES` applies to the **serialized JSON request** for every
-format (the Studio checks it before posting, the API's body limit enforces it); the plan measures that a
-maximum-size network fits and raises the Super route's limit if it does not.
+WH→customer pairs (26,000). The size limit applies to the **serialized JSON request** for every format
+(the Studio checks it before posting, the API's body limit enforces it). For super-model it is
+`SUPER_NETWORK_MAX_BYTES` = 4 MiB (D14) on network import and on scenario PATCH: measured at the caps with
+20-character location IDs, the largest network is 2,538,956 bytes (2 products × 500 customers), over the
+2 MiB default. The larger parser is chosen only after the owned row is loaded and is super-model.
 
 **Errors.** Each names file (or sheet), row and column.
 - Client parse errors are produced directly in the browser.
@@ -392,8 +397,8 @@ non-Super ⇒ 404; locked model ⇒ the existing locked response; missing `ORS_A
 Render's HTTP request timeout must be proven ≥ 120 s plus margin before any road-distance code is
 written; if it cannot be proven, the route design is re-planned (a hard gate, not an in-task redesign).
 
-**Failures write nothing:** 429 ⇒ `road_distances_quota` ("OpenRouteService quota reached, try again
-later"); timeout, deadline or any other ORS error ⇒ `road_distances_failed` naming the batch (e.g.
+**Failures write nothing:** ORS 429 (per minute) or 403 (daily quota, or key rejected — D15) ⇒
+`road_distances_quota`; timeout, deadline or any other ORS error ⇒ `road_distances_failed` naming the batch (e.g.
 "warehouses → customers 71–140"); any `null` ⇒ `road_distances_unroutable` naming the first such pair
 (the user can add an override for it), and no later batch is requested; a fetch already in progress ⇒
 `road_distances_busy` (below). The codes are one closed set (TS union, OpenAPI enum, regenerated client), with HTTP statuses fixed by D12: 503 `road_distances_unavailable`, 429 `road_distances_quota`, 502 `road_distances_failed`, 422 `road_distances_unroutable`, 409 `road_distances_busy`.
@@ -416,7 +421,8 @@ reuse is harmless: a re-added location at identical coordinates has the identica
 - **Precheck** uses it. With method `road`, the readiness item fails with the count of **required** pairs
   that have no valid road pair, where required = plant→eligible-warehouse (not `inactive`) and
   eligible-warehouse→active-customer pairs **without** a `distanceOverride`. Pairs involving inactive
-  warehouses, excluded customers or overridden pairs never block.
+  warehouses, excluded customers or overridden pairs never block. The item reuses the existing precheck code
+  `completeness` (no new closed-union precheck code).
 - **Solve payload**: the TS builder passes only valid pairs to Python; `merge_inputs.py` applies
   override → passed road pair → haversine/circuity, with no validity logic of its own.
 - **Studio** shows the precheck result; it never recomputes validity.

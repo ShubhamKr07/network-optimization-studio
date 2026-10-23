@@ -4528,3 +4528,22 @@ Branch `sm2-11-work`. `artifacts/studio/e2e/super-model.spec.ts`: `importSampleV
 
 Sibling sweep: only `super-model.spec.ts` references any super testid or the removed "Export network" label; no sibling spec needed a rewrite. Verification (local api 3001 / studio 5201, `E2E_BASE_URL` set): `super-model.spec.ts` 8/8; `pnpm e2e:gate` `results.json` stats expected 81, unexpected 0, flaky 4 (all pre-registered, see flake-registry, isolated 14/14 twice); `e2e_journey.py super` 37/37; `e2e_accuracy.py` 99/99. Flake registry gained the SM2-11 Playwright sightings and the SM2 api-server vitest sightings (passwordReset global cap, auth SameSite=None, importMultiModelRoundTrip).
 
+
+### SM2-12 - Super Model Phases 2–3 + Input Map close-out (2026-10-23)
+
+Bundle branch `super-model-2` (off `sm2-spec` → `main` `9d9b6561`). Tasks on the branch, each one commit, cherry-picked from its own locked worktree after an Opus review (qa-sdet: fable review): SM2-6 `d47aeaf3`, SM2-1 `5631571d`, SM2-3 `f097aa5e`, SM2-4 `8b29bbc9`, SM2-2 `9f9ba727`, SM2-5 `00dcaf56`, SM2-7 `df2100a2`, SM2-8 `36326e76`, SM2-9 `d6e322b4`, SM2-10 `32c60d57`, SM2-11 `c27b4172`. 73 files, +7098/−387 vs `9d9b6561`; no `lib/db/src/schema/**` change.
+
+Integrated gate on `c27b4172` (0 concurrent vitest at start): typecheck green; api-server 2169/2170 (1 = `jobRunnerDispatcher` "markSucceeded resolves false…", registered flake, 11/11 twice alone); studio 169 files / 2888 tests; pytest 369 passed; `e2e_accuracy.py` 99/99; `e2e_journey.py super` 37/37; `pnpm e2e:gate` expected 83 / unexpected 1 / flaky 1 — the unexpected `import.spec.ts` "export → edit one demand → import applies exactly one change" was two 30 s test timeouts (not assertions) and passed 3/3 twice alone with `--retries=0`; the flaky `input-tables-qa.spec.ts` km/mi case passed on retry. All recorded in `docs/superpowers/flake-registry.md`.
+
+Measured facts: max Super network at the caps with 20-char IDs 2,538,956 B (2 products × 500 customers) ⇒ user-approved Super-only 4 MiB limit (D14); SheetJS 0.20.3 vendored (D13), sha512 `oLDq3jw7…AJA==` in the lockfile, `pnpm audit` unchanged before/after (9/21/35/15 low/moderate/high/critical; does not cover `file:` deps), initial bundle +0.47 kB gzip, xlsx chunk 161.55 kB gzip; Render documents responses up to 100 minutes (SM2-6); ORS 403 = daily quota / rejected key (D15). Live ORS check: NOT done (no key).
+
+Spec folded in place (same commit): D13–D15, §6.1 toolbar Save, §7.2 browser-generated templates/sample + limits + libraries, §8 403 handling and `completeness` reuse.
+
+Scope beyond the plan (review-driven): `mutationErrorSurface.test.ts` now walks the src tree with a named allow-list (7 inline-error sites); 3 silent mutation failures in legacy `Studio.tsx` (clone, delete, create scenario) now toast via `describeWriteError` (SM2-10). Latent Phase 1 bug fixed: `|`-joined composite keys could collide (SM2-3 server, SM2-2 studio).
+
+Deferred / follow-ups:
+- User supplies `ORS_API_KEY` (Render Dashboard, `sync: false`, `nos-api`), then a live check of `/v2/matrix/driving-hgv`, the `Authorization` header and the 3,500-pair limit (`ORS_MAX_PAIRS`).
+- UX: coincident pins (e.g. sample customer-1 / wh-1 / plant-4) are only reachable after zooming (warehouses/plants carry `zIndexOffset` 1000, as on other models' maps).
+- `importMultiModelRoundTrip` flaked once even in isolation (3 of 4 green) — watch for a shared-state cause.
+- Deploy (separate approvals): `nos-api` and `nos-studio` must ship together (Studio calls the new route and reads `issues`); new env var `ORS_API_KEY`; `SOLVER_CODE_HASH` changes (`merge_inputs.py`) ⇒ one-time cache miss; run `pnpm deploy:preflight -- <deployed-sha>..HEAD`.
+- Next: user approval to merge `super-model-2` into local `main`, then whole-branch review, then push, then deploy — each a separate approval.
