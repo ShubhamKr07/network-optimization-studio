@@ -4547,3 +4547,7 @@ Deferred / follow-ups:
 - `importMultiModelRoundTrip` flaked once even in isolation (3 of 4 green) — watch for a shared-state cause.
 - Deploy (separate approvals): `nos-api` and `nos-studio` must ship together (Studio calls the new route and reads `issues`); new env var `ORS_API_KEY`; `SOLVER_CODE_HASH` changes (`merge_inputs.py`) ⇒ one-time cache miss; run `pnpm deploy:preflight -- <deployed-sha>..HEAD`.
 - Next: user approval to merge `super-model-2` into local `main`, then whole-branch review, then push, then deploy — each a separate approval.
+
+### SM2-13 - whole-branch review fixes (backend)
+
+`services/superRoad.ts` built road-pair keys as `${a}|${b}` (non-injective: plant `a|b`->wh `c` collides with plant `a`->wh `b|c`, so a missing required pair counted as present). It now uses `pairKey` from `validation/inputs/superInputs.ts`. Test in `superRoad.test.ts` returned 2 instead of 3 missing before the fix. Also deleted the unused `SUPER_NETWORK_MAX_BYTES` re-export in `superInputs.ts` (all importers use `@workspace/import-schema`).

@@ -1,7 +1,6 @@
-import type { SuperInputs } from "../validation/inputs/superInputs.js";
+import { pairKey as key, type SuperInputs } from "../validation/inputs/superInputs.js";
 
 export interface RoadPair { fromId: string; toId: string; miles: number }
-const key = (a: string, b: string) => `${a}|${b}`;
 
 /** D8 — the only road-validity implementation (precheck and the solve payload both call it; Python and the Studio never
  *  recompute it). Exact equality is intended: both sides are the same stored JSON numbers, and a move writes new numbers. */

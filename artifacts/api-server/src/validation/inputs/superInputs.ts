@@ -1,5 +1,4 @@
 import { z } from "zod";
-export { SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
 import { JADE_RATE_MAX, JADE_MIN_CHARGE_MAX, JADE_TEXTBOOK_TRANSPORT_COSTS } from "./jadeInputs.js";
 
 export const SUPER_CAPS = { products: 10, plants: 20, warehouses: 50, customers: 500, whCustProd: 50_000 } as const;
