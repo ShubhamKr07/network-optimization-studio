@@ -1,5 +1,6 @@
 import type { PrecheckError, PrecheckResult } from "./precheck.js";
 import type { SuperInputs } from "../validation/inputs/superInputs.js";
+import { missingRequiredRoadPairs } from "./superRoad.js";
 
 export function precheckSuperInputs(v: SuperInputs): PrecheckResult {
   const errors: PrecheckError[] = [];
@@ -19,6 +20,10 @@ export function precheckSuperInputs(v: SuperInputs): PrecheckResult {
   const forced = v.warehouses.filter(w => w.status === "forced_open").length;
   if (v.p > eligible) err("p_range", `p = ${v.p} exceeds the ${eligible} warehouse(s) that can open.`);
   if (forced > v.p) err("p_range", `${forced} forced-open warehouses exceed p = ${v.p}.`);
+  if (v.distanceMethod === "road") {
+    const missing = missingRequiredRoadPairs(v);
+    if (missing > 0) err("completeness", `${missing} required road distance pair(s) are missing or out of date. Fetch road distances, or add distance overrides.`);
+  }
   const t = v.transportCosts;
   if (![t.icTransCost, t.icMinTrans, t.obTransCost, t.obMinTrans, ...v.plantProducts.map(r => r.costPerUnit)].every(Number.isFinite))
     err("coefficient_range", "A cost coefficient is not a finite number.");

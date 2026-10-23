@@ -87,6 +87,16 @@ def test_distance_resolution_precedence():
     assert abs(ds2["dist"][("W1","C1")] - hv * 1.5) < 1e-9
     assert "C2" not in ds["customers"] and "C2" not in ds["demands"]
 
+def test_road_pairs_resolution_step_2():
+    road = [{"fromId": "P1", "toId": "W1", "miles": 111.5}, {"fromId": "W1", "toId": "C1", "miles": 222.25}]
+    ds = build_super_dataset(_mini_inputs(distanceMethod="road", roadPairs=road,
+                                          distanceOverrides=[{"fromId": "W1", "toId": "C1", "miles": 7}]))
+    assert ds["dist"][("P1", "W1")] == 111.5          # passed road pair
+    assert ds["dist"][("W1", "C1")] == 7              # override still wins
+    hv = haversine_mi(40.0, -100.0, 40.0, -99.0)
+    ds2 = build_super_dataset(_mini_inputs(distanceMethod="road", roadPairs=[]))
+    assert abs(ds2["dist"][("P1", "W1")] - hv) < 1e-9  # no pair passed -> haversine, factor 1
+
 def test_solve_super_mini():
     r = solve_super(_mini_inputs())
     assert r["status"] == "optimal"

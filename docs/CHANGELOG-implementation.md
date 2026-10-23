@@ -4492,3 +4492,14 @@ Branch `sm2-7-work`. `distanceMethod` gains `road` (Zod enum + manifest enum). N
 - Write sites: POST create drops it; PATCH keeps the persisted value (client copy ignored, omission does not clear); network import replace clears, merge keeps; clone copies the row verbatim (keeps); export strips.
 - Tests: new `superRoadContract.test.ts` (seeds only through the real writer, R7); `superModelRegistration.test.ts` road case inverted 422 -> 201.
 - Next: SM2-8 (`validRoadPairs`, `roadPairs` payload, `merge_inputs.py`).
+
+### SM2-8 - `validRoadPairs`, road readiness item, solve payload `roadPairs` (2026-10-23)
+
+Branch `sm2-8-work`. New `services/superRoad.ts`: `validRoadPairs(inputs)` is the ONLY road-validity implementation (D8: both endpoints exist now and current lat/lng equal the snapshot `coords` exactly) and `missingRequiredRoadPairs(inputs)` (required = plant to non-inactive WH and non-inactive WH to active customer, minus `distanceOverrides`).
+
+- `precheckSuper.ts`: when `distanceMethod === "road"`, one `completeness` item "N required road distance pair(s) are missing or out of date" (no new precheck code).
+- `pmedian.ts` super payload: drops `roadDistances`, adds `roadPairs` (valid pairs when road, else `[]`). `merge_inputs.py` `build_super_dataset`: override, then passed road pair, then haversine x circuity factor; a lookup table only, no validity logic and no `solve.py` change (hard rule #6).
+- One commit across TS and Python (payload key is one contract). `SOLVER_CODE_HASH` covers `merge_inputs.py`, so every cached result misses once after deploy.
+- Tests: `superRoad.test.ts` (new), `precheckSuper.test.ts`, `test_super.py::test_road_pairs_resolution_step_2`. Break-and-restore proven: coords check removed (3 fail), inactive filter removed (2 fail), road lookup disabled (pytest fails).
+- Gate: api-server 2144 pass; solver pytest 369 pass; `e2e_accuracy.py` 99/99 unmodified.
+- Next: SM2-9 (ORS client, busy flag, `POST /network/road-distances`).
