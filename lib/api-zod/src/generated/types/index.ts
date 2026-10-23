@@ -104,6 +104,8 @@ export * from './modelInfoCapabilities';
 export * from './modelInfoCountryBounds';
 export * from './modelInfoDistanceUnit';
 export * from './modelInfoInputsSchema';
+export * from './networkImportIssue';
+export * from './networkImportRejection';
 export * from './normalizedLegacySolveResult';
 export * from './normalizedLegacySolveResultDetails';
 export * from './normalizedLegacySolveResultEnvelopeVersion';

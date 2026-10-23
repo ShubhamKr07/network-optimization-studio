@@ -22,6 +22,8 @@ export const DISTANCE_TEMPLATE_VERSION = 2;
 export const MAX_IMPORT_ROWS = 20_000;
 /** 2 MB — the server's express.json limit AND the client's file-size guard. */
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
+/** 4 MiB — super-model ONLY: the network-import body limit, the super scenario PATCH limit, and the Studio's pre-POST size check. */
+export const SUPER_NETWORK_MAX_BYTES = 4 * 1024 * 1024;
 
 export const MODEL_IDS = [
   "p-median-us",

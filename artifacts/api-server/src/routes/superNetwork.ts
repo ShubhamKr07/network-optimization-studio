@@ -1,13 +1,13 @@
 import { Router, json, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, scenariosTable } from "@workspace/db";
-import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
+import { SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
 import { requireAuth } from "../middlewares/auth.js";
 import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { applyScenarioInputWrite } from "../services/scenarioInputWrite.js";
-import { superNetworkDocSchema, mergeNetwork } from "../services/superNetwork.js";
+import { superNetworkDocSchema, mergeNetwork, docDuplicateIssues, toDocIssues } from "../services/superNetwork.js";
 import { superInputsSchema } from "../validation/inputs/superInputs.js";
-import { formatInputIssues } from "../validation/formatInputIssues.js";
+import { formatInputIssues, toInputIssues } from "../validation/formatInputIssues.js";
 import { toApiScenario } from "./scenarios.js";
 
 const router: IRouter = Router();
@@ -33,21 +33,32 @@ router.post("/scenarios/:scenarioId/network/import", async (req: Request, res: R
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(row.modelId)) { respondLocked(res); return; }
   next();
-}, json({ limit: MAX_IMPORT_BYTES }), bodyErrors, async (req: Request, res: Response) => {
+}, json({ limit: SUPER_NETWORK_MAX_BYTES }), bodyErrors, async (req: Request, res: Response) => {
   const id = Number(req.params.scenarioId);
   const mode = req.query.mode; // spec §7.1: mode is a query parameter; the body IS the network document
   if (mode !== "replace" && mode !== "merge") { res.status(400).json({ error: "mode must be replace or merge" }); return; }
   const doc = superNetworkDocSchema.safeParse(req.body);
-  if (!doc.success) { res.status(422).json({ error: formatInputIssues(doc.error.issues) }); return; }
+  if (!doc.success) { res.status(422).json({ error: formatInputIssues(doc.error.issues), issues: toInputIssues(doc.error.issues) }); return; }
+  const dupIssues = docDuplicateIssues(doc.data);
+  if (dupIssues.length > 0) {
+    res.status(422).json({ error: dupIssues.map(i => `${i.path[0]} row ${Number(i.path[1]) + 1}: ${i.message}.`).join(" "), issues: dupIssues });
+    return;
+  }
   const outcome = await db.transaction(async tx => {
     const [cur] = await tx.select().from(scenariosTable)
       .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!))).for("update");
     if (!cur) return { kind: "not_found" as const };
-    const current = superInputsSchema.parse(cur.inputs);
-    return applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: mergeNetwork(current, doc.data, mode) as Record<string, unknown> });
+    const { next, origin } = mergeNetwork(superInputsSchema.parse(cur.inputs), doc.data, mode);
+    const written = await applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: next });
+    return written.kind === "invalid" ? { ...written, issues: toDocIssues(written.issues, origin) } : written;
   });
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
-  if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error }); return; }
+  if (outcome.kind === "invalid") {
+    // error is built from the document-relative issues so it names the same rows `issues` does
+    const error = outcome.issues.map(i => (i.path.length > 1 ? `${i.path[0]} row ${Number(i.path[1]) + 1}: ` : "") + i.message + ".").join(" ");
+    res.status(422).json({ error, issues: outcome.issues });
+    return;
+  }
   res.json({ scenario: toApiScenario(outcome.row) });
 });
 

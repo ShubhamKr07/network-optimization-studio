@@ -4,7 +4,9 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { setupExpressRequestContext, setupExpressErrorHandler } from "posthog-node";
 import * as Sentry from "@sentry/node";
-import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
+import { and, eq } from "drizzle-orm";
+import { db, scenariosTable } from "@workspace/db";
+import { MAX_IMPORT_BYTES, SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
 import router from "./routes";
 import { requireAuth } from "./middlewares/auth";
 import { logger } from "./lib/logger";
@@ -78,12 +80,28 @@ const SCENARIO_WRITE = (m: string, path: string) =>
   (m === "POST" && /^\/api\/scenarios\/?$/i.test(path)) || (m === "PATCH" && /^\/api\/scenarios\/[^/]+\/?$/i.test(path));
 const defaultJsonBody = express.json();
 const scenarioWriteJsonBody = express.json({ limit: MAX_IMPORT_BYTES });
+const superWriteJsonBody = express.json({ limit: SUPER_NETWORK_MAX_BYTES });
+// Super-model PATCH may carry up to 4 MiB. The larger parser is chosen only after the OWNED row is loaded and is
+// super-model, and only when Content-Length already declares more than 2 MiB (smaller bodies need no lookup).
+// ponytail: a chunked (no Content-Length) super PATCH keeps the 2 MiB limit; browsers always send Content-Length.
+async function patchBodyParser(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.method === "PATCH" && Number(req.headers["content-length"]) > MAX_IMPORT_BYTES) {
+      const id = Number(req.path.split("/")[3]);
+      const [row] = Number.isInteger(id)
+        ? await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable).where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+        : [];
+      if (row?.modelId === "super-model") return superWriteJsonBody(req, res, next);
+    }
+    scenarioWriteJsonBody(req, res, next);
+  } catch (err) { next(err); }
+}
 // requireAuth (signed-cookie check, no DB; cookieParser ran above) goes BEFORE the
 // 2 MiB parser so an unauthenticated caller is 401'd without the body being read.
 app.use((req, res, next) => {
   if (IMPORT_BODY_PATH.test(req.path)) return next();
   if (!SCENARIO_WRITE(req.method, req.path)) return defaultJsonBody(req, res, next);
-  requireAuth(req, res, (err?: unknown) => (err ? next(err) : scenarioWriteJsonBody(req, res, next)));
+  requireAuth(req, res, (err?: unknown) => (err ? next(err) : void patchBodyParser(req, res, next)));
 });
 app.use(express.urlencoded({ extended: true }));
 

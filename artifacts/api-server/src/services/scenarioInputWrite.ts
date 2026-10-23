@@ -1,3 +1,4 @@
+import type { InputIssue } from "../validation/formatInputIssues.js";
 import { and, eq, sql } from "drizzle-orm";
 import { scenariosTable } from "@workspace/db";
 import { resolveMaxCoverageRun } from "@workspace/units";
@@ -35,7 +36,7 @@ export function deriveServerOwnedInputs(
 export type ApplyInputWriteOutcome =
   | { kind: "ok"; row: ScenarioRow }
   | { kind: "not_found" }
-  | { kind: "invalid"; error: string };
+  | { kind: "invalid"; error: string; issues: InputIssue[] };
 
 export interface ApplyScenarioInputWriteParams {
   scenarioId: number;
@@ -83,7 +84,7 @@ export async function applyScenarioInputWrite(
   if (!persisted) return { kind: "not_found" };
 
   const validation = validateInputsForModel(persisted.modelId, params.nextInputs);
-  if (!validation.success) return { kind: "invalid", error: validation.error };
+  if (!validation.success) return { kind: "invalid", error: validation.error, issues: validation.issues };
 
   const normalized = normalizeAddedEntityDistances(
     persisted.modelId,

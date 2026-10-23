@@ -87,6 +87,17 @@ export interface ErrorEnvelope {
   error: string;
 }
 
+export interface NetworkImportIssue {
+  /** Document-relative: [table or parameter, row index in the imported table, column]. */
+  path: (string | number)[];
+  message: string;
+}
+
+export interface NetworkImportRejection {
+  error: string;
+  issues: NetworkImportIssue[];
+}
+
 export type LegacyResultExportRejectionCode = typeof LegacyResultExportRejectionCode[keyof typeof LegacyResultExportRejectionCode];
 
 

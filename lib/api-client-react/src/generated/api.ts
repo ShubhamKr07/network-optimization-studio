@@ -48,6 +48,7 @@ import type {
   LoginRequest,
   LogoutSuccess,
   ModelInfo,
+  NetworkImportRejection,
   PayloadTooLargeError,
   PrecheckResult,
   ReferenceCosts,
@@ -892,7 +893,7 @@ export const updateScenario = async (scenarioId: number,
 
 
 
-export const getUpdateScenarioMutationOptions = <TError = ErrorType<void>,
+export const getUpdateScenarioMutationOptions = <TError = ErrorType<void | PayloadTooLargeError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateScenario>>, TError,{scenarioId: number;data: BodyType<ScenarioUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateScenario>>, TError,{scenarioId: number;data: BodyType<ScenarioUpdate>}, TContext> => {
 
@@ -921,12 +922,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateScenarioMutationResult = NonNullable<Awaited<ReturnType<typeof updateScenario>>>
     export type UpdateScenarioMutationBody = BodyType<ScenarioUpdate>
-    export type UpdateScenarioMutationError = ErrorType<void>
+    export type UpdateScenarioMutationError = ErrorType<void | PayloadTooLargeError>
 
     /**
  * @summary Update a scenario
  */
-export const useUpdateScenario = <TError = ErrorType<void>,
+export const useUpdateScenario = <TError = ErrorType<void | PayloadTooLargeError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateScenario>>, TError,{scenarioId: number;data: BodyType<ScenarioUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateScenario>>,
@@ -1273,7 +1274,7 @@ export const importScenarioNetwork = async (scenarioId: number,
 
 
 
-export const getImportScenarioNetworkMutationOptions = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>,
+export const getImportScenarioNetworkMutationOptions = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError | NetworkImportRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext> => {
 
@@ -1302,12 +1303,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ImportScenarioNetworkMutationResult = NonNullable<Awaited<ReturnType<typeof importScenarioNetwork>>>
     export type ImportScenarioNetworkMutationBody = BodyType<ImportScenarioNetworkBody>
-    export type ImportScenarioNetworkMutationError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>
+    export type ImportScenarioNetworkMutationError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError | NetworkImportRejection>
 
     /**
  * @summary Import a super-model network document (replace or merge) in one atomic write
  */
-export const useImportScenarioNetwork = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError>,
+export const useImportScenarioNetwork = <TError = ErrorType<ErrorEnvelope | void | PayloadTooLargeError | NetworkImportRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importScenarioNetwork>>, TError,{scenarioId: number;data: BodyType<ImportScenarioNetworkBody>;params: ImportScenarioNetworkParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof importScenarioNetwork>>,

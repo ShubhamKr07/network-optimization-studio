@@ -290,6 +290,12 @@ paths:
           description: Not authenticated
         "404":
           description: Not found
+        "413":
+          description: Request body exceeds the write limit, 2 MiB (4 MiB for super-model scenarios)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayloadTooLargeError"
         "422":
           description: inputs fails model-specific validation
     delete:
@@ -454,7 +460,7 @@ paths:
         "404":
           description: Not found (also another user's scenario or a non-super scenario, never 403)
         "413":
-          description: Request body exceeds the 2 MiB import wire limit (checked after ownership)
+          description: Request body exceeds the import wire limit, 4 MiB for super-model network import (checked after ownership)
           content:
             application/json:
               schema:
@@ -464,7 +470,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: "#/components/schemas/NetworkImportRejection"
 
   /scenarios/{scenarioId}/network/export:
     get:
@@ -1076,6 +1082,29 @@ components:
       properties:
         error:
           type: string
+    NetworkImportIssue:
+      type: object
+      required: [path, message]
+      properties:
+        path:
+          type: array
+          description: "Document-relative: [table or parameter, row index in the imported table, column]."
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        message:
+          type: string
+    NetworkImportRejection:
+      type: object
+      required: [error, issues]
+      properties:
+        error:
+          type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkImportIssue"
     LegacyResultExportRejection:
       type: object
       description: >-
