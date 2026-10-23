@@ -4403,3 +4403,13 @@ Super Model Phase 1 whole-branch-review follow-up (backend-engineer). Branch `sm
 
 ### [SM-17] Super Model whole-branch-review follow-ups (studio)
 - Circuity factor in `SuperDistancesTab` now uses `DraftNumberInput` (parse accepts [1,3], else no commit), so partial input like "1." / "1.25" no longer snaps back. `SuperNetworkImportDialog` re-seeds `mode` from the current `isEmpty` when it OPENS (was reset on close from a stale value, pre-selecting Replace after a successful import). Stale "lands in SM-7" comments removed from `Workspace.tsx` and `Workspace.TabCoverage.test.tsx`. Tests: new `SuperDistancesTab.test.tsx` (3), +1 in `SuperNetworkImportDialog.test.tsx`. Studio-only; no contract change.
+
+### SM-D — Super Model Phase 1 production deploy and branch retirement (2026-10-23)
+
+- Pushed `cfaf2046..3a1b87a6` to `origin/main` (user-approved). The push started no Render build on either service (both still on `d8eaa639` per `list_deploys`), so both deploys were triggered manually, API first per `pnpm deploy:preflight -- d8eaa639..HEAD` (nos-api DEPLOY 67 files, nos-studio DEPLOY 41 files; schema unchanged; no migrations; no new env vars).
+- `nos-api` `dep-dbdgf8gae00c73847bg0` @ `3a1b87a6`: live 07:08:34Z. Smoke: `/api/healthz` 200; `/api/models` 200 listing 8 models incl. `super-model`.
+- `nos-studio` `dep-dbdgg6tg1s2s73be2c1g` @ `3a1b87a6`: live 07:09:46Z. `deploy:preflight --verify-studio .../compare` → 200 with `id="root"`; `/super-model` 200; `/samples/super-model-sample.json` serves 100 customers / 2600 overrides.
+- Expected one-time effect: `SOLVER_CODE_HASH` now covers `merge_inputs.py`, so every cached solve result misses once (no stale badges; `isStale` is timestamp-based).
+- Not yet done: a real-browser production smoke (import sample → solve → objective 254,060,828.62).
+- Retirement: 17 worktrees (`/Users/shubhamkr/nos-sm-{1..10,12..17,int}`) removed with `git worktree remove` after read-only proof (clean status, no live processes). Branches deleted with `-d` (ancestry-merged): `super-model-spec`, `super-model`, `sm-retro`, `sm-11-closeout`, `sm-{1,2,3,4,16,17}-work`. Remaining `sm-{5..10,12..15}-work` are cherry-picked, not ancestry-merged: `git cherry main` shows `+` only for sm-5/6/7/8/12, and for those the non-changelog diff patch-id equals the integrated commit (`94c7d0dc`, `8b9962fb`, `fc3643a4`, `c5026291`, `597ff3c4`) — the difference is the hand-resolved changelog append. `-D` awaits explicit approval.
+- Next: Phase 2 (multi-file CSV + XLSX network import/export) and Phase 3 (OpenRouteService road distances), new plans off current `main`.
