@@ -723,10 +723,14 @@ def journey_super() -> None:
     created: list[int] = []
     owner_cookie = _session_cookie
 
-    with open(_SUPER_SAMPLE, encoding="utf-8") as fh:
-        sample = json.load(fh)
-    with open(_SUPER_DEFAULTS, encoding="utf-8") as fh:
-        defaults = json.load(fh)
+    try:
+        with open(_SUPER_SAMPLE, encoding="utf-8") as fh:
+            sample = json.load(fh)
+        with open(_SUPER_DEFAULTS, encoding="utf-8") as fh:
+            defaults = json.load(fh)
+    except OSError as exc:
+        _check("Load super-model sample + defaults files", False, str(exc))
+        return
 
     _step("POST /scenarios (modelId=super-model, empty default inputs)")
     status, scen = POST("/scenarios", {"name": f"Journey Super {_run_id}", "modelId": "super-model", "inputs": defaults})
@@ -758,24 +762,46 @@ def journey_super() -> None:
         open_ids = set(m.get("openFacilityIds") or [])
         _check("Open warehouses == {wh-11, wh-14}", open_ids == {"wh-11", "wh-14"}, f"open={sorted(open_ids)}")
         _check("metrics.plantVariableCost == 0", m.get("plantVariableCost") == 0, f"plantVariableCost={m.get('plantVariableCost')}")
-        tc, ib, ob = m.get("totalCost"), m.get("inboundCost"), m.get("outboundCost")
-        _check("totalCost ≈ inbound + outbound (within a cent)",
-               all(isinstance(x, (int, float)) for x in (tc, ib, ob)) and abs(tc - (ib + ob)) < 0.01,
-               f"total={tc} inbound={ib} outbound={ob}")
+        tc, ib, ob, pv = m.get("totalCost"), m.get("inboundCost"), m.get("outboundCost"), m.get("plantVariableCost")
+        # solve.py rounds each of the four to 2 dp independently, so the sum can
+        # drift by up to 1.5 cents of rounding; 0.011 covers three half-cent errors.
+        _check("totalCost ≈ inbound + outbound + plantVariableCost (2-dp rounding tolerance)",
+               all(isinstance(x, (int, float)) for x in (tc, ib, ob, pv)) and abs(tc - (ib + ob + pv)) <= 0.011,
+               f"total={tc} inbound={ib} outbound={ob} plantVariable={pv}")
 
         _step("Cross-user isolation — a second user cannot see or import into the scenario")
+        st, body = GET(f"/scenarios/{sid}")
+        before_updated = _d(body).get("updatedAt")
+        _check("Owner scenario has updatedAt before the attempt", st == 200 and before_updated is not None, f"HTTP {st}")
         _session_cookie = None
         other_email = f"journey_super_other_{_run_id}@example.test"
         st, _ = POST("/auth/register", {"email": other_email, "password": TEST_PASSWORD})
         _check("Register second user → 201", st == 201, f"HTTP {st}")
+        if not _check("Second user session cookie is set", _session_cookie is not None):
+            return
         st, _ = GET(f"/scenarios/{sid}")
         _check("Other user GET scenario → 404", st == 404, f"HTTP {st}")
-        st, _ = POST(f"/scenarios/{sid}/network/import?mode=replace", sample, timeout=60)
+        # A valid, observably different payload (3 customers): only ownership can block it.
+        # Demand rows and distance overrides are filtered to the kept customers so the
+        # payload is self-consistent (an inconsistent one would 422 for the owner too).
+        keep = sample["customers"][:3]
+        keep_ids = {c["id"] for c in keep}
+        other_payload = {
+            **sample,
+            "customers": keep,
+            "demand": [d for d in sample["demand"] if d["customerId"] in keep_ids],
+            "distanceOverrides": [o for o in sample["distanceOverrides"]
+                                  if o["fromId"] not in {c["id"] for c in sample["customers"]} - keep_ids
+                                  and o["toId"] not in {c["id"] for c in sample["customers"]} - keep_ids],
+        }
+        st, _ = POST(f"/scenarios/{sid}/network/import?mode=replace", other_payload, timeout=60)
         _check("Other user import → 404", st == 404, f"HTTP {st}")
         _session_cookie = owner_cookie
         st, body = GET(f"/scenarios/{sid}")
-        _check("Owner's data intact after the other user's attempt (still 100 customers)",
-               st == 200 and len(_d(_d(body).get("inputs")).get("customers") or []) == 100, f"HTTP {st}")
+        _check("Owner's data intact: still 100 customers and updatedAt unchanged",
+               st == 200 and len(_d(_d(body).get("inputs")).get("customers") or []) == 100
+               and _d(body).get("updatedAt") == before_updated,
+               f"HTTP {st} updatedAt before={before_updated} after={_d(body).get('updatedAt')}")
     finally:
         _session_cookie = owner_cookie
         _cleanup(created)
