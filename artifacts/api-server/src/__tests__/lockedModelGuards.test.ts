@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROUTES = join(HERE, "..", "routes");
 
-const ROUTE_FILES = ["scenarios.ts", "distanceBands.ts"];
+const ROUTE_FILES = ["scenarios.ts", "distanceBands.ts", "superNetwork.ts"];
 const HANDLER_RE = /^router\.(get|post|patch|delete)\("(\/scenarios\/:scenarioId[^"]*)"/;
 
 interface Handler { file: string; line: number; method: string; path: string; body: string }

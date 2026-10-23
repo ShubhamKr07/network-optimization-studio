@@ -107,6 +107,17 @@ app.use("/api", router);
 //
 // This must be the LAST middleware registered: anything mounted after it would
 // run before the error is caught.
+// SM-12/SM-16 — body-parser's oversize error is a client error, not a 500. Mapped
+// BEFORE the PostHog and Sentry error handlers so they never see it (Sentry
+// ignores <500; PostHog captures everything it is handed).
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if ((err as { type?: string })?.type === "entity.too.large" && !res.headersSent) {
+    res.status(413).json({ error: "payload_too_large" });
+    return;
+  }
+  next(err);
+});
+
 // PostHog error handler captures unhandled Express exceptions to error
 // tracking. Must come before the project's own 500 handler so PostHog sees
 // the original error before we swallow it into a generic JSON response.
@@ -121,11 +132,6 @@ if (posthog) {
 Sentry.setupExpressErrorHandler(app);
 
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-  // SM-12 — body-parser's oversize error is a client error, not a 500.
-  if ((err as { type?: string })?.type === "entity.too.large" && !res.headersSent) {
-    res.status(413).json({ error: "payload_too_large" });
-    return;
-  }
   logger.error({ err }, "Unhandled error in request");
   if (res.headersSent) {
     // Headers already went out (e.g. a streaming response or a route that
