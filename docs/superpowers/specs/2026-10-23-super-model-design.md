@@ -44,6 +44,10 @@ Changes relative to Ch9:
 | D7 Road fetch | Synchronous route, not a solve job; ORS called with no row lock, result written onto the current row (§8) |
 | D8 Road cache validity | Derived per pair from a coordinate snapshot by one server function, never maintained on write (§8) |
 | D9 ORS profile | `driving-hgv`, hosted ORS API, key supplied by the user later (§8) |
+| D10 Duplicate keys in an import | Rejected per table with document-relative issues, before merge (§7.3); never last-wins |
+| D11 Map move dialog | `MoveConfirmDialog` `preserveIdentity` prop (§6.1) |
+| D12 Road error statuses | 503 unavailable · 429 quota · 502 failed · 422 unroutable · 409 busy, contractual in OpenAPI (§8) |
+| D13 XLSX library | SheetJS from `cdn.sheetjs.com`, conditional on the plan's Task 4 checks; any failed check ⇒ re-plan (§7.2) |
 
 ## 3. Data model
 
@@ -238,7 +242,7 @@ warehouse and customer point (all statuses), padding 40 px, max zoom 10. With on
   input per product. Demand inputs left blank or 0 write no `demand` row. A new plant has no
   `plantProducts` rows; capability is edited in the Plant Capability tab.
 - **Edit**: the same dialog with `id` read-only (ID changes would orphan references).
-- **Move**: `MoveConfirmDialog`, then the new lat/lng is written.
+- **Move**: `MoveConfirmDialog` with `preserveIdentity` (D11: no regenerated code or nearest-city preview; states that id, city and state are unchanged), then the new lat/lng is written.
 - **Copy**: new row with the next free ID of that kind, name suffixed " (copy)", offset 0.05° east.
   A customer copy also copies its `demand` rows; a plant copy copies its `plantProducts` rows;
   `distanceOverrides` are never copied.
@@ -392,7 +396,7 @@ written; if it cannot be proven, the route design is re-planned (a hard gate, no
 later"); timeout, deadline or any other ORS error ⇒ `road_distances_failed` naming the batch (e.g.
 "warehouses → customers 71–140"); any `null` ⇒ `road_distances_unroutable` naming the first such pair
 (the user can add an override for it), and no later batch is requested; a fetch already in progress ⇒
-`road_distances_busy` (below). The codes are one closed set (TS union, OpenAPI enum, regenerated client).
+`road_distances_busy` (below). The codes are one closed set (TS union, OpenAPI enum, regenerated client), with HTTP statuses fixed by D12: 503 `road_distances_unavailable`, 429 `road_distances_quota`, 502 `road_distances_failed`, 422 `road_distances_unroutable`, 409 `road_distances_busy`.
 
 **Empty sides.** With no warehouses or no customers there is nothing to fetch: the route makes no ORS
 request and writes `roadDistances` with an empty pair list; readiness stays blocked by its completeness

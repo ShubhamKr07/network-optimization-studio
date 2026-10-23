@@ -30,7 +30,7 @@
 - **Timeouts:** **30 s** per request (its own `AbortController` + a `setTimeout` cleared in `finally`); **120 s** deadline for the whole fetch (one shared `AbortController`). No retries.
 - **Concurrency (O1, spec §8 as amended):** one fetch at a time per process. A request arriving while a fetch is in progress gets **409 `road_distances_busy`** immediately; nothing waits. The busy flag is released in `finally` (success, error, abort). ORS 429 still surfaces as `road_distances_quota`. `// ponytail:` single-instance flag; a shared limiter is needed only if `nos-api` scales past one instance.
 - **Empty sides (R8):** zero warehouses, zero customers, or both ⇒ 200 with **no** ORS call and `roadDistances` written with `pairs: []` (a network that cannot be solved needs no road distances). Readiness stays blocked by the existing completeness checks.
-- **Error codes (closed union, one task):** `road_distances_unavailable | road_distances_quota | road_distances_failed | road_distances_unroutable | road_distances_busy`. HTTP status, contractual in OpenAPI (decision c, awaiting user): 503 unavailable / 429 quota / 502 failed (timeout, deadline, malformed or upstream error) / 422 unroutable / 409 busy.
+- **Error codes (closed union, one task):** `road_distances_unavailable | road_distances_quota | road_distances_failed | road_distances_unroutable | road_distances_busy`. HTTP status, contractual in OpenAPI (decision c, confirmed — spec D12): 503 unavailable / 429 quota / 502 failed (timeout, deadline, malformed or upstream error) / 422 unroutable / 409 busy.
 - **Phase-3 gate (R5):** Task 6 is a hard prerequisite for Tasks 7–10. If Render's HTTP request timeout for `nos-api` cannot be proven ≥ 120 s plus margin (≥ 150 s) from Render's documentation, STOP and return to the lead for a re-plan; no task redesigns the route in-task.
 - **Local e2e recipe (R12, `artifacts/studio/e2e/CLAUDE.md`):** terminal 1 `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" PORT=3001 pnpm --filter api-server run dev`; terminal 2 `PORT=5201 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 VITE_POSTHOG_KEY=phc_local_dummy_key VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 pnpm --filter studio run dev`; then from `artifacts/studio`, `E2E_BASE_URL=http://localhost:5201 pnpm exec playwright test <spec>` or, from the repo root, `E2E_BASE_URL=http://localhost:5201 pnpm e2e:gate`. Never run Playwright without `E2E_BASE_URL` (it targets a remote Replit URL). `pnpm --filter api-server run dev` is build-then-start: restart it after source changes.
 - **Road validity (D8):** only `validRoadPairs(inputs)` (API server) decides it; Python and Studio never recompute it.
@@ -424,7 +424,7 @@ Role: frontend-engineer.
 - Modify: `artifacts/studio/src/components/workspace/super/SuperInputMap.tsx`, `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` (union member widened)
 - Modify: `artifacts/studio/src/pages/Workspace.tsx:1269` (`SUPER_INPUT_TABS` gains `"input-map"`), the Task-1 map mount
 - Modify: `artifacts/studio/src/components/workspace/map/MapActionMenu.tsx:10-24, 55-70` (optional `confirmDelete`, default `true`)
-- Modify: `artifacts/studio/src/components/workspace/map/dialogs/MoveConfirmDialog.tsx:14-28, 72-96` (optional `preserveIdentity`, default `false`; decision b, awaiting user)
+- Modify: `artifacts/studio/src/components/workspace/map/dialogs/MoveConfirmDialog.tsx:14-28, 72-96` (optional `preserveIdentity`, default `false`; decision b, confirmed — spec D11)
 - Modify: `artifacts/studio/src/__tests__/superNetwork.test.ts`, `artifacts/studio/src/__tests__/SuperInputMap.test.tsx`, `artifacts/studio/src/__tests__/Workspace.Super.test.tsx`
 - Create: `artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx`, `artifacts/studio/src/__tests__/mapDialogOptions.test.tsx`
 
@@ -1006,7 +1006,7 @@ Role: backend-engineer. Contract task: OpenAPI + Orval regen land in this commit
   export const pairKey: (a: string, b: string) => string;
   ```
 - Wire: network-import 422 body `{ error: string, issues: InputIssue[] }` (OpenAPI `NetworkImportRejection`). `issues` paths are **document-relative**: `path[1]` indexes the imported table's rows, never the merged table. An issue on a pre-existing row that the import did not mention is reported with `path: [table]` and a message prefixed `Existing <table> row <n>:`. Order of checks: document schema → in-document duplicates (R4, both modes) → merge → whole-network validation; each failure writes nothing.
-- Decision a (awaiting user; this plan's default): duplicates inside the imported document are rejected, never last-wins.
+- Decision a (confirmed — spec D10): duplicates inside the imported document are rejected, never last-wins.
 - Consumed by Task 5 (`describeIssue`).
 
 - [ ] **Step 1: Failing tests** (append to `superNetworkImport.test.ts`):
@@ -3217,11 +3217,11 @@ Status after the Codex high review (2026-10-23). "Resolved" items are folded int
 
 1. **Resolved (spec §7.1):** row numbers when empty rows are skipped — the Studio uses the row map it kept while parsing; no `path[1] + 2` fallback (P4: an unmapped index is reported as such).
 2. **Resolved (spec §7.1, Task 3):** merge-mode issue paths are translated to document rows; every table gets an origin map, so an issue on a kept existing row is reported table-level as "Existing <table> row n".
-3. **Resolved pending decision a (spec §7.3, Task 3):** duplicate keys inside the imported document are rejected per table, never last-wins.
-4. **Resolved pending decision b (Task 2):** `MoveConfirmDialog` gains `preserveIdentity`; Super shows no regenerated code or nearest city.
+3. **Resolved, decision a confirmed (spec §7.3, Task 3):** duplicate keys inside the imported document are rejected per table, never last-wins.
+4. **Resolved, decision b confirmed (Task 2):** `MoveConfirmDialog` gains `preserveIdentity`; Super shows no regenerated code or nearest city.
 5. Copy near the antimeridian: `lng + 0.05` is clamped to 180 (schema max). Plan detail, no spec change.
-6. **Pending decision d (Task 4):** XLSX library. SheetJS from the CDN is one package (spec §7.2's "one new dependency"); its tarball is a reviewed exception to the registry norm, outside `pnpm audit`, with exact URL + sha512 + advisory review recorded. papaparse is added to the studio manifest (already in the lockfile).
-7. **Resolved pending decision c (Global Constraints, Task 9 OpenAPI):** 503 / 429 / 502 / 422, plus 409 busy (O1, spec §8).
+6. **Decision d confirmed (Task 4, spec D13):** XLSX library. SheetJS from the CDN is one package (spec §7.2's "one new dependency"); its tarball is a reviewed exception to the registry norm, outside `pnpm audit`, with exact URL + sha512 + advisory review recorded. papaparse is added to the studio manifest (already in the lockfile).
+7. **Resolved, decision c confirmed (Global Constraints, Task 9 OpenAPI):** 503 / 429 / 502 / 422, plus 409 busy (O1, spec §8).
 8. Road fetch while unsaved: the fetch action is disabled while the draft is dirty, so the post-fetch resync cannot discard edits. Plan detail.
 9. Studio PATCH omits `roadDistances` (Task 10): at the caps the cache plus overrides would push Save past 2 MiB; the server discards a client copy anyway.
 10. Create path drops a client `roadDistances` too (Task 7, every-write-path gotcha); clone keeps the server value.
@@ -3235,9 +3235,9 @@ Status after the Codex high review (2026-10-23). "Resolved" items are folded int
 18. **Resolved (Task 3):** composite keys are `JSON.stringify([a, b])` in both `mergeNetwork` and `superInputs.ts` `superRefine` (a latent Phase 1 collision for IDs containing `|`).
 19. **Resolved (spec §8, Task 9):** the process-wide queue is replaced by reject-if-busy (409 `road_distances_busy`); empty sides make no ORS call (R8); per-request timers are cancellable (O2).
 
-## Awaiting user final review
+## User final review (resolved 2026-10-23)
 
-Four decisions are written into the plan at the recommended default; the user confirms or changes each before execution.
+The user confirmed all four recommended defaults in the Lavish final review and approved execution via agent-team dispatch. Recorded in the spec as D10–D13. Table kept for traceability:
 
 | # | Decision | Recommended default (in the plan) | Alternative | Tasks affected |
 |---|---|---|---|---|
