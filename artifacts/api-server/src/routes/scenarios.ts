@@ -85,7 +85,7 @@ import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { normalizeAddedEntityDistances } from "../services/autoDistance.js";
-import { applyScenarioInputWrite, deriveServerOwnedInputs } from "../services/scenarioInputWrite.js";
+import { applyScenarioInputWrite, deriveServerOwnedInputs, dropClientOwnedInputs } from "../services/scenarioInputWrite.js";
 
 const router = Router();
 
@@ -212,7 +212,7 @@ router.post("/scenarios", async (req, res) => {
   // validity check so an unknown id still reads as 422 (malformed), not 403
   // (exists but withheld).
   if (isModelLocked(body.modelId)) { respondLocked(res); return; }
-  const validation = validateInputsForModel(body.modelId, body.inputs);
+  const validation = validateInputsForModel(body.modelId, body.inputs && typeof body.inputs === "object" ? dropClientOwnedInputs(body.modelId, body.inputs) : body.inputs);
   if (!validation.success) {
     res.status(422).json({ error: validation.error });
     return;

@@ -28,12 +28,21 @@ export const superTableSchemas = {
   distanceOverrides: z.array(z.object({ fromId: id, toId: id, miles: num.min(0) })),   // num is .finite(): ±Infinity rejected; 0 allowed (co-located pairs, as Ch9)
 };
 
+// spec §3.2 / §8 — server-written by POST /network/road-distances only. Never part of the network document.
+export const roadDistancesSchema = z.object({
+  fetchedAt: z.string().datetime(),
+  profile: z.literal("driving-hgv"),
+  coords: z.record(z.string(), z.tuple([num, num])),          // [lat, lng] each location had when fetched (D8)
+  pairs: z.array(z.object({ fromId: id, toId: id, miles: num.min(0) })),
+});
+export type RoadDistances = z.infer<typeof roadDistancesSchema>;
+
 export const superParamSchemas = {
   p: z.number().int().min(1),
   gap: num.min(0),
   timeLimitSec: z.number().int().min(1),
   transportCosts,
-  distanceMethod: z.enum(["haversine", "circuity"]),
+  distanceMethod: z.enum(["haversine", "circuity", "road"]),
   circuityFactor: num.min(1).max(3),
 };
 
@@ -46,6 +55,7 @@ export const superInputsSchema = z.object({
   plantProducts: superTableSchemas.plantProducts.default([]),
   demand: superTableSchemas.demand.default([]),
   distanceOverrides: superTableSchemas.distanceOverrides.default([]),
+  roadDistances: roadDistancesSchema.optional(),
 }).superRefine((v, ctx) => {
   const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
   const dupes = (rows: { key: string; label?: string; path: (string | number)[] }[], what: string) => {

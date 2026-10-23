@@ -52,7 +52,7 @@ describe("super-model registration", () => {
     expect((await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "sm-cap", modelId: "super-model", inputs: many })).status).toBe(422);
   });
-  it("rejects non-finite numbers and the Phase-3-only road method with 422", async () => {
+  it("rejects non-finite numbers; accepts the road method (Phase 3)", async () => {
     // JSON cannot carry Infinity; prove it at the schema level instead
     const { superInputsSchema } = await import("../validation/inputs/superInputs.js");
     const base = { ...SUPER_DEFAULT_INPUTS,
@@ -63,7 +63,7 @@ describe("super-model registration", () => {
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: -1 }] }).success).toBe(false);
     const road = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "sm-road", modelId: "super-model", inputs: { ...SUPER_DEFAULT_INPUTS, distanceMethod: "road" } });
-    expect(road.status).toBe(422);
+    expect(road.status).toBe(201); scenarioIds.push(road.body.id);
   });
   it("GET /api/models lists super-model", async () => {
     const res = await request(app).get("/api/models").set("Cookie", cookie).expect(200);

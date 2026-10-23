@@ -17,7 +17,8 @@
     "properties": {
       "p": { "type": "integer", "minimum": 1 }, "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 }, "transportCosts": { "type": "object" },
-      "distanceMethod": { "type": "string", "enum": ["haversine", "circuity"] },
+      "distanceMethod": { "type": "string", "enum": ["haversine", "circuity", "road"] },
+      "roadDistances": { "type": "object", "description": "Server-written road distance cache (spec §8)." },
       "circuityFactor": { "type": "number", "minimum": 1, "maximum": 3 },
       "products": { "type": "array" }, "plants": { "type": "array" }, "warehouses": { "type": "array" },
       "customers": { "type": "array" }, "plantProducts": { "type": "array" }, "demand": { "type": "array" },

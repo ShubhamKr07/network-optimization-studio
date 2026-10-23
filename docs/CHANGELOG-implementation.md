@@ -4483,3 +4483,12 @@ Branch `sm2-2-work`, plan `2026-10-23-super-model-phase2-3.md` Task 2 (spec §6.
 - Task 11 must rewrite any e2e hit: `grep -rn "Export network" artifacts/studio/e2e` returned none; the old header button label "Export network (JSON)" is gone (testid unchanged).
 - Review folds: template/sample CSV/XLSX download checks `res.ok` and toasts on failure; `handleFiles` catches read/parse failures ("Could not read the file.") and drops results from an older selection via a request counter ref. Each new test proven to fail without its fix.
 - Gate: studio vitest 166 files / 2844 tests pass; studio typecheck clean.
+
+### SM2-7 - Road contract: `road` method and server-written `roadDistances` (2026-10-23)
+
+Branch `sm2-7-work`. `distanceMethod` gains `road` (Zod enum + manifest enum). New optional `roadDistances` input (`roadDistancesSchema`: `fetchedAt`, `profile: "driving-hgv"`, `coords`, `pairs`) in `superInputsSchema`, the manifest `properties` (NOT `required[]`, WF-5 gotcha) and `INPUT_FIELD_LABELS`. The network document schema (strict, built from param + table schemas) still excludes it, so import rejects it and export strips it.
+
+- `scenarioInputWrite.ts`: `dropClientOwnedInputs` (super-model only) drops a client `roadDistances`; `applyScenarioInputWrite` takes `roadDistances?: "keep" | "clear" | { set }` (default `keep`) and validates the candidate with the carried/set value, so a server value is schema-checked and a change bumps `inputsUpdatedAt` through the normal diff. Non-super models byte-identical.
+- Write sites: POST create drops it; PATCH keeps the persisted value (client copy ignored, omission does not clear); network import replace clears, merge keeps; clone copies the row verbatim (keeps); export strips.
+- Tests: new `superRoadContract.test.ts` (seeds only through the real writer, R7); `superModelRegistration.test.ts` road case inverted 422 -> 201.
+- Next: SM2-8 (`validRoadPairs`, `roadPairs` payload, `merge_inputs.py`).

@@ -49,7 +49,7 @@ router.post("/scenarios/:scenarioId/network/import", async (req: Request, res: R
       .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!))).for("update");
     if (!cur) return { kind: "not_found" as const };
     const { next, origin } = mergeNetwork(superInputsSchema.parse(cur.inputs), doc.data, mode);
-    const written = await applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: next });
+    const written = await applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: next, roadDistances: mode === "replace" ? "clear" : "keep" });
     return written.kind === "invalid" ? { ...written, issues: toDocIssues(written.issues, origin) } : written;
   });
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
@@ -68,7 +68,8 @@ router.get("/scenarios/:scenarioId/network/export", async (req: Request, res: Re
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(row.modelId)) { respondLocked(res); return; }
   if (req.query.format !== "json") { res.status(400).json({ error: "format must be json" }); return; }
-  res.json(superInputsSchema.parse(row.inputs));
+  const { roadDistances: _server, ...doc } = superInputsSchema.parse(row.inputs);
+  res.json(doc);
 });
 
 export default router;

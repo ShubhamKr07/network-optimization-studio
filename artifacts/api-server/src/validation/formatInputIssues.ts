@@ -65,6 +65,7 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   customers: "Customers",
   plantProducts: "Plant capability",
   demand: "Demand",
+  roadDistances: "Road distances",
 };
 
 /**
