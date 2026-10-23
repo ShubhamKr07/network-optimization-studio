@@ -90,6 +90,9 @@ vi.mock("@workspace/api-client-react", () => ({
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  useFetchScenarioRoadDistances: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false })),
+  RoadDistancesErrorCode: { road_distances_unavailable: "road_distances_unavailable", road_distances_quota: "road_distances_quota",
+    road_distances_failed: "road_distances_failed", road_distances_unroutable: "road_distances_unroutable", road_distances_busy: "road_distances_busy" },
   useImportScenarioNetwork: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false })),
   exportScenarioNetwork: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
@@ -176,6 +179,58 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.data.inputs).not.toHaveProperty("distanceBands");
     expect(args.data.inputs.products[0].name).toBe("Renamed");
+  });
+
+  it("SM2-10: Save never sends roadDistances (server-written; at the caps it would exceed the body limit)", async () => {
+    const withRoad = { ...scenario, inputs: { ...sample, distanceMethod: "road", roadDistances: { fetchedAt: "2026-10-23T00:00:00.000Z", profile: "driving-hgv", coords: {}, pairs: [] } } };
+    mockUseGetScenario.mockReturnValue({ data: withRoad } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [withRoad] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "Renamed" } });
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs).not.toHaveProperty("roadDistances");
+    expect(args.data.inputs.distanceMethod).toBe("road");
+  });
+
+  it("SM2-10: method road shows the fetch action; it is disabled while unsaved", () => {
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "X" } });
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).toBeDisabled();
+  });
+
+  it("SM2-10: the fetch action is unavailable while browsing an older result (history view)", () => {
+    const base = JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8"));
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" }, result: { ...base } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { rerender } = renderWorkspace();
+    const next = { ...road, result: { ...base } };   // new result reference: history appends
+    mockUseGetScenario.mockReturnValue({ data: next } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [next] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    rerender(<Workspace modelId="super-model" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("super-road-fetch")).toBeDisabled();
+  });
+
+  it("SM2-10: opening the fetch action shows the privacy notice", () => {
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("super-road-fetch"));
+    expect(screen.getByTestId("super-road-privacy")).toHaveTextContent("OpenRouteService");
   });
 
   it("SM-8: solved scenario opens the output map and a city-labelled open-warehouses grid built from inputs", () => {

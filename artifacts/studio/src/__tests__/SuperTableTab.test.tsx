@@ -55,14 +55,14 @@ describe("SuperDistancesTab", () => {
   const props = { overrides: [], plantIds: ["p1"], warehouseIds: ["w1"], customerIds: ["c1"], readOnly: false };
   it("method change patches distanceMethod; factor disabled under haversine", () => {
     const onChange = vi.fn();
-    render(<SuperDistancesTab {...props} distanceMethod="haversine" circuityFactor={1.17} onChange={onChange} />);
+    render(<SuperDistancesTab onFetchRoad={() => {}} fetchDisabledReason={null} {...props} distanceMethod="haversine" circuityFactor={1.17} onChange={onChange} />);
     expect(screen.getByTestId("super-circuity-factor")).toBeDisabled();
     fireEvent.change(screen.getByTestId("super-distance-method"), { target: { value: "circuity" } });
     expect(onChange).toHaveBeenCalledWith({ distanceMethod: "circuity" });
   });
   it("factor is enabled under circuity and out-of-range values are not committed", () => {
     const onChange = vi.fn();
-    render(<SuperDistancesTab {...props} distanceMethod="circuity" circuityFactor={1.17} onChange={onChange} />);
+    render(<SuperDistancesTab onFetchRoad={() => {}} fetchDisabledReason={null} {...props} distanceMethod="circuity" circuityFactor={1.17} onChange={onChange} />);
     const f = screen.getByTestId("super-circuity-factor");
     expect(f).toBeEnabled();
     fireEvent.change(f, { target: { value: "5" } });

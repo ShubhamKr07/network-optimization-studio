@@ -16,9 +16,10 @@ export interface SuperReadinessPanelProps {
   precheck?: { ok: boolean; errors: { code: string; message: string }[] };
   isEmpty: boolean;
   onImport(): void;
+  onFetchRoad?: () => void;
 }
 
-export function SuperReadinessPanel({ precheck, isEmpty, onImport }: SuperReadinessPanelProps) {
+export function SuperReadinessPanel({ precheck, isEmpty, onImport, onFetchRoad }: SuperReadinessPanelProps) {
   if (isEmpty) {
     return (
       <div className="flex flex-col items-center gap-3 py-8 text-center" data-testid="super-empty-state">
@@ -44,6 +45,9 @@ export function SuperReadinessPanel({ precheck, isEmpty, onImport }: SuperReadin
         <ul className="space-y-1 text-amber-800">
           {precheck.errors.map((e, i) => <li key={i} data-testid={`super-readiness-error-${i}`}>{e.message}</li>)}
         </ul>
+      )}
+      {onFetchRoad && (
+        <Button size="sm" variant="outline" className="mt-2" onClick={onFetchRoad} data-testid="super-readiness-fetch-road">Fetch road distances</Button>
       )}
     </div>
   );

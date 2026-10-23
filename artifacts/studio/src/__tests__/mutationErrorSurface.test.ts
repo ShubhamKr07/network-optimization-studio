@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { resolve, join, relative, sep } from "node:path";
 
 /**
  * A source-reading guard, in the style of the api-server's
@@ -19,6 +19,34 @@ const SRCS: { path: string; minSites: number }[] = [
   { path: resolve(__dirname, "../pages/auth/ResetPassword.tsx"), minSites: 1 },
 ];
 
+// Walk the whole src tree (like rawErrorMessageSurface.test.ts) so a mutation in
+// a file nobody has listed yet is still seen. SRCS above stays for the
+// per-file non-vacuity floor and the raw-message check.
+const SRC_ROOT = resolve(__dirname, "..");
+function collect(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(dir)) {
+    if (e === "__tests__") continue;
+    const full = join(dir, e);
+    if (statSync(full).isDirectory()) collect(full, out);
+    else if (/\.tsx?$/.test(e) && !/\.test\.tsx?$/.test(e)) out.push(full);
+  }
+  return out;
+}
+const ALL_SRCS = collect(SRC_ROOT);
+const rel = (f: string) => relative(SRC_ROOT, f).split(sep).join("/");
+
+// Mutations with NO `onError:` that surface the failure another way. Named and
+// asserted: add an entry (with its reason) rather than loosening the regex.
+const ALLOWED_NO_ONERROR: { file: string; call: string; reason: string }[] = [
+  { file: "components/FeedbackWidget.tsx", call: "submit.mutateAsync(", reason: "awaited in try/catch; the catch sets status=error and renders feedback-error" },
+  { file: "components/ImportDialog.tsx", call: "previewMutation.mutate(", reason: "renders describeImportError(previewMutation.error) when isError" },
+  { file: "components/ImportDialog.tsx", call: "applyMutation.mutate(", reason: "renders describeImportError(applyMutation.error) when isError" },
+  { file: "components/workspace/super/SuperNetworkImportDialog.tsx", call: "importMutation.mutate(", reason: "renders issues / describeImportError(importMutation.error) when isError" },
+  { file: "components/workspace/super/SuperRoadDistancesDialog.tsx", call: "fetchRoad.mutate(", reason: "renders describeRoadError(fetchRoad.error) in super-road-error when isError" },
+  { file: "pages/auth/Login.tsx", call: "loginUser.mutate(", reason: "renders alert-login-error when isError" },
+  { file: "pages/auth/Register.tsx", call: "registerUser.mutate(", reason: "renders alert-register-error from registerUser.error" },
+];
+
 // Ignore commented-out code so a `// foo.mutate(` note is not an offender,
 // AND so a commented-out `onError:`/`toast(` inside an otherwise-real
 // window can't be mistaken for a live handler satisfying the guard (WF-3
@@ -30,7 +58,7 @@ const stripComments = (text: string) => text.split("\n").filter(isCode).join("\n
 describe("Workspace mutation error surface", () => {
   it("every .mutate( call site has an onError before the next one begins", () => {
     const offenders: string[] = [];
-    for (const { path: SRC } of SRCS) {
+    for (const SRC of ALL_SRCS) {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
     const sites = lines
@@ -44,10 +72,16 @@ describe("Workspace mutation error surface", () => {
       // from 4 to over 700 lines.
       const end = n + 1 < sites.length ? sites[n + 1].i : lines.length;
       const own = stripComments(lines.slice(i, end).join("\n"));
-      if (!/onError\s*:/.test(own)) offenders.push(`${SRC}:${i + 1} — ${line.trim()}`);
+      const allowed = ALLOWED_NO_ONERROR.some(a => rel(SRC) === a.file && line.includes(a.call));
+      if (!/onError\s*:/.test(own) && !allowed) offenders.push(`${rel(SRC)}:${i + 1} — ${line.trim()}`);
     });
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("the tree walk covers files outside SRCS", () => {
+    expect(ALL_SRCS.length).toBeGreaterThan(SRCS.length);
+    expect(ALL_SRCS.map(rel)).toContain("components/workspace/super/SuperRoadDistancesDialog.tsx");
   });
 
   it("is not vacuous — it really finds the mutate sites", () => {
@@ -107,7 +141,7 @@ describe("Workspace mutation error surface", () => {
 
   it("every .catch( handler in this file does something with the error it catches", () => {
     const offenders: string[] = [];
-    for (const { path: SRC } of SRCS) {
+    for (const SRC of ALL_SRCS) {
     const src = readFileSync(SRC, "utf8");
     const lines = src.split("\n");
     const sites = lines

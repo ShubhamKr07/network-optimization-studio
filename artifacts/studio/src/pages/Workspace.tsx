@@ -73,6 +73,7 @@ import { SuperTableTab } from "@/components/workspace/super/SuperTableTab";
 import { SuperDistancesTab } from "@/components/workspace/super/SuperDistancesTab";
 import { isEntityTable } from "@/components/workspace/super/superTables";
 import { SuperNetworkImportDialog } from "@/components/workspace/super/SuperNetworkImportDialog";
+import { SuperRoadDistancesDialog } from "@/components/workspace/super/SuperRoadDistancesDialog";
 import { SuperReadinessPanel } from "@/components/workspace/super/SuperReadinessPanel";
 import { cascadeDelete, downloadSuperFile, referencingRows, superTablesEmpty, type SuperFileFormat, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
 import {
@@ -2107,8 +2108,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // branch — a second whole-input writer that would otherwise persist a
   // stale `localInputs.distanceBands` over the active lens.
   function buildWholeInputPayload(): Record<string, unknown> {
-    // Super Model has no distance bands (spec §6): never inject the lens.
-    return modelId === "super-model" ? { ...(localInputs ?? {}) } : { ...(localInputs ?? {}), distanceBands: activeBandLens };
+    // Super Model has no distance bands (spec §6), and roadDistances is server-written (§8): never send either.
+    if (modelId === "super-model") { const { roadDistances: _server, ...rest } = localInputs ?? {}; return rest; }
+    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
   }
 
   // CH4OS (spec §6.1) — Solve is gated on the LOCAL draft, not the persisted
@@ -2248,6 +2250,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   //   - latest, ordinary dirty (± lens)      -> "Save", whole-input PATCH
   //     with `activeBandLens` merged last (`buildWholeInputPayload`)
   const saveEnabled = isBrowsingHistoryNow ? lensDirty : ordinaryDirty || lensDirty;
+  // The road route reads the SAVED row, and the resync after it must not discard unsaved edits.
+  const superFetchDisabledReason = saveEnabled ? "Save your changes first" : null;
   const saveLabel = !ordinaryDirty && lensDirty ? "Save bands" : "Save";
   const saveIsPending = updateScenario.isPending || updateDistanceBandsMutation.isPending;
 
@@ -2770,6 +2774,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // SM-7 (D3) — a Super Model entity delete waits for this confirmation,
   // which states how many referencing rows go with it.
   const [superImportOpen, setSuperImportOpen] = useState(false);
+  const [superRoadOpen, setSuperRoadOpen] = useState(false);
   const [superFitKey, setSuperFitKey] = useState(0);
   const superIsEmpty = modelId === "super-model" && superTablesEmpty(localInputs);
   // Replace overwrites the PERSISTED scenario, so the overwrite confirmation is decided from the saved inputs, never unsaved local edits.
@@ -3840,7 +3845,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (e === "distances") {
         return (
           <SuperDistancesTab
-            distanceMethod={localInputs.distanceMethod === "circuity" ? "circuity" : "haversine"}
+            distanceMethod={localInputs.distanceMethod === "circuity" || localInputs.distanceMethod === "road" ? localInputs.distanceMethod : "haversine"}
+            onFetchRoad={() => setSuperRoadOpen(true)}
+            fetchDisabledReason={superFetchDisabledReason}
             circuityFactor={typeof localInputs.circuityFactor === "number" ? localInputs.circuityFactor : 1.17}
             overrides={rowsOf("distanceOverrides")}
             onChange={patch => {
@@ -4622,7 +4629,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 ) : activeView ? (
                   modelId === "super-model" && activeView.kind === "input" && ((superIsEmpty && activeView.entity !== "input-map") || activeView.entity === "optimization-parameters") ? (
                     <>
-                      <SuperReadinessPanel precheck={precheck} isEmpty={superIsEmpty} onImport={() => setSuperImportOpen(true)} />
+                      <SuperReadinessPanel precheck={precheck} isEmpty={superIsEmpty} onImport={() => setSuperImportOpen(true)}
+                        onFetchRoad={!isBrowsingHistoryNow && !superFetchDisabledReason && (currentScenario?.inputs as Record<string, unknown> | undefined)?.distanceMethod === "road" ? () => setSuperRoadOpen(true) : undefined} />
                       {!superIsEmpty && renderTabContent()}
                     </>
                   ) : (
@@ -4729,6 +4737,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           isEmpty={superSavedIsEmpty}
           onApplied={handleSuperImportApplied}
         />
+      )}
+      {modelId === "super-model" && currentScenario && (
+        <SuperRoadDistancesDialog open={superRoadOpen} onOpenChange={setSuperRoadOpen} scenarioId={currentScenario.id} onApplied={handleImportApplied} />
       )}
       <AlertDialog open={superDeleteTarget != null} onOpenChange={o => { if (!o) setSuperDeleteTarget(null); }}>
         <AlertDialogContent data-testid="super-delete-confirm">

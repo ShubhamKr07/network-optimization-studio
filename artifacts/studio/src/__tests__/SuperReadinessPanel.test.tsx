@@ -27,6 +27,16 @@ describe("SuperReadinessPanel", () => {
     expect(screen.queryByTestId("super-readiness-ok")).not.toBeInTheDocument();
   });
 
+  it("renders the road fetch action only when onFetchRoad is set", () => {
+    const onFetchRoad = vi.fn();
+    const pre = { ok: false, errors: [{ code: "roadDistancesMissing", message: "Road distances not fetched" }] };
+    const { rerender } = render(<SuperReadinessPanel isEmpty={false} onImport={vi.fn()} precheck={pre} />);
+    expect(screen.queryByTestId("super-readiness-fetch-road")).toBeNull();
+    rerender(<SuperReadinessPanel isEmpty={false} onImport={vi.fn()} precheck={pre} onFetchRoad={onFetchRoad} />);
+    fireEvent.click(screen.getByTestId("super-readiness-fetch-road"));
+    expect(onFetchRoad).toHaveBeenCalled();
+  });
+
   it("ready state", () => {
     render(<SuperReadinessPanel isEmpty={false} onImport={vi.fn()} precheck={{ ok: true, errors: [] }} />);
     expect(screen.getByTestId("super-readiness-ok")).toHaveTextContent("Ready to solve");
