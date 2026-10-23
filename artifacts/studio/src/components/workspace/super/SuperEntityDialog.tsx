@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { LocKind, LocationDraft } from "@/lib/superNetwork";
 
@@ -38,7 +38,7 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
   return (
     <Dialog open onOpenChange={o => !o && p.onCancel()}>
       <DialogContent data-testid="super-entity-dialog">
-        <DialogHeader><DialogTitle>{p.mode === "create" ? `New ${LABEL[p.kind]}` : `Edit ${LABEL[p.kind]} ${p.initial.id}`}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{p.mode === "create" ? `New ${LABEL[p.kind]}` : `Edit ${LABEL[p.kind]} ${p.initial.id}`}</DialogTitle><DialogDescription>Enter the {LABEL[p.kind]} details.</DialogDescription></DialogHeader>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <label>ID<input className="w-full border rounded px-2 h-8" data-testid="super-entity-id" value={row.id} readOnly={p.mode === "edit"} onChange={set("id")} /></label>
           <label>Name<input className="w-full border rounded px-2 h-8" data-testid="super-entity-name" value={row.name} onChange={set("name")} /></label>

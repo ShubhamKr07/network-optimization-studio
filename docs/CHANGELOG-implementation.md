@@ -4551,3 +4551,10 @@ Deferred / follow-ups:
 ### SM2-13 - whole-branch review fixes (backend)
 
 `services/superRoad.ts` built road-pair keys as `${a}|${b}` (non-injective: plant `a|b`->wh `c` collides with plant `a`->wh `b|c`, so a missing required pair counted as present). It now uses `pairKey` from `validation/inputs/superInputs.ts`. Test in `superRoad.test.ts` returned 2 instead of 3 missing before the fix. Also deleted the unused `SUPER_NETWORK_MAX_BYTES` re-export in `superInputs.ts` (all importers use `@workspace/import-schema`).
+
+### SM2-14 - whole-branch review fixes (studio)
+- SuperRoadDistancesDialog / SuperNetworkImportDialog cannot close while their mutation is pending (Escape/outside-click ignored, Cancel disabled); closing mid-flight called `reset()`, detaching the observer so `onSuccess` (resync) never ran. Success now closes via an unguarded `finish`.
+- `parseCsvFiles` matches `.csv` and the stem case-insensitively (`Plants.CSV`); errors still name the original file.
+- `mutationErrorSurface.test.ts`: every `ALLOWED_NO_ONERROR` entry must match exactly one call site (a second `.mutate(` in an allow-listed file now fails).
+- a11y: file input `aria-label`, mode fieldset `<legend class="sr-only">`, `DialogDescription` on the three new super dialogs.
+- Fail-first proven for the pending-close tests, the `.CSV` tests and the allow-list guard (duplicate site injected, then removed). Studio 2893/2893, typecheck clean.

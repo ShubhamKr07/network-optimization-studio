@@ -28,6 +28,22 @@ describe("SuperRoadDistancesDialog", () => {
     expect(mutate.mock.calls[0][0]).toEqual({ scenarioId: 7 });
     expect(onApplied).toHaveBeenCalledWith({ id: 7 });
   });
+  it("cannot be closed while the fetch is pending, and the late success still applies", () => {
+    const onApplied = vi.fn(), onOpenChange = vi.fn();
+    let opts: { onSuccess: (r: unknown) => void } | undefined;
+    mutate.mockImplementation((_v, o) => { opts = o; });
+    const ui = () => <SuperRoadDistancesDialog open onOpenChange={onOpenChange} scenarioId={7} onApplied={onApplied} />;
+    const { rerender } = render(ui());
+    fireEvent.click(screen.getByTestId("super-road-confirm"));
+    state.isPending = true;
+    rerender(ui());
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByTestId("super-road-dialog"), { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    opts!.onSuccess({ scenario: { id: 7 } });
+    expect(onApplied).toHaveBeenCalledWith({ id: 7 });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
   it.each([
     ["road_distances_quota", 429, "OpenRouteService quota reached, try again later. The daily quota is shared by everyone using this server."],
     ["road_distances_quota", 403, "OpenRouteService quota reached, try again later. The daily quota is shared by everyone using this server."],

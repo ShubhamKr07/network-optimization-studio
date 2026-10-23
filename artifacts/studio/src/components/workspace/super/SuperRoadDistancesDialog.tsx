@@ -1,6 +1,6 @@
 import { useFetchScenarioRoadDistances, RoadDistancesErrorCode } from "@workspace/api-client-react";
 import type { Scenario } from "@workspace/api-client-react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
@@ -16,11 +16,12 @@ export interface SuperRoadDistancesDialogProps { open: boolean; onOpenChange(o: 
 
 export function SuperRoadDistancesDialog({ open, onOpenChange, scenarioId, onApplied }: SuperRoadDistancesDialogProps) {
   const fetchRoad = useFetchScenarioRoadDistances();
-  const close = (o: boolean) => { if (!o) fetchRoad.reset(); onOpenChange(o); };
+  // Closing mid-fetch would reset() (detaching the observer), so onSuccess never ran and the workspace stayed stale.
+  const finish = () => { fetchRoad.reset(); onOpenChange(false); };
   return (
-    <Dialog open={open} onOpenChange={close}>
+    <Dialog open={open} onOpenChange={o => { if (!o && fetchRoad.isPending) return; if (!o) finish(); else onOpenChange(o); }}>
       <DialogContent data-testid="super-road-dialog" className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Fetch road distances</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Fetch road distances</DialogTitle><DialogDescription>Fetch truck road distances for this scenario from OpenRouteService.</DialogDescription></DialogHeader>
         <div className="space-y-2 text-sm">
           <p data-testid="super-road-privacy">
             This sends the plant, warehouse and customer coordinates of this scenario to OpenRouteService (openrouteservice.org),
@@ -30,10 +31,10 @@ export function SuperRoadDistancesDialog({ open, onOpenChange, scenarioId, onApp
           {fetchRoad.isError && <p className="text-xs text-destructive" data-testid="super-road-error">{describeRoadError(fetchRoad.error)}</p>}
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => close(false)}>Cancel</Button>
+          <Button variant="outline" size="sm" disabled={fetchRoad.isPending} onClick={finish}>Cancel</Button>
           <Button size="sm" disabled={fetchRoad.isPending} data-testid="super-road-confirm"
             onClick={() => fetchRoad.mutate({ scenarioId }, {
-              onSuccess: ({ scenario }) => { toast({ title: "Road distances fetched" }); onApplied(scenario); close(false); },
+              onSuccess: ({ scenario }) => { toast({ title: "Road distances fetched" }); onApplied(scenario); finish(); },
             })}>
             {fetchRoad.isPending ? "Fetching…" : "Send and fetch"}
           </Button>
