@@ -1,5 +1,4 @@
-import { Input } from "@/components/ui/input";
-import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
+import { DraftNumberInput, READ_ONLY_TITLE } from "@/components/data-table/entityCells";
 import { SuperTableTab } from "./SuperTableTab";
 import type { Row } from "./superTables";
 
@@ -23,12 +22,10 @@ export function SuperDistancesTab(p: SuperDistancesTabProps) {
           <option value="haversine">Straight line (haversine)</option>
           <option value="circuity">Straight line × circuity factor</option>
         </select>
-        <Input type="number" min={1} max={3} step={0.01} className="h-8 w-24 text-xs" data-testid="super-circuity-factor"
-          value={p.circuityFactor} disabled={p.readOnly || p.distanceMethod !== "circuity"}
-          onChange={e => {
-            const n = Number(e.target.value);
-            if (e.target.value !== "" && Number.isFinite(n) && n >= 1 && n <= 3) p.onChange({ circuityFactor: n });
-          }} />
+        <DraftNumberInput testId="super-circuity-factor" value={p.circuityFactor}
+          disabled={p.readOnly || p.distanceMethod !== "circuity"}
+          parse={raw => { const n = Number(raw); return raw !== "" && n >= 1 && n <= 3 ? n : null; }}
+          onCommit={n => { if (n != null) p.onChange({ circuityFactor: n }); }} />
       </div>
       <p className="text-xs text-muted-foreground">Pairs without an override use the method above. Overrides always win.</p>
       <SuperTableTab table="distanceOverrides" rows={p.overrides} readOnly={p.readOnly}

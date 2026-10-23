@@ -1271,8 +1271,6 @@ const SUPER_INPUT_TABS = ["products", "plants", "warehouses", "customers", "plan
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
     // Super Model: written out so it never inherits p-median's tab set.
-    // Tab content lands in SM-7; until then these ids render the existing
-    // "not available" placeholder.
     case "super-model":
       return [
         { id: "products", label: "Products" },

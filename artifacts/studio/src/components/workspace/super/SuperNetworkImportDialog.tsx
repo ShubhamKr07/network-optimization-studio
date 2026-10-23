@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useImportScenarioNetwork } from "@workspace/api-client-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
@@ -26,11 +26,13 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
   const [confirmingOverwrite, setConfirmingOverwrite] = useState(false);
   const importMutation = useImportScenarioNetwork();
 
+  // Re-seed on OPEN from the current isEmpty (a successful import flips it while closed).
+  useEffect(() => { if (open) setMode(isEmpty ? "replace" : "merge"); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleOpenChange(next: boolean) {
     if (!next) {
       setDoc(null);
       setFileError(null);
-      setMode(isEmpty ? "replace" : "merge");
       setConfirmingOverwrite(false);
       importMutation.reset();
     }

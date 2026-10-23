@@ -62,6 +62,22 @@ describe("SuperNetworkImportDialog", () => {
     expect(String(calls()[0][0])).toContain("mode=replace");
   });
 
+  it("reopening after a successful replace re-seeds the mode from the current isEmpty", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const ui = (open: boolean, isEmpty: boolean) => (
+      <QueryClientProvider client={qc}>
+        <SuperNetworkImportDialog open={open} onOpenChange={vi.fn()} scenarioId={1} isEmpty={isEmpty} onApplied={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui(true, true));
+    await upload("{}");
+    await userEvent.click(screen.getByTestId("super-import-confirm"));
+    await waitFor(() => expect(calls()).toHaveLength(1));
+    rerender(ui(false, false));
+    rerender(ui(true, false));
+    expect(screen.getByTestId("super-import-mode-merge")).toBeChecked();
+  });
+
   it("renders a 422 error text", async () => {
     fetchMock.mockImplementation(async () => json({ error: "customers[3]: unknown product p9" }, 422));
     renderDialog(true);
