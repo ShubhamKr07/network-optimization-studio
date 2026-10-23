@@ -142,3 +142,12 @@ describe("422 issue -> file/row/column (the describeIssue contract above)", () =
     expect(good.sources.plants).toEqual({ source: "sheet plants", headerRow: 3, rows: [4, 5] });
   });
 });
+
+describe("parseCsvFiles case", () => {
+  it("matches .CSV and the stem case-insensitively but names the original file in errors", () => {
+    const r = parseCsvFiles([{ name: "Plants.CSV", text: "id,name,lat,lng\nA,P,1,2\n" }]);
+    expect(r.ok).toBe(true);
+    const bad = parseCsvFiles([{ name: "Nope.CSV", text: "a\n1\n" }]);
+    expect(JSON.stringify(bad)).toContain("Nope.CSV");
+  });
+});

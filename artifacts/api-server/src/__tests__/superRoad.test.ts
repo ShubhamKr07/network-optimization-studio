@@ -41,6 +41,20 @@ describe("required road pairs (readiness)", () => {
   });
 });
 
+describe("required road pairs: ids containing '|'", () => {
+  it("a missing plant a|b -> wh c pair is not satisfied by a valid plant a -> wh b|c pair", () => {
+    const v = net({
+      plants: [{ id: "a|b", name: "x", lat: 1, lng: 1 }, { id: "a", name: "y", lat: 2, lng: 2 }],
+      warehouses: [{ id: "c", name: "c", lat: 3, lng: 3, status: "active" }, { id: "b|c", name: "d", lat: 4, lng: 4, status: "active" }],
+      customers: [], plantProducts: [], demand: [],
+      roadDistances: { fetchedAt: "2026-10-23T00:00:00.000Z", profile: "driving-hgv",
+        coords: { "a|b": [1, 1], a: [2, 2], c: [3, 3], "b|c": [4, 4] },
+        pairs: [{ fromId: "a", toId: "b|c", miles: 5 }] },
+    });
+    expect(missingRequiredRoadPairs(v)).toBe(3);
+  });
+});
+
 describe("solve payload", () => {
   it("passes only valid pairs as roadPairs and never roadDistances", () => {
     const moved = net({ customers: [{ id: "C1", name: "C1", lat: 9, lng: 9, status: "active" }] });

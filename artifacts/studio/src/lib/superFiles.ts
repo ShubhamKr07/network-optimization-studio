@@ -130,8 +130,9 @@ export function parseJsonText(text: string): ParseResult {
 export function parseCsvFiles(files: { name: string; text: string }[]): ParseResult {
   const sheets: Sheet[] = [], errors: ParseError[] = [];
   for (const f of files) {
-    const stem = f.name.endsWith(".csv") ? f.name.slice(0, -4) : f.name;
-    if (stem === f.name) { errors.push({ where: f.name, message: "unknown file name" }); continue; }
+    const lower = f.name.toLowerCase();
+    const stem = lower.endsWith(".csv") ? lower.slice(0, -4) : lower;
+    if (stem === lower) { errors.push({ where: f.name, message: "unknown file name" }); continue; }
     const parsed = Papa.parse<string[]>(f.text, { skipEmptyLines: false, delimiter: "," });
     for (const e of parsed.errors) errors.push({ where: `${f.name} row ${(e.row ?? 0) + 1}`, message: e.message });
     sheets.push({ name: stem, source: f.name, csv: true, firstRow: 1,

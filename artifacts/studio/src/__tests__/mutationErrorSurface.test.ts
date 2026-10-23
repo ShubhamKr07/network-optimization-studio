@@ -79,6 +79,14 @@ describe("Workspace mutation error surface", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("every ALLOWED_NO_ONERROR entry matches exactly one real call site", () => {
+    const bad = ALLOWED_NO_ONERROR.filter(a => {
+      const n = readFileSync(join(SRC_ROOT, a.file), "utf8").split("\n").filter(l => isCode(l) && l.includes(a.call)).length;
+      return n !== 1;
+    }).map(a => `${a.file} ${a.call}`);
+    expect(bad).toEqual([]);
+  });
+
   it("the tree walk covers files outside SRCS", () => {
     expect(ALL_SRCS.length).toBeGreaterThan(SRCS.length);
     expect(ALL_SRCS.map(rel)).toContain("components/workspace/super/SuperRoadDistancesDialog.tsx");

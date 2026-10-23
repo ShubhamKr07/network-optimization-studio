@@ -14,13 +14,13 @@ const scenario = { id: 1, name: "S", modelId: "super-model", inputs: { products:
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 function renderDialog(isEmpty: boolean) {
-  const onApplied = vi.fn();
+  const onApplied = vi.fn(), onOpenChange = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-      <SuperNetworkImportDialog open onOpenChange={vi.fn()} scenarioId={1} isEmpty={isEmpty} onApplied={onApplied} />
+      <SuperNetworkImportDialog open onOpenChange={onOpenChange} scenarioId={1} isEmpty={isEmpty} onApplied={onApplied} />
     </QueryClientProvider>,
   );
-  return { onApplied };
+  return { onApplied, onOpenChange };
 }
 const upload2 = (name: string, content: string) => userEvent.upload(screen.getByTestId("super-import-file"), new File([content], name));
 const upload = (content: string) => userEvent.upload(screen.getByTestId("super-import-file"), new File([content], "net.json", { type: "application/json" }));
@@ -35,6 +35,26 @@ beforeEach(() => {
 });
 
 describe("SuperNetworkImportDialog", () => {
+  it("cannot be closed while the import is pending, and the late success still applies", async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation(async () => { await new Promise<void>(r => { release = r; }); return json({ scenario }); });
+    const { onApplied, onOpenChange } = renderDialog(false);
+    await upload("{}");
+    await userEvent.click(screen.getByTestId("super-import-confirm"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled());
+    await userEvent.keyboard("{Escape}");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    release();
+    await waitFor(() => expect(onApplied).toHaveBeenCalledWith(scenario));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("accepts an upper-case .CSV file name", async () => {
+    renderDialog(false);
+    await upload2("Plants.CSV", "id,name,lat,lng\nA,P,1,2\n");
+    expect(screen.queryByTestId("super-import-file-error")).toBeNull();
+  });
+
   it("merge posts the parsed file as the body to ?mode=merge and calls onApplied", async () => {
     const { onApplied } = renderDialog(false);
     await upload('{"products":[{"id":"p1"}]}');

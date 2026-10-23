@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useImportScenarioNetwork } from "@workspace/api-client-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { describeImportError } from "@/components/ImportDialog";
@@ -51,7 +51,12 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
   // Re-seed on OPEN from the current isEmpty (a successful import flips it while closed).
   useEffect(() => { if (open) setMode(isEmpty ? "replace" : "merge"); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Closing mid-import would reset() (detaching the observer), so onSuccess never ran and the workspace stayed stale.
   function handleOpenChange(next: boolean) {
+    if (!next && importMutation.isPending) return;
+    finish(next);
+  }
+  function finish(next: boolean) {
     if (!next) {
       setParsed(null);
       setFileErrors([]);
@@ -94,7 +99,7 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
         onSuccess: ({ scenario }) => {
           toast({ title: "Network imported", description: `Network ${mode === "replace" ? "replaced" : "merged"}.` });
           onApplied(scenario);
-          handleOpenChange(false);
+          finish(false);
         },
       },
     );
@@ -105,15 +110,17 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import network</DialogTitle>
+          <DialogDescription>Upload a JSON, XLSX or CSV network document to replace or merge into this scenario.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2 text-sm">
-          <input type="file" multiple accept=".json,.xlsx,.csv,application/json,text/csv" data-testid="super-import-file" onChange={handleFiles} />
+          <input type="file" multiple accept=".json,.xlsx,.csv,application/json,text/csv" aria-label="Network file" data-testid="super-import-file" onChange={handleFiles} />
           {fileErrors.length > 0 && (
             <ul className="text-xs text-destructive max-h-40 overflow-auto" data-testid="super-import-file-error">
               {fileErrors.map((m, i) => <li key={i}>{m}</li>)}
             </ul>
           )}
           <fieldset className="space-y-1" onChange={() => setConfirmingOverwrite(false)}>
+            <legend className="sr-only">Import mode</legend>
             <label className="flex items-center gap-2">
               <input type="radio" name="super-import-mode" checked={mode === "replace"} onChange={() => setMode("replace")} data-testid="super-import-mode-replace" />
               Replace all (absent tables reset to defaults)
@@ -139,7 +146,7 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" size="sm" disabled={importMutation.isPending} onClick={() => handleOpenChange(false)}>Cancel</Button>
           <Button size="sm" disabled={!parsed || importMutation.isPending} onClick={handleConfirm} data-testid="super-import-confirm">
             {importMutation.isPending ? "Importing…" : confirmingOverwrite ? "Replace everything" : "Import"}
           </Button>
