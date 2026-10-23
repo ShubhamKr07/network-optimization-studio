@@ -508,6 +508,75 @@ paths:
         "404":
           description: Not found (also another user's scenario or a non-super scenario, never 403)
 
+  /scenarios/{scenarioId}/network/road-distances:
+    post:
+      operationId: fetchScenarioRoadDistances
+      tags: [scenarios]
+      summary: Fetch OpenRouteService road distances for every plant→warehouse and warehouse→customer pair (super-model)
+      description: >-
+        Synchronous (up to 120 s). Sends every location's coordinates to OpenRouteService
+        (driving-hgv), then writes only `inputs.roadDistances` onto the scenario's current
+        inputs. Any failure writes nothing. Non-owned or non-super scenario is 404.
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The updated scenario
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenario]
+                properties:
+                  scenario:
+                    $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Model is locked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found (also another user's scenario or a non-super scenario, never 403)
+        "409":
+          description: road_distances_busy (another road-distance fetch is in progress on this server; nothing waits)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadDistancesError"
+        "422":
+          description: road_distances_unroutable, or the resulting inputs failed validation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RoadDistancesError"
+                  - $ref: "#/components/schemas/NetworkImportRejection"
+        "429":
+          description: road_distances_quota (ORS daily quota 403 or per-minute 429)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadDistancesError"
+        "502":
+          description: road_distances_failed (timeout, deadline or an OpenRouteService error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadDistancesError"
+        "503":
+          description: road_distances_unavailable (no ORS_API_KEY on the server)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadDistancesError"
+
   /scenarios/{scenarioId}/import:
     post:
       operationId: previewScenarioImport
@@ -1105,6 +1174,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NetworkImportIssue"
+    RoadDistancesErrorCode:
+      type: string
+      description: Closed set of road-distance failure codes (spec §8). The TS union in services/orsClient.ts mirrors it.
+      enum: [road_distances_unavailable, road_distances_quota, road_distances_failed, road_distances_unroutable, road_distances_busy]
+    RoadDistancesError:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          $ref: "#/components/schemas/RoadDistancesErrorCode"
+        message:
+          type: string
     LegacyResultExportRejection:
       type: object
       description: >-

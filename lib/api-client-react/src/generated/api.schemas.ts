@@ -98,6 +98,25 @@ export interface NetworkImportRejection {
   issues: NetworkImportIssue[];
 }
 
+/**
+ * Closed set of road-distance failure codes (spec §8). The TS union in services/orsClient.ts mirrors it.
+ */
+export type RoadDistancesErrorCode = typeof RoadDistancesErrorCode[keyof typeof RoadDistancesErrorCode];
+
+
+export const RoadDistancesErrorCode = {
+  road_distances_unavailable: 'road_distances_unavailable',
+  road_distances_quota: 'road_distances_quota',
+  road_distances_failed: 'road_distances_failed',
+  road_distances_unroutable: 'road_distances_unroutable',
+  road_distances_busy: 'road_distances_busy',
+} as const;
+
+export interface RoadDistancesError {
+  error: RoadDistancesErrorCode;
+  message: string;
+}
+
 export type LegacyResultExportRejectionCode = typeof LegacyResultExportRejectionCode[keyof typeof LegacyResultExportRejectionCode];
 
 
@@ -1490,6 +1509,10 @@ export const ExportScenarioNetworkFormat = {
 } as const;
 
 export type ExportScenarioNetwork200 = { [key: string]: unknown };
+
+export type FetchScenarioRoadDistances200 = {
+  scenario: Scenario;
+};
 
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;

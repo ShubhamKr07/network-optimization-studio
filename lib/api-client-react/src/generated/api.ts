@@ -28,6 +28,7 @@ import type {
   ExportScenarioNetworkParams,
   ExportScenarioParams,
   FeedbackRequest,
+  FetchScenarioRoadDistances200,
   ForgotPasswordAccepted,
   ForgotPasswordRequest,
   GetDatasetParams,
@@ -55,6 +56,7 @@ import type {
   ReferenceDistances,
   RegisterRequest,
   ResetPasswordRequest,
+  RoadDistancesError,
   Scenario,
   ScenarioInput,
   ScenarioUpdate,
@@ -1407,6 +1409,77 @@ export function useExportScenarioNetwork<TData = Awaited<ReturnType<typeof expor
 
 
 
+
+export const getFetchScenarioRoadDistancesUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/network/road-distances`
+}
+
+/**
+ * Synchronous (up to 120 s). Sends every location's coordinates to OpenRouteService (driving-hgv), then writes only `inputs.roadDistances` onto the scenario's current inputs. Any failure writes nothing. Non-owned or non-super scenario is 404.
+ * @summary Fetch OpenRouteService road distances for every plant→warehouse and warehouse→customer pair (super-model)
+ */
+export const fetchScenarioRoadDistances = async (scenarioId: number, options?: RequestInit): Promise<FetchScenarioRoadDistances200> => {
+
+  return customFetch<FetchScenarioRoadDistances200>(getFetchScenarioRoadDistancesUrl(scenarioId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getFetchScenarioRoadDistancesMutationOptions = <TError = ErrorType<void | ErrorEnvelope | RoadDistancesError | NetworkImportRejection>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fetchScenarioRoadDistances>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof fetchScenarioRoadDistances>>, TError,{scenarioId: number}, TContext> => {
+
+const mutationKey = ['fetchScenarioRoadDistances'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof fetchScenarioRoadDistances>>, {scenarioId: number}> = (props) => {
+          const {scenarioId} = props ?? {};
+
+          return  fetchScenarioRoadDistances(scenarioId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FetchScenarioRoadDistancesMutationResult = NonNullable<Awaited<ReturnType<typeof fetchScenarioRoadDistances>>>
+
+    export type FetchScenarioRoadDistancesMutationError = ErrorType<void | ErrorEnvelope | RoadDistancesError | NetworkImportRejection>
+
+    /**
+ * @summary Fetch OpenRouteService road distances for every plant→warehouse and warehouse→customer pair (super-model)
+ */
+export const useFetchScenarioRoadDistances = <TError = ErrorType<void | ErrorEnvelope | RoadDistancesError | NetworkImportRejection>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fetchScenarioRoadDistances>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof fetchScenarioRoadDistances>>,
+        TError,
+        {scenarioId: number},
+        TContext
+      > => {
+      return useMutation(getFetchScenarioRoadDistancesMutationOptions(options));
+    }
 
 export const getPreviewScenarioImportUrl = (scenarioId: number,) => {
 

@@ -9,6 +9,8 @@ import { superNetworkDocSchema, mergeNetwork, docDuplicateIssues, toDocIssues } 
 import { superInputsSchema } from "../validation/inputs/superInputs.js";
 import { formatInputIssues, toInputIssues } from "../validation/formatInputIssues.js";
 import { toApiScenario } from "./scenarios.js";
+import { ROAD_ERROR_STATUS, RoadDistancesError, fetchRoadPairs, orsFetch, planBatches, runIfIdle } from "../services/orsClient.js";
+import type { RoadPair } from "../services/superRoad.js";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -70,6 +72,39 @@ router.get("/scenarios/:scenarioId/network/export", async (req: Request, res: Re
   if (req.query.format !== "json") { res.status(400).json({ error: "format must be json" }); return; }
   const { roadDistances: _server, ...doc } = superInputsSchema.parse(row.inputs);
   res.json(doc);
+});
+
+// SM2-9 (spec §8, D7) — synchronous; ORS is called with NO row lock, then only roadDistances is written onto the row's
+// CURRENT inputs. A concurrent edit is never overwritten; a location it moved no longer matches `coords`, so D8 marks its pairs stale.
+router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request, res: Response) => {
+  const id = Number(req.params.scenarioId);
+  const row = Number.isInteger(id) ? await loadOwnedSuper(id, req.userId!) : null;
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(row.modelId)) { respondLocked(res); return; }
+  const apiKey = process.env.ORS_API_KEY;
+  if (!apiKey) {
+    res.status(ROAD_ERROR_STATUS.road_distances_unavailable).json({ error: "road_distances_unavailable", message: "Road distances are not available: no OpenRouteService key is configured on this server." });
+    return;
+  }
+  const v = superInputsSchema.parse(row.inputs);                                       // phase 1: snapshot, no lock
+  const coords = Object.fromEntries([...v.plants, ...v.warehouses, ...v.customers].map(l => [l.id, [l.lat, l.lng] as [number, number]]));
+  let pairs: RoadPair[];
+  try {
+    pairs = await runIfIdle(() => fetchRoadPairs({ apiKey, batches: planBatches(v.plants, v.warehouses, v.customers), fetchImpl: orsFetch() }));
+  } catch (e) {
+    if (e instanceof RoadDistancesError) { res.status(ROAD_ERROR_STATUS[e.code]).json({ error: e.code, message: e.message }); return; }
+    throw e;
+  }
+  const roadDistances = { fetchedAt: new Date().toISOString(), profile: "driving-hgv" as const, coords, pairs };
+  const outcome = await db.transaction(async tx => {                                   // phase 3: lock and write onto CURRENT inputs
+    const [cur] = await tx.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!))).for("update");
+    if (!cur) return { kind: "not_found" as const };
+    return applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: cur.inputs as Record<string, unknown>, roadDistances: { set: roadDistances } });
+  });
+  if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
+  if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error, issues: outcome.issues }); return; }
+  res.json({ scenario: toApiScenario(outcome.row) });
 });
 
 export default router;
