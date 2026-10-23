@@ -1,6 +1,6 @@
 # Super Model — design
 
-Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23
+Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23; Phases 2–3 + Input Map (D5–D9) folded in from brainstorming 2026-10-23
 
 ## 1. Goal
 
@@ -39,6 +39,11 @@ Changes relative to Ch9:
 | D2 Big-M | Derived `M = |customers| × |products|` for both models (§4.1) |
 | D3 Row delete | Cascade after a confirmation stating the row count (§6) |
 | D4 CSV export | Single zip of the per-table CSVs (§7.1) |
+| D5 Input Map | Fully editable Input Map with Ch9 parity (§6.1), delivered with Phase 2 |
+| D6 File parsing | CSV/XLSX parsed and generated **in the browser**; the API keeps one JSON import/export contract (§7.1) |
+| D7 Road fetch | Synchronous route, not a solve job (§8) |
+| D8 Road cache validity | Derived per pair from a coordinate snapshot, never maintained on write (§8) |
+| D9 ORS profile | `driving-hgv`, hosted ORS API, key supplied by the user later (§8) |
 
 ## 3. Data model
 
@@ -74,7 +79,9 @@ inputs = {
   plantProducts: [{ plantId, productId, capacity ≥ 0, costPerUnit ≥ 0 }],
   demand:        [{ customerId, productId, demand ≥ 0 }],
   distanceOverrides: [{ fromId, toId, miles ≥ 0 }],   // 0 allowed: co-located pairs (SM-6), as Ch9
-  roadDistances?: { fetchedAt, pairs: [{ fromId, toId, miles }] }   // phase 3, server-written only
+  roadDistances?: { fetchedAt, profile: "driving-hgv",            // phase 3, server-written only (§8)
+                   coords: { [locationId]: [lat, lng] },          // snapshot of every location used
+                   pairs: [{ fromId, toId, miles }] }
 }
 ```
 
@@ -159,7 +166,7 @@ reason: a product's total capacity < its total active demand.
 - capacity / cost maps from `plantProducts`
 - distance for every plant→WH and WH→customer pair:
   1. `distanceOverrides` pair if present
-  2. else, if method is `road`, the `roadDistances` pair (precheck refuses solve if any pair is missing) — Phase 3; Phase 1's schema rejects `road` with 422
+  2. else, if method is `road`, the `roadDistances` pair if it is **valid** (§8) — the precheck refuses solve if any pair is missing or stale. Phase 1's schema rejects `road` with 422; Phase 3 accepts it
   3. else haversine miles, × `circuityFactor` when method is `circuity`
 
 ## 5. Output summary
@@ -188,8 +195,8 @@ above; a test covers a Super-vs-Super compare.
 
 - **Home page:** new "Super Model" block after the chapter blocks, labelled "SM" instead of a chapter number. The card opens
   the workspace; blank-template and sample-network downloads live in the workspace empty state (decision C2 — a
-  home card is a single link, so it cannot hold nested download links). Phase 1 ships the JSON template; the CSV
-  set and XLSX arrive in Phase 2.
+  home card is a single link, so it cannot hold nested download links). Phase 1 ships the JSON template; Phase 2
+  adds the blank template and the sample network as a CSV zip and as an XLSX workbook.
 - **Workspace tabs** (reuse Ch9 components where they fit):
   Products · Plants · Warehouses (status) · Customers (status, no demand column) ·
   Plant Capability (plant, product, capacity, cost/unit) · Demand (customer, product, demand) ·
@@ -201,8 +208,31 @@ above; a test covers a Super-vs-Super compare.
 - **Solve readiness** comes from the server precheck (the same one the solve route enforces), shown as a
   checklist. It fails when: any of products / plants / warehouses / active customers is empty; no
   positive demand; any product's total capacity < its total active demand; `p` > eligible warehouses;
-  forced-open count > `p`; method `road` with an incomplete cache; any non-finite coefficient.
+  forced-open count > `p`; method `road` with any missing or stale road pair (§8); any non-finite coefficient.
 - Cached result shows the existing stale badge whenever `inputsUpdatedAt > solvedAt`.
+
+### 6.1 Input Map (D5)
+
+- A **Map** sidebar entry (`input-map`, as the other models) is registered for Super. An empty scenario still
+  opens on the import prompt (SM-13); a successful import (any format, either mode) switches to the Input Map.
+- New `SuperInputMap.tsx` under `components/workspace/super/`; `InputMapTab` gains `mode: "super"` that only
+  delegates to it, so the existing 2,763-line file does not grow. It reuses `EntityMarkers`, `MapActionMenu`,
+  `CreateEntityDialog`, `EditWarehouseDialog`, `EditCustomerDialog`, `MoveConfirmDialog`, `MapLegend`,
+  `InvalidateOnResize` and the existing fit-to-points behaviour.
+- Pins: plants, warehouses (status-styled via `statusPresentation.ts`), customers (excluded styled as
+  excluded). Layer toggles for each kind. Map fits to all imported points on first render after an import.
+- Actions (Ch9 parity — every Super row is scenario-owned, so there is no base-vs-added split):
+  - **Add** a plant / warehouse / customer by clicking the map: ID (unique across all location tables, as §3.3),
+    name, optional city/state; warehouse status; customer status and per-product demand (writes `demand` rows).
+    A new plant has no `plantProducts` rows — capability is edited in the Plant Capability tab.
+  - **Edit**: name, city/state, warehouse status, customer status and per-product demand.
+  - **Move**: confirm, then the new lat/lng is written. A moved location's road pairs become stale (§8).
+  - **Copy**: as Ch9 — new ID, same attributes (customer copies its demand rows; plant copies its
+    `plantProducts` rows).
+  - **Delete**: the same cascade and row-count confirmation as the tables (D3), reusing the `superTables`
+    cascade.
+- Every map edit goes through the same `localInputs` + Save path as the tables; there is no map-only write.
+- No flows are drawn on the Input Map (flows belong to the Output Map).
 
 ## 7. Import / export
 
@@ -211,10 +241,13 @@ above; a test covers a Super-vs-Super compare.
 New network-level endpoints; Super does not use the existing per-entity import routes (which stay as
 they are for other models):
 
-- `POST /scenarios/:id/network/import?mode=replace|merge` — `multipart/form-data` (CSV files or one XLSX
-  file) or `application/json` (one network document).
-- `GET /scenarios/:id/network/export?format=json|xlsx|csv` — csv returns a zip of the per-table files
-  (download convenience only; CSV import stays multi-select files).
+- `POST /scenarios/:id/network/import?mode=replace|merge` — `application/json` (one network document).
+- `GET /scenarios/:id/network/export?format=json` — the network document.
+
+**D6:** CSV and XLSX never reach the API. The Studio parses them into the §3.2 network document and posts
+it to the JSON route; CSV-zip and XLSX exports are built in the browser from the JSON export. The server's
+validation stays the only authority. The API therefore needs no multipart parser and no binary-format
+dependency, and its contract is unchanged by Phase 2.
 
 Both scoped to the authenticated owner; non-owned or non-Super scenario ⇒ 404. Added to `openapi.yaml`
 and regenerated in the same task.
@@ -225,10 +258,19 @@ and regenerated in the same task.
   `plants.csv`, `warehouses.csv`, `customers.csv`, `plant_products.csv`, `demand.csv`,
   `distance_overrides.csv`, `parameters.csv` (key/value rows). Unknown filenames rejected by name.
   Missing files = table absent.
-- **XLSX:** one workbook, sheets with the same names. New dependency chosen in the plan.
+- **XLSX:** one workbook, sheets with the same names (without `.csv`). One new Studio dependency, chosen in
+  the plan after a version and `pnpm audit` check, loaded with a dynamic `import()` so it stays out of the main
+  bundle; the same for the zip library used by CSV-zip export. CSV parsing reuses papaparse.
+- One import is one kind: a set of `.csv` files, or one `.xlsx`, or one `.json`.
+- Columns: each CSV/sheet has a header row naming the §3.2 fields of its table. Numeric columns are coerced
+  to numbers in the browser; a non-numeric value in a numeric column is a client-side error. Empty cells
+  for optional fields (`city`, `state`, `status`) are omitted.
+- Errors name file (or sheet), row (1-based, header = row 1) and column. Client-side parse errors are
+  produced directly; a server 422 issue path such as `plants[3].lat` is mapped back to
+  `plants.csv row 5, column lat` (or sheet `plants`).
 - **JSON:** one document shaped like §3.2 (no `roadDistances`).
 - Request limits: existing `MAX_IMPORT_ROWS` per table and the §3.3 caps on the resulting network.
-  Existing CSV formula-injection handling applies to CSV and XLSX text cells.
+  Export applies the existing formula-injection guard (`clientCsv.ts`) to CSV and XLSX text cells.
 
 ### 7.3 Semantics
 
@@ -240,26 +282,46 @@ Order: parse all files → per-table row validation → build resulting network 
   overwrite unless the scenario is empty.
 - **Merge:** per table, a row whose ID (or composite key, for plant-product / demand / override rows)
   matches an existing row replaces that row whole; a new ID inserts; rows not mentioned are kept; merge
-  never deletes. Parameters present overwrite. `roadDistances` pairs touching any changed or new
-  location are dropped. The merged result must pass whole-network validation (references, global ID
+  never deletes. Parameters present overwrite. `roadDistances` is left as stored; pairs touching a
+  moved or removed location become stale and a new location's pairs are missing, by D8 (§8). The merged result must pass whole-network validation (references, global ID
   uniqueness, caps).
 - The write goes through the existing scenario input write path, so ownership and `inputsUpdatedAt`
   behave as for every other write.
-- Export → import (replace) round-trips to identical `inputs` minus `roadDistances`.
+- Export → import (replace) round-trips to identical `inputs` minus `roadDistances`, in every format.
 
 ## 8. Road distances (OpenRouteService) — phase 3
 
-- With `distanceMethod: "road"`, a "Fetch road distances" action starts an API-server job that calls the
-  ORS matrix API for all plant→WH and WH→customer pairs, converts meters → miles, and writes
-  `roadDistances` in one atomic write when every pair has succeeded. A failed or partial job writes
-  nothing and reports which batch failed.
-- The API key is a secret env var `ORS_API_KEY` on the `nos-api` Render service (`sync: false`), never
-  logged or returned. Its addition is a deploy-checklist item.
-- Batching, per-request location limits, timeouts, retries and quota handling are designed in the
-  phase-3 plan from ORS's current published limits — no numbers are assumed here.
-- Unroutable pairs (ORS returns null) fail the job with the pair named; the user can add an override.
-- Privacy: before the first fetch, the UI states that plant/warehouse/customer coordinates are sent to
-  OpenRouteService.
+- **Route (D7):** `POST /scenarios/:id/network/road-distances` (empty body; the DB row is the source of truth).
+  Owner-scoped; non-owned or non-Super ⇒ 404; locked model ⇒ the existing locked response. It is synchronous:
+  the request returns when the fetch has succeeded or failed. Added to `openapi.yaml` and regenerated in the
+  same task, with its error codes in the TS union, the OpenAPI enum and the client together.
+- **Profile (D9):** ORS hosted API, matrix endpoint, profile `driving-hgv`, `metrics: ["distance"]`,
+  `units: "mi"` (or meters converted to miles — the plan pins one after checking the API reference).
+- **Pairs:** every plant→warehouse and warehouse→customer pair over **all** rows (inactive warehouses and
+  excluded customers included, so a status toggle never needs a re-fetch).
+- **Published limits (checked 2026-10-23, re-verified in the plan):** ≤3,500 origin×destination pairs per
+  matrix request; free key 500 matrix requests/day and 40/minute. At the §3.3 caps that is 20×50 = 1,000
+  plant→WH pairs (1 request) plus 50×500 = 25,000 WH→customer pairs (customers chunked so
+  `warehouses × chunk ≤ 3,500`: 8 requests) — ≤9 requests per fetch, sent serially.
+- **Failure:** each request has a timeout. No retries. HTTP 429 ⇒ `road_distances_quota` ("OpenRouteService
+  quota reached, try later"); any other ORS error or timeout ⇒ `road_distances_failed` naming the failed
+  batch; a `null` pair ⇒ `road_distances_unroutable` naming the pair (the user can add an override). Any
+  failure writes nothing. Missing `ORS_API_KEY` ⇒ 503 `road_distances_unavailable`.
+- **Write:** on full success, one write through the existing scenario input write path of
+  `roadDistances = { fetchedAt, profile, coords, pairs }`, where `coords` snapshots every location's lat/lng
+  used in the request. `inputsUpdatedAt` bumps as for every write.
+- **Validity (D8):** a stored pair is valid iff both endpoints still exist and their current lat/lng equal
+  the `coords` snapshot. Validity is computed where it is read (precheck, solve input build, UI); nothing
+  rewrites `roadDistances` when locations move, merge or are deleted. A replace-import clears it.
+- **Server-written only:** the input-write path ignores any client-supplied `roadDistances` and keeps the
+  stored one; the network document schema (§7.2 JSON) does not accept it.
+- **Readiness:** with method `road`, the checklist item fails with the count of missing or stale pairs and a
+  "Fetch road distances" action.
+- **Key:** `ORS_API_KEY` secret env var on `nos-api` (`sync: false`), never logged or returned; local dev reads
+  it from the environment. Its addition is a deploy-checklist item; the user supplies the key later.
+- **Privacy:** the fetch confirmation dialog, every time, states that plant, warehouse and customer
+  coordinates are sent to OpenRouteService.
+- **Tests never call ORS:** the ORS client takes an injected `fetch`; tests stub it.
 
 ## 9. Phases
 
@@ -272,8 +334,10 @@ Each phase ends in a usable model and follows branch discipline (branch per comm
    (`KNOWN_SCHEMAS`/`VALID_MODEL_IDS`, OpenAPI enums, `chapters.ts`, `lib/units` objective dimension,
    precheck dispatch, `Workspace.tsx` tabs, `pMax`, import/export allowlists, result narrative, …) to
    the task and files that satisfy it, including regenerated code and registration-test updates.
-2. Multi-select CSV and XLSX import, CSV-zip and XLSX export.
-3. OpenRouteService road distances.
+2. Multi-select CSV and XLSX import, CSV-zip and XLSX export (browser-side, D6); CSV/XLSX templates and
+   sample; the editable Input Map (§6.1).
+3. OpenRouteService road distances (§8), built and tested against a stubbed ORS; live check once the
+   user supplies `ORS_API_KEY`.
 
 ## 10. Testing
 
@@ -289,11 +353,18 @@ Each phase ends in a usable model and follows branch discipline (branch per comm
   file is this fixture.
 - **API (vitest + supertest, real Postgres):** validation errors; ownership 404; replace vs merge;
   atomicity (bad row ⇒ nothing written); global ID uniqueness; caps; staleness bump on every write;
-  format parity (CSV / XLSX / JSON of one network give identical `inputs`); export → import round-trip.
+  export → import round-trip. Phase 3: road route ownership 404, missing key 503, batching at the caps
+  (request count and shape asserted on the stubbed `fetch`), 429 / null / timeout each write nothing,
+  client PATCH cannot set or clear `roadDistances`, a moved location makes its pairs stale, solve uses valid
+  road pairs and overrides still win.
+- **Studio unit:** format parity — one network as CSV set, XLSX and JSON parses to identical documents;
+  each export re-parses to the same document; 422 path → file/row/column mapping; formula guard on export.
   At least one test goes through the real writer, not a hand-built fixture.
 - **RTL:** each tab's edit/add/delete incl. cascade confirmation, readiness checklist, import mode
-  dialog.
-- **Playwright (QA task):** real browser — new scenario → import sample → solve → summary values.
+  dialog; Input Map add / edit / move / copy / delete (cascade) and switch-to-map after import; road fetch
+  dialog privacy notice and error messages.
+- **Playwright (QA task):** real browser — new scenario → import sample → solve → summary values; Phase 2:
+  import the sample as CSV set and as XLSX → Input Map shows the pins → edit a pin on the map → save.
   Sibling e2e specs grepped for any changed testid/string.
 
 ## 11. Out of scope
