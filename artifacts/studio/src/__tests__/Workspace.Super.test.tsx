@@ -206,6 +206,8 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     renderWorkspace();
     expect(screen.getByTestId("super-header-import")).toBeInTheDocument();
     expect(screen.getByTestId("super-header-export")).toBeInTheDocument();
+    expect(screen.getByTestId("super-header-export-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("super-header-export-xlsx")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
   });

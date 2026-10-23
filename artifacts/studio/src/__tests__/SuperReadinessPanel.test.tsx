@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SuperReadinessPanel } from "@/components/workspace/super/SuperReadinessPanel";
+import { toast } from "@/hooks/use-toast";
+import { downloadBlob } from "@/lib/clientCsv";
 import { SUPER_SAMPLE_URL, SUPER_TEMPLATE_URL } from "@/lib/superNetwork";
+
+vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
+vi.mock("@/lib/clientCsv", async orig => ({ ...(await orig<typeof import("@/lib/clientCsv")>()), downloadBlob: vi.fn() }));
 
 describe("SuperReadinessPanel", () => {
   it("empty state: heading, import button, template and sample downloads", () => {
@@ -25,5 +30,29 @@ describe("SuperReadinessPanel", () => {
   it("ready state", () => {
     render(<SuperReadinessPanel isEmpty={false} onImport={vi.fn()} precheck={{ ok: true, errors: [] }} />);
     expect(screen.getByTestId("super-readiness-ok")).toHaveTextContent("Ready to solve");
+  });
+
+  it("SM2-5: offers the template and sample as JSON, CSV zip and XLSX", () => {
+    render(<SuperReadinessPanel isEmpty onImport={vi.fn()} />);
+    for (const id of ["super-download-template", "super-download-sample", "super-download-template-csv", "super-download-template-xlsx", "super-download-sample-csv", "super-download-sample-xlsx"])
+      expect(screen.getByTestId(id)).toBeInTheDocument();
+  });
+
+  it("SM2-5: the CSV sample download builds a zip from the JSON sample", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ products: [{ id: "k", name: "K" }] }))));
+    render(<SuperReadinessPanel isEmpty onImport={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("super-download-sample-csv"));
+    await waitFor(() => expect(vi.mocked(downloadBlob)).toHaveBeenCalledWith("super-model-sample.zip", expect.any(Uint8Array), "application/zip"));
+    vi.unstubAllGlobals();
+  });
+
+  it("SM2-5: a failed template fetch shows a toast and downloads nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.mocked(downloadBlob).mockClear();
+    render(<SuperReadinessPanel isEmpty onImport={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("super-download-template-xlsx"));
+    await waitFor(() => expect(vi.mocked(toast)).toHaveBeenCalledWith(expect.objectContaining({ title: "Download failed" })));
+    expect(vi.mocked(downloadBlob)).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

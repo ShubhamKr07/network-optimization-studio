@@ -1,5 +1,7 @@
 import type { MapCustomer, MapPlant, MapWarehouse } from "@/components/workspace/map/types";
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
+import { downloadAs, downloadBlob } from "@/lib/clientCsv";
+import { toCsvZip, toXlsx } from "@/lib/superFiles";
 type Row = Record<string, unknown>;
 export type SuperInputsLike = Record<string, unknown> & {
   products: Row[]; plants: Row[]; warehouses: Row[]; customers: Row[];
@@ -26,6 +28,14 @@ export function cascadeDelete(inputs: SuperInputsLike, table: Entity, id: string
 }
 export const SUPER_SAMPLE_URL = "/samples/super-model-sample.json";
 export const SUPER_TEMPLATE_URL = "/samples/super-model-template.json";
+
+export type SuperFileFormat = "json" | "csv" | "xlsx";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export async function downloadSuperFile(base: string, format: SuperFileFormat, doc: Record<string, unknown>): Promise<void> {
+  if (format === "json") return downloadAs(base, "json", doc);
+  if (format === "csv") return downloadBlob(`${base}.zip`, (await toCsvZip(doc)) as BlobPart, "application/zip");
+  return downloadBlob(`${base}.xlsx`, await toXlsx(doc), XLSX_MIME);
+}
 
 export const SUPER_TABLE_KEYS: readonly SuperTable[] = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distanceOverrides"];
 export function superTablesEmpty(inputs: Record<string, unknown> | null | undefined): boolean {

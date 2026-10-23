@@ -1,11 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useImportScenarioNetwork } from "@workspace/api-client-react";
 import type { Scenario } from "@workspace/api-client-react";
-import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
+import { SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { LIMIT_MESSAGE, describeImportError } from "@/components/ImportDialog";
+import { describeImportError } from "@/components/ImportDialog";
+import { describeIssue, parseCsvFiles, parseJsonText, parseXlsx, type ParseResult, type Sources } from "@/lib/superFiles";
+
+const SUPER_LIMIT_MESSAGE = `File is larger than the ${SUPER_NETWORK_MAX_BYTES / (1024 * 1024)} MB network import limit.`;
+const readAs = (file: File, how: "text" | "buffer") => new Promise<string | ArrayBuffer>((resolve, reject) => {
+  const r = new FileReader(); // FileReader: jsdom's File has no .text()
+  r.onload = () => resolve(r.result as string | ArrayBuffer);
+  r.onerror = () => reject(r.error);
+  if (how === "text") r.readAsText(file); else r.readAsArrayBuffer(file);
+});
+type Kind = "json" | "csv" | "xlsx";
+function kindOf(files: File[]): Kind | null {
+  const ext = (f: File) => f.name.toLowerCase().split(".").pop();
+  if (files.length > 0 && files.every(f => ext(f) === "csv")) return "csv";
+  if (files.length === 1 && ext(files[0]) === "xlsx") return "xlsx";
+  if (files.length === 1 && ext(files[0]) === "json") return "json";
+  return null;
+}
+function issuesOf(err: unknown): { path: (string | number)[]; message: string }[] {
+  const issues = (err as { data?: { issues?: unknown } } | null)?.data?.issues;
+  return Array.isArray(issues) ? issues : [];
+}
 
 type Mode = "replace" | "merge";
 
@@ -18,10 +39,11 @@ export interface SuperNetworkImportDialogProps {
   onApplied: (scenario: Scenario) => void;
 }
 
-/** JSON import of a whole network document (POST /network/import; the body IS the document). */
+/** JSON / CSV / XLSX import of a whole network document, parsed in the browser (POST /network/import; the body IS the document). */
 export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmpty, onApplied }: SuperNetworkImportDialogProps) {
-  const [doc, setDoc] = useState<Record<string, unknown> | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<{ doc: Record<string, unknown>; kind: Kind; sources: Sources } | null>(null);
+  const [fileErrors, setFileErrors] = useState<string[]>([]);
+  const selection = useRef(0); // a slower read from an older selection must not overwrite a newer one
   const [mode, setMode] = useState<Mode>(isEmpty ? "replace" : "merge");
   const [confirmingOverwrite, setConfirmingOverwrite] = useState(false);
   const importMutation = useImportScenarioNetwork();
@@ -31,42 +53,43 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
 
   function handleOpenChange(next: boolean) {
     if (!next) {
-      setDoc(null);
-      setFileError(null);
+      setParsed(null);
+      setFileErrors([]);
       setConfirmingOverwrite(false);
       importMutation.reset();
     }
     onOpenChange(next);
   }
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
-    importMutation.reset();
-    setDoc(null);
-    setConfirmingOverwrite(false);
-    const reader = new FileReader(); // FileReader, as ImportDialog: jsdom's File has no .text()
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      if (new Blob([text]).size > MAX_IMPORT_BYTES) return setFileError(LIMIT_MESSAGE);
-      try {
-        const parsed: unknown = JSON.parse(text);
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-        setDoc(parsed as Record<string, unknown>);
-        setFileError(null);
-      } catch {
-        setFileError("File is not a valid network document (a JSON object).");
-      }
-    };
-    reader.readAsText(file);
+    if (files.length === 0) return;
+    importMutation.reset(); setParsed(null); setConfirmingOverwrite(false); setFileErrors([]);
+    const mine = ++selection.current;
+    const kind = kindOf(files);
+    if (!kind) return setFileErrors(["Choose one .json file, one .xlsx workbook, or a set of .csv files."]);
+    let result: ParseResult;
+    try {
+      if (kind === "json") result = parseJsonText(String(await readAs(files[0], "text")));
+      else if (kind === "xlsx") result = await parseXlsx((await readAs(files[0], "buffer")) as ArrayBuffer);
+      else result = parseCsvFiles(await Promise.all(files.map(async f => ({ name: f.name, text: String(await readAs(f, "text")) }))));
+    } catch {
+      if (mine === selection.current) setFileErrors(["Could not read the file."]);
+      return;
+    }
+    if (mine !== selection.current) return;
+    if (!result.ok) return setFileErrors(result.errors.map(x => `${x.where}: ${x.message}`));
+    // The serialized JSON request is what the server body limit measures, for every format.
+    if (new Blob([JSON.stringify(result.doc)]).size > SUPER_NETWORK_MAX_BYTES) return setFileErrors([SUPER_LIMIT_MESSAGE]);
+    setParsed({ doc: result.doc, kind, sources: result.sources });
   }
 
   function handleConfirm() {
-    if (!doc) return;
+    if (!parsed) return;
     if (mode === "replace" && !isEmpty && !confirmingOverwrite) return setConfirmingOverwrite(true);
     importMutation.mutate(
-      { scenarioId, data: doc, params: { mode } },
+      { scenarioId, data: parsed.doc, params: { mode } },
       {
         onSuccess: ({ scenario }) => {
           toast({ title: "Network imported", description: `Network ${mode === "replace" ? "replaced" : "merged"}.` });
@@ -84,8 +107,12 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
           <DialogTitle>Import network</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2 text-sm">
-          <input type="file" accept="application/json,.json" data-testid="super-import-file" onChange={handleFile} />
-          {fileError && <p className="text-xs text-destructive" data-testid="super-import-file-error">{fileError}</p>}
+          <input type="file" multiple accept=".json,.xlsx,.csv,application/json,text/csv" data-testid="super-import-file" onChange={handleFiles} />
+          {fileErrors.length > 0 && (
+            <ul className="text-xs text-destructive max-h-40 overflow-auto" data-testid="super-import-file-error">
+              {fileErrors.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          )}
           <fieldset className="space-y-1" onChange={() => setConfirmingOverwrite(false)}>
             <label className="flex items-center gap-2">
               <input type="radio" name="super-import-mode" checked={mode === "replace"} onChange={() => setMode("replace")} data-testid="super-import-mode-replace" />
@@ -101,15 +128,19 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
               This replaces every table in this scenario.
             </p>
           )}
-          {importMutation.isError && (
+          {importMutation.isError && parsed && parsed.kind !== "json" && issuesOf(importMutation.error).length > 0 ? (
+            <ul className="text-xs text-destructive max-h-40 overflow-auto" data-testid="super-import-issues">
+              {issuesOf(importMutation.error).map((i, k) => <li key={k}>{describeIssue(i, parsed.sources)}</li>)}
+            </ul>
+          ) : importMutation.isError && (
             <p className="text-xs text-destructive" data-testid="super-import-error">
-              {describeImportError(importMutation.error, "Import failed.")}
+              {(importMutation.error as { status?: unknown } | null)?.status === 413 ? SUPER_LIMIT_MESSAGE : describeImportError(importMutation.error, "Import failed.")}
             </p>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>Cancel</Button>
-          <Button size="sm" disabled={!doc || importMutation.isPending} onClick={handleConfirm} data-testid="super-import-confirm">
+          <Button size="sm" disabled={!parsed || importMutation.isPending} onClick={handleConfirm} data-testid="super-import-confirm">
             {importMutation.isPending ? "Importing…" : confirmingOverwrite ? "Replace everything" : "Import"}
           </Button>
         </DialogFooter>

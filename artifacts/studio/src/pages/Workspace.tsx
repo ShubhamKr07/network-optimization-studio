@@ -74,8 +74,7 @@ import { SuperDistancesTab } from "@/components/workspace/super/SuperDistancesTa
 import { isEntityTable } from "@/components/workspace/super/superTables";
 import { SuperNetworkImportDialog } from "@/components/workspace/super/SuperNetworkImportDialog";
 import { SuperReadinessPanel } from "@/components/workspace/super/SuperReadinessPanel";
-import { downloadAs } from "@/lib/clientCsv";
-import { cascadeDelete, referencingRows, superTablesEmpty, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
+import { cascadeDelete, downloadSuperFile, referencingRows, superTablesEmpty, type SuperFileFormat, type SuperInputsLike, type SuperTable } from "@/lib/superNetwork";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2775,10 +2774,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const superIsEmpty = modelId === "super-model" && superTablesEmpty(localInputs);
   // Replace overwrites the PERSISTED scenario, so the overwrite confirmation is decided from the saved inputs, never unsaved local edits.
   const superSavedIsEmpty = superTablesEmpty(currentScenario?.inputs as Record<string, unknown> | undefined);
-  async function handleSuperExport() {
+  async function handleSuperExport(format: SuperFileFormat) {
     if (!currentScenario) return;
     try {
-      downloadAs(`super-model-network-${currentScenario.id}`, "json", await exportScenarioNetwork(currentScenario.id, { format: "json" }));
+      await downloadSuperFile(`super-model-network-${currentScenario.id}`, format, await exportScenarioNetwork(currentScenario.id, { format: "json" }));
     } catch (err) {
       toast({ title: "Export failed", description: describeWriteError(err, "Could not export the network."), variant: "destructive" });
     }
@@ -4518,9 +4517,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 <Button size="sm" variant="outline" disabled={isBrowsingHistoryNow} onClick={() => setSuperImportOpen(true)} data-testid="super-header-import">
                   Import network
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleSuperExport} data-testid="super-header-export">
-                  Export network (JSON)
-                </Button>
+                <Button size="sm" variant="outline" onClick={() => handleSuperExport("json")} data-testid="super-header-export">Export JSON</Button>
+                <Button size="sm" variant="outline" onClick={() => handleSuperExport("csv")} data-testid="super-header-export-csv">Export CSV</Button>
+                <Button size="sm" variant="outline" onClick={() => handleSuperExport("xlsx")} data-testid="super-header-export-xlsx">Export XLSX</Button>
               </>
             )}
             <Button
