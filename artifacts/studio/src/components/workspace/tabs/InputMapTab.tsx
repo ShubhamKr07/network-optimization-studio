@@ -135,6 +135,10 @@ export type InputMapTabProps =
       inputs: SuperInputsLike;
       /** Refit trigger: Workspace increments it after each successful import (§6.1 fit rules). */
       fitKey: number;
+      onInputsChange: (next: SuperInputsLike) => void;
+      /** Delete is owned by Workspace's single D3 cascade confirmation. */
+      onRequestDelete: (table: "plants" | "warehouses" | "customers", id: string) => void;
+      readOnly: boolean;
     }
   | {
       mode: "pmedian";

@@ -13,8 +13,19 @@ describe("SuperTableTab", () => {
   it("editing a capacity cell calls onChange with the new number", () => {
     const onChange = vi.fn();
     render(<SuperTableTab table="plantProducts" rows={rows} onChange={onChange} readOnly={false} options={options} />);
-    fireEvent.change(screen.getByTestId("super-plantProducts-p1|k1-capacity"), { target: { value: "9" } });
+    fireEvent.change(screen.getByTestId('super-plantProducts-["p1","k1"]-capacity'), { target: { value: "9" } });
     expect(onChange).toHaveBeenCalledWith([{ ...rows[0], capacity: 9 }, rows[1]]);
+  });
+  it("composite keys are collision-free when an id contains '|'", () => {
+    const onChange = vi.fn();
+    const clash = [
+      { plantId: "a|b", productId: "c", capacity: 1, costPerUnit: 0 },
+      { plantId: "a", productId: "b|c", capacity: 2, costPerUnit: 0 },
+    ];
+    render(<SuperTableTab table="plantProducts" rows={clash} onChange={onChange} readOnly={false} options={options} />);
+    fireEvent.click(screen.getByTestId('super-plantProducts-["a|b","c"]-delete'));
+    expect(onChange).toHaveBeenCalledWith([clash[1]]);
+    expect(screen.getByTestId('super-plantProducts-["a","b|c"]-delete')).toBeInTheDocument();
   });
   it("+ Add row appends one row", () => {
     const onChange = vi.fn();
@@ -26,7 +37,7 @@ describe("SuperTableTab", () => {
   it("delete on a composite table drops exactly that row", () => {
     const onChange = vi.fn();
     render(<SuperTableTab table="plantProducts" rows={rows} onChange={onChange} readOnly={false} options={options} />);
-    fireEvent.click(screen.getByTestId("super-plantProducts-p1|k1-delete"));
+    fireEvent.click(screen.getByTestId('super-plantProducts-["p1","k1"]-delete'));
     expect(onChange).toHaveBeenCalledWith([rows[1]]);
   });
   it("entity delete is delegated to onDelete, and readOnly disables everything", () => {

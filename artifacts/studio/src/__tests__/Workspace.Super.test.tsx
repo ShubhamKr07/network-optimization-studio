@@ -147,7 +147,20 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-plantProducts"));
     expect(rowCount("plantProducts")).toBe(12);
     fireEvent.click(screen.getByTestId("sidebar-input-demand"));
-    expect(document.querySelectorAll('[data-testid^="super-row-demand-"][data-testid$="|product-1"]').length).toBe(0);
+    const demandRowIds = [...document.querySelectorAll('[data-testid^="super-row-demand-"]')].map(e => e.getAttribute("data-testid")!);
+    expect(demandRowIds.filter(t => t.endsWith(',"product-1"]'))).toHaveLength(0);
+  });
+
+  it("SM2-2: deleting a customer on the map uses the cascade confirmation with its row count, and Save shows", () => {
+    const { container } = renderWorkspace();
+    const refs = sample.demand.filter((r: { customerId: string }) => r.customerId === "customer-1").length
+      + sample.distanceOverrides.filter((r: { toId: string }) => r.toId === "customer-1").length;
+    const cs = container.querySelectorAll('[data-testid="input-map-tab"] .leaflet-marker-icon.cs-marker');
+    fireEvent.contextMenu(cs[0]);
+    fireEvent.click(screen.getByTestId("map-action-delete"));   // one click: the D3 dialog is the only confirmation
+    expect(screen.getByTestId("super-delete-count")).toHaveTextContent(`This also deletes ${refs} referencing row(s).`);
+    fireEvent.click(screen.getByTestId("super-delete-confirm-button"));
+    expect(screen.getByTestId("button-save")).not.toBeDisabled();
   });
 
   it("Optimization Parameters has no band editor, and Save sends no distanceBands", async () => {

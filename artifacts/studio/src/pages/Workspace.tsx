@@ -1266,7 +1266,7 @@ function warehouseStatusesFromInputs(
 // case) so it gets the exact same sidebar entries — T5 (Bundle 2) wired
 // every one of them to real content.
 // SM-7 — the Super Model input tabs that edit `localInputs`.
-const SUPER_INPUT_TABS = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"];
+const SUPER_INPUT_TABS = ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"];
 
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
@@ -3383,7 +3383,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (activeView.kind === "input" && activeView.entity === "input-map") {
       if (modelId === "super-model") {
         if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
-        return <InputMapTab mode="super" inputs={localInputs as SuperInputsLike} fitKey={superFitKey} />;
+        return (
+          <InputMapTab mode="super" inputs={localInputs as SuperInputsLike} fitKey={superFitKey} readOnly={isBrowsingHistoryNow}
+            onInputsChange={next => { if (!isBrowsingHistoryNow) setLocalInputs(next); }}
+            onRequestDelete={(table, id) => { if (!isBrowsingHistoryNow) setSuperDeleteTarget({ table, id }); }} />
+        );
       }
       if (modelId === "two-echelon-gold-au") {
         if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;

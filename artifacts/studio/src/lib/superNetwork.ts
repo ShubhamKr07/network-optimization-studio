@@ -45,3 +45,53 @@ export function superMapRows(inputs: SuperInputsLike): SuperMapRows {
     customers: inputs.customers.map(r => ({ ...base(r), demand: demand.get(String(r.id)) ?? 0, excluded: r.status === "excluded" })),
   };
 }
+
+export type LocKind = "pl" | "wh" | "cs";
+export const LOC_TABLE = { pl: "plants", wh: "warehouses", cs: "customers" } as const;
+const PREFIX: Record<LocKind, string> = { pl: "PL-", wh: "WH-", cs: "C-" };
+export interface LocationDraft { id: string; name: string; city?: string; state?: string; lat: number; lng: number; status?: string }
+
+const locationIds = (i: SuperInputsLike) => new Set([...i.plants, ...i.warehouses, ...i.customers].map(r => String(r.id)));
+export function nextFreeId(inputs: SuperInputsLike, kind: LocKind): string {
+  const used = locationIds(inputs);
+  for (let n = 1; ; n++) if (!used.has(`${PREFIX[kind]}${n}`)) return `${PREFIX[kind]}${n}`;
+}
+export function demandOf(inputs: SuperInputsLike, customerId: string): Record<string, number> {
+  return Object.fromEntries(inputs.demand.filter(d => d.customerId === customerId).map(d => [String(d.productId), Number(d.demand)]));
+}
+/** Blank optional text is omitted, as the import does (§7.2). */
+function clean(row: LocationDraft): Row {
+  const out: Row = { id: row.id, name: row.name };
+  if (row.city) out.city = row.city;
+  if (row.state) out.state = row.state;
+  out.lat = row.lat; out.lng = row.lng;
+  if (row.status) out.status = row.status;
+  return out;
+}
+const demandRows = (customerId: string, demand: Record<string, number>) =>
+  Object.entries(demand).filter(([, v]) => v > 0).map(([productId, v]) => ({ customerId, productId, demand: v }));
+
+export function addLocation(inputs: SuperInputsLike, kind: LocKind, row: LocationDraft, demand: Record<string, number> = {}): SuperInputsLike {
+  const t = LOC_TABLE[kind];
+  const next = { ...inputs, [t]: [...inputs[t], clean(row)] } as SuperInputsLike;
+  return kind === "cs" ? { ...next, demand: [...inputs.demand, ...demandRows(row.id, demand)] } : next;
+}
+export function editLocation(inputs: SuperInputsLike, kind: LocKind, row: LocationDraft, demand: Record<string, number> = {}): SuperInputsLike {
+  const t = LOC_TABLE[kind];
+  const next = { ...inputs, [t]: inputs[t].map(r => (r.id === row.id ? clean({ ...row, lat: Number(r.lat), lng: Number(r.lng) }) : r)) } as SuperInputsLike;
+  return kind === "cs" ? { ...next, demand: [...inputs.demand.filter(d => d.customerId !== row.id), ...demandRows(row.id, demand)] } : next;
+}
+export function moveLocation(inputs: SuperInputsLike, kind: LocKind, id: string, lat: number, lng: number): SuperInputsLike {
+  const t = LOC_TABLE[kind];
+  return { ...inputs, [t]: inputs[t].map(r => (r.id === id ? { ...r, lat, lng } : r)) } as SuperInputsLike;
+}
+export function copyLocation(inputs: SuperInputsLike, kind: LocKind, id: string): SuperInputsLike {
+  const t = LOC_TABLE[kind];
+  const src = inputs[t].find(r => r.id === id);
+  if (!src) return inputs;
+  const newId = nextFreeId(inputs, kind);
+  const next = { ...inputs, [t]: [...inputs[t], { ...src, id: newId, name: `${src.name} (copy)`, lng: Math.min(180, Number(src.lng) + 0.05) }] } as SuperInputsLike;
+  if (kind === "cs") next.demand = [...inputs.demand, ...inputs.demand.filter(d => d.customerId === id).map(d => ({ ...d, customerId: newId }))];
+  if (kind === "pl") next.plantProducts = [...inputs.plantProducts, ...inputs.plantProducts.filter(r => r.plantId === id).map(r => ({ ...r, plantId: newId }))];
+  return next;
+}

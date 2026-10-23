@@ -109,6 +109,9 @@ describe("Workspace — history read-only guards (Task 14 Step 4)", () => {
     // SM-7 — was 16. Two Super Model user edits (+2), both guarded inline by
     // `isBrowsingHistoryNow` at the call site rather than via a named mutator:
     // the Distances tab's `onChange` patch and the cascade-delete confirm.
-    ).toBe(18);
+    //
+    // SM2-2 — was 18. The Super Input Map's `onInputsChange` (+1), guarded
+    // inline by `isBrowsingHistoryNow` at the call site.
+    ).toBe(19);
   });
 });

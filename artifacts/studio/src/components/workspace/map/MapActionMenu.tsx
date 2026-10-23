@@ -20,6 +20,9 @@ export interface MapActionMenuProps {
   onCopy: () => void;
   onDelete: () => void;
   onClose: () => void;
+  /** SM2-2 — default true (today's two-step "Confirm delete?"). false: the first click calls onDelete because the
+   *  caller shows its own confirmation (Super's D3 cascade dialog states the referencing-row count). */
+  confirmDelete?: boolean;
 }
 
 interface MenuAction {
@@ -47,6 +50,7 @@ export function MapActionMenu({
   onCopy,
   onDelete,
   onClose,
+  confirmDelete = true,
 }: MapActionMenuProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -63,7 +67,7 @@ export function MapActionMenu({
           label: confirmingDelete ? "Confirm delete?" : "Delete",
           danger: true,
           run: () => {
-            if (confirmingDelete) {
+            if (!confirmDelete || confirmingDelete) {
               onDelete();
             } else {
               setConfirmingDelete(true);
