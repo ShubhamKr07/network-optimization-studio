@@ -26,6 +26,8 @@ interface MoveConfirmDialogProps {
   existingCodes: Iterable<string>;
   onConfirm: (next: { displayCode: string; city: string; state: string; lat: number; lng: number }) => void;
   onCancel: () => void;
+  /** SM2-2 — Super keeps id/city/state on a move (spec §6.1): hide the regenerated code and nearest city. */
+  preserveIdentity?: boolean;
 }
 
 // T7 (Input Map v2) — confirms a drag/relocate of an ADDED entity (base
@@ -45,6 +47,7 @@ export function MoveConfirmDialog({
   existingCodes,
   onConfirm,
   onCancel,
+  preserveIdentity = false,
 }: MoveConfirmDialogProps) {
   const nearest = useMemo(() => nearestCity(newLat, newLng), [newLat, newLng]);
 
@@ -70,23 +73,29 @@ export function MoveConfirmDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2 text-sm">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <span className="text-xs text-muted-foreground">Current code</span>
-              <p data-testid="move-confirm-old-code">{entity.displayCode ?? "—"}</p>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground">New code</span>
-              <p data-testid="move-confirm-new-code">{displayCode}</p>
-            </div>
-          </div>
+          {preserveIdentity ? (
+            <p data-testid="move-confirm-identity-note">ID, city and state stay unchanged; only the coordinates move.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-xs text-muted-foreground">Current code</span>
+                  <p data-testid="move-confirm-old-code">{entity.displayCode ?? "—"}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">New code</span>
+                  <p data-testid="move-confirm-new-code">{displayCode}</p>
+                </div>
+              </div>
 
-          <div>
-            <span className="text-xs text-muted-foreground">New location</span>
-            <p data-testid="move-confirm-location">
-              {nearest.city}, {nearest.state}
-            </p>
-          </div>
+              <div>
+                <span className="text-xs text-muted-foreground">New location</span>
+                <p data-testid="move-confirm-location">
+                  {nearest.city}, {nearest.state}
+                </p>
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

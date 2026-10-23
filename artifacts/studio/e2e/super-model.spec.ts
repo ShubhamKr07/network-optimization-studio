@@ -14,11 +14,16 @@
  * Test C: delete a product -> confirmation states the referencing-row count ->
  *   confirm -> save -> reload -> the deletion (and its cascade) persisted.
  *
+ * Tests D-F (SM2-11): CSV set / XLSX workbook import -> Input Map pins -> edit on the
+ *   map -> Save -> persisted; CSV error mapping. Test G: the Road method's privacy
+ *   notice (no real ORS fetch - the 503 road_distances_unavailable path only).
+ *
  * Target: E2E_BASE_URL (NEVER run without it — see e2e/CLAUDE.md).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { unzipSync } from "fflate";
 import { test, expect, type Page } from "./fixtures";
 import { readSolvedAt } from "./helpers/solvedAt";
 
@@ -61,7 +66,67 @@ async function importSampleViaUi(page: Page): Promise<void> {
   await page.getByTestId("super-import-confirm").click({ timeout: HEADER_TIMEOUT });
   // Empty scenario: Replace needs no overwrite confirmation, and the empty state goes away.
   await expect(page.getByTestId("super-empty-state")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
+  // SM2-1 (§6.1): a successful import switches to the Input Map.
+  await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
 }
+
+const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** Opens the import dialog (Replace) and feeds it the given in-memory files, then confirms. */
+async function importBuffersViaUi(page: Page, files: { name: string; mimeType: string; buffer: Buffer }[]): Promise<void> {
+  await page.getByTestId("super-open-import").click({ timeout: HEADER_TIMEOUT });
+  await page.getByTestId("super-import-mode-replace").click({ timeout: HEADER_TIMEOUT });
+  await page.setInputFiles("[data-testid=super-import-file]", files);
+  await expect(page.getByTestId("super-import-confirm")).toBeEnabled({ timeout: HEADER_TIMEOUT });
+  await page.getByTestId("super-import-confirm").click({ timeout: HEADER_TIMEOUT });
+  await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
+}
+
+/** Clicks a download button and returns the downloaded bytes. */
+async function downloadBytes(page: Page, testId: string): Promise<Buffer> {
+  const wait = page.waitForEvent("download", { timeout: HEADER_TIMEOUT });
+  await page.getByTestId(testId).click({ timeout: HEADER_TIMEOUT });
+  const dl = await wait;
+  return fs.readFileSync(await dl.path());
+}
+
+async function expectPins(page: Page): Promise<void> {
+  const map = page.getByTestId("input-map-tab");
+  await expect(map.locator(".leaflet-marker-icon.pl-marker")).toHaveCount(sample.plants.length, { timeout: HEADER_TIMEOUT });
+  await expect(map.locator(".leaflet-marker-icon.wh-marker")).toHaveCount(sample.warehouses.length, { timeout: HEADER_TIMEOUT });
+  await expect(map.locator(".leaflet-marker-icon.cs-marker")).toHaveCount(sample.customers.length, { timeout: HEADER_TIMEOUT });
+}
+
+/**
+ * Right-clicks a pin the way a user must: a real pointer right-click on a pin that is
+ * actually on top at its centre. Warehouses/plants carry zIndexOffset 1000, so a customer
+ * coincident with a warehouse is only reachable after zooming; this picks the first pin of
+ * the kind that is already topmost, and zooms in over the first one if none is.
+ * Returns the index (within the selector's matches) of the pin it clicked.
+ */
+async function rightClickPin(page: Page, selector: string): Promise<number> {
+  const pins = page.locator(`[data-testid="input-map-tab"] .leaflet-marker-icon${selector}`);
+  const topmost = () => pins.evaluateAll(els => els.findIndex(el => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!hit && el.contains(hit);
+  }));
+  let idx = await topmost();
+  if (idx < 0) {
+    const box = (await pins.first().boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -400); await page.waitForTimeout(150); }
+    idx = Math.max(await topmost(), 0);
+  }
+  await pins.nth(idx).click({ button: "right", timeout: HEADER_TIMEOUT });
+  return idx;
+}
+
+async function serverInputs(page: Page, id: string): Promise<any> {
+  return (await (await page.request.get(`/api/scenarios/${id}`)).json()).inputs;
+}
+
+const TABLES = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distanceOverrides"] as const;
 
 test.describe("Super Model", () => {
   test("A: home -> Super Model card -> create -> empty state -> import sample (replace) -> 100 customers, ready", async ({ page }) => {
@@ -78,8 +143,12 @@ test.describe("Super Model", () => {
     try {
       await expect(page.getByTestId("super-download-sample")).toHaveAttribute("href", /super-model-sample\.json$/);
       await expect(page.getByTestId("super-download-template")).toHaveAttribute("href", /super-model-template\.json$/);
+      await expect(page.getByTestId("super-download-sample-csv")).toBeVisible();
+      await expect(page.getByTestId("super-download-sample-xlsx")).toBeVisible();
 
       await importSampleViaUi(page);
+      // SM2-1: the header export is now labelled "Export JSON" (testid unchanged).
+      await expect(page.getByTestId("super-header-export")).toHaveText("Export JSON");
 
       await page.getByTestId("sidebar-input-customers").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-tab-customers")).toBeVisible({ timeout: HEADER_TIMEOUT });
@@ -163,6 +232,8 @@ test.describe("Super Model", () => {
 
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // SM2-1: a non-empty scenario opens on the Input Map.
+      await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-products").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-row-products-product-2")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-row-products-product-1")).toHaveCount(0);
@@ -171,6 +242,123 @@ test.describe("Super Model", () => {
       expect(persisted.products.map((p: { id: string }) => p.id)).not.toContain("product-1");
       expect(persisted.plantProducts.some((r: { productId: string }) => r.productId === "product-1")).toBe(false);
       expect(persisted.demand.some((r: { productId: string }) => r.productId === "product-1")).toBe(false);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+  test("D: CSV set (zip from the sample button) -> Input Map pins -> edit a plant on the map -> save -> persisted", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    await page.goto("/super-model");
+    await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const id = await createScenarioViaUi(page);
+    try {
+      const files = unzipSync(await downloadBytes(page, "super-download-sample-csv"));
+      expect(Object.keys(files)).toHaveLength(8);
+      await importBuffersViaUi(page, Object.entries(files).map(([name, u]) => ({ name, mimeType: "text/csv", buffer: Buffer.from(u) })));
+      await expectPins(page);
+
+      const saved = await serverInputs(page, id);
+      for (const t of TABLES) expect(saved[t], t).toMatchObject(sample[t]);
+
+      const plIdx = await rightClickPin(page, ".pl-marker");
+      await page.getByTestId("map-action-edit").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("super-entity-id")).toHaveValue(sample.plants[plIdx].id, { timeout: HEADER_TIMEOUT });
+      await page.getByTestId("super-entity-name").fill("Edited on map");
+      await page.getByTestId("super-entity-submit").click({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
+      await expect
+        .poll(async () => (await serverInputs(page, id)).plants[plIdx].name, { timeout: HEADER_TIMEOUT })
+        .toBe("Edited on map");
+
+      await page.reload();
+      await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("sidebar-input-plants").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId(`super-plants-${sample.plants[plIdx].id}-name`)).toHaveValue("Edited on map", { timeout: HEADER_TIMEOUT });
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
+  test("E: XLSX workbook -> Input Map pins -> copy a customer on the map -> save -> 101 customers", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    await page.goto("/super-model");
+    await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const id = await createScenarioViaUi(page);
+    try {
+      const buffer = await downloadBytes(page, "super-download-sample-xlsx");
+      await importBuffersViaUi(page, [{ name: "super-model-sample.xlsx", mimeType: MIME_XLSX, buffer }]);
+      await expectPins(page);
+
+      const saved = await serverInputs(page, id);
+      for (const t of TABLES) expect(saved[t], t).toMatchObject(sample[t]);
+
+      const csIdx = await rightClickPin(page, ".cs-marker");
+      await page.getByTestId("map-action-copy").click({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
+      await expect
+        .poll(async () => (await serverInputs(page, id)).customers.length, { timeout: HEADER_TIMEOUT })
+        .toBe(sample.customers.length + 1);
+      const customers = (await serverInputs(page, id)).customers as { id: string; name: string }[];
+      expect(customers.map(c => c.name)).toContain(`${sample.customers[csIdx].name} (copy)`);
+      expect(new Set(customers.map(c => c.id)).size).toBe(sample.customers.length + 1);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
+  test("F: a malformed CSV maps to file, row and column and posts nothing", async ({ page }) => {
+    test.setTimeout(90_000);
+    await registerAndGoHome(page);
+    await page.goto("/super-model");
+    await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const id = await createScenarioViaUi(page);
+    try {
+      const before = await serverInputs(page, id);
+      const imports: string[] = [];
+      page.on("request", r => { if (r.method() === "POST" && /\/network\/import/.test(r.url())) imports.push(r.url()); });
+      await page.getByTestId("super-open-import").click({ timeout: HEADER_TIMEOUT });
+      await page.setInputFiles("[data-testid=super-import-file]", [
+        { name: "plants.csv", mimeType: "text/csv", buffer: Buffer.from("id,name,lat,lng\nA,P,north,2\n") },
+      ]);
+      await expect(page.getByTestId("super-import-file-error")).toContainText("plants.csv row 2 column lat: is not a number", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("super-import-confirm")).toBeDisabled();
+      expect(imports, "no POST .../network/import may fire for an unparseable file").toEqual([]);
+      expect(await serverInputs(page, id)).toEqual(before);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
+  // Assumes ORS_API_KEY is UNSET in the api-server's environment (routes/superNetwork.ts:84-86 returns 503
+  // road_distances_unavailable only then); with a key set, the confirm click would start a real ORS fetch.
+  test("G: the Road method shows the privacy notice; with no ORS key the fetch surfaces road_distances_unavailable", async ({ page }) => {
+    test.setTimeout(90_000);
+    await registerAndGoHome(page);
+    await page.goto("/super-model");
+    await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const id = await createScenarioViaUi(page);
+    try {
+      await importSampleViaUi(page);
+      await page.getByTestId("sidebar-input-distances").click({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("super-distance-method").selectOption("road", { timeout: HEADER_TIMEOUT });
+      // Fetch is disabled until the method is saved ("Save your changes first").
+      await expect(page.getByTestId("super-road-fetch")).toBeDisabled();
+      await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
+      await expect
+        .poll(async () => (await serverInputs(page, id)).distanceMethod, { timeout: HEADER_TIMEOUT })
+        .toBe("road");
+      await expect(page.getByTestId("super-road-fetch")).toBeEnabled({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("super-road-fetch").click({ timeout: HEADER_TIMEOUT });
+
+      await expect(page.getByTestId("super-road-dialog")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("super-road-privacy")).toContainText("OpenRouteService");
+      await expect(page.getByTestId("super-road-privacy")).toContainText("Names and demand are not sent");
+      // No ORS key locally: the server answers 503 road_distances_unavailable and the dialog shows its sentence.
+      await page.getByTestId("super-road-confirm").click({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("super-road-error")).toContainText("no OpenRouteService key is configured", { timeout: HEADER_TIMEOUT });
+      expect((await serverInputs(page, id)).roadDistances ?? null).toBeNull();
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }

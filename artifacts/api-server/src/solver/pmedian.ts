@@ -5,6 +5,7 @@ import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import type { DeliveryInputs } from "../validation/inputs/delivery.js";
 import type { SuperInputs } from "../validation/inputs/superInputs.js";
+import { validRoadPairs } from "../services/superRoad.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
@@ -215,7 +216,9 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
   }
 
   if (input.modelId === "super-model") {
-    return { modelType: "super_model", ...input.inputs };
+    // spec §8: Python receives only valid road pairs and never the cache itself (D8 validity stays server-side).
+    const { roadDistances: _cache, ...inputs } = input.inputs;
+    return { modelType: "super_model", ...inputs, roadPairs: inputs.distanceMethod === "road" ? validRoadPairs(input.inputs) : [] };
   }
 
   const i = input.inputs;

@@ -55,10 +55,11 @@ const HEADERS: Record<string, string> = {
 export const ENTITY_TABLES = ["products", "plants", "warehouses", "customers"] as const;
 export const isEntityTable = (t: SuperTable): t is (typeof ENTITY_TABLES)[number] => (ENTITY_TABLES as readonly string[]).includes(t);
 
+/** Collision-free composite key (matches the server's JSON.stringify keys, SM2-3). */
 export function superRowKey(table: SuperTable, r: Row): string {
-  if (table === "plantProducts") return `${r.plantId}|${r.productId}`;
-  if (table === "demand") return `${r.customerId}|${r.productId}`;
-  if (table === "distanceOverrides") return `${r.fromId}|${r.toId}`;
+  if (table === "plantProducts") return JSON.stringify([r.plantId, r.productId]);
+  if (table === "demand") return JSON.stringify([r.customerId, r.productId]);
+  if (table === "distanceOverrides") return JSON.stringify([r.fromId, r.toId]);
   return String(r.id ?? "");
 }
 

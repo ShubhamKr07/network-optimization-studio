@@ -87,7 +87,7 @@ describe("super-model network import/export", () => {
     expect((await request(app).post(`/api/scenarios/${id}/network/import?mode=replace`).set("Cookie", cookie)
       .set("Content-Type", "application/json").send("{nope")).status).toBe(400);
     const big = await request(app).post(`/api/scenarios/${id}/network/import?mode=replace`).set("Cookie", cookie)
-      .set("Content-Type", "application/json").send(JSON.stringify({ products: [], pad: "x".repeat(3 * 1024 * 1024) }));
+      .set("Content-Type", "application/json").send(JSON.stringify({ products: [], pad: "x".repeat(4 * 1024 * 1024 + 10) }));
     expect(big.status).toBe(413);
   });
   it("unauthenticated -> 401", async () => {
@@ -120,6 +120,88 @@ describe("super-model network import/export", () => {
     expect(res.body.scenario.inputs).toEqual((await get(id)).inputs);
     expect((await request(app).get(`/api/scenarios/${id}/network/export`).set("Cookie", cookie)).status).toBe(400);
   });
+  it("SM2-3: a doc-schema failure carries document-row issues", async () => {
+    const id = await createEmptySuper();
+    const res = await imp(id, "replace", { customers: [{ id: "c", name: "c", lat: 1, lng: 1 }, { id: "d", name: "d", lat: 999, lng: 1 }] });
+    expect(res.status).toBe(422);
+    expect(typeof res.body.error).toBe("string");
+    expect(res.body.issues).toContainEqual(expect.objectContaining({ path: ["customers", 1, "lat"] }));
+  });
+  it("SM2-3: replace whole-network issues index the imported rows", async () => {
+    const id = await createEmptySuper();
+    const res = await imp(id, "replace", { ...sample, demand: [sample.demand[0], { customerId: "ghost", productId: "product-1", demand: 1 }] });
+    expect(res.status).toBe(422);
+    expect(res.body.issues).toContainEqual({ path: ["demand", 1, "customerId"], message: 'Unknown customer "ghost"' });
+  });
+  it("SM2-3: merge issues are translated from merged rows to imported rows", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const res = await imp(id, "merge", { demand: [{ customerId: "customer-1", productId: "nope", demand: 1 }] });
+    expect(res.status).toBe(422);
+    // merged index is sample.demand.length (400); the document index is 0
+    expect(res.body.issues).toContainEqual({ path: ["demand", 0, "productId"], message: 'Unknown product "nope"' });
+    expect(res.body.issues.some((i: { path: unknown[] }) => i.path[1] === sample.demand.length)).toBe(false);
+  });
+  it("SM2-3: the 422 error text names document rows, like issues", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const res = await imp(id, "merge", { demand: [{ customerId: "customer-1", productId: "nope", demand: 1 }] });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("demand row 1:");
+    expect(res.body.error).not.toContain(`row ${sample.demand.length + 1}`);
+  });
+  it("SM2-3 (P3): a replaced row keeps its merged index; a new row's issue still maps to ITS document row", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const replaced = { ...sample.demand.find((d: { customerId: string; productId: string }) => d.customerId === "customer-2" && d.productId === "product-1"), demand: 5 };
+    const res = await imp(id, "merge", { demand: [replaced, { customerId: "customer-1", productId: "nope", demand: 1 }] });
+    expect(res.status).toBe(422);
+    expect(res.body.issues).toContainEqual({ path: ["demand", 1, "productId"], message: 'Unknown product "nope"' });
+  });
+  it("SM2-3 (P3): an issue on a kept existing row is table-level, and mixed tables each map", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const res = await imp(id, "merge", {
+      plants: [{ id: "customer-1", name: "clash", lat: 1, lng: 1 }],                 // collides with an EXISTING customer id
+      demand: [{ customerId: "customer-3", productId: "nope", demand: 1 }],
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.issues).toContainEqual({ path: ["customers"], message: 'Existing customers row 1: Duplicate location id "customer-1"' });
+    expect(res.body.issues).toContainEqual({ path: ["demand", 0, "productId"], message: 'Unknown product "nope"' });
+  });
+  it.each([
+    ["products", { products: [{ id: "k", name: "a" }, { id: "k", name: "b" }] }, ["products", 1, "id"]],
+    ["plants vs customers", { plants: [{ id: "x", name: "p", lat: 1, lng: 1 }], customers: [{ id: "x", name: "c", lat: 1, lng: 1 }] }, ["customers", 0, "id"]],
+    ["plantProducts", { plantProducts: [{ plantId: "plant-1", productId: "product-1", capacity: 1, costPerUnit: 0 }, { plantId: "plant-1", productId: "product-1", capacity: 2, costPerUnit: 0 }] }, ["plantProducts", 1]],
+    ["demand", { demand: [{ customerId: "customer-1", productId: "product-1", demand: 1 }, { customerId: "customer-1", productId: "product-1", demand: 2 }] }, ["demand", 1]],
+    ["distanceOverrides", { distanceOverrides: [{ fromId: "wh-1", toId: "customer-1", miles: 1 }, { fromId: "wh-1", toId: "customer-1", miles: 2 }] }, ["distanceOverrides", 1]],
+  ])("SM2-3 (R4): merge rejects a duplicate %s key inside the document, writes nothing", async (_t, doc, path) => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const before = (await get(id)).inputs;
+    const res = await imp(id, "merge", doc);
+    expect(res.status).toBe(422);
+    expect(res.body.issues.map((i: { path: unknown[] }) => i.path)).toContainEqual(path);
+    expect((await get(id)).inputs).toEqual(before);
+  });
+  it("SM2-3 (P1): ids containing the old '|' delimiter neither collide nor merge into each other", async () => {
+    const id = await createEmptySuper();
+    const doc = {
+      products: [{ id: "b|c", name: "x" }, { id: "c", name: "y" }],
+      plants: [{ id: "a", name: "a", lat: 1, lng: 1 }, { id: "a|b", name: "ab", lat: 2, lng: 2 }],
+      warehouses: [{ id: "w|x", name: "w", lat: 3, lng: 3, status: "active" }, { id: "w", name: "w2", lat: 4, lng: 4, status: "active" }],
+      customers: [{ id: "x|y", name: "c", lat: 5, lng: 5, status: "active" }, { id: "y", name: "c2", lat: 6, lng: 6, status: "active" }],
+      // "a"+"b|c" and "a|b"+"c" were the same string under `${a}|${b}`
+      plantProducts: [{ plantId: "a", productId: "b|c", capacity: 1, costPerUnit: 0 }, { plantId: "a|b", productId: "c", capacity: 2, costPerUnit: 0 }],
+      demand: [{ customerId: "x|y", productId: "c", demand: 1 }, { customerId: "y", productId: "b|c", demand: 2 }],
+      distanceOverrides: [{ fromId: "w", toId: "x|y", miles: 1 }, { fromId: "w|x", toId: "y", miles: 2 }],
+    };
+    const res = await imp(id, "replace", doc);
+    expect(res.status).toBe(200);                                       // superRefine no longer reports false duplicates
+    const merged = await imp(id, "merge", { plantProducts: [{ plantId: "a", productId: "b|c", capacity: 9, costPerUnit: 0 }] }).expect(200);
+    expect(merged.body.scenario.inputs.plantProducts).toEqual([
+      { plantId: "a", productId: "b|c", capacity: 9, costPerUnit: 0 }, { plantId: "a|b", productId: "c", capacity: 2, costPerUnit: 0 }]);
+  });
 });
 
 describe("SM-12 body limits", () => {
@@ -132,11 +214,24 @@ describe("SM-12 body limits", () => {
     expect(res.status).toBe(200);
     expect((await get(id)).inputs.customers).toHaveLength(sample.customers.length);
   });
-  it("PATCH over 2 MiB is 413 payload_too_large", async () => {
-    const id = await createEmptySuper();
+  it("a non-super PATCH just over 2 MiB is 413 payload_too_large", async () => {
+    const id = await createJade();
     const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ name: "x".repeat(2 * 1024 * 1024 + 10) });
     expect(res.status).toBe(413);
     expect(res.body).toEqual({ error: "payload_too_large" });
+  });
+  it("SM2-3: a super PATCH between 2 and 4 MiB passes the body parser; over 4 MiB is 413", async () => {
+    const id = await createEmptySuper();
+    const mid = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ name: "x".repeat(3 * 1024 * 1024) });
+    expect(mid.status).not.toBe(413);                                   // name length is rejected (or not) by the route, not the parser
+    const big = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ name: "x".repeat(4 * 1024 * 1024 + 10) });
+    expect(big.status).toBe(413);
+    expect(big.body).toEqual({ error: "payload_too_large" });
+  });
+  it("SM2-3: a super network import between 2 and 4 MiB is not 413", async () => {
+    const id = await createEmptySuper();
+    const res = await imp(id, "replace", { pad: "x".repeat(3 * 1024 * 1024) });
+    expect(res.status).toBe(422);                                       // unknown key "pad", after the parser accepted 3 MiB
   });
   it("a >100 KiB body to a non-scenario route is 413, not 500", async () => {
     const res = await request(app).post("/api/auth/login").send({ email: "a@b.test", password: "x".repeat(110_000) });

@@ -90,6 +90,9 @@ vi.mock("@workspace/api-client-react", () => ({
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  useFetchScenarioRoadDistances: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false })),
+  RoadDistancesErrorCode: { road_distances_unavailable: "road_distances_unavailable", road_distances_quota: "road_distances_quota",
+    road_distances_failed: "road_distances_failed", road_distances_unroutable: "road_distances_unroutable", road_distances_busy: "road_distances_busy" },
   useImportScenarioNetwork: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false })),
   exportScenarioNetwork: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
@@ -122,9 +125,9 @@ beforeEach(() => {
 const rowCount = (table: string) => document.querySelectorAll(`[data-testid^="super-row-${table}-"]`).length;
 
 describe("Workspace — super-model input tabs (SM-7)", () => {
-  it("renders the nine sidebar input entries", () => {
+  it("renders the ten sidebar input entries", () => {
     renderWorkspace();
-    for (const id of ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
+    for (const id of ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
       expect(screen.getByTestId(`sidebar-input-${id}`)).toBeInTheDocument();
     }
   });
@@ -147,7 +150,20 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     fireEvent.click(screen.getByTestId("sidebar-input-plantProducts"));
     expect(rowCount("plantProducts")).toBe(12);
     fireEvent.click(screen.getByTestId("sidebar-input-demand"));
-    expect(document.querySelectorAll('[data-testid^="super-row-demand-"][data-testid$="|product-1"]').length).toBe(0);
+    const demandRowIds = [...document.querySelectorAll('[data-testid^="super-row-demand-"]')].map(e => e.getAttribute("data-testid")!);
+    expect(demandRowIds.filter(t => t.endsWith(',"product-1"]'))).toHaveLength(0);
+  });
+
+  it("SM2-2: deleting a customer on the map uses the cascade confirmation with its row count, and Save shows", () => {
+    const { container } = renderWorkspace();
+    const refs = sample.demand.filter((r: { customerId: string }) => r.customerId === "customer-1").length
+      + sample.distanceOverrides.filter((r: { toId: string }) => r.toId === "customer-1").length;
+    const cs = container.querySelectorAll('[data-testid="input-map-tab"] .leaflet-marker-icon.cs-marker');
+    fireEvent.contextMenu(cs[0]);
+    fireEvent.click(screen.getByTestId("map-action-delete"));   // one click: the D3 dialog is the only confirmation
+    expect(screen.getByTestId("super-delete-count")).toHaveTextContent(`This also deletes ${refs} referencing row(s).`);
+    fireEvent.click(screen.getByTestId("super-delete-confirm-button"));
+    expect(screen.getByTestId("button-save")).not.toBeDisabled();
   });
 
   it("Optimization Parameters has no band editor, and Save sends no distanceBands", async () => {
@@ -163,6 +179,58 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.data.inputs).not.toHaveProperty("distanceBands");
     expect(args.data.inputs.products[0].name).toBe("Renamed");
+  });
+
+  it("SM2-10: Save never sends roadDistances (server-written; at the caps it would exceed the body limit)", async () => {
+    const withRoad = { ...scenario, inputs: { ...sample, distanceMethod: "road", roadDistances: { fetchedAt: "2026-10-23T00:00:00.000Z", profile: "driving-hgv", coords: {}, pairs: [] } } };
+    mockUseGetScenario.mockReturnValue({ data: withRoad } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [withRoad] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "Renamed" } });
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs).not.toHaveProperty("roadDistances");
+    expect(args.data.inputs.distanceMethod).toBe("road");
+  });
+
+  it("SM2-10: method road shows the fetch action; it is disabled while unsaved", () => {
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "X" } });
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).toBeDisabled();
+  });
+
+  it("SM2-10: the fetch action is unavailable while browsing an older result (history view)", () => {
+    const base = JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8"));
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" }, result: { ...base } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { rerender } = renderWorkspace();
+    const next = { ...road, result: { ...base } };   // new result reference: history appends
+    mockUseGetScenario.mockReturnValue({ data: next } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [next] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    rerender(<Workspace modelId="super-model" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("super-road-fetch")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("super-road-fetch")).toBeDisabled();
+  });
+
+  it("SM2-10: opening the fetch action shows the privacy notice", () => {
+    const road = { ...scenario, inputs: { ...sample, distanceMethod: "road" } };
+    mockUseGetScenario.mockReturnValue({ data: road } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [road] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("super-road-fetch"));
+    expect(screen.getByTestId("super-road-privacy")).toHaveTextContent("OpenRouteService");
   });
 
   it("SM-8: solved scenario opens the output map and a city-labelled open-warehouses grid built from inputs", () => {
@@ -193,6 +261,8 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     renderWorkspace();
     expect(screen.getByTestId("super-header-import")).toBeInTheDocument();
     expect(screen.getByTestId("super-header-export")).toBeInTheDocument();
+    expect(screen.getByTestId("super-header-export-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("super-header-export-xlsx")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
   });
@@ -213,6 +283,36 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
     renderWorkspace();
     expect(screen.getByTestId("super-open-import")).toBeInTheDocument();
+  });
+
+  it("SM2-1: a non-empty scenario opens on the Input Map", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument();
+  });
+  it("SM2-1: an empty scenario's Input Map shows the map, not the import prompt", () => {
+    const empty = { ...scenario, inputs: { ...sample, products: [], plants: [], warehouses: [], customers: [], plantProducts: [], demand: [], distanceOverrides: [] } };
+    mockUseGetScenario.mockReturnValue({ data: empty } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [empty] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("super-open-import")).toBeInTheDocument(); // SM-13 unchanged
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("super-empty-state")).not.toBeInTheDocument();
+  });
+  it("SM2-1: a successful import switches to the Input Map", async () => {
+    const { useImportScenarioNetwork } = await import("@workspace/api-client-react");
+    vi.mocked(useImportScenarioNetwork).mockReturnValue({
+      mutate: (_v: unknown, o: { onSuccess: (r: { scenario: typeof scenario }) => void }) => o.onSuccess({ scenario }),
+      reset: vi.fn(), isPending: false, isError: false,
+    } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-import-mode-merge"));
+    fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
+    await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("super-import-confirm"));
+    await waitFor(() => expect(screen.getByTestId("super-map-toolbar")).toBeInTheDocument());
   });
 
   it("SM-9: Replace still needs the overwrite confirmation when every row was deleted locally but not saved", async () => {

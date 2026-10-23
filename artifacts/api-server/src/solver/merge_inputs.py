@@ -1078,7 +1078,8 @@ def haversine_mi(lat1, lng1, lat2, lng2):
 
 def build_super_dataset(inputs):
     """super-model: the whole network lives in inputs. Overrides win; otherwise
-    haversine miles, x circuityFactor when distanceMethod == "circuity"."""
+    road pairs passed by the API (already validated by validRoadPairs); otherwise haversine
+    miles, x circuityFactor when distanceMethod == "circuity"."""
     plants = {r["id"]: r for r in inputs.get("plants", [])}
     warehouses = {r["id"]: r for r in inputs.get("warehouses", [])}
     customers = {r["id"]: r for r in inputs.get("customers", []) if r.get("status") != "excluded"}
@@ -1090,11 +1091,16 @@ def build_super_dataset(inputs):
     capability = {(r["plantId"], r["productId"]): float(r["capacity"]) for r in inputs.get("plantProducts", [])}
     plant_cost = {(r["plantId"], r["productId"]): float(r["costPerUnit"]) for r in inputs.get("plantProducts", [])}
     overrides = {(r["fromId"], r["toId"]): float(r["miles"]) for r in inputs.get("distanceOverrides", [])}
+    # spec §8 step 2: road pairs arrive already validated by the API (validRoadPairs); none -> {}.
+    road = {(r["fromId"], r["toId"]): float(r["miles"]) for r in inputs.get("roadPairs", [])}
     factor = float(inputs.get("circuityFactor", 1.0)) if inputs.get("distanceMethod") == "circuity" else 1.0
 
     def resolve(a, b):
-        if (a["id"], b["id"]) in overrides:
-            return overrides[(a["id"], b["id"])]
+        pair = (a["id"], b["id"])
+        if pair in overrides:
+            return overrides[pair]
+        if pair in road:
+            return road[pair]
         return haversine_mi(a["lat"], a["lng"], b["lat"], b["lng"]) * factor
 
     dist = {}

@@ -65,6 +65,7 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   customers: "Customers",
   plantProducts: "Plant capability",
   demand: "Demand",
+  roadDistances: "Road distances",
 };
 
 /**
@@ -139,4 +140,10 @@ function sentenceFor(issue: z.ZodIssue): string {
 export function formatInputIssues(issues: z.ZodIssue[]): string {
   if (issues.length === 0) return "The values could not be saved.";
   return issues.map(sentenceFor).join(" ");
+}
+
+/** The same issues as data, for callers that must point at a file/row/column (network import, spec §7.1). */
+export interface InputIssue { path: (string | number)[]; message: string }
+export function toInputIssues(issues: z.ZodIssue[]): InputIssue[] {
+  return issues.map(i => ({ path: [...i.path] as (string | number)[], message: i.message }));
 }

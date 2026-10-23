@@ -61,6 +61,11 @@ services:
         value: https://us.i.posthog.com
       - key: SENTRY_DSN
         sync: false
+      # SM2-6 — OpenRouteService key for POST /scenarios/:id/network/road-distances
+      # (spec §8). Secret: Dashboard-managed, never in this file. Unset => the
+      # route returns 503 road_distances_unavailable. Adding it is a deploy-checklist item.
+      - key: ORS_API_KEY
+        sync: false
 
   - type: web
     name: nos-studio

@@ -1,12 +1,24 @@
+import type { InputIssue } from "../validation/formatInputIssues.js";
 import { and, eq, sql } from "drizzle-orm";
 import { scenariosTable } from "@workspace/db";
 import { resolveMaxCoverageRun } from "@workspace/units";
 import { validateInputsForModel } from "../validation/inputs/index.js";
+import type { RoadDistances } from "../validation/inputs/superInputs.js";
 import { normalizeAddedEntityDistances } from "./autoDistance.js";
 
 export type ScenarioRow = typeof scenariosTable.$inferSelect;
 
 export const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
+export const SUPER_MODEL_ID = "super-model";
+
+/** Keys only the server writes (spec §8). A client copy is dropped on EVERY write path — create, PATCH, import
+ *  (api-server CLAUDE.md: a server-derived field needs its rule at every write site). Clone copies a server row and keeps it. */
+export function dropClientOwnedInputs(modelId: string, inputs: Record<string, unknown>): Record<string, unknown> {
+  if (modelId !== SUPER_MODEL_ID || !("roadDistances" in inputs)) return inputs;
+  const { roadDistances: _clientCopy, ...rest } = inputs;
+  return rest;
+}
+export type RoadDistancesWrite = "keep" | "clear" | { set: RoadDistances };
 
 // The create/clone half of the write contract. `applyScenarioInputWrite`
 // below is the UPDATE half; both apply the same rule.
@@ -35,12 +47,14 @@ export function deriveServerOwnedInputs(
 export type ApplyInputWriteOutcome =
   | { kind: "ok"; row: ScenarioRow }
   | { kind: "not_found" }
-  | { kind: "invalid"; error: string };
+  | { kind: "invalid"; error: string; issues: InputIssue[] };
 
 export interface ApplyScenarioInputWriteParams {
   scenarioId: number;
   userId: string;
   nextInputs: Record<string, unknown>;
+  /** super-model only; default "keep" (carry the persisted value). */
+  roadDistances?: RoadDistancesWrite;
 }
 
 /**
@@ -82,15 +96,18 @@ export async function applyScenarioInputWrite(
     .for("update");
   if (!persisted) return { kind: "not_found" };
 
-  const validation = validateInputsForModel(persisted.modelId, params.nextInputs);
-  if (!validation.success) return { kind: "invalid", error: validation.error };
+  const persistedInputs = (persisted.inputs ?? {}) as Record<string, unknown>;
+  const road = params.roadDistances ?? "keep";
+  const carried = persisted.modelId !== SUPER_MODEL_ID || road === "clear" ? undefined
+    : road === "keep" ? persistedInputs.roadDistances : road.set;
+  const candidate = dropClientOwnedInputs(persisted.modelId, params.nextInputs);
+  const validation = validateInputsForModel(persisted.modelId, carried === undefined ? candidate : { ...candidate, roadDistances: carried });
+  if (!validation.success) return { kind: "invalid", error: validation.error, issues: validation.issues };
 
   const normalized = normalizeAddedEntityDistances(
     persisted.modelId,
     validation.data,
   ) as Record<string, unknown>;
-
-  const persistedInputs = (persisted.inputs ?? {}) as Record<string, unknown>;
 
   // CH4OS — normalise the VALIDATED candidate (validate -> derive -> persist).
   // At a zero floor the client's `objective` (or its absence) is kept as sent.

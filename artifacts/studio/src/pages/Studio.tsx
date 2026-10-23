@@ -29,6 +29,7 @@ import { StationTable, type StationOverride } from "@/components/tables/StationT
 import { ImportDialog } from "@/components/ImportDialog";
 import { ConstraintChips } from "@/components/ConstraintChips";
 import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 import type { StudioModelType } from "@/lib/chapters";
 import { chapterForModelId } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
@@ -657,6 +658,7 @@ export function Studio({ modelId }: StudioProps) {
           // cache write above already covers the immediate render.
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: (err) => toast({ title: "Couldn't clone the scenario", description: describeWriteError(err, "Please try again."), variant: "destructive" }),
       }
     );
   };
@@ -684,6 +686,7 @@ export function Studio({ modelId }: StudioProps) {
           // Background consistency refresh — non-blocking.
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: (err) => toast({ title: "Couldn't delete the scenario", description: describeWriteError(err, "Please try again."), variant: "destructive" }),
       }
     );
   };
@@ -719,6 +722,7 @@ export function Studio({ modelId }: StudioProps) {
           // cache write above already covers the immediate render.
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
+        onError: (err) => toast({ title: "Couldn't create the scenario", description: describeWriteError(err, "Please try again."), variant: "destructive" }),
       }
     );
   };

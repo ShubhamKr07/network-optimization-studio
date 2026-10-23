@@ -9,7 +9,7 @@ import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import { deliveryInputsSchema } from "../validation/inputs/delivery.js";
 import { superInputsSchema } from "../validation/inputs/superInputs.js";
-import { formatInputIssues } from "../validation/formatInputIssues.js";
+import { formatInputIssues, toInputIssues, type InputIssue } from "../validation/formatInputIssues.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -129,14 +129,14 @@ export function getManifest(modelId: string): Manifest | undefined {
 
 export type ValidateInputsResult =
   | { success: true; data: Record<string, unknown> }
-  | { success: false; error: string };
+  | { success: false; error: string; issues: InputIssue[] };
 
 export function validateInputs(modelId: string, inputs: unknown): ValidateInputsResult {
   const schema = KNOWN_SCHEMAS[modelId];
   if (!schema) {
     // Already a human sentence, and not a Zod issue list — deliberately NOT
     // routed through formatInputIssues (spec §3.1).
-    return { success: false, error: `Unknown model_id: ${modelId}` };
+    return { success: false, error: `Unknown model_id: ${modelId}`, issues: [] };
   }
   const result = schema.safeParse(inputs);
   if (!result.success) {
@@ -145,7 +145,7 @@ export function validateInputs(modelId: string, inputs: unknown): ValidateInputs
     // dump. This is the sole producer of that text, so formatting here fixes
     // create, update, the import/apply path and the bands PATCH at once, with
     // no OpenAPI change and no regenerated client.
-    return { success: false, error: formatInputIssues(result.error.issues) };
+    return { success: false, error: formatInputIssues(result.error.issues), issues: toInputIssues(result.error.issues) };
   }
   return { success: true, data: result.data as Record<string, unknown> };
 }

@@ -14,14 +14,17 @@ export function csvText(lines: Array<Array<string | number>>): string {
   return lines.map(line => line.map(csvCell).join(",")).join("\n");
 }
 
-export function downloadTextFile(filename: string, text: string, mimeType: string): void {
-  const blob = new Blob([text], { type: mimeType });
-  const url = URL.createObjectURL(blob);
+export function downloadBlob(filename: string, data: BlobPart, mimeType: string): void {
+  const url = URL.createObjectURL(new Blob([data], { type: mimeType }));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadTextFile(filename: string, text: string, mimeType: string): void {
+  downloadBlob(filename, text, mimeType);
 }
 
 /** `<base>.<format>` download; objects are pretty-printed JSON, strings pass through. */
