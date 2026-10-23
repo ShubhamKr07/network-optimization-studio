@@ -889,7 +889,7 @@ it("gives max-coverage-us an explicit tab list rather than the p-median fallthro
 });
 
 // SM-3 — super-model has its own explicit tab list (never the p-median
-// fallthrough). Tab CONTENT lands in SM-7; this pins the nine labels.
+// fallthrough). this pins the nine labels.
 describe("Workspace tab coverage — super-model", () => {
   it("lists exactly the nine Super Model input tabs, in order", () => {
     expect(inputEntriesForModel("super-model").map(e => e.label)).toEqual([

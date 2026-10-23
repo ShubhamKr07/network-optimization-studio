@@ -4400,3 +4400,6 @@ Super Model Phase 1 whole-branch-review follow-up (backend-engineer). Branch `sm
 - `routes.test.ts`: the posthog mock gained `addPendingPromise`/`getErrorPropertiesBuilder` (the members posthog-node's real error handler touches); new test asserts an oversized `POST /api/scenarios` is 413 and neither is called. Non-vacuity: with the old ordering it fails ("called 2 times").
 - Documentation note (review, no code change): network import merge replaces a row whole and the table schemas default `status` to "active", so re-merging a customers table without a `status` column re-activates previously excluded customers. Consistent with spec section 7.3; a UX note for Phase 2.
 - Not merged, not pushed, not deployed. No schema change.
+
+### [SM-17] Super Model whole-branch-review follow-ups (studio)
+- Circuity factor in `SuperDistancesTab` now uses `DraftNumberInput` (parse accepts [1,3], else no commit), so partial input like "1." / "1.25" no longer snaps back. `SuperNetworkImportDialog` re-seeds `mode` from the current `isEmpty` when it OPENS (was reset on close from a stale value, pre-selecting Replace after a successful import). Stale "lands in SM-7" comments removed from `Workspace.tsx` and `Workspace.TabCoverage.test.tsx`. Tests: new `SuperDistancesTab.test.tsx` (3), +1 in `SuperNetworkImportDialog.test.tsx`. Studio-only; no contract change.
