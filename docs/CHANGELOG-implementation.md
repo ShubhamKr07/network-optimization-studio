@@ -4426,3 +4426,11 @@ Branch `sm2-spec`. `docs/superpowers/plans/2026-10-23-super-model-phase2-3.md`: 
 - Codex plan review (high): round 1 13 findings; round 2 stalled (killed after ~1 h silent) and re-run as 3 scoped passes (SheetJS 6, path mapping 4, ORS client 7). 30 dispositions folded (27 accepted, R3 formula-guard and R9 double-lock rejected with reasons, O1 queue replaced by 409 `road_distances_busy`); spec §7.1–7.3, §8, §10 edited in place. Plan now 3,317 lines. Latent Phase 1 bug found: `|`-joined composite keys can collide (`superInputs.ts` dupes, `mergeNetwork`) — fixed in SM2-3.
 - User final review (Lavish, 2026-10-23): all four recommended defaults confirmed — recorded as spec D10 (reject in-file duplicate keys), D11 (`MoveConfirmDialog` `preserveIdentity`), D12 (503/429/502/422/409), D13 (SheetJS CDN conditional on Task 4 checks). Plan approved for agent-team execution.
 - Next: execute SM2-1..SM2-12 on bundle branch `super-model-2`.
+
+### SM2-6 - Phase-3 preflight: Render request timeout, ORS shape, `ORS_API_KEY` (2026-10-23)
+
+Branch `sm2-6-work`. `render.yaml`: `ORS_API_KEY` (`sync: false`) added to `nos-api` after `SENTRY_DSN`; no live service or env var touched. Full quotes and URLs are in the plan's Task 6 "Findings" block.
+- **Gate (a) PASS:** Render docs, https://render.com/docs/render-vs-heroku-comparison.md - "Render allows responses to take up to 100 minutes for HTTP requests."; https://render.com/docs/render-vs-vercel-comparison.md - "Render web services enable HTTP responses to take up to 100 minutes." Only on comparison pages (no dedicated limits page exists; guessed limits URLs 404), not plan-specific.
+- **Gate (b) not fully proven:** confirmed `[lng,lat]`, `metrics:["distance"]`, `units:"mi"`, `distances[s][d]`, `null` = undeterminable. Mismatches: `sources`/`destinations` are `String[]` in ORS (docs example uses `"0"`); daily quota exceeded returns 403 (only the per-minute limit is 429). Unverified (plans/playground pages not fetchable): path string, `Authorization` header, hosted 3,500 pairs / 500 per day / 40 per min (self-hosted default is `maximum_routes: 2500`).
+- `render blueprints validate render.yaml`: valid: true.
+- Next: lead decides whether (b) gaps need a re-plan or a user-supplied key live check before Tasks 7-10.

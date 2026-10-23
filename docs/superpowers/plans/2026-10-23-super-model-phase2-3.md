@@ -2013,7 +2013,20 @@ Role: devops-engineer. Documentation + `render.yaml` only; no application code. 
   Validate: `render blueprints validate render.yaml` if the Render CLI is installed (`render-cli` skill); otherwise record "not validated (no CLI)".
 - [ ] **Step 4: Findings** — replace the block below with the measured facts (quotes + URLs + date), and append a changelog entry with the same.
 
-  > **Findings (to be filled by Task 6):** Render timeout — not yet verified. ORS shape — not yet verified.
+> **Findings (Task 6, fetched 2026-10-23 with curl; WebFetch/WebSearch were not available to this agent).**
+  >
+  > **Gate (a) Render timeout - PASS (with a source caveat).** Render's own docs state it on two comparison pages, not on a limits page (`/docs/web-services` has no timeout text; `/docs/platform-limits`, `/docs/limits`, `/docs/service-limits` are 404): "Render allows responses to take up to 100 minutes for HTTP requests." - https://render.com/docs/render-vs-heroku-comparison.md (Flexibility section); "Render web services enable HTTP responses to take up to 100 minutes." - https://render.com/docs/render-vs-vercel-comparison.md (Long-running tasks). 100 min >= 150 s. Not stated per plan; `nos-api` is `standard`. The same docs' Node tip (https://render.com/docs/troubleshooting-deploys.md): raise `keepAliveTimeout`/`headersTimeout` for intermittent timeouts / `Connection reset by peer`.
+  >
+  > **Gate (b) ORS shape - NOT fully proven; lead decides.** Sources: https://giscience.github.io/openrouteservice/api-reference/endpoints/matrix/ , ORS source `MatrixRequest.java`/`APIEnums.java`/`Matrix-Response.md` (raw.githubusercontent.com/GIScience/openrouteservice/main), https://giscience.github.io/openrouteservice/frequently-asked-questions . https://openrouteservice.org/plans/ and /dev/ are 404 and https://account.heigit.org/info/plans is a JS app with no fetchable text.
+  > - CONFIRMED `locations` = list of `[longitude, latitude]` ("`longitude,latitude` coordinates in WGS 84").
+  > - CONFIRMED `metrics: ["distance"]` ("`distance` - Returns distance matrix ... in defined `units`"; default is `duration`).
+  > - CONFIRMED `units: "mi"` (enum `m`,`km`,`mi`; "Specifies the distance unit. Default: m."; only valid with `distance`).
+  > - CONFIRMED rows = sources, columns = destinations (`distances[s][d]`); "The result is `null` if a value can't be determined."
+  > - CONFIRMED unlisted `sources`/`destinations` mean `all`; indices refer to `locations` (0-based).
+  > - MISMATCH (minor): `sources`/`destinations` are typed `String[]` and the docs example is `"sources": ["0","1"]`; the plan sends integers. Jackson normally coerces ints to strings, but that is undocumented. Safest: send `String(i)`.
+  > - MISMATCH (material): the FAQ says "If you run into the daily limit, you will receive a 403 - Forbidden HTTP error. If you run into the minutely limit, you will receive a 429 - Too many requests". The plan maps only 429 to `road_distances_quota`; a daily-quota 403 would fall into the generic failure path.
+  > - UNVERIFIED: path `/v2/matrix/driving-hgv` (profile list includes `driving-hgv`, but the path string was not fetched); `Authorization` header carrying the key (not in any fetched doc); hosted limits 3,500 pairs, 500/day, 40/min for matrix (not fetchable). Only evidence: self-hosted default `maximum_routes: 2500` (`application.yml`, `docs/run-instance/configuration/endpoints/matrix.md`); the FAQ shows 40/min for directions and 2000/day for directions as an example. The 3,500 / 500 / 40 figures cannot be confirmed here; 2,500 is the only documented ceiling and would make the plan's `floor(3500 / warehouses)` chunking too large if the hosted limit equals the default.
+  > - `render blueprints validate render.yaml`: valid: true.
 
 - [ ] **Step 5: Commit** on `sm2-6-work`:
 ```bash
