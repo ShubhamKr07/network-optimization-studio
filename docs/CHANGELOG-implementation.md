@@ -4558,3 +4558,7 @@ Deferred / follow-ups:
 - `mutationErrorSurface.test.ts`: every `ALLOWED_NO_ONERROR` entry must match exactly one call site (a second `.mutate(` in an allow-listed file now fails).
 - a11y: file input `aria-label`, mode fieldset `<legend class="sr-only">`, `DialogDescription` on the three new super dialogs.
 - Fail-first proven for the pending-close tests, the `.CSV` tests and the allow-list guard (duplicate site injected, then removed). Studio 2893/2893, typecheck clean.
+
+### CH5T - rename Chapter 5 delivery card
+
+`artifacts/studio/src/lib/chapters.ts`: `delivery-teaching-us` card title "Delivery Company Teaching Example" -> "Introduction to Network Design"; lab header "Delivery Company · Model Lab" -> "Introduction to Network Design · Model Lab". Per user, the API manifest `name` (`solvers/delivery-teaching-us/manifest.json`) and code comments are unchanged. No studio test or e2e spec asserts either old string (grep). The full gate was not run (user stopped it).

@@ -84,10 +84,10 @@ export const CHAPTERS: Chapter[] = [
     path: "/chapter-5/delivery",
     modelId: "delivery-teaching-us",
     chapter: "Chapter 5",
-    title: "Delivery Company Teaching Example",
+    title: "Introduction to Network Design",
     description: "Facility location driven by a cost table: open three DCs to minimise delivery cost, then watch the network change when long lanes are repriced.",
     workspace: true,
-    labHeaderTitle: "Delivery Company · Model Lab",
+    labHeaderTitle: "Introduction to Network Design · Model Lab",
     labHeaderSubtitle: "Ch 5 · p-median · cost table vs distance table",
   },
   {
