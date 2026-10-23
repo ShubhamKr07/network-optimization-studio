@@ -361,8 +361,8 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
     await expect(page.getByTestId("auth-credit")).not.toContainText("Reach me out at");
 
     // The labs strip shows the visible (non-hiddenFromLanding) chapters —
-    // Chapter 3, Chapter 4, Chapter 5 (delivery-teaching-us), and Chapter 9
-    // (JADE, visible though ch4-lock makes it inert on Landing). Chapter 10,
+    // Chapter 3, Chapter 4, Chapter 5 (delivery-teaching-us), Chapter 9
+    // (JADE, visible though ch4-lock makes it inert on Landing), then Super Model. Chapter 10,
     // transport-coal, and p-median-brazil stay hiddenFromLanding, so none of
     // them appear here regardless of lock state — see
     // bundle4-auth-landing.spec.ts's matching assertion.

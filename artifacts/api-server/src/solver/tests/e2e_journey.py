@@ -11,7 +11,7 @@ STANDALONE SCRIPT, not pytest-discovered (no `test_*.py` name) —
 
     python3 e2e_journey.py                              # default local dev server
     python3 e2e_journey.py http://localhost:3001         # explicit base URL
-    python3 e2e_journey.py <BASE_URL> [section]          # section: auth|dataset|pmedian|transport|delivery|brazil
+    python3 e2e_journey.py <BASE_URL> [section]          # section: auth|dataset|pmedian|transport|delivery|brazil|super
 
 A13a repair (2026-09-24): this script was fully non-runnable before this
 fix — it authenticated via `POST /login {userId}`, the legacy endpoint
@@ -41,6 +41,7 @@ longer has — out of scope for an auth+shape repair.
 """
 
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -704,6 +705,83 @@ def journey_delivery() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# JOURNEY 6 · Super Model (SM-14)
+# ─────────────────────────────────────────────────────────────────────────────
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../.."))
+_SUPER_SAMPLE = os.path.join(_REPO_ROOT, "artifacts/studio/public/samples/super-model-sample.json")
+_SUPER_DEFAULTS = os.path.join(_REPO_ROOT, "artifacts/studio/src/lib/superDefaults.json")
+
+
+def journey_super() -> None:
+    """`super-model` — import the shipped sample as the raw JSON body of
+    `POST /scenarios/:id/network/import?mode=replace`, precheck, solve with real
+    CBC, and assert the Chapter 9 ground truth (objective 254060828.6157,
+    open {wh-11, wh-14}; the sample FORCES both open at p=2, so the objective
+    is the optimality proof). Also proves cross-user isolation (404, hard rule 5)."""
+    global _session_cookie
+    _section("JOURNEY 6 · Super Model")
+    created: list[int] = []
+    owner_cookie = _session_cookie
+
+    with open(_SUPER_SAMPLE, encoding="utf-8") as fh:
+        sample = json.load(fh)
+    with open(_SUPER_DEFAULTS, encoding="utf-8") as fh:
+        defaults = json.load(fh)
+
+    _step("POST /scenarios (modelId=super-model, empty default inputs)")
+    status, scen = POST("/scenarios", {"name": f"Journey Super {_run_id}", "modelId": "super-model", "inputs": defaults})
+    sid = _d(scen).get("id")
+    _check("Create super-model scenario → 201", status == 201 and sid is not None, f"HTTP {status} {str(scen)[:200]}")
+    if sid is None:
+        return
+    created.append(sid)
+
+    try:
+        _step(f"POST /scenarios/{sid}/network/import?mode=replace (sample as raw body)")
+        status, body = POST(f"/scenarios/{sid}/network/import?mode=replace", sample, timeout=60)
+        imported = _d(_d(body).get("scenario")).get("inputs") or {}
+        _check("Import (replace) → 200", status == 200, f"HTTP {status} {str(body)[:300]}")
+        _check("Imported 100 customers", len(imported.get("customers") or []) == 100,
+               f"got {len(imported.get('customers') or [])}")
+
+        _step("GET precheck")
+        status, body = GET(f"/scenarios/{sid}/precheck")
+        _check("Precheck → 200 ok=true", status == 200 and _d(body).get("ok") is True, f"HTTP {status} {str(body)[:300]}")
+
+        solved = _solve_and_wait(sid, poll_timeout=240)
+        _check("Job terminal status = succeeded", solved.get("status") == "succeeded", f"status={solved.get('status')}")
+        res = solved.get("result") or {}
+        m = _d(res.get("metrics"))
+        obj = res.get("objective")
+        _check("Objective ≈ 254060828.6157 (rel 1e-6)",
+               isinstance(obj, (int, float)) and abs(obj - 254060828.6157) <= 1e-6 * 254060828.6157, f"objective={obj}")
+        open_ids = set(m.get("openFacilityIds") or [])
+        _check("Open warehouses == {wh-11, wh-14}", open_ids == {"wh-11", "wh-14"}, f"open={sorted(open_ids)}")
+        _check("metrics.plantVariableCost == 0", m.get("plantVariableCost") == 0, f"plantVariableCost={m.get('plantVariableCost')}")
+        tc, ib, ob = m.get("totalCost"), m.get("inboundCost"), m.get("outboundCost")
+        _check("totalCost ≈ inbound + outbound (within a cent)",
+               all(isinstance(x, (int, float)) for x in (tc, ib, ob)) and abs(tc - (ib + ob)) < 0.01,
+               f"total={tc} inbound={ib} outbound={ob}")
+
+        _step("Cross-user isolation — a second user cannot see or import into the scenario")
+        _session_cookie = None
+        other_email = f"journey_super_other_{_run_id}@example.test"
+        st, _ = POST("/auth/register", {"email": other_email, "password": TEST_PASSWORD})
+        _check("Register second user → 201", st == 201, f"HTTP {st}")
+        st, _ = GET(f"/scenarios/{sid}")
+        _check("Other user GET scenario → 404", st == 404, f"HTTP {st}")
+        st, _ = POST(f"/scenarios/{sid}/network/import?mode=replace", sample, timeout=60)
+        _check("Other user import → 404", st == 404, f"HTTP {st}")
+        _session_cookie = owner_cookie
+        st, body = GET(f"/scenarios/{sid}")
+        _check("Owner's data intact after the other user's attempt (still 100 customers)",
+               st == 200 and len(_d(_d(body).get("inputs")).get("customers") or []) == 100, f"HTTP {st}")
+    finally:
+        _session_cookie = owner_cookie
+        _cleanup(created)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 JOURNEYS: dict[str, Any] = {
@@ -713,6 +791,7 @@ JOURNEYS: dict[str, Any] = {
     "transport": journey_transport,
     "delivery":  journey_delivery,
     "brazil":    journey_brazil,
+    "super":     journey_super,
 }
 
 

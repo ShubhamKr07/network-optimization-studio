@@ -55,7 +55,7 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     // unlocked and visible, delivery-teaching-us (Chapter 5, Ch.5 modified) is
     // visible, and Chapter 9 (JADE) is visible and — as of ch9-unlock —
     // unlocked, so the strip shows Chapter 3, Chapter 4, Chapter 5, then
-    // Chapter 9. (The strip is derived from visibility alone; the lock never
+    // Chapter 9, then Super Model (a non-chapter label). (The strip is derived from visibility alone; the lock never
     // affected it either way.)
     await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Super Model");
 
