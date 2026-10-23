@@ -1,6 +1,6 @@
 # Super Model — design
 
-Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23; Phases 2–3 + Input Map (D5–D9) folded in from brainstorming 2026-10-23
+Date: 2026-10-23 · Status: approved in brainstorming; Codex review (medium) folded in; open decisions D1–D4 resolved in Lavish review 2026-10-23; Phases 2–3 + Input Map (D5–D9) folded in from brainstorming 2026-10-23; Phase 2–3 plan review (Codex high) folded in 2026-10-23 (§7.1 issue paths, §7.2 formula guard, §7.3 in-file duplicates, §8 busy / empty sides / timers / Render gate)
 
 ## 1. Goal
 
@@ -299,9 +299,11 @@ rejected by name; a required column missing is an error. Cell rules:
 numbers except `distanceMethod` (text). Unknown key or duplicate key is an error. A key that is absent,
 or present with an empty value, is absent from the document (replace ⇒ default; merge ⇒ kept).
 
-**Formula safety (export) and round-trip.** CSV export uses the existing `clientCsv.ts` guard (a text cell
-starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`). CSV import reverses it: a text cell whose
-first character is `'` followed by one of those characters has the `'` removed. XLSX export writes text
+**Formula safety (export) and round-trip.** CSV export uses the existing `clientCsv.ts` guard: a text cell
+starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`, **unless the whole string is a finite number**
+(e.g. `-5`, `+1`), which a spreadsheet reads as a number and cannot carry a formula. CSV import reverses it: a
+text cell whose first character is `'` followed by one of those characters has the `'` removed. Numeric-looking
+strings in text columns therefore round-trip unchanged. XLSX export writes text
 as string cells and numbers as numeric cells, never formulas, so no prefix is added and none is stripped.
 
 **Limits.** Super does not use the per-entity `MAX_IMPORT_ROWS`. Table sizes are bounded by §3.3's caps
@@ -315,9 +317,12 @@ maximum-size network fits and raises the Super route's limit if it does not.
 - Client parse errors are produced directly in the browser.
 - Server validation errors: the network-import 422 response gains a structured `issues` array
   (`{ path: (string|number)[], message }`) alongside today's `error` string (OpenAPI + regenerated client
-  in the same task). The Studio maps `path[0]` (table) to the file or sheet the table came from, the
-  0-based `path[1]` to file row `path[1] + 2` (header is row 1), and `path[2]` to the column. JSON
-  imports keep showing `error`.
+  in the same task). Paths are **document-relative**: `path[1]` indexes the imported table's rows (in merge
+  mode the server translates merged-table rows back to document rows; an issue on a pre-existing row the
+  import did not mention is reported table-level as "Existing <table> row n"). The Studio maps `path[0]`
+  (table) to the file or sheet the table came from, `path[1]` to the file row through the row map it kept
+  while parsing (the header row plus every skipped empty row are accounted for, so with no skipped rows it
+  equals `path[1] + 2`), and `path[2]` to the column. JSON imports keep showing `error`.
 
 ### 7.3 Semantics
 
@@ -327,6 +332,10 @@ Order: parse all files → per-table row validation → build resulting network 
 - **Replace:** every table and parameter in the import replaces the scenario's; a table absent from the
   import becomes empty; parameters absent keep defaults. `roadDistances` is cleared. UI confirms the
   overwrite unless the scenario is empty.
+- **Duplicates inside the import** (both modes): an ID or composite key that appears twice in the imported
+  document — per table, with plant / warehouse / customer IDs sharing one namespace (§3.3) — is an error
+  naming each repeated row; it is never resolved by keeping the last row. Composite keys are compared as
+  exact `(a, b)` pairs, so IDs containing any delimiter character cannot collide.
 - **Merge:** per table, a row whose ID (or composite key, for plant-product / demand / override rows)
   matches an existing row replaces that row whole; a new ID inserts; rows not mentioned are kept; merge
   never deletes. Parameters present overwrite. `roadDistances` is left as stored; pairs touching a
@@ -365,8 +374,9 @@ sources — ≤8 requests at the caps (50 WH ⇒ chunks of 70). Requests are ser
 non-Super ⇒ 404; locked model ⇒ the existing locked response; missing `ORS_API_KEY` ⇒ 503
 `road_distances_unavailable`. Synchronous, in two phases so no row lock is held across HTTP:
 1. Read the owned row (no lock) and build the requests from its locations.
-2. Call ORS serially. Each request has a 30 s `AbortSignal.timeout`; the whole fetch has a 120 s deadline
-   (an `AbortController` shared by all requests). No retries.
+2. Call ORS serially. Each request has its own 30 s timeout (its own `AbortController` and a timer cleared
+   when the request ends, so a finished request is never aborted later); the whole fetch has a 120 s
+   deadline (an `AbortController` shared by all requests). No retries.
 3. On full success, open a transaction, `SELECT … FOR UPDATE` the row, and write **only**
    `roadDistances = { fetchedAt, profile, coords, pairs }` onto the row's **current** inputs (every other
    field is the current row's, not phase 1's snapshot), through `applyScenarioInputWrite`.
@@ -375,17 +385,25 @@ non-Super ⇒ 404; locked model ⇒ the existing locked response; missing `ORS_A
    coordinates differing from `coords`, so its pairs are stale by D8 — no compare-and-swap is needed.
    If the row is gone or no longer owned in phase 3 ⇒ 404.
 
-The plan verifies Render's HTTP request timeout exceeds the 120 s deadline before choosing it.
+Render's HTTP request timeout must be proven ≥ 120 s plus margin before any road-distance code is
+written; if it cannot be proven, the route design is re-planned (a hard gate, not an in-task redesign).
 
 **Failures write nothing:** 429 ⇒ `road_distances_quota` ("OpenRouteService quota reached, try again
 later"); timeout, deadline or any other ORS error ⇒ `road_distances_failed` naming the batch (e.g.
-"warehouses → customers 41–110"); any `null` ⇒ `road_distances_unroutable` naming the first such pair
-(the user can add an override for it).
+"warehouses → customers 71–140"); any `null` ⇒ `road_distances_unroutable` naming the first such pair
+(the user can add an override for it), and no later batch is requested; a fetch already in progress ⇒
+`road_distances_busy` (below). The codes are one closed set (TS union, OpenAPI enum, regenerated client).
 
-**Concurrency.** One process-wide queue: a fetch waits for the previous one to finish, so this API never
-runs two ORS fetches at once (≤9 requests in flight serially keeps it under 40/min in normal use; a 429
-still surfaces). `// ponytail:` single-instance queue; a shared limiter is needed only if `nos-api` scales
-past one instance. The daily quota is shared by all users of the key; the error says so.
+**Empty sides.** With no warehouses or no customers there is nothing to fetch: the route makes no ORS
+request and writes `roadDistances` with an empty pair list; readiness stays blocked by its completeness
+items.
+
+**Concurrency.** At most one ORS fetch per process, and nothing waits: a request that arrives while a fetch
+is in progress is answered at once with 409 `road_distances_busy` ("already being fetched on this server, try
+again in a minute"). The flag is released when the fetch ends, however it ends. Serial requests (≤9 per
+fetch) keep normal use under 40/min; an ORS 429 still surfaces as `road_distances_quota`. `// ponytail:`
+single-instance flag; a shared limiter is needed only if `nos-api` scales past one instance. The daily quota
+is shared by all users of the key; the error says so.
 
 **Validity (D8) — one function.** `validRoadPairs(inputs)` in the API server is the only implementation:
 a stored pair is valid iff both endpoints exist in the current tables and their current lat/lng equal
@@ -443,13 +461,16 @@ Each phase ends in a usable model and follows branch discipline (branch per comm
   atomicity (bad row ⇒ nothing written); global ID uniqueness; caps; staleness bump on every write;
   export → import round-trip; network-import 422 carries structured `issues`. Phase 3: road route
   ownership 404, missing key 503, batching at the caps (request count, `[lng, lat]` order and chunk shape
-  asserted on the stubbed `fetch`), 429 / null / timeout / deadline each write nothing, a PATCH landing
+  asserted on the stubbed `fetch`), 429 / null / timeout / deadline each write nothing, a second fetch while
+  one runs is 409 busy and the flag is released after success, failure and abort, empty sides make no ORS
+  request, a PATCH landing
   between fetch and write is kept and its moved location's pairs are stale, client PATCH cannot set or
   clear `roadDistances`, replace-import clears it and merge keeps it, readiness ignores inactive /
   excluded / overridden pairs, solve uses valid road pairs and overrides still win.
 - **Studio unit:** format parity — one network as CSV set, XLSX and JSON parses to identical documents;
-  each export re-parses to the same document; 422 `issues` path → file/row/column; parameters key
-  rules; cell coercion (numeric-looking IDs stay text, XLSX dates/errors rejected, formula cached value);
+  each export re-parses to the same document; 422 `issues` path → file/row/column (incl. skipped rows,
+  merge translation, a sheet not starting at A1); in-document duplicates rejected per table; delimiter-
+  containing IDs in composite keys; parameters key rules; cell coercion (numeric-looking IDs stay text, XLSX dates/errors rejected, formula cached value);
   round-trip of strings starting with `=`, `+`, `-`, `@` through CSV and XLSX.
   At least one test goes through the real writer, not a hand-built fixture.
 - **RTL:** each tab's edit/add/delete incl. cascade confirmation, readiness checklist, import mode

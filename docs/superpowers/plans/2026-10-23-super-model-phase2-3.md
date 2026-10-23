@@ -27,12 +27,16 @@
 - **`MAX_IMPORT_BYTES`** (`lib/import-schema/src/index.ts:24`, 2 MiB = 2,097,152 B) applies to the serialized JSON request for every format; the Studio checks it before posting.
 - **ORS (§8, D9):** `POST https://api.openrouteservice.org/v2/matrix/driving-hgv`, header `Authorization: <ORS_API_KEY>`, body `{ locations: [[lng, lat], …], sources: [i…], destinations: [j…], metrics: ["distance"], units: "mi" }` — **[longitude, latitude]**. Response `distances[s][d]` miles, `null` = unroutable. Miles stored unrounded.
 - **ORS limits:** ≤ **3,500** origin×destination pairs per request; free key **500** matrix requests/day, **40**/minute. Request 1 = all plants × all warehouses; then customers in chunks of **`floor(3500 / warehouses)`**, each chunk × all warehouses as sources. Serial. ≤ 9 requests at the §3.3 caps (50 WH ⇒ chunks of 70 ⇒ 8 customer requests).
-- **Timeouts:** **30 s** `AbortSignal.timeout` per request; **120 s** deadline for the whole fetch (one shared `AbortController`). No retries. One process-wide queue.
-- **Error codes (closed union, one task):** `road_distances_unavailable | road_distances_quota | road_distances_failed | road_distances_unroutable`. HTTP status (plan choice, spec silent — open issue 7): 503 / 429 / 502 / 422.
+- **Timeouts:** **30 s** per request (its own `AbortController` + a `setTimeout` cleared in `finally`); **120 s** deadline for the whole fetch (one shared `AbortController`). No retries.
+- **Concurrency (O1, spec §8 as amended):** one fetch at a time per process. A request arriving while a fetch is in progress gets **409 `road_distances_busy`** immediately; nothing waits. The busy flag is released in `finally` (success, error, abort). ORS 429 still surfaces as `road_distances_quota`. `// ponytail:` single-instance flag; a shared limiter is needed only if `nos-api` scales past one instance.
+- **Empty sides (R8):** zero warehouses, zero customers, or both ⇒ 200 with **no** ORS call and `roadDistances` written with `pairs: []` (a network that cannot be solved needs no road distances). Readiness stays blocked by the existing completeness checks.
+- **Error codes (closed union, one task):** `road_distances_unavailable | road_distances_quota | road_distances_failed | road_distances_unroutable | road_distances_busy`. HTTP status, contractual in OpenAPI (decision c, awaiting user): 503 unavailable / 429 quota / 502 failed (timeout, deadline, malformed or upstream error) / 422 unroutable / 409 busy.
+- **Phase-3 gate (R5):** Task 6 is a hard prerequisite for Tasks 7–10. If Render's HTTP request timeout for `nos-api` cannot be proven ≥ 120 s plus margin (≥ 150 s) from Render's documentation, STOP and return to the lead for a re-plan; no task redesigns the route in-task.
+- **Local e2e recipe (R12, `artifacts/studio/e2e/CLAUDE.md`):** terminal 1 `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" PORT=3001 pnpm --filter api-server run dev`; terminal 2 `PORT=5201 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 VITE_POSTHOG_KEY=phc_local_dummy_key VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 pnpm --filter studio run dev`; then from `artifacts/studio`, `E2E_BASE_URL=http://localhost:5201 pnpm exec playwright test <spec>` or, from the repo root, `E2E_BASE_URL=http://localhost:5201 pnpm e2e:gate`. Never run Playwright without `E2E_BASE_URL` (it targets a remote Replit URL). `pnpm --filter api-server run dev` is build-then-start: restart it after source changes.
 - **Road validity (D8):** only `validRoadPairs(inputs)` (API server) decides it; Python and Studio never recompute it.
 - `ORS_API_KEY`: `sync: false` on `nos-api` in `render.yaml`; never logged or returned; tests never call ORS (injected `fetch`).
 - Hard rules: never hand-edit `lib/api-zod/src/generated/` or `lib/api-client-react/src/generated/` (#1, regen with `pnpm --filter @workspace/api-spec run codegen`); ownership + 404 on every scenario route (#5); solver business rules as data, not branches (#6); one task = one commit `[SM2-<n>] <imperative>` (#4); every commit on its own branch, never `main`.
-- Verification gate per task: `pnpm gate` (exit 3 = timeout, re-run serially; exit 1 = real failure); solver-touching tasks also `cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py` (99/99). Before trusting vitest: `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ] || exit 1` (never chain with `&&`). Known flakes: `docs/superpowers/flake-registry.md` (match by name, re-run twice in isolation).
+- Verification gate per task, always with the DB inline: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate` (`scripts/harness/gate.sh` needs `DATABASE_URL`; exit 3 = timeout, re-run serially; exit 1 = real failure); solver-touching tasks also `cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py` (99/99). Before trusting vitest: `cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); [ "$cnt" = "0" ] || exit 1` (never chain with `&&`). Known flakes: `docs/superpowers/flake-registry.md` (match by name, re-run twice in isolation).
 - DB tests: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"` inline per command.
 - Commit guard before every commit: `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }`; commit with an explicit pathspec. Each task appends its changelog entry to `docs/CHANGELOG-implementation.md` in the same commit (hard rule #9).
 
@@ -63,12 +67,12 @@
 | `artifacts/api-server/src/services/precheckSuper.ts` | modify | road readiness item | 8 |
 | `artifacts/api-server/src/solver/pmedian.ts` | modify | super payload: drop `roadDistances`, pass `roadPairs` | 8 |
 | `artifacts/api-server/src/solver/merge_inputs.py` | modify | resolution step 2 (`roadPairs`) | 8 |
-| `artifacts/api-server/src/services/orsClient.ts` | create | batches, fetch, timeouts, queue, error codes, test seam | 9 |
+| `artifacts/api-server/src/services/orsClient.ts` | create | batches, fetch, timeouts, busy flag, error codes, test seam | 9 |
 | `lib/api-spec/openapi.yaml` (+ regenerated `lib/api-zod`, `lib/api-client-react`) | modify | `NetworkImportRejection`; road route + `RoadDistancesErrorCode` | 3, 9 |
 | `artifacts/studio/src/components/workspace/super/SuperRoadDistancesDialog.tsx` | create | privacy notice, fetch, error messages | 10 |
 | `artifacts/studio/src/components/workspace/super/SuperDistancesTab.tsx` | modify | `road` option + fetch button | 10 |
 | `render.yaml` | modify | `ORS_API_KEY` `sync: false` | 6 |
-| `artifacts/studio/e2e/super-model.spec.ts` | modify | SM-13 opening + switch-to-map (Task 1); Phase 2 browser flows (Task 11) | 1, 11 |
+| `artifacts/studio/e2e/super-model.spec.ts` | modify | switch-to-map after import, Phase 2 browser flows, map editing (qa-sdet only, R6) | 11 |
 | `docs/CHANGELOG-implementation.md` | modify | one entry per task | all |
 
 ## Registration map (`model-integration-precheck.md`, 18 points + gates)
@@ -108,7 +112,7 @@
 
 ### Task 1 [SM2-1]: Super Input Map wiring, read-only map with fit and layers
 
-Role: frontend-engineer. (Also edits `artifacts/studio/e2e/super-model.spec.ts`, normally qa-sdet's; spec §6.1 puts that update in this task.)
+Role: frontend-engineer. Touches nothing under `artifacts/studio/e2e/` (R6): the spec's SM-13 opening / switch-to-map e2e update belongs to qa-sdet in Task 11. Existing Playwright Tests A–C stay green unchanged (they navigate by sidebar after import), which Task 11 re-proves.
 
 **Files:**
 - Create: `artifacts/studio/src/components/workspace/map/mapControls.tsx` (verbatim move of `InputMapTab.tsx:343-394` `OverlayAnchor`/`MapEventsBridge`/`GhostFollower`, `:395-454` `AddEntityMenu`, `:531-557` `ToggleChip`, `:574-614` `LayerCheckbox`, each now `export`ed)
@@ -118,7 +122,6 @@ Role: frontend-engineer. (Also edits `artifacts/studio/e2e/super-model.spec.ts`,
 - Modify: `artifacts/studio/src/pages/Workspace.tsx:1273-1285` (`input-map` entry), `:2441-2449` (seed effect), `:2764-2770` (use the lib's `superTablesEmpty`), `:3376` (map mount), `:4609` (readiness panel not on the map), `:4710-4717` (import → map)
 - Modify: `artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx:893-900`, `artifacts/studio/src/__tests__/Workspace.Super.test.tsx:125-130, 210-216`
 - Create: `artifacts/studio/src/__tests__/SuperInputMap.test.tsx`
-- Modify: `artifacts/studio/e2e/super-model.spec.ts:54-64` (`importSampleViaUi`)
 
 **Interfaces:**
 - Produces (`lib/superNetwork.ts`):
@@ -400,20 +403,13 @@ export function SuperInputMap({ inputs, fitKey }: Extract<InputMapTabProps, { mo
 ```
   - `:4609`: `(superIsEmpty && activeView.entity !== "input-map") || activeView.entity === "optimization-parameters"` (an empty scenario's Input Map shows the world view so a network can be built on the map). `isEmpty` passed to the panel stays `superIsEmpty`; on optimization-parameters with an empty draft the panel still shows the empty state as before.
 
-- [ ] **Step 8: e2e update.** `importSampleViaUi` (`e2e/super-model.spec.ts:62`) gains, after the empty-state assertion:
-```ts
-  // SM2-1 (§6.1): a successful import switches to the Input Map.
-  await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
-```
-  Tests A/B/C already navigate by sidebar after import; no other edit.
+- [ ] **Step 8: Run** the three vitest files (PASS), then every existing `InputMapTab*`/`InputMapV2*` suite: `pnpm --filter studio exec vitest run src/__tests__/InputMapTab src/__tests__/InputMapV2 src/__tests__/Workspace.InputMapV2.test.tsx` (PASS, proves the move). Then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
-- [ ] **Step 9: Run** the three vitest files (PASS), then every existing `InputMapTab*`/`InputMapV2*` suite: `pnpm --filter studio exec vitest run src/__tests__/InputMapTab src/__tests__/InputMapV2 src/__tests__/Workspace.InputMapV2.test.tsx` (PASS, proves the move). Start both servers per `artifacts/studio/e2e/CLAUDE.md` and run `E2E_BASE_URL=http://localhost:<studio-port> pnpm --filter studio exec playwright test e2e/super-model.spec.ts` (A, B, C PASS). Then `pnpm gate`.
-
-- [ ] **Step 10: Commit** on `sm2-1-work`:
+- [ ] **Step 9: Commit** on `sm2-1-work`:
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
 git add artifacts/studio/src/components/workspace/map/mapControls.tsx artifacts/studio/src/components/workspace/super/SuperInputMap.tsx artifacts/studio/src/__tests__/SuperInputMap.test.tsx
-git commit artifacts/studio/src/components/workspace/map/mapControls.tsx artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx artifacts/studio/src/components/workspace/super/SuperInputMap.tsx artifacts/studio/src/lib/superNetwork.ts artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/SuperInputMap.test.tsx artifacts/studio/src/__tests__/Workspace.Super.test.tsx artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx artifacts/studio/e2e/super-model.spec.ts docs/CHANGELOG-implementation.md -m "[SM2-1] add the super-model Input Map view with fit rules and import switch"
+git commit artifacts/studio/src/components/workspace/map/mapControls.tsx artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx artifacts/studio/src/components/workspace/super/SuperInputMap.tsx artifacts/studio/src/lib/superNetwork.ts artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/SuperInputMap.test.tsx artifacts/studio/src/__tests__/Workspace.Super.test.tsx artifacts/studio/src/__tests__/Workspace.TabCoverage.test.tsx docs/CHANGELOG-implementation.md -m "[SM2-1] add the super-model Input Map view with fit rules and import switch"
 ```
 
 ---
@@ -427,8 +423,10 @@ Role: frontend-engineer.
 - Create: `artifacts/studio/src/components/workspace/super/SuperEntityDialog.tsx`
 - Modify: `artifacts/studio/src/components/workspace/super/SuperInputMap.tsx`, `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` (union member widened)
 - Modify: `artifacts/studio/src/pages/Workspace.tsx:1269` (`SUPER_INPUT_TABS` gains `"input-map"`), the Task-1 map mount
+- Modify: `artifacts/studio/src/components/workspace/map/MapActionMenu.tsx:10-24, 55-70` (optional `confirmDelete`, default `true`)
+- Modify: `artifacts/studio/src/components/workspace/map/dialogs/MoveConfirmDialog.tsx:14-28, 72-96` (optional `preserveIdentity`, default `false`; decision b, awaiting user)
 - Modify: `artifacts/studio/src/__tests__/superNetwork.test.ts`, `artifacts/studio/src/__tests__/SuperInputMap.test.tsx`, `artifacts/studio/src/__tests__/Workspace.Super.test.tsx`
-- Create: `artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx`
+- Create: `artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx`, `artifacts/studio/src/__tests__/mapDialogOptions.test.tsx`
 
 **Interfaces:**
 - Consumes: Task 1's `superMapRows`, `SuperInputMap`; `cascadeDelete`/`referencingRows` (`lib/superNetwork.ts:18-27`); `MapActionMenu` (`map/MapActionMenu.tsx:10-24`, all four actions because `isAdded: true`); `MoveConfirmDialog` (`map/dialogs/MoveConfirmDialog.tsx:14-28`); `AddEntityMenu` (`map/mapControls.tsx`).
@@ -450,6 +448,11 @@ Role: frontend-engineer.
     onInputsChange: (next: SuperInputsLike) => void;
     onRequestDelete: (table: "plants" | "warehouses" | "customers", id: string) => void;
     readOnly: boolean }
+  ```
+- Produces (shared map components, existing callers unchanged because both props default to today's behaviour):
+  ```ts
+  MapActionMenuProps.confirmDelete?: boolean;        // default true; false => Delete calls onDelete on the first click (the caller owns the confirmation)
+  MoveConfirmDialogProps.preserveIdentity?: boolean;  // default false; true => no "New code"/nearest-city preview, states that id/city/state stay unchanged
   ```
 - Produces: `SuperEntityDialog` props `{ mode: "create" | "edit"; kind: LocKind; initial: LocationDraft; initialDemand: Record<string, number>; products: { id: string; name: string }[]; takenIds: Set<string>; onSubmit(row: LocationDraft, demand: Record<string, number>): void; onCancel(): void }`. Test ids `super-entity-dialog`, `super-entity-id`, `super-entity-name`, `super-entity-city`, `super-entity-state`, `super-entity-status`, `super-entity-demand-<productId>`, `super-entity-error`, `super-entity-submit`, `super-entity-cancel`.
 
@@ -594,13 +597,49 @@ describe("SuperInputMap actions", () => {
     expect(w.id).toBe("WH-1");
     expect([w.lat, w.lng]).not.toEqual([33.4, -112.0]);
   });
-  it("Delete goes to the D3 cascade confirmation via onRequestDelete, not straight to inputs", () => {
+  it("Delete hands off to the single D3 cascade confirmation on the FIRST click (menu confirm bypassed)", () => {
     const { container, onInputsChange, onRequestDelete } = mount();
     fireEvent.contextMenu(markers(container)[3]);
     fireEvent.click(screen.getByTestId("map-action-delete"));
-    fireEvent.click(screen.getByTestId("map-action-delete"));   // MapActionMenu's own "Confirm delete?"
     expect(onRequestDelete).toHaveBeenCalledWith("customers", "C-1");
     expect(onInputsChange).not.toHaveBeenCalled();
+  });
+  it("no action refits: add, move, copy and delete leave fitBounds untouched (R13)", () => {
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds").mockImplementation(function (this: L.Map) { return this; });
+    const { container, rerender, onInputsChange } = mount();
+    const calls = () => fit.mock.calls.length;
+    const before = calls();
+    const props = { fitKey: 0, onInputsChange, onRequestDelete: vi.fn(), readOnly: false } as const;
+    // add
+    fireEvent.contextMenu(container.querySelector(".leaflet-container")!, { clientX: 40, clientY: 40 });
+    fireEvent.click(screen.getByTestId("map-add-menu-cs"));
+    fireEvent.change(screen.getByTestId("super-entity-name"), { target: { value: "N" } });
+    fireEvent.click(screen.getByTestId("super-entity-submit"));
+    rerender(<UnitProvider><InputMapTab mode="super" inputs={onInputsChange.mock.calls.at(-1)![0]} {...props} /></UnitProvider>);
+    // move
+    fireEvent.contextMenu(markers(container)[1]);
+    fireEvent.click(screen.getByTestId("map-action-move"));
+    fireEvent.click(container.querySelector(".leaflet-container")!, { clientX: 20, clientY: 20 });
+    fireEvent.click(screen.getByTestId("move-confirm-confirm"));
+    rerender(<UnitProvider><InputMapTab mode="super" inputs={onInputsChange.mock.calls.at(-1)![0]} {...props} /></UnitProvider>);
+    // copy
+    fireEvent.contextMenu(markers(container)[0]);
+    fireEvent.click(screen.getByTestId("map-action-copy"));
+    rerender(<UnitProvider><InputMapTab mode="super" inputs={onInputsChange.mock.calls.at(-1)![0]} {...props} /></UnitProvider>);
+    // delete (the parent applies the cascade; simulate it by dropping the row)
+    const last = onInputsChange.mock.calls.at(-1)![0] as SuperInputsLike;
+    rerender(<UnitProvider><InputMapTab mode="super" inputs={{ ...last, customers: last.customers.slice(1) }} {...props} /></UnitProvider>);
+    expect(onInputsChange).toHaveBeenCalledTimes(3);
+    expect(calls()).toBe(before);
+  });
+  it("the move dialog keeps identity: no regenerated code or nearest city is shown (decision b)", () => {
+    const { container } = mount();
+    fireEvent.contextMenu(markers(container)[1]);
+    fireEvent.click(screen.getByTestId("map-action-move"));
+    fireEvent.click(container.querySelector(".leaflet-container")!, { clientX: 20, clientY: 20 });
+    expect(screen.getByTestId("move-confirm-identity-note")).toHaveTextContent("ID, city and state stay unchanged");
+    expect(screen.queryByTestId("move-confirm-new-code")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("move-confirm-location")).not.toBeInTheDocument();
   });
   it("readOnly: no add menu, no action menu", () => {
     const { container } = mount(net(), true);
@@ -623,8 +662,7 @@ describe("SuperInputMap actions", () => {
       + sample.distanceOverrides.filter((r: { toId: string }) => r.toId === "customer-1").length;
     const cs = container.querySelectorAll('[data-testid="input-map-tab"] .leaflet-marker-icon.cs-marker');
     fireEvent.contextMenu(cs[0]);
-    fireEvent.click(screen.getByTestId("map-action-delete"));
-    fireEvent.click(screen.getByTestId("map-action-delete"));
+    fireEvent.click(screen.getByTestId("map-action-delete"));   // one click: the D3 dialog is the only confirmation
     expect(screen.getByTestId("super-delete-count")).toHaveTextContent(`This also deletes ${refs} referencing row(s).`);
     fireEvent.click(screen.getByTestId("super-delete-confirm-button"));
     expect(screen.getByTestId("button-save")).not.toBeDisabled();
@@ -633,7 +671,44 @@ describe("SuperInputMap actions", () => {
 
   (`sample.customers[0].id` is `customer-1`; customers render in array order.)
 
-- [ ] **Step 3: Run, expect FAIL:** `pnpm --filter studio exec vitest run src/__tests__/superNetwork.test.ts src/__tests__/SuperEntityDialog.test.tsx src/__tests__/SuperInputMap.test.tsx src/__tests__/Workspace.Super.test.tsx`
+  `src/__tests__/mapDialogOptions.test.tsx` — the two new props default to today's behaviour:
+
+```tsx
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
+import { MoveConfirmDialog } from "@/components/workspace/map/dialogs/MoveConfirmDialog";
+
+const entity = { kind: "wh" as const, entity: { id: "aw-1", displayCode: "WH-CA-FRESNO-01", city: "Fresno", state: "CA", lat: 36.7, lng: -119.8, isAdded: true } };
+
+describe("shared map dialogs keep their defaults", () => {
+  it("MapActionMenu still asks 'Confirm delete?' by default; confirmDelete={false} deletes on the first click", () => {
+    const onDelete = vi.fn();
+    const props = { entity, containerPoint: { x: 0, y: 0 }, onEdit: vi.fn(), onMove: vi.fn(), onCopy: vi.fn(), onDelete, onClose: vi.fn() };
+    const { unmount } = render(<MapActionMenu {...props} />);
+    fireEvent.click(screen.getByTestId("map-action-delete"));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByTestId("map-action-delete")).toHaveTextContent("Confirm delete?");
+    unmount();
+    render(<MapActionMenu {...props} confirmDelete={false} />);
+    fireEvent.click(screen.getByTestId("map-action-delete"));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+  it("MoveConfirmDialog shows the regenerated code by default and hides it with preserveIdentity", () => {
+    const props = { kind: "wh" as const, entity: { id: "aw-1", displayCode: "WH-CA-FRESNO-01" }, newLat: 34.05, newLng: -118.24, existingCodes: [], onConfirm: vi.fn(), onCancel: vi.fn() };
+    const { unmount } = render(<MoveConfirmDialog {...props} />);
+    expect(screen.getByTestId("move-confirm-new-code")).toBeInTheDocument();
+    unmount();
+    render(<MoveConfirmDialog {...props} preserveIdentity />);
+    expect(screen.queryByTestId("move-confirm-new-code")).not.toBeInTheDocument();
+    expect(screen.getByTestId("move-confirm-identity-note")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("move-confirm-confirm"));
+    expect(props.onConfirm).toHaveBeenCalledWith(expect.objectContaining({ lat: 34.05, lng: -118.24 }));
+  });
+});
+```
+
+- [ ] **Step 3: Run, expect FAIL:** `pnpm --filter studio exec vitest run src/__tests__/superNetwork.test.ts src/__tests__/SuperEntityDialog.test.tsx src/__tests__/SuperInputMap.test.tsx src/__tests__/Workspace.Super.test.tsx src/__tests__/mapDialogOptions.test.tsx`
 
 - [ ] **Step 4: Mutators** (append to `lib/superNetwork.ts`):
 
@@ -763,6 +838,33 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
 
   `onSubmit`'s expected object in the first test has no `city`/`state` keys; `undefined`-valued keys satisfy `toHaveBeenCalledWith` (`toEqual` semantics). `clean()` omits them on write.
 
+- [ ] **Step 5b: Shared dialog options (R13, decision b).** `MapActionMenu.tsx`: add to `MapActionMenuProps`
+
+```ts
+  /** SM2-2 — default true (today's two-step "Confirm delete?"). false: the first click calls onDelete because the
+   *  caller shows its own confirmation (Super's D3 cascade dialog states the referencing-row count). */
+  confirmDelete?: boolean;
+```
+  destructure `confirmDelete = true`, and make the delete action's `run`:
+```ts
+          run: () => {
+            if (!confirmDelete || confirmingDelete) onDelete();
+            else setConfirmingDelete(true);
+          },
+```
+  `MoveConfirmDialog.tsx`: add `/** SM2-2 — Super keeps id/city/state on a move (spec §6.1): hide the regenerated code and nearest city. */ preserveIdentity?: boolean;` to the props, destructure `preserveIdentity = false`, and replace the two-column code grid and the "New location" block (`:72-89`) with:
+
+```tsx
+          {preserveIdentity ? (
+            <p data-testid="move-confirm-identity-note">ID, city and state stay unchanged; only the coordinates move.</p>
+          ) : (
+            <>
+              {/* existing "Current code / New code" grid and "New location" block, unchanged */}
+            </>
+          )}
+```
+  (move the existing JSX verbatim into the fragment). The lat/lng grid and `onConfirm` payload are unchanged.
+
 - [ ] **Step 6: Actions in `SuperInputMap.tsx`.** Replace the Task-1 no-op handlers:
 
 ```tsx
@@ -817,7 +919,7 @@ import { LOC_TABLE, addLocation, copyLocation, demandOf, editLocation, moveLocat
 
 ```tsx
         {menu && (
-          <MapActionMenu entity={menu.entity} containerPoint={menu.containerPoint} onClose={() => setMenu(null)}
+          <MapActionMenu entity={menu.entity} containerPoint={menu.containerPoint} confirmDelete={false} onClose={() => setMenu(null)}
             onEdit={startEdit}
             onMove={() => { setArmedMove(menu.entity); setMenu(null); }}
             onCopy={() => { onInputsChange(copyLocation(inputs, menu.entity.kind, menu.entity.entity.id)); setMenu(null); }}
@@ -838,13 +940,13 @@ import { LOC_TABLE, addLocation, copyLocation, demandOf, editLocation, moveLocat
         <MoveConfirmDialog kind={moveTo.entity.kind}
           role={moveTo.entity.kind === "wh" ? JADE_WAREHOUSE_ROLE : moveTo.entity.kind === "pl" ? PLANT_ROLE : undefined}
           entity={{ id: moveTo.entity.entity.id, displayCode: moveTo.entity.entity.displayCode }}
-          newLat={moveTo.lat} newLng={moveTo.lng} existingCodes={takenIds}
+          newLat={moveTo.lat} newLng={moveTo.lng} existingCodes={takenIds} preserveIdentity
           onCancel={() => setMoveTo(null)}
           onConfirm={next => { onInputsChange(moveLocation(inputs, moveTo.entity.kind, moveTo.entity.entity.id, next.lat, next.lng)); setMoveTo(null); }} />
       )}
 ```
 
-  Move writes `lat`/`lng` only; the dialog's regenerated "New code" and nearest city are not written (open issue 4).
+  Move writes `lat`/`lng` only, and `preserveIdentity` keeps the dialog from previewing a code or city that is never written. Delete has exactly one confirmation: `confirmDelete={false}` makes the menu hand off on the first click, and Workspace's D3 dialog states the cascade count.
 
 - [ ] **Step 7: Workspace.** `SUPER_INPUT_TABS` (`:1269`) gains `"input-map"` first (toolbar Save on the map; there is no Layers-row Save for Super). The Task-1 mount becomes:
 
@@ -858,17 +960,17 @@ import { LOC_TABLE, addLocation, copyLocation, demandOf, editLocation, moveLocat
 
   The existing `AlertDialog` (`:4719-4740`) already computes `referencingRows` and applies `cascadeDelete` — reused as is (D3).
 
-- [ ] **Step 8: Run** the four files (PASS), then `pnpm gate`.
+- [ ] **Step 8: Run** the five files plus the existing map suites (`pnpm --filter studio exec vitest run src/__tests__/InputMapTab src/__tests__/InputMapV2`, PASS — defaults unchanged), then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 9: Commit** on `sm2-2-work`:
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
-git add artifacts/studio/src/components/workspace/super/SuperEntityDialog.tsx artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx
-git commit artifacts/studio/src/lib/superNetwork.ts artifacts/studio/src/components/workspace/super/SuperEntityDialog.tsx artifacts/studio/src/components/workspace/super/SuperInputMap.tsx artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/superNetwork.test.ts artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx artifacts/studio/src/__tests__/SuperInputMap.test.tsx artifacts/studio/src/__tests__/Workspace.Super.test.tsx docs/CHANGELOG-implementation.md -m "[SM2-2] edit the super-model network on the Input Map"
+git add artifacts/studio/src/components/workspace/super/SuperEntityDialog.tsx artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx artifacts/studio/src/__tests__/mapDialogOptions.test.tsx
+git commit artifacts/studio/src/components/workspace/map/MapActionMenu.tsx artifacts/studio/src/components/workspace/map/dialogs/MoveConfirmDialog.tsx artifacts/studio/src/__tests__/mapDialogOptions.test.tsx artifacts/studio/src/lib/superNetwork.ts artifacts/studio/src/components/workspace/super/SuperEntityDialog.tsx artifacts/studio/src/components/workspace/super/SuperInputMap.tsx artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/superNetwork.test.ts artifacts/studio/src/__tests__/SuperEntityDialog.test.tsx artifacts/studio/src/__tests__/SuperInputMap.test.tsx artifacts/studio/src/__tests__/Workspace.Super.test.tsx docs/CHANGELOG-implementation.md -m "[SM2-2] edit the super-model network on the Input Map"
 ```
 
 ---
-### Task 3 [SM2-3]: Structured 422 `issues` on network import; max-size measurement
+### Task 3 [SM2-3]: Structured 422 `issues`, duplicate rejection and collision-free keys on network import; max-size measurement
 
 Role: backend-engineer. Contract task: OpenAPI + Orval regen land in this commit (hard rule #1; "a change crossing a layer boundary is ONE commit").
 
@@ -876,7 +978,9 @@ Role: backend-engineer. Contract task: OpenAPI + Orval regen land in this commit
 - Modify: `artifacts/api-server/src/validation/formatInputIssues.ts:139-142` (add `InputIssue`, `toInputIssues`)
 - Modify: `artifacts/api-server/src/registry/modelRegistry.ts:130-150` (failure result gains `issues`)
 - Modify: `artifacts/api-server/src/services/scenarioInputWrite.ts:35-38, 86` (`invalid` outcome gains `issues`)
-- Modify: `artifacts/api-server/src/services/superNetwork.ts:19-30` (`mergeNetwork` returns `{ next, origin }`; `toDocIssues`)
+- Modify: `artifacts/api-server/src/services/superNetwork.ts:11-30` (collision-free `KEY`; `docDuplicateIssues`; `mergeNetwork` returns `{ next, origin }`; `toDocIssues`)
+- Modify: `artifacts/api-server/src/validation/inputs/superInputs.ts:46-56` (superRefine `dupes` uses collision-free composite keys — latent Phase 1 bug, P1)
+- Modify (only if Step 7's measurement exceeds the limit): `artifacts/api-server/src/app.ts:76-77`, `artifacts/api-server/src/validation/inputs/superInputs.ts` (`SUPER_NETWORK_MAX_BYTES`)
 - Modify: `artifacts/api-server/src/routes/superNetwork.ts:41-50`
 - Modify: `lib/api-spec/openapi.yaml:461-466` (import 422) + new schemas next to `ErrorEnvelope` (`:1073`); regen `lib/api-zod/src/generated`, `lib/api-client-react/src/generated`
 - Modify: `artifacts/api-server/src/__tests__/superNetworkImport.test.ts`
@@ -896,8 +1000,13 @@ Role: backend-engineer. Contract task: OpenAPI + Orval regen land in this commit
   export type MergeOrigin = Partial<Record<keyof typeof superTableSchemas, (number | null)[]>>;
   export function mergeNetwork(current: SuperInputs, doc: SuperNetworkDoc, mode: "replace" | "merge"): { next: Record<string, unknown>; origin: MergeOrigin };
   export function toDocIssues(issues: InputIssue[], origin: MergeOrigin): InputIssue[];
+  /** R4: duplicate keys INSIDE the imported document, per table (location ids across plants+warehouses+customers), document-relative. */
+  export function docDuplicateIssues(doc: SuperNetworkDoc): InputIssue[];
+  // superInputs.ts — the one composite-key encoding (P1): JSON.stringify([a, b]) cannot collide for any id strings
+  export const pairKey: (a: string, b: string) => string;
   ```
-- Wire: network-import 422 body `{ error: string, issues: InputIssue[] }` (OpenAPI `NetworkImportRejection`). `issues` paths are **document-relative**: `path[1]` indexes the imported table's rows, never the merged table (open issue 2). An issue on a pre-existing row that the import did not mention is reported with `path: [table]` and a message prefixed `Existing <table> row <n>:`.
+- Wire: network-import 422 body `{ error: string, issues: InputIssue[] }` (OpenAPI `NetworkImportRejection`). `issues` paths are **document-relative**: `path[1]` indexes the imported table's rows, never the merged table. An issue on a pre-existing row that the import did not mention is reported with `path: [table]` and a message prefixed `Existing <table> row <n>:`. Order of checks: document schema → in-document duplicates (R4, both modes) → merge → whole-network validation; each failure writes nothing.
+- Decision a (awaiting user; this plan's default): duplicates inside the imported document are rejected, never last-wins.
 - Consumed by Task 5 (`describeIssue`).
 
 - [ ] **Step 1: Failing tests** (append to `superNetworkImport.test.ts`):
@@ -925,58 +1034,124 @@ Role: backend-engineer. Contract task: OpenAPI + Orval regen land in this commit
     expect(res.body.issues).toContainEqual({ path: ["demand", 0, "productId"], message: 'Unknown product "nope"' });
     expect(res.body.issues.some((i: { path: unknown[] }) => i.path[1] === sample.demand.length)).toBe(false);
   });
+  it("SM2-3 (P3): a replaced row keeps its merged index; a new row's issue still maps to ITS document row", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const replaced = { ...sample.demand.find((d: { customerId: string; productId: string }) => d.customerId === "customer-2" && d.productId === "product-1"), demand: 5 };
+    const res = await imp(id, "merge", { demand: [replaced, { customerId: "customer-1", productId: "nope", demand: 1 }] });
+    expect(res.status).toBe(422);
+    expect(res.body.issues).toContainEqual({ path: ["demand", 1, "productId"], message: 'Unknown product "nope"' });
+  });
+  it("SM2-3 (P3): an issue on a kept existing row is table-level, and mixed tables each map", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const res = await imp(id, "merge", {
+      plants: [{ id: "customer-1", name: "clash", lat: 1, lng: 1 }],                 // collides with an EXISTING customer id
+      demand: [{ customerId: "customer-3", productId: "nope", demand: 1 }],
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.issues).toContainEqual({ path: ["customers"], message: 'Existing customers row 1: Duplicate location id "customer-1"' });
+    expect(res.body.issues).toContainEqual({ path: ["demand", 0, "productId"], message: 'Unknown product "nope"' });
+  });
+  it.each([
+    ["products", { products: [{ id: "k", name: "a" }, { id: "k", name: "b" }] }, ["products", 1, "id"]],
+    ["plants vs customers", { plants: [{ id: "x", name: "p", lat: 1, lng: 1 }], customers: [{ id: "x", name: "c", lat: 1, lng: 1 }] }, ["customers", 0, "id"]],
+    ["plantProducts", { plantProducts: [{ plantId: "plant-1", productId: "product-1", capacity: 1, costPerUnit: 0 }, { plantId: "plant-1", productId: "product-1", capacity: 2, costPerUnit: 0 }] }, ["plantProducts", 1]],
+    ["demand", { demand: [{ customerId: "customer-1", productId: "product-1", demand: 1 }, { customerId: "customer-1", productId: "product-1", demand: 2 }] }, ["demand", 1]],
+    ["distanceOverrides", { distanceOverrides: [{ fromId: "wh-1", toId: "customer-1", miles: 1 }, { fromId: "wh-1", toId: "customer-1", miles: 2 }] }, ["distanceOverrides", 1]],
+  ])("SM2-3 (R4): merge rejects a duplicate %s key inside the document, writes nothing", async (_t, doc, path) => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const before = (await get(id)).inputs;
+    const res = await imp(id, "merge", doc);
+    expect(res.status).toBe(422);
+    expect(res.body.issues.map((i: { path: unknown[] }) => i.path)).toContainEqual(path);
+    expect((await get(id)).inputs).toEqual(before);
+  });
+  it("SM2-3 (P1): ids containing the old '|' delimiter neither collide nor merge into each other", async () => {
+    const id = await createEmptySuper();
+    const doc = {
+      products: [{ id: "b|c", name: "x" }, { id: "c", name: "y" }],
+      plants: [{ id: "a", name: "a", lat: 1, lng: 1 }, { id: "a|b", name: "ab", lat: 2, lng: 2 }],
+      warehouses: [{ id: "w|x", name: "w", lat: 3, lng: 3, status: "active" }, { id: "w", name: "w2", lat: 4, lng: 4, status: "active" }],
+      customers: [{ id: "x|y", name: "c", lat: 5, lng: 5, status: "active" }, { id: "y", name: "c2", lat: 6, lng: 6, status: "active" }],
+      // "a"+"b|c" and "a|b"+"c" were the same string under `${a}|${b}`
+      plantProducts: [{ plantId: "a", productId: "b|c", capacity: 1, costPerUnit: 0 }, { plantId: "a|b", productId: "c", capacity: 2, costPerUnit: 0 }],
+      demand: [{ customerId: "x|y", productId: "c", demand: 1 }, { customerId: "y", productId: "b|c", demand: 2 }],
+      distanceOverrides: [{ fromId: "w", toId: "x|y", miles: 1 }, { fromId: "w|x", toId: "y", miles: 2 }],
+    };
+    const res = await imp(id, "replace", doc);
+    expect(res.status).toBe(200);                                       // superRefine no longer reports false duplicates
+    const merged = await imp(id, "merge", { plantProducts: [{ plantId: "a", productId: "b|c", capacity: 9, costPerUnit: 0 }] }).expect(200);
+    expect(merged.body.scenario.inputs.plantProducts).toEqual([
+      { plantId: "a", productId: "b|c", capacity: 9, costPerUnit: 0 }, { plantId: "a|b", productId: "c", capacity: 2, costPerUnit: 0 }]);
+  });
 ```
 
-  Non-vacuity: before Step 3 the merge test must fail on `path[1] === 400`, not only on a missing `issues` key — after implementing, temporarily return `outcome.issues` untranslated and confirm it fails; restore.
+  `(demand "customer-1"/"customer-2" × "product-1" rows exist in the sample: it has a row for every customer × product.)` Under the Phase 1 `${a}|${b}` keys the P1 test fails twice: superRefine reports `Duplicate plant-product row` (and demand / override) on the replace, and the merge overwrites the wrong row — run it before Step 4 and record both failures.
 
-  `src/__tests__/superMaxSize.test.ts` (same register/create/imp helpers as `superNetworkImport.test.ts:21-42`, copied, prefix `sm2-3-`):
+  Non-vacuity: the merge test must fail on `path[1] === 400`, not only on a missing `issues` key — after implementing, temporarily return `outcome.issues` untranslated and confirm it fails; restore.
+
+  `src/__tests__/superMaxSize.test.ts` (same register/create/imp helpers as `superNetworkImport.test.ts:21-42`, copied, prefix `sm2-3-`). R1: the largest valid request depends on the product count (the `whCustProd` cap trades customers against products), so several boundary combinations are measured and the largest is asserted.
 
 ```ts
 import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
 import { SUPER_CAPS, SUPER_DEFAULT_INPUTS, superInputsSchema } from "../validation/inputs/superInputs.js";
 
-/** §3.3 worst case for request bytes: 20 plants, 50 warehouses, 500 customers, 2 products
- *  (50 × 500 × 2 = 50,000 = whCustProd), every plant→WH and WH→customer pair overridden (26,000),
- *  every demand cell filled, sample-style ids and full-precision floats. String lengths are
- *  unbounded in the schema, so this is a defined realistic worst case, not a proof for every network. */
-function maxNetwork() {
+/** A network at the §3.3 caps for `products` products: 20 plants, 50 warehouses, as many customers as
+ *  whCustProd allows (≤ 500), every plant→WH and WH→customer pair overridden, every plant×product and
+ *  customer×product row filled, sample-style ids and full-precision floats. String lengths are unbounded
+ *  in the schema, so this is a defined realistic worst case, not a proof for every network. */
+function capsNetwork(products: number) {
   const f = (i: number) => Math.sqrt(i + 2) * 97.31;          // ~17 significant digits, deterministic
   const loc = (p: string, i: number) => ({ id: `${p}-${i}`, name: `${p} ${i} Springfield`, city: "Springfield", state: "MO",
     lat: 25 + (f(i) % 24), lng: -124 + (f(i + 7) % 57) });
+  const nCust = Math.min(SUPER_CAPS.customers, Math.floor(SUPER_CAPS.whCustProd / (SUPER_CAPS.warehouses * products)));
   const plants = Array.from({ length: SUPER_CAPS.plants }, (_, i) => loc("plant", i + 1));
   const warehouses = Array.from({ length: SUPER_CAPS.warehouses }, (_, i) => ({ ...loc("wh", i + 1), status: "active" }));
-  const customers = Array.from({ length: SUPER_CAPS.customers }, (_, i) => ({ ...loc("customer", i + 1), status: "active" }));
-  const products = [{ id: "product-1", name: "Product 1" }, { id: "product-2", name: "Product 2" }];
+  const customers = Array.from({ length: nCust }, (_, i) => ({ ...loc("customer", i + 1), status: "active" }));
+  const prods = Array.from({ length: products }, (_, i) => ({ id: `product-${i + 1}`, name: `Product ${i + 1}` }));
   let k = 0;
   return {
-    ...SUPER_DEFAULT_INPUTS, p: 10, products, plants, warehouses, customers,
-    plantProducts: plants.flatMap(p => products.map(q => ({ plantId: p.id, productId: q.id, capacity: f(k++) * 1e6, costPerUnit: f(k++) }))),
-    demand: customers.flatMap(c => products.map(q => ({ customerId: c.id, productId: q.id, demand: f(k++) * 100 }))),
+    ...SUPER_DEFAULT_INPUTS, p: 10, products: prods, plants, warehouses, customers,
+    plantProducts: plants.flatMap(p => prods.map(q => ({ plantId: p.id, productId: q.id, capacity: f(k++) * 1e6, costPerUnit: f(k++) }))),
+    demand: customers.flatMap(c => prods.map(q => ({ customerId: c.id, productId: q.id, demand: f(k++) * 100 }))),
     distanceOverrides: [
       ...plants.flatMap(a => warehouses.map(b => ({ fromId: a.id, toId: b.id, miles: f(k++) * 10 }))),
       ...warehouses.flatMap(a => customers.map(b => ({ fromId: a.id, toId: b.id, miles: f(k++) * 10 }))),
     ],
   };
 }
+const COMBOS = [1, 2, 5, 10];   // customers 500, 500, 200, 100; overrides 26,000, 26,000, 11,000, 6,000
 
 describe("SM2-3 max-size network vs MAX_IMPORT_BYTES", () => {
   it("setup", async () => { cookie = await registerAndGetCookie(); });
-  it("is valid at the caps, fits the limit, and imports", async () => {
-    const doc = maxNetwork();
-    expect(superInputsSchema.safeParse(doc).success).toBe(true);
-    expect(doc.distanceOverrides).toHaveLength(26_000);
-    const bytes = Buffer.byteLength(JSON.stringify(doc));
-    console.log(`SM2-3 max-size network: ${bytes} bytes; MAX_IMPORT_BYTES ${MAX_IMPORT_BYTES}`);
-    expect(bytes).toBeLessThan(MAX_IMPORT_BYTES);
+  it("every boundary combination is valid at the caps; the largest fits the limit and imports", async () => {
+    const sized = COMBOS.map(n => {
+      const doc = capsNetwork(n);
+      expect(superInputsSchema.safeParse(doc).success).toBe(true);
+      const bytes = Buffer.byteLength(JSON.stringify(doc));
+      console.log(`SM2-3 caps network, ${n} product(s), ${doc.customers.length} customers, ${doc.distanceOverrides.length} overrides: ${bytes} bytes`);
+      return { n, doc, bytes };
+    });
+    const largest = sized.reduce((a, b) => (b.bytes > a.bytes ? b : a));
+    console.log(`SM2-3 largest: ${largest.n} product(s), ${largest.bytes} bytes; MAX_IMPORT_BYTES ${MAX_IMPORT_BYTES}`);
+    expect(largest.bytes).toBeLessThan(MAX_IMPORT_BYTES);
     const id = await createEmptySuper();
-    const res = await imp(id, "replace", doc);
+    const res = await imp(id, "replace", largest.doc);
     expect(res.status).toBe(200);
-    expect(res.body.scenario.inputs.distanceOverrides).toHaveLength(26_000);
+    expect(res.body.scenario.inputs.distanceOverrides).toHaveLength(largest.doc.distanceOverrides.length);
+  });
+  it("R2: the Studio's Save path (PATCH, same body limit) accepts the largest network too", async () => {
+    const largest = COMBOS.map(capsNetwork).reduce((a, b) => (JSON.stringify(b).length > JSON.stringify(a).length ? b : a));
+    const id = await createEmptySuper();
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie).send({ inputs: largest });
+    expect(res.status).toBe(200);
   });
 });
 ```
 
-  A pre-plan estimate of this shape (Python, same counts, random full-precision floats) measured **1,913,859 B** against 2,097,152 — record the number this test prints, not that estimate.
+  A pre-plan estimate of the 2-product shape (Python, same counts, random full-precision floats) measured **1,913,859 B** against 2,097,152 — record the numbers this test prints for every combination, not that estimate.
 
 - [ ] **Step 2: Run, expect FAIL** (no `issues`): `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server exec vitest run src/__tests__/superNetworkImport.test.ts src/__tests__/superMaxSize.test.ts`
 
@@ -1006,10 +1181,57 @@ export type ValidateInputsResult =
 
   Run `pnpm run typecheck`; any other constructor of these types (test mocks included) gets `issues: []`.
 
-- [ ] **Step 4: Origin map** (`services/superNetwork.ts`):
+- [ ] **Step 4a: Collision-free composite keys (P1).** `superInputs.ts`, above the schema:
 
 ```ts
-import type { InputIssue } from "../validation/formatInputIssues.js";
+/** The one composite-key encoding for (plantId, productId), (customerId, productId), (fromId, toId).
+ *  JSON.stringify([a, b]) is injective for any two strings; `${a}|${b}` was not ("a"+"b|c" == "a|b"+"c"). */
+export const pairKey = (a: string, b: string): string => JSON.stringify([a, b]);
+```
+  In `superRefine` (`:45-56`), `dupes` takes a display label separately from the key:
+
+```ts
+  const dupes = (rows: { key: string; label: string; path: (string | number)[] }[], what: string) => {
+    const seen = new Set<string>();
+    for (const r of rows) { if (seen.has(r.key)) issue(r.path, `Duplicate ${what} "${r.label}"`); seen.add(r.key); }
+  };
+  dupes([...v.plants.map((r, i) => ({ key: r.id, label: r.id, path: ["plants", i, "id"] })),
+         ...v.warehouses.map((r, i) => ({ key: r.id, label: r.id, path: ["warehouses", i, "id"] })),
+         ...v.customers.map((r, i) => ({ key: r.id, label: r.id, path: ["customers", i, "id"] }))], "location id");
+  dupes(v.products.map((r, i) => ({ key: r.id, label: r.id, path: ["products", i, "id"] })), "product id");
+  dupes(v.plantProducts.map((r, i) => ({ key: pairKey(r.plantId, r.productId), label: `${r.plantId} / ${r.productId}`, path: ["plantProducts", i] })), "plant-product row");
+  dupes(v.demand.map((r, i) => ({ key: pairKey(r.customerId, r.productId), label: `${r.customerId} / ${r.productId}`, path: ["demand", i] })), "demand row");
+  dupes(v.distanceOverrides.map((r, i) => ({ key: pairKey(r.fromId, r.toId), label: `${r.fromId} → ${r.toId}`, path: ["distanceOverrides", i] })), "distance override");
+```
+  `grep -rn 'Duplicate plant-product row\|Duplicate demand row\|Duplicate distance override' artifacts/api-server/src` — update any asserted message text to the new `a / b` label.
+
+- [ ] **Step 4b: Keys, in-document duplicates, origin map** (`services/superNetwork.ts`). Replace `KEY` (`:11-16`):
+
+```ts
+import { pairKey } from "../validation/inputs/superInputs.js";
+const KEY: Record<Table, (r: Record<string, unknown>) => string> = {
+  products: r => String(r.id), plants: r => String(r.id), warehouses: r => String(r.id), customers: r => String(r.id),
+  plantProducts: r => pairKey(String(r.plantId), String(r.productId)), demand: r => pairKey(String(r.customerId), String(r.productId)),
+  distanceOverrides: r => pairKey(String(r.fromId), String(r.toId)),
+};
+const LOCATION_TABLES = new Set<Table>(["plants", "warehouses", "customers"]);
+
+/** R4 (spec §7.3): a key repeated inside the imported document is an error in both modes, never last-wins.
+ *  Location ids share one namespace (§3.3 global uniqueness); every later occurrence is reported. */
+export function docDuplicateIssues(doc: SuperNetworkDoc): InputIssue[] {
+  const issues: InputIssue[] = [];
+  const seen = new Map<string, string>();                    // namespaced key -> "table row n" of first occurrence
+  for (const t of Object.keys(KEY) as Table[]) {
+    const rows = doc[t] as Record<string, unknown>[] | undefined;
+    rows?.forEach((r, i) => {
+      const ns = `${LOCATION_TABLES.has(t) ? "location" : t}:${KEY[t](r)}`;
+      const first = seen.get(ns);
+      if (first) issues.push({ path: LOCATION_TABLES.has(t) || t === "products" ? [t, i, "id"] : [t, i], message: `Duplicate key in the imported file (first at ${first})` });
+      else seen.set(ns, `${t} row ${i + 1}`);
+    });
+  }
+  return issues;
+}
 
 export type MergeOrigin = Partial<Record<Table, (number | null)[]>>;
 
@@ -1019,13 +1241,13 @@ export function mergeNetwork(current: SuperInputs, doc: SuperNetworkDoc, mode: "
   if (mode === "replace") return { next: { ...SUPER_DEFAULT_INPUTS, ...doc }, origin: {} };
   const next: Record<string, unknown> = { ...current };
   const origin: MergeOrigin = {};
-  for (const [k, v] of Object.entries(doc)) {
-    if (!(k in KEY)) { next[k] = v; continue; }
-    const t = k as Table, key = KEY[t];
+  for (const [k, v] of Object.entries(doc)) if (!(k in KEY)) next[k] = v;                 // parameters: overwrite
+  for (const t of Object.keys(KEY) as Table[]) {                                          // EVERY table gets an origin, so an
+    const key = KEY[t];                                                                   // issue on a table absent from the
     const rows = new Map((current[t] as Record<string, unknown>[]).map(r => [key(r), { r, src: null as number | null }]));
-    (v as Record<string, unknown>[]).forEach((r, i) => rows.set(key(r), { r, src: i }));   // Map.set keeps an existing key's position
-    next[t] = [...rows.values()].map(x => x.r);
-    origin[t] = [...rows.values()].map(x => x.src);
+    ((doc[t] as Record<string, unknown>[] | undefined) ?? []).forEach((r, i) => rows.set(key(r), { r, src: i }));  // document maps to "Existing"
+    next[t] = [...rows.values()].map(x => x.r);                                           // (Map.set keeps an existing key's position;
+    origin[t] = [...rows.values()].map(x => x.src);                                       //  in-document duplicates were rejected before)
   }
   return { next, origin };
 }
@@ -1049,6 +1271,11 @@ export function toDocIssues(issues: InputIssue[], origin: MergeOrigin): InputIss
 ```ts
   const doc = superNetworkDocSchema.safeParse(req.body);
   if (!doc.success) { res.status(422).json({ error: formatInputIssues(doc.error.issues), issues: toInputIssues(doc.error.issues) }); return; }
+  const dupIssues = docDuplicateIssues(doc.data);
+  if (dupIssues.length > 0) {
+    res.status(422).json({ error: dupIssues.map(i => `${i.path[0]} row ${Number(i.path[1]) + 1}: ${i.message}.`).join(" "), issues: dupIssues });
+    return;
+  }
   let origin: MergeOrigin = {};
   const outcome = await db.transaction(async tx => {
     const [cur] = await tx.select().from(scenariosTable)
@@ -1061,6 +1288,8 @@ export function toDocIssues(issues: InputIssue[], origin: MergeOrigin): InputIss
   if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
   if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error, issues: toDocIssues(outcome.issues, origin) }); return; }
 ```
+
+  The route's own `SELECT … FOR UPDATE` followed by `applyScenarioInputWrite`'s locked select is kept deliberately (R9 rejected): re-locking a row the same transaction already holds is a no-op in Postgres, it is the existing Phase 1 pattern (`routes/superNetwork.ts:42-47`), and it keeps `applyScenarioInputWrite` the single write path.
 
 - [ ] **Step 6: OpenAPI.** Under `components.schemas` (next to `ErrorEnvelope`, `:1073`):
 
@@ -1092,13 +1321,13 @@ export function toDocIssues(issues: InputIssue[], origin: MergeOrigin): InputIss
 
   Import path 422 (`:461-466`): `$ref: "#/components/schemas/NetworkImportRejection"`. Run `pnpm --filter @workspace/api-spec run codegen`. If its `typecheck:libs` step reports an ambiguous star export (TS2308), add the colliding name to the explicit `export type { … } from "./generated/types";` list in `lib/api-zod/src/index.ts`, as SM-6 did.
 
-- [ ] **Step 7: Run** the two files (PASS) and record the printed byte count in the changelog entry. **If the byte count is ≥ `MAX_IMPORT_BYTES`**: in `routes/superNetwork.ts` replace `json({ limit: MAX_IMPORT_BYTES })` with `json({ limit: SUPER_NETWORK_MAX_BYTES })`, add `export const SUPER_NETWORK_MAX_BYTES = 4 * 1024 * 1024;` to `validation/inputs/superInputs.ts`, make `app.ts:76-77`'s `scenarioWriteJsonBody` use the same constant (the Studio PATCH carries the same network), update the 413 description in `openapi.yaml:455` and the Studio check in Task 5 to import this constant, and assert `bytes < SUPER_NETWORK_MAX_BYTES` instead. Then `pnpm gate`.
+- [ ] **Step 7: Run** the two files (PASS) and record every printed byte count in the changelog entry. **If the largest is ≥ `MAX_IMPORT_BYTES`**: in `routes/superNetwork.ts` replace `json({ limit: MAX_IMPORT_BYTES })` with `json({ limit: SUPER_NETWORK_MAX_BYTES })`, add `export const SUPER_NETWORK_MAX_BYTES = 4 * 1024 * 1024;` to `validation/inputs/superInputs.ts`, make `app.ts:76-77`'s `scenarioWriteJsonBody` use the same constant (the Studio PATCH carries the same network), update the 413 description in `openapi.yaml:455` and the Studio check in Task 5 to import this constant, and assert `largest.bytes < SUPER_NETWORK_MAX_BYTES` instead; the import test and the PATCH (R2) test above then prove both raised limits. Then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 8: Commit** on `sm2-3-work`:
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
 git add artifacts/api-server/src/__tests__/superMaxSize.test.ts lib/api-zod/src/generated lib/api-client-react/src/generated
-git commit artifacts/api-server/src/validation/formatInputIssues.ts artifacts/api-server/src/registry/modelRegistry.ts artifacts/api-server/src/services/scenarioInputWrite.ts artifacts/api-server/src/services/superNetwork.ts artifacts/api-server/src/routes/superNetwork.ts artifacts/api-server/src/__tests__/superNetworkImport.test.ts artifacts/api-server/src/__tests__/superMaxSize.test.ts lib/api-spec/openapi.yaml lib/api-zod lib/api-client-react/src/generated docs/CHANGELOG-implementation.md -m "[SM2-3] return document-relative 422 issues from network import and measure the max network"
+git commit artifacts/api-server/src/app.ts artifacts/api-server/src/validation/inputs/superInputs.ts artifacts/api-server/src/validation/formatInputIssues.ts artifacts/api-server/src/registry/modelRegistry.ts artifacts/api-server/src/services/scenarioInputWrite.ts artifacts/api-server/src/services/superNetwork.ts artifacts/api-server/src/routes/superNetwork.ts artifacts/api-server/src/__tests__/superNetworkImport.test.ts artifacts/api-server/src/__tests__/superMaxSize.test.ts lib/api-spec/openapi.yaml lib/api-zod lib/api-client-react/src/generated docs/CHANGELOG-implementation.md -m "[SM2-3] return document-relative network-import issues, reject in-file duplicates, measure the max network"
 ```
 
 ---
@@ -1119,7 +1348,7 @@ Role: frontend-engineer.
   export type TableKey = "products" | "plants" | "warehouses" | "customers" | "plantProducts" | "demand" | "distanceOverrides";
   export const SUPER_TABLE_FILES: { key: TableKey; file: string; cols: Col[] }[];
   export const PARAMETER_KEYS: readonly string[];
-  export interface Source { source: string; rows: number[] }       // rows[i] = 1-based file row of document row i
+  export interface Source { source: string; headerRow: number; rows: number[] }   // 1-based: header row; rows[i] = file row of document row i
   export type Sources = Record<string, Source>;                      // table key, or parameter key ("p", "transportCosts.icMinTrans")
   export interface ParseError { where: string; message: string }
   export type ParseResult = { ok: true; doc: Record<string, unknown>; sources: Sources } | { ok: false; errors: ParseError[] };
@@ -1131,25 +1360,49 @@ Role: frontend-engineer.
   export function toXlsx(doc: Record<string, unknown>): Promise<ArrayBuffer>;
   export function describeIssue(issue: { path: (string | number)[]; message: string }, sources: Sources): string;
   ```
+- **`describeIssue` contract (P2, P4 — the test and the code below implement exactly this, no `+ 2` fallback):**
+  - parameter issue (`path[0]` a parameter key, or `transportCosts` + sub-key) → `<source> row <r>: <message>`
+  - table issue with a numeric `path[1]` that the row map holds → `<source> row <r>[ column <path[2]>]: <message>`
+  - table issue without a numeric `path[1]` (e.g. `["demand"]` from the server's "Existing …" rewrite, or `["warehouses"]` for a cap) → `<source>: <message>`
+  - numeric `path[1]` the row map does not hold → `<source> (unmapped row index <i>): <message>` (a diagnostic, never a guessed row)
+  - no source for `path[0]` (table absent from the import) → `<path joined with ".">: <message>`
 - Produces (`clientCsv.ts`): `export function downloadBlob(filename: string, data: BlobPart, mimeType: string): void` (and `downloadTextFile` delegates to it).
 - Consumes: `csvCell`/`csvText` (`clientCsv.ts:5-15`).
 
-- [ ] **Step 1: Choose the XLSX and zip libraries — measure, then record.** Run and paste the output into the changelog entry:
+- [ ] **Step 1: Decide the libraries first — before any parser code (S6).** Decision d is awaiting the user: **SheetJS from `cdn.sheetjs.com` (this plan's recommended default, and the code below)** vs npm-registry `read-excel-file` + `write-excel-file`. If the user picks the npm pair, or any check below rules SheetJS out, **STOP and return to the lead for a re-plan** of `parseXlsx`/`toXlsx`; do not improvise. Zip is **fflate** either way (0 deps; jszip pulls 4 incl. `readable-stream`); exceljs is out (Node-oriented runtime deps `tmp`, `archiver`, `unzipper`, `fast-csv`).
+
+  Run each command and paste its output into the changelog entry (R10: `pnpm`, never `npm`):
 
 ```bash
-for p in read-excel-file write-excel-file exceljs fflate jszip papaparse; do echo "== $p"; npm view $p version time.modified dependencies --json; done
-curl -sI https://cdn.sheetjs.com/ | head -3
-curl -s https://cdn.sheetjs.com/ | grep -o 'xlsx-[0-9.]*\.tgz' | sort -u | tail -3
-pnpm audit --json > /tmp/sm2-4-audit-before.json; node -e 'const a=require("/tmp/sm2-4-audit-before.json");console.log(a.metadata?.vulnerabilities)'
+pnpm --version                                                   # must print 9.15.9 (root packageManager); else `corepack use pnpm@9.15.9`
+for p in fflate papaparse @types/papaparse read-excel-file write-excel-file; do pnpm view "$p" version dist.integrity time.modified --json; done
+curl -s https://cdn.sheetjs.com/ | grep -o 'xlsx-[0-9.]*/xlsx-[0-9.]*\.tgz' | sort -uV | tail -1   # newest CDN release
+V=0.20.3   # set to the newest version printed above
+curl -sL "https://cdn.sheetjs.com/xlsx-$V/xlsx-$V.tgz" -o "$TMPDIR/xlsx-$V.tgz"
+openssl dgst -sha512 -binary "$TMPDIR/xlsx-$V.tgz" | base64      # record as sha512-<value>
+tar -xOzf "$TMPDIR/xlsx-$V.tgz" package/package.json | grep -E '"(version|license)"'
+tar -tzf "$TMPDIR/xlsx-$V.tgz" | grep -iE 'LICENSE|NOTICE'
+pnpm audit --json > "$TMPDIR/sm2-4-audit-before.json"; node -e 'console.log(require(process.argv[1]).metadata.vulnerabilities)' "$TMPDIR/sm2-4-audit-before.json"
 ```
 
-  Decision rule (apply in order; the code below is written for the first outcome):
-  1. **SheetJS from `cdn.sheetjs.com`, version ≥ 0.20.2** — one package reads and writes, exposes cell types `t: "s"|"n"|"b"|"d"|"e"` and formula cached values (`v` with `f`), which §7.2's cell rules need directly. Rejected only if the CDN is unreachable from this machine, or the version on the CDN is < 0.20.2 (the npm `xlsx@0.18.5` is stale and carries the 0.19.3 / 0.20.2 advisories — never install it from the registry). Note in the changelog that `pnpm audit` does not cover tarball-URL dependencies, so its advisories must be read from the SheetJS site.
-  2. **exceljs** — rejected for the browser: its runtime deps (`tmp`, `archiver`, `unzipper`, `fast-csv`, `readable-stream`, checked 2026-10-23) are Node-oriented.
-  3. **read-excel-file + write-excel-file** — two packages (spec §7.2 says one); only if SheetJS is ruled out, and only after confirming `read-excel-file` reports date/error/formula-without-value cells distinctly. If it is chosen, **stop and report to the lead**: `parseXlsx`/`toXlsx` below are SheetJS-specific and need a re-plan of those two functions only.
-  - Zip: **fflate** (0 deps; `zipSync`/`strToU8`) over jszip (4 deps incl. `readable-stream`).
+  Accept SheetJS only if all hold, and record each:
+  - **Version ≥ 0.20.2** (the 0.19.3 / 0.20.2 advisories; never the stale registry `xlsx@0.18.5`). Read `https://cdn.sheetjs.com/advisories/` and record that the chosen version is listed as unaffected. `pnpm audit` does not cover a tarball-URL dependency, so this manual advisory review is the audit for it.
+  - **Release age:** the CDN version, and the exact `fflate` / `papaparse` / `@types/papaparse` versions, were published more than 1,440 minutes ago (`pnpm-workspace.yaml` `minimumReleaseAge: 1440`; `time.modified` above / the CDN release date). **Do not weaken `minimumReleaseAge` or add a `minimumReleaseAgeExclude` entry**; if pnpm refuses a version for age, pick the previous release. The CDN tarball is a **documented, reviewed exception** to the registry-only norm: record the exact URL, sha512, license (Apache-2.0 expected) and NOTICE presence, and the upstream release URL (`https://git.sheetjs.com/sheetjs/sheetjs/releases`).
 
-  Install (devDependencies, the studio convention): `pnpm --filter studio add -D https://cdn.sheetjs.com/xlsx-<version>/xlsx-<version>.tgz fflate@<version> papaparse@^5.4.1 @types/papaparse@^5.3.14` (papaparse is already in the lockfile via `lib/import-schema`; the studio needs its own entry under pnpm's strict layout). Re-run the audit command to `/tmp/sm2-4-audit-after.json` and record both `vulnerabilities` objects; any new high/critical ⇒ stop and report.
+  Install exact versions (no ranges; studio convention is devDependencies because Vite bundles them):
+```bash
+pnpm --filter studio add -D "xlsx@https://cdn.sheetjs.com/xlsx-$V/xlsx-$V.tgz" fflate@<exact> papaparse@<exact> @types/papaparse@<exact>
+grep -n -A40 "^  artifacts/studio:" pnpm-lock.yaml | grep -E "xlsx|fflate|papaparse|@types/papaparse"   # four DIRECT importer entries
+grep -n -A4 "xlsx@https://cdn.sheetjs.com" pnpm-lock.yaml                                            # resolution carries integrity = the sha512 above
+pnpm audit --json > "$TMPDIR/sm2-4-audit-after.json"; node -e 'console.log(require(process.argv[1]).metadata.vulnerabilities)' "$TMPDIR/sm2-4-audit-after.json"
+```
+  Any new high/critical in the after-audit ⇒ stop and report. Then prove a clean install from the committed manifests (S5):
+```bash
+D="$TMPDIR/sm2-4-fresh"; rm -rf "$D"; mkdir -p "$D"
+git ls-files -z | rsync -a --from0 --files-from=- ./ "$D/"          # tracked files at their working-tree content (incl. the edited lockfile)
+(cd "$D" && pnpm install --frozen-lockfile) && echo FRESH_INSTALL_OK
+```
+  `FRESH_INSTALL_OK` must print (no `node_modules`, no store shortcuts beyond pnpm's own).
 
 - [ ] **Step 2: Failing tests** (`src/__tests__/superFiles.test.ts`):
 
@@ -1192,13 +1445,21 @@ describe("format parity and round-trip (real writer, not a hand-built fixture)",
     expect(ok(parseCsvFiles(toCsvFiles(doc))).doc.products).toEqual(doc.products);
     expect(ok(await parseXlsx(await toXlsx(doc))).doc.products).toEqual(doc.products);
   });
+  it("R3: numeric-looking strings in text columns round-trip unchanged (clientCsv leaves a finite number unguarded)", async () => {
+    const doc = { products: [{ id: "-5", name: "+1" }, { id: "101", name: "=2" }] };
+    const text = toCsvFiles(doc).find(f => f.name === "products.csv")!.text;
+    expect(text).toContain("-5,+1");                           // no prefix: a finite number cannot carry a formula
+    expect(text).toContain("'=2");                             // "=2" is not a finite number, so it is guarded
+    expect(ok(parseCsvFiles(toCsvFiles(doc))).doc.products).toEqual(doc.products);
+    expect(ok(await parseXlsx(await toXlsx(doc))).doc.products).toEqual(doc.products);
+  });
 });
 
 describe("cell coercion", () => {
   it("numeric-looking ids stay text; numeric columns parse; empty optional omitted; empty rows skipped", () => {
     const r = ok(csv({ "plants.csv": "id,name,city,lat,lng\n101,P,,1.5,-2\n,,,,\n102,Q,Town,3,4\n" }));
     expect(r.doc.plants).toEqual([{ id: "101", name: "P", lat: 1.5, lng: -2 }, { id: "102", name: "Q", city: "Town", lat: 3, lng: 4 }]);
-    expect(r.sources.plants.rows).toEqual([2, 4]);
+    expect(r.sources.plants).toEqual({ source: "plants.csv", headerRow: 1, rows: [2, 4] });
   });
   it("XLSX: numeric id cell -> text, formula uses cached value; date, error and uncached formula are errors", async () => {
     const ws = XLSX.utils.aoa_to_sheet([["id", "name", "lat", "lng"], [101, "P", 1, 2]]);
@@ -1232,7 +1493,7 @@ describe("parameters", () => {
   it("maps keys, nests transportCosts, drops empty values", () => {
     const r = ok(csv({ "parameters.csv": "key,value\np,3\ndistanceMethod,circuity\ngap,\ntransportCosts.icTransCost,0.1\n" }));
     expect(r.doc).toEqual({ p: 3, distanceMethod: "circuity", transportCosts: { icTransCost: 0.1 } });
-    expect(r.sources["transportCosts.icTransCost"].rows).toEqual([5]);
+    expect(r.sources["transportCosts.icTransCost"]).toEqual({ source: "parameters.csv", headerRow: 1, rows: [5] });
   });
   it("unknown and duplicate keys are errors", () => {
     expect(msgs(csv({ "parameters.csv": "key,value\nfoo,1\n" }))).toEqual(["parameters.csv row 2: unknown parameter foo"]);
@@ -1240,12 +1501,24 @@ describe("parameters", () => {
   });
 });
 
-describe("422 issue -> file/row/column", () => {
-  it("uses the row map, the column and the parameter row", () => {
-    const { sources } = ok(csv({ "plants.csv": "id,name,lat,lng\nA,P,1,2\n,,,\nB,Q,3,4\n", "parameters.csv": "key,value\np,0\n" }));
+describe("422 issue -> file/row/column (the describeIssue contract above)", () => {
+  it("row map, column, parameter row, table-level, unmapped index and missing source", () => {
+    const { sources } = ok(csv({ "plants.csv": "id,name,lat,lng\nA,P,1,2\n,,,\nB,Q,3,4\n", "parameters.csv": "key,value\np,0\ntransportCosts.icMinTrans,-1\n" }));
     expect(describeIssue({ path: ["plants", 1, "lat"], message: "too big" }, sources)).toBe("plants.csv row 4 column lat: too big");
+    expect(describeIssue({ path: ["plants", 0], message: "bad row" }, sources)).toBe("plants.csv row 2: bad row");
+    expect(describeIssue({ path: ["plants"], message: "Existing plants row 3: x" }, sources)).toBe("plants.csv: Existing plants row 3: x");
+    expect(describeIssue({ path: ["plants", 7, "lat"], message: "x" }, sources)).toBe("plants.csv (unmapped row index 7): x");
     expect(describeIssue({ path: ["p"], message: "must be ≥ 1" }, sources)).toBe("parameters.csv row 2: must be ≥ 1");
+    expect(describeIssue({ path: ["transportCosts", "icMinTrans"], message: "must be ≥ 0" }, sources)).toBe("parameters.csv row 3: must be ≥ 0");
     expect(describeIssue({ path: ["demand"], message: "Existing demand row 3: x" }, sources)).toBe("demand: Existing demand row 3: x");
+  });
+  it("P4: an XLSX table that does not start at A1 reports real sheet rows", async () => {
+    const ws = XLSX.utils.aoa_to_sheet([["id", "name", "lat", "lng"], ["A", "P", 1, 2], ["B", "Q", "north", 4]], { origin: "B3" });   // !ref = B3:E5
+    const bad = await parseXlsx(book({ plants: ws }));
+    expect(msgs(bad)).toEqual(["sheet plants row 5 column lat: is not a number"]);
+    ws["D5"] = { t: "n", v: 3 };
+    const good = ok(await parseXlsx(book({ plants: ws })));
+    expect(good.sources.plants).toEqual({ source: "sheet plants", headerRow: 3, rows: [4, 5] });
   });
 });
 ```
@@ -1278,7 +1551,7 @@ export const PARAMETER_KEYS = ["p", "gap", "timeLimitSec", "distanceMethod", "ci
   "transportCosts.icTransCost", "transportCosts.icMinTrans", "transportCosts.obTransCost", "transportCosts.obMinTrans"] as const;
 const PARAMS = "parameters";
 
-export interface Source { source: string; rows: number[] }
+export interface Source { source: string; headerRow: number; rows: number[] }
 export type Sources = Record<string, Source>;
 export interface ParseError { where: string; message: string }
 export type ParseResult = { ok: true; doc: Record<string, unknown>; sources: Sources } | { ok: false; errors: ParseError[] };
@@ -1353,7 +1626,7 @@ function readParameters(sh: Sheet, doc: Record<string, unknown>, sources: Source
     const [head, sub] = key.split(".");
     if (sub) doc[head] = { ...(doc[head] as Record<string, unknown> | undefined), [sub]: value };
     else doc[head] = value;
-    sources[key] = { source: sh.source, rows: [fileRows[i]] };
+    sources[key] = { source: sh.source, headerRow: sh.firstRow, rows: [fileRows[i]] };
   });
 }
 
@@ -1365,7 +1638,7 @@ function sheetsToDocument(sheets: Sheet[]): ParseResult {
     if (!t) { errors.push({ where: sh.source, message: sh.csv ? "unknown file name" : "unknown sheet name" }); continue; }
     const { rows, fileRows } = readSheet(sh, t.cols, errors);
     doc[t.key] = rows;
-    sources[t.key] = { source: sh.source, rows: fileRows };
+    sources[t.key] = { source: sh.source, headerRow: sh.firstRow, rows: fileRows };
   }
   return errors.length ? { ok: false, errors } : { ok: true, doc, sources };
 }
@@ -1453,20 +1726,22 @@ export async function toXlsx(doc: Record<string, unknown>): Promise<ArrayBuffer>
   return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 }
 
-/** §7.1: path[0] -> file/sheet, path[1] -> file row (row map; path[1] + 2 when no row was skipped), path[2] -> column. */
+/** §7.1: path[0] -> file/sheet, path[1] -> file row via the row map, path[2] -> column. Contract: see the Task 4 Interfaces. */
 export function describeIssue(issue: { path: (string | number)[]; message: string }, sources: Sources): string {
   const [head, second, third] = issue.path;
   const param = typeof second === "string" ? sources[`${head}.${second}`] : undefined;
   const src = param ?? sources[String(head)];
   if (!src) return `${issue.path.join(".")}: ${issue.message}`;
   if (param || (PARAMETER_KEYS as readonly string[]).includes(String(head))) return `${src.source} row ${src.rows[0]}: ${issue.message}`;
-  const row = typeof second === "number" ? ` row ${src.rows[second] ?? second + 2}` : "";
+  if (typeof second !== "number") return `${src.source}: ${issue.message}`;
+  const row = src.rows[second];
+  if (row === undefined) return `${src.source} (unmapped row index ${second}): ${issue.message}`;   // never a guessed row (P4)
   const col = typeof third === "string" ? ` column ${third}` : "";
-  return `${src.source}${row}${col}: ${issue.message}`;
+  return `${src.source} row ${row}${col}: ${issue.message}`;
 }
 ```
 
-  Parameter rows are read as text then coerced, so an XLSX numeric value cell (`kind: "number"`) reaches `readParameters` as its `String(v)` (via `asText`) and is re-parsed — finite numbers survive exactly (`String`/`Number` round-trip). The XLSX formula test's expectation `"sheet plants row 2 column lat"` matches `readSheet`'s `where` for `firstRow = 1`.
+  The formula guard follows `clientCsv.ts` `csvCell` exactly (spec §7.2 as amended by R3): a text cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'` unless the whole string is a finite number; import strips a `'` followed by one of those characters. Parameter rows are read as text then coerced, so an XLSX numeric value cell (`kind: "number"`) reaches `readParameters` as its `String(v)` (via `asText`) and is re-parsed — finite numbers survive exactly (`String`/`Number` round-trip). The XLSX formula test's expectation `"sheet plants row 2 column lat"` matches `readSheet`'s `where` for `firstRow = 1`.
 
   `clientCsv.ts`:
 ```ts
@@ -1483,7 +1758,7 @@ export function downloadTextFile(filename: string, text: string, mimeType: strin
 }
 ```
 
-- [ ] **Step 5: Run** `superFiles.test.ts` (PASS). Non-vacuity: temporarily drop the `GUARDED` strip and confirm the formula round-trip test fails; restore. Then `pnpm --filter studio run build` (confirms the dynamic imports split into their own chunks — record the chunk sizes) and `pnpm gate`.
+- [ ] **Step 5: Run** `superFiles.test.ts` (PASS). Non-vacuity: temporarily drop the `GUARDED` strip and confirm the formula round-trip test fails; restore. Then `pnpm --filter studio run build` and record, from Vite's output, the **gzip** size of the initial entry chunk and of the separate `xlsx` and `fflate` chunks, before and after this task (S4). These numbers are an explicit approval gate for the lead at review (there is no CI threshold); the initial chunk must not grow by the size of either library (proves the dynamic `import()`). Then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 6: Commit** on `sm2-4-work`:
 ```bash
@@ -1704,9 +1979,9 @@ function issuesOf(err: unknown): { path: (string | number)[]; message: string }[
                 <Button size="sm" variant="outline" onClick={() => handleSuperExport("xlsx")} data-testid="super-header-export-xlsx">Export XLSX</Button>
 ```
 
-  Grep `e2e/` for the old visible text `Export network (JSON)` before committing: `grep -rn "Export network" artifacts/studio/e2e` — rewrite any hit to the testid.
+  Run `grep -rn "Export network" artifacts/studio/e2e` and list any hit in the changelog entry for Task 11 to rewrite; this task does not edit `e2e/` (R6).
 
-- [ ] **Step 7: Run** the three files (PASS) and `pnpm gate`.
+- [ ] **Step 7: Run** the three files (PASS) and `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 8: Commit** on `sm2-5-work`:
 ```bash
@@ -1718,14 +1993,14 @@ git commit artifacts/studio/src/components/workspace/super/SuperNetworkImportDia
 
 ### Task 6 [SM2-6]: Phase-3 preflight — Render request timeout, ORS API shape, `ORS_API_KEY`
 
-Role: devops-engineer. Documentation + `render.yaml` only; no application code. **This task is a gate: if Render's HTTP request timeout for a web service is ≤ 120 s, or the ORS matrix shape differs from Global Constraints, STOP and report to the lead with the evidence — do not redesign (no job queue, no polling) and do not start Task 7.**
+Role: devops-engineer. Documentation + `render.yaml` only; no application code. **This task is a hard prerequisite for Tasks 7–10 (R5): if Render's documented HTTP request timeout for a web service cannot be proven ≥ 150 s (the 120 s deadline plus margin for phase 1 and the write), or the ORS matrix shape differs from Global Constraints, STOP and report to the lead with the evidence for a re-plan — do not redesign in-task (no job queue, no polling) and do not start Task 7.**
 
 **Files:**
 - Modify: `render.yaml:30-63` (`nos-api` `envVars`)
 - Modify: `docs/CHANGELOG-implementation.md`
 - Modify: this plan's Task 6 "Findings" block below
 
-- [ ] **Step 1: Render timeout.** Invoke the `render-ops` skill (`.claude/skills/render-ops/SKILL.md`; it records no request-timeout fact as of 2026-10-23), then fetch Render's docs (WebFetch): start at `https://render.com/docs/web-services`, then the platform-limits / networking pages it links to (direct guesses `https://render.com/docs/platform-limits` and `https://render.com/docs/connection-timeouts` returned 404 on 2026-10-23). Record the exact quoted sentence and URL. Pass condition: the documented maximum HTTP request duration for a web service is **> 120 s** (the route's deadline plus the transaction).
+- [ ] **Step 1: Render timeout.** Invoke the `render-ops` skill (`.claude/skills/render-ops/SKILL.md`; it records no request-timeout fact as of 2026-10-23), then fetch Render's docs (WebFetch): start at `https://render.com/docs/web-services`, then the platform-limits / networking pages it links to (direct guesses `https://render.com/docs/platform-limits` and `https://render.com/docs/connection-timeouts` returned 404 on 2026-10-23). Record the exact quoted sentence and URL. Pass condition: the documented maximum HTTP request duration for a web service is **≥ 150 s**. "Not documented" is a fail (STOP), not a pass.
 - [ ] **Step 2: ORS shape.** Fetch the current ORS reference (`https://giscience.github.io/openrouteservice/api-reference/endpoints/matrix/` gives body fields but not limits or the `distances` shape; the API playground `https://openrouteservice.org/dev/#/api-docs/matrix_service` and `https://openrouteservice.org/plans/` give the hosted limits). Check and record, item by item: path `/v2/matrix/driving-hgv`; `Authorization` header carries the key; `locations` are `[lng, lat]`; `sources`/`destinations` are integer index arrays; `metrics: ["distance"]`; `units: "mi"`; response `distances[s][d]`; `null` for unroutable; ≤ 3,500 pairs per request; free plan 500 requests/day and 40/minute for matrix. Any mismatch ⇒ STOP (see above).
 - [ ] **Step 3: `render.yaml`** — under `nos-api` `envVars`, after `SENTRY_DSN`:
 ```yaml
@@ -1783,15 +2058,36 @@ Role: backend-engineer.
   `superRoadContract.test.ts` (helpers copied from `superNetworkImport.test.ts:11-42`, email prefix `sm2-7-`):
 
 ```ts
-const road = (miles = 5) => ({ fetchedAt: "2026-10-23T00:00:00.000Z", profile: "driving-hgv",
-  coords: { [sample.plants[0].id]: [sample.plants[0].lat, sample.plants[0].lng], [sample.warehouses[0].id]: [sample.warehouses[0].lat, sample.warehouses[0].lng] },
+const road = (miles = 5): RoadDistances => ({ fetchedAt: "2026-10-23T00:00:00.000Z", profile: "driving-hgv" as const,
+  coords: { [sample.plants[0].id]: [sample.plants[0].lat, sample.plants[0].lng] as [number, number], [sample.warehouses[0].id]: [sample.warehouses[0].lat, sample.warehouses[0].lng] as [number, number] },
   pairs: [{ fromId: sample.plants[0].id, toId: sample.warehouses[0].id, miles }] });
 const stored = async (id: number) => (await db.select().from(scenariosTable).where(eq(scenariosTable.id, id)))[0]!.inputs as Record<string, unknown>;
-const seedRoad = async (id: number, value: object) =>  // stand-in for the server-only road route (Task 9): a direct row write
-  db.update(scenariosTable).set({ inputs: { ...(await stored(id)), roadDistances: value } }).where(eq(scenariosTable.id, id));
+/** R7: seeds through the REAL shared writer (the same call Task 9's route makes), never a direct row update. */
+const seedRoad = async (id: number, value: RoadDistances) => {
+  const current = await stored(id);
+  const out = await db.transaction(tx => applyScenarioInputWrite(tx, { scenarioId: id, userId: registeredUserIds[0]!, nextInputs: current, roadDistances: { set: value } }));
+  expect(out.kind).toBe("ok");
+};
 
 describe("SM2-7 roadDistances is server-written only", () => {
   it("setup", async () => { cookie = await registerAndGetCookie(); });
+  it("R7: the shared writer's { set } stores a schema-valid cache and bumps inputsUpdatedAt", async () => {
+    const id = await createEmptySuper();
+    await imp(id, "replace", sample).expect(200);
+    const before = (await db.select().from(scenariosTable).where(eq(scenariosTable.id, id)))[0]!;
+    await seedRoad(id, road(5));
+    const after = (await db.select().from(scenariosTable).where(eq(scenariosTable.id, id)))[0]!;
+    expect(superInputsSchema.parse(after.inputs).roadDistances).toEqual(road(5));
+    expect(after.inputsUpdatedAt.getTime()).toBeGreaterThan(before.inputsUpdatedAt.getTime());
+    expect((await get(id)).stale).toBe(false);                          // never solved: nothing to be stale against
+  });
+  it("R7: an invalid { set } value is refused by validation and writes nothing", async () => {
+    const id = await createEmptySuper();
+    const out = await db.transaction(tx => applyScenarioInputWrite(tx, { scenarioId: id, userId: registeredUserIds[0]!,
+      nextInputs: SUPER_DEFAULT_INPUTS, roadDistances: { set: { ...road(5), profile: "driving-car" } as unknown as RoadDistances } }));
+    expect(out.kind).toBe("invalid");
+    expect((await stored(id)).roadDistances).toBeUndefined();
+  });
   it("POST create drops a client roadDistances", async () => {
     const id = await create("super-model", { ...SUPER_DEFAULT_INPUTS, distanceMethod: "road", roadDistances: road() });
     expect((await stored(id)).roadDistances).toBeUndefined();
@@ -1832,7 +2128,7 @@ describe("SM2-7 roadDistances is server-written only", () => {
 });
 ```
 
-  Imports: `superInputsSchema` from `../validation/inputs/superInputs.js` (plus the copied helpers' imports).
+  Imports: `superInputsSchema`, `type RoadDistances` from `../validation/inputs/superInputs.js`; `applyScenarioInputWrite` from `../services/scenarioInputWrite.js` (plus the copied helpers' imports). `road()`'s return is typed `RoadDistances` (`profile: "driving-hgv" as const`, coords as `[number, number]` tuples). Task 9's route test remains the end-to-end proof of the route writer; these tests prove the shared write path itself.
 
 - [ ] **Step 2: Run, expect FAIL:** `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server exec vitest run src/__tests__/superRoadContract.test.ts src/__tests__/superModelRegistration.test.ts`
 
@@ -1881,7 +2177,7 @@ export type RoadDistancesWrite = "keep" | "clear" | { set: RoadDistances };
 
 - [ ] **Step 5: Call sites.** `routes/scenarios.ts:214`: `const validation = validateInputsForModel(body.modelId, body.inputs && typeof body.inputs === "object" ? dropClientOwnedInputs(body.modelId, body.inputs) : body.inputs);` (import from `../services/scenarioInputWrite.js`). `routes/superNetwork.ts` import: `applyScenarioInputWrite(tx, { scenarioId: id, userId: req.userId!, nextInputs: merged.next, roadDistances: mode === "replace" ? "clear" : "keep" })`. Export: `const { roadDistances: _server, ...doc } = superInputsSchema.parse(row.inputs); res.json(doc);`.
 
-- [ ] **Step 6: Run** the two files (PASS), `pnpm --filter api-server exec vitest run src/validation/__tests__/formatInputIssues.test.ts src/__tests__/manifests.test.ts` (PASS), then `pnpm gate`.
+- [ ] **Step 6: Run** the two files (PASS), `pnpm --filter api-server exec vitest run src/validation/__tests__/formatInputIssues.test.ts src/__tests__/manifests.test.ts` (PASS), then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 7: Commit** on `sm2-7-work`:
 ```bash
@@ -2080,7 +2376,7 @@ export function missingRequiredRoadPairs(v: SuperInputs): number {
 ```
   Update the docstring: "Overrides win; then road pairs passed by the API; otherwise haversine miles, x circuityFactor when distanceMethod == "circuity"."
 
-- [ ] **Step 6: Run** the TS files and pytest (PASS); then `cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x`, `cd tests && python3 e2e_accuracy.py` (99/99, unmodified), and `pnpm gate`. `SOLVER_CODE_HASH` already covers `merge_inputs.py` (SM-2): every cached result misses once after deploy — note it in the changelog.
+- [ ] **Step 6: Run** the TS files and pytest (PASS); then `cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x`, `cd tests && python3 e2e_accuracy.py` (99/99, unmodified), and `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`. `SOLVER_CODE_HASH` already covers `merge_inputs.py` (SM-2): every cached result misses once after deploy — note it in the changelog.
 
 - [ ] **Step 7: Commit** on `sm2-8-work`:
 ```bash
@@ -2091,9 +2387,9 @@ git commit artifacts/api-server/src/services/superRoad.ts artifacts/api-server/s
 
 ---
 
-### Task 9 [SM2-9]: ORS client, process-wide queue, error codes, `POST /network/road-distances`
+### Task 9 [SM2-9]: ORS client, busy flag, error codes, `POST /network/road-distances`
 
-Role: backend-engineer. Contract task: TS error-code union, OpenAPI enum and regenerated clients in this commit.
+Role: backend-engineer. Contract task: TS error-code union, OpenAPI enum and regenerated clients in this commit. **Prerequisite: Task 6 recorded a Render request timeout ≥ 150 s (R5); otherwise this task does not start.**
 
 **Files:**
 - Create: `artifacts/api-server/src/services/orsClient.ts`
@@ -2104,91 +2400,168 @@ Role: backend-engineer. Contract task: TS error-code union, OpenAPI enum and reg
 **Interfaces:**
 - Produces (`services/orsClient.ts`):
   ```ts
-  export type RoadDistancesErrorCode = "road_distances_unavailable" | "road_distances_quota" | "road_distances_failed" | "road_distances_unroutable";
-  export const ROAD_ERROR_STATUS: Record<RoadDistancesErrorCode, number>;   // 503 / 429 / 502 / 422
+  export type RoadDistancesErrorCode = "road_distances_unavailable" | "road_distances_quota" | "road_distances_failed" | "road_distances_unroutable" | "road_distances_busy";
+  export const ROAD_ERROR_STATUS: Record<RoadDistancesErrorCode, number>;   // 503 / 429 / 502 / 422 / 409
   export class RoadDistancesError extends Error { readonly code: RoadDistancesErrorCode }
   export const ORS_MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/driving-hgv";
   export const ORS_MAX_PAIRS = 3500, ORS_REQUEST_TIMEOUT_MS = 30_000, ORS_DEADLINE_MS = 120_000;
   export interface OrsLocation { id: string; lat: number; lng: number }
   export interface OrsBatch { label: string; sources: OrsLocation[]; destinations: OrsLocation[] }
-  export function planBatches(plants: OrsLocation[], warehouses: OrsLocation[], customers: OrsLocation[]): OrsBatch[];
+  export function planBatches(plants: OrsLocation[], warehouses: OrsLocation[], customers: OrsLocation[]): OrsBatch[];   // [] when no warehouses or no customers (R8)
   export function fetchRoadPairs(o: { apiKey: string; batches: OrsBatch[]; fetchImpl?: typeof fetch; requestTimeoutMs?: number; deadlineMs?: number }): Promise<RoadPair[]>;
-  export function runExclusive<T>(task: () => Promise<T>): Promise<T>;
+  /** O1: one fetch per process. Busy => RoadDistancesError("road_distances_busy") immediately; the flag is released in finally. */
+  export function runIfIdle<T>(task: () => Promise<T>): Promise<T>;
   export function orsFetch(): typeof fetch;
   export function setOrsFetchForTests(f: typeof fetch | null): void;   // test-only seam, same pattern as setLockedModelsForTests
   ```
-- Wire: `POST /api/scenarios/:id/network/road-distances`, empty body. 200 `{ scenario }`; 401; 403 locked; 404 non-owned / non-super / gone; 422 `invalid` → `{ error, issues }`; error codes → `{ error: <code>, message }` with `ROAD_ERROR_STATUS`. OpenAPI operationId `fetchScenarioRoadDistances` (Task 10 consumes `useFetchScenarioRoadDistances`, `RoadDistancesErrorCode`).
+- Wire: `POST /api/scenarios/:id/network/road-distances`, empty body. 200 `{ scenario }`; 401; 403 locked; 404 non-owned / non-super / gone; 409 `road_distances_busy`; 422 `invalid` → `{ error, issues }`; every error code → `{ error: <code>, message }` with `ROAD_ERROR_STATUS`. OpenAPI operationId `fetchScenarioRoadDistances` (Task 10 consumes `useFetchScenarioRoadDistances`, `RoadDistancesErrorCode`).
 
 - [ ] **Step 1: Failing client tests** (`src/__tests__/orsClient.test.ts`):
 
 ```ts
-import { describe, it, expect, vi } from "vitest";
-import { fetchRoadPairs, planBatches, runExclusive, type OrsLocation } from "../services/orsClient.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import {
+  ORS_DEADLINE_MS, ORS_REQUEST_TIMEOUT_MS, ROAD_ERROR_STATUS, fetchRoadPairs, planBatches, runIfIdle, type OrsLocation,
+} from "../services/orsClient.js";
 
-const locs = (p: string, n: number): OrsLocation[] => Array.from({ length: n }, (_, i) => ({ id: `${p}${i + 1}`, lat: i + 0.5, lng: -(i + 0.25) }));
-/** Answers every request with distances[s][d] = 1000*s + d; records each parsed body. */
-function stub(bodies: Record<string, unknown>[] = []) {
+/** Asymmetric coordinates (O5): lat and lng differ in sign and magnitude, so a swapped [lat, lng] cannot pass. */
+const locs = (p: string, n: number, lat0: number, lng0: number): OrsLocation[] =>
+  Array.from({ length: n }, (_, i) => ({ id: `${p}${i + 1}`, lat: lat0 + i * 0.01, lng: lng0 - i * 0.01 }));
+type Body = { locations: [number, number][]; sources: number[]; destinations: number[]; metrics: string[]; units: string };
+/** Answers with distances[s][d] = 1000*s + d; records each parsed body; `nullAt` makes call #n return a null cell. */
+function stub(bodies: Body[] = [], nullAt?: number) {
   return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-    const b = JSON.parse(String(init!.body));
+    const b = JSON.parse(String(init!.body)) as Body;
     bodies.push(b);
-    return new Response(JSON.stringify({ distances: b.sources.map((_: number, s: number) => b.destinations.map((_: number, d: number) => 1000 * s + d)) }));
+    const d = b.sources.map((_, s) => b.destinations.map((_, j) => (bodies.length === nullAt && s === 0 && j === 0 ? null : 1000 * s + j)));
+    return new Response(JSON.stringify({ distances: d }));
   }) as unknown as typeof fetch;
 }
-
-describe("planBatches at the §3.3 caps", () => {
-  it("1 plants×warehouses request + ceil(500/70) customer chunks", () => {
-    const b = planBatches(locs("P", 20), locs("W", 50), locs("C", 500));
-    expect(b).toHaveLength(9);
-    expect(b[0]).toMatchObject({ label: "plants → warehouses" });
-    expect(b.slice(1).every(x => x.sources.length === 50 && x.destinations.length <= 70)).toBe(true);
-    expect(b[1].label).toBe("warehouses → customers 1–70");
-    expect(b[8].label).toBe("warehouses → customers 491–500");
-    expect(b.every(x => x.sources.length * x.destinations.length <= 3500)).toBe(true);
+const expectBody = (b: Body, sources: OrsLocation[], dests: OrsLocation[]) =>
+  expect(b).toEqual({
+    locations: [...sources, ...dests].map(l => [l.lng, l.lat]),
+    sources: sources.map((_, i) => i), destinations: dests.map((_, j) => sources.length + j),
+    metrics: ["distance"], units: "mi",
   });
-  it("no warehouses -> no requests", () => expect(planBatches(locs("P", 2), [], locs("C", 3))).toEqual([]));
-});
+afterEach(() => vi.useRealTimers());
 
-describe("fetchRoadPairs", () => {
-  it("sends [lng, lat], index sources/destinations, distance in miles, the key header; maps the matrix to pairs", async () => {
-    const bodies: Record<string, unknown>[] = [];
+describe("constants and batching at the §3.3 caps", () => {
+  it("defaults are 30 s per request and 120 s overall (O3)", () => {
+    expect([ORS_REQUEST_TIMEOUT_MS, ORS_DEADLINE_MS]).toEqual([30_000, 120_000]);
+  });
+  it("O4: 20 plants / 50 WH / 500 customers -> exactly 9 fetches: one 20×50, eight chunks of ≤70 customers × 50 WH", async () => {
+    const P = locs("P", 20, 40, -100), W = locs("W", 50, 35, -90), C = locs("C", 500, 30, -80);
+    const bodies: Body[] = [];
     const f = stub(bodies);
-    const pairs = await fetchRoadPairs({ apiKey: "KEY", batches: planBatches(locs("P", 1), locs("W", 2), locs("C", 1)), fetchImpl: f });
+    const pairs = await fetchRoadPairs({ apiKey: "KEY", batches: planBatches(P, W, C), fetchImpl: f });
+    expect(vi.mocked(f)).toHaveBeenCalledTimes(9);
+    expectBody(bodies[0], P, W);                                                     // O5: every body, both legs
+    for (let k = 0; k < 8; k++) expectBody(bodies[k + 1], W, C.slice(k * 70, k * 70 + 70));
+    expect(bodies.slice(1).map(b => b.destinations.length)).toEqual([70, 70, 70, 70, 70, 70, 70, 10]);
+    expect(pairs).toHaveLength(20 * 50 + 50 * 500);
+    expect(pairs[0]).toEqual({ fromId: "P1", toId: "W1", miles: 0 });
+    expect(pairs.find(p => p.fromId === "W2" && p.toId === "C71")).toEqual({ fromId: "W2", toId: "C71", miles: 1000 });
+  });
+  it("R8: no warehouses, no customers, or neither -> no batches", () => {
+    const P = locs("P", 2, 40, -100), W = locs("W", 2, 35, -90), C = locs("C", 2, 30, -80);
+    expect(planBatches(P, [], C)).toEqual([]);
+    expect(planBatches(P, W, [])).toEqual([]);
+    expect(planBatches(P, [], [])).toEqual([]);
+  });
+  it("sends the key in Authorization to the driving-hgv matrix URL", async () => {
+    const f = stub();
+    await fetchRoadPairs({ apiKey: "KEY", batches: planBatches(locs("P", 1, 40, -100), locs("W", 1, 35, -90), locs("C", 1, 30, -80)), fetchImpl: f });
     const [url, init] = vi.mocked(f).mock.calls[0];
     expect(url).toBe("https://api.openrouteservice.org/v2/matrix/driving-hgv");
     expect((init!.headers as Record<string, string>).Authorization).toBe("KEY");
-    expect(bodies[0]).toEqual({ locations: [[-0.25, 0.5], [-0.25, 0.5], [-1.25, 1.5]], sources: [0], destinations: [1, 2], metrics: ["distance"], units: "mi" });
-    expect(pairs).toEqual([
-      { fromId: "P1", toId: "W1", miles: 0 }, { fromId: "P1", toId: "W2", miles: 1 },
-      { fromId: "W1", toId: "C1", miles: 0 }, { fromId: "W2", toId: "C1", miles: 1000 },
-    ]);
-  });
-  it("429 -> road_distances_quota; 500 -> road_distances_failed naming the batch; null -> unroutable naming the pair", async () => {
-    const batches = planBatches(locs("P", 1), locs("W", 1), locs("C", 1));
-    await expect(fetchRoadPairs({ apiKey: "k", batches, fetchImpl: (async () => new Response("", { status: 429 })) as typeof fetch }))
-      .rejects.toMatchObject({ code: "road_distances_quota" });
-    await expect(fetchRoadPairs({ apiKey: "k", batches, fetchImpl: (async () => new Response("", { status: 500 })) as typeof fetch }))
-      .rejects.toMatchObject({ code: "road_distances_failed", message: expect.stringContaining("plants → warehouses") });
-    await expect(fetchRoadPairs({ apiKey: "k", batches, fetchImpl: (async () => new Response(JSON.stringify({ distances: [[null]] }))) as typeof fetch }))
-      .rejects.toMatchObject({ code: "road_distances_unroutable", message: expect.stringContaining("P1 to W1") });
-  });
-  it("a per-request timeout and the overall deadline both fail as road_distances_failed; no retries", async () => {
-    const hang = vi.fn((_u: unknown, init?: RequestInit) => new Promise<Response>((_, reject) =>
-      init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))) as unknown as typeof fetch;
-    const batches = planBatches(locs("P", 1), locs("W", 1), locs("C", 1));
-    await expect(fetchRoadPairs({ apiKey: "k", batches, fetchImpl: hang, requestTimeoutMs: 20 })).rejects.toMatchObject({ code: "road_distances_failed" });
-    expect(vi.mocked(hang)).toHaveBeenCalledTimes(1);
-    await expect(fetchRoadPairs({ apiKey: "k", batches, fetchImpl: hang, requestTimeoutMs: 10_000, deadlineMs: 20 })).rejects.toMatchObject({ code: "road_distances_failed" });
-  });
-  it("runExclusive never overlaps two fetches, and a failure does not block the next", async () => {
-    const order: string[] = [];
-    const slow = (n: string, fail = false) => () => new Promise<string>((res, rej) => { order.push(`start ${n}`); setTimeout(() => { order.push(`end ${n}`); fail ? rej(new Error(n)) : res(n); }, 10); });
-    const a = runExclusive(slow("a", true)), b = runExclusive(slow("b"));
-    await expect(a).rejects.toThrow("a");
-    await expect(b).resolves.toBe("b");
-    expect(order).toEqual(["start a", "end a", "start b", "end b"]);
   });
 });
+
+describe("failures", () => {
+  const small = () => planBatches(locs("P", 1, 40, -100), locs("W", 1, 35, -90), locs("C", 3, 30, -80));
+  it("429 -> quota; 500 -> failed naming the batch; malformed -> failed", async () => {
+    await expect(fetchRoadPairs({ apiKey: "k", batches: small(), fetchImpl: (async () => new Response("", { status: 429 })) as typeof fetch }))
+      .rejects.toMatchObject({ code: "road_distances_quota" });
+    await expect(fetchRoadPairs({ apiKey: "k", batches: small(), fetchImpl: (async () => new Response("", { status: 500 })) as typeof fetch }))
+      .rejects.toMatchObject({ code: "road_distances_failed", message: expect.stringContaining("plants → warehouses") });
+    await expect(fetchRoadPairs({ apiKey: "k", batches: small(), fetchImpl: (async () => new Response("{}")) as typeof fetch }))
+      .rejects.toMatchObject({ code: "road_distances_failed" });
+  });
+  it("O6: a null in a warehouse→customer chunk names that pair and no later batch is requested", async () => {
+    const P = locs("P", 1, 40, -100), W = locs("W", 50, 35, -90), C = locs("C", 200, 30, -80);   // 1 + 3 batches
+    const f = stub([], 2);                                                                     // call #2 = first customer chunk
+    await expect(fetchRoadPairs({ apiKey: "k", batches: planBatches(P, W, C), fetchImpl: f }))
+      .rejects.toMatchObject({ code: "road_distances_unroutable", message: expect.stringContaining("W1 to C1") });
+    expect(vi.mocked(f)).toHaveBeenCalledTimes(2);
+  });
+  it("a per-request timeout fails as road_distances_failed; no retries", async () => {
+    const hang = vi.fn((_u: unknown, init?: RequestInit) => new Promise<Response>((_, reject) =>
+      init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))) as unknown as typeof fetch;
+    await expect(fetchRoadPairs({ apiKey: "k", batches: small(), fetchImpl: hang, requestTimeoutMs: 20 })).rejects.toMatchObject({ code: "road_distances_failed" });
+    expect(vi.mocked(hang)).toHaveBeenCalledTimes(1);
+  });
+  it("O2: a completed request's timer is cleared — its signal never aborts later", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const f = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      signals.push(init!.signal!);
+      const b = JSON.parse(String(init!.body)) as Body;
+      return new Response(JSON.stringify({ distances: b.sources.map(() => b.destinations.map(() => 1)) }));
+    }) as unknown as typeof fetch;
+    await fetchRoadPairs({ apiKey: "k", batches: small(), fetchImpl: f });
+    await vi.advanceTimersByTimeAsync(ORS_DEADLINE_MS * 2);
+    expect(signals).toHaveLength(2);
+    expect(signals.every(sg => !sg.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("O3: the shared 120 s deadline aborts a LATER request even though each request is under 30 s", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const slow = vi.fn((_u: unknown, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      calls++;
+      const b = JSON.parse(String(init!.body)) as Body;
+      const t = setTimeout(() => resolve(new Response(JSON.stringify({ distances: b.sources.map(() => b.destinations.map(() => 1)) }))), 25_000);
+      init!.signal!.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("aborted", "AbortError")); });
+    })) as unknown as typeof fetch;
+    const P = locs("P", 1, 40, -100), W = locs("W", 50, 35, -90), C = locs("C", 500, 30, -80);   // 9 batches × 25 s > 120 s
+    const run = fetchRoadPairs({ apiKey: "k", batches: planBatches(P, W, C), fetchImpl: slow });
+    const settled = expect(run).rejects.toMatchObject({ code: "road_distances_failed" });
+    await vi.advanceTimersByTimeAsync(ORS_DEADLINE_MS + 1);
+    await settled;
+    expect(calls).toBe(5);                     // requests at 0, 25, 50, 75, 100 s; the 5th is aborted at 120 s
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("O1/O7: one fetch at a time", () => {
+  it("a second fetch while one runs is rejected immediately as busy (409)", async () => {
+    let release!: () => void;
+    const first = runIfIdle(() => new Promise<string>(r => { release = () => r("done"); }));
+    await expect(runIfIdle(async () => "second")).rejects.toMatchObject({ code: "road_distances_busy" });
+    expect(ROAD_ERROR_STATUS.road_distances_busy).toBe(409);
+    release();
+    await expect(first).resolves.toBe("done");
+  });
+  it("the flag is released after a failed task and after an aborted fetch", async () => {
+    await expect(runIfIdle(async () => { throw new Error("boom"); })).rejects.toThrow("boom");
+    await expect(runIfIdle(async () => "after-fail")).resolves.toBe("after-fail");
+    const hang = vi.fn((_u: unknown, init?: RequestInit) => new Promise<Response>((_, reject) =>
+      init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))) as unknown as typeof fetch;
+    const batches = planBatches(locs("P", 1, 40, -100), locs("W", 1, 35, -90), locs("C", 1, 30, -80));
+    await expect(runIfIdle(() => fetchRoadPairs({ apiKey: "k", batches, fetchImpl: hang, requestTimeoutMs: 20 }))).rejects.toMatchObject({ code: "road_distances_failed" });
+    await expect(runIfIdle(async () => "after-abort")).resolves.toBe("after-abort");
+  });
+});
+
+it("the TS error-code union equals the OpenAPI enum", () => {
+  const yaml = readFileSync(new URL("../../../../lib/api-spec/openapi.yaml", import.meta.url), "utf8");
+  const m = /RoadDistancesErrorCode:[\s\S]*?enum: \[([^\]]+)\]/.exec(yaml)!;
+  expect(m[1].split(",").map(s => s.trim()).sort()).toEqual(Object.keys(ROAD_ERROR_STATUS).sort());
+});
 ```
+
+  O3 arithmetic: each request takes 25 s (< 30 s timeout), batch k starts at 25·k s, so batches 1–4 complete by 100 s and batch 5 (started at 100 s) is aborted by the deadline at 120 s.
 
 - [ ] **Step 2: Failing route tests** (`src/__tests__/superRoadRoute.test.ts`; helpers copied from `superNetworkImport.test.ts:11-42`, prefix `sm2-9-`). A tiny network keeps request counts readable; the cap batching is proven in Step 1.
 
@@ -2254,6 +2627,50 @@ describe("POST /network/road-distances", () => {
       expect((await stored(id)).inputs).not.toHaveProperty("roadDistances");
     }
   });
+  it("O6: a null in the warehouse→customer batch -> 422 unroutable naming W→C, nothing persisted", async () => {
+    process.env.ORS_API_KEY = "KEY";
+    const id = await create("super-model", tiny);
+    let n = 0;
+    setOrsFetchForTests((async (_u: unknown, init?: RequestInit) => {
+      n++;
+      const b = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ distances: b.sources.map(() => b.destinations.map(() => (n === 2 ? null : 1))) }));
+    }) as typeof fetch);
+    const res = await fetchRoad(id);
+    expect([res.status, res.body.error]).toEqual([422, "road_distances_unroutable"]);
+    expect(res.body.message).toContain("W to C");
+    expect((await stored(id)).inputs).not.toHaveProperty("roadDistances");
+  });
+  it.each([
+    ["no warehouses", { warehouses: [] }],
+    ["no customers", { customers: [], demand: [] }],
+    ["neither", { warehouses: [], customers: [], demand: [] }],
+  ])("R8: %s -> 200, no ORS call, empty pairs written", async (_n, over) => {
+    process.env.ORS_API_KEY = "KEY";
+    const f = vi.fn(okFetch());
+    setOrsFetchForTests(f as unknown as typeof fetch);
+    const id = await create("super-model", { ...tiny, ...over });
+    const res = await fetchRoad(id).expect(200);
+    expect(f).not.toHaveBeenCalled();
+    expect(res.body.scenario.inputs.roadDistances.pairs).toEqual([]);
+  });
+  it("O1: a second request while a fetch runs is 409 road_distances_busy and writes nothing", async () => {
+    process.env.ORS_API_KEY = "KEY";
+    const a = await create("super-model", tiny), b = await create("super-model", tiny);
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const inside = new Promise<void>(r => { entered = r; });
+    let parked = true;
+    setOrsFetchForTests(okFetch(async () => { if (parked) { parked = false; entered(); await gate; } }));
+    const firstDone = fetchRoad(a).then(r => r);                         // supertest starts on .then
+    await inside;                                                        // request A holds the busy flag
+    const second = await fetchRoad(b);
+    expect([second.status, second.body.error]).toEqual([409, "road_distances_busy"]);
+    expect((await stored(b)).inputs).not.toHaveProperty("roadDistances");
+    release();
+    expect((await firstDone).status).toBe(200);
+    expect((await fetchRoad(b)).status).toBe(200);                       // flag released
+  });
   it("a PATCH landing between fetch and write is kept; the moved location's pairs are stale", async () => {
     process.env.ORS_API_KEY = "KEY";
     const id = await create("super-model", tiny);
@@ -2281,7 +2698,7 @@ describe("POST /network/road-distances", () => {
 });
 ```
 
-  `afterEach` from vitest. The locked-model case is covered by `lockedModelGuards.test.ts`, which scans `routes/superNetwork.ts` (SM-16) and fails if the new handler lacks an `isModelLocked` check before its first write.
+  `afterEach`, `vi` from vitest. In the busy test the first stubbed fetch signals `inside` and parks on `gate`, so request B provably arrives while A holds the flag. The locked-model case is covered by `lockedModelGuards.test.ts`, which scans `routes/superNetwork.ts` (SM-16) and fails if the new handler lacks an `isModelLocked` check before its first write.
 
 - [ ] **Step 3: Run, expect FAIL:** `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server exec vitest run src/__tests__/orsClient.test.ts src/__tests__/superRoadRoute.test.ts`
 
@@ -2291,9 +2708,10 @@ describe("POST /network/road-distances", () => {
 // SM2-9 (spec §8, D7/D9) — OpenRouteService matrix client. Tests inject fetch; nothing here ever logs the key.
 import type { RoadPair } from "./superRoad.js";
 
-export type RoadDistancesErrorCode = "road_distances_unavailable" | "road_distances_quota" | "road_distances_failed" | "road_distances_unroutable";
+export type RoadDistancesErrorCode =
+  | "road_distances_unavailable" | "road_distances_quota" | "road_distances_failed" | "road_distances_unroutable" | "road_distances_busy";
 export const ROAD_ERROR_STATUS: Record<RoadDistancesErrorCode, number> = {
-  road_distances_unavailable: 503, road_distances_quota: 429, road_distances_failed: 502, road_distances_unroutable: 422,
+  road_distances_unavailable: 503, road_distances_quota: 429, road_distances_failed: 502, road_distances_unroutable: 422, road_distances_busy: 409,
 };
 export class RoadDistancesError extends Error {
   constructor(readonly code: RoadDistancesErrorCode, message: string) { super(message); this.name = "RoadDistancesError"; }
@@ -2303,13 +2721,15 @@ export const ORS_MAX_PAIRS = 3500;
 export const ORS_REQUEST_TIMEOUT_MS = 30_000;
 export const ORS_DEADLINE_MS = 120_000;
 const QUOTA = "OpenRouteService quota reached, try again later. The daily quota is shared by everyone using this server.";
+const BUSY = "Road distances are already being fetched on this server. Try again in a minute.";
 
 export interface OrsLocation { id: string; lat: number; lng: number }
 export interface OrsBatch { label: string; sources: OrsLocation[]; destinations: OrsLocation[] }
 
-/** §8: all plants × all warehouses, then customers in chunks of floor(3500 / warehouses) with every warehouse as a source. */
+/** §8: all plants × all warehouses, then customers in chunks of floor(3500 / warehouses) with every warehouse as a source.
+ *  R8: no warehouses or no customers => nothing to fetch (the network cannot be solved anyway). */
 export function planBatches(plants: OrsLocation[], warehouses: OrsLocation[], customers: OrsLocation[]): OrsBatch[] {
-  if (warehouses.length === 0) return [];
+  if (warehouses.length === 0 || customers.length === 0) return [];
   const out: OrsBatch[] = [];
   if (plants.length > 0) out.push({ label: "plants → warehouses", sources: plants, destinations: warehouses });
   const chunk = Math.floor(ORS_MAX_PAIRS / warehouses.length);
@@ -2318,10 +2738,12 @@ export function planBatches(plants: OrsLocation[], warehouses: OrsLocation[], cu
   return out;
 }
 
+const failed = (b: OrsBatch, why: string) => new RoadDistancesError("road_distances_failed", `OpenRouteService ${why} for ${b.label}.`);
+
 export async function fetchRoadPairs(o: { apiKey: string; batches: OrsBatch[]; fetchImpl?: typeof fetch; requestTimeoutMs?: number; deadlineMs?: number }): Promise<RoadPair[]> {
   const fetchImpl = o.fetchImpl ?? fetch;
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), o.deadlineMs ?? ORS_DEADLINE_MS);
+  const deadlineTimer = setTimeout(() => deadline.abort(), o.deadlineMs ?? ORS_DEADLINE_MS);
   const pairs: RoadPair[] = [];
   try {
     for (const b of o.batches) {                                     // serial, no retries (§8)
@@ -2331,42 +2753,49 @@ export async function fetchRoadPairs(o: { apiKey: string; batches: OrsBatch[]; f
         destinations: b.destinations.map((_, j) => b.sources.length + j),
         metrics: ["distance"], units: "mi",
       };
-      let res: Response;
+      // O2: per-request controller + cancellable timer, cleared in finally, so a finished request can never abort later.
+      const request = new AbortController();
+      const requestTimer = setTimeout(() => request.abort(), o.requestTimeoutMs ?? ORS_REQUEST_TIMEOUT_MS);
+      let d: unknown;
       try {
-        res = await fetchImpl(ORS_MATRIX_URL, {
-          method: "POST",
-          headers: { Authorization: o.apiKey, "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.any([deadline.signal, AbortSignal.timeout(o.requestTimeoutMs ?? ORS_REQUEST_TIMEOUT_MS)]),
-        });
-      } catch {                                                       // no binding: nothing from the request can leak
-        throw new RoadDistancesError("road_distances_failed", `OpenRouteService did not answer for ${b.label} (timed out or unreachable).`);
+        let res: Response;
+        try {
+          res = await fetchImpl(ORS_MATRIX_URL, {
+            method: "POST",
+            headers: { Authorization: o.apiKey, "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.any([deadline.signal, request.signal]),
+          });
+        } catch {                                                     // no binding: nothing from the request can leak
+          throw failed(b, "did not answer (timed out or unreachable)");
+        }
+        if (res.status === 429) throw new RoadDistancesError("road_distances_quota", QUOTA);
+        if (!res.ok) throw failed(b, `failed (HTTP ${res.status})`);
+        d = ((await res.json().catch(() => null)) as { distances?: unknown } | null)?.distances;
+      } finally {
+        clearTimeout(requestTimer);
       }
-      if (res.status === 429) throw new RoadDistancesError("road_distances_quota", QUOTA);
-      if (!res.ok) throw new RoadDistancesError("road_distances_failed", `OpenRouteService failed for ${b.label} (HTTP ${res.status}).`);
-      const d = ((await res.json().catch(() => null)) as { distances?: unknown } | null)?.distances;
-      if (!Array.isArray(d) || d.length !== b.sources.length)
-        throw new RoadDistancesError("road_distances_failed", `OpenRouteService returned an unexpected response for ${b.label}.`);
+      if (!Array.isArray(d) || d.length !== b.sources.length) throw failed(b, "returned an unexpected response");
       b.sources.forEach((s, i) => b.destinations.forEach((t, j) => {
         const miles = (d[i] as unknown[] | undefined)?.[j];
         if (miles === null) throw new RoadDistancesError("road_distances_unroutable", `No road route from ${s.id} to ${t.id}. Add a distance override for that pair.`);
-        if (typeof miles !== "number" || !Number.isFinite(miles))
-          throw new RoadDistancesError("road_distances_failed", `OpenRouteService returned an unexpected response for ${b.label}.`);
+        if (typeof miles !== "number" || !Number.isFinite(miles)) throw failed(b, "returned an unexpected response");
         pairs.push({ fromId: s.id, toId: t.id, miles });             // unrounded (§8)
       }));
     }
     return pairs;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(deadlineTimer);
   }
 }
 
-// ponytail: single-instance queue; a shared limiter is needed only if nos-api scales past one instance.
-let tail: Promise<unknown> = Promise.resolve();
-export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
-  const run = tail.then(task, task);
-  tail = run.catch(() => undefined);
-  return run;
+// ponytail: single-instance busy flag; a shared limiter is needed only if nos-api scales past one instance.
+let busy = false;
+/** O1 (spec §8 Concurrency): never two ORS fetches at once in this process, and never a waiting request. */
+export async function runIfIdle<T>(task: () => Promise<T>): Promise<T> {
+  if (busy) throw new RoadDistancesError("road_distances_busy", BUSY);
+  busy = true;
+  try { return await task(); } finally { busy = false; }
 }
 
 let fetchForTests: typeof fetch | null = null;
@@ -2375,12 +2804,12 @@ export function setOrsFetchForTests(f: typeof fetch | null): void { fetchForTest
 export function orsFetch(): typeof fetch { return fetchForTests ?? fetch; }
 ```
 
-  The route-level timeout case throws a `DOMException` from `fetchImpl`, which the no-binding `catch` maps to `road_distances_failed` (502).
+  The route-level timeout case throws a `DOMException` from `fetchImpl`, which the no-binding `catch` maps to `road_distances_failed` (502). `AbortSignal.any` is available on the Node 24 runtime (`Dockerfile:2`, `FROM node:24-slim`).
 
 - [ ] **Step 5: Route** (append to `routes/superNetwork.ts` before `export default`):
 
 ```ts
-import { ROAD_ERROR_STATUS, RoadDistancesError, fetchRoadPairs, orsFetch, planBatches, runExclusive } from "../services/orsClient.js";
+import { ROAD_ERROR_STATUS, RoadDistancesError, fetchRoadPairs, orsFetch, planBatches, runIfIdle } from "../services/orsClient.js";
 import type { RoadPair } from "../services/superRoad.js";
 
 // SM2-9 (spec §8, D7) — synchronous; ORS is called with NO row lock, then only roadDistances is written onto the row's
@@ -2399,7 +2828,7 @@ router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request
   const coords = Object.fromEntries([...v.plants, ...v.warehouses, ...v.customers].map(l => [l.id, [l.lat, l.lng] as [number, number]]));
   let pairs: RoadPair[];
   try {
-    pairs = await runExclusive(() => fetchRoadPairs({ apiKey, batches: planBatches(v.plants, v.warehouses, v.customers), fetchImpl: orsFetch() }));
+    pairs = await runIfIdle(() => fetchRoadPairs({ apiKey, batches: planBatches(v.plants, v.warehouses, v.customers), fetchImpl: orsFetch() }));
   } catch (e) {
     if (e instanceof RoadDistancesError) { res.status(ROAD_ERROR_STATUS[e.code]).json({ error: e.code, message: e.message }); return; }
     throw e;
@@ -2416,6 +2845,8 @@ router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request
   res.json({ scenario: toApiScenario(outcome.row) });
 });
 ```
+
+  The transaction's own `SELECT … FOR UPDATE` before `applyScenarioInputWrite`'s locked select is deliberate (R9 rejected): a same-transaction re-lock of a row already held is a no-op in Postgres, it matches Phase 1's import route (`routes/superNetwork.ts:42-47`), and `applyScenarioInputWrite` stays the single write path. R8 needs no branch: `planBatches` returns `[]`, `fetchRoadPairs` makes no request and returns `[]`, and the empty cache is written.
 
   Body: the global 100 KiB parser handles the empty body (`app.ts:79-83`); no carve-out.
 
@@ -2458,6 +2889,12 @@ router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found (also another user's scenario or a non-super scenario, never 403)
+        "409":
+          description: road_distances_busy (another road-distance fetch is in progress on this server; nothing waits)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadDistancesError"
         "422":
           description: road_distances_unroutable, or the resulting inputs failed validation
           content:
@@ -2489,7 +2926,7 @@ router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request
     RoadDistancesErrorCode:
       type: string
       description: Closed set of road-distance failure codes (spec §8). The TS union in services/orsClient.ts mirrors it.
-      enum: [road_distances_unavailable, road_distances_quota, road_distances_failed, road_distances_unroutable]
+      enum: [road_distances_unavailable, road_distances_quota, road_distances_failed, road_distances_unroutable, road_distances_busy]
     RoadDistancesError:
       type: object
       required: [error, message]
@@ -2499,19 +2936,9 @@ router.post("/scenarios/:scenarioId/network/road-distances", async (req: Request
         message:
           type: string
 ```
-  Run `pnpm --filter @workspace/api-spec run codegen` (same TS2308 handling as Task 3). Add one assertion to `orsClient.test.ts` pinning the union to the spec enum:
+  Run `pnpm --filter @workspace/api-spec run codegen` (same TS2308 handling as Task 3). The union-equals-enum test is already in Step 1.
 
-```ts
-import { readFileSync } from "node:fs";
-import { ROAD_ERROR_STATUS } from "../services/orsClient.js";
-it("the TS error-code union equals the OpenAPI enum", () => {
-  const yaml = readFileSync(new URL("../../../../lib/api-spec/openapi.yaml", import.meta.url), "utf8");
-  const m = /RoadDistancesErrorCode:[\s\S]*?enum: \[([^\]]+)\]/.exec(yaml)!;
-  expect(m[1].split(",").map(s => s.trim()).sort()).toEqual(Object.keys(ROAD_ERROR_STATUS).sort());
-});
-```
-
-- [ ] **Step 7: Run** both files and `src/__tests__/lockedModelGuards.test.ts` (PASS), then `pnpm gate`. Optional live smoke (only if the user has supplied a key; never commit it): `ORS_API_KEY=<key> pnpm --filter api-server run dev`, import the sample with `distanceMethod: "road"`, POST the route once, record request count and elapsed time in the changelog. Otherwise record "live ORS check pending the user's key" (spec §9 phase 3).
+- [ ] **Step 7: Run** both files and `src/__tests__/lockedModelGuards.test.ts` (PASS), then `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`. Optional live smoke (only if the user has supplied a key; never commit it): `ORS_API_KEY=<key> pnpm --filter api-server run dev`, import the sample with `distanceMethod: "road"`, POST the route once, record request count and elapsed time in the changelog. Otherwise record "live ORS check pending the user's key" (spec §9 phase 3).
 
 - [ ] **Step 8: Commit** on `sm2-9-work`:
 ```bash
@@ -2548,7 +2975,7 @@ const { mutate, state } = vi.hoisted(() => ({ mutate: vi.fn(), state: { isError:
 vi.mock("@workspace/api-client-react", () => ({
   useFetchScenarioRoadDistances: () => ({ mutate, reset: vi.fn(), ...state }),
   RoadDistancesErrorCode: { road_distances_unavailable: "road_distances_unavailable", road_distances_quota: "road_distances_quota",
-    road_distances_failed: "road_distances_failed", road_distances_unroutable: "road_distances_unroutable" },
+    road_distances_failed: "road_distances_failed", road_distances_unroutable: "road_distances_unroutable", road_distances_busy: "road_distances_busy" },
 }));
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 import { SuperRoadDistancesDialog, describeRoadError } from "@/components/workspace/super/SuperRoadDistancesDialog";
@@ -2574,7 +3001,8 @@ describe("SuperRoadDistancesDialog", () => {
     ["road_distances_quota", "OpenRouteService quota reached, try again later. The daily quota is shared by everyone using this server."],
     ["road_distances_unroutable", "No road route from P1 to W1. Add a distance override for that pair."],
     ["road_distances_unavailable", "Road distances are not available: no OpenRouteService key is configured on this server."],
-    ["road_distances_failed", "OpenRouteService failed for warehouses → customers 41–110 (HTTP 500)."],
+    ["road_distances_failed", "OpenRouteService failed (HTTP 500) for warehouses → customers 71–140."],
+    ["road_distances_busy", "Road distances are already being fetched on this server. Try again in a minute."],
   ])("shows the server message for %s", (code, message) => {
     Object.assign(state, { isError: true, error: { status: 429, data: { error: code, message } } });
     open();
@@ -2616,7 +3044,7 @@ describe("SuperRoadDistancesDialog", () => {
   });
 ```
 
-  Match the Save mock's call shape to the existing "Optimization Parameters … Save sends no distanceBands" test in the same file (`:153-166`), which already reads the sent inputs; copy its accessor. Add `useFetchScenarioRoadDistances: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }))` and the `RoadDistancesErrorCode` const to that file's `vi.mock("@workspace/api-client-react", …)`.
+  Match the Save mock's call shape to the existing "Optimization Parameters … Save sends no distanceBands" test in the same file (`:153-166`), which already reads the sent inputs; copy its accessor. Add `useFetchScenarioRoadDistances: vi.fn(() => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }))` and the `RoadDistancesErrorCode` const (all five codes) to that file's `vi.mock("@workspace/api-client-react", …)`.
 
 - [ ] **Step 2: Run, expect FAIL:** `pnpm --filter studio exec vitest run src/__tests__/SuperRoadDistancesDialog.test.tsx src/__tests__/SuperDistancesTab.test.tsx src/__tests__/SuperReadinessPanel.test.tsx src/__tests__/Workspace.Super.test.tsx`
 
@@ -2709,7 +3137,7 @@ export function SuperRoadDistancesDialog({ open, onOpenChange, scenarioId, onApp
 ```
     `handleImportApplied` resyncs `localInputs`/`savedInputsRef` and invalidates the scenario, list and precheck queries (`:2274-2281`), so readiness refreshes.
 
-- [ ] **Step 6: Run** the four files (PASS) and `pnpm gate`.
+- [ ] **Step 6: Run** the four files (PASS) and `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`.
 
 - [ ] **Step 7: Commit** on `sm2-10-work`:
 ```bash
@@ -2729,6 +3157,13 @@ Role: qa-sdet (exempt from the simplicity skills; if a ponytail ruleset is injec
 - Modify: any sibling `artifacts/studio/e2e/*.spec.ts` the Step 3 grep finds
 - Modify: `docs/superpowers/flake-registry.md` (only for new sightings)
 
+- [ ] **Step 0: Phase-1 tests after the Input Map (moved here from Task 1, R6).** In `importSampleViaUi` (`e2e/super-model.spec.ts:54-64`), after the empty-state assertion, add:
+```ts
+  // SM2-1 (§6.1): a successful import switches to the Input Map.
+  await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
+```
+  and in Test C, after `page.reload()`, assert `super-map-toolbar` is visible before clicking Products (a non-empty scenario now opens on the Input Map; SM-13's empty-scenario prompt is unchanged and still asserted in `createScenarioViaUi`).
+
 - [ ] **Step 1: Tests D–F** in `super-model.spec.ts` (same helpers; fresh user; `try/finally` delete):
   - **D — CSV set → Input Map → edit on map → save.**
     1. Create via UI (empty state). Click `super-download-sample-csv`; `const dl = await page.waitForEvent("download")` (start the wait before the click); read it with `fs.readFileSync(await dl.path())`; `unzipSync` (from `fflate`) → eight entries.
@@ -2740,11 +3175,18 @@ Role: qa-sdet (exempt from the simplicity skills; if a ponytail ruleset is injec
   - **F — CSV error mapping.** Import a single `plants.csv` buffer containing `id,name,lat,lng\nA,P,north,2\n` → `super-import-file-error` contains `plants.csv row 2 column lat: is not a number`; nothing posted (server inputs unchanged).
   - Road distances get no Playwright test (no ORS in e2e; spec §8 "tests never call ORS"); their browser surface is covered by RTL (Task 10).
 
-- [ ] **Step 2: Run.** Start both servers per `artifacts/studio/e2e/CLAUDE.md`; `E2E_BASE_URL=http://localhost:<studio-port> pnpm --filter studio exec playwright test e2e/super-model.spec.ts` — A–F PASS. **Never omit `E2E_BASE_URL`.**
+- [ ] **Step 2: Run** (R12 — the full local recipe from `artifacts/studio/e2e/CLAUDE.md`; each server in its own terminal / background shell, from the worktree root):
+```bash
+DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" PORT=3001 pnpm --filter api-server run dev
+PORT=5201 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 VITE_POSTHOG_KEY=phc_local_dummy_key VITE_SENTRY_DSN=https://x@o.ingest.sentry.io/1 pnpm --filter studio run dev
+curl -sf http://localhost:3001/api/healthz && curl -sf -o /dev/null http://localhost:5201/ && echo SERVERS_UP
+cd artifacts/studio && E2E_BASE_URL=http://localhost:5201 pnpm exec playwright test e2e/super-model.spec.ts
+```
+  A–F PASS. If ports 3001/5201 are taken by another session, pick free ones and use them consistently in all four lines. **Never omit `E2E_BASE_URL`** (it would test a remote Replit deployment). `run dev` is build-then-start: restart the API after any source change.
 
-- [ ] **Step 3: Sibling sweep.** For every testid / visible string this bundle changed or removed, grep `artifacts/studio/e2e/`: `Export network (JSON)`, `super-header-export`, `super-import-file`, `super-download-template`, `super-download-sample`, `super-empty-state`, `sidebar-input-products` (super), `input-map-tab`, `toggle-layer-plants`, `map-add-menu`, `Fetch road distances`, plus `jade-map-toolbar` / `pmedian-map-toolbar` (the control move in Task 1 must not have changed them). Run `E2E_BASE_URL=… pnpm e2e:gate`; rewrite any broken sibling spec to the new UI, re-run until green; register new flakes by name with two isolated re-runs.
+- [ ] **Step 3: Sibling sweep.** For every testid / visible string this bundle changed or removed, grep `artifacts/studio/e2e/`: `Export network (JSON)`, `super-header-export`, `super-import-file`, `super-download-template`, `super-download-sample`, `super-empty-state`, `sidebar-input-products` (super), `input-map-tab`, `toggle-layer-plants`, `map-add-menu`, `Fetch road distances`, plus `jade-map-toolbar` / `pmedian-map-toolbar` (the control move in Task 1 must not have changed them). Run `E2E_BASE_URL=http://localhost:5201 pnpm e2e:gate` (repo root, same servers); rewrite any broken sibling spec to the new UI, re-run until green; register new flakes by name with two isolated re-runs.
 
-- [ ] **Step 4: Journey + accuracy.** `cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:<api-port> super` (all checks pass; unchanged file) and `python3 e2e_accuracy.py` (99/99).
+- [ ] **Step 4: Journey + accuracy.** `cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:3001 super` (all checks pass; unchanged file) and `python3 e2e_accuracy.py` (99/99).
 
 - [ ] **Step 5: Commit** on `sm2-11-work`:
 ```bash
@@ -2758,7 +3200,7 @@ git commit artifacts/studio/e2e docs/superpowers/flake-registry.md docs/CHANGELO
 
 Role: lead.
 
-- [ ] Integrated-branch gate on `super-model-2`, zero concurrent vitest: `pnpm gate`, `e2e_accuracy.py` 99/99, `e2e_journey.py … super`, `E2E_BASE_URL=… pnpm e2e:gate`.
+- [ ] Integrated-branch gate on `super-model-2`, zero concurrent vitest: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm gate`, `e2e_accuracy.py` 99/99, `python3 e2e_journey.py http://localhost:3001 super`, and `E2E_BASE_URL=http://localhost:5201 pnpm e2e:gate` with both servers started by Task 11 Step 2's recipe (its first three lines, unchanged).
 - [ ] `docs/CHANGELOG-implementation.md`: one entry per task with SHA, gate counts, and the measured facts — Task 3 byte count, Task 4 dependency choice + audit before/after, Task 6 Render timeout quote and ORS checks, Task 9 live check status. Close-out entry lists deferred items: live ORS check once the user supplies `ORS_API_KEY`; open issues not resolved by the user.
 - [ ] Spec fold (same commit; one canonical copy, edit in place): §7.1 issue paths are document-relative and the Studio uses a row map; §6.1 Super map uses the toolbar Save; §8 HTTP statuses 503/429/502/422 and the readiness item reuses `completeness`; §7.2 the CSV/XLSX template and sample are generated in the browser from the JSON files; the chosen XLSX/zip libraries.
 - [ ] Memory pointer: update `~/.claude/projects/-Users-shubhamkr-network-optimization-studio/memory/project_super_model_phases.md` — Phase 2 + Input Map + Phase 3 implemented on `super-model-2` (not merged / deployed), plan path, `ORS_API_KEY` still to be supplied.
@@ -2771,24 +3213,38 @@ Role: lead.
 
 ## Spec deviations / open issues
 
-Recorded, not silently picked. Items marked **ASK** need a user decision before or during execution; the plan's default is stated.
+Status after the Codex high review (2026-10-23). "Resolved" items are folded into the spec (one normative body) or into the named task.
 
-1. **Row numbers when empty rows are skipped.** §7.1's `row = path[1] + 2` is wrong after a skipped fully-empty row (§7.2). The Studio keeps a per-table row map (`Source.rows`), equal to `path[1] + 2` whenever nothing was skipped.
-2. **Merge-mode issue paths.** Whole-network validation runs on the merged tables, so `path[1]` would index the merged array, not the file. The server rewrites paths to document rows (`toDocIssues`); an issue on a kept existing row becomes `[table]` + "Existing <table> row n:". (Task 3.)
-3. **ASK — merge collapses duplicate keys inside one imported table.** `mergeNetwork` (Phase 1) keeps the last of two rows with the same id/pair key instead of rejecting them, contrary to §3.3/§7.3 uniqueness. Not fixed by this plan; fix would be a duplicate check on the document before merging (Task 3 scope).
-4. **ASK — `MoveConfirmDialog` reused as-is shows a misleading "New code" / nearest city.** Super writes lat/lng only (§6.1), so the shown code and city are not applied. Default: reuse as-is per spec.
-5. **Copy near the antimeridian.** `lng + 0.05` is clamped to 180 (schema max).
-6. **Dependency count.** §7.2 says one new Studio dependency + one zip library. SheetJS meets that; read-/write-excel-file would be two. `pnpm audit` does not cover a tarball-URL dependency (SheetJS CDN). papaparse is added to the studio manifest (already in the lockfile).
-7. **ASK — HTTP statuses for road errors** (spec gives only 503 for unavailable): quota 429, failed 502, unroutable 422.
-8. **Road fetch while unsaved.** Not in the spec: the fetch action is disabled while the draft is dirty, so the post-fetch resync cannot discard edits.
-9. **Studio PATCH must omit `roadDistances`.** Not in §8's checklist: at the caps road pairs (~26,000) plus overrides would push Save past 2 MiB; the server discards a client copy anyway. (Task 10.)
-10. **Create path.** §8 names PATCH and import; POST `/scenarios` also drops a client `roadDistances` (every-write-path gotcha); clone keeps the server value.
-11. **Export.** `GET /network/export` must strip `roadDistances` once the persisted schema carries it (§7.2 "JSON … without roadDistances").
-12. **Empty scenario on the Input Map.** Today's readiness panel would replace the map for an empty draft; the Input Map tab is excluded so §6.1's "no points ⇒ world view" and add-on-map are reachable. CSV/XLSX templates and sample are generated in the browser from the JSON files (no committed binaries).
-13. **Road readiness code.** Reuses precheck code `completeness` (no new closed-union precheck code / OpenAPI change).
-14. **Max-size measurement scope.** String lengths are unbounded by the schema; Task 3 measures a defined worst case. Pre-plan estimate 1,913,859 B of 2,097,152 (~9% margin).
-15. **Two delete confirmations on the map.** `MapActionMenu`'s own "Confirm delete?" step precedes the D3 row-count dialog.
-16. **Not verified while planning:** Render's HTTP request timeout (two guessed doc URLs 404'd; the web-services page does not state it) and the ORS `distances`/limits shape (the ORS docs page lacks limits and response shape). Task 6 is the gate.
+1. **Resolved (spec §7.1):** row numbers when empty rows are skipped — the Studio uses the row map it kept while parsing; no `path[1] + 2` fallback (P4: an unmapped index is reported as such).
+2. **Resolved (spec §7.1, Task 3):** merge-mode issue paths are translated to document rows; every table gets an origin map, so an issue on a kept existing row is reported table-level as "Existing <table> row n".
+3. **Resolved pending decision a (spec §7.3, Task 3):** duplicate keys inside the imported document are rejected per table, never last-wins.
+4. **Resolved pending decision b (Task 2):** `MoveConfirmDialog` gains `preserveIdentity`; Super shows no regenerated code or nearest city.
+5. Copy near the antimeridian: `lng + 0.05` is clamped to 180 (schema max). Plan detail, no spec change.
+6. **Pending decision d (Task 4):** XLSX library. SheetJS from the CDN is one package (spec §7.2's "one new dependency"); its tarball is a reviewed exception to the registry norm, outside `pnpm audit`, with exact URL + sha512 + advisory review recorded. papaparse is added to the studio manifest (already in the lockfile).
+7. **Resolved pending decision c (Global Constraints, Task 9 OpenAPI):** 503 / 429 / 502 / 422, plus 409 busy (O1, spec §8).
+8. Road fetch while unsaved: the fetch action is disabled while the draft is dirty, so the post-fetch resync cannot discard edits. Plan detail.
+9. Studio PATCH omits `roadDistances` (Task 10): at the caps the cache plus overrides would push Save past 2 MiB; the server discards a client copy anyway.
+10. Create path drops a client `roadDistances` too (Task 7, every-write-path gotcha); clone keeps the server value.
+11. `GET /network/export` strips `roadDistances` (Task 7; spec §7.2 "JSON … without roadDistances").
+12. Empty scenario on the Input Map shows the world view, not the import prompt (Task 1). CSV/XLSX templates and sample are generated in the browser from the JSON files (Task 5).
+13. Road readiness reuses precheck code `completeness` (no new closed-union precheck code).
+14. Max-size measurement covers 1, 2, 5 and 10 products at the caps and asserts the largest (R1); string lengths remain unbounded by the schema, so it is a defined worst case.
+15. **Resolved (Task 2):** one delete confirmation on the map — `MapActionMenu` `confirmDelete={false}`, Workspace's D3 dialog states the cascade count.
+16. **Resolved as a gate (spec §8, Task 6):** Render's request timeout and the ORS shape were not verifiable while planning; Task 6 must prove them before Tasks 7–10, else STOP for re-plan.
+17. **Resolved (spec §7.2):** the formula guard is the existing `clientCsv.ts` rule (numeric-looking strings unguarded) — the spec wording now matches the code (R3).
+18. **Resolved (Task 3):** composite keys are `JSON.stringify([a, b])` in both `mergeNetwork` and `superInputs.ts` `superRefine` (a latent Phase 1 collision for IDs containing `|`).
+19. **Resolved (spec §8, Task 9):** the process-wide queue is replaced by reject-if-busy (409 `road_distances_busy`); empty sides make no ORS call (R8); per-request timers are cancellable (O2).
+
+## Awaiting user final review
+
+Four decisions are written into the plan at the recommended default; the user confirms or changes each before execution.
+
+| # | Decision | Recommended default (in the plan) | Alternative | Tasks affected |
+|---|---|---|---|---|
+| a | Duplicate keys inside an imported document | Reject, per table, document-relative issues, before merge (spec §7.3) | Keep Phase 1's last-wins | 3 |
+| b | Move dialog for Super | `MoveConfirmDialog` `preserveIdentity` prop: no "New code"/nearest city; states id/city/state unchanged | Reuse the dialog unchanged (misleading preview) | 2 |
+| c | Road error HTTP statuses | 503 unavailable / 429 quota / 502 failed (timeout, deadline, malformed, upstream) / 422 unroutable / 409 busy, contractual in OpenAPI | Other mapping | 9, 10 |
+| d | XLSX library | SheetJS from `cdn.sheetjs.com`, exact URL + sha512, reviewed exception (conditional on Task 4 Step 1's checks) | npm-registry `read-excel-file` + `write-excel-file` (two packages; Task 4 stops for a re-plan of `parseXlsx`/`toXlsx`) | 4, 5 |
 
 ## Self-review
 
@@ -2796,34 +3252,66 @@ Recorded, not silently picked. Items marked **ASK** need a user decision before 
 
   | Spec | Task(s) |
   |---|---|
-  | §6.1 wiring, seeding, switch-to-map | 1 |
+  | §6.1 wiring, seeding, switch-to-map | 1 (unit), 11 (e2e) |
   | §6.1 reuse vs new, `SuperEntityDialog` | 1, 2 |
-  | §6.1 fit rules | 1 (test: mount, fitKey, one point, none) |
-  | §6.1 add / edit / move / copy / delete, layer toggles | 1 (layers), 2 |
+  | §6.1 fit rules incl. no refit on add / move / copy / delete | 1, 2 |
+  | §6.1 add / edit / move / copy / delete (one D3 confirmation), layer toggles | 1 (layers), 2 |
   | §6.1 save / readiness / stale read saved state | 2 (toolbar Save; no map-only write) |
-  | §6.1 registration delta, `TabCoverage`, e2e SM-13 | 1, registration map |
+  | §6.1 registration delta, `TabCoverage`, e2e SM-13 | 1, 11, registration map |
   | §7.1 D6 browser parsing, one JSON contract | 4, 5 |
-  | §7.1 422 `issues`, OpenAPI + regen same task | 3 |
-  | §7.2 formats, names, cell rules, parameters, formula guard | 4 |
-  | §7.2 dependency choice after version + audit check, dynamic `import()` | 4 |
-  | §7.2 limits, `MAX_IMPORT_BYTES` measured | 3 (server), 5 (client check) |
-  | §7.3 replace/merge semantics, `roadDistances` clear/keep | 3, 7 |
+  | §7.1 422 `issues` (document-relative), OpenAPI + regen same task | 3 |
+  | §7.2 formats, names, cell rules, parameters, formula guard (as amended) | 4 |
+  | §7.2 dependency choice after version + audit check, dynamic `import()` | 4 (Step 1 first) |
+  | §7.2 limits, `MAX_IMPORT_BYTES` measured over product counts; import and PATCH | 3 (server), 5 (client check) |
+  | §7.3 in-document duplicates, replace/merge semantics, `roadDistances` clear/keep | 3, 7 |
   | §6 Phase 2 CSV/XLSX template + sample downloads | 5 |
-  | §8 contract checklist (method, persisted schema, doc schema, PATCH preservation, precheck, payload, merge_inputs, route + regen, Studio, error codes, test inversion) | 7, 8, 9, 10 |
-  | §8 ORS request, batching, timeouts, queue, failures write nothing | 9 |
-  | §8 Render timeout + ORS re-check before choosing | 6 |
+  | §8 contract checklist | 7, 8, 9, 10 |
+  | §8 ORS request, batching, timers, busy flag, empty sides, failures write nothing | 9 |
+  | §8 Render timeout + ORS re-check as a hard gate | 6 |
   | §8 D8 validity, required pairs | 8 |
   | §8 key / privacy / injected fetch / `render.yaml` | 6, 9, 10 |
-  | §10 API tests (issues, road route list) | 3, 7, 8, 9 |
-  | §10 Studio unit (parity, re-parse, issues, parameters, coercion, formula round-trip, real writer) | 4 |
+  | §10 API tests (issues, duplicates, keys, road route list incl. busy) | 3, 7, 8, 9 |
+  | §10 Studio unit (parity, re-parse, issues contract, parameters, coercion, formula round-trip incl. numeric-looking text, non-A1 sheet, real writer) | 4 |
   | §10 RTL (Input Map actions, switch-to-map, road dialog) | 1, 2, 10 |
-  | §10 Playwright Phase 2 + sibling sweep | 11 |
+  | §10 Playwright Phase 2 + sibling sweep (full local recipe) | 11 |
 
-- **Placeholder scan:** no TBD/TODO. Task 6's "Findings" block is filled by that task by design (it records measurements). Task 3 Step 7 and Task 4 Step 1 are conditional on measured outcomes; both give the exact code or the exact stop.
-- **Type consistency:** `SuperInputsLike`, `LocKind`, `LOC_TABLE`, `LocationDraft` (Tasks 1–2); `InputIssue` / `toInputIssues` / `MergeOrigin` / `toDocIssues` (Tasks 3, 7, 9); `Sources` / `describeIssue` (Tasks 4, 5); `RoadDistances` / `RoadDistancesWrite` / `dropClientOwnedInputs` (Tasks 7, 9); `RoadPair` / `validRoadPairs` / `missingRequiredRoadPairs` (Tasks 8, 9); `RoadDistancesErrorCode` / `ROAD_ERROR_STATUS` / `fetchScenarioRoadDistances` (Tasks 9, 10). The final `mode: "super"` props (Task 2) widen Task 1's; Task 2 Step 2 updates Task 1's render calls.
-- **Fixes made during self-review:** removed a dead `points.length` guard from `takenIds`; replaced JSON-substring assertions on parse errors with exact `where: message` lists; replaced an ESM-namespace `vi.spyOn` with `vi.mock`; replaced a raw-SQL test seed with a Drizzle update; replaced a precheck test that depended on unstated sample facts with one using the computed 2,600 required pairs; typed `pairs` in the route and dropped a no-op `toDocIssues(…, {})`.
-- **Known reads the implementer must do (exact files named):** the existing mock shape in `SuperNetworkImportDialog.test.tsx` and the Save-call accessor in `Workspace.Super.test.tsx:153-166`; `MapActionMenu.tsx` test ids; Orval's generated names after each codegen.
+- **Placeholder scan:** no TBD/TODO. Task 6's "Findings" block and Task 4 Step 1's `V=` / `<exact>` versions are filled from measurements by design; Task 3 Step 7 is conditional on a measured number and gives the exact code.
+- **Type consistency:** `SuperInputsLike`, `LocKind`, `LOC_TABLE`, `LocationDraft` (Tasks 1–2); `confirmDelete`, `preserveIdentity` (Task 2); `InputIssue` / `toInputIssues` / `MergeOrigin` / `toDocIssues` / `docDuplicateIssues` / `pairKey` (Tasks 3, 7, 9); `Source { source, headerRow, rows }` / `Sources` / `describeIssue` (Tasks 4, 5); `RoadDistances` / `RoadDistancesWrite` / `dropClientOwnedInputs` (Tasks 7, 9); `RoadPair` / `validRoadPairs` / `missingRequiredRoadPairs` (Tasks 8, 9); `RoadDistancesErrorCode` (5 codes) / `ROAD_ERROR_STATUS` / `runIfIdle` / `fetchScenarioRoadDistances` (Tasks 9, 10). No remaining `runExclusive` or queue reference.
+- **Fixes made during self-review (round 1):** removed a dead `points.length` guard; exact `where: message` assertions; `vi.mock` instead of an ESM namespace spy; precheck test uses the computed 2,600 required pairs; typed `pairs` in the route.
+- **Fixes made during self-review (round 2, after the Codex fold):** merge now gives every table an origin (an issue on a table absent from the document was otherwise left untranslated); the busy route test parks the first fetch on a gate so the second provably overlaps; the non-A1 XLSX test builds the sheet with `origin` so `!ref` starts at B3; Task 6's pass condition is "≥ 150 s, documented" (undocumented is a fail); every `pnpm gate` carries `DATABASE_URL`; no `e2e/` edit outside Task 11.
+- **Known reads the implementer must do (exact files named):** the existing mock shape in `SuperNetworkImportDialog.test.tsx` and the Save-call accessor in `Workspace.Super.test.tsx:153-166`; Orval's generated names after each codegen; any asserted "Duplicate … row" message text (Task 3 Step 4a grep).
 
 ## Plan review log
 
-Not yet reviewed. Before execution, run an independent plan review (Codex high, read-only, as for Phase 1) and fold its findings into this file, recording each finding and its resolution here.
+**Codex (high, read-only) on `6bb85710`, 2026-10-23.** Round 1 returned 13 findings; round 2 stalled and was re-run as three focused passes: SheetJS / dependency (S, 6), issue paths (P, 4), ORS client (O, 7). Dispositions by the lead:
+
+| # | Finding | Disposition | Where |
+|---|---|---|---|
+| R1 | Max size proven for 2 products only | Accept: 1/2/5/10 products at the caps, largest asserted, numbers recorded | Task 3 |
+| R2 | Conditional limit change missing from the commit | Accept: `app.ts` + `superInputs.ts` in the pathspec; import and PATCH both tested | Task 3 |
+| R3 | Formula guard exempts numeric-looking strings | Reject the code change; spec §7.2 amended to match `clientCsv.ts`; numeric-looking round-trip tests added | spec §7.2, Task 4 |
+| R4 | Merge keeps the last duplicate | Accept (decision a pending): reject in-document duplicates per table | spec §7.3, Task 3 |
+| R5 | Synchronous route proceeds with Render timeout unverified | Accept: Task 6 is a hard gate (≥ 150 s documented) for Tasks 7–10; else re-plan | Global Constraints, spec §8, Task 6 |
+| R6 | Two roles edit `super-model.spec.ts` | Accept: all e2e edits in Task 11 (qa-sdet) | Tasks 1, 5, 11 |
+| R7 | Road preservation tests seed a hand-built row | Accept: seed through `applyScenarioInputWrite({ set })`; route test stays the end-to-end proof | Task 7 |
+| R8 | Zero warehouses / customers unspecified | Accept: 200, no ORS call, empty pairs; three route tests | spec §8, Task 9 |
+| R9 | Double `FOR UPDATE` | Reject: same-transaction re-lock is a Postgres no-op and the Phase 1 pattern; explained in the tasks | Tasks 3, 9 |
+| R10 | CDN provenance; `npm view` | Accept: `pnpm view`, exact version + integrity | Task 4 |
+| R11 | `pnpm gate` without `DATABASE_URL` | Accept: every gate command inlines it | all tasks |
+| R12 | e2e recipe incomplete | Accept: full local recipe with real localhost URLs | Global Constraints, Tasks 11, 12 |
+| R13 | No-refit only tested for copy; double delete confirm | Accept: no-refit for all four actions; `confirmDelete={false}`, one D3 confirmation | Task 2 |
+| S1–S5 | SheetJS pinning, lockfile, release age, fresh install, bundle size | Accept: exact URL + registry versions, pnpm 9.15.9 lockfile, direct importer entries + integrity, ≥ 1,440 min, CDN as reviewed exception (no `minimumReleaseAge` weakening), clean `--frozen-lockfile` install, gzip chunk sizes as an approval gate, sha512 / license / release / advisory in the changelog | Task 4 Step 1, Step 5 |
+| S6 | Library chosen after parser code | Accept: decided as Step 1; SheetJS rejected ⇒ STOP for re-plan (decision d pending) | Task 4 |
+| P1 | `${a}\|${b}` keys collide | Accept: `JSON.stringify([a, b])` in `mergeNetwork` and `superRefine`; delimiter-ID tests | Task 3 |
+| P2 | `describeIssue` and its test disagreed | Accept: one stated contract, test matches it | Task 4 |
+| P3 | Merge translation under-tested | Accept: replaced-row/different-index, kept-existing-row, mixed-table tests | Task 3 |
+| P4 | `+ 2` fallback; XLSX header row | Accept: no fallback (unmapped diagnostic); `headerRow` in `Source`; non-A1 test | Task 4 |
+| O1 | Unbounded queue | Accept: reject-if-busy, 409 `road_distances_busy` in the union + enum + client | spec §8, Task 9 |
+| O2 | `AbortSignal.timeout` timers outlive requests | Accept: per-request controller + timer cleared in `finally`; fake-timer test | spec §8, Task 9 |
+| O3 | Deadline not proven across batches | Accept: delayed batches + fake timers; default constants asserted | Task 9 |
+| O4 | Cap batching not run end to end | Accept: 20/50/500 ⇒ exactly 9 fetches | Task 9 |
+| O5 | Bodies not asserted per request | Accept: every body, asymmetric coordinates, both legs | Task 9 |
+| O6 | Null mid-fetch behaviour | Accept: unroutable names the pair, no later batch, nothing persisted | Task 9 |
+| O7 | Concurrency flag release | Accept: released after failure and after abort | Task 9 |
+
+Not reviewed again after this fold; a short confirmation pass on the changed tasks (2, 3, 4, 9) is recommended before execution.
