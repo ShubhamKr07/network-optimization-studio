@@ -35,7 +35,7 @@ Changes relative to Ch9:
 | Home page | Own "Super Model" block after the chapter blocks; blank templates + a downloadable sample network |
 | Size | Provisional caps in §3.3, confirmed by a measured CBC timing run as Phase 1's first task |
 | Delivery | Three phases (§9) |
-| D1 Size caps | Provisional caps of §3.3 accepted |
+| D1 Size caps | Provisional caps of §3.3 accepted; warehouses × customers × products lowered to 50,000 by the SM-2 timing run |
 | D2 Big-M | Derived `M = |customers| × |products|` for both models (§4.1) |
 | D3 Row delete | Cascade after a confirmation stating the row count (§6) |
 | D4 CSV export | Single zip of the per-table CSVs (§7.1) |
@@ -51,7 +51,7 @@ ships a **minimal dataset package** rather than special-casing those paths:
 - `solvers/super-model/manifest.json`, `datasetDir: "solvers/super-model/dataset"`
 - `dataset/version.json` (`version: 1`, sha256 over the package as for every other model)
 - empty entity files (`plants.json`, `warehouses.json`, `customers.json`, `products.json` = `{}`)
-- a `PACKAGE_SPECS` entry like the others. `GET /models/super-model/dataset` returns the empty package.
+- a `PACKAGE_SPECS` entry like the others. `GET /api/dataset?modelId=super-model` returns the empty package.
 
 No caching/version code changes. The network itself is never in the package — only in `inputs`.
 
@@ -73,7 +73,7 @@ inputs = {
   customers:     [{ id, name, city, state, lat, lng, status: "active"|"excluded" }],
   plantProducts: [{ plantId, productId, capacity ≥ 0, costPerUnit ≥ 0 }],
   demand:        [{ customerId, productId, demand ≥ 0 }],
-  distanceOverrides: [{ fromId, toId, miles > 0 }],
+  distanceOverrides: [{ fromId, toId, miles ≥ 0 }],   // 0 allowed: co-located pairs (SM-6), as Ch9
   roadDistances?: { fetchedAt, pairs: [{ fromId, toId, miles }] }   // phase 3, server-written only
 }
 ```
@@ -159,12 +159,12 @@ reason: a product's total capacity < its total active demand.
 - capacity / cost maps from `plantProducts`
 - distance for every plant→WH and WH→customer pair:
   1. `distanceOverrides` pair if present
-  2. else, if method is `road`, the `roadDistances` pair (precheck refuses solve if any pair is missing)
+  2. else, if method is `road`, the `roadDistances` pair (precheck refuses solve if any pair is missing) — Phase 3; Phase 1's schema rejects `road` with 422
   3. else haversine miles, × `circuityFactor` when method is `circuity`
 
 ## 5. Output summary
 
-Computed from **unrounded** solver values; display rounding happens only at render/export.
+Costs are stored at cents (2 dp), each summed from unrounded solver values; average distances are stored unrounded. Display rounding happens only at render/export (decision C1).
 
 | Line | Metric key | Definition |
 |---|---|---|
@@ -186,8 +186,10 @@ above; a test covers a Super-vs-Super compare.
 
 ## 6. UI (Studio)
 
-- **Home page:** new "Super Model" block after the chapter blocks (no chapter number). Actions: new
-  scenario; download blank templates (CSV set, XLSX, JSON); download the sample network.
+- **Home page:** new "Super Model" block after the chapter blocks, labelled "SM" instead of a chapter number. The card opens
+  the workspace; blank-template and sample-network downloads live in the workspace empty state (decision C2 — a
+  home card is a single link, so it cannot hold nested download links). Phase 1 ships the JSON template; the CSV
+  set and XLSX arrive in Phase 2.
 - **Workspace tabs** (reuse Ch9 components where they fit):
   Products · Plants · Warehouses (status) · Customers (status, no demand column) ·
   Plant Capability (plant, product, capacity, cost/unit) · Demand (customer, product, demand) ·
@@ -277,7 +279,7 @@ Each phase ends in a usable model and follows branch discipline (branch per comm
 
 - **pytest:** shared core — plant-cost term changes the objective by exactly Σ flow·cost; capacity cap
   binds; missing row ⇒ cannot make; derived big-M; both distance methods; override precedence; summary
-  arithmetic from unrounded values; new capacity-shortfall infeasibility reason.
+  arithmetic (costs to the cent, distances unrounded); new capacity-shortfall infeasibility reason.
 - **`e2e_accuracy.py` unmodified** — proves Ch9 is unchanged by the core extraction and the derived M.
 - **New golden (sample network):** Ch9 JADE data reshaped — plants, warehouses, customers, products,
   diagonal capability with the dataset's capacities, `costPerUnit = 0`, demand rows from customer
