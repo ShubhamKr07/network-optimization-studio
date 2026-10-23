@@ -4390,3 +4390,13 @@ Bundle branch `super-model` (base `56c92086`, plan `docs/superpowers/plans/2026-
 - Integrated-branch gate on `45845cc0` predecessor `ead956cf`: typecheck clean; api-server 2108/2110 in the full run, the 2 failures (`jobRunnerDispatcher` A2, `routes.test.ts` export-assignments) green 311/311 in 2 isolated re-runs (registered in SM-15); studio 2801/2801; solver pytest 368 passed; `e2e_accuracy.py` 99/99 unmodified. SM-14: `e2e:gate` 77 passed / 4 flaky (green on retry) / 0 failed; super-model spec A/B/C green. SM-15: `e2e_journey.py super` 37/37, `auth` 18/18.
 - Not merged, not pushed, not deployed. No `lib/db/src/schema/**` change; no new env var. Deploy note: `SOLVER_CODE_HASH` now covers `merge_inputs.py` too, so the first deploy invalidates every cached solve result once.
 - Next: Phase 2 plan (multi-file CSV + XLSX import/export; client-side file reading, JSON body — the API has no multipart parser), then Phase 3 (OpenRouteService). Known UX nit carried: circuity-factor input silently ignores out-of-range values (SM-7).
+
+### SM-16 - guard super network routes in lock scan; keep 413s out of exception capture (2026-10-23)
+
+Super Model Phase 1 whole-branch-review follow-up (backend-engineer). Branch `sm-16-work` (based on `0a9e9740`).
+
+- `lockedModelGuards.test.ts`: `ROUTE_FILES` now includes `superNetwork.ts`, so the source scan sees its two `/scenarios/:scenarioId/network/{import,export}` handlers (they match `HANDLER_RE` unchanged). Non-vacuity: removing the `isModelLocked` line from the export handler made "guards every :scenarioId handler" fail naming `superNetwork.ts:54`; restored.
+- `app.ts`: the SM-12 `entity.too.large` -> 413 `{error:"payload_too_large"}` mapping moved out of the final handler into its own error middleware registered BEFORE PostHog's and Sentry's `setupExpressErrorHandler` (Sentry ignores <500; PostHog captured every oversized body as an exception). Response unchanged.
+- `routes.test.ts`: the posthog mock gained `addPendingPromise`/`getErrorPropertiesBuilder` (the members posthog-node's real error handler touches); new test asserts an oversized `POST /api/scenarios` is 413 and neither is called. Non-vacuity: with the old ordering it fails ("called 2 times").
+- Documentation note (review, no code change): network import merge replaces a row whole and the table schemas default `status` to "active", so re-merging a customers table without a `status` column re-activates previously excluded customers. Consistent with spec section 7.3; a UX note for Phase 2.
+- Not merged, not pushed, not deployed. No schema change.

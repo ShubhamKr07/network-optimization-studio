@@ -29,11 +29,16 @@ const mockPool = vi.hoisted(() => ({ query: vi.fn(async () => ({ rows: [{ "?colu
 // file triggers the error-handler path, so `capture`/`withContext` are the
 // only members that actually matter.
 const mockPosthogCapture = vi.hoisted(() => vi.fn());
+const mockPosthogAddPending = vi.hoisted(() => vi.fn());
 vi.mock("../lib/posthog.js", () => ({
   posthog: {
     capture: mockPosthogCapture,
     withContext: (_ctx: unknown, fn: () => unknown) => fn(),
     options: {},
+    // SM-16 — the members posthog-node's real error handler touches, so a
+    // 413 can be shown NOT to reach it.
+    addPendingPromise: mockPosthogAddPending,
+    getErrorPropertiesBuilder: mockPosthogAddPending,
   },
 }));
 
@@ -453,6 +458,19 @@ describe("scenario endpoints require authentication", () => {
   });
   it("POST /api/scenarios/:id/clone returns 401 without a session", async () => {
     expect((await request(app).post("/api/scenarios/1/clone")).status).toBe(401);
+  });
+});
+
+// SM-16 — an oversized body is a client error: 413, and PostHog's exception
+// capture (Sentry ignores <500, PostHog does not) must never see it.
+describe("oversized body (SM-16)", () => {
+  it("413 payload_too_large without reaching PostHog's error handler", async () => {
+    const cookie = await loginAs(OWNER);
+    mockPosthogAddPending.mockClear();
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "x".repeat(2 * 1024 * 1024 + 10) });
+    expect(res.status).toBe(413);
+    expect(res.body).toEqual({ error: "payload_too_large" });
+    expect(mockPosthogAddPending).not.toHaveBeenCalled();
   });
 });
 
