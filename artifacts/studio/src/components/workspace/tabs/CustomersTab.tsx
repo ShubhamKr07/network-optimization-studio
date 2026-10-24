@@ -126,7 +126,7 @@ interface CustomerRow {
 
 const CUSTOMER_STATUSES = ["active", "excluded"] as const;
 const customerStatusClass = (s: "active" | "excluded") =>
-  s === "excluded" ? "bg-destructive text-white" : "bg-slate-200 text-foreground";
+  s === "excluded" ? "bg-foreground text-background" : "bg-secondary text-foreground";
 const BRAZIL_LOCK_TITLE = "Demand for this row is fixed by the textbook dataset and can't be edited.";
 
 // A1.1 → SCU-2.P4.11 (spec B2.1–B2.4, B2.8, B2.9, D2) — Customers on the

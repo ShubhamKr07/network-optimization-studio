@@ -6,7 +6,7 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge, Plant } from "@workspace/api-client-react";
 import { assignBandOrOverflow, bandLabel } from "@/lib/bands";
-import { getBandColor } from "@/lib/bandPalette";
+import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
@@ -716,7 +716,11 @@ export function NetworkMap({
               // single-echelon edge (no leg) still resolves via
               // assignBandOrOverflow(distance, []), which returns band 0 —
               // unchanged "Plain" behavior.
-              const bandColor = getBandColor(assignBandOrOverflow(edge.distance, bands));
+              const bandIndex = assignBandOrOverflow(edge.distance, bands);
+              const bandColor = getBandColor(bandIndex);
+              // DU-1.2: pattern only when lanes are coloured by band; leg/plain
+              // mode (bands = []) stays solid.
+              const bandDash = bands.length > 0 ? getBandDash(bandIndex) : undefined;
               const legColor = getLegColor(edge.leg);
               const routeColor = legColor != null && bands.length === 0 ? legColor : bandColor;
 
@@ -731,6 +735,7 @@ export function NetworkMap({
                     color: routeColor,
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
+                    dashArray: bandDash,
                   }}
                 >
                   {/* B2.2-T4 (A4) — hover tooltip: cities + length in the

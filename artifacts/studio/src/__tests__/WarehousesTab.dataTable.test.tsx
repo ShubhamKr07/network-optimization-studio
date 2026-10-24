@@ -179,7 +179,7 @@ describe("WarehousesTab on DataTable (SCU-2.P4.10)", () => {
     }
     render(<Parent />, { wrapper: AllProviders });
     fireEvent.click(screen.getByTestId("button-wh-WH3-inactive"));
-    expect(screen.getByTestId("button-wh-WH3-inactive")).toHaveClass("bg-destructive");
+    expect(screen.getByTestId("button-wh-WH3-inactive")).toHaveClass("bg-foreground");
     fireEvent.change(screen.getByTestId("input-added-wh-capacity-aw-1"), { target: { value: "750" } });
     expect(screen.getByTestId("input-added-wh-capacity-aw-1")).toHaveValue(750);
   });

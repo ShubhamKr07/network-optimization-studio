@@ -3,7 +3,7 @@ import type { SolveResult } from "@workspace/api-client-react";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
 import { demandTone, makeQuintileRadius, QUINTILE_RADII } from "./types";
 import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./EntityMarkers";
-import { getBandColor } from "@/lib/bandPalette";
+import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { OVERFLOW_BAND } from "@/lib/bands";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
@@ -304,11 +304,17 @@ export function MapLegend({
             {bands.map((boundary, i) => (
               <Fragment key={i}>
                 {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: getBandColor(i) }}
-                  data-testid={`legend-band-${i}`}
-                />
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(i) }}
+                    data-testid={`legend-band-${i}`}
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid={`legend-dash-${i}`}>
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(i)} strokeWidth="2.5"
+                      strokeDasharray={getBandDash(i)} />
+                  </svg>
+                </span>
                 <span className="text-muted-foreground font-mono text-[10px]">
                   ≤ {formatBandBoundary(boundary)}
                 </span>
@@ -324,11 +330,16 @@ export function MapLegend({
                 existing tests use. */}
             {bands.length > 0 && (
               <Fragment>
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
-                  data-testid="legend-overflow-band"
-                />
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
+                    data-testid="legend-overflow-band"
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid="legend-overflow-dash">
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
+                  </svg>
+                </span>
                 <span className="text-muted-foreground font-mono text-[10px]">Overflow</span>
               </Fragment>
             )}

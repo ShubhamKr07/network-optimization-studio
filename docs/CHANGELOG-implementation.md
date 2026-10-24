@@ -4777,3 +4777,6 @@ Bundle tip `33687501` (QFX-R1 on top of `9bf1d1c0`). All counts measured 2026-10
 ### DU-1.1 — remove dead Studio page and its styling (design upgrade, Phase 1)
 Deleted `pages/Studio.tsx` (+ `Studio.test.tsx`), its `App.tsx` route branch (every chapter is `workspace: true`), the Arcadia `--arc-*` tokens/classes/keyframes, the `.studio-lab` override skin and the empty `.scn-theme`. Guard: `App.test.tsx` "DU-1.1 — Studio page is gone".
 Follow-up (not in spec scope): now-orphaned Studio-only modules `BrazilMap`, `ConstraintChips`, `MapBulkEditToolbar`, `ObjectiveBar`, and the `WarehouseTable`/`CustomerTable` components (types still used); `Chapter.workspace` is now always true. Lead fixed the stale `artifacts/studio/CLAUDE.md` allow-list description (now three entries) in this commit. Still noted: `ObjectiveBar.test.tsx` comment/regex mention `--arc-` (a negative assertion; left as-is).
+
+### DU-1.2 — meaning colours (design upgrade, Phase 1)
+Bands: olive ramp `#6F952F #597726 #455C1D #314215 #1B240B` + per-band stroke patterns (`BAND_DASH`/`getBandDash`, lanes + legend); open warehouses ink `#181A15`; plant kept at approver-pinned `#2E7D32` (2.22:1 vs customer); Inactive/Excluded segments neutral (`bg-foreground`) in the Workspace tabs and the legacy Warehouse/CustomerTable, not red. Gates in `designTokens.test.ts`.

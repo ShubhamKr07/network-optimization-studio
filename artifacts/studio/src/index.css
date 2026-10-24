@@ -188,8 +188,12 @@
   --danger: #DC2626;  --danger-bg: #FEF2F2;  --danger-border: #FCA5A5;
   --utilization: #7DA436;
 
-  /* five-color distance bands (0=nearest .. 4=farthest) */
-  --band-0: #16A34A; --band-1: #84CC16; --band-2: #F59E0B; --band-3: #EF4444; --band-4: #DC2626;
+  /* five-step distance bands (0=nearest .. 4=farthest) — DU-1.2: one olive
+     hue (82°/52%, the brand --green-600 hue) at five lightness steps, gated
+     by designTokens.test.ts (>= 3:1 vs map tile, >= 1.4:1 adjacent). Colour
+     is never the only signal: lib/bandPalette.ts pairs each with a stroke
+     pattern. Derived shades approved 2026-10-24 under the fixed palette. */
+  --band-0: #6F952F; --band-1: #597726; --band-2: #455C1D; --band-3: #314215; --band-4: #1B240B;
 
   /* jade-A1 — distinct color for a lane/edge beyond the highest configured
      band boundary (OVERFLOW_BAND, lib/bands.ts). The --band-0..4 ramp is a
@@ -219,7 +223,7 @@
   --primary-hover: #48611E; --primary-active: #324414; --link: #48611E; --link-hover: #324414; --focus-ring: #7DA436;
 
   /* map entities + interaction-state rings (functional affordance values kept) */
-  --map-warehouse: #181A15; --map-warehouse-open: #5F7F28; --map-customer: #93B747;
+  --map-warehouse: #181A15; --map-warehouse-open: #181A15; --map-customer: #93B747;
   --map-customer-stroke: #48611E; --map-flow: #7DA436; --map-inactive: #ADB1A4;
   --map-ring-forced-open: #2D6CDF; --map-ring-select: #FCD34D; --map-ring-multiselect: #7C3AED;
   --map-default-stroke: #83887A; --map-plant: #2E7D32;

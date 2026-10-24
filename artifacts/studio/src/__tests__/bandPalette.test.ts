@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BAND_COLORS, getBandColor, OVERFLOW_BAND_COLOR } from "@/lib/bandPalette";
+import { BAND_COLORS, BAND_DASH, getBandColor, getBandDash, OVERFLOW_BAND_COLOR } from "@/lib/bandPalette";
 import { OVERFLOW_BAND } from "@/lib/bands";
 
 // Bundle 3 (T10) — static token-representation contract: BAND_COLORS must be
@@ -47,5 +47,17 @@ describe("getBandColor", () => {
     expect(getBandColor(OVERFLOW_BAND)).toBe("var(--band-overflow)");
     expect(getBandColor(OVERFLOW_BAND)).not.toBe(getBandColor(4));
     expect(getBandColor(OVERFLOW_BAND)).not.toBe(BAND_COLORS[4]);
+  });
+});
+
+describe("BAND_DASH (DU-1.2)", () => {
+  it("has one entry per band colour and every entry is distinct", () => {
+    expect(BAND_DASH).toHaveLength(5);
+    expect(new Set(BAND_DASH).size).toBe(5);
+  });
+  it("clamps past the last band and leaves overflow solid", () => {
+    expect(getBandDash(9)).toBe(BAND_DASH[4]);
+    expect(getBandDash(OVERFLOW_BAND)).toBeUndefined();
+    expect(getBandDash(0)).toBeUndefined();
   });
 });
