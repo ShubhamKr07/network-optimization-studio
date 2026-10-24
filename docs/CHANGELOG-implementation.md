@@ -4811,3 +4811,10 @@ Branch `du-1.r1-work`, base `0c850fe8`. Folds the whole-branch review findings; 
 - **F7.** `artifacts/studio/CLAUDE.md` gotcha: the `Studio.test.tsx` reference now says the page and test were retired in DU-1.1. Lesson unchanged.
 - **F8.** `SidebarTree.tsx` delete-confirm button: no-op `hover:text-danger` -> `hover:underline`.
 - **F4 deferred:** raw hex GhostFollower tints in `InputMapTab` / `SuperInputMap` are pre-existing and move to a later phase.
+### QFX-DEPLOY - push + deploy of the Quick Fixes bundle
+
+`origin/main` `1e84282a..4312b00c` pushed 2026-10-24 (includes DU's docs-only merge `aaf4106d`). The commit webhook started no build on either service (`list_deploys` after the push: nos-api still `ff5686b0`, nos-studio still `e55a0d45`), so both were triggered by API in the order QFX-7 requires: nos-api `dep-dbe95tnavr4c73a4djb0` live at `4312b00c` (health 200), then nos-studio `dep-dbe9724s728c73bfafd0` live at `4312b00c`. Preflight `ff5686b0..4312b00c`: schema unchanged, no migrations, no new env vars. Post-deploy: `/compare` 200 with `id="root"`; `pnpm smoke` 7/7. The smoke run left `smoke+dercom-15762@example.com` on production (no deletion endpoint; per `docs/ops/smoke.md` harmless, any cleanup is a separate approved operation).
+
+### A14b-FIX - over-deadline drain test clears its own result-cache key
+
+`overDeadlineDrain.test.ts` now deletes the `result_cache` rows for its own inputs (both `computeInputsHash` and `computeInputsHashV2`) before enqueueing. Before: a cached result for those exact inputs in the shared `nos_dev` made `lookupCachedResult` serve it without spawning solve.py, so the `NOS_SOLVE_TEST_HANG_SEC` seam never wrote `hang.pids` and the test failed deterministically (3/3 on 2026-10-24, incl. on base `01aa0f38`; see QFX-GATE). Verified: with that stale row seeded (`26b3d02f…`), the fixed test passed 2/2; typecheck clean. Test-only change; no production code touched.
