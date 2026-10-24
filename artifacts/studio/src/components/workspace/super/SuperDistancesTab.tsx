@@ -108,6 +108,8 @@ function CircuityFactorField({ value, disabled, onApply }: {
     setRaw(String(value));
   }
   const parsed = parseCircuityFactor(raw);
+  // The stored value is the server's (any finite 1–3): untouched text is never an error.
+  const invalid = parsed === null && raw !== String(value);
   const canApply = !disabled && parsed !== null && parsed !== value;
   const apply = () => { if (canApply && parsed !== null) onApply(parsed); };
   return (
@@ -117,8 +119,8 @@ function CircuityFactorField({ value, disabled, onApply }: {
           type="text"
           inputMode="decimal"
           aria-label="Circuity factor"
-          aria-invalid={parsed === null}
-          aria-describedby={parsed === null ? "super-circuity-error" : undefined}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? "super-circuity-error" : undefined}
           data-testid="super-circuity-factor"
           className="h-8 w-[7ch] px-1.5 text-xs md:text-xs"
           value={raw}
@@ -127,7 +129,7 @@ function CircuityFactorField({ value, disabled, onApply }: {
           onChange={e => setRaw(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
         />
-        {parsed === null && (
+        {invalid && (
           <p id="super-circuity-error" data-testid="super-circuity-error" className="mt-1 text-xs text-destructive">
             Use a number from 1 to 3 with up to 3 decimals.
           </p>

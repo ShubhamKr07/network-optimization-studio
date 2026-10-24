@@ -105,12 +105,6 @@ function readSheet(sh: Sheet, cols: Col[], errors: ParseError[], legacy: readonl
   return { rows, fileRows };
 }
 
-/** One table's sheet -> rows. sheetsToDocument and parseSuperTableFile share it, so a per-table file obeys exactly the
- *  whole-network column rules (incl. QFX-7's accepted-and-discarded legacy `name` on location tables). */
-function readTable(sh: Sheet, t: TableFile, errors: ParseError[]) {
-  return readSheet(sh, t.cols, errors, t.legacy);
-}
-
 function readParameters(sh: Sheet, doc: Record<string, unknown>, sources: Sources, errors: ParseError[]): void {
   const { rows, fileRows } = readSheet(sh, [c("key", "text"), c("value", "text", false)], errors);
   const seen = new Set<string>();
@@ -139,7 +133,7 @@ function sheetsToDocument(sheets: Sheet[]): ParseResult {
     if (sh.name === PARAMS) { readParameters(sh, doc, sources, errors); continue; }
     const t = SUPER_TABLE_FILES.find(x => x.file === sh.name);
     if (!t) { errors.push({ where: sh.source, message: sh.csv ? "unknown file name" : "unknown sheet name" }); continue; }
-    const { rows, fileRows } = readTable(sh, t, errors);
+    const { rows, fileRows } = readSheet(sh, t.cols, errors, t.legacy);
     doc[t.key] = rows;
     sources[t.key] = { source: sh.source, headerRow: sh.firstRow, rows: fileRows };
   }
@@ -282,7 +276,7 @@ export async function parseSuperTableFile(tableKey: TableKey, file: File): Promi
         if (sheets.length === 0) return fail("The workbook has no sheets.");
         sh = { ...sheets[0]!, source };
       }
-      ({ rows, fileRows: rowNos } = readTable(sh, t, errors));
+      ({ rows, fileRows: rowNos } = readSheet(sh, t.cols, errors, t.legacy));
     } else return fail("must be a .csv, .json or .xlsx file");
   } catch {
     return fail("could not be read");

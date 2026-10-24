@@ -6,6 +6,9 @@ import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
 
 export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** `<input type="file" accept>` per import/upload format. */
+export const FILE_ACCEPT: Record<DownloadFormat, string> = { csv: ".csv,text/csv", json: ".json,application/json", xlsx: `.xlsx,${XLSX_MIME}` };
+
 export function csvCell(value: string | number): string {
   let s = String(value);
   // Spreadsheet formula injection: only STRING cells (names, labels). Numbers stay raw.

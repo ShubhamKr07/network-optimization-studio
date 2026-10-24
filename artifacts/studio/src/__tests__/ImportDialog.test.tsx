@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as XLSX from "xlsx";
+import * as xlsxFile from "@/lib/xlsxFile";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImportDialog } from "@/components/ImportDialog";
 import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
@@ -346,6 +347,28 @@ describe("ImportDialog — XLSX (QFX-2a: first sheet -> CSV text, unchanged CSV 
     await userEvent.upload(input, wbFile({ Sheet9: [["id", "line"], ["CHI", 2]], other: [["x"], ["y"]] }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(sentBody()).toEqual({ entity: "warehouses", csvText: "id,line\nCHI,2" });
+  });
+
+  it("QFX-R1: the result of an older selection is dropped when it resolves last", async () => {
+    mockFetchRoutes({ errors: [], changes: [], warnings: [] });
+    let releaseSlow!: () => void;
+    const spy = vi.spyOn(xlsxFile, "xlsxFileToCsvText").mockImplementation(async f => {
+      if (f.name === "slow.xlsx") {
+        await new Promise<void>(r => { releaseSlow = r; });
+        return { ok: false, message: "SLOW ERROR" };
+      }
+      return { ok: true, csvText: "id\nCHI" };
+    });
+    renderDialog({ format: "xlsx" });
+    const input = screen.getByTestId("input-import-file-warehouses");
+    await userEvent.upload(input, new File(["x"], "slow.xlsx"));
+    await userEvent.upload(input, new File(["x"], "fast.xlsx"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    releaseSlow();
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByTestId("import-file-error")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it("an empty first sheet is refused before any request", async () => {

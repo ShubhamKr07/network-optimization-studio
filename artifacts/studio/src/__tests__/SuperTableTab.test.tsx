@@ -122,13 +122,15 @@ describe("SuperTableTab", () => {
       // Edit the row DISPLAYED second (k3 = original index 2), not original index 1.
       fireEvent.change(screen.getByTestId('super-plantProducts-["p1","k3"]-capacity'), { target: { value: "1" } });
       expect(spy).toHaveBeenLastCalledWith([three[0], three[1], { ...three[2], capacity: 1 }]);
+      // QFX-R1 — the order is frozen while editing: the edited row does not jump.
       expect(order()).toEqual([
-        'super-row-plantProducts-["p1","k2"]', 'super-row-plantProducts-["p1","k1"]', 'super-row-plantProducts-["p1","k3"]',
+        'super-row-plantProducts-["p1","k2"]', 'super-row-plantProducts-["p1","k3"]', 'super-row-plantProducts-["p1","k1"]',
       ]);
 
       // Delete the row DISPLAYED first (k2 = original index 1), not original index 0.
       fireEvent.click(screen.getByTestId('super-plantProducts-["p1","k2"]-delete'));
       expect(spy).toHaveBeenLastCalledWith([three[0], { ...three[2], capacity: 1 }]);
+      // A delete changes the row set, so the sort is recomputed (k1 capacity 5 > k3 capacity 1).
       expect(order()).toEqual(['super-row-plantProducts-["p1","k1"]', 'super-row-plantProducts-["p1","k3"]']);
     });
 

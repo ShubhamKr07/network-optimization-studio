@@ -3,6 +3,8 @@ import { render as rtlRender, screen, within, fireEvent, waitFor } from "@testin
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
+import * as clientCsv from "@/lib/clientCsv";
+import * as useToast from "@/hooks/use-toast";
 import { bandLabel, bandRangeLabel } from "@/lib/bands";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
@@ -657,6 +659,16 @@ describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.
     await user.click(screen.getByTestId("button-download-jade-flows-pw"));
     await user.click(screen.getByTestId("button-download-jade-flows-pw-json"));
     expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
+  });
+
+  it("QFX-R1: a failing XLSX export toasts instead of an unhandled rejection", async () => {
+    vi.spyOn(clientCsv, "downloadAs").mockRejectedValue(new Error("boom"));
+    const toastSpy = vi.spyOn(useToast, "toast").mockImplementation((() => ({})) as never);
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-xlsx"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Export failed", variant: "destructive" })));
   });
 
   it("QFX-2a: the XLSX download is jade-flows-plant-warehouse.xlsx", async () => {
