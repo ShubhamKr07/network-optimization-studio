@@ -393,7 +393,7 @@ export function DistancesTab({
               title="Unknown warehouse ID — not found in this scenario's warehouses"
               data-testid={`warning-unknown-from-${r.fromId}-${r.toId}`}
             >
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -414,7 +414,7 @@ export function DistancesTab({
               title="Unknown customer ID — not found in this scenario's customers"
               data-testid={`warning-unknown-to-${r.fromId}-${r.toId}`}
             >
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -454,7 +454,7 @@ export function DistancesTab({
             />
             {r.override?.estimated && (
               <span
-                className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+                className="text-2xs text-info bg-info-bg border border-info-border rounded px-1"
                 data-testid={`badge-distance-estimated-${r.fromId}-${r.toId}`}
               >
                 Estimated
@@ -462,7 +462,7 @@ export function DistancesTab({
             )}
             {changed && (
               <span
-                className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+                className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
                 data-testid={`badge-distance-changed-${r.fromId}-${r.toId}`}
               >
                 Changed
@@ -599,7 +599,7 @@ export function DistancesTab({
       rows={mergedRowsAll}
       rowKey={r => pairKey(r.fromId, r.toId)}
       columns={columns}
-      rowClassName={(r) => (isChangedRow(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
+      rowClassName={(r) => (isChangedRow(r) ? "bg-warning-bg" : r.override?.estimated ? "bg-info-bg" : undefined)}
       testIds={{
         toolbar: "distances-tab-toolbar",
         row: r => `row-distance-${r.fromId}-${r.toId}`,

@@ -132,7 +132,7 @@ export function ToggleChip({
       type="button"
       data-testid={testId}
       onClick={onClick}
-      className={`px-2 py-1 rounded text-[10px] border transition-colors whitespace-nowrap ${
+      className={`px-2 py-1 rounded text-2xs border transition-colors whitespace-nowrap ${
         active ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border hover:bg-muted"
       }`}
     >
@@ -183,7 +183,7 @@ export function LayerCheckbox({
           onToggle();
         }
       }}
-      className="flex items-center gap-1.5 text-[10px] text-muted-foreground whitespace-nowrap cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+      className="flex items-center gap-1.5 text-2xs text-muted-foreground whitespace-nowrap cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
     >
       <Checkbox checked={checked} tabIndex={-1} aria-hidden="true" className="h-3.5 w-3.5 pointer-events-none" />
       {children}

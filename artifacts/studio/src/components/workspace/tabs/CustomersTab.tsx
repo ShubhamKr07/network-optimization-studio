@@ -126,7 +126,7 @@ interface CustomerRow {
 
 const CUSTOMER_STATUSES = ["active", "excluded"] as const;
 const customerStatusClass = (s: "active" | "excluded") =>
-  s === "excluded" ? "bg-destructive text-white" : "bg-slate-200 text-foreground";
+  s === "excluded" ? "bg-foreground text-background" : "bg-secondary text-foreground";
 const BRAZIL_LOCK_TITLE = "Demand for this row is fixed by the textbook dataset and can't be edited.";
 
 // A1.1 → SCU-2.P4.11 (spec B2.1–B2.4, B2.8, B2.9, D2) — Customers on the
@@ -257,7 +257,7 @@ export function CustomersTab({
                 `${missing} warehouse${missing === 1 ? " lacks" : "s lack"} a distance to this customer — see the Distances tab, or download/upload a template.`
               }
               data-testid={`warning-precheck-added-customer-${r.id}`}
-              className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="inline-flex items-center gap-0.5 text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
             >
               <AlertTriangle className="w-3 h-3" />
               {collision ? "ID collision" : `Missing ${missing} distance${missing === 1 ? "" : "s"}`}

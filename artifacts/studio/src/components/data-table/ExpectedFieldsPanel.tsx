@@ -75,11 +75,11 @@ export function ExpectedFieldsPanel({ entity, modelId }: { entity: ImportEntity;
         </table>
         {canAdd && <p className="text-muted-foreground">Leave id blank to add a new row.</p>}
         <p className="text-muted-foreground">Example CSV</p>
-        <pre className="overflow-x-auto rounded bg-muted p-1 font-mono text-[10px]" data-testid={`expected-fields-${entity}-csv`}>
+        <pre className="overflow-x-auto rounded bg-muted p-1 font-mono text-2xs" data-testid={`expected-fields-${entity}-csv`}>
           {exampleCsv(entity)}
         </pre>
         <p className="text-muted-foreground">Example JSON</p>
-        <pre className="overflow-x-auto rounded bg-muted p-1 font-mono text-[10px]" data-testid={`expected-fields-${entity}-json`}>
+        <pre className="overflow-x-auto rounded bg-muted p-1 font-mono text-2xs" data-testid={`expected-fields-${entity}-json`}>
           {JSON.stringify(exampleJsonDocument(entity), null, 2)}
         </pre>
       </div>

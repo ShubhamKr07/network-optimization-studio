@@ -18,7 +18,7 @@ export function StaleOutputBanner({ onRunOptimizer }: StaleOutputBannerProps) {
       className="h-full flex flex-col items-center justify-center gap-3 text-center px-4"
       data-testid="stale-output-banner"
     >
-      <AlertTriangle className="w-6 h-6 text-amber-500" />
+      <AlertTriangle className="w-6 h-6 text-warning" />
       <p className="text-sm font-medium text-[color:var(--text-body)]">Inputs changed since last solve</p>
       <p className="text-xs text-[color:var(--text-muted)] max-w-sm">
         This scenario's outputs no longer reflect its current inputs. Re-run the optimizer to see up-to-date results.

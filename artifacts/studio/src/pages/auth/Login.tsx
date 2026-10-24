@@ -65,7 +65,7 @@ export function Login() {
       </form>
       <div className="flex items-center gap-2.5 my-4">
         <div className="flex-1 h-px" style={{ background: "var(--line)" }} />
-        <span className="uppercase" style={{ fontFamily: "var(--app-font-mono)", fontSize: "9px", letterSpacing: "0.1em", color: "var(--text-faint)" }}>or</span>
+        <span className="uppercase" style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", letterSpacing: "0.1em", color: "var(--text-faint)" }}>or</span>
         <div className="flex-1 h-px" style={{ background: "var(--line)" }} />
       </div>
       <div className="text-center" style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>

@@ -476,13 +476,13 @@ function ScenarioRow({
   if (confirmingDelete) {
     return (
       <li>
-        <div className="flex items-center gap-1 px-3 py-1.5 bg-red-50" data-testid={`sidebar-scenario-confirm-delete-${scenario.id}`}>
-          <span className="text-xs text-red-700 flex-1 truncate">Delete &quot;{scenario.name}&quot;?</span>
+        <div className="flex items-center gap-1 px-3 py-1.5 bg-danger-bg" data-testid={`sidebar-scenario-confirm-delete-${scenario.id}`}>
+          <span className="text-xs text-danger flex-1 truncate">Delete &quot;{scenario.name}&quot;?</span>
           <button
             type="button"
             data-testid={`button-confirm-delete-${scenario.id}`}
             onClick={() => { onDelete(); setConfirmingDelete(false); }}
-            className="text-xs font-semibold text-red-700 hover:text-red-900 flex-shrink-0"
+            className="text-xs font-semibold text-danger hover:text-danger flex-shrink-0"
           >
             Delete
           </button>
@@ -591,7 +591,7 @@ function SidebarSection({
   return (
     <div data-testid={testid} className={`border-b py-1.5 ${className ?? ""}`} onMouseLeave={onMouseLeave}>
       {!collapsed && (
-        <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="flex items-center justify-between px-3 py-1 text-2xs font-mono font-semibold uppercase tracking-wide text-muted-foreground">
           <span>{title}</span>
           {action}
         </div>

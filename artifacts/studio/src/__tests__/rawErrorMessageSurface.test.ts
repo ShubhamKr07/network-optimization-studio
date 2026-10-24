@@ -62,8 +62,6 @@ const RAW_MESSAGE_PATTERN = /instanceof Error\s*\?\s*[\w.]+\.message\s*:|\berror
 // (mutationErrorSurface.test.ts). A loosened regex hides a future
 // exception; a named entry here makes it reviewable.
 const ALLOWED_RAW_ERROR_FILES: Record<string, string> = {
-  "pages/Studio.tsx":
-    "Dead code: every CHAPTERS entry (lib/chapters.ts) carries workspace: true, so App.tsx's Gate() routes every chapter through Workspace and never reaches the Studio branch — confirmed by reading Gate()'s routing switch. Scheduled for deletion in Phase D (D1.1); not fixed here.",
   "components/workspace/tabs/OutputMapTab.tsx":
     "copyMapToClipboard/downloadMapAsPng (lib/copyMapToClipboard.ts) never call the API — pure Clipboard-API/html-to-image browser calls, confirmed by reading that module (no fetch/API import). `err` here is always a genuine client Error, never custom-fetch.ts's ApiError, so describeWriteError would be a behavior-identical no-op for every shape these sites can actually throw.",
   // WF-3 review fold-in — the widened `\berror\??\.message\b` alternative's

@@ -99,8 +99,8 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
     const headers = within(screen.getByTestId("legdistances-tab")).getAllByRole("columnheader");
     expect(headers.map(h => h.textContent)).toEqual(["Leg", "From", "To", "Distance (km)", ""]);
     expect(headers[3]).toHaveClass("text-center");
-    expect(screen.getByTestId("row-legdistance-cunnamulla-town-8")).toHaveClass("bg-amber-50");
-    expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).not.toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-legdistance-cunnamulla-town-8")).toHaveClass("bg-warning-bg");
+    expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).not.toHaveClass("bg-warning-bg");
   });
 
   it("history read-only (D2): value inputs, remove buttons and the add trigger are disabled", () => {
@@ -153,7 +153,7 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);
     expect(screen.getByTestId("input-legdistance-cunnamulla-sydney")).toHaveValue("700");
-    expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).toHaveClass("bg-warning-bg");
   });
   it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
     const { rerender } = renderTab();

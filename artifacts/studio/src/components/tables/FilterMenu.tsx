@@ -66,7 +66,7 @@ export function FilterMenu<T>({
           {label}
           {activeCount > 0 && (
             <span
-              className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-foreground"
+              className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs text-primary-foreground"
               data-testid="text-filter-active-count"
             >
               {activeCount}

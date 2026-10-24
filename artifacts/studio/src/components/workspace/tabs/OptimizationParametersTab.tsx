@@ -352,7 +352,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-            <span className="text-sm font-bold text-primary font-mono" data-testid={tid("text-p-value")}>{p}</span>
+            <span className="text-sm font-bold text-[var(--green-700)] font-mono" data-testid={tid("text-p-value")}>{p}</span>
           </div>
           <Slider
             min={1}
@@ -614,7 +614,7 @@ export function OptimizationParametersTab({
             data-testid={tid("slider-capacity-factor")}
             className="my-1"
           />
-          <p className="text-[10px] text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
+          <p className="text-2xs text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
         </div>
       )}
 
@@ -664,7 +664,7 @@ export function OptimizationParametersTab({
             data-testid={tid("slider-bom-ratio")}
             className="my-1"
           />
-          <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
+          <p className="text-2xs text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
         </div>
       )}
 

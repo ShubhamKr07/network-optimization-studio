@@ -107,8 +107,8 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
 
   it("amber marks override-present rows; numbers centred", () => {
     renderTab();
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveClass("bg-amber-50");
-    expect(screen.getByTestId("row-deliverycost-W2-C2")).not.toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveClass("bg-warning-bg");
+    expect(screen.getByTestId("row-deliverycost-W2-C2")).not.toHaveClass("bg-warning-bg");
     const headers = within(screen.getByTestId("delivery-costs-tab")).getAllByRole("columnheader");
     expect(headers.map(h => h.textContent)).toEqual(["From", "To", "Base", "Cost", ""]);
     expect(headers[2]).toHaveClass("text-center");
@@ -132,7 +132,7 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
     fireEvent.change(screen.getByTestId("input-deliverycost-W2-C2"), { target: { value: "0" } });
     fireEvent.blur(screen.getByTestId("input-deliverycost-W2-C2"));
     expect(screen.getByTestId("badge-deliverycost-overridden-W2-C2")).toBeInTheDocument();
-    expect(screen.getByTestId("row-deliverycost-W2-C2")).toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-deliverycost-W2-C2")).toHaveClass("bg-warning-bg");
   });
   it("an OPEN add-row form goes read-only when history browsing starts (D2, transient controls)", () => {
     const { rerender } = renderTab();

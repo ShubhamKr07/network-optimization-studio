@@ -463,7 +463,7 @@ export function JadeDistancesTab({
           <EntityIdCell entityId={r.fromId} displayId={resolvedDisplayId(r.fromId)} location={resolvedLocation(r.fromId)} />
           {!fromRoleId(r.leg).has(r.fromId) && (
             <span title="Unknown ID for this leg's From role" data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}>
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -481,7 +481,7 @@ export function JadeDistancesTab({
           <EntityIdCell entityId={r.toId} displayId={resolvedDisplayId(r.toId)} location={resolvedLocation(r.toId)} />
           {!toRoleId(r.leg).has(r.toId) && (
             <span title="Unknown ID for this leg's To role" data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}>
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -517,7 +517,7 @@ export function JadeDistancesTab({
           />
           {r.override?.estimated && (
             <span
-              className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+              className="text-2xs text-info bg-info-bg border border-info-border rounded px-1"
               data-testid={`badge-jadedistance-estimated-${r.leg}-${r.fromId}-${r.toId}`}
             >
               Estimated
@@ -525,7 +525,7 @@ export function JadeDistancesTab({
           )}
           {isChangedRow(r) && (
             <span
-              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-jadedistance-changed-${r.leg}-${r.fromId}-${r.toId}`}
             >
               Changed
@@ -555,7 +555,7 @@ export function JadeDistancesTab({
       cell: r =>
         laneCost(r)?.binds && (
           <span
-            className="text-[10px] text-slate-700 bg-slate-100 border border-slate-300 rounded px-1"
+            className="text-2xs text-muted-foreground bg-muted border border-border rounded px-1"
             title="The minimum charge, not the rate, is what this lane pays"
             data-testid={`badge-jadedistance-min-${r.leg}-${r.fromId}-${r.toId}`}
           >
@@ -701,7 +701,7 @@ export function JadeDistancesTab({
       rows={mergedRowsAll}
       rowKey={r => tripleKey(r.leg, r.fromId, r.toId)}
       columns={columns}
-      rowClassName={(r) => (isChangedRow(r) ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined)}
+      rowClassName={(r) => (isChangedRow(r) ? "bg-warning-bg" : r.override?.estimated ? "bg-info-bg" : undefined)}
       testIds={{
         toolbar: "jadedistances-tab-toolbar",
         row: r => `row-jadedistance-${r.leg}-${r.fromId}-${r.toId}`,

@@ -125,7 +125,7 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
             </label>
           </fieldset>
           {confirmingOverwrite && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1" data-testid="super-import-confirm-overwrite">
+            <p className="text-xs text-warning bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="super-import-confirm-overwrite">
               This replaces every table in this scenario.
             </p>
           )}

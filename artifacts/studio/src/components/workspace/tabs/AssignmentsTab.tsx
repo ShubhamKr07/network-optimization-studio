@@ -119,7 +119,7 @@ function idCell(id: string, displayLabel: string, locationById: Record<string, {
   return (
     <div className="flex flex-col">
       <span>{formatCityState(loc.city, loc.state)}</span>
-      <span className="font-mono text-[10px] text-muted-foreground">{displayLabel}</span>
+      <span className="font-mono text-2xs text-muted-foreground">{displayLabel}</span>
     </div>
   );
 }

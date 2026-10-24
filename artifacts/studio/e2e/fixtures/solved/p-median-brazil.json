@@ -1,0 +1,464 @@
+{
+  "edges": [
+    {
+      "band": 0,
+      "flow": 4732736,
+      "toId": "SP",
+      "fromId": "JDF",
+      "distance": 283.2
+    },
+    {
+      "band": 0,
+      "flow": 4296490,
+      "toId": "SP",
+      "fromId": "PGR",
+      "distance": 289
+    },
+    {
+      "band": 0,
+      "flow": 20000000,
+      "toId": "SP",
+      "fromId": "STS",
+      "distance": 40.6
+    },
+    {
+      "band": 0,
+      "flow": 13370786,
+      "toId": "RJ",
+      "fromId": "JDF",
+      "distance": 94.5
+    },
+    {
+      "band": 0,
+      "flow": 8663076,
+      "toId": "MG",
+      "fromId": "BET",
+      "distance": 19.4
+    },
+    {
+      "band": 0,
+      "flow": 5899854,
+      "toId": "BA",
+      "fromId": "SSA",
+      "distance": 0
+    },
+    {
+      "band": 0,
+      "flow": 4947330,
+      "toId": "PR",
+      "fromId": "PGR",
+      "distance": 69
+    },
+    {
+      "band": 0,
+      "flow": 4912164,
+      "toId": "RS",
+      "fromId": "PGR",
+      "distance": 407.3
+    },
+    {
+      "band": 0,
+      "flow": 3921090,
+      "toId": "PE",
+      "fromId": "REC",
+      "distance": 0
+    },
+    {
+      "band": 0,
+      "flow": 3579449,
+      "toId": "CE",
+      "fromId": "REC",
+      "distance": 455.9
+    },
+    {
+      "band": 0,
+      "flow": 2657192,
+      "toId": "SC",
+      "fromId": "PGR",
+      "distance": 138.3
+    },
+    {
+      "band": 0,
+      "flow": 2597519,
+      "toId": "PA",
+      "fromId": "BEL",
+      "distance": 0
+    },
+    {
+      "band": 0,
+      "flow": 2559855,
+      "toId": "GO",
+      "fromId": "BET",
+      "distance": 469.4
+    },
+    {
+      "band": 0,
+      "flow": 2551909,
+      "toId": "DF",
+      "fromId": "BET",
+      "distance": 443.4
+    },
+    {
+      "band": 0,
+      "flow": 1896478,
+      "toId": "ES",
+      "fromId": "JDF",
+      "distance": 264.2
+    },
+    {
+      "band": 1,
+      "flow": 1865277,
+      "toId": "AM",
+      "fromId": "BEL",
+      "distance": 940.4
+    },
+    {
+      "band": 0,
+      "flow": 1383837,
+      "toId": "MA",
+      "fromId": "BEL",
+      "distance": 350
+    },
+    {
+      "band": 0,
+      "flow": 1330514,
+      "toId": "AL",
+      "fromId": "REC",
+      "distance": 143.2
+    },
+    {
+      "band": 0,
+      "flow": 1239777,
+      "toId": "RN",
+      "fromId": "REC",
+      "distance": 185.9
+    },
+    {
+      "band": 0,
+      "flow": 1230034,
+      "toId": "PB",
+      "fromId": "REC",
+      "distance": 77.8
+    },
+    {
+      "band": 1,
+      "flow": 1184391,
+      "toId": "MT",
+      "fromId": "PGR",
+      "distance": 888.1
+    },
+    {
+      "band": 1,
+      "flow": 1010989,
+      "toId": "MS",
+      "fromId": "PGR",
+      "distance": 501.6
+    },
+    {
+      "band": 1,
+      "flow": 980832,
+      "toId": "PI",
+      "fromId": "BEL",
+      "distance": 546.9
+    },
+    {
+      "band": 0,
+      "flow": 735616,
+      "toId": "SE",
+      "fromId": "SSA",
+      "distance": 201.3
+    },
+    {
+      "band": 0,
+      "flow": 440064,
+      "toId": "AP",
+      "fromId": "BEL",
+      "distance": 238.3
+    },
+    {
+      "band": 2,
+      "flow": 340522,
+      "toId": "RO",
+      "fromId": "BEL",
+      "distance": 1373.9
+    },
+    {
+      "band": 2,
+      "flow": 338812,
+      "toId": "AC",
+      "fromId": "BEL",
+      "distance": 1699.1
+    }
+  ],
+  "status": "optimal",
+  "details": {
+    "assignments": [
+      {
+        "band": 0,
+        "customerId": "SP",
+        "distanceMi": 283.2,
+        "warehouseId": "JDF",
+        "flowFraction": 0.163
+      },
+      {
+        "band": 0,
+        "customerId": "SP",
+        "distanceMi": 289,
+        "warehouseId": "PGR",
+        "flowFraction": 0.148
+      },
+      {
+        "band": 0,
+        "customerId": "SP",
+        "distanceMi": 40.6,
+        "warehouseId": "STS",
+        "flowFraction": 0.689
+      },
+      {
+        "band": 0,
+        "customerId": "RJ",
+        "distanceMi": 94.5,
+        "warehouseId": "JDF",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "MG",
+        "distanceMi": 19.4,
+        "warehouseId": "BET",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "BA",
+        "distanceMi": 0,
+        "warehouseId": "SSA",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "PR",
+        "distanceMi": 69,
+        "warehouseId": "PGR",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "RS",
+        "distanceMi": 407.3,
+        "warehouseId": "PGR",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "PE",
+        "distanceMi": 0,
+        "warehouseId": "REC",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "CE",
+        "distanceMi": 455.9,
+        "warehouseId": "REC",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "SC",
+        "distanceMi": 138.3,
+        "warehouseId": "PGR",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "PA",
+        "distanceMi": 0,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "GO",
+        "distanceMi": 469.4,
+        "warehouseId": "BET",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "DF",
+        "distanceMi": 443.4,
+        "warehouseId": "BET",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "ES",
+        "distanceMi": 264.2,
+        "warehouseId": "JDF",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "customerId": "AM",
+        "distanceMi": 940.4,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "MA",
+        "distanceMi": 350,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "AL",
+        "distanceMi": 143.2,
+        "warehouseId": "REC",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "RN",
+        "distanceMi": 185.9,
+        "warehouseId": "REC",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "PB",
+        "distanceMi": 77.8,
+        "warehouseId": "REC",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "customerId": "MT",
+        "distanceMi": 888.1,
+        "warehouseId": "PGR",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "customerId": "MS",
+        "distanceMi": 501.6,
+        "warehouseId": "PGR",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "customerId": "PI",
+        "distanceMi": 546.9,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "SE",
+        "distanceMi": 201.3,
+        "warehouseId": "SSA",
+        "flowFraction": 1
+      },
+      {
+        "band": 0,
+        "customerId": "AP",
+        "distanceMi": 238.3,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 2,
+        "customerId": "RO",
+        "distanceMi": 1373.9,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      },
+      {
+        "band": 2,
+        "customerId": "AC",
+        "distanceMi": 1699.1,
+        "warehouseId": "BEL",
+        "flowFraction": 1
+      }
+    ],
+    "openWarehouseIds": [
+      "BEL",
+      "BET",
+      "JDF",
+      "PGR",
+      "REC",
+      "SSA",
+      "STS"
+    ]
+  },
+  "metrics": {
+    "bandCoverage": [
+      {
+        "band": 500,
+        "percent": 94
+      },
+      {
+        "band": 1000,
+        "percent": 99
+      },
+      {
+        "band": 2000,
+        "percent": 100
+      },
+      {
+        "band": 4000,
+        "percent": 100
+      }
+    ],
+    "utilizationByNode": [
+      {
+        "city": "Belém",
+        "utilization": 40,
+        "warehouseId": "BEL"
+      },
+      {
+        "city": "Betim",
+        "utilization": 69,
+        "warehouseId": "BET"
+      },
+      {
+        "city": "Juiz de Fora",
+        "utilization": 100,
+        "warehouseId": "JDF"
+      },
+      {
+        "city": "Ponta Grossa",
+        "utilization": 95,
+        "warehouseId": "PGR"
+      },
+      {
+        "city": "Recife",
+        "utilization": 57,
+        "warehouseId": "REC"
+      },
+      {
+        "city": "Salvador",
+        "utilization": 33,
+        "warehouseId": "SSA"
+      },
+      {
+        "city": "Santos",
+        "utilization": 100,
+        "warehouseId": "STS"
+      }
+    ],
+    "weightedAvgDistance": 183.9
+  },
+  "quality": "Optimal",
+  "objective": 18148214291,
+  "runTimeSec": 0.74,
+  "solverUsed": "CBC (PuLP)",
+  "achievedGap": null,
+  "solutionStatus": "optimal",
+  "solverBestBound": null,
+  "terminationReason": "optimality_proven",
+  "infeasibilityReason": null,
+  "solverIncumbentObjective": 18148214274.100002
+}

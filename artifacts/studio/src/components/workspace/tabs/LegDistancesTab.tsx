@@ -270,7 +270,7 @@ export function LegDistancesTab({
           />
           {isChanged(o) && (
             <span
-              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-legdistance-changed-${o.fromId}-${o.toId}`}
             >
               Changed
@@ -372,7 +372,7 @@ export function LegDistancesTab({
         rows={distanceOverrides}
         rowKey={o => pairKey(o.fromId, o.toId)}
         columns={columns}
-        rowClassName={(o) => (isChanged(o) ? "bg-amber-50" : undefined)}
+        rowClassName={(o) => (isChanged(o) ? "bg-warning-bg" : undefined)}
         testIds={{
           toolbar: "legdistances-tab-toolbar",
           row: o => `row-legdistance-${o.fromId}-${o.toId}`,

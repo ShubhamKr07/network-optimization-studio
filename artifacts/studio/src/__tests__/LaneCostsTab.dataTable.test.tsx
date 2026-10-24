@@ -82,8 +82,8 @@ describe("LaneCostsTab on DataTable (SCU-2.P4.6)", () => {
     const headers = within(screen.getByTestId("lanecosts-tab")).getAllByRole("columnheader");
     expect(headers.map(h => h.textContent)).toEqual(["From (mine)", "To (station)", "Cost (mi)", ""]);
     expect(headers[2]).toHaveClass("text-center");
-    expect(screen.getByTestId("row-lanecost-MN09-ST001")).toHaveClass("bg-amber-50");
-    expect(screen.getByTestId("row-lanecost-MN01-ST001")).not.toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-lanecost-MN09-ST001")).toHaveClass("bg-warning-bg");
+    expect(screen.getByTestId("row-lanecost-MN01-ST001")).not.toHaveClass("bg-warning-bg");
   });
 
   it("history read-only (D2)", () => {

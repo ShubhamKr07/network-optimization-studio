@@ -34,7 +34,7 @@ export function EntityIdCell({ displayId, location }: EntityIdCellProps) {
   return (
     <div className="flex flex-col">
       <span>{formatCityState(location.city, location.state)}</span>
-      <span className="font-mono text-[10px] text-muted-foreground">{displayId}</span>
+      <span className="font-mono text-2xs text-muted-foreground">{displayId}</span>
     </div>
   );
 }

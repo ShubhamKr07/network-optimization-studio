@@ -31,14 +31,14 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
           className="block w-[46%] max-w-[160px] md:w-[72%] md:max-w-[290px]"
           style={{ boxShadow: "0 22px 48px rgba(0,0,0,.55)" }}
         />
-        <div className="text-center uppercase" style={{ fontFamily: MONO, fontSize: "9.5px", letterSpacing: "0.14em", color: "var(--ink-300)" }}>
+        <div className="text-center uppercase" style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.14em", color: "var(--ink-300)" }}>
           <Diamond />The textbook behind the labs<Diamond />
         </div>
       </div>
       <div className="flex-1 flex flex-col bg-background">
         <div className="flex-1 flex items-center justify-center px-6 py-10">
           <div className="w-full max-w-[360px]">
-            <div className="uppercase" style={{ fontFamily: MONO, fontSize: "10px", letterSpacing: "0.14em", color: "var(--text-muted)" }}>By Prof. Michael Watson</div>
+            <div className="uppercase" style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.14em", color: "var(--text-muted)" }}>By Prof. Michael Watson</div>
             <div className="mt-2 mb-1.5" style={{ fontFamily: "var(--app-font-display)", fontWeight: 700, fontSize: "32px", lineHeight: 1.1, color: "var(--green-600)" }}>Optimization Studio</div>
             <div className="mb-5" style={{ fontSize: "13px", lineHeight: 1.5, color: "var(--text-muted)" }}>{tagline}</div>
             {children}
@@ -49,7 +49,7 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
         </div>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 px-6 py-3 border-t" style={{ background: "var(--card)", borderColor: "var(--line)" }} data-testid="auth-labs-strip">
           {LABS.map((l) => (
-            <span key={l} style={{ fontFamily: MONO, fontSize: "10px", letterSpacing: "0.08em", color: "var(--text-muted)" }}>{l}</span>
+            <span key={l} style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.08em", color: "var(--text-muted)" }}>{l}</span>
           ))}
         </div>
       </div>

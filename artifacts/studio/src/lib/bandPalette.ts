@@ -16,6 +16,17 @@ export const BAND_COLORS = ["var(--band-0)", "var(--band-1)", "var(--band-2)", "
 // handled explicitly below instead of silently clamping into it.
 export const OVERFLOW_BAND_COLOR = "var(--band-overflow)";
 
+// DU-1.2 (spec §5.1.1) — per-band stroke pattern, index-aligned with
+// BAND_COLORS, so band identity never rests on colour alone (WCAG 1.4.1).
+// Leaflet/SVG `dashArray` strings; undefined = solid. Overflow stays solid
+// (its violet hue is already categorically distinct from the olive ramp).
+export const BAND_DASH: readonly (string | undefined)[] = [undefined, "10 4", "6 4", "2 4", "8 3 2 3"];
+
+export function getBandDash(index: number): string | undefined {
+  if (index === OVERFLOW_BAND) return undefined;
+  return BAND_DASH[Math.min(index, BAND_DASH.length - 1)];
+}
+
 export function getBandColor(index: number): string {
   if (index === OVERFLOW_BAND) return OVERFLOW_BAND_COLOR;
   return BAND_COLORS[Math.min(index, BAND_COLORS.length - 1)] ?? BAND_COLORS[0];

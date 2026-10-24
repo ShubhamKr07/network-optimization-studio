@@ -170,10 +170,10 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                     className="h-7 text-xs w-28 font-mono"
                     data-testid={`input-customer-demand-${c.id}`}
                   />
-                  {!disabled && error && <p className="text-[10px] text-destructive mt-0.5" data-testid={`error-customer-demand-${c.id}`}>{error}</p>}
+                  {!disabled && error && <p className="text-2xs text-destructive mt-0.5" data-testid={`error-customer-demand-${c.id}`}>{error}</p>}
                 </TableCell>
                 <TableCell>
-                  <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                  <div className="flex rounded border border-border overflow-hidden text-2xs w-fit">
                     {(["active", "excluded"] as const).map(s => (
                       <button
                         key={s}
@@ -183,7 +183,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                         title={disabled ? "Read-only while browsing result history." : undefined}
                         className={`px-2 py-1 transition-colors whitespace-nowrap ${
                           status === s
-                            ? s === "excluded" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
+                            ? s === "excluded" ? "bg-foreground text-background" : "bg-secondary text-foreground"
                             : "bg-white text-muted-foreground hover:bg-muted"
                         } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                       >

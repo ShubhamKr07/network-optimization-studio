@@ -96,9 +96,9 @@ describe("DataTable — markup", () => {
   });
 
   it("passes the row to rowClassName", () => {
-    renderTable({ rowClassName: r => (r.id === "C2" ? "bg-amber-50" : undefined) });
-    expect(screen.getByTestId("row-C2")).toHaveClass("bg-amber-50");
-    expect(screen.getByTestId("row-C1")).not.toHaveClass("bg-amber-50");
+    renderTable({ rowClassName: r => (r.id === "C2" ? "bg-warning-bg" : undefined) });
+    expect(screen.getByTestId("row-C2")).toHaveClass("bg-warning-bg");
+    expect(screen.getByTestId("row-C1")).not.toHaveClass("bg-warning-bg");
   });
 });
 

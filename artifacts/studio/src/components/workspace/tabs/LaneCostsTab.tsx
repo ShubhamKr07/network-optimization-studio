@@ -204,7 +204,7 @@ export function LaneCostsTab({
               title="Unknown mine ID — not found in this scenario's mines"
               data-testid={`warning-unknown-from-${o.fromId}-${o.toId}`}
             >
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -226,7 +226,7 @@ export function LaneCostsTab({
               title="Unknown station ID — not found in this scenario's stations"
               data-testid={`warning-unknown-to-${o.fromId}-${o.toId}`}
             >
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <AlertTriangle className="w-3 h-3 text-warning" />
             </span>
           )}
         </div>
@@ -251,7 +251,7 @@ export function LaneCostsTab({
           />
           {isChanged(o) && (
             <span
-              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-lanecost-changed-${o.fromId}-${o.toId}`}
             >
               Changed
@@ -349,7 +349,7 @@ export function LaneCostsTab({
         rows={laneCostOverrides}
         rowKey={o => pairKey(o.fromId, o.toId)}
         columns={columns}
-        rowClassName={(o) => (isChanged(o) ? "bg-amber-50" : undefined)}
+        rowClassName={(o) => (isChanged(o) ? "bg-warning-bg" : undefined)}
         testIds={{
           toolbar: "lanecosts-tab-toolbar",
           row: o => `row-lanecost-${o.fromId}-${o.toId}`,

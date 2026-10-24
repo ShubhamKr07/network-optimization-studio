@@ -119,9 +119,9 @@ describe("JadeDistancesTab on DataTable (SCU-2.P4.5)", () => {
 
   it("amber on the changed row, sky on the estimated row", () => {
     renderTab();
-    expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toHaveClass("bg-sky-50");
+    expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toHaveClass("bg-info-bg");
     fireEvent.click(screen.getByTestId("button-jadedistances-next"));
-    expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-20-cust-1")).toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-20-cust-1")).toHaveClass("bg-warning-bg");
   });
 
   it("focus jump: clears the filter and moves to the target's page", () => {

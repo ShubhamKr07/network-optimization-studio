@@ -10,7 +10,7 @@ export function AppFooter() {
   return (
     <footer
       data-testid="app-footer"
-      className="flex-shrink-0 flex items-center justify-center border-t border-[color:var(--line)] bg-background text-xs font-mono text-[color:var(--text-faint)]"
+      className="flex-shrink-0 flex items-center justify-center border-t border-[color:var(--line)] bg-background text-xs font-mono text-[color:var(--text-muted)]"
       style={{ height: FOOTER_H }}
     >
       <span>&copy; Developed by hx1</span>

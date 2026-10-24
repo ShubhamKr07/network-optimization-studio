@@ -3,7 +3,7 @@ import type { SolveResult } from "@workspace/api-client-react";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
 import { demandTone, makeQuintileRadius, QUINTILE_RADII } from "./types";
 import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./EntityMarkers";
-import { getBandColor } from "@/lib/bandPalette";
+import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { OVERFLOW_BAND } from "@/lib/bands";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
@@ -38,7 +38,7 @@ const POTENTIAL_OUTPUT_SVG = `<svg width="22" height="22" viewBox="0 0 24 24" xm
 // Same --map-customer/--map-customer-stroke pair NetworkMap's own
 // CircleMarker + customerBubbleSvg use for a solved-result customer dot
 // (fill-opacity 0.8, stroke-width 1 — matches the unselected/unfocused
-// marker state) — NOT the un-tokenized bg-slate-400/border-slate-500 the
+// marker state) — NOT the un-tokenized bg-muted-foreground/border-input the
 // old inline legend used.
 const CUSTOMER_DOT_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="5" fill="var(--map-customer)" fill-opacity="0.8" stroke="var(--map-customer-stroke)" stroke-width="1" /></svg>`;
 
@@ -156,9 +156,7 @@ export interface MapLegendProps {
 // EntityMarkers/NetworkMap use (rather than a second hand-drawn copy) so the
 // legend can never drift from what's actually rendered on the map. Styled
 // with the semantic bg-card/border-border/text-muted-foreground utilities
-// (resolve via the .scn-theme-scoped tokens set on Workspace.tsx's root,
-// same as every other Workspace overlay component) — this component does
-// not re-apply the .scn-theme class itself.
+// (resolve via the :root book-cover tokens in index.css).
 export function MapLegend({
   variant = "input",
   corner = "br",
@@ -251,7 +249,7 @@ export function MapLegend({
     >
       {showStatusGroup && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Sites</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Sites</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {statusItems.map((it) => (
               <Fragment key={it.key}>
@@ -270,7 +268,7 @@ export function MapLegend({
       )}
       {showDemandGroup && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Demand</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Demand</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {/* R2: only buckets a real customer actually occupies get a row — a
                 collapsed/degenerate population (e.g. every demand identical)
@@ -292,7 +290,7 @@ export function MapLegend({
       )}
       {showRouteGroup && (
         <div className="pt-1 border-t border-border">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {/* Each swatch is labeled by its band's upper bound ("≤ X unit")
                 rather than the old ordinal "Band N" — matches
@@ -306,12 +304,18 @@ export function MapLegend({
             {bands.map((boundary, i) => (
               <Fragment key={i}>
                 {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: getBandColor(i) }}
-                  data-testid={`legend-band-${i}`}
-                />
-                <span className="text-muted-foreground font-mono text-[10px]">
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(i) }}
+                    data-testid={`legend-band-${i}`}
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid={`legend-dash-${i}`}>
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(i)} strokeWidth="2.5"
+                      strokeDasharray={getBandDash(i)} />
+                  </svg>
+                </span>
+                <span className="text-muted-foreground font-mono text-2xs">
                   ≤ {formatBandBoundary(boundary)}
                 </span>
               </Fragment>
@@ -326,18 +330,23 @@ export function MapLegend({
                 existing tests use. */}
             {bands.length > 0 && (
               <Fragment>
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
-                  data-testid="legend-overflow-band"
-                />
-                <span className="text-muted-foreground font-mono text-[10px]">Overflow</span>
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
+                    data-testid="legend-overflow-band"
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid="legend-overflow-dash">
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
+                  </svg>
+                </span>
+                <span className="text-muted-foreground font-mono text-2xs">Overflow</span>
               </Fragment>
             )}
           </div>
         </div>
       )}
-      {hintText && <div className="text-[10px] text-muted-foreground pt-0.5 italic">{hintText}</div>}
+      {hintText && <div className="text-2xs text-muted-foreground pt-0.5 italic">{hintText}</div>}
     </div>
   );
 }

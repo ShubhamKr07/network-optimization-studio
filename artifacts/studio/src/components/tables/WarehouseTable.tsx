@@ -147,7 +147,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
                   </TableCell>
                 )}
                 <TableCell>
-                  <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                  <div className="flex rounded border border-border overflow-hidden text-2xs w-fit">
                     {STATUSES.map(s => (
                       <button
                         key={s}
@@ -157,7 +157,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
                         title={disabled ? "Read-only while browsing result history." : undefined}
                         className={`px-2 py-1 transition-colors whitespace-nowrap ${
                           status === s
-                            ? s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
+                            ? s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-foreground text-background" : "bg-secondary text-foreground"
                             : "bg-white text-muted-foreground hover:bg-muted"
                         } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
