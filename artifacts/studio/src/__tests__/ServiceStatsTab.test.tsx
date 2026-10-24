@@ -21,10 +21,11 @@ function render(
   return rtlRender(ui, { wrapper: AllProviders, ...options });
 }
 
-// SCU-1.2 — the percent cell alone (span #2 of a band row: label, bar div,
+// SCU-1.2 — the percent cell alone (the last span of a band row: label, bar div,
 // percent). Row text concatenates label + percent ("200–400 mi15%"), so a
 // bare toHaveTextContent("0%") would also match "10%"/"100%".
-const percentOf = (testId: string) => screen.getByTestId(testId).querySelectorAll("span")[1]?.textContent;
+// DU-2.2: the label cell now nests BandLabel's spans, so the percent cell is the row's LAST span.
+const percentOf = (testId: string) => { const spans = screen.getByTestId(testId).querySelectorAll("span"); return spans[spans.length - 1]?.textContent; };
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -135,12 +136,12 @@ describe("ServiceStatsTab", () => {
 
   it("uses the model's distanceUnit ('mi') on p-median-us band labels", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 
   it("uses the model's distanceUnit ('mi') on a two-echelon-gold-au render", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 
   // chen-bands-units, T13, Step 3b — DELIBERATE behavior change: the `?? "mi"`
@@ -160,7 +161,9 @@ describe("ServiceStatsTab", () => {
   it("renders the band and percent cells with font-mono (Bundle 3, T9)", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     const row = screen.getByTestId("service-stats-band-200");
-    const [bandCell, percentCell] = row.querySelectorAll("span");
+    const spans = row.querySelectorAll("span");
+    const bandCell = spans[0];
+    const percentCell = spans[spans.length - 1];
     expect(bandCell).toHaveClass("font-mono");
     expect(percentCell).toHaveClass("font-mono");
   });
@@ -796,7 +799,7 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
     // be the identity and this test could not fail.
     render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="synthetic-km-model" />);
     // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
-    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("0–372.82 mi");
+    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("≤ 372.82 mi");
     const overflowRow = screen.getByTestId("service-stats-band--1");
     // The overflow row's shown boundary (600, the max REAL boundary) is
     // converted exactly the same way — never the literal sentinel `-1`
@@ -832,7 +835,7 @@ describe("ServiceStatsTab — live exclusive rows from populated edges (SCU-1.2)
     render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="p-median-us" presentationBands={[200, 400, 800]} />);
     const rows = ids(["200", "400", "800", "-1"]);
     expect(rows.map(percentOf)).toEqual(["50%", "30%", "0%", "20%"]);
-    expect(rows.map(id => screen.getByTestId(id).querySelector("span")!.textContent)).toEqual(["0–200 mi", "200–400 mi", "400–800 mi", "> 800 mi"]);
+    expect(rows.map(id => screen.getByTestId(id).querySelector("span")!.textContent)).toEqual(["≤ 200 mi", "200–400 mi", "400–800 mi", "> 800 mi"]);
   });
 
   it("two-echelon: the inbound mine_to_refinery leg is excluded; outbound rows + non-zero overflow", () => {
@@ -926,14 +929,14 @@ describe("ServiceStatsTab Plant Production on DataTable — testid map (SCU-2.P3
 
 // SCU-2.P3.9 (user decision 2026-10-17) — band labels round like every other
 // displayed distance (formatDistanceDisplay, ≤ 2 dp): a mi-canonical model
-// shown in km reads "0–321.87 km", never "0–321.8688 km"; mi stays exact.
+// shown in km reads "≤ 321.87 km", never "0–321.8688 km"; mi stays exact.
 describe("ServiceStatsTab — band labels round in km and mi (SCU-2.P3.9)", () => {
   const banded = { ...result, metrics: { bandCoverage: [{ band: 200, percent: 30 }, { band: 400, percent: 45 }] } };
 
   it("km display: converted boundaries print at most 2 dp", () => {
     window.localStorage.setItem(STORAGE_KEY, "km");
     render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–321.87 km");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 321.87 km");
     expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("321.87–643.74 km");
     expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 643.74 km");
     expect(screen.getByTestId("service-stats-band-200")).not.toHaveTextContent("321.8688");
@@ -942,7 +945,35 @@ describe("ServiceStatsTab — band labels round in km and mi (SCU-2.P3.9)", () =
   it("mi display: whole-number boundaries are unchanged", () => {
     window.localStorage.setItem(STORAGE_KEY, "mi");
     render(<ServiceStatsTab result={banded} scenarioId={1} modelId="p-median-us" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("0–200 mi");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
     expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("> 400 mi");
+  });
+});
+
+// DU-2.2 (PR2-2) — `b.band` is a boundary VALUE; the BandLabel index is its position among the sorted
+// boundaries (overflow -> OVERFLOW_BAND). 4 boundaries + overflow: every row's text AND swatch colour.
+describe("ServiceStatsTab — BandLabel index from boundary values (DU-2.2)", () => {
+  it("4 boundaries + overflow: range text and band colour per row", () => {
+    const four = {
+      ...result,
+      metrics: { bandCoverage: [
+        { band: 200, percent: 10 }, { band: 400, percent: 20 }, { band: 800, percent: 30 },
+        { band: 1600, percent: 20 }, { band: -1, percent: 20 },
+      ] },
+    };
+    // JADE's frozen shape is exclusive: rows kept as-is, explicit -1 row is the overflow.
+    render(<ServiceStatsTab result={four} scenarioId={1} modelId="two-echelon-jade-us" />);
+    const expected: [string, string, string][] = [
+      ["200", "≤ 200 mi", "var(--band-0)"],
+      ["400", "200–400 mi", "var(--band-1)"],
+      ["800", "400–800 mi", "var(--band-2)"],
+      ["1600", "800–1,600 mi", "var(--band-3)"],
+      ["-1", "> 1,600 mi", "var(--band-overflow)"],
+    ];
+    for (const [id, text, colour] of expected) {
+      const row = screen.getByTestId(`service-stats-band-${id}`);
+      expect(row.querySelector("span")!.textContent).toBe(text);
+      expect(row.querySelector("[data-band-swatch]")).toHaveStyle({ backgroundColor: colour });
+    }
   });
 });

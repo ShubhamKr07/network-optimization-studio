@@ -1266,7 +1266,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     lat: 41, lng: -91,
     customerCity: "Sampleburg", customerState: "SB",
     warehouseCity: "Testville", warehouseState: "TS",
-    distanceMi: 1234, band: 0, bandLabelText: "Band 1",
+    distanceMi: 1234, band: 0, bandLabelText: "—",
   };
 
   it("buildCustomerPopupHtml renders a placeholder — never a value or a guessed 'mi' label — when no unit is resolved (default)", () => {
@@ -1433,7 +1433,8 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
     // change from the pre-existing "defaults to mi" expectation).
     expect(legend.textContent).not.toContain("≤ 3000 mi");
     expect(legend.textContent).not.toContain(" mi");
-    expect(legend.textContent).toContain("≤ —");
+    expect(legend.textContent).not.toMatch(/≤|>/);
+    expect(legend.textContent).toContain("Distance bands" + "—".repeat(7)); // 6 band rows + the overflow row
   });
 });
 
@@ -1570,7 +1571,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
     expect(routeHtml.toLowerCase()).not.toContain(getBandColor(3).toLowerCase());
   });
 
-  it("reads 'Overflow' (not a Band N label) in the customer hover tooltip", () => {
+  it("reads the overflow range (not 'Overflow' / a Band N label) in the customer hover tooltip", () => {
     tooltipChildren.length = 0;
     render(
       <UnitProvider><NetworkMap
@@ -1579,6 +1580,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         result={overflowResult}
         showRoutes={true}
         bands={bands}
+        distanceUnit="mi"
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -1591,8 +1593,8 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
     });
     expect(customerTooltip).toBeDefined();
     const { container: tooltipContainer } = render(<>{customerTooltip}</>);
-    expect(tooltipContainer.textContent).toContain("Overflow");
-    expect(tooltipContainer.textContent).not.toMatch(/Band \d/);
+    expect(tooltipContainer.textContent).toContain("> 2,000 mi");
+    expect(tooltipContainer.textContent).not.toMatch(/Band \d|Overflow/);
   });
 
   it("highlights the selected overflow customer with the overflow color (fill + stroke)", () => {
@@ -1621,7 +1623,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
     expect(overlayHtml.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
   });
 
-  it("shows the overflow color + 'Overflow' label in the click-triggered customer popup", () => {
+  it("shows the overflow color + overflow range in the click-triggered customer popup", () => {
     const { container } = render(
       <UnitProvider><NetworkMap
         dataset={overflowDataset}
@@ -1629,6 +1631,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         result={overflowResult}
         showRoutes={false}
         bands={bands}
+        distanceUnit="mi"
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -1642,9 +1645,49 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
     // convention as the pre-existing "does NOT change the click-based
     // CustomerPopup content or behavior" test's click-without-throwing check,
     // but this time asserting the actual popup content.
-    expect(container.innerHTML).toContain("Overflow");
-    expect(container.innerHTML).not.toMatch(/Band \d/);
+    const popupText = container.querySelector(".leaflet-popup-content")?.textContent ?? "";
+    expect(popupText).toContain("> 2,000 mi");
+    expect(popupText).not.toMatch(/Band|Overflow/);
     expect(container.innerHTML.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
+  });
+
+  // DU-2.2 (PR2-3) — Leg/None lane modes pass bands=[] (colour off); `labelBands` keeps the real range text.
+  function renderLabelOnly(showRoutes: boolean) {
+    tooltipChildren.length = 0;
+    return render(
+      <UnitProvider><NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={overflowResult}
+        showRoutes={showRoutes}
+        bands={[]}
+        labelBands={bands}
+        distanceUnit="mi"
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      /></UnitProvider>,
+    );
+  }
+
+  it("bands=[] + labelBands: hover tooltip still shows the real range", () => {
+    renderLabelOnly(true);
+    const customerTooltip = tooltipChildren.find((child) => render(<>{child}</>).container.textContent?.includes("Sampleburg"));
+    expect(customerTooltip).toBeDefined();
+    const text = render(<>{customerTooltip}</>).container.textContent;
+    expect(text).toContain("> 2,000 mi");
+    expect(text).not.toMatch(/Band|Overflow/);
+  });
+
+  it("bands=[] + labelBands: popup shows the real range while colour classification stays on bands", () => {
+    const { container } = renderLabelOnly(false);
+    fireEvent.click(container.querySelector(".leaflet-overlay-pane .leaflet-interactive") as HTMLElement);
+    const popup = container.querySelector(".leaflet-popup-content");
+    expect(popup?.textContent).toContain("> 2,000 mi");
+    // colour comes from bands=[] (band 0), NOT the overflow colour that labelBands would imply
+    expect(popup?.innerHTML.toLowerCase()).toContain(getBandColor(0).toLowerCase());
+    expect(popup?.innerHTML.toLowerCase()).not.toContain(getBandColor(-1).toLowerCase());
   });
 
   it("a distance exactly on a boundary resolves to that band, not overflow (upper-inclusive)", () => {

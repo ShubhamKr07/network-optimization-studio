@@ -16,8 +16,8 @@
  *      ("Refinery"), and transport-coal's supply/demand roles ("Mine"/
  *      "Station").
  *   5. The homepage "AL's Athletics" card shows no "P-Median".
- *   6. A JADE Distance-Band filter option reads "Band N: X mi - Y mi" /
- *      "Band N: > X mi"; table CELLS stay "Band N"/"Overflow".
+ *   6. A JADE Distance-Band filter option reads "≤ X mi" / "X–Y mi" /
+ *      "> X mi" (DU-2.2); table CELLS read the same range text.
  *   7. JADE's Run Optimizer shows the same free chip band editor as
  *      Chapter 3 (not a fixed-4 editor); a 5th band can be added and
  *      solved; removing bands down to one disables the last "×".
@@ -565,8 +565,8 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       assertTooltipShape(plantTooltipOut, "Plant");
 
       // ── Item 6 — Distance-Band filter range labels, on the still-live
-      // (just-saved) ground-truth bands. Table CELLS stay "Band N"/
-      // "Overflow"; only the FILTER options get the range format. Computed
+      // (just-saved) ground-truth bands. Filter options and table CELLS
+      // both read the units range label (DU-2.2). Computed
       // deterministically from the known bands (no need to reproduce real
       // solved edge distances — every possible option is one of exactly
       // these 5 strings). ─────────────────────────────────────────────────
@@ -580,11 +580,11 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       const bandOptions = await distinctFilterOptionLabels(page, "band");
       expect(bandOptions.length).toBeGreaterThan(0);
       const expectedPossible = new Set([
-        "Band 1: 0 mi - 200 mi",
-        "Band 2: 200 mi - 400 mi",
-        "Band 3: 400 mi - 800 mi",
-        "Band 4: 800 mi - 1,600 mi",
-        "Band 5: > 1,600 mi",
+        "≤ 200 mi",
+        "200–400 mi",
+        "400–800 mi",
+        "800–1,600 mi",
+        "> 1,600 mi",
       ]);
       for (const label of bandOptions) {
         expect(expectedPossible.has(label)).toBe(true);
@@ -592,11 +592,11 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("filter-menu-popover")).not.toBeVisible();
 
-      // Table cells are unchanged — still bare "Band N"/"Overflow".
+      // Table cells read the same range text as the filter options (DU-2.2).
       const cellTexts = await page.locator('[data-testid^="cell-jadeassignment-band-"]').allInnerTexts();
       expect(cellTexts.length).toBeGreaterThan(0);
       for (const text of cellTexts) {
-        expect(text.trim()).toMatch(/^(Band \d+|Overflow)$/);
+        expect(text.trim()).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);
       }
 
       // ── Item 7 — Run Optimizer shows the SAME free chip band editor as

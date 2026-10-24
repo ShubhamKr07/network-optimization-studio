@@ -5,7 +5,8 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge, Plant } from "@workspace/api-client-react";
-import { assignBandOrOverflow, bandLabel } from "@/lib/bands";
+import { assignBandOrOverflow } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
@@ -245,9 +246,8 @@ interface PopupInfo {
   warehouseState: string;
   distanceMi: number;
   band: number;
-  // jade-B1 (#1 all-site overflow) — "Band N" / "Overflow" text, computed
-  // via the shared bandLabel() so this popup can never hand-roll
-  // `Band ${band + 1}` and disagree with the map's own overflow sentinel.
+  // DU-2.2 — the band's range text ("≤ 250 mi", "> 1,000 mi"), from the
+  // units bandRangeLabel authority; never hand-rolled here.
   bandLabelText: string;
 }
 
@@ -278,7 +278,6 @@ export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalU
           <strong style="margin-left:4px;font-family:var(--app-font-mono)">${distanceLine}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
-          <span style="color:var(--text-muted)">Band:</span>
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
           <strong style="font-family:var(--app-font-mono)">${info.bandLabelText}</strong>
         </div>
@@ -335,6 +334,10 @@ interface NetworkMapProps {
   // `.band` (which reflects the bands at solve time and goes stale the
   // moment a student edits them without re-solving).
   bands: number[];
+  // DU-2.2 (PR2-3) — canonical boundaries used ONLY for band range LABELS
+  // (popup, hover); falls back to `bands`. Colour/dash classification stays
+  // on `bands`, which is [] in Leg/None lane modes.
+  labelBands?: number[];
   // E5.1: the active model's manifest countryBounds — falls back to a
   // continental-US default when not yet loaded/available.
   countryBounds?: CountryBounds;
@@ -422,7 +425,7 @@ interface NetworkMapProps {
 }
 
 export function NetworkMap({
-  dataset, warehouseStatuses, result, showRoutes, bands, countryBounds,
+  dataset, warehouseStatuses, result, showRoutes, bands, labelBands, countryBounds,
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
@@ -438,6 +441,12 @@ export function NetworkMap({
   const effectiveDistanceUnitLabel = canonicalResolved ? displayUnit.effectiveUnit(distanceUnit) : null;
   const formatEdgeDistance = (raw: number): string =>
     canonicalResolved ? `${formatDistanceDisplay(displayUnit.toDisplay(raw, distanceUnit))} ${effectiveDistanceUnitLabel}` : "—";
+  const rangeText = (distance: number): string => {
+    const lb = labelBands ?? bands;
+    return canonicalResolved
+      ? bandRangeLabel(assignBandOrOverflow(distance, lb), lb.map((b) => displayUnit.toDisplay(b, distanceUnit)), effectiveDistanceUnitLabel!)
+      : "—";
+  };
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
   // construction — they are NOT reactive props. GET /api/models (the source
@@ -574,7 +583,7 @@ export function NetworkMap({
   }, [result, visibleLegs]);
 
   // Build popup info for the selected customer
-  const popupInfo = useMemo<PopupInfo | null>(() => {
+  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText"> | null>(() => {
     if (!selectedCustomerId || !result) return null;
     const edge = assignmentMap.get(selectedCustomerId);
     if (!edge) return null;
@@ -593,9 +602,9 @@ export function NetworkMap({
       // beyond-highest-boundary distance gets the OVERFLOW_BAND sentinel
       // (-1) here too, not folded into the last real band.
       band: assignBandOrOverflow(edge.distance, bands),
-      bandLabelText: bandLabel(edge.distance, bands),
     };
   }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
+  const popupInfo: PopupInfo | null = popupBase && { ...popupBase, bandLabelText: rangeText(popupBase.distanceMi) };
 
   const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
   const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
@@ -815,7 +824,7 @@ export function NetworkMap({
                     (c as unknown as { state?: string }).state ?? "",
                   )}
                   {" · "}
-                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${bandLabel(assignment.distance, bands)}` : ""}</span>
+                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${rangeText(assignment.distance)}` : ""}</span>
                 </span>
               </Tooltip>
             </CircleMarker>

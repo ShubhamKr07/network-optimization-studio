@@ -248,14 +248,16 @@ describe("MapLegend", () => {
       });
     });
 
-    it("labels each band swatch with its upper bound, not the old ordinal 'Band N'", () => {
+    it("labels each band swatch with its range (incl. the overflow row), not the old ordinal 'Band N'", () => {
       const { getByText, queryByText } = render(
         <UnitProvider><MapLegend variant="output" result={solvedResult} showRoutes bands={[200, 400, 800, 1600]} distanceUnit="mi" /></UnitProvider>,
       );
       expect(getByText("≤ 200 mi")).toBeInTheDocument();
-      expect(getByText("≤ 400 mi")).toBeInTheDocument();
-      expect(getByText("≤ 800 mi")).toBeInTheDocument();
-      expect(getByText("≤ 1600 mi")).toBeInTheDocument();
+      expect(getByText("200–400 mi")).toBeInTheDocument();
+      expect(getByText("400–800 mi")).toBeInTheDocument();
+      expect(getByText("800–1,600 mi")).toBeInTheDocument();
+      expect(getByText("> 1,600 mi")).toBeInTheDocument();
+      expect(queryByText("Overflow")).not.toBeInTheDocument();
       expect(queryByText("Band 1")).not.toBeInTheDocument();
       expect(queryByText(/^Band /)).not.toBeInTheDocument();
     });
@@ -269,7 +271,7 @@ describe("MapLegend", () => {
       );
       expect(queryByText(/mi$/)).not.toBeInTheDocument();
       expect(queryByText("≤ 200 mi")).not.toBeInTheDocument();
-      expect(getAllByText("≤ —")).toHaveLength(2);
+      expect(getAllByText("—")).toHaveLength(3); // 2 band rows + the overflow row
     });
 
     it("renders band labels in the given distanceUnit (e.g. km)", () => {
@@ -277,7 +279,8 @@ describe("MapLegend", () => {
         <UnitProvider><MapLegend variant="output" result={solvedResult} showRoutes bands={[200, 400]} distanceUnit="km" /></UnitProvider>,
       );
       expect(getByText("≤ 200 km")).toBeInTheDocument();
-      expect(getByText("≤ 400 km")).toBeInTheDocument();
+      expect(getByText("200–400 km")).toBeInTheDocument();
+      expect(getByText("> 400 km")).toBeInTheDocument();
     });
 
     it("renders exactly one swatch per configured band — no trailing overflow row, since the map has no distinct overflow color (assignBand clamps into the last band's own color)", () => {

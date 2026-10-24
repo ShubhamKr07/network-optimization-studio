@@ -333,7 +333,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // without navigating through a save/solve.
       await page.getByTestId("sidebar-output-customer-assignments").click();
       await expect(page.getByTestId("jade-assignments-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').first()).toHaveText("Overflow");
+      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').first()).toHaveText(/^> [\d,.]+ (mi|km)$/);
 
       // Back to the Output Map: the map lens is live too
       // (getBandColor(-1) === "var(--band-overflow)", set literally as the
@@ -364,7 +364,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(overflowPaths).toHaveCount(expectedOverflowCount);
       await expect(bandZeroPaths).toHaveCount(expectedBandZeroCount);
 
-      // Tooltip on a customer marker reads "Overflow" — pick a customer
+      // Tooltip on a customer marker reads the overflow range ("> X mi") — pick a customer
       // marker that's visually ISOLATED (no other marker overlapping its
       // bounding box) so hover/click deterministically lands on it (see
       // `pickIsolatedCustomerMarker`'s own comment: a naive `.first()`
@@ -375,10 +375,10 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await customerPath.hover({ timeout: HEADER_TIMEOUT });
       const tooltip = page.locator(".leaflet-tooltip");
       await expect(tooltip).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(tooltip).toContainText("Overflow");
-      await expect(tooltip).not.toContainText(/Band \d/);
+      await expect(tooltip).toContainText(/> [\d,.]+ (mi|km)/);
+      await expect(tooltip).not.toContainText(/Band \d|Overflow/);
 
-      // Popup (click) on the same customer: "Overflow" label + overflow
+      // Popup (click) on the same customer: overflow range text + overflow
       // color swatch, never "Band N" — and the marker's own highlight fill
       // switches to the overflow color too (consistency across lane +
       // highlight + popup + tooltip, spec §2's explicit all-site
@@ -386,8 +386,8 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await customerPath.click({ timeout: HEADER_TIMEOUT });
       const popupContent = page.locator(".leaflet-popup-content");
       await expect(popupContent).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(popupContent).toContainText("Overflow");
-      await expect(popupContent).not.toContainText(/Band \d/);
+      await expect(popupContent).toContainText(/> [\d,.]+ (mi|km)/);
+      await expect(popupContent).not.toContainText(/Band \d|Overflow/);
       await expect(customerPath).toHaveAttribute("fill", "var(--band-overflow)");
 
       // Zero solve/solve-job network calls fired anywhere in this whole

@@ -4412,7 +4412,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // left Chen's live cumulative coverage dormant even after that fix —
       // T13's own commit note flagged this as waiting on Task 14. Chen now
       // computes live like its five siblings, cumulative + overflow labels
-      // (`≤ 600 / ≤ 1200 / … / Overflow`), from the SAME dedicated band
+      // (range labels: `≤ 600 / 600–1,200 / … / > last`), from the SAME dedicated band
       // lens every other live-band surface on this page reads.
       // Chen's SEPARATE coverage-% KPIs (`result.details.coveragePct`) are
       // untouched — this only wires the distance-band coverage bars.

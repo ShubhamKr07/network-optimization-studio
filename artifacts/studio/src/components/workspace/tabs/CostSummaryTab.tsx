@@ -7,9 +7,9 @@ import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
-import type { CanonicalUnit } from "@workspace/units";
+import { bandRangeLabel, type CanonicalUnit } from "@workspace/units";
 import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
-import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
+import { OVERFLOW_BAND, bandDecimals, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
 import { Button } from "@/components/ui/button";
 import { buildCompareCsv, buildCompareJson } from "@/lib/compareCsv";
 import { downloadAs } from "@/lib/clientCsv";
@@ -46,7 +46,7 @@ function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefin
   return `${converted} ${unit.effectiveUnit(canonical)}`;
 }
 
-function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): string | null {
+function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): CanonicalUnit | null {
   return canonical == null ? null : unit.effectiveUnit(canonical);
 }
 
@@ -481,10 +481,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   // QFX-5 — the ONE band-row builder (labels + exclusive percentages), used by
   // the Chapter 5 single view AND Compare, so the two views cannot disagree.
-  const bandRowLabels = (boundaries: number[]): string[] =>
-    unitLabel == null
-      ? [...boundaries, OVERFLOW_BAND].map(() => "—")
-      : exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);
+  const bandRowLabels = (boundaries: number[]): string[] => {
+    const sorted = [...boundaries].sort((a, b) => a - b);
+    if (unitLabel == null) return [...sorted, OVERFLOW_BAND].map(() => "—");
+    const display = sorted.map(v => unit.toDisplay(v, canonicalDistanceUnit!));
+    return [...sorted.keys(), OVERFLOW_BAND].map(i => bandRangeLabel(i, display, unitLabel));
+  };
   const exclusiveBands = (r: SolveResult) =>
     frozenBandCoverageToExclusive(r.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId));
 

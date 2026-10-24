@@ -14,8 +14,9 @@
  *      own "Added <entity>" section, Save persists it, and the CSV toolbar
  *      lives on that SAME base tab (there is no longer a separate tab to
  *      keep it off of).
- *   5. [Updated post workspace-fixups-2, item 6/7 — `bandRangeLabel` now
- *      reads "Band N: X mi - Y mi"/"Band N: > X mi" (was "≤ X mi"/"X–Y mi");
+ *   5. [Updated post workspace-fixups-2, item 6/7, then DU-2.2 — the band
+ *      range label is now the units `bandRangeLabel`: "≤ X mi" / "X–Y mi" /
+ *      "> X mi" (table cells read the same text);
  *      JADE's fixed-4-slot `JadeBandEditor` was DELETED — JADE now uses the
  *      SAME free add/remove chip editor as every other model.] Distance-Band
  *      filters show live, unit-aware ranges (not the bare "Band N" cell
@@ -149,24 +150,6 @@ function plantFactoryLegendSwatch(page: Page, legendTestId: string): Locator {
   return page.locator(`[data-testid="${legendTestId}"] svg polygon[fill="var(--map-plant)"]`);
 }
 
-// Mirrors `lib/bands.ts`'s `bandRangeLabel` exactly (sort-first, same
-// `<=`-boundary/overflow semantics, workspace-fixups-2 item 6's
-// "Band N: X unit - Y unit" / "Band N: > X unit" format — was "≤ X mi"/
-// "X–Y mi" before that bundle) — reimplemented locally rather than imported
-// because Playwright's e2e runner does not share the app's Vite path-alias/
-// module resolution. Same "recompute expected values from the real solved
-// response, don't just assume the label" pattern jade-ch9-workspace-bundle.
-// spec.ts already uses for its overflow-count math.
-function bandRangeLabelLocal(distance: number, bands: number[], unit: string): string {
-  const sorted = [...bands].sort((a, b) => a - b);
-  if (sorted.length === 0) return "All distances";
-  const idx = sorted.findIndex(b => distance <= b);
-  const f = (n: number) => `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
-  if (idx === -1) return `Band ${sorted.length + 1}: > ${f(sorted[sorted.length - 1])}`;
-  if (idx === 0) return `Band 1: 0 ${unit} - ${f(sorted[0])}`;
-  return `Band ${idx + 1}: ${f(sorted[idx - 1])} - ${f(sorted[idx])}`;
-}
-
 /** Parses a `bandRangeLabel` string back into inclusive numeric bounds, for
  * verifying "filtering by a range selects the right rows" against the
  * table's own displayed Distance cells. A little slack either side absorbs
@@ -174,10 +157,13 @@ function bandRangeLabelLocal(distance: number, bands: number[], unit: string): s
  * distance — this is a smoke-level cross-check, not a re-proof of the
  * boundary math itself (that's `bands.test.ts`'s job). */
 function parseBandRangeBounds(label: string): { min: number; max: number } {
-  const overflow = label.match(/^Band \d+: > ([\d.,]+) /);
-  if (overflow) return { min: Number(overflow[1].replace(/,/g, "")), max: Infinity };
-  const range = label.match(/^Band \d+: ([\d.,]+) \S+ - ([\d.,]+) /);
-  if (range) return { min: Number(range[1].replace(/,/g, "")), max: Number(range[2].replace(/,/g, "")) };
+  const num = (t: string) => Number(t.replace(/,/g, ""));
+  const overflow = label.match(/^> ([\d.,]+) /);
+  if (overflow) return { min: num(overflow[1]), max: Infinity };
+  const first = label.match(/^≤ ([\d.,]+) /);
+  if (first) return { min: 0, max: num(first[1]) };
+  const range = label.match(/^([\d.,]+)–([\d.,]+) /);
+  if (range) return { min: num(range[1]), max: num(range[2]) };
   throw new Error(`Unrecognized band range label: ${label}`);
 }
 
@@ -332,16 +318,13 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       await filterTrigger.click();
       await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
 
-      // Ranges, not bare "Band N" — the table CELL still reads "Band N"
-      // (item 5's explicit "cells unchanged" scope), only the FILTER
-      // options change. [Updated post workspace-fixups-2, item 6: the
-      // range format now READS "Band N: X mi - Y mi" / "Band N: > X mi"
-      // (was "≤ X mi" / "X–Y mi" / "> X mi") — every option intentionally
-      // DOES start "Band \d+:" now, the opposite of the old assertion.]
+      // Ranges, not bare "Band N". [Updated by DU-2.2: filter options AND
+      // table cells use the one units range label — "≤ X mi" / "X–Y mi" /
+      // "> X mi".]
       const originalBandOptions = await distinctFilterOptionLabels(page, "band");
       expect(originalBandOptions.length).toBeGreaterThan(0);
       for (const label of originalBandOptions) {
-        expect(label).toMatch(/^Band \d+: ([\d,]+(\.\d+)? \S+ - [\d,]+(\.\d+)? \S+|> [\d,]+(\.\d+)? \S+)$/);
+        expect(label).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);
       }
 
       // Select a non-band filter (Product) first, capture its solo count —
@@ -420,7 +403,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       // the exact same list).
       expect([...newBandOptions].sort()).not.toEqual([...originalBandOptions].sort());
       for (const label of newBandOptions) {
-        expect(label).toMatch(/^Band \d+: ([\d,]+(\.\d+)? \S+ - [\d,]+(\.\d+)? \S+|> [\d,]+(\.\d+)? \S+)$/);
+        expect(label).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);
       }
       // The specific stale selection is gone from the new option set.
       expect(newBandOptions).not.toContain(bandLabelBefore);

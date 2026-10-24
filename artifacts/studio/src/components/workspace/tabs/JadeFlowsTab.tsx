@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
-import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { assignBandOrOverflow, bandLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
+import { BandLabel } from "@/components/BandLabel";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
@@ -55,6 +57,7 @@ interface PlantWarehouseRow {
   distance: number;
   flow: number;
   band: string;
+  bandIndex: number;
 }
 
 interface WarehouseCustomerRow {
@@ -66,6 +69,7 @@ interface WarehouseCustomerRow {
   distance: number;
   flow: number;
   band: string;
+  bandIndex: number;
 }
 
 interface LegRow {
@@ -73,6 +77,7 @@ interface LegRow {
   distance: number;
   flow: number;
   band: string;
+  bandIndex: number;
 }
 
 type InnerTab = "plant-warehouse" | "warehouse-customer";
@@ -255,6 +260,7 @@ export function JadeFlowsTab({
       distance: r.distance,
       flow: r.flow,
       band: bandLabel(r.distance, effectiveBands),
+      bandIndex: assignBandOrOverflow(r.distance, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, bandsKey, plantsSignature]);
@@ -270,22 +276,18 @@ export function JadeFlowsTab({
       distance: r.distance,
       flow: r.flow,
       band: bandLabel(r.distance, effectiveBands),
+      bandIndex: assignBandOrOverflow(r.distance, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, bandsKey]);
 
-  // Workspace fixups bundle (T6, item 5) — the `band` descriptor's accessor
-  // computes a unit-aware RANGE label (e.g. "≤ 250 mi") for filtering,
-  // distinct from the table CELL which still reads the row's own
-  // `bandLabel`-derived "Band N"/"Overflow" (unchanged above). The descriptor
-  // is a closure over `effectiveBands`/`distanceUnit`, so those must be in
-  // this useMemo's deps (an empty dep array would freeze the range options at
-  // their first-render values and never update when bands/unit change).
-  // SCU-2.P3.5 (spec B2.1/B2.2) — Plant -> Warehouse is a DataTable. Column
-  // ids are today's descriptor keys (e2e selects filters by key); the `band`
-  // FILTER value is the unit-aware range label while the CELL keeps the row's
-  // "Band N"/"Overflow"; `filterResetKey` clears ONLY that filter when the
-  // bands or the unit change (Workspace fixups T6 item 5).
+  // DU-2.2 — the `band` column's filter value AND cell are both the units
+  // `bandRangeLabel` (index assigned in canonical space via `bandIndex`). The
+  // row's own `band: bandLabel(...)` string is NOT displayed: it is the
+  // client JADE-flows export column, mirroring the server's, and stays
+  // frozen until DU-4.2. The descriptor closes over `effectiveBands` /
+  // `distanceUnit`, so those are in this useMemo's deps; `filterResetKey`
+  // clears ONLY that filter when the bands or the unit change.
   // One factory for both legs: the two entity columns differ per leg, the
   // Distance / Flow / Distance Band tail is identical bar the testid prefix and
   // the Flow header ("Flow" vs "Flows"). The Distance FILTER range is in the
@@ -317,11 +319,8 @@ export function JadeFlowsTab({
         header: "Distance Band",
         kind: "enum",
         cellTestId: r => `cell-jade-flow-${short}-band-${r.key}`,
-        value: r =>
-          canonicalResolved
-            ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
-            : "—",
-        cell: r => r.band,
+        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
+        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
         filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
       },
     ];

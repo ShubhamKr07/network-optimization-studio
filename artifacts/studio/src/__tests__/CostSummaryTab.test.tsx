@@ -914,7 +914,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     expect(screen.getByTestId("cost-summary-compare-band--1-1")).toHaveTextContent("20%");
     expect(screen.getByTestId("cost-summary-compare-band--1-2")).toHaveTextContent("10%");
     const labels = ["200", "400", "-1"].map(b => screen.getByTestId(`cost-summary-compare-band-${b}-1`).closest("tr")!.querySelector("td")!.textContent);
-    expect(labels).toEqual(["0–200 mi", "200–400 mi", "> 400 mi"]);
+    expect(labels).toEqual(["≤ 200 mi", "200–400 mi", "> 400 mi"]);
     expect(screen.queryByTestId("cost-summary-compare-bands-note")).not.toBeInTheDocument();
   });
 
@@ -1277,7 +1277,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
-      "0–200 mi (%),40,60",
+      "≤ 200 mi (%),40,60",
       "200–400 mi (%),40,30",
       "> 400 mi (%),20,10",
     ].join("\n"));
@@ -1565,7 +1565,7 @@ describe("CostSummaryTab — Chapter 5 band rows (QFX-5)", () => {
     wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" />);
     expect(BANDS.map(b => screen.getByTestId(`cost-summary-band-${b}`).textContent)).toEqual(["40.5%", "39.75%", "14.75%", "5%", "0%"]);
     expect(BANDS.map(b => labelOf(screen.getByTestId(`cost-summary-band-${b}`)))).toEqual([
-      "0–400 mi", "400–800 mi", "800–1,200 mi", "1,200–1,600 mi", "> 1,600 mi",
+      "≤ 400 mi", "400–800 mi", "800–1,200 mi", "1,200–1,600 mi", "> 1,600 mi",
     ]);
     // raw cumulative values are never shown
     expect(screen.queryByText("80.25%")).not.toBeInTheDocument();

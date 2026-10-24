@@ -233,7 +233,7 @@ test.describe("Bundle 3 — book-cover design system", () => {
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // MapLegend no longer labels swatches "Band N" (now "≤ X unit") and
+      // MapLegend no longer labels swatches "Band N" (now range text, DU-2.2) and
       // never used a stable class selector — `legend-band-0` (MapLegend.tsx)
       // is the real, stable per-band swatch testid for the first band.
       const swatch = page.getByTestId("legend-band-0");

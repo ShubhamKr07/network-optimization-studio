@@ -5,7 +5,8 @@ import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
-import { bandLabel } from "@/lib/bands";
+import { assignBandOrOverflow } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 import { ExportProvider } from "@/contexts/ExportContext";
@@ -150,20 +151,21 @@ describe("JadeAssignmentsTab", () => {
     expect(row).toHaveTextContent("—");
   });
 
-  it("Distance Band matches the shared bandLabel helper exactly, for both an in-range and an overflow distance", () => {
-    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
+  it("Distance Band cell shows the units range label, for both an in-range and an overflow distance", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
     const inRangeRow = screen.getByTestId("row-jadeassignment-product-1|customer-1"); // 42.1 mi
     const overflowRow = screen.getByTestId("row-jadeassignment-product-2|customer-2"); // 1200 mi > 1000
-    expect(inRangeRow).toHaveTextContent(bandLabel(42.1, bands));
-    expect(overflowRow).toHaveTextContent(bandLabel(1200, bands));
-    expect(overflowRow).toHaveTextContent("Overflow");
+    expect(inRangeRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(42.1, bands), bands, "mi"));
+    expect(overflowRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(1200, bands), bands, "mi"));
+    expect(overflowRow).toHaveTextContent("> 1,000 mi");
+    expect(overflowRow).not.toHaveTextContent(/Overflow|Band \d/);
   });
 
   it("falls back to DEFAULT_DISTANCE_BANDS when bands is empty/absent", () => {
-    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} scenarioId={1} />);
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} distanceUnit="mi" scenarioId={1} />);
     const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
-    // DEFAULT_DISTANCE_BANDS = [250, 500, 750]; 42.1 mi -> Band 1.
-    expect(row).toHaveTextContent("Band 1");
+    // DEFAULT_DISTANCE_BANDS = [250, 500, 750]; 42.1 mi -> ≤ 250 mi.
+    expect(row).toHaveTextContent("≤ 250 mi");
   });
 
   it("calls downloadEntityExport with entity=assignments when Download CSV is clicked", async () => {
@@ -281,11 +283,11 @@ describe("JadeAssignmentsTab", () => {
       const popover = screen.getByTestId("filter-menu-popover");
       const select = within(popover).getByTestId("select-filter-band");
 
-      expect(within(select).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 2: 250 mi - 500 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 3: 500 mi - 750 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 4: 750 mi - 1,000 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-Band 5: > 1,000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-250–500 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-500–750 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-750–1,000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-> 1,000 mi")).toBeInTheDocument();
 
       expect(within(select).queryByTestId("option-filter-band-Band 1")).not.toBeInTheDocument();
       expect(within(select).queryByTestId("option-filter-band-Overflow")).not.toBeInTheDocument();
@@ -299,7 +301,7 @@ describe("JadeAssignmentsTab", () => {
       );
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
       const popover = screen.getByTestId("filter-menu-popover");
-      expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
 
       fetchSpy.mockClear();
       // `render`'s `wrapper: AllProviders` option is reapplied automatically
@@ -312,9 +314,9 @@ describe("JadeAssignmentsTab", () => {
         <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
       );
 
-      expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 500 mi")).toBeInTheDocument();
-      expect(within(popover).getByTestId("option-filter-band-Band 2: > 500 mi")).toBeInTheDocument();
-      expect(within(popover).queryByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).not.toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-≤ 500 mi")).toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-> 500 mi")).toBeInTheDocument();
+      expect(within(popover).queryByTestId("option-filter-band-≤ 250 mi")).not.toBeInTheDocument();
       expect(fetchSpy).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
     });
@@ -329,8 +331,8 @@ describe("JadeAssignmentsTab", () => {
 
       // Activate a Product filter (non-band) — 6 rows are product-1.
       await user.click(within(popover).getByTestId("checkbox-filter-product-Product Family 1"));
-      // Activate a band-range filter — "Band 1: 0 mi - 250 mi" matches 2 of those 6 rows.
-      await user.click(within(popover).getByTestId("checkbox-filter-band-Band 1: 0 mi - 250 mi"));
+      // Activate a band-range filter — "≤ 250 mi" matches 2 of those 6 rows.
+      await user.click(within(popover).getByTestId("checkbox-filter-band-≤ 250 mi"));
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 11");
 
       // Edit the live distance bands — simulates the band editor changing
@@ -344,7 +346,7 @@ describe("JadeAssignmentsTab", () => {
       // Band filter cleared (its checkbox unchecked, count reflects only the
       // surviving Product filter: all 6 product-1 rows), Product filter intact.
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("6 of 11");
-      expect(within(popover).getByTestId("checkbox-filter-band-Band 1: 0 mi - 500 mi")).not.toBeChecked();
+      expect(within(popover).getByTestId("checkbox-filter-band-≤ 500 mi")).not.toBeChecked();
       expect(within(popover).getByTestId("checkbox-filter-product-Product Family 1")).toBeChecked();
     });
   });

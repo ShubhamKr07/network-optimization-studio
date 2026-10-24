@@ -4,7 +4,9 @@ import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
-import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { assignBandOrOverflow, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
+import { BandLabel } from "@/components/BandLabel";
 import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
@@ -136,7 +138,7 @@ interface JadeAssignmentRow {
   warehouseId: string;
   warehouseLabel: string;
   distance: number;
-  band: string;
+  bandIndex: number;
 }
 
 // workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
@@ -194,7 +196,7 @@ export function JadeAssignmentsTab({
       warehouseId: a.warehouseId,
       warehouseLabel: warehouseLabel(a.warehouseId, dataset, displayedInputs?.addedWarehouses),
       distance: a.distanceMi,
-      band: bandLabel(a.distanceMi, effectiveBands),
+      bandIndex: assignBandOrOverflow(a.distanceMi, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, displayedInputs, bandsKey]);
@@ -203,9 +205,7 @@ export function JadeAssignmentsTab({
   const upgrade = rows.length > 10;
 
   const columns = useMemo<ColumnDef<JadeAssignmentRow>[]>(() => {
-    // `bandRangeLabel` (lib/bands.ts) has no unit awareness of its own:
-    // converting BOTH the boundaries and the distance to the display unit
-    // keeps the printed range numerically correct.
+    // `bandRangeLabel` takes display-unit boundaries; the band INDEX was assigned in canonical space.
     const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
     return [
       { id: "product", header: "Product", kind: "enum", cellTestId: r => `cell-jadeassignment-product-${r.key}`, value: r => r.productLabel, cell: r => r.productLabel },
@@ -244,9 +244,9 @@ export function JadeAssignmentsTab({
         header: "Distance Band",
         kind: "enum",
         cellTestId: r => `cell-jadeassignment-band-${r.key}`,
-        // The FILTER value is the unit-aware range label; the CELL keeps "Band N"/"Overflow".
-        value: r => (canonicalResolved ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!) : "—"),
-        cell: r => r.band,
+        // DU-2.2 — filter value and cell both read the one range label (index assigned in canonical space).
+        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
+        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
         // Workspace fixups T7 item 5 — a bands/unit change clears ONLY this filter.
         filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
       },

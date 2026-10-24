@@ -480,6 +480,7 @@ export function OutputMapTab({
           result={result}
           showRoutes={showLanes}
           bands={mapBands}
+          labelBands={effectiveBands}
           countryBounds={countryBounds}
           showWarehouseMarkers={showWarehouses}
           showCustomerMarkers={showCustomers}
