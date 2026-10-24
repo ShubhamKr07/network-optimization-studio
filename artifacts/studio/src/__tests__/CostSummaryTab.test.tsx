@@ -1527,3 +1527,83 @@ describe("CostSummaryTab compare on DataTable — testid map (SCU-2.P3.8)", () =
     expect(container.querySelectorAll("th[aria-sort]")).toHaveLength(0);
   });
 });
+
+// QFX-5 — Chapter 5's single-scenario summary shows % of demand within each
+// distance band (+ overflow), built by the SAME helpers as Compare's band rows.
+// solve.py freezes CUMULATIVE bandCoverage for delivery; the rows are exclusive.
+describe("CostSummaryTab — Chapter 5 band rows (QFX-5)", () => {
+  const wrap = (ui: React.ReactElement) =>
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
+  const ch5 = (bandCoverage: Array<{ band: number; percent: number }>) => ({
+    ...result,
+    details: { objective: "base" },
+    metrics: { weightedAvgDistance: 422.5511, bandCoverage },
+  });
+  // cumulative 40.5 / 80.25 / 95 / 100 -> exclusive 40.5 / 39.75 / 14.75 / 5 / overflow 0
+  const r1 = ch5([{ band: 400, percent: 40.5 }, { band: 800, percent: 80.25 }, { band: 1200, percent: 95 }, { band: 1600, percent: 100 }]);
+  // -> 50 / 40 / 10 / 0 / 0
+  const r2 = ch5([{ band: 400, percent: 50 }, { band: 800, percent: 90 }, { band: 1200, percent: 100 }, { band: 1600, percent: 100 }]);
+  // -> 10 / 10 / 10 / 10 / overflow 60
+  const r3 = ch5([{ band: 400, percent: 10 }, { band: 800, percent: 20 }, { band: 1200, percent: 30 }, { band: 1600, percent: 40 }]);
+  const BANDS = [400, 800, 1200, 1600, -1];
+  const d1 = scenario({ id: 60, name: "Delivery A", modelId: "delivery-teaching-us", result: r1 });
+  const d2 = scenario({ id: 61, name: "Delivery B", modelId: "delivery-teaching-us", result: r2 });
+  const d3 = scenario({ id: 62, name: "Delivery C", modelId: "delivery-teaching-us", result: r3 });
+  const labelOf = (el: HTMLElement) => el.closest("tr")!.querySelector("td")!.textContent;
+
+  it("single view: one exclusive % row per band plus overflow, labelled like Compare", () => {
+    wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" />);
+    expect(BANDS.map(b => screen.getByTestId(`cost-summary-band-${b}`).textContent)).toEqual(["40.5%", "39.75%", "14.75%", "5%", "0%"]);
+    expect(BANDS.map(b => labelOf(screen.getByTestId(`cost-summary-band-${b}`)))).toEqual([
+      "0–400 mi", "400–800 mi", "800–1,200 mi", "1,200–1,600 mi", "> 1,600 mi",
+    ]);
+    // raw cumulative values are never shown
+    expect(screen.queryByText("80.25%")).not.toBeInTheDocument();
+  });
+
+  it("single view rows equal Compare's column for the same result", () => {
+    wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" />);
+    const single = BANDS.map(b => {
+      const el = screen.getByTestId(`cost-summary-band-${b}`);
+      return [labelOf(el), el.textContent];
+    });
+    cleanup();
+    wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" scenarios={[d1, d2]} />);
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-61").querySelector("input")!);
+    const compare = BANDS.map(b => {
+      const el = screen.getByTestId(`cost-summary-compare-band-${b}-60`);
+      return [labelOf(el), el.textContent];
+    });
+    expect(single).toEqual(compare);
+  });
+
+  it("no band rows for a Ch.5 result without bandCoverage, nor for another model's single view", () => {
+    wrap(<CostSummaryTab result={{ ...r1, metrics: { weightedAvgDistance: 422.5511 } }} scenarioId={60} modelId="delivery-teaching-us" />);
+    expect(document.querySelector('[data-testid^="cost-summary-band-"]')).toBeNull();
+    cleanup();
+    wrap(<CostSummaryTab result={{ ...result, metrics: { weightedAvgDistance: 1, bandCoverage: [{ band: 200, percent: 40 }] } }} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.queryByTestId("cost-summary-band-200")).not.toBeInTheDocument();
+  });
+
+  // Spec: "verify Compare renders Ch.5 band rows for 2+ shared-band scenarios".
+  // Pins existing behaviour (Compare's band block is gated on shared bands only,
+  // never modelId) — expected to pass before AND after this task.
+  it("Compare of three shared-band Ch.5 scenarios shows the band rows per column", () => {
+    wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" scenarios={[d1, d2, d3]} />);
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-61").querySelector("input")!);
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-62").querySelector("input")!);
+    const col = (id: number) => BANDS.map(b => screen.getByTestId(`cost-summary-compare-band-${b}-${id}`).textContent);
+    expect(col(60)).toEqual(["40.5%", "39.75%", "14.75%", "5%", "0%"]);
+    expect(col(61)).toEqual(["50%", "40%", "10%", "0%", "0%"]);
+    expect(col(62)).toEqual(["10%", "10%", "10%", "10%", "60%"]);
+    expect(screen.queryByTestId("cost-summary-compare-bands-note")).not.toBeInTheDocument();
+  });
+
+  it("Compare of Ch.5 scenarios with differing boundaries keeps today's behaviour (rows omitted, note shown)", () => {
+    const dOther = scenario({ id: 63, name: "Delivery D", modelId: "delivery-teaching-us", result: ch5([{ band: 500, percent: 70 }]) });
+    wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" scenarios={[d1, dOther]} />);
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-63").querySelector("input")!);
+    expect(screen.queryByTestId("cost-summary-compare-band-400-60")).not.toBeInTheDocument();
+    expect(screen.getByTestId("cost-summary-compare-bands-note")).toBeInTheDocument();
+  });
+});
