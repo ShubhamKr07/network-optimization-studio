@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -43,8 +44,8 @@ export function StationTable({ stations, overrides, onChange }: StationTableProp
                 <TableCell className="font-mono text-xs">{s.id}</TableCell>
                 <TableCell className="text-xs">{s.city}</TableCell>
                 <TableCell className="text-xs">{s.state}</TableCell>
-                <TableCell className="text-xs font-mono">{s.lat.toFixed(4)}</TableCell>
-                <TableCell className="text-xs font-mono">{s.lng.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(s.lat)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(s.lng)}</TableCell>
                 {stations.some(x => x.zip) && <TableCell className="text-xs font-mono">{s.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input

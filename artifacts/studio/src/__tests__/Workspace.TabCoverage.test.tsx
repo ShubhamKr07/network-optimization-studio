@@ -380,7 +380,7 @@ describe("Workspace tab coverage — transport-coal", () => {
     render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-output-flows"));
     expect(screen.getByRole("columnheader", { name: "Distance (mi)" })).toBeInTheDocument();
-    expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
+    expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300");
   });
 
   it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {

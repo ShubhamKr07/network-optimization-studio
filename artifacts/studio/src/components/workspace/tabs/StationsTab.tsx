@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { StationOverride } from "@/components/tables/StationTable";
@@ -174,7 +175,7 @@ export function StationsTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -182,7 +183,7 @@ export function StationsTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const demand = (added: boolean): ColumnDef<StationTableRow> => ({

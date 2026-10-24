@@ -18,7 +18,8 @@ import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 
 const result = superResultJson as unknown as SolveResult;
 const m = result.metrics as Record<string, number>;
-const cents = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// DU-2.1 — money renders as grouped whole dollars (Q1).
+const cents = (v: number) => `$${Math.round(v).toLocaleString("en-US")}`;
 const scenario = (id: number): Scenario =>
   ({ id, name: `S${id}`, modelId: "super-model", inputs: {}, result, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", stale: false }) as unknown as Scenario;
 const wrap = (ui: React.ReactElement) => render(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
@@ -27,14 +28,14 @@ describe("CostSummaryTab — super-model", () => {
   it("renders the seven summary lines from the real solve and no generic duplicates", () => {
     wrap(<CostSummaryTab result={result} scenarioId={1} modelId="super-model" />);
     const t = (id: string) => screen.getByTestId(id);
-    expect(t("cost-summary-value-objective")).toHaveTextContent("254,060,828");
+    expect(t("cost-summary-value-objective")).toHaveTextContent("$254,060,829");
     expect(t("cost-summary-value-total-cost")).toHaveTextContent(cents(m.totalCost));
     expect(t("cost-summary-value-total-inbound-transportation-cost")).toHaveTextContent(cents(m.inboundCost));
     expect(t("cost-summary-value-total-outbound-transportation-cost")).toHaveTextContent(cents(m.outboundCost));
     expect(t("cost-summary-value-total-plant-variable-cost")).toHaveTextContent(cents(m.plantVariableCost));
-    // display rounds only at render: 1229.199777... -> 1229.2 (1-dp formatter)
-    expect(t("cost-summary-value-weighted-avg-distance-plant-to-wh")).toHaveTextContent("1229.2");
-    expect(t("cost-summary-value-weighted-avg-distance-wh-to-customer")).toHaveTextContent("649.8");
+    // display rounds only at render: 1229.199777... -> 1,229.2 (<=2 dp, grouped)
+    expect(t("cost-summary-value-weighted-avg-distance-plant-to-wh")).toHaveTextContent("1,229.2");
+    expect(t("cost-summary-value-weighted-avg-distance-wh-to-customer")).toHaveTextContent("649.78");
     expect(screen.queryByText("Inbound cost")).not.toBeInTheDocument();
     expect(screen.queryByText("Weighted avg. distance")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-rate-ic")).not.toBeInTheDocument();
@@ -47,7 +48,7 @@ describe("CostSummaryTab — super-model", () => {
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     for (const id of [1, 2]) {
       expect(screen.getByTestId(`cost-summary-compare-total-cost-${id}`)).toHaveTextContent(cents(m.totalCost));
-      expect(screen.getByTestId(`cost-summary-compare-dist-plant-wh-${id}`)).toHaveTextContent("1229.2");
+      expect(screen.getByTestId(`cost-summary-compare-dist-plant-wh-${id}`)).toHaveTextContent("1,229.2");
     }
     expect(screen.queryByTestId("cost-summary-compare-distance-1")).not.toBeInTheDocument();
   });

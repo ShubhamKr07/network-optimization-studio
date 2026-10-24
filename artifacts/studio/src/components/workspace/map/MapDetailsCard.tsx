@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useEffect, useRef } from "react";
 import { warehouseStatusPresentation } from "./statusPresentation";
 import type { MapEntity } from "./types";
@@ -123,11 +124,11 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lat">
         <span className="text-muted-foreground">Latitude</span>
-        <span className="font-mono">{e.lat.toFixed(4)}</span>
+        <span className="font-mono">{formatCoord(e.lat)}</span>
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lng">
         <span className="text-muted-foreground">Longitude</span>
-        <span className="font-mono">{e.lng.toFixed(4)}</span>
+        <span className="font-mono">{formatCoord(e.lng)}</span>
       </div>
       {/* jade-T12 — a THREE-way check now (was a 2-way `kind === "wh" ? : `),
           since a plain `else` branch would try to read `.demand` off a

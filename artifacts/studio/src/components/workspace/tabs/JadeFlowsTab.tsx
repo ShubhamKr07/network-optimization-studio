@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
@@ -228,7 +229,7 @@ export function JadeFlowsTab({
       );
   };
   const formatRowDistance = (raw: number): string =>
-    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—";
+    canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(raw, distanceUnit))} ${resolvedUnitLabel}` : "—";
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const bandsKey = effectiveBands.join(",");

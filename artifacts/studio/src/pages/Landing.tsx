@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { Lock } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,9 +46,9 @@ function formatHistoryObjective(
 function formatHistoryDistance(h: { weightedAvgDistance: number; distanceUnit: string }, unit: UnitApi): string {
   const canonical = asCanonicalUnit(h.distanceUnit);
   if (canonical != null) {
-    return `${unit.toDisplay(h.weightedAvgDistance, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+    return `${formatDistanceDisplay(unit.toDisplay(h.weightedAvgDistance, canonical))} ${unit.effectiveUnit(canonical)}`;
   }
-  return `${h.weightedAvgDistance.toFixed(1)} ${h.distanceUnit}`;
+  return `${formatDistanceDisplay(h.weightedAvgDistance)} ${h.distanceUnit}`;
 }
 
 export function Landing() {

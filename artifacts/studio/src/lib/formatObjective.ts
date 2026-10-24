@@ -93,16 +93,27 @@ export function formatObjective(
   const suffix = suffixFor(dim, target);
 
   if (dim === "monetary") {
-    return `$${converted.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    return formatMoney(converted);
   }
   if (dim === "percent") {
     return `${converted.toFixed(2)} %`;
   }
   if (dim === "opaque") {
-    return converted.toLocaleString();
+    return converted.toLocaleString("en-US");
   }
-  return `${converted.toLocaleString()} ${suffix}`;
+  return `${converted.toLocaleString("en-US")} ${suffix}`;
+}
+
+const usd0 = (n: number) => Math.round(Math.abs(n)).toLocaleString("en-US");
+/** DU-2.1 — full `$169,061,531` for tables; compact `$169.06M` for chips and the narrative. */
+export function formatMoney(value: number, opts?: { compact?: boolean }): string {
+  if (!Number.isFinite(value)) return "—";
+  const sign = value < 0 ? "-" : "";
+  const a = Math.abs(value);
+  if (!opts?.compact) return `${sign}$${usd0(a)}`;
+  // Tier on the ROUNDED value so $999,600 reads $1.00M, never $1,000K (NAR-1.R).
+  if (a >= 999_995_000) return `${sign}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 999_500) return `${sign}$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${sign}$${usd0(a / 1e3)}K`;
+  return `${sign}$${a.toFixed(2)}`;
 }

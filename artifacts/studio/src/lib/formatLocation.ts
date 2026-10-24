@@ -44,3 +44,8 @@ export function entityFilterText(
   const loc = locationById?.[id];
   return loc ? `${formatCityState(loc.city, loc.state)} ${fallbackDisplayLabel}` : fallbackDisplayLabel;
 }
+
+/** DU-2.1 — latitude/longitude display, 4 dp. */
+export function formatCoord(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(4) : "—";
+}

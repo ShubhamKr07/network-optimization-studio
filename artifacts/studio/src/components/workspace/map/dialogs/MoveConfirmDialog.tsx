@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -100,11 +101,11 @@ export function MoveConfirmDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p className="font-mono" data-testid="move-confirm-lat">{newLat}</p>
+              <p className="font-mono" data-testid="move-confirm-lat">{formatCoord(newLat)}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p className="font-mono" data-testid="move-confirm-lng">{newLng}</p>
+              <p className="font-mono" data-testid="move-confirm-lng">{formatCoord(newLng)}</p>
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { WarehouseCandidate, Scenario } from "@workspace/api-client-react";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
@@ -236,7 +237,7 @@ export function WarehousesTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -244,7 +245,7 @@ export function WarehousesTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const hasZip = candidates.some(w => w.zip);

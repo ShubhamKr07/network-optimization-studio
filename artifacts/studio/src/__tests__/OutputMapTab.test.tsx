@@ -488,7 +488,7 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
     );
     const overlay = screen.getByTestId("output-map-metric-overlay");
     expect(overlay).toHaveTextContent("1,234,567");
-    expect(overlay).toHaveTextContent("412.3 mi");
+    expect(overlay).toHaveTextContent("412.35 mi");
   });
 
   it("uses the resolved model's distanceUnit ('km'), not a hardcoded 'mi'", () => {
@@ -501,11 +501,11 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
         modelId="two-echelon-fake-km"
       />,
     );
-    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 km");
+    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500 km");
   });
 
   // chen-bands-units, Part D "No fallback unit — reads". This test previously
-  // asserted a "500.0 mi" default when modelId was absent. That expectation
+  // asserted a "500 mi" default when modelId was absent. That expectation
   // encoded the very fallback this bundle deletes: Chen is a km model, so
   // guessing "mi" renders a CORRECT number under a WRONG unit, which a student
   // reads as fact. With no modelId the canonical unit is unresolved, so the
@@ -619,7 +619,7 @@ describe("OutputMapTab — no-incumbent overlay (ch5-edit-12)", () => {
     expect(overlay).toHaveTextContent("Objective:");
     expect(overlay).toHaveTextContent("1");
     expect(overlay).toHaveTextContent("Weighted avg distance:");
-    expect(overlay).toHaveTextContent("500.0 mi");
+    expect(overlay).toHaveTextContent("500 mi");
   });
 
   it("a real feasible (gap-limited, non-optimal) solutionStatus also renders the normal overlay, not the no-incumbent text", () => {
@@ -667,12 +667,12 @@ describe("OutputMapTab — three weighted-average distance lines (jade-B1 #3)", 
     const overlay = screen.getByTestId("output-map-metric-overlay");
     // Per-leg lines, labelled via legLabel() (never a hardcoded JADE-only string).
     expect(overlay).toHaveTextContent("Plant → Warehouse avg distance:");
-    expect(overlay).toHaveTextContent("1500.0 mi");
+    expect(overlay).toHaveTextContent("1,500 mi");
     expect(overlay).toHaveTextContent("Warehouse → Customer avg distance:");
-    expect(overlay).toHaveTextContent("900.0 mi");
+    expect(overlay).toHaveTextContent("900 mi");
     // Overall line.
     expect(overlay).toHaveTextContent("Overall avg distance:");
-    expect(overlay).toHaveTextContent("1200.0 mi");
+    expect(overlay).toHaveTextContent("1,200 mi");
     // The old single "Weighted avg distance:" line is replaced, not duplicated.
     expect(overlay.textContent).not.toContain("Weighted avg distance:");
   });

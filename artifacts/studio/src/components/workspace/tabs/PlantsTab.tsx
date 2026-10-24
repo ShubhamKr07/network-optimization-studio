@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { Plant, Scenario } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -133,7 +134,7 @@ export function PlantsTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -141,7 +142,7 @@ export function PlantsTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const addedColumns: ColumnDef<PlantRow>[] = [

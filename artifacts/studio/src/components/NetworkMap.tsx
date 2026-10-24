@@ -13,6 +13,7 @@ import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 
@@ -262,7 +263,7 @@ interface PopupInfo {
 // before calling this.
 export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalUnit | null = null): string {
   const color = getBandColor(info.band);
-  const distanceLine = distanceUnit == null ? "—" : `${info.distanceMi.toLocaleString()} ${distanceUnit}`;
+  const distanceLine = distanceUnit == null ? "—" : `${formatDistanceDisplay(info.distanceMi)} ${distanceUnit}`;
   return `
       <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
         <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
@@ -436,7 +437,7 @@ export function NetworkMap({
   const canonicalResolved = distanceUnit != null;
   const effectiveDistanceUnitLabel = canonicalResolved ? displayUnit.effectiveUnit(distanceUnit) : null;
   const formatEdgeDistance = (raw: number): string =>
-    canonicalResolved ? `${displayUnit.toDisplay(raw, distanceUnit).toLocaleString()} ${effectiveDistanceUnitLabel}` : "—";
+    canonicalResolved ? `${formatDistanceDisplay(displayUnit.toDisplay(raw, distanceUnit))} ${effectiveDistanceUnitLabel}` : "—";
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
   // construction — they are NOT reactive props. GET /api/models (the source

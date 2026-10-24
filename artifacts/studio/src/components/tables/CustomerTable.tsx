@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useRef, useState } from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -156,8 +157,8 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                 <TableCell className="font-mono text-xs">{c.id}</TableCell>
                 <TableCell className="text-xs">{c.city}</TableCell>
                 {hasStateColumn && <TableCell className="text-xs">{c.state}</TableCell>}
-                <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
-                <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(c.lat)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(c.lng)}</TableCell>
                 {customers.some(x => x.zip) && <TableCell className="text-xs font-mono">{c.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input

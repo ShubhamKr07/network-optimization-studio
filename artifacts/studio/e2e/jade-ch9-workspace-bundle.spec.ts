@@ -297,9 +297,9 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(pwAvg).toBeVisible();
       await expect(wcAvg).toBeVisible();
       await expect(overallAvg).toBeVisible();
-      await expect(pwAvg).toContainText(/Plant → Warehouse avg distance: [\d.]+ mi/);
-      await expect(wcAvg).toContainText(/Warehouse → Customer avg distance: [\d.]+ mi/);
-      await expect(overallAvg).toContainText(/Overall avg distance: [\d.]+ mi/);
+      await expect(pwAvg).toContainText(/Plant → Warehouse avg distance: [\d,.]+ mi/);
+      await expect(wcAvg).toContainText(/Warehouse → Customer avg distance: [\d,.]+ mi/);
+      await expect(overallAvg).toContainText(/Overall avg distance: [\d,.]+ mi/);
 
       // ── Item #1 — overflow color/label, live recolor, zero solve calls ──
       const solveCallsBeforeBandEdit = solveCalls.count();

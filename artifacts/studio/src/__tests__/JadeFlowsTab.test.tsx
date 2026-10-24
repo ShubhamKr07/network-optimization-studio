@@ -147,10 +147,10 @@ describe("JadeFlowsTab", () => {
       expect(row).toHaveTextContent("unknown-wh");
     });
 
-    it("formats Distance with .toFixed(1) and the distanceUnit suffix", () => {
+    it("formats Distance with formatDistanceDisplay (<=2 dp) and the distanceUnit suffix", () => {
       render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
-      expect(row).toHaveTextContent("293.7 mi");
+      expect(row).toHaveTextContent("293.66 mi");
     });
 
     // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
@@ -159,7 +159,7 @@ describe("JadeFlowsTab", () => {
     it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
       render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
-      expect(row).not.toHaveTextContent("293.7 mi");
+      expect(row).not.toHaveTextContent("293.66 mi");
       expect(row).not.toHaveTextContent("293.7");
       expect(row).toHaveTextContent("—");
     });

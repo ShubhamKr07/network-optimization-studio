@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from "react";
+import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Plant, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import type { CanonicalUnit } from "@workspace/units";
@@ -202,7 +204,7 @@ export function OutputMapTab({
   const showDistance = (canonicalValue: number): string =>
     distanceUnit == null
       ? "—"
-      : `${unit.toDisplay(canonicalValue, distanceUnit).toFixed(1)} ${unit.effectiveUnit(distanceUnit)}`;
+      : `${formatDistanceDisplay(unit.toDisplay(canonicalValue, distanceUnit))} ${unit.effectiveUnit(distanceUnit)}`;
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
@@ -413,7 +415,9 @@ export function OutputMapTab({
               <>
                 <div>
                   <span className="text-muted-foreground">Objective: </span>
-                  <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
+                  <span className="font-medium font-mono">{modelId != null && distanceUnit != null
+                      ? formatObjective(modelId, objectiveModeOfDetails(result.details), result.objective, distanceUnit, unit)
+                      : formatChenObjective(result.objective, objectiveModeOfDetails(result.details)) ?? result.objective.toLocaleString("en-US")}</span>
                 </div>
                 {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
                     two-echelon result (>=2 avgDistanceByLeg entries) shows one

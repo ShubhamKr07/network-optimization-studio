@@ -19,7 +19,7 @@
  *      the map's right-click action menu shows an Edit action only, proven
  *      by InputMapTab.deliveryFixedGeography.test.tsx at the unit layer).
  *   4. Solve (real CBC) → Scenario 1's golden: open {W1, W2, W60}, weighted
- *      avg distance 422.6 mi (the on-screen 1dp form), Service Stats 22.07%
+ *      avg distance 422.55 mi (the on-screen <=2dp form), Service Stats 22.07%
  *      in the 400–800 mi band (exclusive, SCU-1.2).
  *   5. Click Adjust Cost Table → the three rate fields default to 800/1/10 →
  *      re-solve → open set flips to {W6, W43, W45}, the 400–800 mi band rises to
@@ -209,7 +209,7 @@ test.describe("Chapter 5 (modified) — Delivery Company Teaching Example", () =
     expect(scenario1.objective).toBeCloseTo(88_240_913_478.1, 0);
 
     await page.getByTestId("sidebar-output-cost-summary").click();
-    await expect(page.getByTestId("cost-summary-value-weighted-avg-distance")).toContainText("422.6 mi", { timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cost-summary-value-weighted-avg-distance")).toContainText("422.55 mi", { timeout: HEADER_TIMEOUT });
 
     await page.getByTestId("sidebar-output-service-stats").click();
     await expect(page.getByTestId("service-stats-band-800")).toContainText("22.07%", { timeout: HEADER_TIMEOUT });

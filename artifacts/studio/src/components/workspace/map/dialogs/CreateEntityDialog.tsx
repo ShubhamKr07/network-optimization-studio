@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useMemo, useState } from "react";
 import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
 import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
@@ -205,11 +206,11 @@ function MapCreateEntityDialog({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p className="font-mono" data-testid="create-entity-lat">{lat}</p>
+              <p className="font-mono" data-testid="create-entity-lat">{formatCoord(lat)}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p className="font-mono" data-testid="create-entity-lng">{lng}</p>
+              <p className="font-mono" data-testid="create-entity-lng">{formatCoord(lng)}</p>
             </div>
           </div>
 

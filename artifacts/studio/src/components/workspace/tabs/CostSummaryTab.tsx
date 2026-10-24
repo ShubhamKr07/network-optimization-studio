@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
-import { formatChenObjective, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
+import { formatChenObjective, formatMoney, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
@@ -31,12 +31,12 @@ import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 // guessed label.
 function formatDistance(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (raw == null || canonical == null) return "—";
-  return `${unit.toDisplay(raw, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+  return `${formatDistanceDisplay(unit.toDisplay(raw, canonical))} ${unit.effectiveUnit(canonical)}`;
 }
 
 function formatDistanceValueOnly(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (raw == null || canonical == null) return "—";
-  return unit.toDisplay(raw, canonical).toFixed(1);
+  return formatDistanceDisplay(unit.toDisplay(raw, canonical));
 }
 
 function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefined, unit: UnitApi): string {
@@ -59,8 +59,8 @@ function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi):
 // cannot render a fallback when EVERY selected envelope is a legacy one.
 const JADE_MODEL_ID = "two-echelon-jade-us";
 const SUPER_MODEL_ID = "super-model";
-// SM-8 / C1 — super costs are cents-precise in storage; display shows them to the cent.
-const money = (v: number): string => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// SM-8 / C1 — super costs are cents-precise in storage; DU-2.1 (Q1) displays whole dollars.
+const money = (v: number): string => formatMoney(v);
 // The seven summary lines; [key, label, value]. Distances are the unrounded
 // metrics (C1), converted/rounded only by formatDistance at render.
 const SUPER_METRIC_ROWS: Array<[string, string, "money" | "dist"]> = [
@@ -561,10 +561,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       }
     }
     if (!isSuper && result.metrics.inboundCost != null) {
-      rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
+      rows.push(["Inbound cost", formatMoney(result.metrics.inboundCost), true]);
     }
     if (!isSuper && result.metrics.outboundCost != null) {
-      rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
+      rows.push(["Outbound cost", formatMoney(result.metrics.outboundCost), true]);
     }
     if (!isSuper) rows.push(
       [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
@@ -754,13 +754,13 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.inboundCost != null)) {
     pushRow(
       { key: "inbound", label: "Inbound cost", csvLabel: "Inbound cost", mono: true, testId: id => `cost-summary-compare-inbound-${id}` },
-      s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: s.result!.metrics.inboundCost.toLocaleString() } : EMPTY,
+      s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: formatMoney(s.result!.metrics.inboundCost) } : EMPTY,
     );
   }
   if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.outboundCost != null)) {
     pushRow(
       { key: "outbound", label: "Outbound cost", csvLabel: "Outbound cost", mono: true, testId: id => `cost-summary-compare-outbound-${id}` },
-      s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: s.result!.metrics.outboundCost.toLocaleString() } : EMPTY,
+      s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: formatMoney(s.result!.metrics.outboundCost) } : EMPTY,
     );
   }
 

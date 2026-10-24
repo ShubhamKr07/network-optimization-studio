@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
@@ -236,7 +237,7 @@ export function JadeAssignmentsTab({
         // Filter range is in the DISPLAY unit — the number the student reads in the cell.
         value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
         filterResetKey: unit.pref,
-        cell: r => (canonicalResolved ? `${unit.toDisplay(r.distance, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—"),
+        cell: r => (canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(r.distance, distanceUnit))} ${resolvedUnitLabel}` : "—"),
       },
       {
         id: "band",

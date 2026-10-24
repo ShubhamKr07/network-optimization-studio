@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Edge, SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
@@ -128,7 +129,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
         cellClassName: "font-mono",
         value: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit) : null),
         filterResetKey: unit.pref,
-        cell: e => (canonicalResolved ? unit.toDisplay(e.distance, distanceUnit).toFixed(1) : "—"),
+        cell: e => (canonicalResolved ? formatDistanceDisplay(unit.toDisplay(e.distance, distanceUnit)) : "—"),
       },
       { id: "flow", header: "Flow", kind: "number", cellClassName: "font-mono", value: e => e.flow, cell: e => e.flow.toLocaleString() },
     );

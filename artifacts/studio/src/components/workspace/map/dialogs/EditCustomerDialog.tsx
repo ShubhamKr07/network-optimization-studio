@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,11 +101,11 @@ export function EditCustomerDialog({
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p className="font-mono" data-testid="edit-customer-lat">{entity.lat}</p>
+              <p className="font-mono" data-testid="edit-customer-lat">{formatCoord(entity.lat)}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p className="font-mono" data-testid="edit-customer-lng">{entity.lng}</p>
+              <p className="font-mono" data-testid="edit-customer-lng">{formatCoord(entity.lng)}</p>
             </div>
           </div>
 
