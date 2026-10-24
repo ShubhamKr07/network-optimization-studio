@@ -31,3 +31,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-23T00:40:38.755Z,SM,869,0,0,0,,101,0,
 2026-10-23T14:17:48.480Z,SM2,869,0,0,0,,101,0,
 2026-10-24T08:22:55.982Z,QFX,869,869,0,0,,101,0,"allow_new inflated: run from worktree nos-qfx whose .harness baseline is empty (known worktree blind spot); risky 0, broad 101 unchanged vs SM2"
+2026-10-24T11:30:04.777Z,DU-1,869,0,0,12,Bash,101,0,
