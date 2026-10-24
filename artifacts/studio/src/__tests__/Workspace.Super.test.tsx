@@ -257,14 +257,60 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(statuses.every(s => s.status !== "active")).toBe(true);
   });
 
-  it("SM-9: header has import/export; Optimization Parameters shows the readiness panel", () => {
+  it("QFX-1: Import network + Export ▾ sit right of Save on every super input tab, never in the header", () => {
     renderWorkspace();
-    expect(screen.getByTestId("super-header-import")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export-csv")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export-xlsx")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
+    for (const id of ["super-header-import", "super-header-export", "super-header-export-csv", "super-header-export-xlsx"]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+    for (const tab of ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
+      fireEvent.click(screen.getByTestId(`sidebar-input-${tab}`));
+      const row = screen.getByTestId("workspace-toolbar-row");
+      const trio = [...row.querySelectorAll("[data-testid]")]
+        .map(e => e.getAttribute("data-testid"))
+        .filter(id => id === "button-save" || id === "super-toolbar-import" || id === "super-toolbar-export");
+      expect(trio, tab).toEqual(["button-save", "super-toolbar-import", "super-toolbar-export"]);
+    }
+    expect(screen.getByTestId("super-toolbar-export")).toHaveTextContent("Export");
+    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();   // last tab is Optimization Parameters (SM-9, unchanged)
+  });
+
+  it("QFX-1: each Export ▾ item calls the unchanged handler (same network fetch, same file per format)", async () => {
+    const { exportScenarioNetwork } = await import("@workspace/api-client-react");
+    vi.mocked(exportScenarioNetwork).mockResolvedValue(sample as never);
+    // jsdom has no URL.createObjectURL: assign stubs (restored in finally), spyOn cannot wrap a missing method.
+    const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = () => "blob:x";
+    URL.revokeObjectURL = () => {};
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); });
+    renderWorkspace();
+    for (const f of ["json", "csv", "xlsx"]) {
+      fireEvent.click(screen.getByTestId("super-toolbar-export"));
+      fireEvent.click(screen.getByTestId(`super-toolbar-export-${f}`));
+    }
+    await waitFor(() => expect([...names].sort()).toEqual(["super-model-network-1.json", "super-model-network-1.xlsx", "super-model-network-1.zip"]));
+    expect(vi.mocked(exportScenarioNetwork).mock.calls).toEqual([[1, { format: "json" }], [1, { format: "json" }], [1, { format: "json" }]]);
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+    vi.restoreAllMocks();
+  });
+
+  it("QFX-1: while browsing history Import network is hidden and Export ▾ stays usable", () => {
+    const base = JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8"));
+    const solved = { ...scenario, result: { ...base } };
+    mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solved] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { rerender } = renderWorkspace();
+    const next = { ...solved, result: { ...base } };   // new result reference: history appends (as in SM2-10 above)
+    mockUseGetScenario.mockReturnValue({ data: next } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [next] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    rerender(<Workspace modelId="super-model" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    expect(screen.getByTestId("super-toolbar-import")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.queryByTestId("super-toolbar-import")).toBeNull();
+    // User decision C2 (2026-10-24): Export stays while browsing history; it exports the latest SAVED network.
+    expect(screen.getByTestId("super-toolbar-export")).toBeEnabled();
   });
 
   it("SM-9: an empty scenario shows the empty state on every input tab", () => {
@@ -307,7 +353,7 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     } as never);
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-products"));
-    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-toolbar-import"));
     fireEvent.click(screen.getByTestId("super-import-mode-merge"));
     fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
     await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
@@ -340,7 +386,7 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     }
     // local draft is now empty (empty-state panel is shown) but the SAVED scenario still has rows
     expect(screen.getByTestId("super-empty-state")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-toolbar-import"));
     fireEvent.click(screen.getByTestId("super-import-mode-replace"));
     fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
     await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());

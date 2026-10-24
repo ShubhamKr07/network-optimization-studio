@@ -4641,3 +4641,17 @@ XLSX never reaches the API, so the OpenAPI export enum stays `csv | json`.
 They never call `POST …/network/import`. Save persists through the normal whole-input PATCH; cross-table errors surface there via `describeWriteError`.
 
 **Tests.** Round-trip of every table × CSV/JSON/XLSX through the real writer (sample fixture); key-mismatch/duplicate/legacy-name/extension cases; dialog counts and results for plantProducts, demand and distanceOverrides, plus Cancel and the error path; and a Workspace test that the upload changes only the draft until Save. Measured: superFiles + SuperTableTab + Workspace.Super + SuperNetworkImportDialog + mutationErrorSurface + rawErrorMessageSurface all green (SuperTableTab+Workspace.Super: 37 passed; typecheck clean). Rollback point: this commit.
+
+### QFX-1 - super Import network + Export ▾ beside Save
+
+`pages/Workspace.tsx` changes:
+- **Removed** the super page-header "Import network" and the three "Export JSON/CSV/XLSX" buttons (`super-header-*`).
+- **Added** `Save · Import network · Export ▾` to the shared toolbar Save row, which every super input tab uses (`showToolbarSave`; no `saveInLayersRow*` gate names super). New testids:
+  - `super-toolbar-import`
+  - `super-toolbar-export`
+  - `super-toolbar-export-csv|json|xlsx`
+- **Export ▾** is the QFX-2a `DownloadMenu`. Each item calls the unchanged `handleSuperExport(format)`, so the files are byte-identical. CSV is still a `.zip`.
+- **History (user decision C2).** While browsing history, Import network is hidden and Export ▾ stays. Export writes the latest **saved** network (`exportScenarioNetwork`), not the historical entry on screen.
+- **Unchanged:** chapter models and the empty-state import prompt (`super-open-import`).
+
+**Tests.** `Workspace.Super.test.tsx`: the trio order on all ten super input tabs, header absence, the three formats through the same fetch, and the history rule. The SM-9/SM2-1 import tests were repointed to `super-toolbar-import`. E2E `super-model.spec.ts` header-export assertion rewritten (not run). Measured: Workspace.Super 21, SuperNetworkImportDialog 17, mutationErrorSurface 6 passed; typecheck clean. Rollback point: this commit.

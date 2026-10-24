@@ -30,6 +30,7 @@ import {
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -4519,16 +4520,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             {/* CH4UX-6 — also disabled while a solve is in flight: the
                 overlay is modal, but this header button is the one control
                 a keyboard user could still reach mid-run. */}
-            {modelId === "super-model" && currentScenario && (
-              <>
-                <Button size="sm" variant="outline" disabled={isBrowsingHistoryNow} onClick={() => setSuperImportOpen(true)} data-testid="super-header-import">
-                  Import network
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("json")} data-testid="super-header-export">Export JSON</Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("csv")} data-testid="super-header-export-csv">Export CSV</Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("xlsx")} data-testid="super-header-export-xlsx">Export XLSX</Button>
-              </>
-            )}
             <Button
               size="sm"
               disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
@@ -4600,6 +4591,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   <Save className="w-3.5 h-3.5 mr-1" />
                   {saveIsPending ? "Saving…" : saveLabel}
                 </Button>
+                {/* QFX-1 — super's whole-network Import / Export sit right of Save. Import is hidden while browsing
+                    history (it writes); Export stays (user decision C2) and exports the latest SAVED network. */}
+                {modelId === "super-model" && currentScenario && (
+                  <>
+                    {!isBrowsingHistoryNow && (
+                      <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
+                        Import network
+                      </Button>
+                    )}
+                    <DownloadMenu
+                      label="Export"
+                      testId="super-toolbar-export"
+                      itemTestIds={{ csv: "super-toolbar-export-csv", json: "super-toolbar-export-json", xlsx: "super-toolbar-export-xlsx" }}
+                      onDownload={format => void handleSuperExport(format)}
+                    />
+                  </>
+                )}
               </div>
             </div>
           )}

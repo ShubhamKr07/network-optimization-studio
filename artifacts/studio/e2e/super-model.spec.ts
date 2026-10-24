@@ -146,8 +146,10 @@ test.describe("Super Model", () => {
       await expect(page.getByTestId("super-download-sample-xlsx")).toBeVisible();
 
       await importSampleViaUi(page);
-      // SM2-1: the header export is now labelled "Export JSON" (testid unchanged).
-      await expect(page.getByTestId("super-header-export")).toHaveText("Export JSON");
+      // QFX-1: Import network + Export ▾ moved from the header to the toolbar Save row.
+      await expect(page.getByTestId("super-header-export")).toHaveCount(0);
+      await expect(page.getByTestId("super-toolbar-import")).toHaveText("Import network");
+      await expect(page.getByTestId("super-toolbar-export")).toHaveText("Export");
 
       await page.getByTestId("sidebar-input-customers").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-tab-customers")).toBeVisible({ timeout: HEADER_TIMEOUT });
