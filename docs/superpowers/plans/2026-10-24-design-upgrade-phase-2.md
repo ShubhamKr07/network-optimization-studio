@@ -77,7 +77,7 @@ Each one is applied in the task bodies below. Changing one changes only the name
 | Q6 | The Distances "Leg" column becomes `DataTable` `sections`, one group header per leg. The red "Unrecognized pair" stays red (it's an error) | 2.6 |
 | Q7 | P presets = current P−2 … P+2, clamped to 1 … `pMax` (the existing upper bound). `pMax` itself is unchanged | 2.8 |
 | Q8 | The 4 orphan modules are left untouched (deletion would be a separate task) | all |
-| Q9 | `transport-coal.demandUnit = "tons"`, since its stations already say "tons". JADE = "tons" (C1). Other 6 = "units" | 2.3 |
+| Q9 | Per master §A / spec §5.2.3: only `two-echelon-jade-us` = `"tons"` (C1); the other 7, including `transport-coal`, = `"units"` until confirmed. Open: confirm coal as tons (its stations already say "tons"). Changing it means a one-line `chapters.ts` edit plus a spec/master note | 2.3 |
 
 All paths below are relative to `artifacts/studio/src/` unless they start with `artifacts/`, `docs/` or `lib/`.
 
@@ -99,7 +99,7 @@ git worktree add --lock /Users/shubhamkr/nos-du-2.1 -b du-2.1-work design-upgrad
 **Files:**
 - Create: `lib/units/src/format.ts`, `lib/units/src/__tests__/format.test.ts`
 - Modify: `lib/units/src/index.ts`, `lib/formatDistanceDisplay.ts`, `lib/formatObjective.ts`, `lib/formatLocation.ts`
-- Modify (call sites): `components/NetworkMap.tsx:265,438-439`, `components/workspace/tabs/OutputMapTab.tsx:202-205,416`, `components/workspace/tabs/AssignmentsTab.tsx:190`, `components/workspace/tabs/FlowsTab.tsx:131`, `components/workspace/tabs/JadeAssignmentsTab.tsx:239`, `components/workspace/tabs/JadeFlowsTab.tsx:230-231`, `components/workspace/tabs/CostSummaryTab.tsx:32-40,63,564,567,757,763`, `lib/resultNarrative.ts:45,57-59,114,206`, `pages/Landing.tsx:45-51`, `components/workspace/map/dialogs/{EditWarehouseDialog,EditCustomerDialog,MoveConfirmDialog,CreateEntityDialog}.tsx` (lat/lng display lines)
+- Modify (call sites): every file in the Step 4 table, including the 10 lat/lng renderers. Main ones: `components/NetworkMap.tsx:265,438-439`, `components/workspace/tabs/OutputMapTab.tsx:202-205,416`, `components/workspace/tabs/AssignmentsTab.tsx:190`, `components/workspace/tabs/FlowsTab.tsx:131`, `components/workspace/tabs/JadeAssignmentsTab.tsx:239`, `components/workspace/tabs/JadeFlowsTab.tsx:230-231`, `components/workspace/tabs/CostSummaryTab.tsx:32-40,63,564,567,757,763`, `lib/resultNarrative.ts:45,57-59,114,206`, `pages/Landing.tsx:45-51`, `components/workspace/map/dialogs/{EditWarehouseDialog,EditCustomerDialog,MoveConfirmDialog,CreateEntityDialog}.tsx` (lat/lng display lines)
 - Test: `__tests__/formatObjective.test.ts`, `__tests__/formatDistanceDisplay.test.ts`, `__tests__/resultNarrative.test.ts`, plus the literal-asserting files below
 - e2e (sibling sweep): `artifacts/studio/e2e/two-echelon.spec.ts:130`, `jade-two-echelon.spec.ts:130`, and any further rg hits
 
@@ -192,7 +192,7 @@ In `lib/formatDistanceDisplay.ts`, keep `stripGrouping` and replace the body of 
 export { formatDistanceNumber as formatDistanceDisplay } from "@workspace/units";
 ```
 
-In `lib/formatObjective.ts`, add the following. The `formatObjective` monetary branch then returns `formatMoney(converted)` instead of its 2-dp `$` template.
+In `lib/formatObjective.ts`, add the following. The `formatObjective` monetary branch then returns `formatMoney(converted)` instead of its 2-dp `$` template. **Every remaining `toLocaleString` in `formatObjective` (the percent, opaque and suffixed branches, `formatObjective.ts:95-107`) also pins `"en-US"`** (PR2-10). Add locale-regression cases (German default, as below) for a demand-distance objective and an opaque one.
 ```ts
 const usd0 = (n: number) => Math.round(Math.abs(n)).toLocaleString("en-US");
 /** DU-2.1 — full `$169,061,531` for tables; compact `$169.06M` for chips and the narrative. */
@@ -237,7 +237,7 @@ Verify each site with `rg -n` first; line numbers are from 080fe5cd. Let `fdd = 
 | `resultNarrative.ts:114` | `$…en-US 2dp` (super cost) | `formatMoney(total)` |
 | `Landing.tsx:45-51` | `.toFixed(1)` both branches | `fdd(…)` + unit |
 | Edit/Move/Create dialog lat/lng display `<p>` | raw `{entity.lat}` | `{formatCoord(entity.lat)}` (display text only, never the editable inputs) |
-| Tables and `MapDetailsCard` lat/lng | `.toFixed(4)` | `formatCoord(…)` (same text, one authority) |
+| Live lat/lng renderers (exhaustive at 080fe5cd, re-run `rg -n "\.(lat|lng)\.toFixed\(" src` at task time): `StationsTab.tsx:177,185`, `CustomersTab.tsx:293,301`, `MinesTab.tsx:176,184`, `PlantsTab.tsx:136,144`, `WarehousesTab.tsx:239,247`, `MapDetailsCard.tsx:126,130`, `tables/StationTable.tsx:46-47`, `tables/MineTable.tsx:46-47`, `tables/CustomerTable.tsx:159-160`, `tables/WarehouseTable.tsx:124-125` | `.toFixed(4)` | `formatCoord(…)` (same text, one authority). Each file is added to the task file list |
 
 Not switched, on purpose (record each in the changelog entry):
 - `BandChipEditor.tsx:127,274`: editable chips; the `formatDistanceDisplay` doc keeps inputs out of scope.
@@ -278,7 +278,7 @@ Run `ponytail:ponytail-review` on the diff. The lead re-runs `rg -n "toFixed\(1\
 **Files:**
 - Modify: `lib/units/src/bands.ts`, `lib/units/src/__tests__/bands.test.ts`
 - Create: `components/BandLabel.tsx`, `__tests__/BandLabel.test.tsx`, `__tests__/bandLabelSource.test.ts`
-- Modify: `lib/bands.ts` (delete studio `bandRangeLabel` :123-133 and `exclusiveBandLabels` :164-171), `components/workspace/tabs/JadeAssignmentsTab.tsx:196,208,242-251`, `components/workspace/tabs/JadeFlowsTab.tsx:256,271,313-324`, `lib/jadeFlowsExport.ts`, `components/workspace/map/MapLegend.tsx:136-143,178-182,295-345`, `components/workspace/tabs/ServiceStatsTab.tsx:347-356`, `components/workspace/tabs/CostSummaryTab.tsx:484-487`, `components/NetworkMap.tsx:246-250,279-283,594-595,817`, `pages/Workspace.tsx:4415` (comment)
+- Modify: `lib/bands.ts` (delete studio `bandRangeLabel` :123-133 and `exclusiveBandLabels` :164-171), `components/workspace/tabs/JadeAssignmentsTab.tsx:196,208,242-251`, `components/workspace/tabs/JadeFlowsTab.tsx:313-324` (display cell only), `components/workspace/map/MapLegend.tsx:136-143,178-182,295-345`, `components/workspace/tabs/ServiceStatsTab.tsx:347-356`, `components/workspace/tabs/CostSummaryTab.tsx:484-487`, `components/NetworkMap.tsx:246-250,279-283,594-595,817`, `pages/Workspace.tsx:4415` (comment)
 - Test (rewrite): `__tests__/bands.test.ts:235-332`, `__tests__/exclusiveBands.test.ts` (delete; its cases move to `lib/units` tests), `__tests__/JadeFlowsTab.test.tsx:171-223,367-442`, `__tests__/JadeAssignmentsTab.test.tsx:157-166,283-291`, `__tests__/MapLegend.test.tsx:171,255-280`, `__tests__/NetworkMap.test.tsx:1269,1428-1436,1573-1645`, `__tests__/ServiceStatsTab.test.tsx` (band literals), `__tests__/CostSummaryTab.test.tsx:917,1280-1282,1568`
 - Unchanged on purpose: `__tests__/bandsSingleSource.test.ts`, `__tests__/jadeFlowsExport.test.ts` (export values stay `Band N` / `Overflow` until DU-4.2), all api-server tests
 - e2e (rewrite): `workspace-fixups-2.spec.ts:583-599`, `workspace-fixups.spec.ts:160-168,344,423`, `jade-ch9-workspace-bundle.spec.ts:336,378,389`
@@ -352,21 +352,24 @@ export function bandRangeLabel(index: number, bands: number[], unit: CanonicalUn
 
 `__tests__/bandLabelSource.test.ts`, in the pattern of `rawPaletteClasses.test.ts` (tree walk of `src/`, skip `__tests__` and `*.test.*`, skip comment lines):
 ```ts
-const BAND_CONSTRUCT = /`Band \$\{|["']Band ["']\s*\+/;
-const LEGACY_LABEL_CALL = /\b(bandLabel|bandLabelOrOverflow)\s*\(/;
-// Allow-list: each entry names its reason; removed in DU-4.2 when exports switch to bandRangeLabel.
-const ALLOWED_LEGACY_LABEL_CALLS = ["lib/jadeFlowsExport.ts"]; // mirrors the server JADE flows export column
-it("non-vacuity", () => {
+const BAND_CONSTRUCT = /`Band \$\{|["']Band ["']\s*\+|["']Band \d/;
+// Master §A: EMPTY allow-list. Roots: studio src/ AND artifacts/studio/e2e/ (the e2e local mirror at
+// workspace-fixups.spec.ts:152-168 is exactly the kind of copy this guard exists to catch).
+const ALLOWED: string[] = [];
+const ROOTS = [SRC_DIR, E2E_DIR]; // skip src/__tests__ and *.test.* under SRC_DIR only; e2e specs ARE scanned
+it("non-vacuity: the pattern matches each construction form, and both roots have files", () => {
   expect(BAND_CONSTRUCT.test("`Band ${i + 1}`")).toBe(true);
   expect(BAND_CONSTRUCT.test('"Band " + n')).toBe(true);
-  expect(LEGACY_LABEL_CALL.test("bandLabel(d, bands)")).toBe(true);
-  expect(walk().length).toBeGreaterThan(100);
+  expect(BAND_CONSTRUCT.test('"Band 2"')).toBe(true);
+  expect(walk(SRC_DIR).length).toBeGreaterThan(100);
+  expect(walk(E2E_DIR).filter(f => f.endsWith(".spec.ts")).length).toBeGreaterThan(20);
 });
-it("no Band N label construction anywhere in studio src", () => { /* hits === [] */ });
-it("legacy Band-N label calls only in the allow-list", () => { /* hits outside ALLOWED === [] */ });
-it("every allow-list entry still contains a legacy call (stale-entry check)", () => { /* ... */ });
+it("no Band N label construction in studio src or e2e", () => {
+  const hits = ROOTS.flatMap(scan).filter(h => !ALLOWED.includes(h.file));
+  expect(hits).toEqual([]);
+});
 ```
-`lib/bands.ts:51`'s re-export line `export { bandLabelOrOverflow as bandLabel }` doesn't match `LEGACY_LABEL_CALL` (no call parenthesis), so the re-export stays. `bandsSingleSource.test.ts` keeps pinning it.
+Test bodies follow `rawPaletteClasses.test.ts` (same walk, comment-line skip and hit shape). The guard catches label **construction**. Calls to the units `bandLabelOrOverflow` (re-exported as `bandLabel`, `lib/bands.ts:51`) aren't construction. They remain only where they feed the JADE flows client export's `band` string (`JadeFlowsTab.tsx:256,271` → `jadeFlowsExport.ts` rows), which is frozen until DU-4.2 (PR2-1). The RTL tests in Step 6 assert that no **rendered** cell, legend row, popup or tooltip shows `Band N`/`Overflow`.
 
 - [ ] **Step 5: Implement `BandLabel` and switch every UI surface**
 
@@ -394,10 +397,11 @@ Surfaces:
 | Site | Change |
 |---|---|
 | `JadeAssignmentsTab.tsx:196,242-251` | Row field `band` becomes `bandIndex: assignBandOrOverflow(a.distanceMi, effectiveBands)` (index in canonical space). Column `value` becomes `bandRangeLabel(r.bandIndex, displayBands, resolvedUnit)`; `cell` becomes `<BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnit} />`. Keep `filterResetKey`. When not `canonicalResolved`, both show `"—"` as today |
-| `JadeFlowsTab.tsx:256,271,313-324` | Same shape in `legColumns`. The JADE flows client export (`jadeFlowsExport.ts`) now derives its `band` column itself with `bandLabel(row.distance, bands)` (allow-listed), so `JadeFlowsTab` no longer calls `bandLabel` |
+| `JadeFlowsTab.tsx:313-324` | Same shape in `legColumns` (`bandIndex` added to the row; `value` + `cell` as above). **The row's existing `band: bandLabel(...)` field (:256,:271) and `jadeFlowsExport.ts` stay unchanged**, because it's the client export column, mirroring the server's, and frozen until DU-4.2 (PR2-1). `__tests__/jadeFlowsExport.test.ts` stays unchanged |
 | `MapLegend.tsx:304-345` | Keep the existing swatch/dash markup and testids (`legend-band-${i}`, `legend-dash-${i}`, `legend-overflow-band`, `legend-overflow-dash`; e2e pins them). Replace the text `≤ {formatBandBoundary(boundary)}` and the `Overflow` JSX text with `bandRangeLabel(i, displayBands, resolvedUnit)` / `bandRangeLabel(OVERFLOW_BAND, …)`, so every row is a range. Delete `formatBandBoundary`, and fix the stale comments at :136-143 and :295-303. Unresolved unit: text `"—"` |
-| `ServiceStatsTab.tsx:347-356` | `labels[i]` becomes `<BandLabel index={b.band} bands={displayBands} unit={distanceUnit} />`, where `displayBands = bandCoverage.filter(non-overflow).map(b => toDisplay(b.band, canonicalUnit))` |
+| `ServiceStatsTab.tsx:347-356` | `BandCoverageEntry.band` is a **boundary value** (or `OVERFLOW_BAND`), not an index (PR2-2). So: `boundaries = bandCoverage.filter(b => b.band !== OVERFLOW_BAND).map(b => b.band)` (sorted); `displayBands = boundaries.map(v => toDisplay(v, canonicalUnit))`; each row `b` renders `<BandLabel index={b.band === OVERFLOW_BAND ? OVERFLOW_BAND : boundaries.indexOf(b.band)} bands={displayBands} unit={distanceUnit} />`. The row testid `service-stats-band-${b.band}` is unchanged. Add a test with 4 boundaries plus overflow that asserts each row's text **and** swatch colour |
 | `CostSummaryTab.tsx:484-487` | `bandRowLabels` becomes a map over `[...sorted indices, OVERFLOW_BAND]` with `bandRangeLabel(i, displayBoundaries, unitLabel)`. The compare CSV download gets the same text: it's a studio table download, not the server contract |
+| `NetworkMap.tsx` props | Add `labelBands?: number[]` (canonical). Band **labels** (popup, hover) use `labelBands ?? bands`; band **colour/dash classification** keeps using `bands` (PR2-3). `OutputMapTab` passes `labelBands={effectiveBands}` alongside `bands={mapBands}`, so Leg/None lane modes still label customers and routes with their real range. Test: popup and hover text in Band, Leg and None modes all show the range |
 | `NetworkMap.tsx:594-595,279-283` | Popup info `bandLabelText` becomes `bandRangeLabel(band, displayBands, unit)`. The popup HTML drops the `Band:` prefix and keeps its swatch span. HTML string popups can't take a React component, so they use the text authority directly |
 | `NetworkMap.tsx:817` | Hover tooltip `· ${bandLabel(...)}` becomes `· ${bandRangeLabel(assignBandOrOverflow(d, bands), displayBands, unit)}` |
 
@@ -414,12 +418,12 @@ Then delete studio `bandRangeLabel` and `exclusiveBandLabels` from `lib/bands.ts
   - `workspace-fixups-2.spec.ts:583-587` gets the range strings; `:599` `/^(Band \d+|Overflow)$/` becomes `/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/`.
   - `workspace-fixups.spec.ts:160-168` deletes the local mirror and imports `bandRangeLabel` from `@workspace/units`; `:344,:423` use the same three-form regex.
   - `jade-ch9-workspace-bundle.spec.ts:336,378,389` `"Overflow"` becomes `/^> [\d,.]+ (mi|km)$/` (cell) and `/> [\d,.]+ (mi|km)/` (tooltip/popup).
-- Run the rg inventory and paste it into the changelog entry: `rg -n 'Band \$\{|"Band |Overflow' src artifacts/studio/e2e lib/units/src`. Every remaining hit must be an allow-listed export path, the units `bandLabelOrOverflow`, a test of either, or a comment.
+- Run the rg inventory and paste it into the changelog entry: `rg -n 'Band \$\{|"Band |Overflow' src artifacts/studio/e2e lib/units/src`. Every remaining hit must be the frozen JADE flows export path (`JadeFlowsTab.tsx:256,271` row `band` field + `jadeFlowsExport.ts`), the units `bandLabelOrOverflow`, a test of either, or a comment.
 
 - [ ] **Step 7: Run the tests and confirm they pass**
 
 Run: `pnpm --filter @workspace/units test`, `pnpm run typecheck`, `pnpm --filter studio test`, `pnpm --filter studio run typecheck:e2e`
-Expected: green. `bandLabelSource.test.ts` reports 0 hits, with one allow-list entry.
+Expected: green. `bandLabelSource.test.ts` reports 0 hits, with an empty allow-list.
 
 - [ ] **Step 8: Review pass + commit**
 
@@ -435,18 +439,17 @@ Expected: green. `bandLabelSource.test.ts` reports 0 hits, with one allow-list e
 - e2e: `workspace-fixups.spec.ts:310-311`, `jade-ch9-workspace-bundle.spec.ts:466-480`
 
 **Interfaces:**
-- Produces: `Chapter.demandUnit: "tons" | "units"` (required). The values are `two-echelon-jade-us` and `transport-coal` = `"tons"` (C1, Q9); the other 6 = `"units"`.
+- Produces: `Chapter.demandUnit: "tons" | "units"` (required). The values are `two-echelon-jade-us` = `"tons"` (C1); the other 7 = `"units"` (Q9).
 - Produces: `demandHeader(unit: Chapter["demandUnit"], base = "Demand"): string`, which gives `` `${base} (${unit})` `` in `lib/chapters.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
 In `lib/chapters.test.ts`:
 ```ts
-it("DU-2.3: every chapter declares its demand unit (JADE + coal in tons)", () => {
+it("DU-2.3: every chapter declares its demand unit (JADE in tons)", () => {
   const byId = Object.fromEntries(CHAPTERS.map(c => [c.modelId, c.demandUnit]));
   expect(byId["two-echelon-jade-us"]).toBe("tons");
-  expect(byId["transport-coal"]).toBe("tons");
-  for (const id of ["p-median-us","max-coverage-us","p-median-brazil","delivery-teaching-us","two-echelon-gold-au","super-model"])
+  for (const id of ["p-median-us","max-coverage-us","transport-coal","p-median-brazil","delivery-teaching-us","two-echelon-gold-au","super-model"])
     expect(byId[id]).toBe("units");
   expect(demandHeader("tons")).toBe("Demand (tons)");
 });
@@ -479,7 +482,7 @@ Expected: green.
 
 - [ ] **Step 5: Review + commit**
 
-`[DU-2.3] units move into headers; Chapter.demandUnit (JADE and coal in tons)`.
+`[DU-2.3] units move into headers; Chapter.demandUnit (JADE in tons)`.
 
 ---
 
@@ -488,7 +491,7 @@ Expected: green.
 **Files:**
 - Modify: `components/workspace/tabs/CostSummaryTab.tsx:93,590,853-854`, `lib/resultOutcome.ts:49-54`, `pages/Landing.tsx:214-221`, `components/data-table/DataTable.tsx:299-303` + `types.ts` (`countNoun?: string`), `components/workspace/tabs/CapabilityMatrixTab.tsx:176`, `pages/Workspace.tsx:4517-4537`
 - Test: `__tests__/CostSummaryTab.test.tsx:465,1052-1087`, `__tests__/Landing.test.tsx:235,251`, `__tests__/DataTable.test.tsx:165`, `__tests__/CapabilityMatrixTab*.test.tsx` count literals, `__tests__/Workspace.test.tsx` + `Workspace.Jade.test.tsx` history-position literals
-- e2e: `input-tables-qa.spec.ts:133,147`, `quick-fixes.spec.ts:219-225`, `chen-bands-units-qa.spec.ts:565-621` (history position)
+- e2e: `input-tables-qa.spec.ts:133,147`, `quick-fixes.spec.ts:219-225`, `chen-bands-units-qa.spec.ts:565-621,702-715` (history position). **The task-time inventory is exhaustive:** `rg -n "text-result-history-position|button-result-(back|forward)" src artifacts/studio/e2e`. The resulting file list goes into the commit pathspec and the changelog (PR2-13).
 
 **Interfaces:**
 - Produces: `DataTableProps.countNoun?: string`. With it, the count reads `${filtered} ${noun}` when unfiltered and `${filtered} of ${total} ${noun}` when filtered. Without it, the current `${filtered} of ${total}` stays.
@@ -582,7 +585,7 @@ Run: `pnpm run typecheck`, `pnpm --filter studio test`, `typecheck:e2e`. Green.
 - `loading` + `rows=[]` + `emptyState="Nothing here"`: the skeleton testid is present and "Nothing here" is absent.
 - The header `<thead>` cells carry `sticky top-0 z-10 bg-background`.
 - The `Table` wrapper doesn't create its own scroll container (`containerClassName` "overflow-visible"), so the sticky header binds to the caller's `scrollClassName` container.
-- The pager wrapper carries `sticky bottom-0 bg-background`.
+- The pager is a descendant of the `testIds.scroll` element and carries `sticky bottom-0 bg-background`.
 - An `kind:"text"` column with `id === "id"` has cells with `whitespace-nowrap` and `min-w-[6rem]`.
 - `StatusToggle` buttons carry `min-h-6 min-w-6`.
 
@@ -592,7 +595,7 @@ Note in the test file: jsdom can't prove `position: sticky` works. These assert 
 
 - `ui/table.tsx`: `Table` takes `containerClassName` and merges it into the wrapper (`cn("relative w-full overflow-auto", containerClassName)`). Default behaviour is unchanged for other callers.
 - `DataTable.renderTable`: `<Table containerClassName="overflow-visible" …>`. `TableHead` adds `sticky top-0 z-10 bg-background`. The caller scroll container (`scrollClassName`, e.g. `max-h-[55vh] overflow-y-auto`) is the sticky ancestor. When a caller passes no `scrollClassName`, default it to `"overflow-auto"` so wide tables still scroll horizontally.
-- Pager: `TablePager` wrapper becomes `sticky bottom-0 z-10 bg-background py-1`. It stays outside the scroll container, so it's visible at the table's bottom edge without page scrolling past the table.
+- Pager: render `TablePager` **inside** the same scroll wrapper as the table (`scrollClassName`), as its last child, with `sticky bottom-0 z-10 bg-background py-1` (PR2-8). The wrapper is the single scroll ancestor of both the `thead` (`sticky top-0`) and the pager (`sticky bottom-0`). JadeDistancesTab-style callers that wrap DataTable in their own `max-h-[55vh] overflow-y-auto` move that class onto `scrollClassName` instead, so there are never two nested scroll containers (rg `max-h-\[55vh\]` across `components/workspace/tabs` at task time and list each caller).
 - Loading: in the body branch, `if (loading) body = <DataTableSkeleton cols={visibleCols} testId={…} />` takes precedence over both empty and rows. The skeleton is `animate-pulse` rows of `h-3 rounded bg-muted` bars.
 - Callers:
   - `DistancesTab` / `JadeDistancesTab` pass `loading={referenceQuery.isLoading}` and delete the separate `*-reference-loading` line.
@@ -601,8 +604,9 @@ Note in the test file: jsdom can't prove `position: sticky` works. These assert 
 - Targets:
   - `StatusToggle` buttons get `min-h-6 min-w-6 inline-flex items-center justify-center`.
   - `CapabilityMatrixTab` checkbox: wrap it in a `label` hit area `inline-flex h-6 w-6 items-center justify-center` (the visual box stays `h-4 w-4`, since WCAG 2.5.8 counts the target).
-  - `LayerCheckbox` is already inside a full-row label; verify in DU-2.9.
-- Q6 leg column: in `JadeDistancesTab` and `LegDistancesTab`, drop the `leg` column and pass `sections` grouped by leg (`title` = `LEG_LABEL[leg]`; the unknown-leg section title keeps the red `Badge variant="destructive"` with `AlertTriangle`). Section testids: `section-leg-${leg}`. Filters and pager work per section as `sections` already provides.
+  - `LayerCheckbox` (`mapControls.tsx:162-190`) is a `div role="checkbox"` with a 14px box (PR2-11): give the outer row `min-h-6` and the inner box wrapper `inline-flex h-6 w-6 items-center justify-center`. Keep the deliberate `div` (its comment at :144-160 explains why it isn't a `<label>`).
+  - `StatusToggle` is also used by Super tables (`super/superTables.tsx:95-100`); the same class change covers it.
+- Q6 leg column: in `JadeDistancesTab` and `LegDistancesTab`, drop the `leg` column and pass `sections` grouped by leg (`title` = `LEG_LABEL[leg]`; the unknown-leg section title keeps the red `Badge variant="destructive"` with `AlertTriangle`). Section testids: `section-leg-${leg}`. DataTable has **one** filter/sort/page pipeline over all rows, and distributes `paged.pageRows` across sections (`DataTable.tsx:71-102,225-248`). So grouped tables have one global filter and one global pager; a page can span both legs. That is the specified behaviour (PR2-9). Test: 60 rows split 30/30 across two legs shows "Page 1 of 2", with page 1 holding 30 + 20 rows under the two headers.
 
 - [ ] **Step 3: Rewrite the tests, e2e sweep, run**
 
@@ -621,7 +625,7 @@ Run: typecheck, studio test, `typecheck:e2e`.
 ### Task DU-2.7: Entity naming + one tooltip typography
 
 **Files:**
-- Modify: `components/NetworkMap.tsx:747-758,810-818,857-863,875-879`, `components/workspace/map/EntityMarkers.tsx:232-235,260-263,280-283`, `components/workspace/tabs/InputMapTab.tsx:1902-1913`, `components/workspace/map/MapDetailsCard.tsx:96-122`, `components/workspace/map/dialogs/EditWarehouseDialog.tsx:77-84`, `EditCustomerDialog.tsx:92-93`, `src/index.css:24-30` (`.nos-map-tooltip` applied to input maps too)
+- Modify: `components/NetworkMap.tsx:747-758,810-818,857-863,875-879`, `components/workspace/tabs/JadeAssignmentsTab.tsx:141-163,201-228`, `components/workspace/tabs/JadeFlowsTab.tsx:178-200,329-376` (`EntityIdCell` with location rendered **unconditionally** when identity data exists, not only when `rows.length > 10`; PR2-4), `components/workspace/map/EntityMarkers.tsx:232-235,260-263,280-283`, `components/workspace/tabs/InputMapTab.tsx:1902-1913`, `components/workspace/map/MapDetailsCard.tsx:96-122`, `components/workspace/map/dialogs/EditWarehouseDialog.tsx:77-84`, `EditCustomerDialog.tsx:92-93`, `src/index.css:24-30` (`.nos-map-tooltip` applied to input maps too)
 - Create: `components/EntityName.tsx`
 - Test: `__tests__/EntityMarkers.test.tsx:472-537`, `__tests__/NetworkMap.test.tsx` (13 tooltip `toContain`s), `__tests__/OutputMapTab.test.tsx:805`, `__tests__/InputMapTabV2.twoEchelon.test.tsx:223,233`, `__tests__/MapDetailsCard.test.tsx:58`, `__tests__/EditWarehouseDialog.test.tsx:61`
 - e2e: `workspace-fixups-2.spec.ts:175-178` (`assertTooltipShape`)
@@ -637,6 +641,7 @@ Run: typecheck, studio test, `typecheck:e2e`.
 - `MapDetailsCard` header shows `"Chicago, IL"` + mono `"WH-IL-CHI-01"` (`map-details-code` holds the ID).
 - `EditWarehouseDialog` shows `Name: Chicago, IL` and `ID: CHI` (mono), with no "Code" label.
 - Both maps' tooltips carry `nos-map-tooltip`.
+- JADE Assignments and JADE Flows with **3 rows** (fewer than 10) render name + mono ID in the entity cells (PR2-4).
 
 - [ ] **Step 2: Implement**
 
@@ -723,14 +728,15 @@ Use free ports, per `artifacts/studio/e2e/CLAUDE.md`: `DATABASE_URL="postgresql:
 
 - [ ] **Step 2: Write `design-upgrade-p2.spec.ts`, iterating over `CHAPTERS` (all 8)**
 
-Each check must be able to fail, with a non-vacuity probe where it's a detector:
+Each check must be able to fail (PR2-12). **Before every detector or predicate loop, assert the locator count is > 0** (pager, skeleton, money cells, chips, distance cells, targets). The band and text detectors also get an injected-probe case. Use the DU-1.5 fixtures for >50-row tables (p-median Customers 88 rows, JADE flows), and the delayed route for loading:
 - **Sticky header:** scroll a >50-row table container (p-median Customers, JADE Flows) and assert the `th` `getBoundingClientRect().top` equals the container's top ±1px after scrolling.
 - **Pinned pager:** the pager's bounding box is within the viewport without scrolling the page, whenever a table shows a pager.
 - **Loading:** delay `**/api/**/reference-distances*` by 2s and assert the skeleton testid is visible and the empty-state copy is absent during the delay.
-- **Targets:** every `[data-testid^="button-wh-"]`, `[data-testid^="button-customer-"]` and capability checkbox hit area is ≥ 24×24.
-- **Band labels:** on JADE and p-median, no visible text matches `/\bBand \d/` (probe: inject a span `Band 9`, assert the detector flags it, remove it). The legend rows read range text.
+- **Targets:** first assert each locator set is non-empty, then every hit area is ≥ 24×24: `[data-testid^="button-wh-"]`, `[data-testid^="button-added-wh-"]`, `[data-testid^="button-customer-"]`, the Super-table status buttons (testids from `superTables.tsx`), capability checkboxes, and the map `LayerCheckbox` rows (PR2-11).
+- **Band labels:** on JADE and p-median, no visible text matches `/\bBand \d/` (probe: inject a span whose text is built as `["Band", "9"].join(" ")`, so the spec source itself doesn't trip `bandLabelSource.test.ts`, which scans e2e; assert the detector flags it, then remove it). The legend rows read range text.
 - **Formatter:** money cells match `/^\$[\d,]+$/`, chips match `/^\$[\d.]+[KMB]$/`, and distance cells match `/^[\d,]+(\.\d{1,2})?( (mi|km))?$/`.
 - **Header:** `workspace-chapter-title` equals `chapter.title` for every chapter, and the actions' right edge sits inside the header box (not truncated) at 1024px width.
+- **Primary vs outline (PR2-14):** computed `background-color` of `button-run-optimizer` equals `--primary`. For `button-toggle-compare`, `button-tab-solve` and `button-stale-banner-run-optimizer`, it does **not** equal `--primary` and `border-top-width` is ≥ 1px. Each locator's presence is asserted first.
 - **Entity naming:** hover a warehouse marker on both maps; the tooltip matches `^Warehouse · [^,]+, \S+ · \S+`.
 - **P presets:** for p=3, the presets are 1–5.
 - **Landing footer:** scroll the Landing page and assert the footer moves with it (its `top` changes).
@@ -781,3 +787,24 @@ Look at them and report.
   - `formatDistanceDisplay`, `formatMoney`, `bandRangeLabel`, `BandLabel`, `Chapter.demandUnit` and `DataTable.loading` match master §A verbatim.
   - New interfaces (`formatDistanceNumber`, `formatCoord`, `demandHeader`, `countNoun`, `pPresets`, `EntityName`) are additive and named in their tasks.
 - **Name collision resolved:** the existing studio `bandRangeLabel(distance, bands, unit)` (`lib/bands.ts:123`) is deleted in DU-2.2. The fixed units signature takes an index, so a stale studio import fails `tsc`.
+
+## Review log — Codex plan review round 1 (high effort, 2026-10-24)
+
+Verdict: NOT READY. All 14 findings were folded:
+
+| ID | Sev | Finding | Resolution |
+|---|---|---|---|
+| PR2-1 | blocker | DU-2.2 modified the frozen client JADE export | `jadeFlowsExport.ts` and the row `band` field stay unchanged; only display cells change |
+| PR2-2 | blocker | Service Stats `b.band` is a boundary, not an index | index = position among boundaries, `OVERFLOW_BAND` for overflow; multi-boundary test |
+| PR2-3 | major | Leg/None lane mode emptied the label bands | `NetworkMap.labelBands` separate from colour `bands` |
+| PR2-4 | major | JADE tables show name+ID only above 10 rows | unconditional `EntityIdCell` in DU-2.7; <10-row tests |
+| PR2-5 | major | lat/lng inventory not exhaustive | 10 renderers listed + task-time rg |
+| PR2-6 | major | Q9 coal = tons contradicts master/spec | default reverted to "units"; coal-in-tons is an open user question |
+| PR2-7 | major | guard allow-list non-empty; e2e not scanned | empty allow-list; scans src + e2e |
+| PR2-8 | major | pager not in the table's scroll container | pager inside the scroll wrapper; nested scroll containers removed |
+| PR2-9 | major | "per-section pager" false | one global pager across sections, specified + tested |
+| PR2-10 | major | `formatObjective` still locale-dependent | all branches pin en-US + regression tests |
+| PR2-11 | major | `LayerCheckbox` claim stale; target coverage thin | 24px hit area for `LayerCheckbox`; Super + added-entity probes |
+| PR2-12 | major | QA predicates could pass vacuously | count > 0 before each loop; fixtures named |
+| PR2-13 | minor | history-assertion inventory incomplete | exhaustive task-time rg into the pathspec |
+| PR2-14 | minor | outline/filled checked by class only | computed-style Playwright check |
