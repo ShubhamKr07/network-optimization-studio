@@ -137,7 +137,7 @@ function TransportCostField({
         data-testid={inputTestId}
       />
       {error && (
-        <span className="text-[10px] text-destructive" data-testid={errorTestId}>
+        <span className="text-2xs text-destructive" data-testid={errorTestId}>
           {error}
         </span>
       )}
@@ -242,7 +242,7 @@ export function TransportCostsTab({
             errorTestId={`error-transport-${leg.key}-rate`}
             label={`${leg.label} rate`}
           />
-          <span className="text-[10px] text-muted-foreground" data-testid={`label-transport-rate-unit-${leg.key}`}>
+          <span className="text-2xs text-muted-foreground" data-testid={`label-transport-rate-unit-${leg.key}`}>
             {rateLabel ?? "—"}
           </span>
         </>
@@ -267,7 +267,7 @@ export function TransportCostsTab({
             errorTestId={`error-transport-${leg.key}-min`}
             label={`${leg.label} minimum charge`}
           />
-          <span className="text-[10px] text-muted-foreground" data-testid={`label-transport-min-unit-${leg.key}`}>
+          <span className="text-2xs text-muted-foreground" data-testid={`label-transport-min-unit-${leg.key}`}>
             $/ton
           </span>
         </>

@@ -842,7 +842,7 @@ function PMedianInputMap({
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
-            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+            <Button size="sm" variant="outline" className="h-6 text-2xs" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
               Cancel
             </Button>
           </div>
@@ -871,7 +871,7 @@ function PMedianInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -1355,7 +1355,7 @@ function TransportInputMap({
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
-            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+            <Button size="sm" variant="outline" className="h-6 text-2xs" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
               Cancel
             </Button>
           </div>
@@ -1375,7 +1375,7 @@ function TransportInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -1850,7 +1850,7 @@ function TwoEchelonInputMap({
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
-            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+            <Button size="sm" variant="outline" className="h-6 text-2xs" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
               Cancel
             </Button>
           </div>
@@ -1871,7 +1871,7 @@ function TwoEchelonInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -2435,7 +2435,7 @@ function JadeInputMap({
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
-            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+            <Button size="sm" variant="outline" className="h-6 text-2xs" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
               Cancel
             </Button>
           </div>
@@ -2455,7 +2455,7 @@ function JadeInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}

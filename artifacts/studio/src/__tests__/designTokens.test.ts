@@ -55,3 +55,19 @@ describe("status text contrast (DU-1.3)", () => {
     });
   }
 });
+
+describe("contrast fixes (DU-1.4)", () => {
+  it("primary-coloured text token (--green-700) >= 4.5:1 on the page background", () => {
+    expect(contrast(token("--green-700"), "#FCFCFA")).toBeGreaterThanOrEqual(4.5);
+  });
+  it("input border matches --line-strong (#C9CCBD = hsl 72 13% 77%)", () => {
+    expect(ROOT).toMatch(/--input:\s*72 13% 77%/);
+    expect(token("--line-strong").toUpperCase()).toBe("#C9CCBD");
+  });
+});
+
+describe("faint text is decorative-only (DU-1.4)", () => {
+  it("--text-muted, the essential-text fallback, passes AA on the page background", () => {
+    expect(contrast(token("--text-muted"), "#FCFCFA")).toBeGreaterThanOrEqual(4.5);
+  });
+});

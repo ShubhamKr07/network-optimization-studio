@@ -147,7 +147,7 @@ export function MinesTab({
                   `Missing lane costs to ${missing} station${missing === 1 ? "" : "s"} — see the Lane costs tab, or download/upload a template.`
                 }
                 data-testid={`warning-precheck-added-mine-${r.id}`}
-                className="inline-flex items-center gap-0.5 text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
+                className="inline-flex items-center gap-0.5 text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               >
                 <AlertTriangle className="w-3 h-3" />
                 {collision ? "ID collision" : `Missing ${missing} lane cost${missing === 1 ? "" : "s"}`}

@@ -454,7 +454,7 @@ export function DistancesTab({
             />
             {r.override?.estimated && (
               <span
-                className="text-[10px] text-info bg-info-bg border border-info-border rounded px-1"
+                className="text-2xs text-info bg-info-bg border border-info-border rounded px-1"
                 data-testid={`badge-distance-estimated-${r.fromId}-${r.toId}`}
               >
                 Estimated
@@ -462,7 +462,7 @@ export function DistancesTab({
             )}
             {changed && (
               <span
-                className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
+                className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
                 data-testid={`badge-distance-changed-${r.fromId}-${r.toId}`}
               >
                 Changed

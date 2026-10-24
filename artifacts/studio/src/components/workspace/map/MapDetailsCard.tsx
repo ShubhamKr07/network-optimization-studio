@@ -112,7 +112,7 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
             all (see MapWarehouse's own comment), so this must check for its
             presence too, not just the marker shape. */}
         {kind === "wh" && e.status != null && (
-          <span className="text-[10px] px-1.5 py-0.5 bg-accent-100 text-accent-800" data-testid="map-details-status">
+          <span className="text-2xs px-1.5 py-0.5 bg-accent-100 text-accent-800" data-testid="map-details-status">
             {warehouseStatusPresentation[e.status].label}
           </span>
         )}

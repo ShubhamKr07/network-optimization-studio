@@ -158,7 +158,7 @@ export function SolveDialog({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-                  <span className="text-sm font-bold text-primary font-mono" data-testid="solve-dialog-p-value">
+                  <span className="text-sm font-bold text-[var(--green-700)] font-mono" data-testid="solve-dialog-p-value">
                     {p}
                   </span>
                 </div>

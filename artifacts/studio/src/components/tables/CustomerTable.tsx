@@ -170,10 +170,10 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                     className="h-7 text-xs w-28 font-mono"
                     data-testid={`input-customer-demand-${c.id}`}
                   />
-                  {!disabled && error && <p className="text-[10px] text-destructive mt-0.5" data-testid={`error-customer-demand-${c.id}`}>{error}</p>}
+                  {!disabled && error && <p className="text-2xs text-destructive mt-0.5" data-testid={`error-customer-demand-${c.id}`}>{error}</p>}
                 </TableCell>
                 <TableCell>
-                  <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                  <div className="flex rounded border border-border overflow-hidden text-2xs w-fit">
                     {(["active", "excluded"] as const).map(s => (
                       <button
                         key={s}

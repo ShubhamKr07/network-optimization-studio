@@ -249,7 +249,7 @@ export function MapLegend({
     >
       {showStatusGroup && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Sites</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Sites</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {statusItems.map((it) => (
               <Fragment key={it.key}>
@@ -268,7 +268,7 @@ export function MapLegend({
       )}
       {showDemandGroup && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Demand</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Demand</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {/* R2: only buckets a real customer actually occupies get a row — a
                 collapsed/degenerate population (e.g. every demand identical)
@@ -290,7 +290,7 @@ export function MapLegend({
       )}
       {showRouteGroup && (
         <div className="pt-1 border-t border-border">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
             {/* Each swatch is labeled by its band's upper bound ("≤ X unit")
                 rather than the old ordinal "Band N" — matches
@@ -315,7 +315,7 @@ export function MapLegend({
                       strokeDasharray={getBandDash(i)} />
                   </svg>
                 </span>
-                <span className="text-muted-foreground font-mono text-[10px]">
+                <span className="text-muted-foreground font-mono text-2xs">
                   ≤ {formatBandBoundary(boundary)}
                 </span>
               </Fragment>
@@ -340,13 +340,13 @@ export function MapLegend({
                     <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
                   </svg>
                 </span>
-                <span className="text-muted-foreground font-mono text-[10px]">Overflow</span>
+                <span className="text-muted-foreground font-mono text-2xs">Overflow</span>
               </Fragment>
             )}
           </div>
         </div>
       )}
-      {hintText && <div className="text-[10px] text-muted-foreground pt-0.5 italic">{hintText}</div>}
+      {hintText && <div className="text-2xs text-muted-foreground pt-0.5 italic">{hintText}</div>}
     </div>
   );
 }

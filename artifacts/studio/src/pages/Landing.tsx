@@ -87,7 +87,7 @@ export function Landing() {
           <p className="text-muted-foreground">Pick a chapter to start or continue a scenario.</p>
         </div>
         {ready && summary && (
-          <span data-testid="landing-stats-line" className="font-mono text-[10.5px] text-muted-foreground whitespace-nowrap">
+          <span data-testid="landing-stats-line" className="font-mono text-2xs text-muted-foreground whitespace-nowrap">
             {visibleLabs} labs · {visibleScenarios} scenarios · {visibleSolved} solved
           </span>
         )}
@@ -140,21 +140,21 @@ export function Landing() {
                       >
                         {chapterNumber(c.chapter)}
                       </span>
-                      {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{status}</span>}
+                      {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", color: "var(--text-muted)" }}>{status}</span>}
                     </span>
                     {locked ? (
                       <Badge
                         variant="outline"
-                        className="text-[10px] gap-1 text-[color:var(--text-muted)]"
+                        className="text-2xs gap-1 text-[color:var(--text-muted)]"
                         data-testid={`landing-card-locked-${c.modelId}`}
                       >
                         <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                         Locked
                       </Badge>
                     ) : isActive ? (
-                      <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
+                      <Badge variant="outline" className="text-2xs text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
                     ) : (
-                      <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>
+                      <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", color: "var(--text-muted)" }}>start →</span>
                     )}
                   </div>
                 );
@@ -197,13 +197,13 @@ export function Landing() {
                 <div className="flex flex-col gap-0.5 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-[10.5px] text-muted-foreground">
+                      <span className="font-mono text-2xs text-muted-foreground">
                         {chapterForModelId(h.modelId)?.chapter ?? ""} ·
                       </span>
                       <span className="truncate font-medium text-foreground">{h.scenarioName}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] ${
+                        className={`text-2xs ${
                           h.status === "succeeded" ? "text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]" :
                           h.status === "failed" ? "text-[color:var(--danger)] border-[color:var(--danger-border)] bg-[color:var(--danger-bg)]" :
                           "text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
@@ -214,7 +214,7 @@ export function Landing() {
                       {h.status === "succeeded" && h.legacyUnverified && (
                         <Badge
                           variant="outline"
-                          className="text-[10px] text-muted-foreground border-muted-foreground/40 bg-muted/30"
+                          className="text-2xs text-muted-foreground border-muted-foreground/40 bg-muted/30"
                           data-testid={`badge-legacy-unverified-${h.id}`}
                         >
                           unverified
@@ -222,7 +222,7 @@ export function Landing() {
                       )}
                       {isRetryable && (
                         <span
-                          className="text-[10px] font-medium text-[color:var(--danger)]"
+                          className="text-2xs font-medium text-[color:var(--danger)]"
                           data-testid={`link-retry-solve-history-${h.id}`}
                         >
                           Retry →
@@ -240,7 +240,7 @@ export function Landing() {
                       raw diagnostic; there is no raw diagnostic anywhere on
                       this typed response to fall back to. */}
                   {h.status === "failed" && h.errorMessage && (
-                    <p className="text-[10.5px] text-muted-foreground pl-[3.25rem]" data-testid={`text-error-message-${h.id}`}>
+                    <p className="text-2xs text-muted-foreground pl-[3.25rem]" data-testid={`text-error-message-${h.id}`}>
                       {h.errorMessage}
                     </p>
                   )}

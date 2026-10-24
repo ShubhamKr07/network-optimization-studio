@@ -33,7 +33,7 @@ export function StatusToggle<S extends string>({
   testIdOf: (s: S) => string;
 }) {
   return (
-    <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit mx-auto">
+    <div className="flex rounded border border-border overflow-hidden text-2xs w-fit mx-auto">
       {options.map(s => (
         <button
           key={s}

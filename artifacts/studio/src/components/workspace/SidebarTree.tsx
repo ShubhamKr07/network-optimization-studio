@@ -591,7 +591,7 @@ function SidebarSection({
   return (
     <div data-testid={testid} className={`border-b py-1.5 ${className ?? ""}`} onMouseLeave={onMouseLeave}>
       {!collapsed && (
-        <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="flex items-center justify-between px-3 py-1 text-2xs font-mono font-semibold uppercase tracking-wide text-muted-foreground">
           <span>{title}</span>
           {action}
         </div>

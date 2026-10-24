@@ -50,7 +50,7 @@ export function ConstraintChips({
       {stale && (
         <Badge
           variant="outline"
-          className="text-[10px] text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
+          className="text-2xs text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
           data-testid="chip-stale"
         >
           Stale
@@ -66,7 +66,7 @@ function Chip({ children, onClick, testid }: { children: React.ReactNode; onClic
       type="button"
       onClick={onClick}
       data-testid={testid}
-      className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-[color:var(--line)] bg-white text-muted-foreground hover:border-[color:var(--primary)] hover:text-foreground transition-colors"
+      className="text-2xs font-mono px-1.5 py-0.5 rounded border border-[color:var(--line)] bg-white text-muted-foreground hover:border-[color:var(--primary)] hover:text-foreground transition-colors"
     >
       {children}
     </button>

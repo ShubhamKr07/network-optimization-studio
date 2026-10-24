@@ -668,7 +668,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   const unitSuffix = unitLabel ? ` (${unitLabel})` : "";
   const rateLabel = rateUnitLabel(canonicalDistanceUnit, unit);
   const rateSuffix = rateLabel ? ` (${rateLabel})` : "";
-  const legacyNote = <span className="ml-1 text-[10px] font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>;
+  const legacyNote = <span className="ml-1 text-2xs font-sans text-muted-foreground">{LEGACY_RATE_LABEL}</span>;
   const EMPTY: CompareCell = { raw: null, display: "—" };
 
   const compareRows: CompareRow[] = [];
@@ -834,7 +834,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             {ids.map((id, i) => (
               <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
                 <span>{labels[i]}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{identity[id]?.displayId ?? id}</span>
+                <span className="font-mono text-2xs text-muted-foreground">{identity[id]?.displayId ?? id}</span>
               </span>
             ))}
             {ids.length === 0 && "—"}

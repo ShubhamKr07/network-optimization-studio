@@ -147,7 +147,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
                   </TableCell>
                 )}
                 <TableCell>
-                  <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                  <div className="flex rounded border border-border overflow-hidden text-2xs w-fit">
                     {STATUSES.map(s => (
                       <button
                         key={s}

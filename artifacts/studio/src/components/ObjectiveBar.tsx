@@ -58,7 +58,7 @@ export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit }: Ob
       flexShrink: 0,
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "var(--app-font-mono)", fontSize: "9.5px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "1px" }}>
+        <div style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "1px" }}>
           {chapter?.chapter ?? "Model"}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>

@@ -517,7 +517,7 @@ export function JadeDistancesTab({
           />
           {r.override?.estimated && (
             <span
-              className="text-[10px] text-info bg-info-bg border border-info-border rounded px-1"
+              className="text-2xs text-info bg-info-bg border border-info-border rounded px-1"
               data-testid={`badge-jadedistance-estimated-${r.leg}-${r.fromId}-${r.toId}`}
             >
               Estimated
@@ -525,7 +525,7 @@ export function JadeDistancesTab({
           )}
           {isChangedRow(r) && (
             <span
-              className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
+              className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-jadedistance-changed-${r.leg}-${r.fromId}-${r.toId}`}
             >
               Changed
@@ -555,7 +555,7 @@ export function JadeDistancesTab({
       cell: r =>
         laneCost(r)?.binds && (
           <span
-            className="text-[10px] text-muted-foreground bg-muted border border-border rounded px-1"
+            className="text-2xs text-muted-foreground bg-muted border border-border rounded px-1"
             title="The minimum charge, not the rate, is what this lane pays"
             data-testid={`badge-jadedistance-min-${r.leg}-${r.fromId}-${r.toId}`}
           >

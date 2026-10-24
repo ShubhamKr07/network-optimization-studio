@@ -287,7 +287,7 @@ export function DeliveryCostsTab({
           />
           {r.override && (
             <span
-              className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
+              className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-deliverycost-overridden-${r.fromId}-${r.toId}`}
             >
               Overridden

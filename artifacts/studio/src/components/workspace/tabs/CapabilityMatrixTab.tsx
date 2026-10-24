@@ -155,7 +155,7 @@ export function CapabilityMatrixTab({
                 aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
               />
               <span
-                className="font-mono text-[10px] text-muted-foreground"
+                className="font-mono text-2xs text-muted-foreground"
                 data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
               >
                 {capacity.toLocaleString()} Units

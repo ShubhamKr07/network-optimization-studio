@@ -236,7 +236,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
                           <TableRow key={i} className="bg-danger-bg" data-testid={`import-error-row-${i}`}>
                             <TableCell className="text-xs">{err.line ?? rowLabel(err.rowIndex) ?? "—"}</TableCell>
                             <TableCell className="text-xs">
-                              <Badge variant="outline" className="text-[10px] text-danger border-danger-border">
+                              <Badge variant="outline" className="text-2xs text-danger border-danger-border">
                                 {err.errorClass}
                               </Badge>
                             </TableCell>
@@ -287,7 +287,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
               )}
 
               {preview.warnings.map((w, i) => (
-                <p key={i} className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid={`import-warning-${i}`}>
+                <p key={i} className="text-2xs text-warning bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid={`import-warning-${i}`}>
                   {w}
                 </p>
               ))}
@@ -305,7 +305,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
               </div>
 
               {mode === "all_or_nothing" && preview.errors.length > 0 && (
-                <p className="text-[10px] text-destructive">
+                <p className="text-2xs text-destructive">
                   This file has errors — switch to partial mode to apply the valid rows, or fix the file and re-upload.
                 </p>
               )}
