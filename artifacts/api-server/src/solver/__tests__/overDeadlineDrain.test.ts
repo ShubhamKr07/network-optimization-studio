@@ -27,9 +27,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { eq } from "drizzle-orm";
-import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
-import { enqueueSolveJob, drainForShutdown, getActiveJobIds, setDraining } from "../jobRunner.js";
+import { eq, inArray } from "drizzle-orm";
+import { db, usersTable, scenariosTable, solveJobsTable, resultCacheTable } from "@workspace/db";
+import { enqueueSolveJob, drainForShutdown, getActiveJobIds, setDraining, computeInputsHash, computeInputsHashV2 } from "../jobRunner.js";
 import type { SolveInput } from "../pmedian.js";
 
 const TEST_USER_ID = `a14b-over-deadline-drain-${Date.now()}`;
@@ -122,6 +122,9 @@ describe("A14b — over-deadline SIGTERM drain integration proof", () => {
     // naturally; it only needs to be "long enough to still be alive when we
     // drain," not tuned to any specific deadline.
     process.env.NOS_SOLVE_TEST_HANG_SEC = "120";
+    // A cached result for these exact inputs (left in the shared dev DB by any earlier solve) would be
+    // served without spawning solve.py, so the hang seam would never run. Clear this input's cache key.
+    await db.delete(resultCacheTable).where(inArray(resultCacheTable.inputsHash, [computeInputsHash(input), computeInputsHashV2(input)]));
 
     let jobId: number;
     let hangInfo: { file: string; workDir: string };
