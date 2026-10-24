@@ -1,7 +1,7 @@
 # Quick Fixes Bundle (QFX) — Design
 
 **Date:** 2026-10-24
-**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) and final Codex review (9 findings) folded; product decisions L1–L3 decided 2026-10-24
+**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) and final Codex review (9 findings) folded; plan-time code findings folded (2026-10-24); product decisions L1–L3 decided 2026-10-24
 **Scope:** 10 UI quick fixes across the Studio workspace. All are frontend except QFX-7, the one cross-layer item: removing `name` from super-model location rows touches the server validator.
 **Decision record:** `.lavish/quick-fixes-findings.html` (gitignored scratch). The decisions are restated normatively below, and this document is the authority.
 
@@ -41,7 +41,7 @@
 - Render them in the toolbar Save row, right of Save, wherever `showToolbarSave` is true: `Save · Import network · Export ▾`.
 - Export ▾ is one `DownloadMenu` with items JSON / CSV / XLSX. Each item calls the unchanged `:2782` handler with its format.
 - Import network keeps its current dialog and behaviour.
-- When browsing history (`isBrowsingHistoryNow`, read-only), Import network is hidden and Export ▾ stays visible, since exporting a historical network is read-only. This rule holds regardless of whether Save itself is shown in that state.
+- When browsing history (`isBrowsingHistoryNow`, read-only), **both** Import network and Export ▾ are hidden. `handleSuperExport` (`Workspace.tsx:2785`) always exports the *persisted* network, not the historical entry on screen, so offering it there would mislabel the file. Per-table Download (QFX-2b) stays, because it exports the displayed rows. (Amended at plan time, 2026-10-24.)
 - Chapter models are unchanged.
 
 **Done when**
@@ -91,7 +91,7 @@
   - **CSV:** one table. The filename is ignored on upload; download is named `<table file>.csv`.
   - **XLSX:** first sheet only. The sheet name is ignored on upload; download has one sheet named `<table file>`.
   - **JSON:** an object `{ "<tableKey>": [rows] }`, the same shape as the whole-network document restricted to one key. On upload, any other key is an error: "This file must contain only <tableKey>." A bare array is rejected with the same message.
-- **Parsing.** Reuse `superFiles.ts` (`readSheet` with the table's `Col[]`). Add a `parseSuperTableFile(tableKey, file)` entry point that does not route by filename or sheet name.
+- **Parsing.** `superTableToFile` is async, because SheetJS stays lazy-loaded (`superFiles.ts:156,199`). Reuse `superFiles.ts` (`readSheet` with the table's `Col[]`). Add a `parseSuperTableFile(tableKey, file)` entry point that does not route by filename or sheet name.
 - **Duplicates.** `parseSuperTableFile` rejects duplicate keys **within the file** before the Replace/Merge dialog is offered. It uses the same key rules as the server (`services/superNetwork.ts:13-35`):
   - location IDs share one namespace across plants, warehouses and customers
   - products are their own namespace
@@ -136,7 +136,7 @@
 - The max-coverage `paramsSlot` instance embedded in `SolveDialog` (`:4672-4675`) does **not** pass `showSolveButton`, because the dialog has its own Solve.
 - When `solveBlockedReason` is non-null, it is shown under the button and the button is disabled.
 - The header "Run Optimizer" keeps opening `SolveDialog` unchanged (user decision).
-- **Super readiness (decision L2): block both buttons.** For the super model, `solveBlockedReason` (the single shared input) is also set from the server precheck that `SuperReadinessPanel` renders (`Workspace.tsx:1561`, `usePrecheckScenario`). The rule uses the existing dirty flag (`Workspace.tsx:1927-1930`): when the draft is **clean** and `precheck.errors` is non-empty, `solveBlockedReason` is "Fix the readiness issues above before solving." plus the first error message. That one value disables **both** the tab Solve and the `SolveDialog` Solve, and is shown under each.
+- **Super readiness (decision L2): block both buttons.** For the super model, `solveBlockedReason` (the single shared input) is also set from the server precheck that `SuperReadinessPanel` renders (`Workspace.tsx:1561`, `usePrecheckScenario`). The rule uses the existing dirty flag (`Workspace.tsx:1927-1930`): when the draft is **clean** and `precheck.errors` is non-empty, `solveBlockedReason` is "Fix the readiness issues before solving: " plus the first error message. This is neutral wording, because the same text also shows in `SolveDialog`, where no readiness panel sits above it. That one value disables **both** the tab Solve and the `SolveDialog` Solve, and is shown under each.
   - When the draft is **dirty**, the precheck describes the saved row rather than the draft, so it does not block. `handleSolve` saves first and the server rejects an invalid solve as it does today. Precheck refetches after the save.
   - When the precheck is loading or fails to load, it does not block.
   - The max-coverage objective hint keeps priority when both apply (only max-coverage can produce that hint, so they never collide in practice).
@@ -162,6 +162,7 @@
   - it shows ▲ / ▼ (nothing when off)
   - it sets `aria-sort` on the `<th>`
 - Only one column is sorted at a time. Sort is available at any row count.
+- **Exempt:** CostSummary's transposed metric tables (single `value` column and compare scenario columns) set `sortable: false`. They are label/value tables, already exempt from Filter (spec B2.2). The user's ask covers "the needed tables". (Plan-time decision, 2026-10-24.)
 - Pipeline becomes: effective rows → filter → **sort** → page clamp → slice. With `sections`, rows are sorted within each section; section order is unchanged.
 - Sorting works on decorated items `{ row, originalIndex }` and never mutates or re-indexes the input array.
 - Every edit, delete and row-key callback still receives the **original** index or key. This is the critical rule for super tables.
@@ -195,7 +196,8 @@
 - So single and compare views cannot disagree.
 - Raw `bandCoverage` is never read directly.
 - The existing stale badge applies.
-- **Compare:** verify that Ch.5 with 2+ shared-band scenarios renders the band rows, and fix it if Ch.5 is excluded. Differing boundaries keep today's behaviour (rows omitted).
+- **Compare:** already renders band rows for Ch.5. The block (`CostSummaryTab.tsx:830-853`) is gated only on shared bands, never on `modelId`. Pinning tests cover 2+ shared-band Ch.5 scenarios. Differing boundaries keep today's behaviour (rows omitted).
+- **Out of scope:** the single-view Download uses the server-side costSummary export, so the new band rows do not appear in the downloaded file.
 
 **Done when**
 - A solved Ch.5 scenario shows band % rows equal to Compare's for the same result.
@@ -217,7 +219,7 @@
 | Plants | Add plant | ID\*, City, State, Lat\*, Lng\* | ID = `nextFreeId` | never |
 | Warehouses | Add warehouse | ID\*, City, State, Lat\*, Lng\*, Status\* | ID = `nextFreeId`, Status `active` | never |
 | Customers | Add customer | ID\*, City, State, Lat\*, Lng\*, Status\* | ID = `nextFreeId`, Status `active` | never |
-| Plant Capability | Add capability | Plant\* ▾, Product\* ▾, Capacity\*, Cost per unit\* | none | no plants or no products ("Add a plant and a product first.") |
+| Plant Capability | Add capability | Plant\* ▾, Product\* ▾, Capacity\*, Cost / unit\* (same label as the table column) | none | no plants or no products ("Add a plant and a product first.") |
 | Demand | Add demand | Customer\* ▾, Product\* ▾, Demand\* | none | no customers or no products ("Add a customer and a product first.") |
 | Distances | Add distance override | From\* ▾, To\* ▾, Miles\* | none | no plant→warehouse and no warehouse→customer pair possible ("Add warehouses with plants or customers first.") |
 
@@ -255,6 +257,8 @@
   - the copy action's " (copy)" suffix (`lib/superNetwork.ts:103`)
   - `LocationDraft` (`superNetwork.ts:62`) and `SuperEntityDialog`
   - the output-dataset projection (`Workspace.tsx:698-709`)
+  - `SuperInputMap.tsx:71,78`, which builds create/edit drafts with `name`
+  - `scripts/build-super-sample.py:12`, which generates `super-model-sample.json`; edit the generator, then regenerate
   - the samples (`public/samples/super-model-*.json`)
   - tests: `superNetwork.test.ts:27-64`, api `superNetworkImport.test.ts:65-68`, and e2e `super-model.spec.ts:267-277, 303-304, 323-325`, which edit, persist and assert names
 - Joins use `id` only.
@@ -294,7 +298,7 @@
 - When the result is unsolved or stale, the output map is replaced by a banner (`Workspace.tsx:4083-4097`).
 
 **Change**
-- **Adapter.** Extract `openSiteIds(result, modelId)` from `resultNarrative.ts`'s existing resolution into one shared helper. `resultNarrative` and the caption both use it, so there is one authority.
+- **Adapter.** Extract `openSiteIds(result, modelId): string[] | null` from `resultNarrative.ts`'s existing resolution into one shared helper. `null` means the field is absent, which the narrative needs to tell apart from "opened nothing". The caption treats `null` as empty. `resultNarrative` and the caption both use it, so there is one authority.
 - **Caption.** One line directly above the output map, for every model: `<Noun>: <label1>, …, <label5> +N more`.
   - Noun per model (decision L3), keyed by `modelId` in one map:
     - "Open warehouses": p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us
@@ -305,7 +309,7 @@
   - Order: ascending ID, numeric-aware.
   - With 5 or fewer open sites, all are listed and "+N more" is absent.
   - "+N more" is a button that expands to the full list; "Show fewer" collapses it.
-- **Visibility.** The caption renders only when the map itself renders, so not on the unsolved/stale/failed banner. It is hidden when there are zero open sites.
+- **Visibility.** The caption renders only where the map renders (not on the unsolved/stale banner) **and** only when the result shows an incumbent (`showIncumbent` in `OutputMapTab`). There is no separate failed banner, and failed results do reach the map. It is hidden when there are zero open sites.
 
 **Done when**
 - Every model's output map shows the correct caption, count and expand/collapse.
@@ -356,7 +360,9 @@
 **Change**
 - One rule block in `src/index.css` on `select:not([multiple]):not([size])`:
   - `appearance: none`
-  - an inline-SVG chevron background, 0.6rem from the right edge, using `currentColor`-equivalent theme token colours for both light and dark (the `--foreground`/`--muted-foreground` variables already in `index.css`)
+  - a chevron 0.6rem from the right edge, drawn as two `linear-gradient` triangles in `hsl(var(--muted-foreground))`. CSS variables do not resolve inside a `data:` SVG, and gradients follow the theme tokens with one rule.
+  - background from `--background`; `bg-white` is removed from the selects that carry it, so the chevron stays visible if `.dark` is ever applied
+  - The app currently has no dark-mode switch (nothing adds `.dark`). The "dark" check forces the class in the browser.
   - `padding-right: 2rem`
   - border, radius and focus ring from the existing input tokens
 - Table-cell selects (`superTables.tsx:106`, `h-7`) keep their height and get the same chevron and padding.
