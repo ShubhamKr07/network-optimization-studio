@@ -1239,11 +1239,12 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(screen.queryByText(/Solution Summary/)).not.toBeInTheDocument();
   });
 
-  it("hides the picker by default; the green Compare Scenario button shows and hides it", () => {
+  it("hides the picker by default; the outline Compare Scenario button shows and hides it", () => {
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     const toggle = screen.getByTestId("button-toggle-compare");
     expect(toggle).toHaveTextContent("Compare Scenario");
-    expect(toggle.className).toContain("bg-primary"); // Button default variant = the primary green token (index.css --primary)
+    expect(toggle.className).not.toContain("bg-primary"); // DU-2.5 Q4: outline variant, the header Run Optimizer is the one filled primary
+    expect(toggle.className).toContain("border");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("cost-summary-compare-toggles")).not.toBeInTheDocument();
     fireEvent.click(toggle);

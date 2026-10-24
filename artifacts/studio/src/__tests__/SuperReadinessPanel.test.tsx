@@ -16,6 +16,7 @@ describe("SuperReadinessPanel", () => {
     expect(screen.getByTestId("super-download-template")).toHaveAttribute("href", SUPER_TEMPLATE_URL);
     expect(screen.getByTestId("super-download-sample")).toHaveAttribute("href", SUPER_SAMPLE_URL);
     expect(screen.getByTestId("super-download-sample")).toHaveAttribute("download");
+    expect(screen.getByTestId("super-open-import").className).not.toContain("bg-primary");
     fireEvent.click(screen.getByTestId("super-open-import"));
     expect(onImport).toHaveBeenCalled();
   });

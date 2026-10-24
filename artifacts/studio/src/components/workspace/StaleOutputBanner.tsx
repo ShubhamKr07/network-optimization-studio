@@ -23,7 +23,7 @@ export function StaleOutputBanner({ onRunOptimizer }: StaleOutputBannerProps) {
       <p className="text-xs text-[color:var(--text-muted)] max-w-sm">
         This scenario's outputs no longer reflect its current inputs. Re-run the optimizer to see up-to-date results.
       </p>
-      <Button size="sm" onClick={onRunOptimizer} data-testid="button-stale-banner-run-optimizer">
+      <Button size="sm" variant="outline" onClick={onRunOptimizer} data-testid="button-stale-banner-run-optimizer">
         Run Optimizer
       </Button>
     </div>

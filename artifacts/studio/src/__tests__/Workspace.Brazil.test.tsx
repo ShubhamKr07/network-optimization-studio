@@ -339,7 +339,7 @@ describe("Workspace — p-median-brazil Output Map (T5, Bundle 2, Step 2)", () =
     // Full layer-toggle set, same as p-median-us's own Output Map.
     expect(screen.getByTestId("checkbox-toggle-warehouses")).toBeInTheDocument();
     expect(screen.getByTestId("checkbox-toggle-customers")).toBeInTheDocument();
-    expect(screen.getByTestId("checkbox-color-lanes-band")).toBeInTheDocument();
+    expect(screen.getByTestId("segment-lane-colour-band")).toBeInTheDocument();
     expect(routePathCount(container)).toBe(1);
   });
 

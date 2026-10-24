@@ -746,6 +746,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <Button
             type="button"
+            variant="outline"
             onClick={onSolve}
             disabled={solveDisabled || !!solveBlockedReason}
             data-testid={tid("button-tab-solve")}

@@ -2454,6 +2454,19 @@ describe("Workspace — header chapter/summary (B2.1-T3, items 4/5; Bundle 6 T2 
     );
   });
 
+  it("DU-2.5: header shows the chapter title and a description subtitle, each truncating on its own; the actions column does not", () => {
+    renderWorkspace();
+    const title = screen.getByTestId("workspace-chapter-title");
+    expect(title).toHaveTextContent("AL's Athletics");
+    expect(title.className).toContain("truncate");
+    const subtitle = screen.getByTestId("workspace-chapter-subtitle");
+    expect(subtitle).toHaveTextContent("Facility-location: choose which warehouses");
+    expect(subtitle).toHaveAttribute("title", expect.stringContaining("Facility-location"));
+    expect(subtitle.className).toContain("truncate");
+    expect(screen.getByTestId("button-run-optimizer").closest("div")!.className).not.toContain("truncate");
+    expect(screen.getByTestId("button-run-optimizer").className).toContain("bg-primary");
+  });
+
   it("item 4: renders the chapter+summary block for transport-coal too (a second model, not just p-median-us)", () => {
     const transportScenario = { ...scenario, id: 8, modelId: "transport-coal" };
     mockUseListScenarios.mockReturnValue({ data: [transportScenario] } as unknown as ReturnType<typeof useListScenarios>);
@@ -2601,7 +2614,7 @@ describe("Workspace — header grid layout (Bundle 6 T2)", () => {
       expect(screen.queryByTestId("button-logout")).not.toBeInTheDocument();
 
       const summary = screen.getByTestId("workspace-chapter-summary");
-      expect(summary.className).toContain("truncate");
+      expect(screen.getByTestId("workspace-chapter-title").className).toContain("truncate");
       expect(summary.className).toContain("min-w-0");
 
       const grid = screen.getByTestId("workspace-chapter-summary").closest('[class*="grid-cols-1"]') as HTMLElement;

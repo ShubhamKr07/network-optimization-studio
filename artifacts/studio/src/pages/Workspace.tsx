@@ -4505,11 +4505,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               const activeChapter = chapterForModelId(modelId);
               if (!activeChapter) return null;
               return (
-                <div data-testid="workspace-chapter-summary" className="min-w-0 truncate text-xs"
-                  title={`${activeChapter.chapter} · ${activeChapter.description}`}>
-                  <span className="scnd-kicker">{activeChapter.chapter}</span>
-                  <span className="text-[color:var(--ink-300)]"> · </span>
-                  <span className="scnd-display text-[color:var(--surface-band-fg)]">{activeChapter.description}</span>
+                <div data-testid="workspace-chapter-summary" className="min-w-0">
+                  <div className="flex items-baseline gap-1.5 min-w-0">
+                    <span className="scnd-kicker shrink-0">{activeChapter.chapter}</span>
+                    <span data-testid="workspace-chapter-title" className="scnd-display truncate text-[color:var(--surface-band-fg)]">{activeChapter.title}</span>
+                  </div>
+                  <div data-testid="workspace-chapter-subtitle" className="truncate text-2xs text-[color:var(--ink-300)]" title={activeChapter.description}>{activeChapter.description}</div>
                 </div>
               );
             })()}

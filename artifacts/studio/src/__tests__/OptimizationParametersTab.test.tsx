@@ -977,6 +977,7 @@ describe("OptimizationParametersTab — Solve button (QFX-3)", () => {
     const onSolve = vi.fn();
     renderTab({ showSolveButton: true, onSolve });
     const btn = screen.getByTestId("button-tab-solve");
+    expect(btn.className).not.toContain("bg-primary");
     expect(btn).toHaveTextContent("Solve");
     expect(btn).toBeEnabled();
     // last element of the tab: nothing renders after it

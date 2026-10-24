@@ -279,7 +279,7 @@ test.describe("DU-1.5 — Phase 1 real-browser QA", () => {
       try {
         await seedSolvedResult(page, id, loadFixture(modelId));
         await openOutputMap(page, chapter.path, id);
-        await page.getByTestId("checkbox-color-lanes-band").click({ timeout: HEADER_TIMEOUT });
+        await page.getByTestId("segment-lane-colour-leg").click({ timeout: HEADER_TIMEOUT });
         await expect.poll(async () => (await readLanes(page)).every(l => l.stroke === "var(--map-warehouse-open)" || l.stroke === "var(--danger)")).toBe(true);
         const lanes = await readLanes(page);
         const inbound = lanes.filter(l => l.stroke === "var(--map-warehouse-open)");

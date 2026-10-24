@@ -121,7 +121,7 @@ describe("OutputMapTab — layer toggles", () => {
     expect(getByTestId("checkbox-toggle-warehouses")).toHaveAttribute("aria-checked", "true");
     expect(getByTestId("checkbox-toggle-customers")).toHaveAttribute("aria-checked", "true");
     expect(getByTestId("checkbox-toggle-lanes")).toHaveAttribute("aria-checked", "true");
-    expect(getByTestId("checkbox-color-lanes-band")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("unchecking Warehouses removes warehouse markers but leaves customer markers and lanes untouched", () => {
@@ -205,7 +205,7 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     const { getByTestId, container } = render(
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
     );
-    fireEvent.click(getByTestId("checkbox-color-lanes-band"));
+    fireEvent.click(getByTestId("segment-lane-colour-none"));
 
     const html = routePaneHtml(container);
     // Both edges (100mi and 900mi — normally different bands) must render
@@ -228,12 +228,35 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     expect(html.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
   });
 
-  it("the Color-by-band checkbox is disabled once Lanes itself is off", () => {
+  it("lane colour offers Distance band + Leg on two-echelon models with band pressed; clicking Leg clears band colouring", () => {
+    const { getByTestId, queryByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="two-echelon-jade-us" />,
+    );
+    expect(getByTestId("segmented-lane-colour")).toHaveAttribute("role", "group");
+    expect(queryByTestId("segment-lane-colour-none")).toBeNull();
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true");
+    expect(getByTestId("segment-lane-colour-leg")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(getByTestId("segment-lane-colour-leg"));
+    expect(getByTestId("segment-lane-colour-leg")).toHaveAttribute("aria-pressed", "true");
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "false");
+    expect(routePaneHtml(container).toLowerCase()).not.toContain(getBandColor(-1).toLowerCase());
+  });
+
+  it("lane colour offers Distance band + None on p-median", () => {
+    const { getByTestId, queryByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us" />,
+    );
+    expect(getByTestId("segment-lane-colour-none")).toHaveTextContent("None");
+    expect(queryByTestId("segment-lane-colour-leg")).toBeNull();
+  });
+
+  it("the lane-colour control is disabled once Lanes itself is off", () => {
     const { getByTestId } = render(
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
     );
     fireEvent.click(getByTestId("checkbox-toggle-lanes"));
-    expect(getByTestId("checkbox-color-lanes-band")).toBeDisabled();
+    expect(getByTestId("segment-lane-colour-band")).toBeDisabled();
+    expect(getByTestId("segment-lane-colour-none")).toBeDisabled();
   });
 });
 
@@ -436,7 +459,7 @@ describe("OutputMapTab — per-leg lane visibility toggles (jade-T15.6)", () => 
     // colors. Turn it off so this test can keep identifying the surviving
     // route by its LEG color (the thing this test is actually about —
     // visibility filtering, not color-mode selection).
-    fireEvent.click(screen.getByTestId("checkbox-color-lanes-band"));
+    fireEvent.click(screen.getByTestId("segment-lane-colour-none"));
     fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
 
     expect(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse")).toHaveAttribute("aria-checked", "false");

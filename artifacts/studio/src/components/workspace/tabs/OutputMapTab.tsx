@@ -147,7 +147,7 @@ export function OutputMapTab({
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
   const [showPlants, setShowPlants] = useState(true);
-  const [colorByBand, setColorByBand] = useState(true);
+  const [laneColour, setLaneColour] = useState<"band" | "leg" | "none">("band");
   const mapRef = useRef<HTMLDivElement>(null);
   const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
 
@@ -207,7 +207,8 @@ export function OutputMapTab({
       : `${formatDistanceDisplay(unit.toDisplay(canonicalValue, distanceUnit))} ${unit.effectiveUnit(distanceUnit)}`;
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
-  const mapBands = colorByBand ? effectiveBands : [];
+  const otherLaneColour = modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "super-model" ? "leg" : "none";
+  const mapBands = laneColour === "band" ? effectiveBands : [];
 
   // ch5-edit-12 — infeasible/no_solution/unbounded/error all carry a
   // meaningless `objective: 0`/`weightedAvgDistance: 0` sentinel from
@@ -357,15 +358,23 @@ export function OutputMapTab({
             <Label htmlFor="output-map-toggle-plants" className="text-xs">Plants</Label>
           </div>
         )}
-        <div className="flex items-center gap-1.5 pl-3 border-l">
-          <Checkbox
-            id="output-map-color-by-band"
-            checked={colorByBand}
-            onCheckedChange={checked => setColorByBand(checked === true)}
-            disabled={!showLanes}
-            data-testid="checkbox-color-lanes-band"
-          />
-          <Label htmlFor="output-map-color-by-band" className="text-xs">Color lanes: Distance band</Label>
+        <div role="group" aria-label="Lane colour" data-testid="segmented-lane-colour" className="flex items-center gap-1.5 pl-3 border-l">
+          <span className="text-xs">Lane colour</span>
+          <div className="inline-flex rounded-md border overflow-hidden">
+            {([["band", "Distance band"], [otherLaneColour, otherLaneColour === "leg" ? "Leg" : "None"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={laneColour === value}
+                disabled={!showLanes}
+                onClick={() => setLaneColour(value)}
+                data-testid={`segment-lane-colour-${value}`}
+                className={`min-h-6 px-2 text-xs disabled:opacity-50 ${laneColour === value ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         {showLegToggles && (
           <div className="flex items-center gap-3 pl-3 border-l" data-testid="output-map-leg-toggles">

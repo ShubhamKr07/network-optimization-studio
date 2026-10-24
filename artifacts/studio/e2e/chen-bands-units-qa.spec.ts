@@ -322,7 +322,7 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       // to assign a customer to any open warehouse, not necessarily its
       // nearest.)
       await page.getByTestId("sidebar-output-output-map").click();
-      await expect(page.getByTestId("checkbox-color-lanes-band")).toBeChecked({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true", { timeout: HEADER_TIMEOUT });
       const overflowPathsBefore = page.locator('path.leaflet-interactive[stroke="var(--band-overflow)"]');
       await expect(overflowPathsBefore).toHaveCount(0);
 
@@ -357,7 +357,7 @@ test.describe("chen-bands-units QA — free band editor, overflow bucket, live r
       // 1000 mi boundary must already recolor overflow lanes (>1000 mi),
       // proving this is a client-side reporting lens, not tied to a re-solve.
       await page.getByTestId("sidebar-output-output-map").click();
-      await expect(page.getByTestId("checkbox-color-lanes-band")).toBeChecked({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true", { timeout: HEADER_TIMEOUT });
       const overflowPathsAfter = page.locator('path.leaflet-interactive[stroke="var(--band-overflow)"]');
       await expect(async () => {
         expect(await overflowPathsAfter.count()).toBeGreaterThan(0);

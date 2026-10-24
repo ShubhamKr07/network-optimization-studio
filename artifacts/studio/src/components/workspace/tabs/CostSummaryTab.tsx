@@ -464,6 +464,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           <Button
             type="button"
             size="sm"
+            variant="outline"
             data-testid="button-toggle-compare"
             aria-expanded={pickerOpen}
             aria-controls="cost-summary-compare-toggles"
