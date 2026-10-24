@@ -1,7 +1,7 @@
 # Quick Fixes Bundle (QFX) — Design
 
 **Date:** 2026-10-24
-**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) folded; product decisions L1–L3 pending
+**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) folded; product decisions L1–L3 decided 2026-10-24
 **Scope:** 10 UI quick fixes across the Studio workspace. All are frontend except QFX-7, the one cross-layer item: removing `name` from super-model location rows touches the server validator.
 **Decision record:** `.lavish/quick-fixes-findings.html` (gitignored scratch). The decisions are restated normatively below, and this document is the authority.
 
@@ -87,9 +87,12 @@
   - **XLSX:** first sheet only. The sheet name is ignored on upload; download has one sheet named `<table file>`.
   - **JSON:** an object `{ "<tableKey>": [rows] }`, the same shape as the whole-network document restricted to one key. On upload, any other key is an error: "This file must contain only <tableKey>." A bare array is rejected with the same message.
 - **Parsing.** Reuse `superFiles.ts` (`readSheet` with the table's `Col[]`). Add a `parseSuperTableFile(tableKey, file)` entry point that does not route by filename or sheet name.
-- **Write semantics:** **decision L1 (pending).** The recommended option, and the only one that keeps road distances, is to *replace that table in the draft*. The user reviews the change, then presses Save, which goes through the normal input-write path like any inline edit.
-  - Rejected: a full-document `PUT …network?mode=replace`. It resets omitted tables to defaults and clears the road-distance cache (`routes/superNetwork.ts:54`, `roadDistances: "clear"`).
-  - The alternative under L1 is `mode=merge`: upsert by key, never delete (`services/superNetwork.ts:40-54`).
+- **Write semantics (decision L1).** After a file parses without errors, a dialog asks the user how to apply it. Both choices write **only the draft**; nothing is persisted until the user presses Save, which goes through the normal input-write path like any inline edit.
+  - **Replace table:** the table's rows become exactly the file's rows. Rows missing from the file are removed.
+  - **Merge (upsert):** a file row whose key matches an existing row overwrites that row in place. A new key is appended. Existing rows not in the file are kept. Keys are the server's `KEY` (`services/superNetwork.ts`): `id` for products and locations; `(plantId, productId)`, `(customerId, productId)` and `(fromId, toId)` for the pair tables.
+  - The dialog shows the counts each choice would produce: "Replace: N rows (M removed)" and "Merge: A added, U updated, K kept". It has buttons **Replace**, **Merge** and **Cancel**. Cancel leaves the draft untouched.
+  - Parse errors show in the dialog's place, and no choice is offered.
+  - Rejected: writing through `PUT …network?mode=replace`. It resets omitted tables to defaults and clears the road-distance cache (`routes/superNetwork.ts:54`, `roadDistances: "clear"`).
 - **Validation.** Cross-table errors are reported on Save through `describeWriteError` like any other write (e.g. demand still referencing a removed customer).
 
 **Done when**
@@ -122,7 +125,10 @@
 - The max-coverage `paramsSlot` instance embedded in `SolveDialog` (`:4672-4675`) does **not** pass `showSolveButton`, because the dialog has its own Solve.
 - When `solveBlockedReason` is non-null, it is shown under the button and the button is disabled.
 - The header "Run Optimizer" keeps opening `SolveDialog` unchanged (user decision).
-- **Super readiness:** **decision L2 (pending).**
+- **Super readiness (decision L2): block both buttons.** For the super model, `solveBlockedReason` (the single shared input) is also set from the server precheck that `SuperReadinessPanel` renders (`Workspace.tsx:1561`, `usePrecheckScenario`). The rule: when the draft is **clean** and `precheck.errors` is non-empty, `solveBlockedReason` is "Fix the readiness issues above before solving." plus the first error message. That one value disables **both** the tab Solve and the `SolveDialog` Solve, and is shown under each.
+  - When the draft is **dirty**, the precheck describes the saved row rather than the draft, so it does not block. `handleSolve` saves first and the server rejects an invalid solve as it does today. Precheck refetches after the save.
+  - When the precheck is loading or fails to load, it does not block.
+  - The max-coverage objective hint keeps priority when both apply (only max-coverage can produce that hint, so they never collide in practice).
 
 **Done when**
 - The tab's Solve starts a solve with no dialog for all 7 chapter models plus super.
@@ -275,7 +281,11 @@
 **Change**
 - **Adapter.** Extract `openSiteIds(result, modelId)` from `resultNarrative.ts`'s existing resolution into one shared helper. `resultNarrative` and the caption both use it, so there is one authority.
 - **Caption.** One line directly above the output map, for every model: `<Noun>: <label1>, …, <label5> +N more`.
-  - The noun per model is **decision L3 (pending)**.
+  - Noun per model (decision L3), keyed by `modelId` in one map:
+    - "Open warehouses": p-median-us, p-median-brazil, max-coverage-us, delivery-teaching-us
+    - "Open mines": transport-coal
+    - "Open facilities": two-echelon-gold-au, two-echelon-jade-us, super-model
+    - An unknown model falls back to "Open sites".
   - Label = `displayId · City, ST`, using the same display-code and city/state fields the tooltip uses (no type prefix, no customer count). City is omitted if absent.
   - Order: ascending ID, numeric-aware.
   - With 5 or fewer open sites, all are listed and "+N more" is absent.
@@ -344,6 +354,8 @@
   - tab Solve calls `handleSolve`, opens no dialog, and is absent from the embedded max-coverage instance
   - XLSX→CSV conversion, the two workbook error messages, and per-table super round-trip (CSV/JSON/XLSX)
   - per-table JSON with a wrong key is rejected
+  - L1 dialog: Replace and Merge counts and results per pair-key table; Cancel leaves the draft unchanged
+  - L2: a clean draft with precheck errors disables both Solve buttons; a dirty draft does not
   - each Add form's validation, defaults and disabled-source message
   - name-less location rows and legacy `name` column import
   - caption ordering, "+N more" and `openSiteIds` per model
