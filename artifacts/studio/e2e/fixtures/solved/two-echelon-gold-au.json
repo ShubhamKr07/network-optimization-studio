@@ -1,0 +1,240 @@
+{
+  "edges": [
+    {
+      "leg": "mine_to_refinery",
+      "band": 2,
+      "flow": 8140000,
+      "toId": "cunnamulla",
+      "fromId": "kalgoorlie",
+      "distance": 1464.538208
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 500000,
+      "toId": "sydney",
+      "fromId": "cunnamulla",
+      "distance": 610.4768065336423
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 1000000,
+      "toId": "melbourne",
+      "fromId": "cunnamulla",
+      "distance": 794.893579915611
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 750000,
+      "toId": "brisbane",
+      "fromId": "cunnamulla",
+      "distance": 532.1678895606277
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 850000,
+      "toId": "adelaide",
+      "fromId": "cunnamulla",
+      "distance": 743.4459746688292
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 900000,
+      "toId": "canberra",
+      "fromId": "cunnamulla",
+      "distance": 636.5305273993972
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 650000,
+      "toId": "newcastle",
+      "fromId": "cunnamulla",
+      "distance": 581.3653948872694
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 500000,
+      "toId": "sunshine-coast",
+      "fromId": "cunnamulla",
+      "distance": 531.1082797489862
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 850000,
+      "toId": "townsville",
+      "fromId": "cunnamulla",
+      "distance": 722.6628595437319
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 650000,
+      "toId": "cairns",
+      "fromId": "cunnamulla",
+      "distance": 908.5788876427208
+    },
+    {
+      "leg": "refinery_to_customer",
+      "band": 1,
+      "flow": 750000,
+      "toId": "bendigo",
+      "fromId": "cunnamulla",
+      "distance": 714.2678283254355
+    }
+  ],
+  "status": "optimal",
+  "details": {
+    "bomRatio": 1.1,
+    "assignments": [
+      {
+        "band": 1,
+        "flowKg": 500000,
+        "customerId": "sydney",
+        "distanceMi": 610.4768065336423,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 1000000,
+        "customerId": "melbourne",
+        "distanceMi": 794.893579915611,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 750000,
+        "customerId": "brisbane",
+        "distanceMi": 532.1678895606277,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 850000,
+        "customerId": "adelaide",
+        "distanceMi": 743.4459746688292,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 900000,
+        "customerId": "canberra",
+        "distanceMi": 636.5305273993972,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 650000,
+        "customerId": "newcastle",
+        "distanceMi": 581.3653948872694,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 500000,
+        "customerId": "sunshine-coast",
+        "distanceMi": 531.1082797489862,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 850000,
+        "customerId": "townsville",
+        "distanceMi": 722.6628595437319,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 650000,
+        "customerId": "cairns",
+        "distanceMi": 908.5788876427208,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      },
+      {
+        "band": 1,
+        "flowKg": 750000,
+        "customerId": "bendigo",
+        "distanceMi": 714.2678283254355,
+        "warehouseId": "cunnamulla",
+        "flowFraction": 1
+      }
+    ],
+    "openWarehouseIds": [
+      "cunnamulla"
+    ]
+  },
+  "metrics": {
+    "bandCoverage": [
+      {
+        "band": 500,
+        "percent": 0
+      },
+      {
+        "band": 1000,
+        "percent": 100
+      },
+      {
+        "band": 1500,
+        "percent": 100
+      },
+      {
+        "band": 2000,
+        "percent": 100
+      },
+      {
+        "band": 2600,
+        "percent": 100
+      }
+    ],
+    "avgDistanceByLeg": [
+      {
+        "leg": "mine_to_refinery",
+        "totalFlow": 8140000,
+        "avgDistance": 1464.5
+      },
+      {
+        "leg": "refinery_to_customer",
+        "totalFlow": 7400000,
+        "avgDistance": 687.6
+      }
+    ],
+    "utilizationByNode": [
+      {
+        "city": "Daggar Hills",
+        "utilization": 0,
+        "warehouseId": "daggar-hills"
+      },
+      {
+        "city": "Cunnamulla",
+        "utilization": 100,
+        "warehouseId": "cunnamulla"
+      }
+    ],
+    "weightedAvgDistance": 1094.6
+  },
+  "quality": "Optimal",
+  "objective": 386576.99,
+  "runTimeSec": 2.54,
+  "solverUsed": "CBC (PuLP)",
+  "achievedGap": null,
+  "solutionStatus": "optimal",
+  "solverBestBound": null,
+  "terminationReason": "optimality_proven",
+  "infeasibilityReason": null,
+  "solverIncumbentObjective": 386576.99299947
+}

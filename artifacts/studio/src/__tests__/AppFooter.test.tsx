@@ -33,7 +33,7 @@ describe("AppFooter", () => {
     const footer = screen.getByTestId("app-footer");
     expect(footer.className).toContain("border-t");
     expect(footer.className).toContain("border-[color:var(--line)]");
-    expect(footer.className).toContain("text-[color:var(--text-faint)]");
+    expect(footer.className).toContain("text-[color:var(--text-muted)]");
     expect(footer.className).toContain("font-mono");
   });
 });
