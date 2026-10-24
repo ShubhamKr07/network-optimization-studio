@@ -1,6 +1,7 @@
 import type { Edge, SolveResult } from "@workspace/api-client-react";
 import { bandDecimals, computeExclusiveBandCoverage, serviceEdgesFor } from "@/lib/bands";
 import { classifyResultOutcome, hasIncumbent } from "@/lib/resultOutcome";
+import { openSiteIds } from "@/lib/openSites";
 
 // NAR-1 (spec 2026-10-17-output-narrative-rewrite-design.md) — the Output
 // Map's plain-language reading of the DISPLAYED result: 2-4 sentences, every
@@ -42,10 +43,6 @@ export function legLabel(leg: string): string {
 const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
 const word = (n: number) => WORDS[n] ?? String(n);
 const grouped = (n: number) => n.toLocaleString("en-US");
-
-function stringIds(value: unknown): string[] | null {
-  return Array.isArray(value) && value.every(v => typeof v === "string") ? (value as string[]) : null;
-}
 
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -112,7 +109,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
     const total = finite(metrics.totalCost);
     const pw = finite(metrics.avgDistPlantToWh);
     const wc = finite(metrics.avgDistWhToCustomer);
-    const ids = stringIds(metrics.openFacilityIds);
+    const ids = openSiteIds(result, modelId);
     if (total == null || pw == null || wc == null || !ids) return null;
     const cost = `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return { text: `Opened ${ids.length} ${ids.length === 1 ? "warehouse" : "warehouses"}. Total cost ${cost}; plant\u2192warehouse shipments average ${dist(pw)} and warehouse\u2192customer deliveries ${dist(wc)}.` };
@@ -149,7 +146,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
   };
   const away = (range: string) => (range.startsWith("within") ? range : `${range} away`);
 
-  const openIds = stringIds(details.openWarehouseIds) ?? stringIds(metrics.openFacilityIds);
+  const openIds = openSiteIds(result, modelId);
   if (!openIds) return null;
   const open = openIds.map(name);
   const n = openIds.length;

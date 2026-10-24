@@ -4693,3 +4693,15 @@ Add appends to the draft only, with no auto-save. `SuperTableTab` and `SuperDist
 ### QFX-5 - Chapter 5: % demand within each distance band
 
 `CostSummaryTab.tsx`: the `delivery-teaching-us` single-scenario summary gains one row per distance band plus the overflow row (test ids `cost-summary-band-${band}`, overflow `cost-summary-band--1`), inserted after Weighted avg. distance. Values are EXCLUSIVE % of demand from solve.py's frozen cumulative `metrics.bandCoverage`, via two component-local helpers now shared with Compare — `bandRowLabels` (`exclusiveBandLabels`) and `exclusiveBands` (`frozenBandCoverageToExclusive(…, bandDecimals, frozenBandShape)`) — so the single view and Compare cannot disagree (test asserts equality). Rows are skipped while the canonical unit is unresolved (labels would all be "—", and the label is the DataTable row key). Compare was verified, not changed: its band block is gated only on shared boundaries, never modelId, so Ch.5 already rendered; a 3-scenario pinning test and a differing-boundaries test were added. The server-side costSummary export (Download) is unchanged and does not carry the band rows. Tests: fail-first 2 failed / 94 passed (96) in CostSummaryTab.test.tsx; after: CostSummaryTab.test.tsx 96/96, CostSummaryTab.Super.test.tsx 3/3, Workspace.TabCoverage.test.tsx 17/17 (116 total); typecheck clean.
+
+### QFX-8 - Output map caption: open site labels
+
+- `lib/openSites.ts` (new): `openSiteIds(result, modelId)` is the one per-model open-site authority, extracted unchanged from `resultNarrative.ts` and now imported by it. Rule: super-model uses `metrics.openFacilityIds`; every other model uses `details.openWarehouseIds ?? metrics.openFacilityIds`.
+  - It returns `string[] | null` (the plan contract said `string[]`). `null` = field absent, so the narrative still renders nothing then; `resultNarrative.test.ts` passes unmodified.
+  - `OPEN_SITE_NOUN` (decision L3) + fallback "Open sites".
+- `components/workspace/OpenSitesCaption.tsx` (new), mounted in `OutputMapTab` between `FloorExceedsMaxAlert` and the map node (outside the PNG capture).
+  - Text: `<Noun>: displayId · City, ST, …`, sorted by the displayed id (numeric-aware), at most 5 shown, then a "+N more" / "Show fewer" toggle (`aria-expanded`).
+  - Hidden pre-solve, on failed results (`showIncumbent` gate), and with zero open sites. The stale/unsolved banner returns before `OutputMapTab` mounts (`Workspace.tsx:4090-4092`), so the caption cannot render there.
+- Labels reuse the solved `outputIdentityById` already passed to the tab. No new data plumbing.
+- Tests: `openSites.test.ts` (real envelopes for all 8 models + precedence), `OpenSitesCaption.test.tsx`, plus caption cases in `OutputMapTab.test.tsx` and `Workspace.OutputMap.test.tsx`.
+- Measured: openSites 14, OpenSitesCaption 19, resultNarrative 34 (unmodified), OutputMapTab 53, Workspace.OutputMap 7, rawErrorMessageSurface 3 = 130 passed; fail-first run showed 2 import-resolve file failures + 2 caption-present test failures.
