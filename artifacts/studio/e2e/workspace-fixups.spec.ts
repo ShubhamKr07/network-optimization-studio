@@ -540,6 +540,8 @@ test.describe("Workspace fixups — p-median-us (inline add-on-map -> Save flow)
       // artifact.
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Input Map seed lands first (Workspace.tsx didSeedTabRef effect); see WFX-RACE.
+      await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-warehouses").click();
       await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const reloadedSection = page.getByTestId("added-warehouses-section");
