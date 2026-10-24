@@ -1,6 +1,6 @@
 # Design Upgrade Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Execution: agent-team dispatch per `AGENTS.md`** (user decision 2026-10-24; not `superpowers:subagent-driven-development`). The lead (Opus session) dispatches `frontend-engineer` (sonnet) for DU-1.1–1.4 and reviews each one directly on Opus plus `ponytail-review`. `qa-sdet` (sonnet) runs DU-1.5 and is reviewed by a separate `fable`-model reviewer agent. Each task gets a lead-pre-created locked worktree (`git worktree add --lock <path> -b du-1.N-work <base-sha>`), dispatched **without** `isolation`. The agent's first command is `cd <path>` plus a branch check, and the lead cherry-picks the commit onto `design-upgrade-p1`. Each brief explicitly hands frontend-engineer its task's test files, since tests are qa-sdet's domain by default. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement spec `docs/superpowers/specs/2026-10-24-design-upgrade-design.md` (v2, `ac7cb1ec`). The spec fixes meaning colours, tokens, formats, tables, map interactions, multi-echelon reporting, dark mode and autosave across all 8 chapters. The brand stays olive/ink.
 
@@ -1037,6 +1037,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Phase 1 close-out
 
 - [ ] Run `/harness-retro DU-1`.
+- [ ] **Coordinate with the Super Model session (QFX bundle)** before any merge, push or deploy. Agreed order: QFX merges to `main` first. Then rebase `design-upgrade-p1` onto the merged `main` and resolve the overlaps: `index.css` (QFX-10 select rule), `WarehousesTab.tsx`/`CustomersTab.tsx` (QFX `sortable: false`), and any QFX code the DU guards flag. Then re-run `pnpm gate` and the DU-1.5 e2e spec before asking for merge.
 - [ ] Invoke `superpowers:finishing-a-development-branch`.
 - [ ] **STOP and ask the user for merge approval.** Don't merge, push or deploy without explicit, separate approvals. If the merge is approved: merge to local `main`, run the whole-branch review on the merged state, fix any findings **on `design-upgrade-p1`** (step 5a), and only then ask about the push.
 - [ ] After Phase 1 merges: write `docs/superpowers/plans/2026-10-24-design-upgrade-phase-2.md` against the merged code, using the interfaces fixed in §A.
