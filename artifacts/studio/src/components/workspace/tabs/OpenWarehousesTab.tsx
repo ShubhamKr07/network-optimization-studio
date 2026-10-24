@@ -210,7 +210,7 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
             download: (
               <DownloadMenu
                 testId="button-download-open-warehouses"
-                itemTestIds={{ csv: "button-download-open-warehouses-csv", json: "button-download-open-warehouses-json" }}
+                itemTestIds={{ csv: "button-download-open-warehouses-csv", json: "button-download-open-warehouses-json", xlsx: "button-download-open-warehouses-xlsx" }}
                 onDownload={format => download("openWarehouses", format)}
                 disabledReason={disabledReasonFor("openWarehouses")}
               />

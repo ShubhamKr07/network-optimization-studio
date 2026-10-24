@@ -4597,3 +4597,23 @@ Samples: `scripts/build-super-sample.py` no longer emits location `name`, and `s
 - Deviations from the spec's file list: `SuperInputMap.tsx:71,78` (built drafts with `name`) and `scripts/build-super-sample.py` (the sample's generator).
 - Tests: new populated real-shape API test in `superNetworkImport.test.ts` (sample's 129 locations, every other row with a legacy `name`); new studio tests for the legacy column (CSV + XLSX), export header, dialog, name-less `+ Add row`, legacy-row edit, copy; fixture sweep across api-server super tests, `test_super.py` and studio super tests; `e2e/super-model.spec.ts` updated (not run, no local servers).
 - Gate (measured): studio 9 files / 109 passed; api-server 8 files / 81 passed; `test_super.py` 10 passed; `e2e_accuracy.py` 99/99; `pnpm run typecheck` clean.
+
+### QFX-2a - XLSX in every chapter per-table menu
+
+`DownloadFormat` is now `"csv" | "json" | "xlsx"`, and `DownloadMenu` shows CSV / JSON / XLSX. Every per-table menu carries a literal `-xlsx` testid:
+- input tables: `button-import-{t}-xlsx` / `button-export-{t}-xlsx`
+- result tables: `button-download-<table>-xlsx`
+
+XLSX never reaches the API, so the OpenAPI export enum stays `csv | json`.
+- **Server-built downloads.** `downloadEntityExport` fetches the CSV export with the same `unit`/`runId`.
+- **Client-built downloads** (JADE flows, Cost Summary compare) pass the CSV text they already build.
+- `downloadAs` (now async) writes the workbook with the new `lib/xlsxFile.ts` `csvTextToXlsxBlob`. That module is reached only via dynamic import, so SheetJS stays in its own chunk.
+- **Cell typing.** Only fields matching `^-?(0|[1-9]\d*)(\.\d+)?$` become number cells.
+- **Formula guard.** The server CSV's `'` formula guard is kept verbatim, so XLSX -> CSV -> server import round-trips like a CSV file.
+
+**Upload.** `ImportDialog` `format="xlsx"` converts the first sheet with `xlsxFileToCsvText` (`sheet_to_csv` with `rawNumbers: true` for full precision, and `blankrows: false`) and sends the same `{ entity, csvText }` a CSV upload sends.
+- New messages: "The workbook has no sheets.", "The first sheet is empty.", "The file is not a readable .xlsx workbook." and "Could not read the file."
+
+**Shared helpers.** `readFileAs` moved from `SuperNetworkImportDialog.tsx` to `lib/superFiles.ts`; `XLSX_MIME` moved from `lib/superNetwork.ts` to `lib/clientCsv.ts`. Legacy `pages/Studio.tsx` is out of scope (spec).
+
+**Tests (measured).** New `xlsxFile.test.ts`; XLSX cases added to `DownloadMenu`, `exportEntity`, `ExportContext`, `entityFileMenus`, `ImportDialog`, `JadeFlowsTab`. The 12 related files (incl. `mutationErrorSurface`, `rawErrorMessageSurface`, `superFiles`, `SuperNetworkImportDialog`, `CostSummaryTab`): 12 files / 261 passed. `pnpm run typecheck` clean. jsdom has no `URL.createObjectURL`, so the two download tests stub it instead of `vi.spyOn`. `CostSummaryTab.test.tsx` `downloadAs` spies now `mockResolvedValue(undefined)` (the function is async). Rollback point: this commit.

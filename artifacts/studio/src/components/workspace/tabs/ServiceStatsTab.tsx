@@ -325,7 +325,7 @@ export function ServiceStatsTab({
             `serviceStats`); outside DataTable: it exports the whole tab. */}
         <DownloadMenu
           testId="button-download-service-stats"
-          itemTestIds={{ csv: "button-download-service-stats-csv", json: "button-download-service-stats-json" }}
+          itemTestIds={{ csv: "button-download-service-stats-csv", json: "button-download-service-stats-json", xlsx: "button-download-service-stats-xlsx" }}
           onDownload={format => download("serviceStats", format)}
           disabledReason={disabledReasonFor("serviceStats")}
         />

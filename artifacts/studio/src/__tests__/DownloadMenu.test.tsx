@@ -4,16 +4,17 @@ import userEvent from "@testing-library/user-event";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 
-const ids = { csv: "button-download-x-csv", json: "button-download-x-json" };
+const ids = { csv: "button-download-x-csv", json: "button-download-x-json", xlsx: "button-download-x-xlsx" };
 
 describe("DownloadMenu (SCU-2.P3, spec B2.4)", () => {
-  it("renders only the trigger until opened; items carry the literal testids", () => {
+  it("renders only the trigger until opened; items carry the literal testids (QFX-2a: + XLSX)", () => {
     render(<DownloadMenu testId="button-download-x" itemTestIds={ids} onDownload={() => {}} />);
     expect(screen.getByTestId("button-download-x")).toHaveTextContent("Download");
     expect(screen.queryByTestId("button-download-x-csv")).toBeNull();
     fireEvent.click(screen.getByTestId("button-download-x"));
     expect(screen.getByTestId("button-download-x-csv")).toHaveTextContent("CSV");
     expect(screen.getByTestId("button-download-x-json")).toHaveTextContent("JSON");
+    expect(screen.getByTestId("button-download-x-xlsx")).toHaveTextContent("XLSX");
   });
 
   it("reports the chosen format and closes", () => {
@@ -24,6 +25,8 @@ describe("DownloadMenu (SCU-2.P3, spec B2.4)", () => {
     expect(screen.queryByTestId("button-download-x-json")).toBeNull();
     chooseDownload("button-download-x", "button-download-x-csv");
     expect(onDownload).toHaveBeenLastCalledWith("csv");
+    chooseDownload("button-download-x", "button-download-x-xlsx");
+    expect(onDownload).toHaveBeenLastCalledWith("xlsx");
   });
 
   it("disabledReason disables the trigger and is its title", () => {

@@ -34,6 +34,14 @@ const EMPTY: Cell = { kind: "empty" };
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 const GUARDED = /^'[=+\-@\t\r]/;                       // reverses clientCsv.ts csvCell's prefix
 
+/** FileReader, not File.text()/arrayBuffer(): jsdom's File has neither. Shared by every in-browser file parser. */
+export const readFileAs = (file: File, how: "text" | "buffer") => new Promise<string | ArrayBuffer>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(r.result as string | ArrayBuffer);
+  r.onerror = () => reject(r.error);
+  if (how === "text") r.readAsText(file); else r.readAsArrayBuffer(file);
+});
+
 function asText(cell: Cell, csv: boolean): string | null | { error: string } {
   if (cell.kind === "bad") return { error: cell.why };
   if (cell.kind === "number") return String(cell.v);

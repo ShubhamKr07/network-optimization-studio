@@ -108,3 +108,24 @@ describe("downloadEntityExport — 409 LEGACY_RESULT_REQUIRES_RESOLVE resolve pr
     );
   });
 });
+
+describe("downloadEntityExport — xlsx (QFX-2a: built in the browser from the CSV export)", () => {
+  it("fetches the CSV export with the same unit/runId and saves <entity>.xlsx built from it", async () => {
+    const created = vi.mocked(URL.createObjectURL);   // beforeEach stubbed URL (jsdom has no createObjectURL)
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); });
+    mockExportScenario.mockResolvedValue("id,lat\n007,33.75\n");
+    await downloadEntityExport(3, "warehouses", "xlsx", { unit: "km", runId: 9 });
+    expect(mockExportScenario).toHaveBeenCalledWith(3, { entity: "warehouses", format: "csv", unit: "km", runId: 9 });
+    expect(names).toEqual(["warehouses.xlsx"]);
+    expect((created.mock.calls[0]![0] as Blob).type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(mockToast).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("the 409 resolve prompt still applies to an xlsx export", async () => {
+    mockExportScenario.mockRejectedValue(make409("LEGACY_RESULT_REQUIRES_RESOLVE"));
+    await downloadEntityExport(1, "assignments", "xlsx");
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Re-solve to export" }));
+  });
+});

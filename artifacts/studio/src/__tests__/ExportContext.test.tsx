@@ -175,6 +175,16 @@ describe("useExport", () => {
       expect(mockedDownload).toHaveBeenCalledWith(5, "warehouses", "json", { unit: "mi", runId: 12 });
     });
 
+    it("forwards xlsx unchanged with the same unit and runId (QFX-2a; the helper fetches CSV)", async () => {
+      const { result } = renderHook(() => useExport(), {
+        wrapper: exportProviderWrapper({ scenarioId: 5, unit: "mi", runId: 12 }),
+      });
+      await act(async () => {
+        await result.current.download("assignments", "xlsx");
+      });
+      expect(mockedDownload).toHaveBeenCalledWith(5, "assignments", "xlsx", { unit: "mi", runId: 12 });
+    });
+
     it("omits runId when it is not injected (undefined, not a made-up default)", async () => {
       const { result } = renderHook(() => useExport(), {
         wrapper: exportProviderWrapper({ scenarioId: 5, unit: "mi" }),

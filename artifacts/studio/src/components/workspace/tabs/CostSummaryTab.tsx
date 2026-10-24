@@ -602,7 +602,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         {summaryBar(
           <DownloadMenu
             testId="button-download-cost-summary"
-            itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
+            itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json", xlsx: "button-download-cost-summary-xlsx" }}
             onDownload={format => download("costSummary", format)}
             disabledReason={disabledReasonFor("costSummary")}
           />,
@@ -863,12 +863,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       {summaryBar(
         <DownloadMenu
           testId="button-download-cost-summary"
-          itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
+          itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json", xlsx: "button-download-cost-summary-xlsx" }}
           onDownload={format =>
-            downloadAs(
+            void downloadAs(
               "cost-summary-compare",
               format,
-              format === "csv" ? buildCompareCsv(compareRows, compareScenarios) : buildCompareJson(compareRows, compareScenarios, unitLabel),
+              format === "json" ? buildCompareJson(compareRows, compareScenarios, unitLabel) : buildCompareCsv(compareRows, compareScenarios),
             )
           }
         />,

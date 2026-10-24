@@ -1246,7 +1246,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   });
 
   it("in compare mode, Download CSV (right of the bar) downloads the comparison table as cost-summary-compare.csv", () => {
-    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockResolvedValue(undefined);
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
     const bar = screen.getByTestId("cost-summary-bar");
@@ -1275,7 +1275,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   });
 
   it("compare CSV: an optional row one scenario lacks is an empty cell; differing band sets export no band rows", () => {
-    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockResolvedValue(undefined);
     const s2Mixed = scenario({
       ...s2,
       result: { ...s2.result!, metrics: { ...s2.result!.metrics, inboundCost: 5, bandCoverage: [{ band: 500, percent: 60 }] } },
@@ -1298,7 +1298,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   });
 
   it("compare CSV: band rows are omitted (no duplicate '— (%)' labels) while the distance unit is unresolved", () => {
-    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockResolvedValue(undefined);
     const defaultImpl = mockUseListModels.getMockImplementation();
     mockUseListModels.mockReturnValue({ data: [] }); // manifest not loaded -> unit unresolved
     try {
@@ -1321,7 +1321,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
   // label; units/(%)/(s) are appended), and every text-valued cell is the
   // on-screen text verbatim.
   it("compare CSV rows are the compare table's rows, in order, with identical text cells", () => {
-    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockResolvedValue(undefined);
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     enterCompare();
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
@@ -1474,7 +1474,7 @@ describe("CostSummaryTab compare on DataTable — testid map (SCU-2.P3.8)", () =
   });
 
   it("Download ▾ JSON: { entity, unit, rows } built from the SAME row model as the CSV", () => {
-    const spy = vi.spyOn(clientCsv, "downloadAs").mockImplementation(() => {});
+    const spy = vi.spyOn(clientCsv, "downloadAs").mockResolvedValue(undefined);
     enterCompare();
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-csv");
     chooseDownload("button-download-cost-summary", "button-download-cost-summary-json");
