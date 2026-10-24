@@ -20,7 +20,7 @@ export function BrazilMap({ result, showRoutes }: BrazilMapProps) {
     <div
       ref={canvasRef}
       data-testid="brazil-map"
-      className="w-full h-full flex items-center justify-center bg-slate-50 text-muted-foreground text-sm"
+      className="w-full h-full flex items-center justify-center bg-muted text-muted-foreground text-sm"
     >
       {result ? (
         <span className="text-xs font-mono">

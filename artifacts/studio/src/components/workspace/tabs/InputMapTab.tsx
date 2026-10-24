@@ -838,7 +838,7 @@ function PMedianInputMap({
           </>
         )}
         {!fixedGeography && armed && (
-          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+          <div className="flex items-center gap-2 text-xs bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
@@ -1351,7 +1351,7 @@ function TransportInputMap({
           + Station
         </ToggleChip>
         {armed && (
-          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+          <div className="flex items-center gap-2 text-xs bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
@@ -1846,7 +1846,7 @@ function TwoEchelonInputMap({
           + Customer
         </ToggleChip>
         {armed && (
-          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+          <div className="flex items-center gap-2 text-xs bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>
@@ -2431,7 +2431,7 @@ function JadeInputMap({
           + Customer
         </ToggleChip>
         {armed && (
-          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+          <div className="flex items-center gap-2 text-xs bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="armed-status-bar">
             <span>
               Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
             </span>

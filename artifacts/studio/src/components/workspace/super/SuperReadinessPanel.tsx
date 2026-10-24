@@ -40,9 +40,9 @@ export function SuperReadinessPanel({ precheck, isEmpty, onImport, onFetchRoad }
   return (
     <div className="mb-3 text-xs" data-testid="super-readiness-panel">
       {precheck.errors.length === 0 ? (
-        <p className="text-green-700" data-testid="super-readiness-ok">Ready to solve</p>
+        <p className="text-success" data-testid="super-readiness-ok">Ready to solve</p>
       ) : (
-        <ul className="space-y-1 text-amber-800">
+        <ul className="space-y-1 text-warning">
           {precheck.errors.map((e, i) => <li key={i} data-testid={`super-readiness-error-${i}`}>{e.message}</li>)}
         </ul>
       )}

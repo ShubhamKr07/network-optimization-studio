@@ -134,8 +134,8 @@ describe("DistancesTab on DataTable (SCU-2.P4.3)", () => {
   it("amber: a row that differs from the saved state is highlighted; an unchanged one is not", () => {
     renderTab();
     fireEvent.click(screen.getByTestId("button-distances-next"));
-    expect(screen.getByTestId("row-distance-WH03-C020")).toHaveClass("bg-amber-50");
-    expect(screen.getByTestId("row-distance-WH03-C011")).not.toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-distance-WH03-C020")).toHaveClass("bg-warning-bg");
+    expect(screen.getByTestId("row-distance-WH03-C011")).not.toHaveClass("bg-warning-bg");
   });
 
   it("history read-only (D2): override inputs, remove buttons and the add trigger are disabled", () => {
@@ -172,7 +172,7 @@ describe("DistancesTab on DataTable (SCU-2.P4.3)", () => {
     fireEvent.blur(input);
     expect(screen.getByTestId("input-distance-WH01-C002")).toHaveValue("777");
     expect(screen.getByTestId("badge-distance-changed-WH01-C002")).toBeInTheDocument();
-    expect(screen.getByTestId("row-distance-WH01-C002")).toHaveClass("bg-amber-50");
+    expect(screen.getByTestId("row-distance-WH01-C002")).toHaveClass("bg-warning-bg");
   });
 
   it("focus jump: clears an active filter and moves to the target's page (jsdom proves the page; Playwright proves the scroll)", () => {

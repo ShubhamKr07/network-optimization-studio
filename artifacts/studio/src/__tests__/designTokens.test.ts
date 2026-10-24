@@ -47,3 +47,11 @@ describe("map entity hues (spec §5.1.1)", () => {
     expect(contrast(token("--map-plant"), token("--map-customer"))).toBeGreaterThanOrEqual(1.5);
   });
 });
+
+describe("status text contrast (DU-1.3)", () => {
+  for (const s of ["success", "warning", "danger", "info"]) {
+    it(`--${s} on --${s}-bg >= 4.5:1`, () => {
+      expect(contrast(token(`--${s}`), token(`--${s}-bg`))).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});

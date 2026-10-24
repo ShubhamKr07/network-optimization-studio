@@ -67,6 +67,18 @@
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-destructive-border: var(--destructive-border);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
 
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
@@ -182,10 +194,11 @@
   --input: 72 16% 87%;
   --ring: 81 50% 43%;
 
-  /* status (full sets) */
-  --success: #16A34A; --success-bg: #F0FDF4; --success-border: #86EFAC;
+  /* status (full sets) — DU-1.3: text shades chosen for >= 4.5:1 on their own -bg */
+  --success: #15803D; --success-bg: #F0FDF4; --success-border: #86EFAC;
   --warning: #B45309; --warning-bg: #FFFBEB; --warning-border: #FCD34D;
-  --danger: #DC2626;  --danger-bg: #FEF2F2;  --danger-border: #FCA5A5;
+  --danger: #B91C1C;  --danger-bg: #FEF2F2;  --danger-border: #FCA5A5;
+  --info: #0369A1;    --info-bg: #F0F9FF;    --info-border: #7DD3FC;
   --utilization: #7DA436;
 
   /* five-step distance bands (0=nearest .. 4=farthest) — DU-1.2: one olive

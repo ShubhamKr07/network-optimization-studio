@@ -454,7 +454,7 @@ export function OutputMapTab({
               // (CostSummaryTab's "Quality" row) so the two surfaces agree.
               <div data-testid="output-map-no-incumbent">
                 <span className="text-muted-foreground">Objective: </span>
-                <span className="font-medium text-amber-700">{resultQualityText(result!)}</span>
+                <span className="font-medium text-warning">{resultQualityText(result!)}</span>
               </div>
             )}
             {/* jade-B1 (#8 timing overlay, spec §9) — suppressed entirely

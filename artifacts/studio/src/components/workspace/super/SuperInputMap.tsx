@@ -89,7 +89,7 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
         <LayerCheckbox testId="toggle-layer-customers" checked={toggles.customers} onToggle={() => flip("customers")}>Customers</LayerCheckbox>
       </div>
       {armedMove && (
-        <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+        <div className="flex items-center gap-2 text-xs bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid="armed-status-bar">
           <span>Click a map location to move {armedMove.entity.displayCode} — Esc to cancel</span>
           <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmedMove(null)} data-testid="button-armed-cancel">Cancel</Button>
         </div>

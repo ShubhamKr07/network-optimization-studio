@@ -222,7 +222,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
                       <FilterMenu descriptors={errorFilterDescriptors} tableFilters={errorTableFilters} />
                     )}
                   </div>
-                  <div className="max-h-40 overflow-y-auto border border-red-200 rounded">
+                  <div className="max-h-40 overflow-y-auto border border-danger-border rounded">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -233,14 +233,14 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
                       </TableHeader>
                       <TableBody>
                         {displayedErrors.map((err, i) => (
-                          <TableRow key={i} className="bg-red-50" data-testid={`import-error-row-${i}`}>
+                          <TableRow key={i} className="bg-danger-bg" data-testid={`import-error-row-${i}`}>
                             <TableCell className="text-xs">{err.line ?? rowLabel(err.rowIndex) ?? "—"}</TableCell>
                             <TableCell className="text-xs">
-                              <Badge variant="outline" className="text-[10px] text-red-700 border-red-300">
+                              <Badge variant="outline" className="text-[10px] text-danger border-danger-border">
                                 {err.errorClass}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-xs text-red-700">{err.message}</TableCell>
+                            <TableCell className="text-xs text-danger">{err.message}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -252,12 +252,12 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
               {preview.changes.length > 0 && (
                 <div className="space-y-1" data-testid="import-changes-section">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-green-700">Changes ({preview.changes.length})</p>
+                    <p className="text-xs font-semibold text-success">Changes ({preview.changes.length})</p>
                     {showChangeFilterMenu && (
                       <FilterMenu descriptors={changeFilterDescriptors} tableFilters={changeTableFilters} />
                     )}
                   </div>
-                  <div className="max-h-40 overflow-y-auto border border-green-200 rounded">
+                  <div className="max-h-40 overflow-y-auto border border-success-border rounded">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -269,7 +269,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
                       </TableHeader>
                       <TableBody>
                         {displayedChanges.map((c, i) => (
-                          <TableRow key={i} className="bg-green-50" data-testid={`import-change-row-${i}`}>
+                          <TableRow key={i} className="bg-success-bg" data-testid={`import-change-row-${i}`}>
                             <TableCell className="text-xs font-mono">{c.id}</TableCell>
                             <TableCell className="text-xs">{rowLabel(c.rowIndex) ?? c.line}</TableCell>
                             <TableCell className="text-xs font-mono">{JSON.stringify(c.before)}</TableCell>
@@ -287,7 +287,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
               )}
 
               {preview.warnings.map((w, i) => (
-                <p key={i} className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1" data-testid={`import-warning-${i}`}>
+                <p key={i} className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-2 py-1" data-testid={`import-warning-${i}`}>
                   {w}
                 </p>
               ))}

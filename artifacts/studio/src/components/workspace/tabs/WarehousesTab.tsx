@@ -204,7 +204,7 @@ export function WarehousesTab({
                 `Missing distances to ${missing} customer${missing === 1 ? "" : "s"} — see the Distances tab, or download/upload a template.`
               }
               data-testid={`warning-precheck-added-warehouse-${r.id}`}
-              className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="inline-flex items-center gap-0.5 text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
             >
               <AlertTriangle className="w-3 h-3" />
               {collision ? "ID collision" : `Missing ${missing} distance${missing === 1 ? "" : "s"}`}

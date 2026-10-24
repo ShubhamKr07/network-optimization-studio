@@ -48,7 +48,7 @@ export function FloorExceedsMaxAlert({
     <div
       role="alert"
       data-testid="floor-exceeds-max-alert"
-      className={`${className} rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900`}
+      className={`${className} rounded-md border border-warning-border bg-warning-bg p-2 text-xs text-warning`}
     >
       {model1.optimal ? (
         <>

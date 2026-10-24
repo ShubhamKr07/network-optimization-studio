@@ -38,7 +38,7 @@ const POTENTIAL_OUTPUT_SVG = `<svg width="22" height="22" viewBox="0 0 24 24" xm
 // Same --map-customer/--map-customer-stroke pair NetworkMap's own
 // CircleMarker + customerBubbleSvg use for a solved-result customer dot
 // (fill-opacity 0.8, stroke-width 1 — matches the unselected/unfocused
-// marker state) — NOT the un-tokenized bg-slate-400/border-slate-500 the
+// marker state) — NOT the un-tokenized bg-muted-foreground/border-input the
 // old inline legend used.
 const CUSTOMER_DOT_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="5" fill="var(--map-customer)" fill-opacity="0.8" stroke="var(--map-customer-stroke)" stroke-width="1" /></svg>`;
 

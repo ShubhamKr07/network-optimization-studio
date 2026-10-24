@@ -287,7 +287,7 @@ export function DeliveryCostsTab({
           />
           {r.override && (
             <span
-              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+              className="text-[10px] text-warning bg-warning-bg border border-warning-border rounded px-1"
               data-testid={`badge-deliverycost-overridden-${r.fromId}-${r.toId}`}
             >
               Overridden
@@ -396,7 +396,7 @@ export function DeliveryCostsTab({
         rows={referenceQuery.isLoading || referenceQuery.isError ? [] : rows}
         rowKey={r => pairKey(r.fromId, r.toId)}
         columns={columns}
-        rowClassName={(r) => (r.override != null ? "bg-amber-50" : undefined)}
+        rowClassName={(r) => (r.override != null ? "bg-warning-bg" : undefined)}
         testIds={{
           toolbar: "delivery-costs-tab-toolbar",
           row: r => `row-deliverycost-${r.fromId}-${r.toId}`,
