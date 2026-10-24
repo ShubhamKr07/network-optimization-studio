@@ -45,7 +45,7 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
           <label>City<input className="w-full border rounded px-2 h-8" data-testid="super-entity-city" value={row.city ?? ""} onChange={set("city")} /></label>
           <label>State<input className="w-full border rounded px-2 h-8" data-testid="super-entity-state" value={row.state ?? ""} onChange={set("state")} /></label>
           {STATUS[p.kind] && (
-            <label>Status<select className="w-full border rounded px-2 h-8" data-testid="super-entity-status" value={row.status ?? "active"} onChange={set("status")}>
+            <label>Status<select className="w-full border rounded pl-2 h-8" data-testid="super-entity-status" value={row.status ?? "active"} onChange={set("status")}>
               {STATUS[p.kind]!.map(s => <option key={s} value={s}>{s}</option>)}
             </select></label>
           )}

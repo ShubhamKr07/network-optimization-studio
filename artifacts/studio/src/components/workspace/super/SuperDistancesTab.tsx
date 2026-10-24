@@ -20,7 +20,7 @@ export function SuperDistancesTab(p: SuperDistancesTabProps) {
   return (
     <div className="space-y-4" data-testid="super-distances-tab">
       <div className="flex items-center gap-3 text-sm">
-        <select data-testid="super-distance-method" className="h-8 border rounded bg-white px-2 text-xs" value={p.distanceMethod}
+        <select data-testid="super-distance-method" className="h-8 border rounded pl-2 text-xs" value={p.distanceMethod}
           disabled={p.readOnly} title={p.readOnly ? READ_ONLY_TITLE : undefined}
           onChange={e => p.onChange({ distanceMethod: e.target.value })}>
           <option value="haversine">Straight line (haversine)</option>

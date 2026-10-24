@@ -103,7 +103,7 @@ export function superColumns(
     if (s.kind === "select") {
       const ids = o[s.options] ?? [];
       return { ...base, kind: "enum", cell: it => (
-        <select className="h-7 text-xs border rounded bg-white px-1" value={String(it.r[s.key] ?? "")} disabled={readOnly}
+        <select className="h-7 text-xs border rounded pl-1" value={String(it.r[s.key] ?? "")} disabled={readOnly}
           title={readOnly ? READ_ONLY_TITLE : undefined} data-testid={tid(it, s.key)}
           onChange={e => edit(it.i, s.key, e.target.value)}>
           {ids.includes(String(it.r[s.key] ?? "")) ? null : <option value={String(it.r[s.key] ?? "")}>{String(it.r[s.key] ?? "")}</option>}

@@ -4570,3 +4570,9 @@ Whole-branch review of `9d9b6561..80febe12` (Opus, split API/solver and Studio) 
 ### CH5T - rename Chapter 5 delivery card
 
 `artifacts/studio/src/lib/chapters.ts`: `delivery-teaching-us` card title "Delivery Company Teaching Example" -> "Introduction to Network Design"; lab header "Delivery Company · Model Lab" -> "Introduction to Network Design · Model Lab". Per user, the API manifest `name` (`solvers/delivery-teaching-us/manifest.json`) and code comments are unchanged. No studio test or e2e spec asserts either old string (grep). The full gate was not run (user stopped it).
+
+### QFX-10 - Refined native `<select>`s
+
+`artifacts/studio/src/index.css`: one `@layer base` rule on `select:not([multiple]):not([size])` (no native arrow, two-gradient inset chevron in `--muted-foreground`, `--background` fill, `padding-right: 2rem`, input-token border/radius, `--ring` focus). Removed `px-*`/`bg-white` (now `pl-*`) from the 4 native selects (`superTables.tsx`, `SuperDistancesTab.tsx`, `SuperEntityDialog.tsx`, `JadeDistancesTab.tsx`) because utilities outrank `@layer base`. Radix `ui/select.tsx` untouched.
+- New source-reading guard `src/__tests__/nativeSelectStyle.test.ts` (rule present; no `px/pr/pe-*`/`bg-white` on any native select, tree-walking). Fail-first proven (2/2 failed), then 2/2 pass; typecheck clean.
+- Real-browser light+dark check is NOT done here; it belongs to the qa-sdet QFX-QA task.
