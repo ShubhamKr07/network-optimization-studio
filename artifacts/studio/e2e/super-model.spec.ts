@@ -345,7 +345,7 @@ test.describe("Super Model", () => {
     try {
       await importSampleViaUi(page);
       await page.getByTestId("sidebar-input-distances").click({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("super-distance-method").selectOption("road", { timeout: HEADER_TIMEOUT });
+      await page.getByTestId("super-distance-method-road").click({ timeout: HEADER_TIMEOUT });
       // Fetch is disabled until the method is saved ("Save your changes first").
       await expect(page.getByTestId("super-road-fetch")).toBeDisabled();
       await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });

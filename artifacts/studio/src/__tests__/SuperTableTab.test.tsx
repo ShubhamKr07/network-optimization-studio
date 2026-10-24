@@ -141,24 +141,6 @@ describe("SuperTableTab", () => {
 });
 
 describe("SuperDistancesTab", () => {
-  const props = { overrides: [], plantIds: ["p1"], warehouseIds: ["w1"], customerIds: ["c1"], readOnly: false };
-  it("method change patches distanceMethod; factor disabled under haversine", () => {
-    const onChange = vi.fn();
-    render(<SuperDistancesTab network={NET} onFetchRoad={() => {}} fetchDisabledReason={null} {...props} distanceMethod="haversine" circuityFactor={1.17} onChange={onChange} />);
-    expect(screen.getByTestId("super-circuity-factor")).toBeDisabled();
-    fireEvent.change(screen.getByTestId("super-distance-method"), { target: { value: "circuity" } });
-    expect(onChange).toHaveBeenCalledWith({ distanceMethod: "circuity" });
-  });
-  it("factor is enabled under circuity and out-of-range values are not committed", () => {
-    const onChange = vi.fn();
-    render(<SuperDistancesTab network={NET} onFetchRoad={() => {}} fetchDisabledReason={null} {...props} distanceMethod="circuity" circuityFactor={1.17} onChange={onChange} />);
-    const f = screen.getByTestId("super-circuity-factor");
-    expect(f).toBeEnabled();
-    fireEvent.change(f, { target: { value: "5" } });
-    expect(onChange).not.toHaveBeenCalled();
-    fireEvent.change(f, { target: { value: "1.5" } });
-    expect(onChange).toHaveBeenCalledWith({ circuityFactor: 1.5 });
-  });
   it("QFX-7: location tables have no Name column or Add-form name field; products keep Name", () => {
     const onChange = vi.fn();
     const { unmount } = render(<SuperTableTab network={NET} table="plants" rows={[{ id: "PL-1", city: "Ashland", state: "KY", lat: 1, lng: 2 }]} onChange={onChange} readOnly={false} />);

@@ -4705,3 +4705,10 @@ Add appends to the draft only, with no auto-save. `SuperTableTab` and `SuperDist
 - Labels reuse the solved `outputIdentityById` already passed to the tab. No new data plumbing.
 - Tests: `openSites.test.ts` (real envelopes for all 8 models + precedence), `OpenSitesCaption.test.tsx`, plus caption cases in `OutputMapTab.test.tsx` and `Workspace.OutputMap.test.tsx`.
 - Measured: openSites 14, OpenSitesCaption 19, resultNarrative 34 (unmodified), OutputMapTab 53, Workspace.OutputMap 7, rawErrorMessageSurface 3 = 130 passed; fail-first run showed 2 import-resolve file failures + 2 caption-present test failures.
+
+### QFX-9 - Distance method: 3-way segmented control + factor Apply
+
+- `SuperDistancesTab.tsx`: the native method `<select>` is now a local `role="radiogroup"` of Haversine | Circuity | Road (roving tabindex; arrows move+select with wrap, Home/End, read-only disables). `super-distance-method` is the group; segments are `super-distance-method-{haversine,circuity,road}`.
+- Circuity factor is a text/decimal input shown only under Circuity; typing edits local text, the draft changes only on Apply (button/Enter, never blur). Valid = 1..3 with at most 3 decimals ("Use a number from 1 to 3 with up to 3 decimals."), stricter than the server. Re-syncs when the stored value changes. New ids `super-circuity-apply`, `super-circuity-error`. Props interface, QFX-6 `network` forwarding and the full `SuperTableTab` render unchanged.
+- Tests: `SuperDistancesTab.test.tsx` rewritten; the two obsolete `<select>`/per-keystroke tests removed from `SuperTableTab.test.tsx` (the QFX-7 test sharing that describe kept); e2e `super-model.spec.ts` now clicks `super-distance-method-road`.
+- Measured: fail-first SuperDistancesTab 28 failed / 2 passed (30); after: SuperDistancesTab 30/30, SuperTableTab 21/21, nativeSelectStyle 2/2, Workspace.Super 27/27 (needed `--testTimeout=120000`: load average ~42 from other sessions made the default 15s tests time out; same file passed 27/27 in 23s earlier at lower load); typecheck clean.
