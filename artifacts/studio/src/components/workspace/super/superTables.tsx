@@ -18,14 +18,14 @@ type Spec =
   | { key: "status"; kind: "status"; values: readonly string[] };
 
 const ENTITY = (extra: Spec[]): Spec[] => [
-  { key: "id", kind: "text" }, { key: "name", kind: "text" }, ...extra,
+  { key: "id", kind: "text" }, ...extra,
 ];
 const SITE: Spec[] = [
   { key: "city", kind: "text" }, { key: "state", kind: "text" },
   { key: "lat", kind: "number" }, { key: "lng", kind: "number" },
 ];
 const SPECS: Record<SuperTable, Spec[]> = {
-  products: ENTITY([]),
+  products: ENTITY([{ key: "name", kind: "text" }]),
   plants: ENTITY(SITE),
   warehouses: ENTITY([...SITE, { key: "status", kind: "status", values: ["active", "forced_open", "inactive"] }]),
   customers: ENTITY([...SITE, { key: "status", kind: "status", values: ["active", "excluded"] }]),
@@ -66,9 +66,9 @@ export function superRowKey(table: SuperTable, r: Row): string {
 export function blankRow(table: SuperTable, o: SuperOptions): Row {
   switch (table) {
     case "products": return { id: "", name: "" };
-    case "plants": return { id: "", name: "", city: "", state: "", lat: 0, lng: 0 };
-    case "warehouses": return { id: "", name: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
-    case "customers": return { id: "", name: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
+    case "plants": return { id: "", city: "", state: "", lat: 0, lng: 0 };
+    case "warehouses": return { id: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
+    case "customers": return { id: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
     case "plantProducts": return { plantId: o.plantIds?.[0] ?? "", productId: o.productIds?.[0] ?? "", capacity: 0, costPerUnit: 0 };
     case "demand": return { customerId: o.customerIds?.[0] ?? "", productId: o.productIds?.[0] ?? "", demand: 0 };
     case "distanceOverrides": return { fromId: o.fromIds?.[0] ?? "", toId: o.toIds?.[0] ?? "", miles: 1 };

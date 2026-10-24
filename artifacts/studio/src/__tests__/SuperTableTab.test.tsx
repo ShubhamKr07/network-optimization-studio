@@ -112,4 +112,21 @@ describe("SuperDistancesTab", () => {
     fireEvent.change(f, { target: { value: "1.5" } });
     expect(onChange).toHaveBeenCalledWith({ circuityFactor: 1.5 });
   });
+  it("QFX-7: location tables have no Name column and + Add row appends a name-less row; products keep Name", () => {
+    const onChange = vi.fn();
+    const { unmount } = render(<SuperTableTab table="plants" rows={[{ id: "PL-1", city: "Ashland", state: "KY", lat: 1, lng: 2 }]} onChange={onChange} readOnly={false} />);
+    expect(screen.getByTestId("super-plants-PL-1-city")).toBeInTheDocument();
+    expect(screen.queryByTestId("super-plants-PL-1-name")).not.toBeInTheDocument();
+    expect(screen.queryByText("Name")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("super-plants-add"));
+    expect(onChange.mock.calls[0][0][1]).toStrictEqual({ id: "", city: "", state: "", lat: 0, lng: 0 });
+    unmount();
+    for (const table of ["warehouses", "customers"] as const) {
+      const { unmount: u } = render(<SuperTableTab table={table} rows={[{ id: "X-1", lat: 1, lng: 2, status: "active" }]} onChange={vi.fn()} readOnly={false} />);
+      expect(screen.queryByTestId(`super-${table}-X-1-name`), table).not.toBeInTheDocument();
+      u();
+    }
+    render(<SuperTableTab table="products" rows={[{ id: "k1", name: "K" }]} onChange={vi.fn()} readOnly={false} />);
+    expect(screen.getByTestId("super-products-k1-name")).toHaveValue("K");
+  });
 });

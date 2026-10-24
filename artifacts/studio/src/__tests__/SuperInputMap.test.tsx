@@ -10,10 +10,10 @@ vi.mock("@workspace/api-client-react", () => ({ useListModels: () => ({ data: []
 
 const net = (over: Partial<SuperInputsLike> = {}): SuperInputsLike => ({
   products: [{ id: "K1", name: "K1" }, { id: "K2", name: "K2" }],
-  plants: [{ id: "PL-1", name: "Plant", city: "Ashland", state: "KY", lat: 38.4, lng: -82.6 }],
-  warehouses: [{ id: "WH-1", name: "Wh", lat: 33.4, lng: -112.0, status: "forced_open" },
-               { id: "WH-2", name: "Wh2", lat: 40.0, lng: -75.0, status: "inactive" }],
-  customers: [{ id: "C-1", name: "Cust", lat: 34.0, lng: -118.2, status: "excluded" }],
+  plants: [{ id: "PL-1", city: "Ashland", state: "KY", lat: 38.4, lng: -82.6 }],
+  warehouses: [{ id: "WH-1", lat: 33.4, lng: -112.0, status: "forced_open" },
+               { id: "WH-2", lat: 40.0, lng: -75.0, status: "inactive" }],
+  customers: [{ id: "C-1", lat: 34.0, lng: -118.2, status: "excluded" }],
   plantProducts: [], demand: [{ customerId: "C-1", productId: "K1", demand: 5 }, { customerId: "C-1", productId: "K2", demand: 7 }],
   distanceOverrides: [],
   ...over,
@@ -54,7 +54,7 @@ describe("InputMapTab mode=super", () => {
     expect(fit).toHaveBeenCalledTimes(1);
     expect(fit.mock.calls[0][0]).toHaveLength(4);
     expect(fit.mock.calls[0][1]).toEqual({ padding: [40, 40], maxZoom: 10 });
-    const moved = net({ plants: [{ id: "PL-1", name: "Plant", lat: 10, lng: 10 }] });
+    const moved = net({ plants: [{ id: "PL-1", lat: 10, lng: 10 }] });
     rerender(<InputMapTab mode="super" inputs={moved} fitKey={0} {...cb()} />);
     expect(fit).toHaveBeenCalledTimes(1);
     rerender(<InputMapTab mode="super" inputs={moved} fitKey={1} {...cb()} />);
@@ -62,7 +62,7 @@ describe("InputMapTab mode=super", () => {
   });
   it("one point -> setView(point, 8); no points -> world view", () => {
     const view = vi.spyOn(L.Map.prototype, "setView");
-    const one = net({ plants: [], warehouses: [], customers: [{ id: "C-1", name: "c", lat: 34, lng: -118, status: "active" }] });
+    const one = net({ plants: [], warehouses: [], customers: [{ id: "C-1", lat: 34, lng: -118, status: "active" }] });
     render(<InputMapTab mode="super" inputs={one} fitKey={0} {...cb()} />);
     expect(view).toHaveBeenCalledWith([34, -118], 8);
     view.mockClear();
@@ -85,9 +85,9 @@ describe("SuperInputMap actions", () => {
     fireEvent.contextMenu(container.querySelector(".leaflet-container")!, { clientX: 40, clientY: 40 });
     fireEvent.click(screen.getByTestId("map-add-menu-wh"));
     expect(screen.getByTestId("super-entity-id")).toHaveValue("WH-3");
-    fireEvent.change(screen.getByTestId("super-entity-name"), { target: { value: "New WH" } });
     fireEvent.click(screen.getByTestId("super-entity-submit"));
-    expect(onInputsChange.mock.calls[0][0].warehouses.at(-1)).toMatchObject({ id: "WH-3", name: "New WH", status: "active" });
+    expect(onInputsChange.mock.calls[0][0].warehouses.at(-1)).toMatchObject({ id: "WH-3", status: "active" });
+    expect(onInputsChange.mock.calls[0][0].warehouses.at(-1)).not.toHaveProperty("name");
   });
   it("Edit on a customer opens the dialog with its demand; submit replaces demand rows", () => {
     const { container, onInputsChange } = mount();
@@ -104,7 +104,8 @@ describe("SuperInputMap actions", () => {
     const before = fit.mock.calls.length;
     fireEvent.contextMenu(markers(container)[0]);
     fireEvent.click(screen.getByTestId("map-action-copy"));
-    expect(onInputsChange.mock.calls[0][0].plants.at(-1)).toMatchObject({ id: "PL-2", name: "Plant (copy)", lng: -82.55 });
+    expect(onInputsChange.mock.calls[0][0].plants.at(-1)).toMatchObject({ id: "PL-2", city: "Ashland", state: "KY", lng: -82.55 });
+    expect(onInputsChange.mock.calls[0][0].plants.at(-1)).not.toHaveProperty("name");
     expect(fit.mock.calls.length).toBe(before);
   });
   it("Move -> click -> MoveConfirmDialog -> lat/lng written", () => {
@@ -133,7 +134,6 @@ describe("SuperInputMap actions", () => {
     // add
     fireEvent.contextMenu(container.querySelector(".leaflet-container")!, { clientX: 40, clientY: 40 });
     fireEvent.click(screen.getByTestId("map-add-menu-cs"));
-    fireEvent.change(screen.getByTestId("super-entity-name"), { target: { value: "N" } });
     fireEvent.click(screen.getByTestId("super-entity-submit"));
     rerender(<InputMapTab mode="super" inputs={onInputsChange.mock.calls.at(-1)![0]} {...props} />);
     // move

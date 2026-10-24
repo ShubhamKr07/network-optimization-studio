@@ -700,7 +700,7 @@ function superRowsFromInputs(inputs: Record<string, unknown> | null, key: string
   return Array.isArray(raw) ? raw : [];
 }
 function superOutputDataset(inputs: Record<string, unknown> | null): Dataset {
-  const pick = (r: Record<string, any> & { id: string }) => ({ id: r.id, name: r.name, city: r.city, state: r.state, lat: r.lat, lng: r.lng });
+  const pick = (r: Record<string, any> & { id: string }) => ({ id: r.id, city: r.city, state: r.state, lat: r.lat, lng: r.lng });
   const demand = new Map<string, number>();
   for (const d of superRowsFromInputs(inputs, "demand")) demand.set(d.customerId, (demand.get(d.customerId) ?? 0) + (d.demand ?? 0));
   return {

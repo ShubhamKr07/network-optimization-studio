@@ -8,8 +8,7 @@
  *   C4: the only real-browser proof of the solver path). The sample has p=2 and
  *   FORCES wh-11 + wh-14 open (both status "forced_open"), so the open-set
  *   assertion proves forced-status plumbing + rendering ("Phoenix, AZ" /
- *   "Nassau-Suffolk, NY"; the sample's wh-14 is named New York, its city field is
- *   Nassau-Suffolk), NOT optimality. The objective 254,060,828 (Chapter 9 ground
+ *   "Nassau-Suffolk, NY", from wh-14's city field), NOT optimality. The objective 254,060,828 (Chapter 9 ground
  *   truth) is the optimality proof.
  * Test C: delete a product -> confirmation states the referencing-row count ->
  *   confirm -> save -> reload -> the deletion (and its cascade) persisted.
@@ -264,17 +263,17 @@ test.describe("Super Model", () => {
       const plIdx = await rightClickPin(page, ".pl-marker");
       await page.getByTestId("map-action-edit").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-entity-id")).toHaveValue(sample.plants[plIdx].id, { timeout: HEADER_TIMEOUT });
-      await page.getByTestId("super-entity-name").fill("Edited on map");
+      await page.getByTestId("super-entity-city").fill("Edited on map");
       await page.getByTestId("super-entity-submit").click({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("button-save").click({ timeout: HEADER_TIMEOUT });
       await expect
-        .poll(async () => (await serverInputs(page, id)).plants[plIdx].name, { timeout: HEADER_TIMEOUT })
+        .poll(async () => (await serverInputs(page, id)).plants[plIdx].city, { timeout: HEADER_TIMEOUT })
         .toBe("Edited on map");
 
       await page.reload();
       await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-plants").click({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId(`super-plants-${sample.plants[plIdx].id}-name`)).toHaveValue("Edited on map", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId(`super-plants-${sample.plants[plIdx].id}-city`)).toHaveValue("Edited on map", { timeout: HEADER_TIMEOUT });
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }
@@ -300,8 +299,10 @@ test.describe("Super Model", () => {
       await expect
         .poll(async () => (await serverInputs(page, id)).customers.length, { timeout: HEADER_TIMEOUT })
         .toBe(sample.customers.length + 1);
-      const customers = (await serverInputs(page, id)).customers as { id: string; name: string }[];
-      expect(customers.map(c => c.name)).toContain(`${sample.customers[csIdx].name} (copy)`);
+      const customers = (await serverInputs(page, id)).customers as Record<string, unknown>[];
+      const copy = customers.find(c => !sample.customers.some((s: { id: string }) => s.id === c.id))!;
+      expect(copy).toMatchObject({ city: sample.customers[csIdx].city, state: sample.customers[csIdx].state, status: sample.customers[csIdx].status });
+      expect(copy).not.toHaveProperty("name");
       expect(new Set(customers.map(c => c.id)).size).toBe(sample.customers.length + 1);
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
@@ -320,7 +321,7 @@ test.describe("Super Model", () => {
       page.on("request", r => { if (r.method() === "POST" && /\/network\/import/.test(r.url())) imports.push(r.url()); });
       await page.getByTestId("super-open-import").click({ timeout: HEADER_TIMEOUT });
       await page.setInputFiles("[data-testid=super-import-file]", [
-        { name: "plants.csv", mimeType: "text/csv", buffer: Buffer.from("id,name,lat,lng\nA,P,north,2\n") },
+        { name: "plants.csv", mimeType: "text/csv", buffer: Buffer.from("id,lat,lng\nA,north,2\n") },
       ]);
       await expect(page.getByTestId("super-import-file-error")).toContainText("plants.csv row 2 column lat: is not a number", { timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-import-confirm")).toBeDisabled();

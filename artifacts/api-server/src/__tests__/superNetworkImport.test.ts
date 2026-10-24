@@ -6,7 +6,7 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { db, usersTable, scenariosTable } from "@workspace/db";
 import app from "../app.js";
-import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
+import { SUPER_DEFAULT_INPUTS, superInputsSchema } from "../validation/inputs/superInputs.js";
 
 const sample = JSON.parse(readFileSync(new URL("../../../studio/public/samples/super-model-sample.json", import.meta.url), "utf8"));
 const registeredUserIds: string[] = [];
@@ -62,10 +62,10 @@ describe("super-model network import/export", () => {
   it("merge upserts by id and never deletes", async () => {
     const id = await createEmptySuper();
     await imp(id, "replace", sample).expect(200);
-    const renamed = { ...sample.customers[0], name: "Renamed" };
+    const renamed = { ...sample.customers[0], city: "Renamed" };
     const res = await imp(id, "merge", { customers: [renamed] }).expect(200);
     expect(res.body.scenario.inputs.customers).toHaveLength(100);
-    expect(res.body.scenario.inputs.customers.find((c: { id: string }) => c.id === renamed.id).name).toBe("Renamed");
+    expect(res.body.scenario.inputs.customers.find((c: { id: string }) => c.id === renamed.id).city).toBe("Renamed");
   });
   it("a bad row writes nothing (atomic) and returns row-level errors", async () => {
     const id = await createEmptySuper();
@@ -122,7 +122,7 @@ describe("super-model network import/export", () => {
   });
   it("SM2-3: a doc-schema failure carries document-row issues", async () => {
     const id = await createEmptySuper();
-    const res = await imp(id, "replace", { customers: [{ id: "c", name: "c", lat: 1, lng: 1 }, { id: "d", name: "d", lat: 999, lng: 1 }] });
+    const res = await imp(id, "replace", { customers: [{ id: "c", lat: 1, lng: 1 }, { id: "d", lat: 999, lng: 1 }] });
     expect(res.status).toBe(422);
     expect(typeof res.body.error).toBe("string");
     expect(res.body.issues).toContainEqual(expect.objectContaining({ path: ["customers", 1, "lat"] }));
@@ -162,7 +162,7 @@ describe("super-model network import/export", () => {
     const id = await createEmptySuper();
     await imp(id, "replace", sample).expect(200);
     const res = await imp(id, "merge", {
-      plants: [{ id: "customer-1", name: "clash", lat: 1, lng: 1 }],                 // collides with an EXISTING customer id
+      plants: [{ id: "customer-1", lat: 1, lng: 1 }],                 // collides with an EXISTING customer id
       demand: [{ customerId: "customer-3", productId: "nope", demand: 1 }],
     });
     expect(res.status).toBe(422);
@@ -171,7 +171,7 @@ describe("super-model network import/export", () => {
   });
   it.each([
     ["products", { products: [{ id: "k", name: "a" }, { id: "k", name: "b" }] }, ["products", 1, "id"]],
-    ["plants vs customers", { plants: [{ id: "x", name: "p", lat: 1, lng: 1 }], customers: [{ id: "x", name: "c", lat: 1, lng: 1 }] }, ["customers", 0, "id"]],
+    ["plants vs customers", { plants: [{ id: "x", lat: 1, lng: 1 }], customers: [{ id: "x", lat: 1, lng: 1 }] }, ["customers", 0, "id"]],
     ["plantProducts", { plantProducts: [{ plantId: "plant-1", productId: "product-1", capacity: 1, costPerUnit: 0 }, { plantId: "plant-1", productId: "product-1", capacity: 2, costPerUnit: 0 }] }, ["plantProducts", 1]],
     ["demand", { demand: [{ customerId: "customer-1", productId: "product-1", demand: 1 }, { customerId: "customer-1", productId: "product-1", demand: 2 }] }, ["demand", 1]],
     ["distanceOverrides", { distanceOverrides: [{ fromId: "wh-1", toId: "customer-1", miles: 1 }, { fromId: "wh-1", toId: "customer-1", miles: 2 }] }, ["distanceOverrides", 1]],
@@ -188,9 +188,9 @@ describe("super-model network import/export", () => {
     const id = await createEmptySuper();
     const doc = {
       products: [{ id: "b|c", name: "x" }, { id: "c", name: "y" }],
-      plants: [{ id: "a", name: "a", lat: 1, lng: 1 }, { id: "a|b", name: "ab", lat: 2, lng: 2 }],
-      warehouses: [{ id: "w|x", name: "w", lat: 3, lng: 3, status: "active" }, { id: "w", name: "w2", lat: 4, lng: 4, status: "active" }],
-      customers: [{ id: "x|y", name: "c", lat: 5, lng: 5, status: "active" }, { id: "y", name: "c2", lat: 6, lng: 6, status: "active" }],
+      plants: [{ id: "a", lat: 1, lng: 1 }, { id: "a|b", lat: 2, lng: 2 }],
+      warehouses: [{ id: "w|x", lat: 3, lng: 3, status: "active" }, { id: "w", lat: 4, lng: 4, status: "active" }],
+      customers: [{ id: "x|y", lat: 5, lng: 5, status: "active" }, { id: "y", lat: 6, lng: 6, status: "active" }],
       // "a"+"b|c" and "a|b"+"c" were the same string under `${a}|${b}`
       plantProducts: [{ plantId: "a", productId: "b|c", capacity: 1, costPerUnit: 0 }, { plantId: "a|b", productId: "c", capacity: 2, costPerUnit: 0 }],
       demand: [{ customerId: "x|y", productId: "c", demand: 1 }, { customerId: "y", productId: "b|c", demand: 2 }],
@@ -254,5 +254,50 @@ describe("SM-12 body limits", () => {
       expect(await status("PATCH", "/api/scenarios/1")).toBe(401);
       expect(await status("POST", "/api/scenarios")).toBe(401);
     } finally { server.closeAllConnections(); server.close(); }
+  });
+});
+
+// QFX-7 — plants/warehouses/customers have no `name`. A row that still carries one (stored scenarios,
+// old JSON files) validates and loses the key on the next write. Populated real-shape fixture: the shipped
+// sample's 4 plants / 25 warehouses / 100 customers, every other row given a legacy name.
+describe("QFX-7 location rows without name", () => {
+  type R = Record<string, unknown>;
+  const LOC = ["plants", "warehouses", "customers"] as const;
+  const strip = (rows: R[]) => rows.map(({ name: _legacy, ...r }) => r);
+  const nameless: R = { ...sample, ...Object.fromEntries(LOC.map(t => [t, strip(sample[t])])) };
+  const mixed: R = { ...nameless, ...Object.fromEntries(LOC.map(t => [t, (nameless[t] as R[]).map((r, i) => (i % 2 === 0 ? { ...r, name: `Legacy ${r.id}` } : r))])) };
+
+  it("the fixture is non-vacuous: every location table has rows with AND without name", () => {
+    for (const t of LOC) {
+      const rows = mixed[t] as R[];
+      expect(rows.length, t).toBeGreaterThan(1);
+      expect(rows.some(r => "name" in r), t).toBe(true);
+      expect(rows.some(r => !("name" in r)), t).toBe(true);
+    }
+  });
+  it("the validator accepts both shapes and strips name from every location row; products keep name", () => {
+    const parsed = superInputsSchema.safeParse(mixed);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    for (const t of LOC) {
+      expect(parsed.data[t]).toHaveLength((sample[t] as R[]).length);
+      expect((parsed.data[t] as R[]).filter(r => "name" in r), t).toEqual([]);
+      expect(parsed.data[t], t).toEqual(nameless[t]);
+    }
+    expect(parsed.data.products).toEqual(sample.products);
+    expect(parsed.data.products.every(p => typeof p.name === "string" && p.name.length > 0)).toBe(true);
+    expect(superInputsSchema.safeParse({ ...nameless, products: [{ id: "k" }] }).success).toBe(false);   // product name still required
+  });
+  it("create and network import persist name-less rows; a legacy name is stripped on write", async () => {
+    const id = await create("super-model", mixed);
+    const stored = (await get(id)).inputs;
+    for (const t of LOC) {
+      expect(stored[t]).toHaveLength((sample[t] as R[]).length);
+      expect((stored[t] as R[]).filter(r => "name" in r), t).toEqual([]);
+    }
+    expect(stored.products).toEqual(sample.products);
+    const first = (nameless.customers as R[])[0];
+    const res = await imp(id, "merge", { customers: [{ ...first, name: "Legacy again", city: "Merged" }] }).expect(200);
+    expect(res.body.scenario.inputs.customers.find((c: { id: string }) => c.id === first.id)).toEqual({ ...first, city: "Merged" });
   });
 });

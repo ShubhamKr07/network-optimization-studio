@@ -7,12 +7,14 @@ import { csvText } from "@/lib/clientCsv";
 export type TableKey = "products" | "plants" | "warehouses" | "customers" | "plantProducts" | "demand" | "distanceOverrides";
 interface Col { field: string; type: "text" | "number"; required: boolean }
 const c = (field: string, type: Col["type"], required = true): Col => ({ field, type, required });
-const LOC = [c("id", "text"), c("name", "text"), c("city", "text", false), c("state", "text", false), c("lat", "number"), c("lng", "number")];
-export const SUPER_TABLE_FILES: { key: TableKey; file: string; cols: Col[] }[] = [
+const LOC = [c("id", "text"), c("city", "text", false), c("state", "text", false), c("lat", "number"), c("lng", "number")];
+/** QFX-7: location files written before `name` was removed still carry the column; it is accepted and its values discarded. */
+export const LEGACY_LOCATION_COLUMNS = ["name"] as const;
+export const SUPER_TABLE_FILES: { key: TableKey; file: string; cols: Col[]; legacy?: readonly string[] }[] = [
   { key: "products", file: "products", cols: [c("id", "text"), c("name", "text")] },
-  { key: "plants", file: "plants", cols: LOC },
-  { key: "warehouses", file: "warehouses", cols: [...LOC, c("status", "text", false)] },
-  { key: "customers", file: "customers", cols: [...LOC, c("status", "text", false)] },
+  { key: "plants", file: "plants", cols: LOC, legacy: LEGACY_LOCATION_COLUMNS },
+  { key: "warehouses", file: "warehouses", cols: [...LOC, c("status", "text", false)], legacy: LEGACY_LOCATION_COLUMNS },
+  { key: "customers", file: "customers", cols: [...LOC, c("status", "text", false)], legacy: LEGACY_LOCATION_COLUMNS },
   { key: "plantProducts", file: "plant_products", cols: [c("plantId", "text"), c("productId", "text"), c("capacity", "number"), c("costPerUnit", "number")] },
   { key: "demand", file: "demand", cols: [c("customerId", "text"), c("productId", "text"), c("demand", "number")] },
   { key: "distanceOverrides", file: "distance_overrides", cols: [c("fromId", "text"), c("toId", "text"), c("miles", "number")] },
@@ -50,11 +52,11 @@ function asNumber(cell: Cell): number | null | { error: string } {
 }
 const isBlank = (row: Cell[]) => row.every(x => x.kind === "empty" || (x.kind === "text" && x.v.trim() === ""));
 
-function readSheet(sh: Sheet, cols: Col[], errors: ParseError[]): { rows: Record<string, unknown>[]; fileRows: number[] } {
+function readSheet(sh: Sheet, cols: Col[], errors: ParseError[], legacy: readonly string[] = []): { rows: Record<string, unknown>[]; fileRows: number[] } {
   const header = (sh.rows[0] ?? []).map(h => asText(h, false));
   const at = new Map<string, number>();
   header.forEach((h, i) => {
-    if (h === null || typeof h === "object") return;
+    if (h === null || typeof h === "object" || legacy.includes(h)) return;   // a legacy column is known, never read
     if (!cols.some(col => col.field === h)) errors.push({ where: `${sh.source} column ${h}`, message: "unknown column" });
     else if (at.has(h)) errors.push({ where: `${sh.source} column ${h}`, message: "duplicate column" });
     else at.set(h, i);
@@ -112,7 +114,7 @@ function sheetsToDocument(sheets: Sheet[]): ParseResult {
     if (sh.name === PARAMS) { readParameters(sh, doc, sources, errors); continue; }
     const t = SUPER_TABLE_FILES.find(x => x.file === sh.name);
     if (!t) { errors.push({ where: sh.source, message: sh.csv ? "unknown file name" : "unknown sheet name" }); continue; }
-    const { rows, fileRows } = readSheet(sh, t.cols, errors);
+    const { rows, fileRows } = readSheet(sh, t.cols, errors, t.legacy);
     doc[t.key] = rows;
     sources[t.key] = { source: sh.source, headerRow: sh.firstRow, rows: fileRows };
   }

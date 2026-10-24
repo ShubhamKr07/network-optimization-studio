@@ -36,8 +36,8 @@ describe("super-model registration", () => {
   });
   it("rejects duplicate ids across plants/warehouses/customers with 422", async () => {
     const inputs = { ...SUPER_DEFAULT_INPUTS,
-      plants: [{ id: "X", name: "p", lat: 1, lng: 1 }],
-      warehouses: [{ id: "X", name: "w", lat: 1, lng: 1, status: "active" }] };
+      plants: [{ id: "X", lat: 1, lng: 1 }],
+      warehouses: [{ id: "X", lat: 1, lng: 1, status: "active" }] };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
       .send({ name: "sm-dup", modelId: "super-model", inputs });
     expect(res.status).toBe(422);
@@ -56,7 +56,7 @@ describe("super-model registration", () => {
     // JSON cannot carry Infinity; prove it at the schema level instead
     const { superInputsSchema } = await import("../validation/inputs/superInputs.js");
     const base = { ...SUPER_DEFAULT_INPUTS,
-      plants: [{ id: "p", name: "p", lat: 1, lng: 1 }], warehouses: [{ id: "w", name: "w", lat: 1, lng: 2, status: "active" }] };
+      plants: [{ id: "p", lat: 1, lng: 1 }], warehouses: [{ id: "w", lat: 1, lng: 2, status: "active" }] };
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: Infinity }] }).success).toBe(false);
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: -Infinity }] }).success).toBe(false);
     expect(superInputsSchema.safeParse({ ...base, distanceOverrides: [{ fromId: "p", toId: "w", miles: 0 }] }).success).toBe(true); // co-located pair

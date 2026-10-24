@@ -20,10 +20,9 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
   const set = (k: keyof LocationDraft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setRow(r => ({ ...r, [k]: e.target.value }));
 
   function submit() {
-    const id = row.id.trim(), name = row.name.trim();
+    const id = row.id.trim();
     if (!id) return setError("ID is required.");
     if (p.mode === "create" && p.takenIds.has(id)) return setError(`ID "${id}" is already used by a plant, warehouse or customer.`);
-    if (!name) return setError("Name is required.");
     const out: Record<string, number> = {};
     for (const k of p.products) {
       const raw = (demand[k.id] ?? "").trim();
@@ -32,7 +31,7 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
       if (!Number.isFinite(v) || v < 0) return setError(`Demand for ${k.name} must be a number ≥ 0.`);
       if (v > 0) out[k.id] = v;
     }
-    p.onSubmit({ ...row, id, name, city: row.city?.trim() || undefined, state: row.state?.trim() || undefined }, out);
+    p.onSubmit({ ...row, id, city: row.city?.trim() || undefined, state: row.state?.trim() || undefined }, out);
   }
 
   return (
@@ -41,7 +40,6 @@ export function SuperEntityDialog(p: SuperEntityDialogProps) {
         <DialogHeader><DialogTitle>{p.mode === "create" ? `New ${LABEL[p.kind]}` : `Edit ${LABEL[p.kind]} ${p.initial.id}`}</DialogTitle><DialogDescription>Enter the {LABEL[p.kind]} details.</DialogDescription></DialogHeader>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <label>ID<input className="w-full border rounded px-2 h-8" data-testid="super-entity-id" value={row.id} readOnly={p.mode === "edit"} onChange={set("id")} /></label>
-          <label>Name<input className="w-full border rounded px-2 h-8" data-testid="super-entity-name" value={row.name} onChange={set("name")} /></label>
           <label>City<input className="w-full border rounded px-2 h-8" data-testid="super-entity-city" value={row.city ?? ""} onChange={set("city")} /></label>
           <label>State<input className="w-full border rounded px-2 h-8" data-testid="super-entity-state" value={row.state ?? ""} onChange={set("state")} /></label>
           {STATUS[p.kind] && (

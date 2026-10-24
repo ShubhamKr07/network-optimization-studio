@@ -35,8 +35,8 @@ const createJade = () => create("two-echelon-jade-us", {
 });
 
 const tiny = { ...SUPER_DEFAULT_INPUTS, distanceMethod: "road", p: 1,
-  products: [{ id: "K", name: "K" }], plants: [{ id: "P", name: "P", lat: 1, lng: 1 }],
-  warehouses: [{ id: "W", name: "W", lat: 2, lng: 2, status: "active" }], customers: [{ id: "C", name: "C", lat: 3, lng: 3, status: "active" }],
+  products: [{ id: "K", name: "K" }], plants: [{ id: "P", lat: 1, lng: 1 }],
+  warehouses: [{ id: "W", lat: 2, lng: 2, status: "active" }], customers: [{ id: "C", lat: 3, lng: 3, status: "active" }],
   plantProducts: [{ plantId: "P", productId: "K", capacity: 10, costPerUnit: 0 }], demand: [{ customerId: "C", productId: "K", demand: 1 }] };
 const okFetch = (onCall?: () => Promise<void>) => (async (_u: unknown, init?: RequestInit) => {
   await onCall?.();
@@ -141,7 +141,7 @@ describe("POST /network/road-distances", () => {
     const id = await create("super-model", tiny);
     setOrsFetchForTests(okFetch(async () => {
       await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie)
-        .send({ inputs: { ...tiny, customers: [{ id: "C", name: "C", lat: 3.5, lng: 3, status: "active" }] } }).expect(200);
+        .send({ inputs: { ...tiny, customers: [{ id: "C", lat: 3.5, lng: 3, status: "active" }] } }).expect(200);
     }));
     await fetchRoad(id).expect(200);
     const inputs = superInputsSchema.parse((await stored(id)).inputs);
