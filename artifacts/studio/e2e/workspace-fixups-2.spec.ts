@@ -65,6 +65,7 @@ async function createScenario(page: Page, modelId: string, inputs: Record<string
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
   // Input Map seed lands first (Workspace.tsx didSeedTabRef effect runs after
   // workspace-page is visible and would override an early sidebar click); see WFX-RACE.
+  // Not valid for an EMPTY super-model scenario: that seeds `products`, not the Input Map.
   await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   return id;
 }

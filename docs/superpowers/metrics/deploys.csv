@@ -3,3 +3,5 @@ deployed_at,service,sha,smoke_pass,failed_checks,incident,notes
 2026-09-11T19:41:19.613Z,nos-studio,unknown,yes,,,
 2026-09-21T19:40:46.926Z,nos-api,unknown,yes,,,
 2026-09-21T19:40:46.926Z,nos-studio,unknown,yes,,,
+2026-10-24T12:06:51.738Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"DU-1 deploy smoke; nos-api not redeployed, still the QFX build (Render list_deploys live)"
+2026-10-24T12:06:51.738Z,nos-studio,457be982b2b2743c933da53ef9da192e93bc89ac,yes,,,"DU-1; sha from Render get_deploy dep-dbe9u0tg1s2s73etdrg0 (live)"
