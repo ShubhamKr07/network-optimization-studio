@@ -2689,6 +2689,39 @@ describe("Workspace — one-shot Input Map seeding (Bundle 6 T2)", () => {
     expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
     expect(screen.getByTestId("sidebar-input-warehouses")).toHaveAttribute("aria-current", "true");
   });
+
+  // WFX-SEED — a sidebar click made before the scenario resolves is the user's
+  // choice for this model entry; the late seed must not override it.
+  it("keeps a sidebar choice made while the scenario was still loading (no late seed over it)", async () => {
+    mockUseGetScenario.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useListScenarios>);
+    const { rerender } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-input-warehouses")).toHaveAttribute("aria-current", "true");
+  });
+
+  it("still seeds the Input Map when the user did nothing before the scenario loaded", async () => {
+    mockUseGetScenario.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useListScenarios>);
+    const { rerender } = renderWorkspace();
+    mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("input-map-tab")).toBeInTheDocument();
+  });
+
+  it("a choice made in one model does not suppress the seed after switching to another model", async () => {
+    const { rerender } = renderWorkspace();
+    fireEvent.click(await screen.findByTestId("sidebar-input-warehouses"));
+    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    rerender(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("input-map-tab")).toBeInTheDocument();
+  });
 });
 
 // The global "Developed by hx1" AppFooter is intentionally NOT mounted on the
