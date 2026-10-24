@@ -173,6 +173,21 @@ function runTabCoverage(inputs: TabCoverageEntry[], outputs: TabCoverageEntry[])
   }
 }
 
+// QFX-3 — the Optimization Parameters tab's own Solve starts a solve (no
+// dialog) for this model. The save mock resolves with the persisted row so a
+// load-time-normalised (dirty) draft still reaches the enqueue.
+function assertTabSolveStartsSolve(scenarioId: number) {
+  mockUpdateScenario.mutate.mockImplementation(
+    (vars: { data: { inputs: Record<string, unknown> } }, opts: { onSuccess: (u: unknown) => void }) =>
+      opts.onSuccess({ id: scenarioId, inputs: vars.data.inputs }),
+  );
+  fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+  fireEvent.click(screen.getByTestId("button-tab-solve"));
+  expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+  expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+  expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId });
+}
+
 // ── p-median-us ──────────────────────────────────────────────────────────
 describe("Workspace tab coverage — p-median-us", () => {
   const pmedianInputs = {
@@ -261,6 +276,11 @@ describe("Workspace tab coverage — p-median-us", () => {
         // coverage).
       ],
     );
+  });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
   });
 });
 
@@ -362,6 +382,11 @@ describe("Workspace tab coverage — transport-coal", () => {
     expect(screen.getByRole("columnheader", { name: "Distance (mi)" })).toBeInTheDocument();
     expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
   });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
+  });
 });
 
 // ── two-echelon-gold-au ──────────────────────────────────────────────────
@@ -458,6 +483,11 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
         // (refinery_to_customer), per C6.1's own design note.
       ],
     );
+  });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
   });
 });
 
@@ -579,6 +609,11 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
       ],
     );
   });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
+  });
 });
 
 // ── p-median-brazil (jade-INT, Workspace fixups bundle item 4) ────────────
@@ -671,6 +706,11 @@ describe("Workspace tab coverage — p-median-brazil", () => {
         SERVICE_STATS,
       ],
     );
+  });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
   });
 });
 
@@ -768,6 +808,11 @@ describe("Workspace tab coverage — max-coverage-us", () => {
         SERVICE_STATS,
       ],
     );
+  });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
   });
 });
 
@@ -874,6 +919,11 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
     );
 
     expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
+  });
+
+  it("QFX-3: the Optimization Parameters tab's Solve starts a solve with no dialog", () => {
+    render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" />);
+    assertTabSolveStartsSolve(solvedScenario.id);
   });
 });
 

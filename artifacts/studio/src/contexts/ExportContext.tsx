@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { downloadEntityExport, type ExportEntity } from "@/lib/exportEntity";
+import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
 
 // SCN chen-bands-units, Task 11b
 // (docs/superpowers/plans/2026-09-20-chen-bands-units.md:1438).
@@ -70,7 +71,7 @@ export interface ExportProviderValue {
 /** What `useExport()` RETURNS — provider state plus the behavior the provider adds. */
 export interface ExportApi extends ExportProviderValue {
   disabledReasonFor(entity: ExportEntity): string | undefined;
-  download(entity: ExportEntity, format: "csv" | "json"): Promise<void>;
+  download(entity: ExportEntity, format: DownloadFormat): Promise<void>;
 }
 
 const ExportContext = createContext<ExportProviderValue | null>(null);
@@ -98,7 +99,7 @@ export function useExport(): ExportApi {
       return (INPUT_ENTITIES as readonly string[]).includes(entity) ? inputDisabledReason : resultDisabledReason;
     };
 
-    const download = async (entity: ExportEntity, format: "csv" | "json"): Promise<void> => {
+    const download = async (entity: ExportEntity, format: DownloadFormat): Promise<void> => {
       // Hard guard — three independent checks, in this order, matching the
       // locked contract verbatim. The third subsumes the second once
       // `unit == null` always yields a disabled reason via

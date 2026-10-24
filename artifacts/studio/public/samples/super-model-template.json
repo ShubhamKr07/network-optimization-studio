@@ -6,9 +6,9 @@
   "circuityFactor": 1.17,
   "transportCosts": { "icTransCost": 0.07, "icMinTrans": 10, "obTransCost": 0.12, "obMinTrans": 10 },
   "products": [{ "id": "product-1", "name": "Product 1" }],
-  "plants": [{ "id": "plant-1", "name": "Plant 1", "lat": 40.0, "lng": -100.0 }],
-  "warehouses": [{ "id": "wh-1", "name": "Warehouse 1", "lat": 40.0, "lng": -99.0, "status": "active" }],
-  "customers": [{ "id": "customer-1", "name": "Customer 1", "lat": 40.0, "lng": -98.0, "status": "active" }],
+  "plants": [{ "id": "plant-1", "lat": 40.0, "lng": -100.0 }],
+  "warehouses": [{ "id": "wh-1", "lat": 40.0, "lng": -99.0, "status": "active" }],
+  "customers": [{ "id": "customer-1", "lat": 40.0, "lng": -98.0, "status": "active" }],
   "plantProducts": [{ "plantId": "plant-1", "productId": "product-1", "capacity": 1000, "costPerUnit": 0 }],
   "demand": [{ "customerId": "customer-1", "productId": "product-1", "demand": 10 }],
   "distanceOverrides": []

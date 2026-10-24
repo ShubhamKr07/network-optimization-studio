@@ -3155,6 +3155,30 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(screen.queryByTestId("solve-dialog-blocked-hint")).not.toBeInTheDocument();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
+  it("QFX-3: the tab's Solve shows the same objective hint and is disabled; choosing re-enables it", () => {
+    const { objective: _o, ...noObjective } = maxCoverageCoverageInputs;
+    void _o;
+    const unselected = { ...maxCoverageScenario, inputs: noObjective };
+    mockUseGetScenario.mockReturnValue({ data: unselected } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [unselected] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
+    openParamsTab();
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    expect(screen.getByTestId("tab-solve-blocked-hint")).toHaveTextContent(OBJECTIVE_HINT);
+    fireEvent.click(screen.getByTestId("objective-coverage"));
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
+  });
+
+  it("QFX-3: the Solve dialog's embedded parameters instance shows no extra Solve button", () => {
+    renderChen();
+    openParamsTab();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog-optimization-parameters-tab")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-button-tab-solve")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("button-tab-solve")).toHaveLength(1);   // the standalone tab behind the dialog only
+    expect(screen.getAllByTestId("solve-dialog-solve")).toHaveLength(1);
+  });
 });
 
 // ch4-mig-8 — the p cap is declared in the manifest, the Zod schema, and
@@ -3832,5 +3856,68 @@ describe("Workspace — sidebar auto open/close (SCU-1.6)", () => {
     view.unmount();
     renderWorkspace();
     expect(screen.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "false");
+  });
+});
+
+// QFX-3 — the Optimization Parameters tab's own Solve: handleSolve directly,
+// no dialog; disabled on exactly handleSolve's early-return conditions.
+describe("Workspace — Optimization Parameters Solve button (QFX-3)", () => {
+  it("a clean draft: the tab's Solve enqueues the solve directly, with no dialog", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("a dirty draft is saved first (handleSolve's save-before-solve), then solved", () => {
+    updateScenarioResolvesWithPersistedRow();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateScenario.mutate.mock.calls[0][0].data.inputs).toMatchObject({ p: 10 });
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+  });
+
+  it("is disabled while a solve is in flight, so a second click cannot enqueue twice", () => {
+    // mutate never calls back: the phase stays "solving".
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("is disabled while browsing an older result", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const solvedA = { ...scenario, inputs: { ...pmedianInputs }, result: resultA, stale: false };
+    mockUseGetScenario.mockReturnValue({ data: solvedA } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedA, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    const view = renderWorkspace();
+    const next = { ...solvedA, result: { ...resultA } };   // new result reference: history appends
+    mockUseGetScenario.mockReturnValue({ data: next } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [next, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    fireEvent.click(await screen.findByTestId("button-result-back"));
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+  });
+
+  it("no super readiness block for a chapter model, even when its precheck has errors", () => {
+    mockUsePrecheckScenario.mockReturnValue({ data: { ok: false, errors: [{ code: "x", message: "Something" }] } } as unknown as ReturnType<typeof usePrecheckScenario>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
   });
 });

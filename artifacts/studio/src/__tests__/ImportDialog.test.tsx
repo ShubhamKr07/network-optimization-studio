@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as XLSX from "xlsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImportDialog } from "@/components/ImportDialog";
 import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
@@ -325,5 +326,32 @@ describe("ImportDialog — JSON format and the 2 MB limit (SCU-2.P2.2)", () => {
     await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), new File([JSON.stringify(document)], "w.json", { type: "application/json" }));
     expect(await screen.findByTestId("import-error-row-0")).toHaveTextContent("row 4");
     expect(screen.getByTestId("import-change-row-0")).toHaveTextContent("row 2");
+  });
+});
+
+describe("ImportDialog — XLSX (QFX-2a: first sheet -> CSV text, unchanged CSV import path)", () => {
+  const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const sentBody = (call = 0) => JSON.parse(String((fetchMock.mock.calls[call]![1] as RequestInit).body));
+  const wbFile = (sheets: Record<string, (string | number)[][]>) => {
+    const wb = XLSX.utils.book_new();
+    for (const [n, rows] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), n);
+    return new File([XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer], "warehouses.xlsx", { type: XLSX_MIME });
+  };
+
+  it("accepts .xlsx and sends the FIRST sheet as { entity, csvText } — no format key, sheet name ignored", async () => {
+    mockFetchRoutes({ errors: [], changes: [], warnings: [] });
+    renderDialog({ format: "xlsx" });
+    const input = screen.getByTestId("input-import-file-warehouses");
+    expect(input).toHaveAttribute("accept", `.xlsx,${XLSX_MIME}`);
+    await userEvent.upload(input, wbFile({ Sheet9: [["id", "line"], ["CHI", 2]], other: [["x"], ["y"]] }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sentBody()).toEqual({ entity: "warehouses", csvText: "id,line\nCHI,2" });
+  });
+
+  it("an empty first sheet is refused before any request", async () => {
+    renderDialog({ format: "xlsx" });
+    await userEvent.upload(screen.getByTestId("input-import-file-warehouses"), wbFile({ s: [] }));
+    expect(await screen.findByTestId("import-file-error")).toHaveTextContent("The first sheet is empty.");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

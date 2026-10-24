@@ -149,6 +149,7 @@ export function PlantsTab({
     {
       id: "delete",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

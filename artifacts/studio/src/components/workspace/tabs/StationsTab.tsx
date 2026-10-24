@@ -229,6 +229,7 @@ export function StationsTab({
     {
       id: "delete",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

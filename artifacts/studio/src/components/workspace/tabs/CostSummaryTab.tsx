@@ -74,6 +74,7 @@ const superMetric = (r: SolveResult, key: string): number | undefined => {
   return { "total-cost": m.totalCost, inbound: m.inboundCost, outbound: m.outboundCost, "plant-variable-cost": m.plantVariableCost, "dist-plant-wh": m.avgDistPlantToWh, "dist-wh-customer": m.avgDistWhToCustomer }[key];
 };
 const MAX_COVERAGE_MODEL_ID = "max-coverage-us";
+const DELIVERY_MODEL_ID = "delivery-teaching-us";
 
 interface SolvedAtRates {
   rates: TransportCosts;
@@ -185,6 +186,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
     {
       id: "metric",
       header: "",
+      sortable: false,
       kind: "text",
       // Metric tables are never filtered (user decision 2026-10-17, spec B2.2 exception).
       filter: false,
@@ -199,6 +201,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
       // Numbers are centred (B2.1); never filtered (spec B2.2 exception).
       kind: "number",
       filter: false,
+      sortable: false,
       cellTestId: r => r.testId,
       value: r => r.value,
       cell: r => (r.mono ? <span className="font-mono">{r.value}</span> : r.value),
@@ -216,6 +219,7 @@ function compareColumns(scenarios: Array<{ id: number; name: string }>): ColumnD
     {
       id: "metric",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       cellClassName: "text-muted-foreground",
@@ -228,6 +232,7 @@ function compareColumns(scenarios: Array<{ id: number; name: string }>): ColumnD
       headerTestId: `cost-summary-compare-column-${sc.id}`,
       kind: "number",
       filter: false,
+      sortable: false,
       cellTestId: r => r.testId(sc.id),
       value: r => r.cells[col].raw,
       cell: r => (r.mono ? <span className="font-mono">{r.cells[col].display}</span> : r.cells[col].display),
@@ -472,6 +477,15 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     </>
   );
 
+  // QFX-5 — the ONE band-row builder (labels + exclusive percentages), used by
+  // the Chapter 5 single view AND Compare, so the two views cannot disagree.
+  const bandRowLabels = (boundaries: number[]): string[] =>
+    unitLabel == null
+      ? [...boundaries, OVERFLOW_BAND].map(() => "—")
+      : exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);
+  const exclusiveBands = (r: SolveResult) =>
+    frozenBandCoverageToExclusive(r.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId));
+
   if (!compareMode) {
     if (!result) {
       return (
@@ -554,6 +568,17 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
        noIncumbent ? "—" : formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
     );
+    // QFX-5 — Chapter 5's % of demand per distance band (+ overflow). Skipped
+    // while the unit is unresolved: labels would all be "—" (the row key).
+    const ch5Boundaries = modelId === DELIVERY_MODEL_ID && unitLabel != null ? bandBoundaries(result) : [];
+    if (ch5Boundaries.length > 0) {
+      const labels = bandRowLabels(ch5Boundaries);
+      const exclusive = exclusiveBands(result);
+      [...ch5Boundaries, OVERFLOW_BAND].forEach((band, i) => {
+        const coverage = exclusive?.find(b => b.band === band);
+        rows.push([labels[i], coverage ? `${coverage.percent}%` : "—", true, `cost-summary-band-${band}`]);
+      });
+    }
     rows.push(
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       // B4.1 — the truthful outcome (never the raw solver `result.quality`,
@@ -598,7 +623,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         {summaryBar(
           <DownloadMenu
             testId="button-download-cost-summary"
-            itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
+            itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json", xlsx: "button-download-cost-summary-xlsx" }}
             onDownload={format => download("costSummary", format)}
             disabledReason={disabledReasonFor("costSummary")}
           />,
@@ -831,12 +856,8 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // column shares the same real boundaries.
   if (sharedBands) {
     const boundaries = bandBoundaries(results[0]);
-    const labels = unitLabel == null
-      ? [...boundaries, OVERFLOW_BAND].map(() => "—")
-      : exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);
-    const exclusiveByColumn = compareScenarios.map(s =>
-      frozenBandCoverageToExclusive(s.result!.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId)),
-    );
+    const labels = bandRowLabels(boundaries);
+    const exclusiveByColumn = compareScenarios.map(s => exclusiveBands(s.result!));
     [...boundaries, OVERFLOW_BAND].forEach((band, i) => {
       compareRows.push({
         key: `band-${band}`,
@@ -859,12 +880,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       {summaryBar(
         <DownloadMenu
           testId="button-download-cost-summary"
-          itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json" }}
+          itemTestIds={{ csv: "button-download-cost-summary-csv", json: "button-download-cost-summary-json", xlsx: "button-download-cost-summary-xlsx" }}
           onDownload={format =>
-            downloadAs(
+            void downloadAs(
               "cost-summary-compare",
               format,
-              format === "csv" ? buildCompareCsv(compareRows, compareScenarios) : buildCompareJson(compareRows, compareScenarios, unitLabel),
+              format === "json" ? buildCompareJson(compareRows, compareScenarios, unitLabel) : buildCompareCsv(compareRows, compareScenarios),
             )
           }
         />,

@@ -6,15 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { describeImportError } from "@/components/ImportDialog";
-import { describeIssue, parseCsvFiles, parseJsonText, parseXlsx, type ParseResult, type Sources } from "@/lib/superFiles";
+import { describeIssue, parseCsvFiles, parseJsonText, parseXlsx, readFileAs, type ParseResult, type Sources } from "@/lib/superFiles";
 
 const SUPER_LIMIT_MESSAGE = `File is larger than the ${SUPER_NETWORK_MAX_BYTES / (1024 * 1024)} MB network import limit.`;
-const readAs = (file: File, how: "text" | "buffer") => new Promise<string | ArrayBuffer>((resolve, reject) => {
-  const r = new FileReader(); // FileReader: jsdom's File has no .text()
-  r.onload = () => resolve(r.result as string | ArrayBuffer);
-  r.onerror = () => reject(r.error);
-  if (how === "text") r.readAsText(file); else r.readAsArrayBuffer(file);
-});
 type Kind = "json" | "csv" | "xlsx";
 function kindOf(files: File[]): Kind | null {
   const ext = (f: File) => f.name.toLowerCase().split(".").pop();
@@ -76,9 +70,9 @@ export function SuperNetworkImportDialog({ open, onOpenChange, scenarioId, isEmp
     if (!kind) return setFileErrors(["Choose one .json file, one .xlsx workbook, or a set of .csv files."]);
     let result: ParseResult;
     try {
-      if (kind === "json") result = parseJsonText(String(await readAs(files[0], "text")));
-      else if (kind === "xlsx") result = await parseXlsx((await readAs(files[0], "buffer")) as ArrayBuffer);
-      else result = parseCsvFiles(await Promise.all(files.map(async f => ({ name: f.name, text: String(await readAs(f, "text")) }))));
+      if (kind === "json") result = parseJsonText(String(await readFileAs(files[0], "text")));
+      else if (kind === "xlsx") result = await parseXlsx((await readFileAs(files[0], "buffer")) as ArrayBuffer);
+      else result = parseCsvFiles(await Promise.all(files.map(async f => ({ name: f.name, text: String(await readFileAs(f, "text")) }))));
     } catch {
       if (mine === selection.current) setFileErrors(["Could not read the file."]);
       return;

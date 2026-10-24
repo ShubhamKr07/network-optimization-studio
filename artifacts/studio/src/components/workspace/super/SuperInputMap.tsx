@@ -68,14 +68,14 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
   }
   function startCreate(kind: LocKind) {
     if (!addAt) return;
-    setDialog({ mode: "create", kind, demand: {}, initial: { id: nextFreeId(inputs, kind), name: "", lat: addAt.lat, lng: addAt.lng, ...(kind === "pl" ? {} : { status: "active" }) } });
+    setDialog({ mode: "create", kind, demand: {}, initial: { id: nextFreeId(inputs, kind), lat: addAt.lat, lng: addAt.lng, ...(kind === "pl" ? {} : { status: "active" }) } });
     setAddAt(null);
   }
   function startEdit() {
     if (!menu) return;
     const r = rowOf(menu.entity);
     setDialog({ mode: "edit", kind: menu.entity.kind,
-      initial: { id: String(r.id), name: String(r.name), city: r.city as string | undefined, state: r.state as string | undefined, lat: Number(r.lat), lng: Number(r.lng), status: r.status as string | undefined },
+      initial: { id: String(r.id), city: r.city as string | undefined, state: r.state as string | undefined, lat: Number(r.lat), lng: Number(r.lng), status: r.status as string | undefined },
       demand: menu.entity.kind === "cs" ? demandOf(inputs, String(r.id)) : {} });
     setMenu(null);
   }

@@ -158,7 +158,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
             download: (
               <DownloadMenu
                 testId="button-download-flows"
-                itemTestIds={{ csv: "button-download-flows-csv", json: "button-download-flows-json" }}
+                itemTestIds={{ csv: "button-download-flows-csv", json: "button-download-flows-json", xlsx: "button-download-flows-xlsx" }}
                 onDownload={format => download("flows", format)}
                 disabledReason={disabledReasonFor("flows")}
               />

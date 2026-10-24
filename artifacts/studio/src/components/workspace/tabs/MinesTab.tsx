@@ -226,6 +226,7 @@ export function MinesTab({
     {
       id: "delete",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

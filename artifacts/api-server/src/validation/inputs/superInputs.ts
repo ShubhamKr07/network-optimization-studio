@@ -5,7 +5,9 @@ export const SUPER_CAPS = { products: 10, plants: 20, warehouses: 50, customers:
 
 const id = z.string().trim().min(1);
 const num = z.number().finite();   // every numeric field rejects NaN/±Infinity
-const loc = { id, name: z.string().trim().min(1), city: z.string().optional(), state: z.string().optional(),
+// QFX-7: locations carry no `name` (the solver labels warehouses city -> id). A stored row or an old JSON file
+// that still has one validates: z.object strips unknown keys, so it disappears on that scenario's next write.
+const loc = { id, city: z.string().optional(), state: z.string().optional(),
   lat: num.min(-90).max(90), lng: num.min(-180).max(180) };
 
 const transportCosts = z.object({

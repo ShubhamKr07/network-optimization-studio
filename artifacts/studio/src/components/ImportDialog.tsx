@@ -15,6 +15,8 @@ import { toast } from "@/hooks/use-toast";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { describeWriteError } from "@/lib/describeWriteError";
+import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
+import { XLSX_MIME } from "@/lib/clientCsv";
 
 interface ImportDialogProps {
   open: boolean;
@@ -24,8 +26,9 @@ interface ImportDialogProps {
   // ImportEntity enum is pinned to (importSchemaContract.test.ts). Passing it
   // into the generated request type is a compile-time check of the same thing.
   entity: ImportEntity;
-  /** SCU-2.P2.2 (B2.6) — which file the user picks. Defaults to csv (every existing caller). */
-  format?: "csv" | "json";
+  /** SCU-2.P2.2 (B2.6) — which file the user picks. Defaults to csv (every existing caller).
+   *  QFX-2a — xlsx: the first sheet is converted to CSV text in the browser and sent exactly like a CSV upload. */
+  format?: DownloadFormat;
   onApplied?: (scenario: Scenario) => void;
   /** B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in gate for the shared
    * A3 `FilterMenu`/`useTableFilters`, wired into the Errors and Changes
@@ -55,6 +58,8 @@ function parseJsonDocument(text: string): ImportDocument | null {
   }
   return null;
 }
+
+const ACCEPT: Record<DownloadFormat, string> = { csv: ".csv,text/csv", json: ".json,application/json", xlsx: `.xlsx,${XLSX_MIME}` };
 
 const rowLabel = (rowIndex: number | undefined) => (rowIndex === undefined ? undefined : `row ${rowIndex + 1}`);
 
@@ -89,31 +94,49 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
     previewMutation.reset();
     setRequest(null);
     setFileName(file.name);
+    if (format === "xlsx") {
+      void submitXlsx(file);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? "");
-      let next: ImportRequest;
       if (format === "json") {
         const document = parseJsonDocument(text);
         if (!document) {
           setFileError("File is not a valid import document (a JSON object with a rows array).");
           return;
         }
-        next = { entity, format: "json", document };
+        submit({ entity, format: "json", document });
       } else {
-        next = { entity, csvText: text };
+        submit({ entity, csvText: text });
       }
-      // SCU-2.P2.2 (B2.6; review #10) — the limit is on the WIRE body, so measure
-      // the serialized request (with mode, the larger of preview/apply), never file.size.
-      if (new Blob([JSON.stringify({ ...next, mode: "all_or_nothing" })]).size > MAX_IMPORT_BYTES) {
-        setFileError(LIMIT_MESSAGE);
-        return;
-      }
-      setFileError(null);
-      setRequest(next);
-      previewMutation.mutate({ scenarioId, data: next });
     };
     reader.readAsText(file);
+  }
+
+  // QFX-2a — no server change: the workbook's first sheet becomes the same csvText a CSV upload sends.
+  async function submitXlsx(file: File) {
+    try {
+      const { xlsxFileToCsvText } = await import("@/lib/xlsxFile");
+      const r = await xlsxFileToCsvText(file);
+      if (r.ok) submit({ entity, csvText: r.csvText });
+      else setFileError(r.message);
+    } catch {
+      setFileError("Could not read the file.");
+    }
+  }
+
+  function submit(next: ImportRequest) {
+    // SCU-2.P2.2 (B2.6; review #10) — the limit is on the WIRE body, so measure
+    // the serialized request (with mode, the larger of preview/apply), never file.size.
+    if (new Blob([JSON.stringify({ ...next, mode: "all_or_nothing" })]).size > MAX_IMPORT_BYTES) {
+      setFileError(LIMIT_MESSAGE);
+      return;
+    }
+    setFileError(null);
+    setRequest(next);
+    previewMutation.mutate({ scenarioId, data: next });
   }
 
   function handleConfirm() {
@@ -170,7 +193,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
           <div className="flex items-center gap-2">
             <input
               type="file"
-              accept={format === "json" ? ".json,application/json" : ".csv,text/csv"}
+              accept={ACCEPT[format]}
               onChange={handleFileChange}
               data-testid={`input-import-file-${entity}`}
               className="text-xs"

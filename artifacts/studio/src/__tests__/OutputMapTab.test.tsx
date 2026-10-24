@@ -885,3 +885,33 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
     expect(screen.queryByTestId("output-map-narrative")).not.toBeInTheDocument();
   });
 });
+
+// QFX-8 — the open-sites caption sits directly ABOVE the map, outside the
+// captured map node, and only for a result with an incumbent.
+describe("OutputMapTab — open-sites caption (QFX-8)", () => {
+  it("renders the caption above the map for a solved result", () => {
+    const { container } = render(
+      <OutputMapTab
+        dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} modelId="p-median-us"
+        identityById={{ W1: { city: "Testville", state: "TS", displayId: "W1" } }}
+      />,
+    );
+    const caption = screen.getByTestId("output-map-open-sites");
+    expect(caption.textContent).toBe("Open warehouses: W1 · Testville, TS");
+    const map = container.querySelector(".leaflet-container")!;
+    expect(map.contains(caption)).toBe(false);
+    expect(caption.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("no caption pre-solve (input network only)", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[]} modelId="p-median-us" />);
+    expect(screen.queryByTestId("output-map-open-sites")).not.toBeInTheDocument();
+  });
+
+  it("no caption for a failed result, even though its details still list W1", () => {
+    const failed = { ...result, status: "infeasible" as const, solutionStatus: "infeasible" as const, objective: 0, edges: [] };
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={failed} bands={[]} modelId="p-median-us" />);
+    expect(screen.getByTestId("output-map-no-incumbent")).toBeInTheDocument();
+    expect(screen.queryByTestId("output-map-open-sites")).not.toBeInTheDocument();
+  });
+});

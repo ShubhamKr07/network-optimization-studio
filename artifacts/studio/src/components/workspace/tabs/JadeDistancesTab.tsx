@@ -566,6 +566,7 @@ export function JadeDistancesTab({
     {
       id: "remove",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,
@@ -619,7 +620,7 @@ export function JadeDistancesTab({
       <select
         value={newLeg}
         onChange={e => setNewLeg(e.target.value as JadeLeg)}
-        className="h-7 text-xs border rounded px-1"
+        className="h-7 text-xs border rounded pl-1"
         disabled={readOnly}
         title={readOnly ? READ_ONLY_TITLE : undefined}
         data-testid="select-new-jadedistance-leg"

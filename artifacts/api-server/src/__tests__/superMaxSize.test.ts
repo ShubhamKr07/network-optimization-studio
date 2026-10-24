@@ -38,7 +38,7 @@ const imp = (id: number, mode: string, network: object, c = cookie) =>
  *  in the schema, so this is a defined realistic worst case, not a proof for every network. */
 function capsNetwork(products: number) {
   const f = (i: number) => Math.sqrt(i + 2) * 97.31;          // ~17 significant digits, deterministic
-  const loc = (p: string, i: number) => ({ id: `${p}-${i}`.padEnd(20, "x"), name: `${p} ${i} Springfield`, city: "Springfield", state: "MO",
+  const loc = (p: string, i: number) => ({ id: `${p}-${i}`.padEnd(20, "x"), city: "Springfield", state: "MO",
     lat: 25 + (f(i) % 24), lng: -124 + (f(i + 7) % 57) });
   const nCust = Math.min(SUPER_CAPS.customers, Math.floor(SUPER_CAPS.whCustProd / (SUPER_CAPS.warehouses * products)));
   const plants = Array.from({ length: SUPER_CAPS.plants }, (_, i) => loc("plant", i + 1));

@@ -30,6 +30,7 @@ import {
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -700,7 +701,7 @@ function superRowsFromInputs(inputs: Record<string, unknown> | null, key: string
   return Array.isArray(raw) ? raw : [];
 }
 function superOutputDataset(inputs: Record<string, unknown> | null): Dataset {
-  const pick = (r: Record<string, any> & { id: string }) => ({ id: r.id, name: r.name, city: r.city, state: r.state, lat: r.lat, lng: r.lng });
+  const pick = (r: Record<string, any> & { id: string }) => ({ id: r.id, city: r.city, state: r.state, lat: r.lat, lng: r.lng });
   const demand = new Map<string, number>();
   for (const d of superRowsFromInputs(inputs, "demand")) demand.set(d.customerId, (demand.get(d.customerId) ?? 0) + (d.demand ?? 0));
   return {
@@ -2122,6 +2123,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     localInputs != null &&
     resolveMaxCoverageRun(coverageFloorDemandFromInputs(localInputs), objectiveFromInputs(localInputs)) === null;
 
+  // QFX-3 (decision L2) — super server precheck errors also block Solve, but
+  // only on a CLEAN draft (precheck describes the SAVED row). Loading/failed
+  // precheck (no data) never blocks; the server stays the enqueue authority.
+  const superReadinessBlockedReason =
+    modelId === "super-model" && !ordinaryDirty && precheck && precheck.errors.length > 0
+      ? `Fix the readiness issues before solving: ${precheck.errors[0].message}`
+      : null;
+  // The ONE blocked reason both Solve buttons read; objective hint has priority.
+  const solveBlockedReason = objectiveRequired ? OBJECTIVE_REQUIRED_HINT : superReadinessBlockedReason;
+
   // chen-bands-units, Task 14 Step 3/5 — the shared whole-input save,
   // Promise-wrapped so BOTH the plain Save control (`handleSaveInputs`,
   // fire-and-forget) and the dirty-nav prompt's Save action (awaited — a
@@ -3051,7 +3062,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // scope here. Do not read this comment as "the enqueue helper is
     // single-entry" — it is not; the guard lives here.
     if (
-      objectiveRequired ||
+      // QFX-3 — shared blocked reason (objective hint OR super readiness).
+      solveBlockedReason != null ||
       !currentScenario ||
       isBrowsingHistoryNow ||
       solveInFlightRef.current ||
@@ -3361,6 +3373,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const optimizationTabProps: OptimizationParametersTabProps | null =
     optimizationParamsBaseProps && {
       ...optimizationParamsBaseProps,
+      // QFX-3 — standalone tab ONLY (not the shared base): the dialog has its own Solve.
+      showSolveButton: true,
+      onSolve: handleSolve,
+      solveDisabled: !currentScenario || isBrowsingHistoryNow || solvePhase !== "idle",
+      solveBlockedReason,
     };
 
   const solveDialogParamsProps: OptimizationParametersTabProps | null =
@@ -3839,6 +3856,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onDelete={row => isEntityTable(e) && !isBrowsingHistoryNow && setSuperDeleteTarget({ table: e, id: String(row.id) })}
             readOnly={isBrowsingHistoryNow}
             options={{ productIds: idsOf("products"), plantIds: idsOf("plants"), customerIds: idsOf("customers") }}
+            network={localInputs as SuperInputsLike}
           />
         );
       }
@@ -3857,6 +3875,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             plantIds={idsOf("plants")}
             warehouseIds={idsOf("warehouses")}
             customerIds={idsOf("customers")}
+            network={localInputs as SuperInputsLike}
           />
         );
       }
@@ -4519,16 +4538,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             {/* CH4UX-6 — also disabled while a solve is in flight: the
                 overlay is modal, but this header button is the one control
                 a keyboard user could still reach mid-run. */}
-            {modelId === "super-model" && currentScenario && (
-              <>
-                <Button size="sm" variant="outline" disabled={isBrowsingHistoryNow} onClick={() => setSuperImportOpen(true)} data-testid="super-header-import">
-                  Import network
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("json")} data-testid="super-header-export">Export JSON</Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("csv")} data-testid="super-header-export-csv">Export CSV</Button>
-                <Button size="sm" variant="outline" onClick={() => handleSuperExport("xlsx")} data-testid="super-header-export-xlsx">Export XLSX</Button>
-              </>
-            )}
             <Button
               size="sm"
               disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
@@ -4600,6 +4609,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   <Save className="w-3.5 h-3.5 mr-1" />
                   {saveIsPending ? "Saving…" : saveLabel}
                 </Button>
+                {/* QFX-1 — super's whole-network Import / Export sit right of Save. Import is hidden while browsing
+                    history (it writes); Export stays (user decision C2) and exports the latest SAVED network. */}
+                {modelId === "super-model" && currentScenario && (
+                  <>
+                    {!isBrowsingHistoryNow && (
+                      <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
+                        Import network
+                      </Button>
+                    )}
+                    <DownloadMenu
+                      label="Export"
+                      testId="super-toolbar-export"
+                      itemTestIds={{ csv: "super-toolbar-export-csv", json: "super-toolbar-export-json", xlsx: "super-toolbar-export-xlsx" }}
+                      onDownload={format => void handleSuperExport(format)}
+                    />
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -4695,7 +4721,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         canonicalUnit={canonicalUnit}
         onChange={handleOptimizationParamsChange}
         onSolve={handleSolve}
-        solveBlockedReason={objectiveRequired ? OBJECTIVE_REQUIRED_HINT : null}
+        solveBlockedReason={solveBlockedReason}
       />
 
       {/* CH4UX-6 — mounted UNCONDITIONALLY from this component's single main

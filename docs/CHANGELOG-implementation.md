@@ -4570,3 +4570,177 @@ Whole-branch review of `9d9b6561..80febe12` (Opus, split API/solver and Studio) 
 ### CH5T - rename Chapter 5 delivery card
 
 `artifacts/studio/src/lib/chapters.ts`: `delivery-teaching-us` card title "Delivery Company Teaching Example" -> "Introduction to Network Design"; lab header "Delivery Company · Model Lab" -> "Introduction to Network Design · Model Lab". Per user, the API manifest `name` (`solvers/delivery-teaching-us/manifest.json`) and code comments are unchanged. No studio test or e2e spec asserts either old string (grep). The full gate was not run (user stopped it).
+
+### QFX-10 - Refined native `<select>`s
+
+`artifacts/studio/src/index.css`: one `@layer base` rule on `select:not([multiple]):not([size])` (no native arrow, two-gradient inset chevron in `--muted-foreground`, `--background` fill, `padding-right: 2rem`, input-token border/radius, `--ring` focus). Removed `px-*`/`bg-white` (now `pl-*`) from the 4 native selects (`superTables.tsx`, `SuperDistancesTab.tsx`, `SuperEntityDialog.tsx`, `JadeDistancesTab.tsx`) because utilities outrank `@layer base`. Radix `ui/select.tsx` untouched.
+- New source-reading guard `src/__tests__/nativeSelectStyle.test.ts` (rule present; no `px/pr/pe-*`/`bg-white` on any native select, tree-walking). Fail-first proven (2/2 failed), then 2/2 pass; typecheck clean.
+- Real-browser light+dark check is NOT done here; it belongs to the qa-sdet QFX-QA task.
+
+### QFX-4 - sort by clicking a column header
+
+`ColumnDef` gains `sortable?: boolean` (default true). `DataTable` renders a sortable header as a `<button>` inside the `<th>` cycling ascending → descending → off (▲/▼, `aria-sort` on the `<th>`; `aria-sort` omitted on unsortable columns); one column at a time, component-local state. Pipeline is now effective rows → filter → **sort** → clamp → slice 50. `sortRows` sorts decorated `{ row, originalIndex }` items and never touches the input array, so every `cell()`/`rowKey()` callback — and the super tables' `Item.i` edit/delete identity — still sees the original row. Numbers compare numerically, strings `localeCompare(…, { numeric: true, sensitivity: "base" })`, blank/null last in both directions, ties stable. With `sections`, the section index sorts first (rows sort within their section; section order and base-first paging unchanged). A sort change resets to page 1 (sort appended to `pageResetKey`'s key); a focus jump clears the sort along with the filters (its target page is computed unsorted). Editing the sorted column re-sorts live. All 20 `DataTable` consumers sort; CostSummary's value/scenario columns are also `sortable: false` (user decision C1, covered by a `th[aria-sort]` count test in `CostSummaryTab.test.tsx`; non-vacuity verified by removing the flags); the 13 `header: ""` columns (11 delete/remove ✕ columns + CostSummary's two metric-label columns) set `sortable: false`, enforced by the new tree-walking guard `src/__tests__/sortableEmptyHeaders.test.ts`. Regression in `SuperTableTab.test.tsx`: sort a super table descending, edit a cell, delete a row — both hit the intended underlying row. `DataTable.test.tsx`'s header-class assertions now target the `<th>` by role (the text now sits in a button). No e2e impact (`thead th` innerText is unchanged while unsorted).
+
+Tests (measured): 13 files / 358 passed (DataTable, SuperTableTab, sortableEmptyHeaders, CostSummaryTab, OpenWarehousesTab, WarehousesTab.dataTable, TransportCostsTab.dataTable, FlowsTab, AssignmentsTab, CustomersTab, WarehousesTab, mutationErrorSurface, rawErrorMessageSurface); `pnpm run typecheck` clean.
+
+### QFX-7 - remove `name` from super-model plants, warehouses and customers
+
+One commit, because it crosses the server/studio contract. Server: `loc` in `validation/inputs/superInputs.ts` has no `name`. `z.object` strips unknown keys, so stored rows and old JSON documents that still carry `name` keep validating and lose it on that scenario's next write. Products keep `name`. Studio:
+- `superFiles.ts` drops `name` from the location `LOC` columns, so CSV/XLSX export no longer writes it. A new `LEGACY_LOCATION_COLUMNS = ["name"]` is accepted and discarded on location sheets only (`readSheet(..., legacy)`); any other unknown column is still an error.
+- `LocationDraft`, `SuperEntityDialog` (field and "Name is required" removed), `SuperInputMap` create/edit drafts, the location table columns, `blankRow` and the `superOutputDataset` projection no longer carry `name`.
+- Copy keeps the new-id behaviour and drops the " (copy)" suffix.
+
+Samples: `scripts/build-super-sample.py` no longer emits location `name`, and `super-model-sample.json` was regenerated from it. `super-model-template.json` was edited by a perl one-liner.
+
+`solve.py` is unchanged (warehouse label `city -> name -> id`). Manifest `required[]` does not list `name`, so the WF-5 notice is unaffected and no backfill is needed.
+
+- Deviations from the spec's file list: `SuperInputMap.tsx:71,78` (built drafts with `name`) and `scripts/build-super-sample.py` (the sample's generator).
+- Tests: new populated real-shape API test in `superNetworkImport.test.ts` (sample's 129 locations, every other row with a legacy `name`); new studio tests for the legacy column (CSV + XLSX), export header, dialog, name-less `+ Add row`, legacy-row edit, copy; fixture sweep across api-server super tests, `test_super.py` and studio super tests; `e2e/super-model.spec.ts` updated (not run, no local servers).
+- Gate (measured): studio 9 files / 109 passed; api-server 8 files / 81 passed; `test_super.py` 10 passed; `e2e_accuracy.py` 99/99; `pnpm run typecheck` clean.
+
+### QFX-2a - XLSX in every chapter per-table menu
+
+`DownloadFormat` is now `"csv" | "json" | "xlsx"`, and `DownloadMenu` shows CSV / JSON / XLSX. Every per-table menu carries a literal `-xlsx` testid:
+- input tables: `button-import-{t}-xlsx` / `button-export-{t}-xlsx`
+- result tables: `button-download-<table>-xlsx`
+
+XLSX never reaches the API, so the OpenAPI export enum stays `csv | json`.
+- **Server-built downloads.** `downloadEntityExport` fetches the CSV export with the same `unit`/`runId`.
+- **Client-built downloads** (JADE flows, Cost Summary compare) pass the CSV text they already build.
+- `downloadAs` (now async) writes the workbook with the new `lib/xlsxFile.ts` `csvTextToXlsxBlob`. That module is reached only via dynamic import, so SheetJS stays in its own chunk.
+- **Cell typing.** Only fields matching `^-?(0|[1-9]\d*)(\.\d+)?$` become number cells.
+- **Formula guard.** The server CSV's `'` formula guard is kept verbatim, so XLSX -> CSV -> server import round-trips like a CSV file.
+
+**Upload.** `ImportDialog` `format="xlsx"` converts the first sheet with `xlsxFileToCsvText` (`sheet_to_csv` with `rawNumbers: true` for full precision, and `blankrows: false`) and sends the same `{ entity, csvText }` a CSV upload sends.
+- New messages: "The workbook has no sheets.", "The first sheet is empty.", "The file is not a readable .xlsx workbook." and "Could not read the file."
+
+**Shared helpers.** `readFileAs` moved from `SuperNetworkImportDialog.tsx` to `lib/superFiles.ts`; `XLSX_MIME` moved from `lib/superNetwork.ts` to `lib/clientCsv.ts`. Legacy `pages/Studio.tsx` is out of scope (spec).
+
+**Tests (measured).** New `xlsxFile.test.ts`; XLSX cases added to `DownloadMenu`, `exportEntity`, `ExportContext`, `entityFileMenus`, `ImportDialog`, `JadeFlowsTab`. The 12 related files (incl. `mutationErrorSurface`, `rawErrorMessageSurface`, `superFiles`, `SuperNetworkImportDialog`, `CostSummaryTab`): 12 files / 261 passed. `pnpm run typecheck` clean. jsdom has no `URL.createObjectURL`, so the two download tests stub it instead of `vi.spyOn`. `CostSummaryTab.test.tsx` `downloadAs` spies now `mockResolvedValue(undefined)` (the function is async). Rollback point: this commit.
+
+### QFX-2b - super per-table Upload ▾ / Download ▾ with Replace/Merge
+
+**Menus.** Every super table (`SuperTableTab`, including the distance overrides inside `SuperDistancesTab`) now has Upload ▾ and Download ▾ (CSV / JSON / XLSX).
+- testids: `super-{table}-upload|download[-csv|-json|-xlsx]`
+- **File shape.** A per-table file has exactly that table's `SUPER_TABLE_FILES` columns, so it is also a valid part of a whole-network import.
+  - CSV: `<file>.csv`
+  - XLSX: one sheet named `<file>`
+  - JSON: `{ "<tableKey>": [rows] }`. Any other key or a bare array → "This file must contain only <tableKey>."
+
+**Parsing.** `lib/superFiles.ts` `parseSuperTableFile(tableKey, file)` reuses `readSheet`. The new `readTable` is shared with `sheetsToDocument`, so per-table files keep QFX-7's legacy-`name` acceptance.
+- The format comes from the extension. File and sheet names never route; XLSX reads the first sheet only.
+- Duplicate keys inside the file are rejected with the server's KEY rules before any choice is offered.
+- `superRowKey` moved to the lib and is re-exported from `superTables.tsx`.
+
+**Download.** `superTableToFile` is **async**, because SheetJS stays lazy-loaded. This is a deviation from the plan contract's sync signature. Download writes the displayed draft rows and stays enabled while browsing history; Upload is disabled read-only.
+
+**Apply (L1).** `SuperTableUploadDialog` shows "Replace: N rows (M removed)" and "Merge: A added, U updated, K kept", with Replace / Merge / Cancel. Both choices call the tab's `onChange`, so they write only the draft:
+- `updateInputsField` for the table tabs
+- `setLocalInputs` via `SuperDistancesTab` for distance overrides
+
+They never call `POST …/network/import`. Save persists through the normal whole-input PATCH; cross-table errors surface there via `describeWriteError`.
+
+**Tests.** Round-trip of every table × CSV/JSON/XLSX through the real writer (sample fixture); key-mismatch/duplicate/legacy-name/extension cases; dialog counts and results for plantProducts, demand and distanceOverrides, plus Cancel and the error path; and a Workspace test that the upload changes only the draft until Save. Measured: superFiles + SuperTableTab + Workspace.Super + SuperNetworkImportDialog + mutationErrorSurface + rawErrorMessageSurface all green (SuperTableTab+Workspace.Super: 37 passed; typecheck clean). Rollback point: this commit.
+
+### QFX-1 - super Import network + Export ▾ beside Save
+
+`pages/Workspace.tsx` changes:
+- **Removed** the super page-header "Import network" and the three "Export JSON/CSV/XLSX" buttons (`super-header-*`).
+- **Added** `Save · Import network · Export ▾` to the shared toolbar Save row, which every super input tab uses (`showToolbarSave`; no `saveInLayersRow*` gate names super). New testids:
+  - `super-toolbar-import`
+  - `super-toolbar-export`
+  - `super-toolbar-export-csv|json|xlsx`
+- **Export ▾** is the QFX-2a `DownloadMenu`. Each item calls the unchanged `handleSuperExport(format)`, so the files are byte-identical. CSV is still a `.zip`.
+- **History (user decision C2).** While browsing history, Import network is hidden and Export ▾ stays. Export writes the latest **saved** network (`exportScenarioNetwork`), not the historical entry on screen.
+- **Unchanged:** chapter models and the empty-state import prompt (`super-open-import`).
+
+**Tests.** `Workspace.Super.test.tsx`: the trio order on all ten super input tabs, header absence, the three formats through the same fetch, and the history rule. The SM-9/SM2-1 import tests were repointed to `super-toolbar-import`. E2E `super-model.spec.ts` header-export assertion rewritten (not run). Measured: Workspace.Super 21, SuperNetworkImportDialog 17, mutationErrorSurface 6 passed; typecheck clean. Rollback point: this commit.
+
+### QFX-6 - tab-specific "Add …" forms on super tables
+
+Each super input tab's blank "+ Add row" (empty id, lat/lng 0) is replaced by its own titled form:
+- Add product / plant / warehouse / customer / capability / demand / distance override
+- `SuperAddRowDialog`, one renderer driven by `SUPER_ADD_FORMS` in the new pure `superAddForms.ts`
+- fields come from the table's own `SPECS`/`HEADERS` in `superTables.tsx`, now exported; `blankRow` is deleted
+
+Validation mirrors `validation/inputs/superInputs.ts`:
+- trimmed required text; City/State optional and omitted when blank
+- signed lat −90..90 / lng −180..180
+- capacity, cost/unit, demand and miles finite and ≥ 0, with 0 allowed
+- location IDs unique across plants, warehouses and customers; product IDs separately
+- no duplicate (plant, product), (customer, product) or (from, to)
+- Distances To filtered by From: plant→warehouses, warehouse→customers. A From that can reach nothing is not offered.
+
+Defaults: location ID = `nextFreeId`; warehouse/customer Status `active`.
+
+Button disabled states:
+- at the server caps (products 10, plants 20, warehouses 50, customers 500): "Limit reached: at most N <rows>."
+- with an empty source: "Add a plant and a product first." / "Add a customer and a product first." / "Add warehouses with plants or customers first."
+- an add that would push warehouses × customers × products past 50,000 shows that limit inline and cannot be confirmed
+
+Add appends to the draft only, with no auto-save. `SuperTableTab` and `SuperDistancesTab` gain a required `network` prop (the whole draft). Inside the tab, its own `rows` override `network[table]`.
+
+- `HEADERS.costPerUnit` renamed "Cost / unit" → "Cost per unit" (user decision C4); the form and column share it.
+- Deviation: studio mirrors `SUPER_CAPS` as constants with a pointer to `superInputs.ts:4`; studio does not depend on api-server.
+- Deviation: the Input Map's `SuperEntityDialog` is unchanged. It has its own create/edit flow with per-product demand.
+- Tests (measured): superAddForms 14, SuperAddRowDialog 5, SuperTableTab 23, SuperDistancesTab 8, Workspace.Super 22, nativeSelectStyle 2, sortableEmptyHeaders 1, all passing. `superAddForms.test.ts` and `SuperAddRowDialog.test.tsx` are new; QFX-7's SuperTableTab test now asserts the Add form has no name field. Details: `superAddForms.test.ts` and `SuperAddRowDialog.test.tsx` (new); `SuperTableTab` (Add replaces "+ Add row"; source-gate message; own rows drive duplicates; Distances tab button); `SuperDistancesTab` (prop); `Workspace.Super` ("Add plant" appends, no auto-save, row in the Save payload). Non-vacuity: disabling the W×C×P check fails its test.
+- E2E: no spec references `super-*-add` or "+ Add row" (grep), so no sibling rewrite.
+
+### QFX-3 - Solve button at the bottom of Optimization Parameters
+
+`OptimizationParametersTab` gains `showSolveButton` / `onSolve` / `solveDisabled` / `solveBlockedReason`; a primary "Solve" (`button-tab-solve`, hint `tab-solve-blocked-hint`) renders at the bottom of the tab. Workspace passes them on the standalone tab only (`optimizationTabProps`, not the shared base object), so the max-coverage `paramsSlot` copy inside SolveDialog shows no extra button. `onSolve={handleSolve}` (save-before-solve, no dialog); `solveDisabled` = no scenario / browsing history / `solvePhase !== "idle"` (the in-flight ref is covered by the phase; `objectiveRequired` arrives via the blocked reason). Decision L2: new `superReadinessBlockedReason` = "Fix the readiness issues before solving:" + the first `precheck.errors` message, only when the super draft is clean (`ordinaryDirty` false) and precheck has data; it feeds the single `solveBlockedReason` (objective hint first) that disables both the tab Solve and SolveDialog's Solve, and `handleSolve`'s guard now checks `solveBlockedReason` instead of `objectiveRequired` alone. Header Run Optimizer unchanged. Tests: component (OptimizationParametersTab.test), p-median clean/dirty/in-flight/history + max-coverage hint + embedded-instance (Workspace.test), one tab-Solve test per chapter model (Workspace.TabCoverage.test), super ready/blocked-tab/blocked-dialog/dirty/loading (Workspace.Super.test). Measured: OptimizationParametersTab 82, Workspace 172, Workspace.Super 27, Workspace.TabCoverage 17, SolveDialog 28, mutationErrorSurface 6 (all passed).
+
+### QFX-5 - Chapter 5: % demand within each distance band
+
+`CostSummaryTab.tsx`: the `delivery-teaching-us` single-scenario summary gains one row per distance band plus the overflow row (test ids `cost-summary-band-${band}`, overflow `cost-summary-band--1`), inserted after Weighted avg. distance. Values are EXCLUSIVE % of demand from solve.py's frozen cumulative `metrics.bandCoverage`, via two component-local helpers now shared with Compare — `bandRowLabels` (`exclusiveBandLabels`) and `exclusiveBands` (`frozenBandCoverageToExclusive(…, bandDecimals, frozenBandShape)`) — so the single view and Compare cannot disagree (test asserts equality). Rows are skipped while the canonical unit is unresolved (labels would all be "—", and the label is the DataTable row key). Compare was verified, not changed: its band block is gated only on shared boundaries, never modelId, so Ch.5 already rendered; a 3-scenario pinning test and a differing-boundaries test were added. The server-side costSummary export (Download) is unchanged and does not carry the band rows. Tests: fail-first 2 failed / 94 passed (96) in CostSummaryTab.test.tsx; after: CostSummaryTab.test.tsx 96/96, CostSummaryTab.Super.test.tsx 3/3, Workspace.TabCoverage.test.tsx 17/17 (116 total); typecheck clean.
+
+### QFX-8 - Output map caption: open site labels
+
+- `lib/openSites.ts` (new): `openSiteIds(result, modelId)` is the one per-model open-site authority, extracted unchanged from `resultNarrative.ts` and now imported by it. Rule: super-model uses `metrics.openFacilityIds`; every other model uses `details.openWarehouseIds ?? metrics.openFacilityIds`.
+  - It returns `string[] | null` (the plan contract said `string[]`). `null` = field absent, so the narrative still renders nothing then; `resultNarrative.test.ts` passes unmodified.
+  - `OPEN_SITE_NOUN` (decision L3) + fallback "Open sites".
+- `components/workspace/OpenSitesCaption.tsx` (new), mounted in `OutputMapTab` between `FloorExceedsMaxAlert` and the map node (outside the PNG capture).
+  - Text: `<Noun>: displayId · City, ST, …`, sorted by the displayed id (numeric-aware), at most 5 shown, then a "+N more" / "Show fewer" toggle (`aria-expanded`).
+  - Hidden pre-solve, on failed results (`showIncumbent` gate), and with zero open sites. The stale/unsolved banner returns before `OutputMapTab` mounts (`Workspace.tsx:4090-4092`), so the caption cannot render there.
+- Labels reuse the solved `outputIdentityById` already passed to the tab. No new data plumbing.
+- Tests: `openSites.test.ts` (real envelopes for all 8 models + precedence), `OpenSitesCaption.test.tsx`, plus caption cases in `OutputMapTab.test.tsx` and `Workspace.OutputMap.test.tsx`.
+- Measured: openSites 14, OpenSitesCaption 19, resultNarrative 34 (unmodified), OutputMapTab 53, Workspace.OutputMap 7, rawErrorMessageSurface 3 = 130 passed; fail-first run showed 2 import-resolve file failures + 2 caption-present test failures.
+
+### QFX-9 - Distance method: 3-way segmented control + factor Apply
+
+- `SuperDistancesTab.tsx`: the native method `<select>` is now a local `role="radiogroup"` of Haversine | Circuity | Road (roving tabindex; arrows move+select with wrap, Home/End, read-only disables). `super-distance-method` is the group; segments are `super-distance-method-{haversine,circuity,road}`.
+- Circuity factor is a text/decimal input shown only under Circuity; typing edits local text, the draft changes only on Apply (button/Enter, never blur). Valid = 1..3 with at most 3 decimals ("Use a number from 1 to 3 with up to 3 decimals."), stricter than the server. Re-syncs when the stored value changes. New ids `super-circuity-apply`, `super-circuity-error`. Props interface, QFX-6 `network` forwarding and the full `SuperTableTab` render unchanged.
+- Tests: `SuperDistancesTab.test.tsx` rewritten; the two obsolete `<select>`/per-keystroke tests removed from `SuperTableTab.test.tsx` (the QFX-7 test sharing that describe kept); e2e `super-model.spec.ts` now clicks `super-distance-method-road`.
+- Measured: fail-first SuperDistancesTab 28 failed / 2 passed (30); after: SuperDistancesTab 30/30, SuperTableTab 21/21, nativeSelectStyle 2/2, Workspace.Super 27/27 (needed `--testTimeout=120000`: load average ~42 from other sessions made the default 15s tests time out; same file passed 27/27 in 23s earlier at lower load); typecheck clean.
+
+### QFX-QA - real-browser QA + sibling e2e rewrites
+
+New `e2e/quick-fixes.spec.ts` (7 tests) covers the CSS/overlay/file-I/O behaviour jsdom cannot see: QFX-10 select chevron in light and dark (forced `.dark` class; `background-image` contains `gradient`, `appearance: none`, `padding-right >= 28px`), QFX-8 caption (5 shown, `+2 more` / `Show fewer`, bounding box clear of the map's top edge; seeded result, no CBC), QFX-1 toolbar order + Export XLSX/CSV downloads + decision C2 (Import hidden, Export visible while browsing history, via a stubbed second solve), QFX-2b Download CSV -> Upload CSV -> Replace round trip, QFX-3 dialog-less solve (job stub held `running` so the overlay is observable), QFX-6 Add warehouse + Add capability ("Cost per unit") -> Save -> reload, QFX-9 arrow keys + circuity factor validation/Apply/Enter.
+
+Greps (plan step 2), each hit classified:
+- QFX-1 `super-header-(import|export)|Export (JSON|CSV|XLSX)`: 1 hit, `super-model.spec.ts:150` - (a), already rewritten by QFX-1 to `toHaveCount(0)`; passes.
+- QFX-6 `super-*-add|+ Add row` in `super-model.spec.ts`: 0 hits.
+- QFX-9 `selectOption("haversine|circuity|road")|super-distance-method`: 1 hit, `super-model.spec.ts:348` - (a), already rewritten to `super-distance-method-road` click; passes (test G).
+- QFX-7 `\bname\b` in `super-model.spec.ts`: 5 hits (`:51,75,259,307,326`) - all (b): a dialog button name, file-object `name`, and the `not.toHaveProperty("name")` assertion that QFX-7 added.
+- Missed by every task's own inventory: `input-tables-qa.spec.ts` "every control in Mines / Stations / Lane Costs is disabled while browsing history" counted QFX-4's enabled column-header sort buttons as editable controls (13 per Mines) - (a), rewritten: `enabledCount` now excludes buttons inside `th[aria-sort]` (only sortable headers; spec: "Sorting never changes what Save writes"). Failed against the unmodified spec in isolation; passes after (3/3 x2).
+
+Sibling specs rewritten: `super-model.spec.ts` (QFX-7/1/9 edits, run here for the first time: 7/7), `input-tables-qa.spec.ts`.
+
+Findings (no app code changed): the QFX-1 toolbar trio is vertically aligned in a real browser - Save, Import network and Export all measured y=66, height=32 (the `h-7` on the DownloadMenu trigger is overridden by `size="sm"`'s `min-h-8`). The Run Optimizer dialog on the super model renders 0 `<select>`s, so the plan's "selects in the Run Optimizer dialog" half of QFX-10 is vacuous there; the check is guarded by a count and ran on the Plant Capability tab (light + dark). The Save/Import/Export row exists only on editable input tabs, so after a solve (which lands on Output Map) the toolbar is gone until the user opens an input tab - by design, but a spec must navigate first.
+
+`pnpm e2e:gate` (3 runs, load avg 22-73, `results.json` stats): run 1 expected 88 / unexpected 1 / flaky 3; run 2 expected 81 / unexpected 7 / flaky 4; **final run 3 expected 86 / unexpected 4 / flaky 2** (92 tests). No run was clean: every non-QFX unexpected was a 30s timeout / 10s locator wait under load, the final run's four (`chen-bands-units-qa` unit-aware commit, `design-system` workspace chrome, `import` export->edit, `sentry-capture` render error) plus `feedback`/`workspace-fixups-2` flaky all re-ran green (re-run alone, `--workers=1 --retries=0`, twice: `chen-bands-units-qa`, `design-system`, `import`, `sentry-capture`, `feedback` specs together = 15 passed both times, a count that includes the setup and cleanup projects, i.e. 13 tests). All 7 `quick-fixes.spec.ts` tests plus `super-model.spec.ts` and `input-tables-qa.spec.ts` passed in the final run. Two spec races of my own (Input Map seed overriding an early sidebar click) were fixed rather than recorded as flakes. Sightings in `docs/superpowers/flake-registry.md`. The gate must be re-run at QFX-GATE on a quiet machine to get 0 unexpected.
+
+### QFX-GATE - integrated bundle gate
+
+Bundle tip `37b052a8` (`quick-fixes`, all 11 code tasks + QFX-QA). Every count measured 2026-10-24 on that tip; other sessions kept load avg between ~4 and ~54 throughout.
+
+- typecheck: clean.
+- api-server vitest, full run (0 concurrent vitest at start): 2173/2174, 1 failure: `superNetworkImport` "SM2-3 (R4): merge rejects a duplicate plants vs customers key inside the document, writes nothing" (got 400, expected 422) - 33/33 twice in isolation, and passed in the previous full run on identical api code. An earlier full run on `6d385d0a` exited 3 (4 timeouts in `resultEnvelope`, `jobRunnerDispatcher`, `overDeadlineDrain`).
+- `overDeadlineDrain` (A14b) is NOT a load flake: it failed 3/3 in isolation, including on the base `01aa0f38`. Root cause: a `result_cache` row in the shared local `nos_dev` with exactly the test's inputs hash (`26b3d02f…`, created 2026-10-23 23:10) made `jobRunner.ts:1235 lookupCachedResult` serve a cached result, so solve.py never spawned and the `NOS_SOLVE_TEST_HANG_SEC` seam never wrote `hang.pids`. Deleting that one local cache row made it pass 2/2. Pre-existing test-isolation gap (the test never clears its own cache key); follow-up, not in QFX scope.
+- studio vitest: first full run 3039/3049 (10 x `Test timed out in 15000ms`); the 10 files re-ran isolated with `--testTimeout=30000` at 326/326 then 322/326; **final full run at the default timeout, load ~4 at start: 176 files, 3058/3058**.
+- solver pytest: first run stopped at `test_delivery.py::test_overrides_do_not_move_the_frozen_goldens` after 30m53s under load (121 passed); that test passed alone; **re-run `tests/ -x`: 369/369**.
+- `e2e_accuracy.py`: 99/99 (unmodified).
+- `e2e_journey.py http://localhost:3421 super`: 37/37.
+- `E2E_BASE_URL=http://localhost:5421 pnpm e2e:gate` (local api 3421 / studio 5421): **92 expected / 0 unexpected / 0 flaky** (`results.json` stats), 8.7m.
+
+Next: QFX-FINISH (finishing-a-development-branch, `/harness-retro QFX`, then stop for merge approval). Deploy note: QFX-7 changes the API validator, so `nos-api` must deploy before or with `nos-studio`.

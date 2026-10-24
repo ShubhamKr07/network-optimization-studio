@@ -38,6 +38,10 @@ export interface ColumnDef<T> {
   /** When this value changes, ONLY this column's active filter is cleared (e.g. the
    * JADE `band` filter when bands or the unit change, `JadeAssignmentsTab.tsx:277-280`). */
   filterResetKey?: string | number;
+  /** QFX-4 — the header is a button cycling ascending → descending → off, ordering by
+   * `value()`. Default true. Every empty-header (delete/action) column sets `false`
+   * (`sortableEmptyHeaders.test.ts`). */
+  sortable?: boolean;
 }
 
 /** Explicit literal testid mapping — nothing is auto-prefixed. Omitted = no attribute. */

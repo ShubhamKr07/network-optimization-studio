@@ -8,7 +8,7 @@ import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { useExport } from "@/contexts/ExportContext";
 import { DataTable } from "@/components/data-table/DataTable";
-import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import { DownloadMenu, type DownloadFormat } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
 import { downloadAs } from "@/lib/clientCsv";
 import {
@@ -215,12 +215,12 @@ export function JadeFlowsTab({
   // canonical-unit resolution.
   const { disabledReasonFor } = useExport();
   const downloadDisabledReason = disabledReasonFor("flows") ?? (canonicalResolved ? undefined : "Loading…");
-  const downloadLeg = (leg: JadeFlowLeg, format: "csv" | "json", screenRows: JadeFlowScreenRow[]) => {
+  const downloadLeg = (leg: JadeFlowLeg, format: DownloadFormat, screenRows: JadeFlowScreenRow[]) => {
       const toDisplay = (d: number) => unit.toDisplay(d, distanceUnit!);
-      downloadAs(
+      void downloadAs(
         leg.fileBase,
         format,
-        format === "csv" ? jadeFlowsCsv(leg, screenRows, toDisplay, resolvedUnitLabel!) : jadeFlowsJson(leg, screenRows, toDisplay, resolvedUnitLabel!),
+        format === "json" ? jadeFlowsJson(leg, screenRows, toDisplay, resolvedUnitLabel!) : jadeFlowsCsv(leg, screenRows, toDisplay, resolvedUnitLabel!),
       );
   };
   const formatRowDistance = (raw: number): string =>
@@ -411,7 +411,7 @@ export function JadeFlowsTab({
             download: (
               <DownloadMenu
                 testId={`button-download-jade-flows-${short}`}
-                itemTestIds={{ csv: `button-download-jade-flows-${short}-csv`, json: `button-download-jade-flows-${short}-json` }}
+                itemTestIds={{ csv: `button-download-jade-flows-${short}-csv`, json: `button-download-jade-flows-${short}-json`, xlsx: `button-download-jade-flows-${short}-xlsx` }}
                 disabledReason={downloadDisabledReason}
                 onDownload={format => downloadLeg(leg, format, rows.map(toScreen))}
               />

@@ -4,9 +4,9 @@
 // Testids are literal per table, keyed on the lowercase name the table's
 // testids already use (`testIdEntity`, e.g. "legdistances"):
 //   Upload trigger  button-import-{t}           (today's Upload button id, kept)
-//   Upload items    button-import-{t}-csv|json  (new)
+//   Upload items    button-import-{t}-csv|json|xlsx  (new)
 //   Download trigger button-download-{t}        (new; P3's output convention)
-//   Download items  button-export-{t}-csv|json  (today's two button ids, kept)
+//   Download items  button-export-{t}-csv|json|xlsx  (today's two button ids, kept)
 // Both menus are disabled while browsing result history, with the same reason.
 
 import { useState, type ReactNode } from "react";
@@ -57,7 +57,7 @@ export function useEntityFileMenus({
     <DownloadMenu
       label="Upload"
       testId={`button-import-${t}`}
-      itemTestIds={{ csv: `button-import-${t}-csv`, json: `button-import-${t}-json` }}
+      itemTestIds={{ csv: `button-import-${t}-csv`, json: `button-import-${t}-json`, xlsx: `button-import-${t}-xlsx` }}
       onDownload={setImportFormat}
       // History (user decision 2026-10-17): Upload is disabled with the same
       // reason Download shows (`inputDisabledReason`), not just the cells (D2).
@@ -70,7 +70,7 @@ export function useEntityFileMenus({
   const downloadMenu = (
     <DownloadMenu
       testId={`button-download-${t}`}
-      itemTestIds={{ csv: `button-export-${t}-csv`, json: `button-export-${t}-json` }}
+      itemTestIds={{ csv: `button-export-${t}-csv`, json: `button-export-${t}-json`, xlsx: `button-export-${t}-xlsx` }}
       onDownload={format => void download(entity, format)}
       disabledReason={disabledReasonFor(entity)}
     >

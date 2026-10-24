@@ -1,6 +1,6 @@
 import type { MapCustomer, MapPlant, MapWarehouse } from "@/components/workspace/map/types";
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
-import { downloadAs, downloadBlob } from "@/lib/clientCsv";
+import { downloadAs, downloadBlob, XLSX_MIME } from "@/lib/clientCsv";
 import { toCsvZip, toXlsx } from "@/lib/superFiles";
 type Row = Record<string, unknown>;
 export type SuperInputsLike = Record<string, unknown> & {
@@ -30,7 +30,6 @@ export const SUPER_SAMPLE_URL = "/samples/super-model-sample.json";
 export const SUPER_TEMPLATE_URL = "/samples/super-model-template.json";
 
 export type SuperFileFormat = "json" | "csv" | "xlsx";
-const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export async function downloadSuperFile(base: string, format: SuperFileFormat, doc: Record<string, unknown>): Promise<void> {
   if (format === "json") return downloadAs(base, "json", doc);
   if (format === "csv") return downloadBlob(`${base}.zip`, (await toCsvZip(doc)) as BlobPart, "application/zip");
@@ -59,7 +58,7 @@ export function superMapRows(inputs: SuperInputsLike): SuperMapRows {
 export type LocKind = "pl" | "wh" | "cs";
 export const LOC_TABLE = { pl: "plants", wh: "warehouses", cs: "customers" } as const;
 const PREFIX: Record<LocKind, string> = { pl: "PL-", wh: "WH-", cs: "C-" };
-export interface LocationDraft { id: string; name: string; city?: string; state?: string; lat: number; lng: number; status?: string }
+export interface LocationDraft { id: string; city?: string; state?: string; lat: number; lng: number; status?: string }
 
 const locationIds = (i: SuperInputsLike) => new Set([...i.plants, ...i.warehouses, ...i.customers].map(r => String(r.id)));
 export function nextFreeId(inputs: SuperInputsLike, kind: LocKind): string {
@@ -71,7 +70,7 @@ export function demandOf(inputs: SuperInputsLike, customerId: string): Record<st
 }
 /** Blank optional text is omitted, as the import does (§7.2). */
 function clean(row: LocationDraft): Row {
-  const out: Row = { id: row.id, name: row.name };
+  const out: Row = { id: row.id };
   if (row.city) out.city = row.city;
   if (row.state) out.state = row.state;
   out.lat = row.lat; out.lng = row.lng;
@@ -100,7 +99,7 @@ export function copyLocation(inputs: SuperInputsLike, kind: LocKind, id: string)
   const src = inputs[t].find(r => r.id === id);
   if (!src) return inputs;
   const newId = nextFreeId(inputs, kind);
-  const next = { ...inputs, [t]: [...inputs[t], { ...src, id: newId, name: `${src.name} (copy)`, lng: Math.min(180, Number(src.lng) + 0.05) }] } as SuperInputsLike;
+  const next = { ...inputs, [t]: [...inputs[t], { ...src, id: newId, lng: Math.min(180, Number(src.lng) + 0.05) }] } as SuperInputsLike;
   if (kind === "cs") next.demand = [...inputs.demand, ...inputs.demand.filter(d => d.customerId === id).map(d => ({ ...d, customerId: newId }))];
   if (kind === "pl") next.plantProducts = [...inputs.plantProducts, ...inputs.plantProducts.filter(r => r.plantId === id).map(r => ({ ...r, plantId: newId }))];
   return next;

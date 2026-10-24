@@ -53,7 +53,7 @@ describe("CostSummaryTab — super-model", () => {
   });
 
   it("compare 'Open facilities' shows city names (not raw ids) from the solved inputs", () => {
-    const row = (id: string, city: string, state: string) => ({ id, name: city, city, state, lat: 0, lng: 0 });
+    const row = (id: string, city: string, state: string) => ({ id, city, state, lat: 0, lng: 0 });
     const inputs = { plants: [], customers: [], warehouses: [row("wh-11", "Phoenix", "AZ"), row("wh-14", "Denver", "CO")] };
     const [a, b] = [{ ...scenario(1), inputs }, { ...scenario(2), inputs }] as Scenario[];
     wrap(<CostSummaryTab result={a.result} scenarioId={1} modelId="super-model" scenarios={[a, b]} locationById={{}} />);

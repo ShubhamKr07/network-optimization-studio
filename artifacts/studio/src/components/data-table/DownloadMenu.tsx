@@ -1,6 +1,6 @@
 // SCU-2.P3 (spec B2.4) — the "Download ▾" control every migrated Workspace
 // table puts in its DataTable toolbar (P4 input tables reuse it). One trigger,
-// two items: CSV and JSON. Testids are passed literally per table (nothing is
+// three items: CSV, JSON and XLSX (QFX-2a). Testids are passed literally per table (nothing is
 // derived). Built on the Popover FilterMenu already uses, so it opens on a
 // plain click (fireEvent.click works in jsdom) and closes on Escape /
 // outside click for free. `disabledReason` disables the TRIGGER and is its
@@ -11,7 +11,7 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-export type DownloadFormat = "csv" | "json";
+export type DownloadFormat = "csv" | "json" | "xlsx";
 
 export interface DownloadMenuProps {
   /** data-testid on the trigger button. */
@@ -30,6 +30,7 @@ export interface DownloadMenuProps {
 const ITEMS: Array<{ format: DownloadFormat; label: string }> = [
   { format: "csv", label: "CSV" },
   { format: "json", label: "JSON" },
+  { format: "xlsx", label: "XLSX" },
 ];
 
 export function DownloadMenu({ testId, itemTestIds, onDownload, disabledReason, label = "Download", children }: DownloadMenuProps) {

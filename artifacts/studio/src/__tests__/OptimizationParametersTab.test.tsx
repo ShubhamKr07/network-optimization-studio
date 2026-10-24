@@ -964,3 +964,45 @@ describe("OptimizationParametersTab — CH4OS objective selector", () => {
     expect(screen.getByTestId("derived-model-line")).toHaveTextContent(text);
   });
 });
+
+// QFX-3 — the tab's own Solve button. Opt-in via `showSolveButton`; the Solve
+// dialog's embedded copy never passes it (the dialog has its own Solve).
+describe("OptimizationParametersTab — Solve button (QFX-3)", () => {
+  it("renders no Solve button by default (the embedded Solve-dialog instance)", () => {
+    renderTab();
+    expect(screen.queryByTestId("button-tab-solve")).not.toBeInTheDocument();
+  });
+
+  it("showSolveButton renders a Solve button at the bottom that calls onSolve", () => {
+    const onSolve = vi.fn();
+    renderTab({ showSolveButton: true, onSolve });
+    const btn = screen.getByTestId("button-tab-solve");
+    expect(btn).toHaveTextContent("Solve");
+    expect(btn).toBeEnabled();
+    // last element of the tab: nothing renders after it
+    const tab = screen.getByTestId("optimization-parameters-tab");
+    expect(tab.lastElementChild).toContainElement(btn);
+    fireEvent.click(btn);
+    expect(onSolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("solveDisabled disables the button with no hint", () => {
+    const onSolve = vi.fn();
+    renderTab({ showSolveButton: true, onSolve, solveDisabled: true });
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(onSolve).not.toHaveBeenCalled();
+  });
+
+  it("a non-null solveBlockedReason disables the button and is shown under it", () => {
+    renderTab({ showSolveButton: true, onSolve: vi.fn(), solveBlockedReason: "Blocked for a reason." });
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    expect(screen.getByTestId("tab-solve-blocked-hint")).toHaveTextContent("Blocked for a reason.");
+  });
+
+  it("solveBlockedReason without showSolveButton renders nothing (the dialog shows its own hint)", () => {
+    renderTab({ solveBlockedReason: "Blocked for a reason." });
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
+  });
+});

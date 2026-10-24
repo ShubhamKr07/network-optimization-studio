@@ -279,7 +279,7 @@ export function JadeAssignmentsTab({
             download: (
               <DownloadMenu
                 testId="button-download-jadeassignments"
-                itemTestIds={{ csv: "button-download-jadeassignments-csv", json: "button-download-jadeassignments-json" }}
+                itemTestIds={{ csv: "button-download-jadeassignments-csv", json: "button-download-jadeassignments-json", xlsx: "button-download-jadeassignments-xlsx" }}
                 onDownload={format => download("assignments", format)}
                 disabledReason={disabledReasonFor("assignments")}
               />

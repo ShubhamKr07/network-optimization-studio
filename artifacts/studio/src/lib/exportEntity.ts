@@ -2,6 +2,7 @@ import { exportScenario, type ExportScenarioEntity } from "@workspace/api-client
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
 import { downloadAs } from "@/lib/clientCsv";
+import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
 
 // The generated `ExportScenarioEntity` (openapi.yaml) is the single source of truth.
 export type ExportEntity = ExportScenarioEntity;
@@ -48,17 +49,18 @@ function isLegacyResolveRejection(
 export async function downloadEntityExport(
   scenarioId: number,
   entity: ExportEntity,
-  format: "csv" | "json",
+  format: DownloadFormat,
   options?: DownloadEntityExportOptions,
 ): Promise<void> {
   try {
+    // QFX-2a — the API exports only csv|json: XLSX is the CSV export (same unit/runId) re-written in the browser.
     const data = await exportScenario(scenarioId, {
       entity,
-      format,
+      format: format === "xlsx" ? "csv" : format,
       unit: options?.unit,
       runId: options?.runId,
     });
-    downloadAs(entity, format, data);
+    await downloadAs(entity, format, data);
   } catch (err) {
     // A9 — the 409 LEGACY_RESULT_REQUIRES_RESOLVE rejection is NOT a generic
     // export failure: it's a "the result predates verified solve tracking,

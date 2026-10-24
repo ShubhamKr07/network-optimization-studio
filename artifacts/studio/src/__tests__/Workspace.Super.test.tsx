@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -109,6 +109,7 @@ vi.mock("@/components/workspace/tabs/OutputMapTab", async importOriginal => {
 });
 
 import { Workspace } from "@/pages/Workspace";
+import { usePrecheckScenario, useSolveScenario } from "@workspace/api-client-react";
 
 function renderWorkspace() {
   return render(<Workspace modelId="super-model" userEmail="student@example.com" />);
@@ -257,14 +258,60 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(statuses.every(s => s.status !== "active")).toBe(true);
   });
 
-  it("SM-9: header has import/export; Optimization Parameters shows the readiness panel", () => {
+  it("QFX-1: Import network + Export ▾ sit right of Save on every super input tab, never in the header", () => {
     renderWorkspace();
-    expect(screen.getByTestId("super-header-import")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export-csv")).toBeInTheDocument();
-    expect(screen.getByTestId("super-header-export-xlsx")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
+    for (const id of ["super-header-import", "super-header-export", "super-header-export-csv", "super-header-export-xlsx"]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+    for (const tab of ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
+      fireEvent.click(screen.getByTestId(`sidebar-input-${tab}`));
+      const row = screen.getByTestId("workspace-toolbar-row");
+      const trio = [...row.querySelectorAll("[data-testid]")]
+        .map(e => e.getAttribute("data-testid"))
+        .filter(id => id === "button-save" || id === "super-toolbar-import" || id === "super-toolbar-export");
+      expect(trio, tab).toEqual(["button-save", "super-toolbar-import", "super-toolbar-export"]);
+    }
+    expect(screen.getByTestId("super-toolbar-export")).toHaveTextContent("Export");
+    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();   // last tab is Optimization Parameters (SM-9, unchanged)
+  });
+
+  it("QFX-1: each Export ▾ item calls the unchanged handler (same network fetch, same file per format)", async () => {
+    const { exportScenarioNetwork } = await import("@workspace/api-client-react");
+    vi.mocked(exportScenarioNetwork).mockResolvedValue(sample as never);
+    // jsdom has no URL.createObjectURL: assign stubs (restored in finally), spyOn cannot wrap a missing method.
+    const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = () => "blob:x";
+    URL.revokeObjectURL = () => {};
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); });
+    renderWorkspace();
+    for (const f of ["json", "csv", "xlsx"]) {
+      fireEvent.click(screen.getByTestId("super-toolbar-export"));
+      fireEvent.click(screen.getByTestId(`super-toolbar-export-${f}`));
+    }
+    await waitFor(() => expect([...names].sort()).toEqual(["super-model-network-1.json", "super-model-network-1.xlsx", "super-model-network-1.zip"]));
+    expect(vi.mocked(exportScenarioNetwork).mock.calls).toEqual([[1, { format: "json" }], [1, { format: "json" }], [1, { format: "json" }]]);
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+    vi.restoreAllMocks();
+  });
+
+  it("QFX-1: while browsing history Import network is hidden and Export ▾ stays usable", () => {
+    const base = JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8"));
+    const solved = { ...scenario, result: { ...base } };
+    mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solved] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { rerender } = renderWorkspace();
+    const next = { ...solved, result: { ...base } };   // new result reference: history appends (as in SM2-10 above)
+    mockUseGetScenario.mockReturnValue({ data: next } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [next] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    rerender(<Workspace modelId="super-model" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    expect(screen.getByTestId("super-toolbar-import")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.queryByTestId("super-toolbar-import")).toBeNull();
+    // User decision C2 (2026-10-24): Export stays while browsing history; it exports the latest SAVED network.
+    expect(screen.getByTestId("super-toolbar-export")).toBeEnabled();
   });
 
   it("SM-9: an empty scenario shows the empty state on every input tab", () => {
@@ -307,7 +354,7 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     } as never);
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-products"));
-    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-toolbar-import"));
     fireEvent.click(screen.getByTestId("super-import-mode-merge"));
     fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
     await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
@@ -340,11 +387,119 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     }
     // local draft is now empty (empty-state panel is shown) but the SAVED scenario still has rows
     expect(screen.getByTestId("super-empty-state")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("super-header-import"));
+    fireEvent.click(screen.getByTestId("super-toolbar-import"));
     fireEvent.click(screen.getByTestId("super-import-mode-replace"));
     fireEvent.change(screen.getByTestId("super-import-file"), { target: { files: [new File(["{}"], "n.json", { type: "application/json" })] } });
     await waitFor(() => expect(screen.getByTestId("super-import-confirm")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("super-import-confirm"));
     expect(screen.getByTestId("super-import-confirm-overwrite")).toBeInTheDocument();
+  });
+  it("QFX-6: Add plant appends a row to the draft, and it is in the Save payload", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-plants"));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("super-plants-add"));
+    expect(screen.getByTestId("super-add-id")).toHaveValue("PL-1");
+    fireEvent.change(screen.getByTestId("super-add-lat"), { target: { value: "40.5" } });
+    fireEvent.change(screen.getByTestId("super-add-lng"), { target: { value: "-90.25" } });
+    fireEvent.click(screen.getByTestId("super-add-confirm"));
+    expect(screen.getByTestId("super-row-plants-PL-1")).toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs.plants).toHaveLength(sample.plants.length + 1);
+    expect(args.data.inputs.plants.at(-1)).toEqual({ id: "PL-1", lat: 40.5, lng: -90.25 });
+  });
+});
+
+describe("Workspace — super per-table upload writes only the draft (QFX-2b, L1)", () => {
+  it("Merge adds the row to the draft: no PATCH and no network import until Save; Save sends it", async () => {
+    const { useImportScenarioNetwork } = await import("@workspace/api-client-react");
+    const importMutate = vi.fn();
+    vi.mocked(useImportScenarioNetwork).mockReturnValue({ mutate: importMutate, reset: vi.fn(), isPending: false, isError: false } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.click(screen.getByTestId("super-products-upload"));
+    fireEvent.click(screen.getByTestId("super-products-upload-csv"));
+    fireEvent.change(screen.getByTestId("super-upload-file-products"), { target: { files: [new File(["id,name\nproduct-9,Nine\n"], "p.csv", { type: "text/csv" })] } });
+    fireEvent.click(await screen.findByTestId("super-upload-merge"));
+    expect(screen.getByTestId("super-row-products-product-9")).toBeInTheDocument();
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(importMutate).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs.products.map((p: { id: string }) => p.id)).toEqual([...sample.products.map((p: { id: string }) => p.id), "product-9"]);
+  });
+});
+
+// QFX-3 (decision L2) — super readiness blocks BOTH Solve buttons through the
+// single shared solveBlockedReason, but only while the draft is CLEAN (precheck
+// describes the saved row). Loading/failed precheck never blocks.
+describe("Workspace — super-model Solve readiness (QFX-3, L2)", () => {
+  const BLOCK = "Fix the readiness issues before solving:";
+  const mockSolve = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+  const withErrors = () =>
+    vi.mocked(usePrecheckScenario).mockReturnValue({
+      data: { ok: false, errors: [{ code: "noPlants", message: "No plants" }, { code: "zeroDemand", message: "Zero demand" }] },
+    } as never);
+
+  beforeEach(() => {
+    mockSolve.mutate.mockReset();
+    vi.mocked(useSolveScenario).mockReturnValue(mockSolve as never);
+  });
+  afterEach(() => {
+    vi.mocked(usePrecheckScenario).mockReturnValue({ data: { ok: true, errors: [] } } as never);
+  });
+
+  it("ready precheck: the tab's Solve enqueues directly, no dialog", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+    expect(mockSolve.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolve.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("clean draft + precheck errors: the tab's Solve is disabled with the block message and the FIRST error", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("super-readiness-error-0")).toHaveTextContent("No plants");
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    expect(screen.getByTestId("tab-solve-blocked-hint")).toHaveTextContent(`${BLOCK} No plants`);
+    expect(screen.getByTestId("tab-solve-blocked-hint")).not.toHaveTextContent("Zero demand");
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockSolve.mutate).not.toHaveBeenCalled();
+  });
+
+  it("clean draft + precheck errors: the SolveDialog's Solve is blocked by the same value", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));   // header button is unchanged: it still opens the dialog
+    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-blocked-hint")).toHaveTextContent(`${BLOCK} No plants`);
+  });
+
+  it("dirty draft: precheck errors do NOT block; Solve saves first (handleSolve)", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateScenario.mutate.mock.calls[0][0].data.inputs.products[0].name).toBe("Renamed");
+  });
+
+  it("precheck still loading (no data): does not block", () => {
+    vi.mocked(usePrecheckScenario).mockReturnValue({ data: undefined } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
   });
 });

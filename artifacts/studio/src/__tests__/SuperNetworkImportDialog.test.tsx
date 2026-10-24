@@ -51,7 +51,7 @@ describe("SuperNetworkImportDialog", () => {
 
   it("accepts an upper-case .CSV file name", async () => {
     renderDialog(false);
-    await upload2("Plants.CSV", "id,name,lat,lng\nA,P,1,2\n");
+    await upload2("Plants.CSV", "id,lat,lng\nA,1,2\n");
     expect(screen.queryByTestId("super-import-file-error")).toBeNull();
   });
 
@@ -145,7 +145,7 @@ describe("SuperNetworkImportDialog", () => {
     renderDialog(true);
     await uploadMany([csvFile("products.csv", "id,name\nk,K\n"), new File(["{}"], "n.json")]);
     await waitFor(() => expect(screen.getByTestId("super-import-file-error")).toHaveTextContent("one .json file, one .xlsx workbook, or a set of .csv files"));
-    await uploadMany([csvFile("plants.csv", "id,name,lat,lng\nA,P,north,2\n")]);
+    await uploadMany([csvFile("plants.csv", "id,lat,lng\nA,north,2\n")]);
     await waitFor(() => expect(screen.getByTestId("super-import-file-error")).toHaveTextContent("plants.csv row 2 column lat: is not a number"));
     expect(screen.getByTestId("super-import-confirm")).toBeDisabled();
     expect(calls()).toHaveLength(0);

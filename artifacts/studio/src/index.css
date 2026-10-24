@@ -509,6 +509,32 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  /* QFX-10 — one look for every native single-value <select>: the browser arrow
+     is replaced by an inset chevron drawn as two gradient triangles, because a
+     data-URI SVG cannot read CSS variables and this must follow the theme tokens
+     in light AND .dark. Border/radius/ring mirror ui/input.tsx's tokens. Lives in
+     `base`, so per-file utilities still set height/width/radius — but a select
+     must not carry px-* / pr-* / bg-white (utilities would cancel padding-right and
+     hide the dark chevron; nativeSelectStyle.test.ts enforces this). */
+  select:not([multiple]):not([size]) {
+    appearance: none;
+    background-color: hsl(var(--background));
+    background-image:
+      linear-gradient(45deg, transparent 50%, hsl(var(--muted-foreground)) 50%),
+      linear-gradient(135deg, hsl(var(--muted-foreground)) 50%, transparent 50%);
+    background-position: calc(100% - 0.6rem - 4px) 50%, calc(100% - 0.6rem) 50%;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+    padding-right: 2rem;
+    border: 1px solid hsl(var(--input));
+    border-radius: var(--radius);
+  }
+
+  select:not([multiple]):not([size]):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px hsl(var(--ring));
+  }
 }
 
 /**

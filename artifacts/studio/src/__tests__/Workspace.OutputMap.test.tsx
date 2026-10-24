@@ -222,3 +222,19 @@ describe("Workspace — Output Map hides closed warehouses (T6/R7)", () => {
     expect(routePathCount(container)).toBe(1);
   });
 });
+
+// QFX-8 — Workspace wires the SOLVED identity map into the caption.
+// (The stale/unsolved banner returns before OutputMapTab mounts —
+// Workspace.tsx:4090-4092 — so the caption cannot render there; that branch is
+// already covered by Workspace.StaleOutputs.test.tsx's output-map-tab-absent
+// assertion.)
+describe("Workspace — Output Map open-sites caption (QFX-8)", () => {
+  it("names the solved result's open warehouse above the map", () => {
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(screen.getByTestId("output-map-open-sites").textContent).toBe("Open warehouses: CHI · Chicago, IL");
+  });
+});

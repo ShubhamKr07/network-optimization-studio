@@ -178,6 +178,16 @@ export interface OptimizationParametersTabProps {
    * model needs it and the row lacks it". Empty or omitted for every healthy
    * scenario of every model. */
   missingRequiredInputs?: string[];
+  /** QFX-3 — primary "Solve" button at the bottom of the tab. Only the
+   * standalone tab passes it; the Solve dialog's embedded copy does not. */
+  showSolveButton?: boolean;
+  /** QFX-3 — Workspace's `handleSolve` (save-before-solve), no dialog. */
+  onSolve?: () => void;
+  /** QFX-3 — mirrors handleSolve's early returns (no scenario, history, in flight). */
+  solveDisabled?: boolean;
+  /** QFX-3 — Workspace's single shared `solveBlockedReason`; non-null
+   * disables the button and is shown under it. */
+  solveBlockedReason?: string | null;
 }
 
 // WF-5 — label map for the missing-required-inputs notice. Module-level
@@ -277,6 +287,10 @@ export function OptimizationParametersTab({
   idPrefix = "",
   testIdPrefix = "",
   missingRequiredInputs,
+  showSolveButton = false,
+  onSolve,
+  solveDisabled = false,
+  solveBlockedReason = null,
 }: OptimizationParametersTabProps) {
   // CH4UX-2 — one helper per namespace so a missed call site is a visible
   // bare string literal in review rather than a silent collision at runtime.
@@ -725,6 +739,25 @@ export function OptimizationParametersTab({
           canonicalUnit={canonicalUnit}
           testIdPrefix={testIdPrefix}
         />
+      )}
+
+      {/* QFX-3 — Solve from the tab itself; onSolve is Workspace's handleSolve. */}
+      {showSolveButton && (
+        <div className="space-y-2">
+          <Button
+            type="button"
+            onClick={onSolve}
+            disabled={solveDisabled || !!solveBlockedReason}
+            data-testid={tid("button-tab-solve")}
+          >
+            Solve
+          </Button>
+          {solveBlockedReason && (
+            <p className="text-xs text-muted-foreground" data-testid={tid("tab-solve-blocked-hint")}>
+              {solveBlockedReason}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

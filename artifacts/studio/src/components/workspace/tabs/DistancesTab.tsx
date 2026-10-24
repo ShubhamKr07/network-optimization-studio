@@ -475,6 +475,7 @@ export function DistancesTab({
     {
       id: "remove",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

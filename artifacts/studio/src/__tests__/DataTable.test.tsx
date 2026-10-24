@@ -59,10 +59,10 @@ describe("DataTable — markup", () => {
 
   it("centre-aligns kind:number header and cells only; applies cellClassName", () => {
     renderTable();
-    expect(screen.getByText("Demand")).toHaveClass("text-center");
-    expect(screen.getByText("City")).not.toHaveClass("text-center");
+    expect(screen.getByRole("columnheader", { name: "Demand" })).toHaveClass("text-center");
+    expect(screen.getByRole("columnheader", { name: "City" })).not.toHaveClass("text-center");
     expect(screen.getByTestId("cell-demand-C1")).toHaveClass("text-center", "font-mono", "px-3", "py-1.5");
-    expect(screen.getByText("City")).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("columnheader", { name: "City" })).toHaveClass("whitespace-nowrap");
   });
 
   it("puts cell() output directly inside the <td> — no wrapper element", () => {
@@ -506,5 +506,152 @@ describe("DataTable — no filterable column (SCU-2.P3.7)", () => {
       />,
     );
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
+  });
+});
+
+describe("DataTable — sort (QFX-4)", () => {
+  // city: natural + case-insensitive ("a2" < "A10"; "b" ties "B"); blank city/demand go last.
+  const mixed: Row[] = [
+    { id: "r1", city: "b", demand: 10 },
+    { id: "r2", city: "A10", demand: null },
+    { id: "r3", city: "a2", demand: 2 },
+    { id: "r4", city: "", demand: 10 },
+    { id: "r5", city: "B", demand: 30 },
+  ];
+  const head = (name: string) => screen.getByRole("columnheader", { name });
+
+  it("a header click cycles ascending → descending → off, with ▲/▼ and aria-sort", async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: mixed });
+    const th = head("Demand");
+    const btn = within(th).getByRole("button");
+    expect(th).toHaveAttribute("aria-sort", "none");
+    await user.click(btn);
+    expect(th).toHaveAttribute("aria-sort", "ascending");
+    expect(th).toHaveTextContent("Demand▲");
+    await user.click(btn);
+    expect(th).toHaveAttribute("aria-sort", "descending");
+    expect(th).toHaveTextContent("Demand▼");
+    await user.click(btn);
+    expect(th).toHaveAttribute("aria-sort", "none");
+    expect(th.textContent).toBe("Demand");
+    expect(visibleIds()).toEqual(["row-r1", "row-r2", "row-r3", "row-r4", "row-r5"]);
+  });
+
+  it("numbers compare numerically; blanks last in both directions; ties keep input order", async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: mixed });
+    const btn = within(head("Demand")).getByRole("button");
+    await user.click(btn);
+    expect(visibleIds()).toEqual(["row-r3", "row-r1", "row-r4", "row-r5", "row-r2"]);
+    await user.click(btn);
+    expect(visibleIds()).toEqual(["row-r5", "row-r1", "row-r4", "row-r3", "row-r2"]);
+  });
+
+  it("strings use natural, case-insensitive order; blanks last in both directions; ties stable", async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: mixed });
+    const btn = within(head("City")).getByRole("button");
+    await user.click(btn);
+    expect(visibleIds()).toEqual(["row-r3", "row-r2", "row-r1", "row-r5", "row-r4"]);
+    await user.click(btn);
+    expect(visibleIds()).toEqual(["row-r1", "row-r5", "row-r2", "row-r3", "row-r4"]);
+  });
+
+  it("only one column is sorted at a time", async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: mixed });
+    await user.click(within(head("City")).getByRole("button"));
+    await user.click(within(head("Demand")).getByRole("button"));
+    expect(head("City")).toHaveAttribute("aria-sort", "none");
+    expect(head("Demand")).toHaveAttribute("aria-sort", "ascending");
+    expect(visibleIds()[0]).toBe("row-r3");
+  });
+
+  it("sortable: false renders the plain header — no button, no aria-sort", () => {
+    renderTable({ columns: [columns[0], { ...columns[1], sortable: false }, columns[2]] });
+    expect(within(head("City")).queryByRole("button")).toBeNull();
+    expect(head("City")).not.toHaveAttribute("aria-sort");
+    expect(within(head("ID")).getByRole("button")).toBeInTheDocument();
+  });
+
+  it("sorts BEFORE paging, and a sort change returns to page 1", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable<Row> rows={makeRows(120)} rowKey={r => r.id} columns={columns}
+        testIds={{ row: r => `row-${r.id}`, pagerNext: "t-next", pageIndicator: "t-ind" }} />,
+    );
+    const btn = within(head("Demand")).getByRole("button");
+    await user.click(screen.getByTestId("t-next"));
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
+    await user.click(btn); // ascending
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 1 of 3");
+    await user.click(screen.getByTestId("t-next"));
+    await user.click(btn); // descending
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 1 of 3");
+    expect(visibleIds()[0]).toBe("row-C120"); // the global max, not page 1's max
+  });
+
+  it("never mutates or reorders the caller's rows array", async () => {
+    const user = userEvent.setup();
+    const rows = makeRows(3);
+    const before = [...rows];
+    renderTable({ rows });
+    const btn = within(head("Demand")).getByRole("button");
+    await user.click(btn);
+    await user.click(btn);
+    expect(visibleIds()).toEqual(["row-C3", "row-C2", "row-C1"]);
+    expect(rows.every((r, i) => r === before[i])).toBe(true);
+  });
+
+  it("sections: rows sort within each section and section order is unchanged", async () => {
+    const user = userEvent.setup();
+    const added: Row[] = [
+      { id: "A1", city: "Z", demand: 5, added: true },
+      { id: "A2", city: "Y", demand: 50, added: true },
+    ];
+    render(
+      <DataTable<Row>
+        rows={[...makeRows(3), ...added]}
+        rowKey={r => r.id}
+        columns={columns}
+        sections={[
+          { id: "base", testId: "sec-base", includes: r => !r.added },
+          { id: "added", testId: "sec-added", includes: r => !!r.added },
+        ]}
+        testIds={{ row: r => `row-${r.id}` }}
+      />,
+    );
+    const btn = within(screen.getAllByRole("columnheader", { name: "Demand" })[0]).getByRole("button");
+    await user.click(btn);
+    await user.click(btn); // descending: A2 (50) is the global max but stays in its own section
+    const ids = (sec: string) => within(screen.getByTestId(sec)).getAllByTestId(/^row-/).map(tr => tr.getAttribute("data-testid"));
+    expect(ids("sec-base")).toEqual(["row-C3", "row-C2", "row-C1"]);
+    expect(ids("sec-added")).toEqual(["row-A2", "row-A1"]);
+    expect(screen.getByTestId("sec-base").compareDocumentPosition(screen.getByTestId("sec-added")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const th of screen.getAllByRole("columnheader", { name: "Demand" })) expect(th).toHaveAttribute("aria-sort", "descending");
+  });
+
+  it("a focus jump clears the sort and lands on the target's page in unsorted order", async () => {
+    function SortThenJump() {
+      const [focus, setFocus] = useState<DataTableFocus<Row> | null>(null);
+      return (
+        <>
+          <button onClick={() => setFocus({ token: Date.now(), matches: r => r.id === "C75" })}>jump</button>
+          <DataTable<Row> rows={makeRows(120)} rowKey={r => r.id} columns={columns} focus={focus}
+            testIds={{ row: r => `row-${r.id}`, pageIndicator: "t-ind" }} />
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<SortThenJump />);
+    const btn = within(head("Demand")).getByRole("button");
+    await user.click(btn);
+    await user.click(btn);
+    expect(visibleIds()[0]).toBe("row-C120");
+    await user.click(screen.getByText("jump"));
+    expect(head("Demand")).toHaveAttribute("aria-sort", "none");
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
+    expect(screen.getByTestId("row-C75")).toBeInTheDocument();
   });
 });

@@ -226,7 +226,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
             download: (
               <DownloadMenu
                 testId="button-download-assignments"
-                itemTestIds={{ csv: "button-download-assignments-csv", json: "button-download-assignments-json" }}
+                itemTestIds={{ csv: "button-download-assignments-csv", json: "button-download-assignments-json", xlsx: "button-download-assignments-xlsx" }}
                 onDownload={format => download("assignments", format)}
                 disabledReason={disabledReasonFor("assignments")}
               />

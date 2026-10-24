@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, within, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, within, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
@@ -657,6 +657,15 @@ describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.
     await user.click(screen.getByTestId("button-download-jade-flows-pw"));
     await user.click(screen.getByTestId("button-download-jade-flows-pw-json"));
     expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
+  });
+
+  it("QFX-2a: the XLSX download is jade-flows-plant-warehouse.xlsx", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-xlsx"));
+    await waitFor(() => expect(dl.names).toEqual(["jade-flows-plant-warehouse.xlsx"]));
   });
 
   it("> 50 rows: pager with jade-flows-pw literals, and the download still carries ALL rows", async () => {

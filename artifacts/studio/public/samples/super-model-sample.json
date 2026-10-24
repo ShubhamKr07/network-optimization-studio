@@ -31,7 +31,6 @@
  "plants": [
   {
    "id": "plant-1",
-   "name": "Plant 1",
    "city": "Ashland",
    "state": "KY",
    "lat": 38.448338,
@@ -39,7 +38,6 @@
   },
   {
    "id": "plant-2",
-   "name": "Plant 2",
    "city": "Dayton",
    "state": "OH",
    "lat": 39.74513948979592,
@@ -47,7 +45,6 @@
   },
   {
    "id": "plant-3",
-   "name": "Plant 3",
    "city": "Baltimore",
    "state": "MD",
    "lat": 39.31362598484849,
@@ -55,7 +52,6 @@
   },
   {
    "id": "plant-4",
-   "name": "Plant 4- Imports",
    "city": "Long Beach",
    "state": "CA",
    "lat": 33.79856248571428,
@@ -65,7 +61,6 @@
  "warehouses": [
   {
    "id": "wh-1",
-   "name": "Los Angeles",
    "city": "Los Angeles",
    "state": "CA",
    "lat": 33.974044,
@@ -74,7 +69,6 @@
   },
   {
    "id": "wh-2",
-   "name": "New York City",
    "city": "New York City",
    "state": "NY",
    "lat": 40.75012,
@@ -83,7 +77,6 @@
   },
   {
    "id": "wh-3",
-   "name": "Chicago",
    "city": "Chicago",
    "state": "IL",
    "lat": 41.88331,
@@ -92,7 +85,6 @@
   },
   {
    "id": "wh-7",
-   "name": "Houston",
    "city": "Houston",
    "state": "TX",
    "lat": 29.757317,
@@ -101,7 +93,6 @@
   },
   {
    "id": "wh-8",
-   "name": "Atlanta",
    "city": "Atlanta",
    "state": "GA",
    "lat": 33.753693,
@@ -110,7 +101,6 @@
   },
   {
    "id": "wh-9",
-   "name": "Dallas",
    "city": "Dallas",
    "state": "TX",
    "lat": 32.787642,
@@ -119,7 +109,6 @@
   },
   {
    "id": "wh-11",
-   "name": "Phoenix",
    "city": "Phoenix",
    "state": "AZ",
    "lat": 33.451015,
@@ -128,7 +117,6 @@
   },
   {
    "id": "wh-14",
-   "name": "New York",
    "city": "Nassau-Suffolk",
    "state": "NY",
    "lat": 42.526891,
@@ -137,7 +125,6 @@
   },
   {
    "id": "wh-15",
-   "name": "St. Louis",
    "city": "St. Louis",
    "state": "MO",
    "lat": 38.631358,
@@ -146,7 +133,6 @@
   },
   {
    "id": "wh-16",
-   "name": "Baltimore",
    "city": "Baltimore",
    "state": "MD",
    "lat": 39.294398,
@@ -155,7 +141,6 @@
   },
   {
    "id": "wh-17",
-   "name": "Pittsburgh",
    "city": "Pittsburgh",
    "state": "PA",
    "lat": 40.474802,
@@ -164,7 +149,6 @@
   },
   {
    "id": "wh-19",
-   "name": "Seattle",
    "city": "Seattle",
    "state": "WA",
    "lat": 47.611601,
@@ -173,7 +157,6 @@
   },
   {
    "id": "wh-25",
-   "name": "Denver",
    "city": "Denver",
    "state": "CO",
    "lat": 39.75071,
@@ -182,7 +165,6 @@
   },
   {
    "id": "wh-27",
-   "name": "Kansas City",
    "city": "Kansas City",
    "state": "MO",
    "lat": 39.103883,
@@ -191,7 +173,6 @@
   },
   {
    "id": "wh-28",
-   "name": "San Francisco",
    "city": "San Francisco",
    "state": "CA",
    "lat": 37.779887,
@@ -200,7 +181,6 @@
   },
   {
    "id": "wh-38",
-   "name": "Orlando",
    "city": "Orlando",
    "state": "FL",
    "lat": 28.541627,
@@ -209,7 +189,6 @@
   },
   {
    "id": "wh-39",
-   "name": "Columbus",
    "city": "Columbus",
    "state": "OH",
    "lat": 40.099395,
@@ -218,7 +197,6 @@
   },
   {
    "id": "wh-43",
-   "name": "New Orleans",
    "city": "New Orleans",
    "state": "LA",
    "lat": 29.956664,
@@ -227,7 +205,6 @@
   },
   {
    "id": "wh-44",
-   "name": "Las Vegas",
    "city": "Las Vegas",
    "state": "NV",
    "lat": 36.17269,
@@ -236,7 +213,6 @@
   },
   {
    "id": "wh-45",
-   "name": "Salt Lake City",
    "city": "Salt Lake City",
    "state": "UT",
    "lat": 40.755074,
@@ -245,7 +221,6 @@
   },
   {
    "id": "wh-52",
-   "name": "Memphis",
    "city": "Memphis",
    "state": "TN",
    "lat": 35.033731,
@@ -254,7 +229,6 @@
   },
   {
    "id": "wh-55",
-   "name": "Raleigh",
    "city": "Raleigh",
    "state": "NC",
    "lat": 35.773856,
@@ -263,7 +237,6 @@
   },
   {
    "id": "wh-57",
-   "name": "Oklahoma City",
    "city": "Oklahoma City",
    "state": "OK",
    "lat": 35.467763,
@@ -272,7 +245,6 @@
   },
   {
    "id": "wh-60",
-   "name": "Louisville",
    "city": "Louisville",
    "state": "KY",
    "lat": 38.253601,
@@ -281,7 +253,6 @@
   },
   {
    "id": "wh-99",
-   "name": "Columbia",
    "city": "Columbia",
    "state": "SC",
    "lat": 33.984705,
@@ -292,7 +263,6 @@
  "customers": [
   {
    "id": "customer-1",
-   "name": "Los Angeles",
    "city": "Los Angeles",
    "state": "CA",
    "lat": 33.974044,
@@ -301,7 +271,6 @@
   },
   {
    "id": "customer-2",
-   "name": "New York City",
    "city": "New York City",
    "state": "NY",
    "lat": 40.75012,
@@ -310,7 +279,6 @@
   },
   {
    "id": "customer-3",
-   "name": "Chicago",
    "city": "Chicago",
    "state": "IL",
    "lat": 41.88331,
@@ -319,7 +287,6 @@
   },
   {
    "id": "customer-4",
-   "name": "Boston",
    "city": "Boston",
    "state": "MA",
    "lat": 42.36097,
@@ -328,7 +295,6 @@
   },
   {
    "id": "customer-5",
-   "name": "Washington",
    "city": "Washington",
    "state": "DC",
    "lat": 38.910004,
@@ -337,7 +303,6 @@
   },
   {
    "id": "customer-6",
-   "name": "Detroit",
    "city": "Detroit",
    "state": "MI",
    "lat": 42.346577,
@@ -346,7 +311,6 @@
   },
   {
    "id": "customer-7",
-   "name": "Houston",
    "city": "Houston",
    "state": "TX",
    "lat": 29.757317,
@@ -355,7 +319,6 @@
   },
   {
    "id": "customer-8",
-   "name": "Atlanta",
    "city": "Atlanta",
    "state": "GA",
    "lat": 33.753693,
@@ -364,7 +327,6 @@
   },
   {
    "id": "customer-9",
-   "name": "Dallas",
    "city": "Dallas",
    "state": "TX",
    "lat": 32.787642,
@@ -373,7 +335,6 @@
   },
   {
    "id": "customer-10",
-   "name": "Riverside",
    "city": "Riverside",
    "state": "CA",
    "lat": 33.994941,
@@ -382,7 +343,6 @@
   },
   {
    "id": "customer-11",
-   "name": "Phoenix",
    "city": "Phoenix",
    "state": "AZ",
    "lat": 33.451015,
@@ -391,7 +351,6 @@
   },
   {
    "id": "customer-12",
-   "name": "Minneapolis",
    "city": "Minneapolis",
    "state": "MN",
    "lat": 44.985775,
@@ -400,7 +359,6 @@
   },
   {
    "id": "customer-13",
-   "name": "Orange",
    "city": "Orange",
    "state": "CA",
    "lat": 33.844425,
@@ -409,7 +367,6 @@
   },
   {
    "id": "customer-14",
-   "name": "Nassau-Suffolk",
    "city": "Nassau-Suffolk",
    "state": "NY",
    "lat": 42.526891,
@@ -418,7 +375,6 @@
   },
   {
    "id": "customer-15",
-   "name": "St. Louis",
    "city": "St. Louis",
    "state": "MO",
    "lat": 38.631358,
@@ -427,7 +383,6 @@
   },
   {
    "id": "customer-16",
-   "name": "Baltimore",
    "city": "Baltimore",
    "state": "MD",
    "lat": 39.294398,
@@ -436,7 +391,6 @@
   },
   {
    "id": "customer-17",
-   "name": "Pittsburgh",
    "city": "Pittsburgh",
    "state": "PA",
    "lat": 40.474802,
@@ -445,7 +399,6 @@
   },
   {
    "id": "customer-18",
-   "name": "San Diego",
    "city": "San Diego",
    "state": "CA",
    "lat": 32.724693,
@@ -454,7 +407,6 @@
   },
   {
    "id": "customer-19",
-   "name": "Seattle",
    "city": "Seattle",
    "state": "WA",
    "lat": 47.611601,
@@ -463,7 +415,6 @@
   },
   {
    "id": "customer-20",
-   "name": "Oakland",
    "city": "Oakland",
    "state": "CA",
    "lat": 37.777255,
@@ -472,7 +423,6 @@
   },
   {
    "id": "customer-21",
-   "name": "Tampa",
    "city": "Tampa",
    "state": "FL",
    "lat": 27.95454,
@@ -481,7 +431,6 @@
   },
   {
    "id": "customer-22",
-   "name": "Cleveland",
    "city": "Cleveland",
    "state": "OH",
    "lat": 41.491407,
@@ -490,7 +439,6 @@
   },
   {
    "id": "customer-23",
-   "name": "Miami",
    "city": "Miami",
    "state": "FL",
    "lat": 25.778271,
@@ -499,7 +447,6 @@
   },
   {
    "id": "customer-24",
-   "name": "Newark",
    "city": "Newark",
    "state": "NJ",
    "lat": 40.735652,
@@ -508,7 +455,6 @@
   },
   {
    "id": "customer-25",
-   "name": "Denver",
    "city": "Denver",
    "state": "CO",
    "lat": 39.75071,
@@ -517,7 +463,6 @@
   },
   {
    "id": "customer-26",
-   "name": "Portland",
    "city": "Portland",
    "state": "OR",
    "lat": 45.498251,
@@ -526,7 +471,6 @@
   },
   {
    "id": "customer-27",
-   "name": "Kansas City",
    "city": "Kansas City",
    "state": "MO",
    "lat": 39.103883,
@@ -535,7 +479,6 @@
   },
   {
    "id": "customer-28",
-   "name": "San Francisco",
    "city": "San Francisco",
    "state": "CA",
    "lat": 37.779887,
@@ -544,7 +487,6 @@
   },
   {
    "id": "customer-29",
-   "name": "New Haven",
    "city": "New Haven",
    "state": "CT",
    "lat": 41.30758,
@@ -553,7 +495,6 @@
   },
   {
    "id": "customer-30",
-   "name": "San Jose",
    "city": "San Jose",
    "state": "CA",
    "lat": 37.386691,
@@ -562,7 +503,6 @@
   },
   {
    "id": "customer-31",
-   "name": "Cincinnati",
    "city": "Cincinnati",
    "state": "OH",
    "lat": 39.10663,
@@ -571,7 +511,6 @@
   },
   {
    "id": "customer-32",
-   "name": "Fort Worth",
    "city": "Fort Worth",
    "state": "TX",
    "lat": 32.75826,
@@ -580,7 +519,6 @@
   },
   {
    "id": "customer-33",
-   "name": "Norfolk",
    "city": "Norfolk",
    "state": "VA",
    "lat": 36.852105,
@@ -589,7 +527,6 @@
   },
   {
    "id": "customer-34",
-   "name": "San Antonio",
    "city": "San Antonio",
    "state": "TX",
    "lat": 29.469324,
@@ -598,7 +535,6 @@
   },
   {
    "id": "customer-35",
-   "name": "Indianapolis",
    "city": "Indianapolis",
    "state": "IN",
    "lat": 39.77422,
@@ -607,7 +543,6 @@
   },
   {
    "id": "customer-36",
-   "name": "Sacramento",
    "city": "Sacramento",
    "state": "CA",
    "lat": 38.585076,
@@ -616,7 +551,6 @@
   },
   {
    "id": "customer-37",
-   "name": "Fort Lauderdale",
    "city": "Fort Lauderdale",
    "state": "FL",
    "lat": 26.121066,
@@ -625,7 +559,6 @@
   },
   {
    "id": "customer-38",
-   "name": "Orlando",
    "city": "Orlando",
    "state": "FL",
    "lat": 28.541627,
@@ -634,7 +567,6 @@
   },
   {
    "id": "customer-39",
-   "name": "Columbus",
    "city": "Columbus",
    "state": "OH",
    "lat": 40.099395,
@@ -643,7 +575,6 @@
   },
   {
    "id": "customer-40",
-   "name": "Milwaukee",
    "city": "Milwaukee",
    "state": "WI",
    "lat": 43.037602,
@@ -652,7 +583,6 @@
   },
   {
    "id": "customer-41",
-   "name": "Charlotte",
    "city": "Charlotte",
    "state": "NC",
    "lat": 35.194361,
@@ -661,7 +591,6 @@
   },
   {
    "id": "customer-42",
-   "name": "Bergen",
    "city": "Bergen",
    "state": "NJ",
    "lat": 40.857466,
@@ -670,7 +599,6 @@
   },
   {
    "id": "customer-43",
-   "name": "New Orleans",
    "city": "New Orleans",
    "state": "LA",
    "lat": 29.956664,
@@ -679,7 +607,6 @@
   },
   {
    "id": "customer-44",
-   "name": "Las Vegas",
    "city": "Las Vegas",
    "state": "NV",
    "lat": 36.17269,
@@ -688,7 +615,6 @@
   },
   {
    "id": "customer-45",
-   "name": "Salt Lake City",
    "city": "Salt Lake City",
    "state": "UT",
    "lat": 40.755074,
@@ -697,7 +623,6 @@
   },
   {
    "id": "customer-46",
-   "name": "Buffalo",
    "city": "Buffalo",
    "state": "NY",
    "lat": 42.896219,
@@ -706,7 +631,6 @@
   },
   {
    "id": "customer-47",
-   "name": "Greensboro",
    "city": "Greensboro",
    "state": "NC",
    "lat": 36.070061,
@@ -715,7 +639,6 @@
   },
   {
    "id": "customer-48",
-   "name": "Nashville",
    "city": "Nashville",
    "state": "TN",
    "lat": 36.164003,
@@ -724,7 +647,6 @@
   },
   {
    "id": "customer-49",
-   "name": "Hartford",
    "city": "Hartford",
    "state": "CT",
    "lat": 41.789,
@@ -733,7 +655,6 @@
   },
   {
    "id": "customer-50",
-   "name": "Middlesex",
    "city": "Middlesex",
    "state": "NJ",
    "lat": 40.574084,
@@ -742,7 +663,6 @@
   },
   {
    "id": "customer-51",
-   "name": "Rochester",
    "city": "Rochester",
    "state": "NY",
    "lat": 43.1683,
@@ -751,7 +671,6 @@
   },
   {
    "id": "customer-52",
-   "name": "Memphis",
    "city": "Memphis",
    "state": "TN",
    "lat": 35.033731,
@@ -760,7 +679,6 @@
   },
   {
    "id": "customer-53",
-   "name": "Monmouth",
    "city": "Monmouth",
    "state": "NJ",
    "lat": 40.333745,
@@ -769,7 +687,6 @@
   },
   {
    "id": "customer-54",
-   "name": "Austin",
    "city": "Austin",
    "state": "TX",
    "lat": 30.270515,
@@ -778,7 +695,6 @@
   },
   {
    "id": "customer-55",
-   "name": "Raleigh",
    "city": "Raleigh",
    "state": "NC",
    "lat": 35.773856,
@@ -787,7 +703,6 @@
   },
   {
    "id": "customer-56",
-   "name": "Jacksonville",
    "city": "Jacksonville",
    "state": "FL",
    "lat": 30.340415,
@@ -796,7 +711,6 @@
   },
   {
    "id": "customer-57",
-   "name": "Oklahoma City",
    "city": "Oklahoma City",
    "state": "OK",
    "lat": 35.467763,
@@ -805,7 +719,6 @@
   },
   {
    "id": "customer-58",
-   "name": "Grand Rapids",
    "city": "Grand Rapids",
    "state": "MI",
    "lat": 42.965899,
@@ -814,7 +727,6 @@
   },
   {
    "id": "customer-59",
-   "name": "West Palm Beach",
    "city": "West Palm Beach",
    "state": "FL",
    "lat": 26.345694,
@@ -823,7 +735,6 @@
   },
   {
    "id": "customer-60",
-   "name": "Louisville",
    "city": "Louisville",
    "state": "KY",
    "lat": 38.253601,
@@ -832,7 +743,6 @@
   },
   {
    "id": "customer-61",
-   "name": "Dayton",
    "city": "Dayton",
    "state": "OH",
    "lat": 39.758119,
@@ -841,7 +751,6 @@
   },
   {
    "id": "customer-62",
-   "name": "Richmond",
    "city": "Richmond",
    "state": "VA",
    "lat": 37.538812,
@@ -850,7 +759,6 @@
   },
   {
    "id": "customer-63",
-   "name": "Philadelphia",
    "city": "Philadelphia",
    "state": "PA",
    "lat": 39.961558,
@@ -859,7 +767,6 @@
   },
   {
    "id": "customer-64",
-   "name": "Greenville",
    "city": "Greenville",
    "state": "SC",
    "lat": 34.847881,
@@ -868,7 +775,6 @@
   },
   {
    "id": "customer-65",
-   "name": "Providence",
    "city": "Providence",
    "state": "RI",
    "lat": 41.817904,
@@ -877,7 +783,6 @@
   },
   {
    "id": "customer-66",
-   "name": "Birmingham",
    "city": "Birmingham",
    "state": "AL",
    "lat": 33.518634,
@@ -886,7 +791,6 @@
   },
   {
    "id": "customer-67",
-   "name": "Albany",
    "city": "Albany",
    "state": "NY",
    "lat": 42.65287,
@@ -895,7 +799,6 @@
   },
   {
    "id": "customer-68",
-   "name": "Fresno",
    "city": "Fresno",
    "state": "CA",
    "lat": 36.749611,
@@ -904,7 +807,6 @@
   },
   {
    "id": "customer-69",
-   "name": "Florence",
    "city": "Florence",
    "state": "SC",
    "lat": 34.198188,
@@ -913,7 +815,6 @@
   },
   {
    "id": "customer-70",
-   "name": "Tucson",
    "city": "Tucson",
    "state": "AZ",
    "lat": 32.216256,
@@ -922,7 +823,6 @@
   },
   {
    "id": "customer-71",
-   "name": "Tulsa",
    "city": "Tulsa",
    "state": "OK",
    "lat": 36.149273,
@@ -931,7 +831,6 @@
   },
   {
    "id": "customer-72",
-   "name": "Syracuse",
    "city": "Syracuse",
    "state": "NY",
    "lat": 43.04335,
@@ -940,7 +839,6 @@
   },
   {
    "id": "customer-73",
-   "name": "Ventura",
    "city": "Ventura",
    "state": "CA",
    "lat": 34.345883,
@@ -949,7 +847,6 @@
   },
   {
    "id": "customer-74",
-   "name": "El Paso",
    "city": "El Paso",
    "state": "TX",
    "lat": 31.760613,
@@ -958,7 +855,6 @@
   },
   {
    "id": "customer-75",
-   "name": "Omaha",
    "city": "Omaha",
    "state": "NE",
    "lat": 41.263251,
@@ -967,7 +863,6 @@
   },
   {
    "id": "customer-76",
-   "name": "Akron",
    "city": "Akron",
    "state": "OH",
    "lat": 41.043696,
@@ -976,7 +871,6 @@
   },
   {
    "id": "customer-77",
-   "name": "Albuquerque",
    "city": "Albuquerque",
    "state": "NM",
    "lat": 35.082729,
@@ -985,7 +879,6 @@
   },
   {
    "id": "customer-78",
-   "name": "Tacoma",
    "city": "Tacoma",
    "state": "WA",
    "lat": 47.253432,
@@ -994,7 +887,6 @@
   },
   {
    "id": "customer-79",
-   "name": "Knoxville",
    "city": "Knoxville",
    "state": "TN",
    "lat": 35.946445,
@@ -1003,7 +895,6 @@
   },
   {
    "id": "customer-80",
-   "name": "Bakersfield",
    "city": "Bakersfield",
    "state": "CA",
    "lat": 35.384352,
@@ -1012,7 +903,6 @@
   },
   {
    "id": "customer-81",
-   "name": "Gary",
    "city": "Gary",
    "state": "IN",
    "lat": 41.586162,
@@ -1021,7 +911,6 @@
   },
   {
    "id": "customer-82",
-   "name": "Scranton",
    "city": "Scranton",
    "state": "PA",
    "lat": 41.358057,
@@ -1030,7 +919,6 @@
   },
   {
    "id": "customer-83",
-   "name": "Harrisburg",
    "city": "Harrisburg",
    "state": "PA",
    "lat": 40.264554,
@@ -1039,7 +927,6 @@
   },
   {
    "id": "customer-84",
-   "name": "Allentown",
    "city": "Allentown",
    "state": "PA",
    "lat": 40.602812,
@@ -1048,7 +935,6 @@
   },
   {
    "id": "customer-85",
-   "name": "Toledo",
    "city": "Toledo",
    "state": "OH",
    "lat": 41.645022,
@@ -1057,7 +943,6 @@
   },
   {
    "id": "customer-86",
-   "name": "Youngstown",
    "city": "Youngstown",
    "state": "OH",
    "lat": 41.099765,
@@ -1066,7 +951,6 @@
   },
   {
    "id": "customer-87",
-   "name": "Springfield",
    "city": "Springfield",
    "state": "MA",
    "lat": 42.105997,
@@ -1075,7 +959,6 @@
   },
   {
    "id": "customer-88",
-   "name": "Baton Rouge",
    "city": "Baton Rouge",
    "state": "LA",
    "lat": 30.449314,
@@ -1084,7 +967,6 @@
   },
   {
    "id": "customer-89",
-   "name": "Wilmington",
    "city": "Wilmington",
    "state": "DE",
    "lat": 39.728445,
@@ -1093,7 +975,6 @@
   },
   {
    "id": "customer-90",
-   "name": "Little Rock",
    "city": "Little Rock",
    "state": "AR",
    "lat": 34.747348,
@@ -1102,7 +983,6 @@
   },
   {
    "id": "customer-91",
-   "name": "Jersey City",
    "city": "Jersey City",
    "state": "NJ",
    "lat": 40.751783,
@@ -1111,7 +991,6 @@
   },
   {
    "id": "customer-92",
-   "name": "Stockton",
    "city": "Stockton",
    "state": "CA",
    "lat": 37.930437,
@@ -1120,7 +999,6 @@
   },
   {
    "id": "customer-93",
-   "name": "Ann Arbor",
    "city": "Ann Arbor",
    "state": "MI",
    "lat": 42.264476,
@@ -1129,7 +1007,6 @@
   },
   {
    "id": "customer-94",
-   "name": "Sarasota",
    "city": "Sarasota",
    "state": "FL",
    "lat": 27.337217,
@@ -1138,7 +1015,6 @@
   },
   {
    "id": "customer-95",
-   "name": "Wichita",
    "city": "Wichita",
    "state": "KS",
    "lat": 37.686354,
@@ -1147,7 +1023,6 @@
   },
   {
    "id": "customer-96",
-   "name": "Mobile",
    "city": "Mobile",
    "state": "AL",
    "lat": 30.692504,
@@ -1156,7 +1031,6 @@
   },
   {
    "id": "customer-97",
-   "name": "McAllen",
    "city": "McAllen",
    "state": "TX",
    "lat": 26.218121,
@@ -1165,7 +1039,6 @@
   },
   {
    "id": "customer-98",
-   "name": "Charleston",
    "city": "Charleston",
    "state": "SC",
    "lat": 32.778908,
@@ -1174,7 +1047,6 @@
   },
   {
    "id": "customer-99",
-   "name": "Columbia",
    "city": "Columbia",
    "state": "SC",
    "lat": 33.984705,
@@ -1183,7 +1055,6 @@
   },
   {
    "id": "customer-100",
-   "name": "Vallejo",
    "city": "Vallejo",
    "state": "CA",
    "lat": 38.177394,

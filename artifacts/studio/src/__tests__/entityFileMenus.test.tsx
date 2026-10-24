@@ -77,6 +77,17 @@ describe("useEntityFileMenus (SCU-2.P4.1)", () => {
     expect(screen.getByTestId("stub-import-dialog")).toHaveAttribute("data-format", "csv");
   });
 
+  it("QFX-2a: both menus offer XLSX — Download passes xlsx to the export, Upload opens ImportDialog with format xlsx", () => {
+    render(<Harness entity="distances" testIdEntity="distances" scenarioId={7} />, { wrapper: AllProviders });
+    fireEvent.click(screen.getByTestId("button-download-distances"));
+    expect(screen.getByTestId("button-export-distances-xlsx")).toHaveTextContent("XLSX");
+    fireEvent.click(screen.getByTestId("button-export-distances-xlsx"));
+    expect(downloadEntityExport).toHaveBeenLastCalledWith(1, "distances", "xlsx", { unit: "mi", runId: undefined });
+    fireEvent.click(screen.getByTestId("button-import-distances"));
+    fireEvent.click(screen.getByTestId("button-import-distances-xlsx"));
+    expect(screen.getByTestId("stub-import-dialog")).toHaveAttribute("data-format", "xlsx");
+  });
+
   it("Upload is disabled until the scenario resolves; Download carries the provider's disabled reason", () => {
     render(
       <UnitProvider>
