@@ -93,6 +93,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetDatasetQueryKey: (params?: { modelId?: string }) => ["dataset", params],
 }));
 
+import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 
 // B4.1 — a modern (post-B2) solved result carries `solutionStatus`/
@@ -463,6 +464,7 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={legacyResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
     const cell = screen.getByTestId("cost-summary-value-quality");
     expect(cell).toHaveTextContent("Unverified");
+    expect(within(cell).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
     expect(cell).not.toHaveTextContent("Proven optimal");
     expect(cell).not.toHaveTextContent("Optimal");
   });
@@ -486,6 +488,19 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     const gapCell = screen.getByTestId("cost-summary-compare-quality-101");
     expect(gapCell).not.toHaveTextContent("Optimal");
     expect(gapCell.textContent?.toLowerCase()).toContain("feasible");
+    expect(gapCell.querySelector("[title]")).toBeNull();
+  });
+
+  it("compare-mode 'Unverified' Quality cell carries the tooltip", () => {
+    const legacy = scenario({ id: 110, name: "Old", modelId: "p-median-us", result: { ...baseFields, status: "optimal" as const, quality: "Optimal" } });
+    const proven = scenario({ id: 111, name: "New", modelId: "p-median-us", result: { ...result } });
+    render(
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
+        result={legacy.result} scenarioId={110} modelId="p-median-us" scenarios={[legacy, proven]}
+      /></ExportProvider></UnitProvider>,
+    );
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-111").querySelector("input")!);
+    expect(within(screen.getByTestId("cost-summary-compare-quality-110")).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
   });
 });
 
@@ -1049,7 +1064,7 @@ describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
   it("falls back to the textbook values, labelled, for a legacy JADE result", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult(/* no transportRates */)} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("0.07");
-    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("textbook default");
   });
 
   it("renders no rate rows at all for a non-JADE model", () => {
@@ -1082,9 +1097,9 @@ describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
     const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icTransCost: 0.09 }) });
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(compareToggle("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default (legacy result)");
-    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default (legacy result)");
-    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default");
     expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
   });
 

@@ -46,6 +46,13 @@ export function hasIncumbent(outcome: ResultOutcome): boolean {
 // row + its compare-mode column) — NEVER the raw `result.quality` string
 // (solve.py's own possibly pre-B2/legacy-optimistic text) for an outcome this
 // module can classify truthfully.
+export const UNVERIFIED_TOOLTIP = "Solved before solution quality was recorded. Re-run to verify.";
+
+// Native `title` for the Quality cell: only the legacy "Unverified" text needs one.
+export function resultQualityTitle(result: SolveResult): string | undefined {
+  return classifyResultOutcome(result) === "legacy_unverified" ? UNVERIFIED_TOOLTIP : undefined;
+}
+
 export function resultQualityText(result: SolveResult): string {
   const outcome = classifyResultOutcome(result);
   if (outcome === "legacy_unverified") return "Unverified";

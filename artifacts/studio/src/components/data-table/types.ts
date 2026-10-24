@@ -131,4 +131,6 @@ export interface DataTableProps<T> {
   scrollClassName?: string;
   /** Rendered inside the root after the pager (e.g. CostSummary's bands note). */
   footer?: ReactNode;
+  /** Plural noun for the toolbar count: "4 plants" unfiltered, "1 of 4 plants" filtered. Without it: "N of M". */
+  countNoun?: string;
 }

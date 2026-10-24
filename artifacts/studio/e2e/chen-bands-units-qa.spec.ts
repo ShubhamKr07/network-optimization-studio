@@ -562,7 +562,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await saveViaHeader(page);
       await solveViaUi(page, id);
 
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2", { timeout: HEADER_TIMEOUT });
 
       // A successful solve auto-switches the active tab to Output Map
       // (Workspace.tsx's jobStatus effect) — reopen Customers before reading it.
@@ -580,12 +580,12 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await page.getByTestId("button-result-back").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Index/draft untouched while the prompt is merely open.
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2");
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2");
 
       // ── Cancel: leaves index AND draft completely untouched ─────────────
       await page.getByTestId("dirty-nav-cancel").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toHaveCount(0);
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2");
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2");
       await expect(page.locator('[data-testid^="input-customer-demand-"]').first()).toHaveValue(grouped(Number(beforeDirtyValue) + 500));
 
       // ── Reject Save: intercept the whole-input PATCH to fail ────────────
@@ -602,7 +602,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await expect(page.getByTestId("save-error")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // A rejected Save leaves BOTH the index and the draft exactly as they were.
       await expect(page.getByTestId("dirty-nav-prompt")).toBeVisible();
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2");
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2");
       await page.unroute(`**/api/scenarios/${id}`);
       // Confirm server-side truly unaffected by the rejected attempt: the
       // dirty customer's PERSISTED demand override must NOT reflect the
@@ -618,7 +618,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       // ── Real Save now succeeds -> navigation proceeds ───────────────────
       await page.getByTestId("dirty-nav-save").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 1 of 2", { timeout: HEADER_TIMEOUT });
 
       // ── Now at an OLDER (historical) entry: ordinary editors no-op ──────
       // ch4-2s-9 — rewritten. The comment this replaced described a real
@@ -699,7 +699,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
 
       // ── Discard: step forward while dirty (re-dirty at latest, then discard) ──
       await page.getByTestId("button-result-forward").click();
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2", { timeout: HEADER_TIMEOUT });
       // Reopen Customers (active tab is Optimization Parameters from the
       // step above's explicit navigation back to it).
       await page.getByTestId("sidebar-input-customers").click();
@@ -712,7 +712,7 @@ test.describe("chen-bands-units QA — history read-only + dirty-nav prompt", ()
       await expect(page.getByTestId("dirty-nav-prompt")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("dirty-nav-discard").click();
       await expect(page.getByTestId("dirty-nav-prompt")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 1 of 2", { timeout: HEADER_TIMEOUT });
       // Data-safety proof: the discarded "+42" edit was never sent to the
       // server (Discard only ever reverts `localInputs`/`savedInputsRef`
       // client-side and then navigates — it never PATCHes).

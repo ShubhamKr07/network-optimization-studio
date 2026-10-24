@@ -164,6 +164,15 @@ describe("DataTable — filter", () => {
     renderTable({ rows: makeRows(4), testIds: { count: "text-x-count" } });
     expect(screen.getByTestId("text-x-count")).toHaveTextContent("4 of 4");
   });
+
+  it("countNoun reads '12 plants' unfiltered and '4 of 12 plants' filtered", async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: makeRows(12), testIds: { count: "text-x-count" }, countNoun: "plants" });
+    expect(screen.getByTestId("text-x-count")).toHaveTextContent(/^12 plants$/);
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-id"), "C1");
+    expect(screen.getByTestId("text-x-count")).toHaveTextContent(/^4 of 12 plants$/);
+  });
 });
 
 describe("DataTable — paging", () => {

@@ -4,7 +4,7 @@ import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/
 import { useExport } from "@/contexts/ExportContext";
 import { formatChenObjective, formatMoney, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
-import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
+import { classifyResultOutcome, hasIncumbent, resultQualityText, resultQualityTitle } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import { bandRangeLabel, type CanonicalUnit } from "@workspace/units";
@@ -90,7 +90,7 @@ function solvedAtRates(result: { metrics?: { transportRates?: TransportCosts } }
     : { rates: stored, legacy: false };
 }
 
-const LEGACY_RATE_LABEL = "textbook default (legacy result)";
+const LEGACY_RATE_LABEL = "textbook default";
 
 /** A rate renders in the active display unit (reciprocal conversion); a
  *  minimum charge is $/ton and never converts. Follows this file's existing
@@ -181,6 +181,7 @@ interface SummaryRow {
   value: string;
   mono: boolean;
   testId: string;
+  title?: string;
 }
 
 function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
@@ -206,7 +207,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
       sortable: false,
       cellTestId: r => r.testId,
       value: r => r.value,
-      cell: r => (r.mono ? <span className="font-mono">{r.value}</span> : r.value),
+      cell: r => (r.mono || r.title ? <span className={r.mono ? "font-mono" : undefined} title={r.title}>{r.value}</span> : r.value),
     },
   ];
 }
@@ -620,6 +621,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       value,
       mono,
       testId: testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+      title: label === "Quality" ? resultQualityTitle(result) : undefined,
     }));
 
     return (
@@ -853,7 +855,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   );
   pushRow(
     { key: "quality", label: "Quality", csvLabel: "Quality", mono: false, testId: id => `cost-summary-compare-quality-${id}` },
-    s => ({ raw: resultQualityText(s.result!), display: resultQualityText(s.result!) }),
+    s => ({
+      raw: resultQualityText(s.result!),
+      display: <span title={resultQualityTitle(s.result!)}>{resultQualityText(s.result!)}</span>,
+    }),
   );
 
   // SCU-1.2/1.3 (spec B1.9) — EXCLUSIVE band rows + overflow, only when every

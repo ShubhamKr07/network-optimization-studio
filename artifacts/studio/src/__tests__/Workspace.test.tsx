@@ -1543,7 +1543,9 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
@@ -1551,7 +1553,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     // Reset the mutate mock's implementation so the dirty-nav prompt's own
     // Save action (below) starts from a clean slate, not still wired to
@@ -1570,7 +1572,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     fireEvent.click(screen.getByTestId("button-result-back"));
     expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
     // Index has NOT changed yet — the prompt intercepted, it didn't navigate.
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (e: unknown) => void }) =>
       opts.onError(new Error("HTTP 422: invalid input")),
@@ -1579,7 +1581,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
 
     await screen.findByTestId("save-error");
     // Index unchanged, draft unchanged, dialog still open.
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
     expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
@@ -1599,7 +1601,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     fireEvent.click(screen.getByTestId("dirty-nav-save"));
 
     await waitFor(() => expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument());
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
   });
 
   it("Discard reverts the draft to the last-saved snapshot and proceeds with navigation", async () => {
@@ -1612,7 +1614,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
 
     expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     // Stepped to the entry that produced resultA (p=3), not the discarded p=25.
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
@@ -1628,7 +1630,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
 
     expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
   });
 
@@ -1639,7 +1641,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
 
     fireEvent.click(screen.getByTestId("button-result-back"));
     expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
-    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
   });
 });
 
@@ -2042,7 +2044,9 @@ describe("Workspace — result history stepper (Task 6)", () => {
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     // Change P (dirty draft), solve again — handleSolve saves first, then
     // solves, producing `scenarioWithB` (objective B, p=10) on the wire.
@@ -2053,17 +2057,17 @@ describe("Workspace — result history stepper (Task 6)", () => {
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     fireEvent.click(screen.getByTestId("button-result-back"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
     // Stepping back restores the RESPECTIVE inputs too (p reverts to 3, the
     // value that produced resultA), not just the displayed result.
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
 
     fireEvent.click(screen.getByTestId("button-result-forward"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
   });
 
   // C5.1 fix — final-whole-branch-review Important finding: stepping through
@@ -2102,7 +2106,9 @@ describe("Workspace — result history stepper (Task 6)", () => {
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
@@ -2110,7 +2116,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     // Currently at entry 2 (objective 222) — the Cost Summary tab should show it.
     fireEvent.click(screen.getByTestId("sidebar-output-cost-summary"));
@@ -2119,12 +2125,12 @@ describe("Workspace — result history stepper (Task 6)", () => {
     // Step back to entry 1 (objective 111) — the ALREADY-OPEN Cost Summary
     // tab must update to reflect it, not keep showing 222.
     fireEvent.click(screen.getByTestId("button-result-back"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
     expect(await screen.findByTestId("cost-summary-value-objective")).toHaveTextContent("111");
 
     // Step forward again — restores 222.
     fireEvent.click(screen.getByTestId("button-result-forward"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
     expect(await screen.findByTestId("cost-summary-value-objective")).toHaveTextContent("222");
   });
 });
@@ -2159,7 +2165,9 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
@@ -2167,10 +2175,10 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     fireEvent.click(screen.getByTestId("button-result-back"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
 
     // Now clicking Save as scenario must create a scenario from entry 1's
     // inputs (p=3), not entry 2's (p=10).
@@ -2531,25 +2539,36 @@ describe("Workspace — header grid layout (Bundle 6 T2)", () => {
 
   // Bundle 6 T2 (item 3) — the stepper now uses lucide ChevronLeft/
   // ChevronRight icons (svgs), not literal "←"/"→" glyph text.
-  it("the result-history stepper renders ChevronLeft/ChevronRight icon buttons, not literal arrow-glyph text", () => {
-    const solvedScenario = {
-      ...scenario,
-      result: {
-        status: "optimal" as const,
-        objective: 1,
-        runTimeSec: 0.1,
-        quality: "Proven optimal",
-        edges: [],
-        metrics: {},
-        details: {},
-        solverUsed: "CBC",
-        infeasibilityReason: null,
-      },
-      stale: false,
+  it("the result-history stepper renders ChevronLeft/ChevronRight icon buttons, not literal arrow-glyph text", async () => {
+    // DU-2.4: the stepper only exists from the 2nd run, so build two entries.
+    const resultA = {
+      status: "optimal" as const, objective: 1, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
     };
-    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
-    renderWorkspace();
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: { ...resultA, objective: 2 }, stale: false };
+    updateScenarioResolvesWithPersistedRow();
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 7 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
     const back = screen.getByTestId("button-result-back");
     const forward = screen.getByTestId("button-result-forward");
     expect(back).toBeInTheDocument();
@@ -3010,7 +3029,9 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
   });
 
   // CH4OS — the history entry's own objective goes into the CREATE body unchanged; the server keeps it at any floor (only an absent objective at a positive floor is stored as min_distance).
@@ -3038,7 +3059,9 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     };
     mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     const created = { ...solvedScenario, id: 99, name: "Chen coverage (saved run)", result: null };
     mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
@@ -3808,7 +3831,9 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     openAndSolve();
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
     // The first solve finished, so nothing is in flight at this point.
     expect(screen.queryByTestId("solve-progress-overlay")).toBeNull();
     expect(screen.getByTestId("button-run-optimizer")).toBeEnabled();

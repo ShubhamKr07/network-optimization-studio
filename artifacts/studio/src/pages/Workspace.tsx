@@ -4519,17 +4519,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {resultHistoryState.items.length > 0 && (
               <div className="flex items-center gap-1 text-xs">
+                {resultHistoryState.items.length > 1 && (<>
                 <button type="button" data-testid="button-result-back" disabled={!canGoBackResult} onClick={stepResultBack} title="Previous result"
                   className="w-8 h-8 rounded flex items-center justify-center border border-[color:var(--ink-500)] text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="text-[color:var(--ink-300)] w-10 text-center font-mono" data-testid="text-result-history-position">
-                  {resultHistoryState.index + 1}/{resultHistoryState.items.length}
+                <span className="text-[color:var(--ink-300)] min-w-16 text-center font-mono" data-testid="text-result-history-position">
+                  {`Run ${resultHistoryState.index + 1} of ${resultHistoryState.items.length}`}
                 </span>
                 <button type="button" data-testid="button-result-forward" disabled={!canGoForwardResult} onClick={stepResultForward} title="Next result"
                   className="w-8 h-8 rounded flex items-center justify-center border border-[color:var(--ink-500)] text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                </>)}
                 <button type="button" data-testid="button-save-as-scenario" onClick={handleSaveAsScenario} disabled={createScenario.isPending}
                   className="text-xs border border-[color:var(--ink-500)] text-[color:var(--ink-300)] rounded px-2 py-1 hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]">
                   Save as scenario

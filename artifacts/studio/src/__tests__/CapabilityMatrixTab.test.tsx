@@ -411,7 +411,7 @@ describe("CapabilityMatrixTab", () => {
         />,
       );
       expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
-      expect(screen.getByTestId("text-capability-count")).toHaveTextContent("12 of 12");
+      expect(screen.getByTestId("text-capability-count")).toHaveTextContent("12 plants");
     });
   });
 });

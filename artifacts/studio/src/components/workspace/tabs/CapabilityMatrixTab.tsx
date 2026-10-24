@@ -174,6 +174,7 @@ export function CapabilityMatrixTab({
   return (
     <div data-testid="capability-matrix-tab">
       <DataTable<Plant>
+        countNoun="plants"
         rows={plants}
         rowKey={plant => plant.id}
         columns={columns}
