@@ -63,9 +63,9 @@ Everything in the master plan's Global Constraints (`2026-10-24-design-upgrade.m
   git commit --only ${=P} -m "[DU-2.N] <summary>" -m "<body>" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
   ```
 
-## Applied defaults (recommended; confirm via Lavish before execution)
+## Decisions (user-confirmed via Lavish, 2026-10-24)
 
-Each one is applied in the task bodies below. Changing one changes only the named task.
+All nine were confirmed as recommended, and all 14 Codex folds kept. Each is applied in the task bodies below.
 
 | ID | Default applied | Task |
 |---|---|---|
@@ -77,7 +77,7 @@ Each one is applied in the task bodies below. Changing one changes only the name
 | Q6 | The Distances "Leg" column becomes `DataTable` `sections`, one group header per leg. The red "Unrecognized pair" stays red (it's an error) | 2.6 |
 | Q7 | P presets = current P−2 … P+2, clamped to 1 … `pMax` (the existing upper bound). `pMax` itself is unchanged | 2.8 |
 | Q8 | The 4 orphan modules are left untouched (deletion would be a separate task) | all |
-| Q9 | Per master §A / spec §5.2.3: only `two-echelon-jade-us` = `"tons"` (C1); the other 7, including `transport-coal`, = `"units"` until confirmed. Open: confirm coal as tons (its stations already say "tons"). Changing it means a one-line `chapters.ts` edit plus a spec/master note | 2.3 |
+| Q9 | **Confirmed: `transport-coal` = `"tons"`** (its Stations already say "tons"). JADE = `"tons"` (C1). The other 6 = `"units"`. Recorded in spec §5.2.3 and master §A | 2.3 |
 
 All paths below are relative to `artifacts/studio/src/` unless they start with `artifacts/`, `docs/` or `lib/`.
 
@@ -439,17 +439,18 @@ Expected: green. `bandLabelSource.test.ts` reports 0 hits, with an empty allow-l
 - e2e: `workspace-fixups.spec.ts:310-311`, `jade-ch9-workspace-bundle.spec.ts:466-480`
 
 **Interfaces:**
-- Produces: `Chapter.demandUnit: "tons" | "units"` (required). The values are `two-echelon-jade-us` = `"tons"` (C1); the other 7 = `"units"` (Q9).
+- Produces: `Chapter.demandUnit: "tons" | "units"` (required). The values are `two-echelon-jade-us` and `transport-coal` = `"tons"` (C1, Q9); the other 6 = `"units"`.
 - Produces: `demandHeader(unit: Chapter["demandUnit"], base = "Demand"): string`, which gives `` `${base} (${unit})` `` in `lib/chapters.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
 In `lib/chapters.test.ts`:
 ```ts
-it("DU-2.3: every chapter declares its demand unit (JADE in tons)", () => {
+it("DU-2.3: every chapter declares its demand unit (JADE + coal in tons)", () => {
   const byId = Object.fromEntries(CHAPTERS.map(c => [c.modelId, c.demandUnit]));
   expect(byId["two-echelon-jade-us"]).toBe("tons");
-  for (const id of ["p-median-us","max-coverage-us","transport-coal","p-median-brazil","delivery-teaching-us","two-echelon-gold-au","super-model"])
+  expect(byId["transport-coal"]).toBe("tons");
+  for (const id of ["p-median-us","max-coverage-us","p-median-brazil","delivery-teaching-us","two-echelon-gold-au","super-model"])
     expect(byId[id]).toBe("units");
   expect(demandHeader("tons")).toBe("Demand (tons)");
 });
@@ -482,7 +483,7 @@ Expected: green.
 
 - [ ] **Step 5: Review + commit**
 
-`[DU-2.3] units move into headers; Chapter.demandUnit (JADE in tons)`.
+`[DU-2.3] units move into headers; Chapter.demandUnit (JADE and coal in tons)`.
 
 ---
 
@@ -799,7 +800,7 @@ Verdict: NOT READY. All 14 findings were folded:
 | PR2-3 | major | Leg/None lane mode emptied the label bands | `NetworkMap.labelBands` separate from colour `bands` |
 | PR2-4 | major | JADE tables show name+ID only above 10 rows | unconditional `EntityIdCell` in DU-2.7; <10-row tests |
 | PR2-5 | major | lat/lng inventory not exhaustive | 10 renderers listed + task-time rg |
-| PR2-6 | major | Q9 coal = tons contradicts master/spec | default reverted to "units"; coal-in-tons is an open user question |
+| PR2-6 | major | Q9 coal = tons contradicts master/spec | asked the user (Lavish); confirmed coal = tons, and recorded in spec §5.2.3 + master §A so the fixed interface and the plan agree |
 | PR2-7 | major | guard allow-list non-empty; e2e not scanned | empty allow-list; scans src + e2e |
 | PR2-8 | major | pager not in the table's scroll container | pager inside the scroll wrapper; nested scroll containers removed |
 | PR2-9 | major | "per-section pager" false | one global pager across sections, specified + tested |
