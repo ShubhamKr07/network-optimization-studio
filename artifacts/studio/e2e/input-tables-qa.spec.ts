@@ -90,14 +90,16 @@ async function openTab(page: Page, sidebar: string, root: string): Promise<void>
   await expect(page.getByTestId(root)).toBeVisible({ timeout: HEADER_TIMEOUT });
 }
 
-/** Every button / input / checkbox in a tab, except the browse-only filter trigger and pager. */
+/** Every button / input / checkbox in a tab, except the browse-only filter trigger, pager and column-header sort buttons
+ *  (QFX-4, spec: "Sorting never changes what Save writes" - only sortable headers, `th[aria-sort]`, are exempt). */
 async function enabledCount(page: Page, root: string): Promise<{ enabled: number; total: number; enabledIds: string[] }> {
   return page
     .locator(`[data-testid="${root}"]`)
     .locator('input:not([type="hidden"]):not([type="file"]), button, select, textarea, [role="checkbox"], [role="combobox"], [role="switch"]')
     .evaluateAll(els => {
     const skip = (t: string) => t === "button-filter-menu-trigger" || t.endsWith("-prev") || t.endsWith("-next");
-    const all = els.filter(e => !skip(e.getAttribute("data-testid") ?? ""));
+    const isSortHeader = (e: Element) => e.tagName === "BUTTON" && e.closest("th[aria-sort]") !== null;
+    const all = els.filter(e => !skip(e.getAttribute("data-testid") ?? "") && !isSortHeader(e));
     const on = all.filter(e => !(e as HTMLInputElement).disabled);
     return { enabled: on.length, total: all.length, enabledIds: on.map(e => e.getAttribute("data-testid") ?? "(none)") };
   });
