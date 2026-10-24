@@ -228,7 +228,7 @@ Why `px-*` must go: Tailwind v4 emits utilities in `@layer utilities`, which out
        data-URI SVG cannot read CSS variables and this must follow the theme tokens
        in light AND .dark. Border/radius/ring mirror ui/input.tsx's tokens. Lives in
        `base`, so per-file utilities still set height/width/radius — but a select
-       must not carry px-*/pr-*/bg-white (utilities would cancel padding-right and
+       must not carry px-* / pr-* / bg-white (utilities would cancel padding-right and
        hide the dark chevron; nativeSelectStyle.test.ts enforces this). */
     select:not([multiple]):not([size]) {
       appearance: none;
@@ -827,13 +827,12 @@ No other action column exists. Every other column in the 20 consumers has a non-
   Add to `src/__tests__/CostSummaryTab.test.tsx`:
   ```tsx
   it("QFX-4: cost-summary metric tables are not sortable (no header sort buttons)", () => {
-    const { container } = renderSolvedSingle();   // the file's existing single-scenario render helper; use the same one its first test uses
+    const { container } = renderTab({ result: optimalResult, modelId: "p-median-us" });   // file helper (:153) + fixture used at :241
     // Every sortable column sets aria-sort (even "none" while unsorted), so zero th[aria-sort] means no sortable column.
     // Non-vacuity: remove the two `sortable: false` lines and this fails with length 1 (the value column).
     expect(container.querySelectorAll("th[aria-sort]")).toHaveLength(0);
   });
   ```
-  If the file has no `renderSolvedSingle` helper, use the same render call the file's first single-scenario test makes. The assertion line stays as written.
 
 - [ ] **Step 8: Run the task's tests, expect PASS.**
   ```bash
@@ -2617,7 +2616,7 @@ export function superRowKey(table: TableKey, r: Record<string, unknown>): string
 /** One table's sheet -> rows. sheetsToDocument and parseSuperTableFile share it, so a per-table file obeys exactly the
  *  whole-network column rules (incl. QFX-7's accepted-and-discarded legacy `name` on location tables). */
 function readTable(sh: Sheet, t: TableFile, errors: ParseError[]) {
-  return readSheet(sh, t.cols, errors);
+  return readSheet(sh, t.cols, errors, t.legacy);   // QFX-7: location tables accept-and-discard legacy `name`
 }
 ```
 
@@ -3677,7 +3676,7 @@ export function SuperAddRowDialog({ table, network, onAdd, onCancel }: SuperAddR
               <div key={f.key} className="space-y-1">
                 <label htmlFor={id} className="block text-xs font-medium">{f.label}{f.required ? " *" : ""}</label>
                 {opts ? (
-                  <select {...common} className="w-full h-8 border rounded px-2 bg-white text-sm" onChange={e => set(f.key, e.target.value)}>
+                  <select {...common} className="w-full h-8 border rounded pl-2 text-sm" onChange={e => set(f.key, e.target.value)}>
                     {f.spec.kind === "select" && <option value="">Select…</option>}
                     {opts.map(o => <option key={o} value={o}>{f.spec.kind === "status" ? o.replace("_", " ") : o}</option>)}
                   </select>
@@ -3699,7 +3698,7 @@ export function SuperAddRowDialog({ table, network, onAdd, onCancel }: SuperAddR
   );
 }
 ```
-- The `<select>` className matches the other dialog select (`SuperEntityDialog.tsx:48`). QFX-10's global `select` rule gives it the chevron. If QFX-10 removed `px-2` from selects for its `padding-right`, follow the class pattern QFX-10 left in `SuperEntityDialog`.
+- The `<select>` className follows QFX-10's rule: `pl-2`, with no `px-*`/`pr-*`/`pe-*`/`bg-white`. The global `select` rule supplies padding-right, background and chevron. QFX-10's `nativeSelectStyle.test.ts` guard fails on any of the forbidden classes.
 - Status options are displayed with `replace("_", " ")`, as `StatusToggle`'s `labelOf` does (`superTables.tsx:117`).
 
 - [ ] **Step 5: Wire `SuperTableTab`, `SuperDistancesTab`, `Workspace`**
@@ -5200,6 +5199,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SuperDistancesTab, type SuperDistancesTabProps } from "@/components/workspace/super/SuperDistancesTab";
+import type { SuperInputsLike } from "@/lib/superNetwork";
 
 type Method = SuperDistancesTabProps["distanceMethod"];
 
@@ -5460,6 +5460,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SuperTableTab } from "./SuperTableTab";
 import type { Row } from "./superTables";
+import type { SuperInputsLike } from "@/lib/superNetwork";
 
 export interface SuperDistancesTabProps {
   distanceMethod: "haversine" | "circuity" | "road";
@@ -5716,10 +5717,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```bash
 cd /Users/shubhamkr/nos-qfx/artifacts/studio
-grep -rnE "Export JSON|Export CSV|Export XLSX|Add row|button-import-|button-export-|getByLabel\(.Name|\"name\"|distance-method|circuity" e2e/*.spec.ts
+grep -rnE "super-header-(import|export)|Export (JSON|CSV|XLSX)" e2e/*.spec.ts       # QFX-1
+grep -rnE "super-[a-zA-Z]+-add\b|\+ Add row" e2e/super-model.spec.ts                # QFX-6 (super only)
+grep -rnE "selectOption\(\"(haversine|circuity|road)\"\)|super-distance-method" e2e/*.spec.ts   # QFX-9
+grep -rnE "\bname\b" e2e/super-model.spec.ts                                        # QFX-7 (location name only)
 ```
 
-Every hit not already rewritten by a task's impact block is rewritten here to the new UI, using the test ids those tasks define.
+Classify each hit before editing:
+- **(a)** It asserts the old super UI or a super location `name`: rewrite it to the new test ids.
+- **(b)** It is unrelated: a chapter-model "+ Add row", product `name`, or prose in a comment. Leave it.
+
+Record the classification in the changelog entry. `button-import-*` / `button-export-*` chapter ids are **kept** by QFX-2a (`useEntityFileMenus.tsx:6-9`), so they are not grepped.
 
 - [ ] **Step 3: Write `e2e/quick-fixes.spec.ts`.** It covers what jsdom cannot see (`artifacts/studio/CLAUDE.md`: CSS, overlay layout, real file I/O):
   1. **QFX-10:** on a super scenario's Warehouses tab and in the Run Optimizer dialog, every visible `select:not([multiple]):not([size])` has computed `appearance: none` and `padding-right ≥ 28px`, and its `background-image` contains `gradient` (the chevron is drawn with two linear-gradient triangles, per QFX-10). The app has no dark-mode switch (nothing adds `.dark`), so the dark check forces it: run `page.evaluate(() => document.documentElement.classList.add("dark"))`, then assert the same computed styles again.
@@ -5768,17 +5776,38 @@ cnt=$(ps aux | grep "[v]itest" | grep -v "zsh -c" | wc -l | tr -d ' '); echo "co
 
 Expected: `0`. If it is not 0, wait. Do not trust a gate run under load.
 
-- [ ] **Step 2: Run the full gate and both standalone solver scripts.**
+- [ ] **Step 2: Run the full gate, both standalone solver scripts, and the local e2e gate.**
 
 ```bash
 cd /Users/shubhamkr/nos-qfx
 pnpm gate; echo "gate exit: $?"
 (cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py)
+# servers up per artifacts/studio/e2e/CLAUDE.md (two-server recipe); API on <api-port>, studio on <studio-port>
+(cd artifacts/api-server/src/solver/tests && python3 e2e_journey.py http://localhost:<api-port> super)
+E2E_BASE_URL=http://localhost:<studio-port> pnpm e2e:gate
 ```
 
-Expected: gate exit 0, and `e2e_accuracy.py` 99/99. The latter must pass unmodified (hard rule #2), even though no solver file changed.
+Expected:
+- gate exit 0
+- `e2e_accuracy.py` 99/99, which must pass unmodified (hard rule #2) even though no solver file changed
+- `e2e_journey.py … super` all green; QFX-7 changes the super write shape
+- `e2e:gate` with 0 unexpected; any failure is checked against the flake registry and re-run twice alone
 
-- [ ] **Step 3: Record the measured counts** (typecheck, api-server, studio, pytest, e2e_accuracy, e2e:gate) in a `### QFX - bundle gate` changelog entry. Every number comes from this run; an underivable value is `unknown`. Commit as `[QFX-GATE] record bundle gate`.
+- [ ] **Step 3: Changelog + commit.** Append this entry, with every number taken from this run (an underivable value is `unknown`):
+
+```markdown
+### QFX-GATE - integrated bundle gate
+
+Gate on `<quick-fixes tip sha>` (0 concurrent vitest at start): typecheck <result>; api-server <passed>/<total>; studio <files> files / <tests> tests; pytest <passed>; `e2e_accuracy.py` <n>/<n>; `e2e_journey.py super` <n>/<n>; `pnpm e2e:gate` expected <n> / unexpected <n> / flaky <n>. New flakes recorded in `docs/superpowers/flake-registry.md`: <list or "none">.
+```
+
+```bash
+[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }
+git add docs/CHANGELOG-implementation.md docs/superpowers/flake-registry.md
+git commit docs/CHANGELOG-implementation.md docs/superpowers/flake-registry.md -m "[QFX-GATE] record integrated bundle gate
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
 
 ---
 
