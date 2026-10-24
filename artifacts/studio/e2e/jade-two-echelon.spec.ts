@@ -76,6 +76,8 @@ async function createJadeScenario(page: Page): Promise<string> {
   const id = String((await resp.json()).id);
   await page.goto(`/chapter-9/jade?scenario=${id}`);
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+  // Input Map seed lands first (Workspace.tsx didSeedTabRef effect); see WFX-RACE.
+  await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   return id;
 }
 
@@ -279,6 +281,8 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
       // ── 5. Capability-matrix persistence across save/reload ─────────────
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Input Map seed lands first (Workspace.tsx didSeedTabRef effect); see WFX-RACE.
+      await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-capability-matrix").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("checkbox-capability-plant-4-product-1")).toBeChecked();

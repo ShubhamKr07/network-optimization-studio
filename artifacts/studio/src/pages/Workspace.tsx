@@ -2446,7 +2446,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const showToolbarSave =
     isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && !saveInLayersRowJade;
 
+  // WFX-SEED — the modelId the user last navigated in; the one-shot seed below
+  // yields to it. A model id (not a boolean) so a choice made in chapter A
+  // never counts as a choice for chapter B (activeView itself is never reset).
+  const navigatedModelRef = useRef<string | null>(null);
   function openTab(kind: WorkspaceView["kind"], entry: SidebarEntry) {
+    navigatedModelRef.current = modelId;
     setActiveView({ id: workspaceViewId(kind, entry.id), kind, entity: entry.id, label: entry.label });
   }
 
@@ -2455,14 +2460,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // COSM-1 — the "don't reopen after the user closes the last tab" half of
   // this guard is moot now that the tab strip (and its close affordance) is
   // gone, but the ref is still load-bearing: keyed on `modelId` rather than
-  // reactively on `activeView === null`, it seeds once on entry and does not
-  // fight the user's own sidebar navigation afterwards. Navigating to a
-  // different chapter re-seeds once.
+  // reactively on `activeView === null`, it seeds once on entry. WFX-SEED — it
+  // yields to a view the user already opened for this model before the
+  // scenario resolved (navigatedModelRef), and never fights later navigation.
+  // Navigating to a different chapter re-seeds once.
   const didSeedTabRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentScenario) return;
     if (didSeedTabRef.current === modelId) return; // already seeded for this model
     didSeedTabRef.current = modelId;
+    if (navigatedModelRef.current === modelId) return; // user already chose a view
     const entries = inputEntriesForModel(modelId);
     // SM-13 / SM2-1 — an empty super scenario opens on the import prompt (first table tab); a non-empty one on the Input Map.
     const entry = modelId === "super-model"

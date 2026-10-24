@@ -63,6 +63,10 @@ async function createScenario(page: Page, modelId: string, inputs: Record<string
   const id = String((await resp.json()).id);
   await page.goto(`${path}?scenario=${id}`);
   await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+  // Input Map seed lands first (Workspace.tsx didSeedTabRef effect runs after
+  // workspace-page is visible and would override an early sidebar click); see WFX-RACE.
+  // Not valid for an EMPTY super-model scenario: that seeds `products`, not the Input Map.
+  await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
   return id;
 }
 
@@ -278,6 +282,10 @@ test.describe("Workspace fixups 2 — p-median-us", () => {
 
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+
+      // Input Map seed lands first (Workspace.tsx didSeedTabRef effect); see WFX-RACE.
+
+      await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-warehouses").click();
       await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid="added-warehouses-section"] [data-testid^="row-added-warehouse-"]')).toHaveCount(1, { timeout: HEADER_TIMEOUT });
@@ -517,6 +525,10 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
 
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+
+      // Input Map seed lands first (Workspace.tsx didSeedTabRef effect); see WFX-RACE.
+
+      await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await page.getByTestId("sidebar-input-plants").click();
       await expect(page.getByTestId("plants-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.locator('[data-testid="added-plants-section"] [data-testid^="row-added-plant-"]')).toHaveCount(1, { timeout: HEADER_TIMEOUT });
