@@ -4762,3 +4762,14 @@ Fixes from the Quick Fixes whole-branch review (spec `2026-10-24-quick-fixes-des
 Review follow-up (amend): the frozen order is dropped whenever the sort is off, so re-choosing the same sort after a focus-jump clear re-sorts by the edited values (test added).
 
 Measured (serial, touched files only): nativeSelectStyle, sortableEmptyHeaders, mutationErrorSurface, rawErrorMessageSurface, DataTable, superFiles, SuperTableTab, SuperDistancesTab, ImportDialog, CostSummaryTab, JadeFlowsTab, SuperNetworkImportDialog = 12 files, 330 tests passing; `pnpm run typecheck` clean. No `rawPaletteClasses` test exists on this branch.
+
+### QFX-R1-GATE - re-gate after whole-branch review fixes
+
+Bundle tip `33687501` (QFX-R1 on top of `9bf1d1c0`). All counts measured 2026-10-24 on that tip; load avg spiked to ~168 from macOS background services mid-run.
+
+- typecheck: clean.
+- api-server full run (0 concurrent vitest at start): 2171/2174, 3 failures in `importJsonRoundTrip` (transport added mine round-trip) and `jobRunnerDispatcher` (A2 x2) during the load spike; both files 56/56 twice in isolation. QFX-R1 touches no api-server code.
+- studio vitest: 176 files, 3065/3065.
+- solver pytest: 369/369.
+- `e2e_accuracy.py`: 99/99. `e2e_journey.py http://localhost:3421 super`: 37/37.
+- `E2E_BASE_URL=http://localhost:5421 pnpm e2e:gate`: 90 expected / 0 unexpected / 2 flaky. Both flaky tests exercise DataTable filter/paging, which QFX-R1 changed, so they were re-run alone with `--workers=1 --retries=0`: `bundle5-homepage-distances.spec.ts` + `input-tables-qa.spec.ts` 8/8 twice.
