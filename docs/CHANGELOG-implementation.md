@@ -4655,3 +4655,33 @@ They never call `POST …/network/import`. Save persists through the normal whol
 - **Unchanged:** chapter models and the empty-state import prompt (`super-open-import`).
 
 **Tests.** `Workspace.Super.test.tsx`: the trio order on all ten super input tabs, header absence, the three formats through the same fetch, and the history rule. The SM-9/SM2-1 import tests were repointed to `super-toolbar-import`. E2E `super-model.spec.ts` header-export assertion rewritten (not run). Measured: Workspace.Super 21, SuperNetworkImportDialog 17, mutationErrorSurface 6 passed; typecheck clean. Rollback point: this commit.
+
+### QFX-6 - tab-specific "Add …" forms on super tables
+
+Each super input tab's blank "+ Add row" (empty id, lat/lng 0) is replaced by its own titled form:
+- Add product / plant / warehouse / customer / capability / demand / distance override
+- `SuperAddRowDialog`, one renderer driven by `SUPER_ADD_FORMS` in the new pure `superAddForms.ts`
+- fields come from the table's own `SPECS`/`HEADERS` in `superTables.tsx`, now exported; `blankRow` is deleted
+
+Validation mirrors `validation/inputs/superInputs.ts`:
+- trimmed required text; City/State optional and omitted when blank
+- signed lat −90..90 / lng −180..180
+- capacity, cost/unit, demand and miles finite and ≥ 0, with 0 allowed
+- location IDs unique across plants, warehouses and customers; product IDs separately
+- no duplicate (plant, product), (customer, product) or (from, to)
+- Distances To filtered by From: plant→warehouses, warehouse→customers. A From that can reach nothing is not offered.
+
+Defaults: location ID = `nextFreeId`; warehouse/customer Status `active`.
+
+Button disabled states:
+- at the server caps (products 10, plants 20, warehouses 50, customers 500): "Limit reached: at most N <rows>."
+- with an empty source: "Add a plant and a product first." / "Add a customer and a product first." / "Add warehouses with plants or customers first."
+- an add that would push warehouses × customers × products past 50,000 shows that limit inline and cannot be confirmed
+
+Add appends to the draft only, with no auto-save. `SuperTableTab` and `SuperDistancesTab` gain a required `network` prop (the whole draft). Inside the tab, its own `rows` override `network[table]`.
+
+- `HEADERS.costPerUnit` renamed "Cost / unit" → "Cost per unit" (user decision C4); the form and column share it.
+- Deviation: studio mirrors `SUPER_CAPS` as constants with a pointer to `superInputs.ts:4`; studio does not depend on api-server.
+- Deviation: the Input Map's `SuperEntityDialog` is unchanged. It has its own create/edit flow with per-product demand.
+- Tests (measured): superAddForms 14, SuperAddRowDialog 5, SuperTableTab 23, SuperDistancesTab 8, Workspace.Super 22, nativeSelectStyle 2, sortableEmptyHeaders 1, all passing. `superAddForms.test.ts` and `SuperAddRowDialog.test.tsx` are new; QFX-7's SuperTableTab test now asserts the Add form has no name field. Details: `superAddForms.test.ts` and `SuperAddRowDialog.test.tsx` (new); `SuperTableTab` (Add replaces "+ Add row"; source-gate message; own rows drive duplicates; Distances tab button); `SuperDistancesTab` (prop); `Workspace.Super` ("Add plant" appends, no auto-save, row in the Save payload). Non-vacuity: disabling the W×C×P check fails its test.
+- E2E: no spec references `super-*-add` or "+ Add row" (grep), so no sibling rewrite.

@@ -393,6 +393,22 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     fireEvent.click(screen.getByTestId("super-import-confirm"));
     expect(screen.getByTestId("super-import-confirm-overwrite")).toBeInTheDocument();
   });
+  it("QFX-6: Add plant appends a row to the draft, and it is in the Save payload", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-plants"));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("super-plants-add"));
+    expect(screen.getByTestId("super-add-id")).toHaveValue("PL-1");
+    fireEvent.change(screen.getByTestId("super-add-lat"), { target: { value: "40.5" } });
+    fireEvent.change(screen.getByTestId("super-add-lng"), { target: { value: "-90.25" } });
+    fireEvent.click(screen.getByTestId("super-add-confirm"));
+    expect(screen.getByTestId("super-row-plants-PL-1")).toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs.plants).toHaveLength(sample.plants.length + 1);
+    expect(args.data.inputs.plants.at(-1)).toEqual({ id: "PL-1", lat: 40.5, lng: -90.25 });
+  });
 });
 
 describe("Workspace — super per-table upload writes only the draft (QFX-2b, L1)", () => {

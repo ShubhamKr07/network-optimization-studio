@@ -2,6 +2,7 @@ import { DraftNumberInput, READ_ONLY_TITLE } from "@/components/data-table/entit
 import { Button } from "@/components/ui/button";
 import { SuperTableTab } from "./SuperTableTab";
 import type { Row } from "./superTables";
+import type { SuperInputsLike } from "@/lib/superNetwork";
 
 export interface SuperDistancesTabProps {
   distanceMethod: "haversine" | "circuity" | "road";
@@ -14,6 +15,8 @@ export interface SuperDistancesTabProps {
   onChange(patch: Record<string, unknown>): void;
   readOnly: boolean;
   plantIds: string[]; warehouseIds: string[]; customerIds: string[];
+  /** The whole draft, for the override table's "Add distance override" form. */
+  network: SuperInputsLike;
 }
 
 export function SuperDistancesTab(p: SuperDistancesTabProps) {
@@ -39,7 +42,7 @@ export function SuperDistancesTab(p: SuperDistancesTabProps) {
         )}
       </div>
       <p className="text-xs text-muted-foreground">Pairs without an override use the method above. Overrides always win. Road pairs are checked by the readiness panel.</p>
-      <SuperTableTab table="distanceOverrides" rows={p.overrides} readOnly={p.readOnly}
+      <SuperTableTab table="distanceOverrides" rows={p.overrides} readOnly={p.readOnly} network={p.network}
         onChange={rows => p.onChange({ distanceOverrides: rows })}
         options={{ fromIds: [...p.plantIds, ...p.warehouseIds], toIds: [...p.warehouseIds, ...p.customerIds] }} />
     </div>

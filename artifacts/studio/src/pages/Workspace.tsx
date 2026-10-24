@@ -3840,6 +3840,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onDelete={row => isEntityTable(e) && !isBrowsingHistoryNow && setSuperDeleteTarget({ table: e, id: String(row.id) })}
             readOnly={isBrowsingHistoryNow}
             options={{ productIds: idsOf("products"), plantIds: idsOf("plants"), customerIds: idsOf("customers") }}
+            network={localInputs as SuperInputsLike}
           />
         );
       }
@@ -3858,6 +3859,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             plantIds={idsOf("plants")}
             warehouseIds={idsOf("warehouses")}
             customerIds={idsOf("customers")}
+            network={localInputs as SuperInputsLike}
           />
         );
       }

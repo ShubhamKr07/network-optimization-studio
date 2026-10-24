@@ -14,7 +14,7 @@ export interface SuperOptions {
   fromIds?: string[]; toIds?: string[];
 }
 
-type Spec =
+export type Spec =
   | { key: string; kind: "text" | "number" }
   | { key: string; kind: "select"; options: keyof SuperOptions }
   | { key: "status"; kind: "status"; values: readonly string[] };
@@ -26,7 +26,7 @@ const SITE: Spec[] = [
   { key: "city", kind: "text" }, { key: "state", kind: "text" },
   { key: "lat", kind: "number" }, { key: "lng", kind: "number" },
 ];
-const SPECS: Record<SuperTable, Spec[]> = {
+export const SPECS: Record<SuperTable, Spec[]> = {
   products: ENTITY([{ key: "name", kind: "text" }]),
   plants: ENTITY(SITE),
   warehouses: ENTITY([...SITE, { key: "status", kind: "status", values: ["active", "forced_open", "inactive"] }]),
@@ -48,26 +48,14 @@ const SPECS: Record<SuperTable, Spec[]> = {
   ],
 };
 
-const HEADERS: Record<string, string> = {
+export const HEADERS: Record<string, string> = {
   id: "ID", name: "Name", city: "City", state: "State", lat: "Lat", lng: "Lng", status: "Status",
-  plantId: "Plant", productId: "Product", capacity: "Capacity", costPerUnit: "Cost / unit",
+  plantId: "Plant", productId: "Product", capacity: "Capacity", costPerUnit: "Cost per unit",
   customerId: "Customer", demand: "Demand", fromId: "From", toId: "To", miles: "Miles",
 };
 
 export const ENTITY_TABLES = ["products", "plants", "warehouses", "customers"] as const;
 export const isEntityTable = (t: SuperTable): t is (typeof ENTITY_TABLES)[number] => (ENTITY_TABLES as readonly string[]).includes(t);
-
-export function blankRow(table: SuperTable, o: SuperOptions): Row {
-  switch (table) {
-    case "products": return { id: "", name: "" };
-    case "plants": return { id: "", city: "", state: "", lat: 0, lng: 0 };
-    case "warehouses": return { id: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
-    case "customers": return { id: "", city: "", state: "", lat: 0, lng: 0, status: "active" };
-    case "plantProducts": return { plantId: o.plantIds?.[0] ?? "", productId: o.productIds?.[0] ?? "", capacity: 0, costPerUnit: 0 };
-    case "demand": return { customerId: o.customerIds?.[0] ?? "", productId: o.productIds?.[0] ?? "", demand: 0 };
-    case "distanceOverrides": return { fromId: o.fromIds?.[0] ?? "", toId: o.toIds?.[0] ?? "", miles: 1 };
-  }
-}
 
 const parseNum = (min: number | null) => (raw: string) => {
   if (raw === "") return null;

@@ -13,7 +13,7 @@ function setup(over: Partial<Parameters<typeof SuperDistancesTab>[0]> = {}) {
     return <SuperDistancesTab distanceMethod="circuity" circuityFactor={f} overrides={[]}
       onChange={patch => { onChange(patch); if (typeof patch.circuityFactor === "number") setF(patch.circuityFactor); }}
       onFetchRoad={onFetchRoad} fetchDisabledReason={null}
-      readOnly={false} plantIds={[]} warehouseIds={[]} customerIds={[]} {...over} />;
+      readOnly={false} network={{ products: [], plants: [], warehouses: [], customers: [], plantProducts: [], demand: [], distanceOverrides: [] }} plantIds={[]} warehouseIds={[]} customerIds={[]} {...over} />;
   }
   render(<Host />);
   return Object.assign(onChange, { onFetchRoad });
