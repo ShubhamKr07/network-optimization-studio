@@ -14,7 +14,6 @@ vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div
 vi.mock("@/pages/auth/ResetPassword", () => ({ ResetPassword: () => <div>ResetPasswordPage</div> }));
 vi.mock("@/pages/auth/ForgotPassword", () => ({ ForgotPassword: () => <div>ForgotPasswordPage</div> }));
 vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
-vi.mock("@/pages/Studio", () => ({ Studio: () => <div>StudioPage</div> }));
 vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
 vi.mock("@/components/AppShell", () => ({
   AppShell: ({ children, heroTitle }: { children: React.ReactNode; heroTitle?: string }) => (
@@ -105,7 +104,6 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
   it("shows Workspace (not Studio) at /chapter-3 when authenticated", () => {
     renderAt("/chapter-3", { email: "student@example.com" });
     expect(screen.getByText("WorkspacePage")).toBeInTheDocument();
-    expect(screen.queryByText("StudioPage")).not.toBeInTheDocument();
   });
 
   it("does NOT wrap Workspace in AppShell (Workspace renders its own self-contained header — avoids the double-header risk flagged by A0.1's review)", () => {
@@ -119,12 +117,7 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
     expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
   });
 
-  // A5.1-A5.3: every chapter route now has `workspace: true` — there is no
-  // remaining "still shows Studio" chapter path to assert on (the
-  // corresponding test above this describe block was removed for the same
-  // reason). Studio.tsx itself is untouched and still exists (its deletion
-  // is Phase D's D1.1, a separate task) but no live chapter route points at
-  // it anymore.
+  // DU-1.1: Studio.tsx is deleted; every chapter route renders Workspace.
 });
 
 describe("Gate routing — band hero title", () => {
@@ -147,7 +140,6 @@ describe("Gate routing — A5.1/A5.2/A5.3 fast-follow flips: every chapter route
     (path) => {
       renderAt(path, { email: "student@example.com" });
       expect(screen.getByText("WorkspacePage")).toBeInTheDocument();
-      expect(screen.queryByText("StudioPage")).not.toBeInTheDocument();
     },
   );
 
@@ -186,5 +178,28 @@ describe("Gate — analytics (POSTHOG-4): identify on auth, $pageview on nav", (
     const trackSpy = vi.spyOn(analytics, "track");
     renderAt("/", { email: "student@example.com", id: "u1" });
     await waitFor(() => expect(trackSpy).toHaveBeenCalledWith("$pageview"));
+  });
+});
+
+describe("DU-1.1 — Studio page is gone", () => {
+  it("no studio source file imports pages/Studio or uses Arcadia/studio-lab/scn-theme styling", async () => {
+    const { readFileSync, readdirSync, statSync, existsSync } = await import("node:fs");
+    const { resolve, join } = await import("node:path");
+    const root = resolve(__dirname, "..");
+    expect(existsSync(resolve(root, "pages/Studio.tsx"))).toBe(false);
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir)) {
+        if (e === "__tests__") continue;
+        const full = join(dir, e);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.(tsx?|css)$/.test(e)) {
+          const src = readFileSync(full, "utf8");
+          if (/pages\/Studio|--arc-|\.arc-|studio-lab|scn-theme/.test(src)) hits.push(full);
+        }
+      }
+    };
+    walk(root);
+    expect(hits).toEqual([]);
   });
 });

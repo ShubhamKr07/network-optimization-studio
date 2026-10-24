@@ -7,7 +7,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useGetCurrentAuthUser } from "@workspace/api-client-react";
 import NotFound from "@/pages/not-found";
 import { Landing } from "@/pages/Landing";
-import { Studio } from "@/pages/Studio";
 import { Workspace } from "@/pages/Workspace";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
@@ -76,16 +75,12 @@ export function Gate() {
               a logged-out stranger. */}
           {c.locked
             ? user ? <Redirect to="/" /> : <Redirect to="/login" />
-            : c.workspace
-            ? // A0.2 pilot route flip (SCN v0.3 DD-4): Workspace renders its
-              // own full self-contained header (app name, scenario picker,
-              // account, Run Optimizer) — wrapping it in AppShell too (which
-              // also renders app name + account) would stack two headers.
-              // Route workspace-enabled chapters directly, without AppShell.
+            : // Every chapter renders Workspace (Studio was retired in DU-1.1).
+              // Workspace renders its own full header, so it is NOT wrapped
+              // in AppShell (that would stack two headers).
               user
               ? <Workspace modelId={c.modelId} userEmail={user.email} />
-              : <Redirect to="/login" />
-            : authedOnly(<Studio modelId={c.modelId} />)}
+              : <Redirect to="/login" />}
         </Route>
       ))}
       <Route>{authedOnly(<NotFound />)}</Route>

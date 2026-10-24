@@ -359,11 +359,6 @@ describe("Workspace — Warehouses tab", () => {
     fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
-
-  it("applies the scn-theme class to the workspace root shell", () => {
-    renderWorkspace();
-    expect(screen.getByTestId("workspace-page")).toHaveClass("scn-theme");
-  });
 });
 
 describe("Workspace — Customers tab", () => {

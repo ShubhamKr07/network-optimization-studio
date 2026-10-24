@@ -29,157 +29,6 @@
   opacity: 1;
 }
 
-/* ===== ARCADIA DESIGN TOKENS ===== */
-:root {
-  --arc-ink: #0B1F2A;
-  --arc-ink-2: #102C39;
-  --arc-ink-3: #16384A;
-  --arc-grat: #1E4859;
-  --arc-grat-soft: #173B4B;
-  --arc-amber: #F2B45C;
-  --arc-amber-deep: #D9912F;
-  --arc-coral: #F2745C;
-  --arc-cyan: #57D0C9;
-  --arc-cyan-deep: #2E9D96;
-  --arc-paper: #EAF4F4;
-  --arc-muted: #84A2AC;
-  --arc-muted-2: #5C7E89;
-  --arc-good: #7FD17A;
-  --arc-display: 'Space Grotesk', system-ui, sans-serif;
-  --arc-body: 'Inter', system-ui, sans-serif;
-  --arc-mono: 'JetBrains Mono', ui-monospace, monospace;
-}
-
-/* ===== ARCADIA UTILITY CLASSES ===== */
-.arc-card {
-  background: var(--arc-ink-2);
-  border: 1px solid var(--arc-grat-soft);
-  border-radius: 14px;
-  box-shadow: 0 18px 40px -22px rgba(0,0,0,.7), 0 2px 0 rgba(255,255,255,.02) inset;
-}
-
-.arc-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--arc-amber);
-  color: var(--arc-ink);
-  font-weight: 600;
-  padding: 11px 18px;
-  border-radius: 11px;
-  font-size: 14px;
-  font-family: var(--arc-body);
-  border: none;
-  cursor: pointer;
-  transition: 0.16s;
-}
-.arc-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 22px -10px var(--arc-amber-deep);
-}
-.arc-btn--ghost {
-  background: transparent;
-  color: var(--arc-paper);
-  border: 1px solid var(--arc-grat);
-}
-.arc-btn--ghost:hover {
-  background: var(--arc-ink-3);
-  box-shadow: none;
-  transform: none;
-}
-.arc-btn--cyan {
-  background: var(--arc-cyan);
-  color: var(--arc-ink);
-}
-
-/* ===== ARCADIA ANIMATIONS ===== */
-@keyframes arc-rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes arc-pulse {
-  0% { transform: scale(.92); opacity: .6; }
-  100% { transform: scale(1.25); opacity: 0; }
-}
-
-@keyframes arc-xp-burst {
-  0% { opacity: 0; transform: translateY(-50%) translateX(0); }
-  20% { opacity: 1; transform: translateY(-50%) translateX(-10px); }
-  80% { opacity: 1; transform: translateY(-50%) translateX(-10px); }
-  100% { opacity: 0; transform: translateY(-80%) translateX(-10px); }
-}
-
-/* ===== STUDIO LAB DARK SKIN ===== */
-/* Self-contained dark theme for the Studio & Compare page content, independent of the app shell around them */
-.studio-lab {
-  background: var(--arc-ink) !important;
-  color: var(--arc-paper) !important;
-}
-.studio-lab header {
-  background: var(--arc-ink-2) !important;
-  border-color: var(--arc-grat) !important;
-  color: var(--arc-paper) !important;
-}
-.studio-lab aside {
-  background: var(--arc-ink-2) !important;
-  border-color: var(--arc-grat) !important;
-}
-.studio-lab .bg-white {
-  background: var(--arc-ink-2) !important;
-}
-.studio-lab .bg-background {
-  background: var(--arc-ink) !important;
-}
-.studio-lab .bg-muted,
-.studio-lab .bg-slate-50,
-.studio-lab .bg-slate-100 {
-  background: var(--arc-ink-3) !important;
-}
-.studio-lab .text-foreground,
-.studio-lab .text-slate-900 {
-  color: var(--arc-paper) !important;
-}
-.studio-lab .text-muted-foreground,
-.studio-lab .text-slate-600,
-.studio-lab .text-slate-700 {
-  color: var(--arc-muted) !important;
-}
-.studio-lab .border-border,
-.studio-lab .border-t,
-.studio-lab .border-b,
-.studio-lab .border-l,
-.studio-lab .border-r {
-  border-color: var(--arc-grat) !important;
-}
-.studio-lab .divide-y > * + * {
-  border-color: var(--arc-grat) !important;
-}
-.studio-lab .hover\:bg-muted:hover {
-  background: var(--arc-ink-3) !important;
-}
-.studio-lab .shadow-sm,
-.studio-lab .shadow-lg {
-  box-shadow: 0 4px 24px rgba(0,0,0,.5) !important;
-}
-.studio-lab .border {
-  border-color: var(--arc-grat) !important;
-}
-.studio-lab .rounded-lg,
-.studio-lab .rounded-xl {
-  border-color: var(--arc-grat) !important;
-}
-
-/* ===== SCN DESIGN WIREFRAME THEME ===== */
-/* Scoped like .studio-lab above — applies only where the .scn-theme class
-   is set (Workspace.tsx's root shell), never globally. Values converted
-   from /Users/shubhamkr/Downloads/SCN Design Wireframes/styles.css's hex
-   tokens into this app's HSL-triple variable format (see
-   docs/superpowers/specs/2026-08-24-scn-v0.3-phase3.1-design-system-design.md
-   for the source mapping table). */
-/* .scn-theme retired (Bundle 3): book-cover theme lives at :root now; class left on Workspace.tsx as a harmless no-op */
-.scn-theme {}
-
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -419,10 +268,9 @@
      token system has no numbered accent scale (300/600/700) anywhere, so
      these compute off the single --accent token via the same relative-
      color-syntax pattern used for --accent-border just above. Declared
-     once here (not repeated in .scn-theme/.dark) — CSS custom-property
-     var() references are substituted per-element at used-value time using
-     that element's own cascaded --accent, so a single declaration already
-     re-derives correctly under .scn-theme's overridden --accent. Read by
+     once here (not repeated in .dark) — var() references are substituted
+     per-element at used-value time, so one declaration re-derives under any
+     overridden --accent. Read by
      EntityMarkers.tsx/MapLegend.tsx's raw SVG strings. */
   --accent-300: hsl(var(--accent));
   --accent-300: hsl(from hsl(var(--accent)) h s calc(l + 20));
@@ -434,13 +282,11 @@
   /* R1 (Workspace UX R1-R9): demand (customer-bubble) color for the
      p-median-us Input/Output Map — supply stays the blue --accent-* scale
      above, demand gets its own muted green sibling so the two are visually
-     distinguishable at a glance. --demand is a literal H S% L% triple (same
-     saturation/lightness as --accent's scn-theme value, 25%/56%, only the
-     hue changes to green) rather than derived from --accent itself, since
+     distinguishable at a glance. --demand is a literal H S% L% triple (saturation/lightness
+     25%/56%, only the hue is green) rather than derived from --accent itself, since
      --accent's hue/lightness differ across themes (:root's shadcn --accent
      is a near-white background utility, not a marker color) and these
-     tokens are only ever consumed inside .scn-theme-scoped Workspace map
-     components anyway. Same relative-color-syntax derivation pattern as
+     tokens are only consumed by the Workspace map components. Same relative-color-syntax derivation pattern as
      --accent-300/600 just above: --demand-300 lightens for bubble fill,
      --demand-600 darkens for the bubble stroke. */
   --demand: 145 25% 56%;

@@ -4773,3 +4773,7 @@ Bundle tip `33687501` (QFX-R1 on top of `9bf1d1c0`). All counts measured 2026-10
 - solver pytest: 369/369.
 - `e2e_accuracy.py`: 99/99. `e2e_journey.py http://localhost:3421 super`: 37/37.
 - `E2E_BASE_URL=http://localhost:5421 pnpm e2e:gate`: 90 expected / 0 unexpected / 2 flaky. Both flaky tests exercise DataTable filter/paging, which QFX-R1 changed, so they were re-run alone with `--workers=1 --retries=0`: `bundle5-homepage-distances.spec.ts` + `input-tables-qa.spec.ts` 8/8 twice.
+
+### DU-1.1 — remove dead Studio page and its styling (design upgrade, Phase 1)
+Deleted `pages/Studio.tsx` (+ `Studio.test.tsx`), its `App.tsx` route branch (every chapter is `workspace: true`), the Arcadia `--arc-*` tokens/classes/keyframes, the `.studio-lab` override skin and the empty `.scn-theme`. Guard: `App.test.tsx` "DU-1.1 — Studio page is gone".
+Follow-up (not in spec scope): now-orphaned Studio-only modules `BrazilMap`, `ConstraintChips`, `MapBulkEditToolbar`, `ObjectiveBar`, and the `WarehouseTable`/`CustomerTable` components (types still used); `Chapter.workspace` is now always true. Lead fixed the stale `artifacts/studio/CLAUDE.md` allow-list description (now three entries) in this commit. Still noted: `ObjectiveBar.test.tsx` comment/regex mention `--arc-` (a negative assertion; left as-is).

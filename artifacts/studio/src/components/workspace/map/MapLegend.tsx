@@ -156,9 +156,7 @@ export interface MapLegendProps {
 // EntityMarkers/NetworkMap use (rather than a second hand-drawn copy) so the
 // legend can never drift from what's actually rendered on the map. Styled
 // with the semantic bg-card/border-border/text-muted-foreground utilities
-// (resolve via the .scn-theme-scoped tokens set on Workspace.tsx's root,
-// same as every other Workspace overlay component) — this component does
-// not re-apply the .scn-theme class itself.
+// (resolve via the :root book-cover tokens in index.css).
 export function MapLegend({
   variant = "input",
   corner = "br",

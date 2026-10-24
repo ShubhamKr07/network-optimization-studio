@@ -4467,7 +4467,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
+    <div className="h-screen flex flex-col overflow-hidden" data-testid="workspace-page">
       {/* Bundle 6 T2 (items 1/2/3) — the old 3-track grid (scenario
           selector / centered chapter summary / email+logout+stepper) is
           gone: the scenario dropdown, user-email span, and logout button
