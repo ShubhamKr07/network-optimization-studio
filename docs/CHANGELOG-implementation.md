@@ -4617,3 +4617,27 @@ XLSX never reaches the API, so the OpenAPI export enum stays `csv | json`.
 **Shared helpers.** `readFileAs` moved from `SuperNetworkImportDialog.tsx` to `lib/superFiles.ts`; `XLSX_MIME` moved from `lib/superNetwork.ts` to `lib/clientCsv.ts`. Legacy `pages/Studio.tsx` is out of scope (spec).
 
 **Tests (measured).** New `xlsxFile.test.ts`; XLSX cases added to `DownloadMenu`, `exportEntity`, `ExportContext`, `entityFileMenus`, `ImportDialog`, `JadeFlowsTab`. The 12 related files (incl. `mutationErrorSurface`, `rawErrorMessageSurface`, `superFiles`, `SuperNetworkImportDialog`, `CostSummaryTab`): 12 files / 261 passed. `pnpm run typecheck` clean. jsdom has no `URL.createObjectURL`, so the two download tests stub it instead of `vi.spyOn`. `CostSummaryTab.test.tsx` `downloadAs` spies now `mockResolvedValue(undefined)` (the function is async). Rollback point: this commit.
+
+### QFX-2b - super per-table Upload ▾ / Download ▾ with Replace/Merge
+
+**Menus.** Every super table (`SuperTableTab`, including the distance overrides inside `SuperDistancesTab`) now has Upload ▾ and Download ▾ (CSV / JSON / XLSX).
+- testids: `super-{table}-upload|download[-csv|-json|-xlsx]`
+- **File shape.** A per-table file has exactly that table's `SUPER_TABLE_FILES` columns, so it is also a valid part of a whole-network import.
+  - CSV: `<file>.csv`
+  - XLSX: one sheet named `<file>`
+  - JSON: `{ "<tableKey>": [rows] }`. Any other key or a bare array → "This file must contain only <tableKey>."
+
+**Parsing.** `lib/superFiles.ts` `parseSuperTableFile(tableKey, file)` reuses `readSheet`. The new `readTable` is shared with `sheetsToDocument`, so per-table files keep QFX-7's legacy-`name` acceptance.
+- The format comes from the extension. File and sheet names never route; XLSX reads the first sheet only.
+- Duplicate keys inside the file are rejected with the server's KEY rules before any choice is offered.
+- `superRowKey` moved to the lib and is re-exported from `superTables.tsx`.
+
+**Download.** `superTableToFile` is **async**, because SheetJS stays lazy-loaded. This is a deviation from the plan contract's sync signature. Download writes the displayed draft rows and stays enabled while browsing history; Upload is disabled read-only.
+
+**Apply (L1).** `SuperTableUploadDialog` shows "Replace: N rows (M removed)" and "Merge: A added, U updated, K kept", with Replace / Merge / Cancel. Both choices call the tab's `onChange`, so they write only the draft:
+- `updateInputsField` for the table tabs
+- `setLocalInputs` via `SuperDistancesTab` for distance overrides
+
+They never call `POST …/network/import`. Save persists through the normal whole-input PATCH; cross-table errors surface there via `describeWriteError`.
+
+**Tests.** Round-trip of every table × CSV/JSON/XLSX through the real writer (sample fixture); key-mismatch/duplicate/legacy-name/extension cases; dialog counts and results for plantProducts, demand and distanceOverrides, plus Cancel and the error path; and a Workspace test that the upload changes only the draft until Save. Measured: superFiles + SuperTableTab + Workspace.Super + SuperNetworkImportDialog + mutationErrorSurface + rawErrorMessageSurface all green (SuperTableTab+Workspace.Super: 37 passed; typecheck clean). Rollback point: this commit.

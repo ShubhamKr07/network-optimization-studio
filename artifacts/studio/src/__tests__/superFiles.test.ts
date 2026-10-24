@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { XLSX_MIME } from "@/lib/clientCsv";
 import { unzipSync, strFromU8 } from "fflate";
-import { describeIssue, LEGACY_LOCATION_COLUMNS, parseCsvFiles, parseJsonText, parseXlsx, SUPER_TABLE_FILES, toCsvFiles, toCsvZip, toXlsx } from "@/lib/superFiles";
+import { describeIssue, LEGACY_LOCATION_COLUMNS, parseCsvFiles, parseJsonText, parseSuperTableFile, parseXlsx, readFileAs, SUPER_TABLE_FILES, superTableToFile, toCsvFiles, toCsvZip, toXlsx } from "@/lib/superFiles";
 
 const sample = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../public/samples/super-model-sample.json"), "utf8"));
 const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error(JSON.stringify(r)); return r as Extract<T, { ok: true }>; };
@@ -187,5 +188,54 @@ describe("QFX-7: location tables have no name; a legacy name column is accepted 
     expect(files.find(f => f.name === "plants.csv")!.text.split("\n")[0]).toBe("id,city,state,lat,lng");
     expect(files.find(f => f.name === "plants.csv")!.text).not.toContain("Old");
     expect(files.find(f => f.name === "products.csv")!.text.split("\n")[0]).toBe("id,name");
+  });
+});
+
+describe("per-table files (QFX-2b)", () => {
+  it("every table round-trips through its own CSV, JSON and XLSX file (real writer, not a fixture)", async () => {
+    for (const { key, file } of SUPER_TABLE_FILES) {
+      for (const format of ["csv", "json", "xlsx"] as const) {
+        const out = await superTableToFile(key, sample[key], format);
+        expect(out.filename).toBe(`${file}.${format}`);
+        expect(ok(await parseSuperTableFile(key, new File([out.blob], out.filename))).rows, `${key} ${format}`).toEqual(sample[key]);
+      }
+    }
+  });
+  it("XLSX download has one sheet named after the table file; JSON is { <tableKey>: rows }", async () => {
+    const x = await superTableToFile("plantProducts", sample.plantProducts, "xlsx");
+    expect(x.blob.type).toBe(XLSX_MIME);
+    const wb = XLSX.read((await readFileAs(new File([x.blob], "a.xlsx"), "buffer")) as ArrayBuffer, { type: "array" });
+    expect(wb.SheetNames).toEqual(["plant_products"]);
+    const j = await superTableToFile("demand", sample.demand.slice(0, 2), "json");
+    expect(JSON.parse(String(await readFileAs(new File([j.blob], "d.json"), "text")))).toEqual({ demand: sample.demand.slice(0, 2) });
+  });
+  it("file and sheet names never route; only the first sheet is read", async () => {
+    expect(ok(await parseSuperTableFile("products", new File(["id,name\nk1,One\n"], "whatever.csv"))).rows).toEqual([{ id: "k1", name: "One" }]);
+    const buf = book({ NotProducts: XLSX.utils.aoa_to_sheet([["id", "name"], ["k1", "One"]]), junk: XLSX.utils.aoa_to_sheet([["x"]]) });
+    expect(ok(await parseSuperTableFile("products", new File([buf], "x.xlsx"))).rows).toEqual([{ id: "k1", name: "One" }]);
+  });
+  it("JSON must hold only the table's key: a bare array, another key and an extra key are rejected", async () => {
+    const j = (v: unknown) => new File([JSON.stringify(v)], "p.json");
+    for (const v of [[{ id: "k1", name: "One" }], { plants: [] }, { products: [], demand: [] }]) {
+      expect(msgs(await parseSuperTableFile("products", j(v)))).toEqual(["p.json: This file must contain only products."]);
+    }
+  });
+  it("duplicate keys inside the file are rejected with the server's key rules (id; pair keys)", async () => {
+    expect(msgs(await parseSuperTableFile("plants", new File(["id,lat,lng\nP1,1,2\nP2,1,2\nP1,3,4\n"], "p.csv"))))
+      .toEqual(["p.csv row 4: duplicate key (first at row 2)"]);
+    expect(msgs(await parseSuperTableFile("demand", new File(["customerId,productId,demand\nc1,k1,1\nc1,k2,1\nc1,k1,5\n"], "d.csv"))))
+      .toEqual(["d.csv row 4: duplicate key (first at row 2)"]);
+    expect(msgs(await parseSuperTableFile("products", new File([JSON.stringify({ products: [{ id: "k1", name: "A" }, { id: "k1", name: "B" }] })], "p.json"))))
+      .toEqual(["p.json row 2: duplicate key (first at row 1)"]);
+    // a pair is not a duplicate of its reverse
+    const rev = { distanceOverrides: [{ fromId: "a", toId: "b", miles: 1 }, { fromId: "b", toId: "a", miles: 1 }] };
+    expect(ok(await parseSuperTableFile("distanceOverrides", new File([JSON.stringify(rev)], "o.json"))).rows).toHaveLength(2);
+  });
+  it("a per-table location file with the legacy name column imports and drops it (QFX-7 rule)", async () => {
+    expect(ok(await parseSuperTableFile("warehouses", new File(["id,name,lat,lng\nw1,Old name,1,2\n"], "w.csv"))).rows)
+      .toEqual([{ id: "w1", lat: 1, lng: 2 }]);
+  });
+  it("an unknown extension is an error", async () => {
+    expect(msgs(await parseSuperTableFile("products", new File(["x"], "p.txt")))).toEqual(["p.txt: must be a .csv, .json or .xlsx file"]);
   });
 });

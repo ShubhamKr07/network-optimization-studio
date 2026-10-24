@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { useState } from "react";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import * as XLSX from "xlsx";
 import { SuperTableTab } from "@/components/workspace/super/SuperTableTab";
 import { SuperDistancesTab } from "@/components/workspace/super/SuperDistancesTab";
 
@@ -128,5 +130,109 @@ describe("SuperDistancesTab", () => {
     }
     render(<SuperTableTab table="products" rows={[{ id: "k1", name: "K" }]} onChange={vi.fn()} readOnly={false} />);
     expect(screen.getByTestId("super-products-k1-name")).toHaveValue("K");
+  });
+});
+
+describe("SuperTableTab per-table Upload ▾ / Download ▾ (QFX-2b)", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const pp = [
+    { plantId: "p1", productId: "k1", capacity: 5, costPerUnit: 1 },
+    { plantId: "p1", productId: "k2", capacity: 7, costPerUnit: 2 },
+  ];
+  const upload = async (table: string, format: "csv" | "json" | "xlsx", file: File) => {
+    fireEvent.click(screen.getByTestId(`super-${table}-upload`));
+    fireEvent.click(screen.getByTestId(`super-${table}-upload-${format}`));
+    await userEvent.upload(screen.getByTestId(`super-upload-file-${table}`), file);
+  };
+  const csv = (text: string) => new File([text], "x.csv", { type: "text/csv" });
+
+  it("Merge on plantProducts: counts, then overwrite in place + append + keep; the dialog closes", async () => {
+    const onChange = vi.fn();
+    render(<SuperTableTab table="plantProducts" rows={pp} onChange={onChange} readOnly={false} options={options} />);
+    await upload("plantProducts", "csv", csv("plantId,productId,capacity,costPerUnit\np1,k2,70,3\np2,k1,9,4\n"));
+    expect(await screen.findByTestId("super-upload-replace-count")).toHaveTextContent("Replace: 2 rows (1 removed)");
+    expect(screen.getByTestId("super-upload-merge-count")).toHaveTextContent("Merge: 1 added, 1 updated, 1 kept");
+    fireEvent.click(screen.getByTestId("super-upload-merge"));
+    expect(onChange).toHaveBeenCalledWith([
+      pp[0],
+      { plantId: "p1", productId: "k2", capacity: 70, costPerUnit: 3 },
+      { plantId: "p2", productId: "k1", capacity: 9, costPerUnit: 4 },
+    ]);
+    expect(screen.queryByTestId("super-upload-dialog")).toBeNull();
+  });
+
+  it("Replace on plantProducts makes the table exactly the file's rows", async () => {
+    const onChange = vi.fn();
+    render(<SuperTableTab table="plantProducts" rows={pp} onChange={onChange} readOnly={false} options={options} />);
+    await upload("plantProducts", "csv", csv("plantId,productId,capacity,costPerUnit\np2,k1,9,4\n"));
+    expect(await screen.findByTestId("super-upload-replace-count")).toHaveTextContent("Replace: 1 rows (2 removed)");
+    fireEvent.click(screen.getByTestId("super-upload-replace"));
+    expect(onChange).toHaveBeenCalledWith([{ plantId: "p2", productId: "k1", capacity: 9, costPerUnit: 4 }]);
+  });
+
+  it("demand merges on (customerId, productId) from a JSON file", async () => {
+    const dem = [{ customerId: "c1", productId: "k1", demand: 1 }, { customerId: "c1", productId: "k2", demand: 2 }];
+    const onChange = vi.fn();
+    render(<SuperTableTab table="demand" rows={dem} onChange={onChange} readOnly={false} options={options} />);
+    await upload("demand", "json", new File([JSON.stringify({ demand: [{ customerId: "c1", productId: "k1", demand: 10 }] })], "d.json", { type: "application/json" }));
+    expect(await screen.findByTestId("super-upload-merge-count")).toHaveTextContent("Merge: 0 added, 1 updated, 1 kept");
+    fireEvent.click(screen.getByTestId("super-upload-merge"));
+    expect(onChange).toHaveBeenCalledWith([{ customerId: "c1", productId: "k1", demand: 10 }, dem[1]]);
+  });
+
+  it("distanceOverrides replaces on (fromId, toId) from an XLSX file (first sheet, any name)", async () => {
+    const ov = [{ fromId: "p1", toId: "w1", miles: 3 }, { fromId: "w1", toId: "c1", miles: 4 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["fromId", "toId", "miles"], ["p1", "w1", 5]]), "Anything");
+    const file = new File([XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer], "o.xlsx");
+    const onChange = vi.fn();
+    render(<SuperTableTab table="distanceOverrides" rows={ov} onChange={onChange} readOnly={false} options={{ fromIds: ["p1", "w1"], toIds: ["w1", "c1"] }} />);
+    await upload("distanceOverrides", "xlsx", file);
+    expect(await screen.findByTestId("super-upload-replace-count")).toHaveTextContent("Replace: 1 rows (1 removed)");
+    expect(screen.getByTestId("super-upload-merge-count")).toHaveTextContent("Merge: 0 added, 1 updated, 1 kept");
+    fireEvent.click(screen.getByTestId("super-upload-replace"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "p1", toId: "w1", miles: 5 }]);
+  });
+
+  it("Cancel leaves the draft untouched", async () => {
+    const onChange = vi.fn();
+    render(<SuperTableTab table="plantProducts" rows={pp} onChange={onChange} readOnly={false} options={options} />);
+    await upload("plantProducts", "csv", csv("plantId,productId,capacity,costPerUnit\np2,k1,9,4\n"));
+    await screen.findByTestId("super-upload-replace-count");
+    fireEvent.click(screen.getByTestId("super-upload-cancel"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("super-upload-dialog")).toBeNull();
+  });
+
+  it("parse errors show in place of the choices", async () => {
+    render(<SuperTableTab table="plantProducts" rows={pp} onChange={vi.fn()} readOnly={false} options={options} />);
+    await upload("plantProducts", "csv", csv("plantId,productId,capacity,costPerUnit\np1,k1,1,1\np1,k1,2,2\n"));
+    expect(await screen.findByTestId("super-upload-errors")).toHaveTextContent("x.csv row 3: duplicate key (first at row 2)");
+    expect(screen.queryByTestId("super-upload-replace")).toBeNull();
+    expect(screen.queryByTestId("super-upload-merge")).toBeNull();
+    expect(screen.queryByTestId("super-upload-replace-count")).toBeNull();
+  });
+
+  it("read-only disables Upload (READ_ONLY_TITLE) and keeps Download", () => {
+    render(<SuperTableTab table="products" rows={[{ id: "k1", name: "K" }]} onChange={vi.fn()} readOnly />);
+    expect(screen.getByTestId("super-products-upload")).toBeDisabled();
+    expect(screen.getByTestId("super-products-upload")).toHaveAttribute("title", "Read-only while browsing result history.");
+    expect(screen.getByTestId("super-products-download")).toBeEnabled();
+  });
+
+  it("Download CSV / JSON / XLSX are named after the table file", async () => {
+    // jsdom has neither; assign so the spies below have something to restore to.
+    URL.createObjectURL ??= () => "";
+    URL.revokeObjectURL ??= () => {};
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); });
+    render(<SuperTableTab table="plantProducts" rows={pp} onChange={vi.fn()} readOnly={false} options={options} />);
+    for (const f of ["csv", "json", "xlsx"]) {
+      fireEvent.click(screen.getByTestId("super-plantProducts-download"));
+      fireEvent.click(screen.getByTestId(`super-plantProducts-download-${f}`));
+    }
+    await waitFor(() => expect([...names].sort()).toEqual(["plant_products.csv", "plant_products.json", "plant_products.xlsx"]));
   });
 });

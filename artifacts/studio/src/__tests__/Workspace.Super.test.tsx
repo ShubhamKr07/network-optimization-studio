@@ -348,3 +348,24 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(screen.getByTestId("super-import-confirm-overwrite")).toBeInTheDocument();
   });
 });
+
+describe("Workspace — super per-table upload writes only the draft (QFX-2b, L1)", () => {
+  it("Merge adds the row to the draft: no PATCH and no network import until Save; Save sends it", async () => {
+    const { useImportScenarioNetwork } = await import("@workspace/api-client-react");
+    const importMutate = vi.fn();
+    vi.mocked(useImportScenarioNetwork).mockReturnValue({ mutate: importMutate, reset: vi.fn(), isPending: false, isError: false } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.click(screen.getByTestId("super-products-upload"));
+    fireEvent.click(screen.getByTestId("super-products-upload-csv"));
+    fireEvent.change(screen.getByTestId("super-upload-file-products"), { target: { files: [new File(["id,name\nproduct-9,Nine\n"], "p.csv", { type: "text/csv" })] } });
+    fireEvent.click(await screen.findByTestId("super-upload-merge"));
+    expect(screen.getByTestId("super-row-products-product-9")).toBeInTheDocument();
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(importMutate).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs.products.map((p: { id: string }) => p.id)).toEqual([...sample.products.map((p: { id: string }) => p.id), "product-9"]);
+  });
+});
