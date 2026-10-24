@@ -1,4 +1,5 @@
 import { formatCoord } from "@/lib/formatLocation";
+import type { Chapter } from "@/lib/chapters";
 import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { StationOverride } from "@/components/tables/StationTable";
@@ -57,6 +58,8 @@ interface StationsTabProps {
   /** SCU-2.P4.14 (D2) — browsing result history: base and added demand,
    * delete and the "+ Add station" trigger are disabled (no disabled prop before). */
   readOnly?: boolean;
+  /** Active chapter's demand unit (coal: tons). */
+  demandUnit?: Chapter["demandUnit"];
 }
 
 /** One effective row: a base station with its demand override, or an added station. */
@@ -93,6 +96,7 @@ export function StationsTab({
   onDeleteStation,
   precheckErrors = [],
   readOnly = false,
+  demandUnit = "tons",
 }: StationsTabProps) {
   const files = useEntityFileMenus({
     entity: "stations",
@@ -194,7 +198,6 @@ export function StationsTab({
     value: r => r.demand,
     cell: r => (
       <DemandCell
-        suffix="tons"
         value={r.demand}
         integer
         clearCommits={!added}
@@ -308,6 +311,7 @@ export function StationsTab({
           source="table"
           readOnly={readOnly}
           entityKind="station"
+          demandUnit={demandUnit}
           existingCodes={addedStations.map(s => s.displayCode).filter((c): c is string => !!c)}
           onCreate={r => {
             if (r.kind === "station") onAddedStationsChange?.([...addedStations, r.entity]);

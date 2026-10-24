@@ -567,11 +567,12 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
         products={products}
         productOverrides={[]}
         onProductOverridesChange={vi.fn()}
+        demandUnit="tons"
       />,
     );
     expect(screen.getByTestId("customer-product-table")).toBeInTheDocument();
-    expect(screen.getByText("Copper")).toBeInTheDocument();
-    expect(screen.getByText("Aluminum")).toBeInTheDocument();
+    expect(screen.getByText("Copper (tons)")).toBeInTheDocument();
+    expect(screen.getByText("Aluminum (tons)")).toBeInTheDocument();
     // SCU-2.P4.11 (B2.9) — FormattedNumberInput: a text input with grouped display.
     expect(screen.getByTestId("input-customer-demand-customer-1-product-1")).toHaveValue("10");
     expect(screen.getByTestId("input-customer-demand-customer-1-product-2")).toHaveValue("20");

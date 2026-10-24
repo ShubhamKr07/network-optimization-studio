@@ -460,12 +460,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // [Fixed pre-existing stale assertion — unrelated to workspace-
       // fixups-2: the "workspace-fixups" bundle (2026-09-19, predates this
       // spec's own 2026-09-17 authoring) already appended " Units" to every
-      // capacity readout; this spec never got updated for it.]
+      // capacity readout; DU-2.3 then moved the unit into the column header.]
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-1")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
 
       // Enable the off-diagonal cell -> capacity flips live to 210,000,000
@@ -473,11 +473,11 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // only added-plant cells — spec §7).
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000");
       // Toggle back off -> reverts to 0.
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
 
       // ── Item #7 — no warehouse-capacity leak / no 10,000,000 ────────────
       await page.getByTestId("sidebar-input-warehouses").click();

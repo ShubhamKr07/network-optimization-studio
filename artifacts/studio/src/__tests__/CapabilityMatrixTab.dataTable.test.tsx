@@ -61,7 +61,7 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
       within(screen.getByTestId("capability-matrix-tab"))
         .getAllByRole("columnheader")
         .map(h => h.textContent),
-    ).toEqual(["Plant", "Copper", "Aluminum"]);
+    ).toEqual(["Plant", "Copper (units)", "Aluminum (units)"]);
   });
 
   it("keeps the plant text filter and the filter-only state select (no rendered State column)", () => {

@@ -7,6 +7,8 @@ export interface Chapter {
   title: string;
   description: string;
   hiddenFromLanding?: boolean;
+  /** Unit of this chapter's customer/station demand and plant capacity, shown in column headers (DU-2.3). */
+  demandUnit: "tons" | "units";
   /**
    * ch4-lock — the chapter still appears on Landing but is greyed out,
    * labelled "locked", and not clickable (its Recent-Solves rows lose their
@@ -40,6 +42,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-3",
     modelId: "p-median-us",
+    demandUnit: "units",
     chapter: "Chapter 3",
     title: "AL's Athletics",
     description: "Facility-location: choose which warehouses to open to minimize weighted distance to customers.",
@@ -50,6 +53,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-4",
     modelId: "max-coverage-us",
+    demandUnit: "units",
     chapter: "Chapter 4",
     title: "AL's Athletics — Max Coverage",
     description: "Service-level facility location across the United States: open warehouses to maximize the demand served within a target service distance.",
@@ -61,6 +65,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-5/transport",
     modelId: "transport-coal",
+    demandUnit: "tons",
     chapter: "Chapter 5",
     title: "Coal Transport LP",
     description: "Transportation LP: route coal from mines to power stations at minimum cost.",
@@ -72,6 +77,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-5/brazil",
     modelId: "p-median-brazil",
+    demandUnit: "units",
     chapter: "Chapter 5",
     title: "Brazil Capacity — Capacitated P-Median",
     description: "Capacitated facility location: open warehouses under per-site capacity limits.",
@@ -83,6 +89,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-5/delivery",
     modelId: "delivery-teaching-us",
+    demandUnit: "units",
     chapter: "Chapter 5",
     title: "Introduction to Network Design",
     description: "Facility location driven by a cost table: open three DCs to minimise delivery cost, then watch the network change when long lanes are repriced.",
@@ -93,6 +100,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-10/gold-refinery",
     modelId: "two-echelon-gold-au",
+    demandUnit: "units",
     chapter: "Chapter 10",
     title: "Gold Refinery Siting — Two-Echelon",
     description: "Two-echelon facility location: site a refinery between a gold mine and ten customers, and watch the choice flip as the bill-of-materials ratio changes.",
@@ -104,6 +112,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/chapter-9/jade",
     modelId: "two-echelon-jade-us",
+    demandUnit: "tons",
     chapter: "Chapter 9",
     title: "JADE Network — Multi-Product Two-Echelon",
     description: "Multi-product two-echelon facility location: choose which warehouses to open so plants can ship several distinct products through them to customers at minimum cost.",
@@ -114,6 +123,7 @@ export const CHAPTERS: Chapter[] = [
   {
     path: "/super-model",
     modelId: "super-model",
+    demandUnit: "units",
     chapter: "Super Model",
     title: "Super Model — Import Your Network",
     description: "Import your own plants, warehouses, customers, products and demand, set plant capacities and per-unit costs, and choose which warehouses to open at minimum total cost.",
@@ -129,4 +139,8 @@ export function chapterForModelId(modelId: string | undefined): Chapter | undefi
 
 export function chapterPathForModelId(modelId: string | undefined): string | undefined {
   return CHAPTERS.find((c) => c.modelId === modelId)?.path;
+}
+
+export function demandHeader(unit: Chapter["demandUnit"], base = "Demand"): string {
+  return `${base} (${unit})`;
 }

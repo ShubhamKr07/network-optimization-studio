@@ -119,8 +119,11 @@ describe("TransportCostsTab (ch9-tc)", () => {
   it("labels rates in the active display unit and minimum charges in $/ton", () => {
     setPref("km");
     renderTab();
-    expect(screen.getByTestId("label-transport-rate-unit-ic")).toHaveTextContent("$/ton-km");
-    expect(screen.getByTestId("label-transport-min-unit-ic")).toHaveTextContent("$/ton");
+    expect(screen.getByTestId("label-transport-rate-unit-head")).toHaveTextContent("Rate ($/ton-km)");
+    expect(screen.getByRole("columnheader", { name: "Min ($/ton)" })).toBeInTheDocument();
+    // DU-2.3: no repeated per-row unit spans
+    expect(screen.queryByTestId("label-transport-rate-unit-ic")).toBeNull();
+    expect(screen.queryByTestId("label-transport-min-unit-ic")).toBeNull();
   });
 
   it("leaves a minimum charge unconverted by the display toggle", () => {

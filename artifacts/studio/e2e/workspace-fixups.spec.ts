@@ -6,7 +6,7 @@
  *   1. Plant markers render as the factory icon (Input Map, Output Map, legend).
  *   2. A plant-bearing table shows plant id + City, State.
  *   3. Plant Capability Matrix info line is single-line at desktop width; capacity
- *      readouts end in "Units".
+ *      readouts are bare numbers (the unit is in the column headers, DU-2.3).
  *   4. [Updated post workspace-fixups-2, item 1 — the "Added Entities" tab
  *      was REMOVED; adding an entity now happens inline inside each base
  *      entity tab again.] Placing an entity on the Input Map (in-place
@@ -266,7 +266,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       await expect(plantFactoryLegendSwatch(page, "legend-plant")).toHaveCount(1);
 
       // ── Item 3 — Plant Capability Matrix: id+City,State, single-line info,
-      // "Units" suffix (checked before solving — an input-surface tab). ──
+      // unit-in-header (checked before solving — an input-surface tab). ──
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Item 2 — plant id + City, State (plant-1 is Ashland, KY in the JADE
@@ -291,10 +291,11 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       const infoBox = await infoLine.boundingBox();
       expect(infoBox).not.toBeNull();
       expect(infoBox!.height).toBeLessThan(24); // one text line, not wrapped to 2+
-      // Item 3b — capacity readouts end in "Units" (both an enabled and a
-      // disabled cell).
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000 Units");
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
+      // Item 3b — [DU-2.3: the unit moved into the product column headers;
+      // readouts are bare grouped numbers] (both an enabled and a disabled cell).
+      await expect(page.getByTestId("capability-matrix-tab").getByRole("columnheader", { name: /\(tons\)/ }).first()).toBeVisible();
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
 
       // ── Solve, so the Output Map and Customer Assignments have real data
       // to check items 1/5 against. ───────────────────────────────────────

@@ -3682,6 +3682,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CapabilityMatrixTab
+          demandUnit={chapterForModelId(modelId)?.demandUnit ?? "units"}
           readOnly={isBrowsingHistoryNow}
           plants={mergeEffectivePlants(dataset, localInputs)}
           products={dataset.products ?? []}
@@ -3735,6 +3736,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const isJade = modelId === "two-echelon-jade-us";
       return (
         <CustomersTab
+          demandUnit={chapterForModelId(modelId)?.demandUnit ?? "units"}
           customers={dataset.customers}
           overrides={isJade ? [] : customerOverridesFromInputs(localInputs)}
           onChange={
@@ -3833,6 +3835,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <StationsTab
+          demandUnit={chapterForModelId(modelId)?.demandUnit ?? "units"}
           readOnly={isBrowsingHistoryNow}
           stations={dataset.customers}
           overrides={stationOverridesFromInputs(localInputs)}

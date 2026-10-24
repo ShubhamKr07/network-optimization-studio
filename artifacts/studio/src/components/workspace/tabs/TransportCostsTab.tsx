@@ -229,23 +229,18 @@ export function TransportCostsTab({
       kind: "number",
       value: leg => transportCosts[leg.rateField],
       cell: leg => (
-        <>
-          <TransportCostField
-            canonicalUnit={canonicalUnit}
-            value={transportCosts[leg.rateField]}
-            max={UI_RATE_MAX}
-            convert={rateConvert}
-            disabled={disabled}
-            resetKey={scenarioId}
-            onCommitValid={v => commitField(leg.rateField, v, rateConvert)}
-            inputTestId={`input-transport-${leg.key}-rate`}
-            errorTestId={`error-transport-${leg.key}-rate`}
-            label={`${leg.label} rate`}
-          />
-          <span className="text-2xs text-muted-foreground" data-testid={`label-transport-rate-unit-${leg.key}`}>
-            {rateLabel ?? "—"}
-          </span>
-        </>
+        <TransportCostField
+          canonicalUnit={canonicalUnit}
+          value={transportCosts[leg.rateField]}
+          max={UI_RATE_MAX}
+          convert={rateConvert}
+          disabled={disabled}
+          resetKey={scenarioId}
+          onCommitValid={v => commitField(leg.rateField, v, rateConvert)}
+          inputTestId={`input-transport-${leg.key}-rate`}
+          errorTestId={`error-transport-${leg.key}-rate`}
+          label={`${leg.label} rate`}
+        />
       ),
     },
     {
@@ -254,23 +249,18 @@ export function TransportCostsTab({
       kind: "number",
       value: leg => transportCosts[leg.minField],
       cell: leg => (
-        <>
-          <TransportCostField
-            canonicalUnit={canonicalUnit}
-            value={transportCosts[leg.minField]}
-            max={UI_MIN_CHARGE_MAX}
-            convert={IDENTITY_CONVERSION}
-            disabled={disabled}
-            resetKey={scenarioId}
-            onCommitValid={v => commitField(leg.minField, v, IDENTITY_CONVERSION)}
-            inputTestId={`input-transport-${leg.key}-min`}
-            errorTestId={`error-transport-${leg.key}-min`}
-            label={`${leg.label} minimum charge`}
-          />
-          <span className="text-2xs text-muted-foreground" data-testid={`label-transport-min-unit-${leg.key}`}>
-            $/ton
-          </span>
-        </>
+        <TransportCostField
+          canonicalUnit={canonicalUnit}
+          value={transportCosts[leg.minField]}
+          max={UI_MIN_CHARGE_MAX}
+          convert={IDENTITY_CONVERSION}
+          disabled={disabled}
+          resetKey={scenarioId}
+          onCommitValid={v => commitField(leg.minField, v, IDENTITY_CONVERSION)}
+          inputTestId={`input-transport-${leg.key}-min`}
+          errorTestId={`error-transport-${leg.key}-min`}
+          label={`${leg.label} minimum charge`}
+        />
       ),
     },
   ];

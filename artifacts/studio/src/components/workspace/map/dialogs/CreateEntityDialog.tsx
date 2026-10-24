@@ -1,4 +1,5 @@
 import { formatCoord } from "@/lib/formatLocation";
+import { demandHeader, type Chapter } from "@/lib/chapters";
 import { useMemo, useState } from "react";
 import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
 import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
@@ -377,6 +378,8 @@ interface TableCreateEntityDialogProps {
   hasStateColumn?: boolean;
   /** D30: whole-number scalar demand (max-coverage-us customers). Stations are always integer. */
   integerDemand?: boolean;
+  /** Unit in the demand field labels (customer/station only); defaults to "units". */
+  demandUnit?: Chapter["demandUnit"];
   /** JADE: one required demand field per product instead of the scalar demand. */
   products?: ReadonlyArray<{ id: string; name: string }>;
   /** Display codes already used by this entity's ADDED rows (collision check + derivation). */
@@ -413,6 +416,7 @@ function TableCreateEntityDialog({
   capacityMode,
   hasStateColumn = true,
   integerDemand = false,
+  demandUnit = "units",
   products = [],
   existingCodes,
   onCreate,
@@ -646,12 +650,11 @@ function TableCreateEntityDialog({
             ? products.map(p =>
                 field(
                   `create-entity-demand-${p.id}`,
-                  `Demand — ${p.name}`,
+                  `Demand — ${p.name} (${demandUnit})`,
                   <FormattedNumberInput
                     id={`create-entity-demand-${p.id}`}
                     value={demands[p.id] ?? null}
                     onChange={v => setDemands(prev => ({ ...prev, [p.id]: v }))}
-                    suffix="Units"
                     className="font-mono"
                     disabled={readOnly}
                     title={readOnly ? READ_ONLY_TITLE : undefined}
@@ -662,12 +665,11 @@ function TableCreateEntityDialog({
             : isDemandKind &&
               field(
                 "create-entity-demand",
-                "Demand",
+                demandHeader(demandUnit),
                 <FormattedNumberInput
                   id="create-entity-demand"
                   value={demand}
                   onChange={setDemand}
-                  suffix={entityKind === "station" ? "tons" : "Units"}
                   integer={entityKind === "station" || integerDemand}
                   className="font-mono"
                   disabled={readOnly}

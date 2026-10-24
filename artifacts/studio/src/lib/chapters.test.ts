@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CHAPTERS, chapterForModelId, chapterPathForModelId } from "./chapters";
+import { CHAPTERS, chapterForModelId, chapterPathForModelId, demandHeader } from "./chapters";
 
 // Task 9 (Chapter 9 — JADE multi-product two-echelon): registration guard.
 // Mirrors the exact bug class that shipped for two-echelon-gold-au (Chapter
@@ -106,5 +106,17 @@ describe("chapters — AL's Athletics (p-median-us) Landing title", () => {
     const chapter = chapterForModelId("p-median-us");
     expect(chapter?.labHeaderTitle).toBe("AL's Athletics · Model Lab");
     expect(chapter?.labHeaderSubtitle).toMatch(/p-median/i);
+  });
+});
+
+describe("DU-2.3 demandUnit", () => {
+  it("every chapter declares its demand unit (JADE + coal in tons)", () => {
+    const byId = Object.fromEntries(CHAPTERS.map((c) => [c.modelId, c.demandUnit]));
+    expect(byId["two-echelon-jade-us"]).toBe("tons");
+    expect(byId["transport-coal"]).toBe("tons");
+    for (const id of ["p-median-us", "max-coverage-us", "p-median-brazil", "delivery-teaching-us", "two-echelon-gold-au", "super-model"])
+      expect(byId[id]).toBe("units");
+    expect(demandHeader("tons")).toBe("Demand (tons)");
+    expect(demandHeader("units", "Demand override")).toBe("Demand override (units)");
   });
 });

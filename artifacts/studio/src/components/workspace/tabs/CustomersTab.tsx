@@ -1,4 +1,5 @@
 import { formatCoord } from "@/lib/formatLocation";
+import { demandHeader, type Chapter } from "@/lib/chapters";
 import { useState } from "react";
 import type { Customer, Product, Scenario } from "@workspace/api-client-react";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
@@ -102,6 +103,8 @@ interface CustomersTabProps {
   enableFilters?: boolean;
   /** SCU-2.P4.11 — narrows the Upload/Download expected-fields panel. */
   modelId?: string;
+  /** Active chapter's demand unit; goes in the demand column headers. */
+  demandUnit?: Chapter["demandUnit"];
   /** History read-only (decision 1h; SCU-2.P4.11 D2): every demand input,
    * status button, delete button and the "+ Add customer" trigger — base,
    * added and JADE per-product rows alike — is disabled. Defaults false. */
@@ -157,6 +160,7 @@ export function CustomersTab({
   enableFilters = false,
   disabled = false,
   modelId,
+  demandUnit = "units",
 }: CustomersTabProps) {
   const files = useEntityFileMenus({
     entity: "customers",
@@ -310,12 +314,11 @@ export function CustomersTab({
       ? products.map(p => ({
           // Descriptor key `demand:{productId}` is today's JADE filter key.
           id: `demand:${p.id}`,
-          header: p.name,
+          header: `${p.name} (${demandUnit})`,
           kind: "number" as const,
           value: (r: CustomerRow) => r.demands[p.id] ?? 0,
           cell: (r: CustomerRow) => (
             <DemandCell
-              suffix="Units"
               value={r.demands[p.id] ?? 0}
               clearCommits={!added}
               onCommit={v =>
@@ -336,12 +339,11 @@ export function CustomersTab({
       : [
           {
             id: "demand",
-            header: "Demand",
+            header: demandHeader(demandUnit),
             kind: "number",
             value: r => r.demand,
             cell: r => (
               <DemandCell
-                suffix="Units"
                 integer={integerDemand}
                 value={r.demand}
                 clearCommits={!added}
@@ -477,6 +479,7 @@ export function CustomersTab({
           source="table"
           readOnly={disabled}
           entityKind="customer"
+          demandUnit={demandUnit}
           integerDemand={integerDemand}
           hasStateColumn={hasStateColumn}
           products={productMode ? products : undefined}

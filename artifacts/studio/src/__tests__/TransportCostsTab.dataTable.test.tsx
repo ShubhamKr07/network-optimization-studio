@@ -36,14 +36,14 @@ describe("TransportCostsTab on DataTable (SCU-2.P4.8)", () => {
       "input-transport-ob-rate",
       "input-transport-ic-min",
       "input-transport-ob-min",
-      "label-transport-rate-unit-ic",
-      "label-transport-min-unit-ob",
       "text-transport-formula",
       "button-transport-reset",
     ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     expect(screen.getByTestId("label-transport-rate-unit-head").tagName).toBe("TH");
+    expect(screen.queryByTestId("label-transport-rate-unit-ic")).toBeNull();
+    expect(screen.queryByTestId("label-transport-min-unit-ob")).toBeNull();
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
   });
 

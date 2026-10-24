@@ -143,8 +143,8 @@ export function DemandCell({
   value: number | null;
   onCommit: (value: number | null) => void;
   clearCommits: boolean;
-  /** Visible unit after the input ("Units" for customers, "tons" for stations). */
-  suffix: string;
+  /** Optional visible unit after the input; demand units now live in column headers (DU-2.3). */
+  suffix?: string;
   integer?: boolean;
   disabled: boolean;
   title?: string;

@@ -35,11 +35,12 @@ describe("CapabilityMatrixTab", () => {
         baseCapabilities={baseCapabilities}
         overrides={[]}
         onChange={vi.fn()}
+        demandUnit="tons"
       />,
     );
     expect(screen.getByTestId("capability-matrix-tab")).toBeInTheDocument();
-    expect(screen.getByText("Copper")).toBeInTheDocument();
-    expect(screen.getByText("Aluminum")).toBeInTheDocument();
+    expect(screen.getByText("Copper (tons)")).toBeInTheDocument();
+    expect(screen.getByText("Aluminum (tons)")).toBeInTheDocument();
     // Diagonal on.
     expect(screen.getByTestId("checkbox-capability-plant-1-product-1")).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("checkbox-capability-plant-2-product-2")).toHaveAttribute("aria-checked", "true");
@@ -324,9 +325,9 @@ describe("CapabilityMatrixTab", () => {
     expect(label).not.toHaveClass("max-w-md");
   });
 
-  // workspace-fixups item 3b — capacity readouts are suffixed " Units".
-  describe("capacity readout Units suffix", () => {
-    it("an enabled cell's capacity readout ends in ' Units'", () => {
+  // DU-2.3 — the unit moved from each readout into the product column header.
+  describe("capacity readout (unit in header)", () => {
+    it("the product headers carry the unit and no readout says 'Units'", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -334,14 +335,14 @@ describe("CapabilityMatrixTab", () => {
           baseCapabilities={baseCapabilities}
           overrides={[]}
           onChange={vi.fn()}
+          demandUnit="tons"
         />,
       );
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent(
-        "210,000,000 Units",
-      );
+      expect(screen.getByRole("columnheader", { name: `${products[0]!.name} (tons)` })).toBeInTheDocument();
+      expect(screen.queryByText(/Units/)).toBeNull();
     });
 
-    it("a disabled cell's capacity readout shows '0 Units'", () => {
+    it("an enabled cell's capacity readout is the bare grouped number", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -351,7 +352,20 @@ describe("CapabilityMatrixTab", () => {
           onChange={vi.fn()}
         />,
       );
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0 Units");
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent(/^210,000,000$/);
+    });
+
+    it("a disabled cell's capacity readout shows '0'", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent(/^0$/);
     });
   });
 
