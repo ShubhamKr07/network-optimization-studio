@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -109,6 +109,7 @@ vi.mock("@/components/workspace/tabs/OutputMapTab", async importOriginal => {
 });
 
 import { Workspace } from "@/pages/Workspace";
+import { usePrecheckScenario, useSolveScenario } from "@workspace/api-client-react";
 
 function renderWorkspace() {
   return render(<Workspace modelId="super-model" userEmail="student@example.com" />);
@@ -429,5 +430,76 @@ describe("Workspace — super per-table upload writes only the draft (QFX-2b, L1
     await act(async () => { fireEvent.click(screen.getByTestId("button-save")); });
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.data.inputs.products.map((p: { id: string }) => p.id)).toEqual([...sample.products.map((p: { id: string }) => p.id), "product-9"]);
+  });
+});
+
+// QFX-3 (decision L2) — super readiness blocks BOTH Solve buttons through the
+// single shared solveBlockedReason, but only while the draft is CLEAN (precheck
+// describes the saved row). Loading/failed precheck never blocks.
+describe("Workspace — super-model Solve readiness (QFX-3, L2)", () => {
+  const BLOCK = "Fix the readiness issues before solving:";
+  const mockSolve = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+  const withErrors = () =>
+    vi.mocked(usePrecheckScenario).mockReturnValue({
+      data: { ok: false, errors: [{ code: "noPlants", message: "No plants" }, { code: "zeroDemand", message: "Zero demand" }] },
+    } as never);
+
+  beforeEach(() => {
+    mockSolve.mutate.mockReset();
+    vi.mocked(useSolveScenario).mockReturnValue(mockSolve as never);
+  });
+  afterEach(() => {
+    vi.mocked(usePrecheckScenario).mockReturnValue({ data: { ok: true, errors: [] } } as never);
+  });
+
+  it("ready precheck: the tab's Solve enqueues directly, no dialog", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+    expect(mockSolve.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolve.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("clean draft + precheck errors: the tab's Solve is disabled with the block message and the FIRST error", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("super-readiness-error-0")).toHaveTextContent("No plants");
+    expect(screen.getByTestId("button-tab-solve")).toBeDisabled();
+    expect(screen.getByTestId("tab-solve-blocked-hint")).toHaveTextContent(`${BLOCK} No plants`);
+    expect(screen.getByTestId("tab-solve-blocked-hint")).not.toHaveTextContent("Zero demand");
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockSolve.mutate).not.toHaveBeenCalled();
+  });
+
+  it("clean draft + precheck errors: the SolveDialog's Solve is blocked by the same value", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));   // header button is unchanged: it still opens the dialog
+    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-blocked-hint")).toHaveTextContent(`${BLOCK} No plants`);
+  });
+
+  it("dirty draft: precheck errors do NOT block; Solve saves first (handleSolve)", () => {
+    withErrors();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-products"));
+    fireEvent.change(screen.getByTestId("super-products-product-1-name"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("button-tab-solve"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateScenario.mutate.mock.calls[0][0].data.inputs.products[0].name).toBe("Renamed");
+  });
+
+  it("precheck still loading (no data): does not block", () => {
+    vi.mocked(usePrecheckScenario).mockReturnValue({ data: undefined } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-tab-solve")).toBeEnabled();
+    expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
   });
 });

@@ -2123,6 +2123,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     localInputs != null &&
     resolveMaxCoverageRun(coverageFloorDemandFromInputs(localInputs), objectiveFromInputs(localInputs)) === null;
 
+  // QFX-3 (decision L2) — super server precheck errors also block Solve, but
+  // only on a CLEAN draft (precheck describes the SAVED row). Loading/failed
+  // precheck (no data) never blocks; the server stays the enqueue authority.
+  const superReadinessBlockedReason =
+    modelId === "super-model" && !ordinaryDirty && precheck && precheck.errors.length > 0
+      ? `Fix the readiness issues before solving: ${precheck.errors[0].message}`
+      : null;
+  // The ONE blocked reason both Solve buttons read; objective hint has priority.
+  const solveBlockedReason = objectiveRequired ? OBJECTIVE_REQUIRED_HINT : superReadinessBlockedReason;
+
   // chen-bands-units, Task 14 Step 3/5 — the shared whole-input save,
   // Promise-wrapped so BOTH the plain Save control (`handleSaveInputs`,
   // fire-and-forget) and the dirty-nav prompt's Save action (awaited — a
@@ -3052,7 +3062,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // scope here. Do not read this comment as "the enqueue helper is
     // single-entry" — it is not; the guard lives here.
     if (
-      objectiveRequired ||
+      // QFX-3 — shared blocked reason (objective hint OR super readiness).
+      solveBlockedReason != null ||
       !currentScenario ||
       isBrowsingHistoryNow ||
       solveInFlightRef.current ||
@@ -3362,6 +3373,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const optimizationTabProps: OptimizationParametersTabProps | null =
     optimizationParamsBaseProps && {
       ...optimizationParamsBaseProps,
+      // QFX-3 — standalone tab ONLY (not the shared base): the dialog has its own Solve.
+      showSolveButton: true,
+      onSolve: handleSolve,
+      solveDisabled: !currentScenario || isBrowsingHistoryNow || solvePhase !== "idle",
+      solveBlockedReason,
     };
 
   const solveDialogParamsProps: OptimizationParametersTabProps | null =
@@ -4705,7 +4721,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         canonicalUnit={canonicalUnit}
         onChange={handleOptimizationParamsChange}
         onSolve={handleSolve}
-        solveBlockedReason={objectiveRequired ? OBJECTIVE_REQUIRED_HINT : null}
+        solveBlockedReason={solveBlockedReason}
       />
 
       {/* CH4UX-6 — mounted UNCONDITIONALLY from this component's single main
