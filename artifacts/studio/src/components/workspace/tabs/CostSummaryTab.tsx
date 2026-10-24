@@ -185,6 +185,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
     {
       id: "metric",
       header: "",
+      sortable: false,
       kind: "text",
       // Metric tables are never filtered (user decision 2026-10-17, spec B2.2 exception).
       filter: false,
@@ -199,6 +200,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
       // Numbers are centred (B2.1); never filtered (spec B2.2 exception).
       kind: "number",
       filter: false,
+      sortable: false,
       cellTestId: r => r.testId,
       value: r => r.value,
       cell: r => (r.mono ? <span className="font-mono">{r.value}</span> : r.value),
@@ -216,6 +218,7 @@ function compareColumns(scenarios: Array<{ id: number; name: string }>): ColumnD
     {
       id: "metric",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       cellClassName: "text-muted-foreground",
@@ -228,6 +231,7 @@ function compareColumns(scenarios: Array<{ id: number; name: string }>): ColumnD
       headerTestId: `cost-summary-compare-column-${sc.id}`,
       kind: "number",
       filter: false,
+      sortable: false,
       cellTestId: r => r.testId(sc.id),
       value: r => r.cells[col].raw,
       cell: r => (r.mono ? <span className="font-mono">{r.cells[col].display}</span> : r.cells[col].display),

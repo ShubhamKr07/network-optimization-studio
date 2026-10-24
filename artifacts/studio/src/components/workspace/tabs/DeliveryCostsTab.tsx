@@ -299,6 +299,7 @@ export function DeliveryCostsTab({
     {
       id: "remove",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

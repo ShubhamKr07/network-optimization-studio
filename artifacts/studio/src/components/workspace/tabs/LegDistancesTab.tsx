@@ -282,6 +282,7 @@ export function LegDistancesTab({
     {
       id: "remove",
       header: "",
+      sortable: false,
       kind: "text",
       filter: false,
       value: () => null,

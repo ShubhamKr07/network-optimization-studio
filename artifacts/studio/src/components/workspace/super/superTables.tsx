@@ -125,7 +125,7 @@ export function superColumns(
     ) };
   });
   cols.push({
-    id: "delete", header: "", kind: "text", filter: false, value: () => "",
+    id: "delete", header: "", sortable: false, kind: "text", filter: false, value: () => "",
     cell: it => <DeleteRowButton label="Delete row" disabled={readOnly} onClick={() => remove(it)} testId={tid(it, "delete")} />,
   });
   return cols;

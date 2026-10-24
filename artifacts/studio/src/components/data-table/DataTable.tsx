@@ -1,12 +1,12 @@
 // SCU-2.P1 (spec B2.1/B2.2) — the one rendering shell every Workspace table
 // is migrated onto in P3/P4. The adapter supplies effective rows, columns and
-// a literal testid map; the shell owns filter → clamp → slice 50, the filter
+// a literal testid map; the shell owns filter → sort → clamp → slice 50, the filter
 // menu (> 10 rows), the pager (> 50 filtered rows), focus jumps and layout.
 // It renders real <table>/<thead>/<th>/<tr>/<td> (e2e reads `thead th` text),
 // puts `cell()` output directly in the <td> (no wrapper element), and never
 // adds a column of its own.
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters } from "@/lib/useTableFilters";
@@ -14,9 +14,45 @@ import { cn } from "@/lib/utils";
 import { deriveFilterDescriptors, FILTER_ROW_THRESHOLD } from "./deriveFilterDescriptors";
 import { PAGE_SIZE, pageResetKey, usePagedRows } from "./usePagedRows";
 import { TablePager } from "./TablePager";
-import type { ColumnDef, DataTableProps, DataTableSection } from "./types";
+import type { CellValue, ColumnDef, DataTableProps, DataTableSection } from "./types";
 
 const KEY_SEP = "\u0000";
+
+// QFX-4 — one sorted column at a time; dir 1 = ascending, -1 = descending.
+type SortState = { id: string; dir: 1 | -1 };
+const sortKey = (s: SortState | null) => (s ? `${s.id}:${s.dir}` : "");
+const isBlank = (v: CellValue) => v === null || v === "" || Number.isNaN(v);
+
+/** Blank/null last in BOTH directions; numbers numerically; strings natural and
+ * case-insensitive. 0 = tie (the caller keeps input order). */
+function compareCells(a: CellValue, b: CellValue, dir: 1 | -1): number {
+  const blankA = isBlank(a);
+  const blankB = isBlank(b);
+  if (blankA || blankB) return Number(blankA) - Number(blankB);
+  const c =
+    typeof a === "number" && typeof b === "number"
+      ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+  return dir * c;
+}
+
+/** Sorts decorated `{ row, originalIndex }` items, never the input array, so every
+ * cell()/rowKey() callback still receives the adapter's own row (super tables carry
+ * their original index inside it, `superTables.tsx` `Item`). With sections, a row's
+ * section index sorts first: rows sort within their section, section order is
+ * unchanged and paging still runs base-first. Ties keep input order (stable). */
+function sortRows<T>(rows: T[], sort: SortState | null, columns: ColumnDef<T>[], sections?: DataTableSection<T>[]): T[] {
+  if (!sort) return rows;
+  const decorated = rows.map((row, originalIndex) => {
+    const found = sections ? sections.findIndex(s => s.includes(row)) : 0;
+    const sec = found < 0 ? (sections?.length ?? 0) : found;
+    const cols = sections?.[sec]?.columns ?? columns;
+    const col = cols.find(c => c.id === sort.id);
+    return { row, originalIndex, sec, v: col ? col.value(row) : null };
+  });
+  decorated.sort((x, y) => x.sec - y.sec || compareCells(x.v, y.v, sort.dir) || x.originalIndex - y.originalIndex);
+  return decorated.map(d => d.row);
+}
 
 export function DataTable<T>({
   rows,
@@ -32,17 +68,26 @@ export function DataTable<T>({
   scrollClassName,
   footer,
 }: DataTableProps<T>) {
-  // Pipeline (B2.2, fixed order): effective rows (adapter) → filter → clamp page → slice 50.
+  // Pipeline (B2.2 + QFX-4, fixed order): effective rows (adapter) → filter → sort → clamp page → slice 50.
   const descriptors = useMemo(() => deriveFilterDescriptors(columns, rows), [columns, rows]);
   const tableFilters = useTableFilters(rows, descriptors);
   const { filteredRows, filterState, setFilter, clearAll } = tableFilters;
+  // QFX-4 — component-local (resets on unmount); asc → desc → off, another column starts asc.
+  const [sort, setSort] = useState<SortState | null>(null);
+  const cycleSort = (id: string) =>
+    setSort(s => (!s || s.id !== id ? { id, dir: 1 } : s.dir === 1 ? { id, dir: -1 } : null));
+  // `columns` is rebuilt per render (types.ts), so this is not memoised; it is a no-op when unsorted.
+  const sortedRows = sortRows(filteredRows, sort, columns, sections);
   // Reset key = canonical filter state + sorted key set of ALL effective rows
-  // (pageResetKey): any filter change or add/delete resets to page 1; a cell
-  // edit or a reorder does not.
-  const resetKey = useMemo(() => pageResetKey(rows, rowKey, filterState), [rows, rowKey, filterState]);
-  // The key the table will have once a focus jump has cleared every filter.
-  const clearedKey = useMemo(() => pageResetKey(rows, rowKey, {}), [rows, rowKey]);
-  const paged = usePagedRows(filteredRows, resetKey);
+  // (pageResetKey) + the sort: any filter or sort change, or add/delete, resets to
+  // page 1; a cell edit or a reorder does not.
+  const resetKey = useMemo(
+    () => pageResetKey(rows, rowKey, filterState) + KEY_SEP + sortKey(sort),
+    [rows, rowKey, filterState, sort],
+  );
+  // The key the table will have once a focus jump has cleared every filter and the sort.
+  const clearedKey = useMemo(() => pageResetKey(rows, rowKey, {}) + KEY_SEP + sortKey(null), [rows, rowKey]);
+  const paged = usePagedRows(sortedRows, resetKey);
 
   // Per-column filter reset: a changed `filterResetKey` clears only that column's filter.
   const resetSignature = columns.map(c => `${c.id}=${c.filterResetKey ?? ""}`).join(KEY_SEP);
@@ -57,7 +102,7 @@ export function DataTable<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignature]);
 
-  // Focus jump (today's behaviour, DistancesTab.tsx:459-467): clear every filter,
+  // Focus jump (today's behaviour, DistancesTab.tsx:459-467): clear every filter (and the QFX-4 sort),
   // go to the page of the first matching row in the now-unfiltered list, then
   // scroll that row into view once its page has rendered.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -75,6 +120,7 @@ export function DataTable<T>({
     if (consumedToken.current === consumed) return;
     consumedToken.current = consumed;
     clearAll();
+    setSort(null);
     paged.setPage(Math.floor(idx / PAGE_SIZE) + 1, clearedKey);
     pendingScrollKey.current = rowKey(rows[idx]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,15 +154,31 @@ export function DataTable<T>({
       <Table className="table-auto" data-testid={opts.tableTestId}>
         <TableHeader>
           <TableRow>
-            {cols.map(c => (
-              <TableHead
-                key={c.id}
-                className={cn("h-auto px-3 py-1.5 whitespace-nowrap", c.kind === "number" && "text-center")}
-                data-testid={c.headerTestId}
-              >
-                {c.header}
-              </TableHead>
-            ))}
+            {cols.map(c => {
+              const sortable = c.sortable !== false;
+              const dir = sort?.id === c.id ? sort.dir : 0;
+              return (
+                <TableHead
+                  key={c.id}
+                  className={cn("h-auto px-3 py-1.5 whitespace-nowrap", c.kind === "number" && "text-center")}
+                  data-testid={c.headerTestId}
+                  aria-sort={!sortable ? undefined : dir === 1 ? "ascending" : dir === -1 ? "descending" : "none"}
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      onClick={() => cycleSort(c.id)}
+                    >
+                      {c.header}
+                      {dir !== 0 && <span aria-hidden="true">{dir === 1 ? "▲" : "▼"}</span>}
+                    </button>
+                  ) : (
+                    c.header
+                  )}
+                </TableHead>
+              );
+            })}
           </TableRow>
         </TableHeader>
         <TableBody>

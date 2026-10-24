@@ -1520,4 +1520,10 @@ describe("CostSummaryTab compare on DataTable — testid map (SCU-2.P3.8)", () =
       for (const id of [1, 2]) expect(screen.getByTestId(`cost-summary-compare-${key}-${id}`).tagName).toBe("TD");
     }
   });
+
+  it("QFX-4: cost-summary metric tables are not sortable (no header sort buttons)", () => {
+    const { container } = renderTab({ result: optimalResult, modelId: "p-median-us" });
+    // Every sortable column sets aria-sort (even "none" while unsorted), so zero th[aria-sort] means no sortable column.
+    expect(container.querySelectorAll("th[aria-sort]")).toHaveLength(0);
+  });
 });
