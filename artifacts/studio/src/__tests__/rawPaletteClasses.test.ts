@@ -7,7 +7,7 @@ import { resolve, join, relative, sep } from "node:path";
 // skipped, named allow-list (currently empty — keep it that way or give a
 // reason), non-vacuity case. Same shape as rawErrorMessageSurface.test.ts.
 const SRC_ROOT = resolve(__dirname, "..");
-const RAW = /\b(?:bg|text|border|ring|fill|stroke|divide|outline|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
+const RAW = /\b(?:bg|text|border|ring|ring-offset|fill|stroke|divide|outline|placeholder|from|via|to|shadow|accent|caret|decoration)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
 const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
 const ALLOWED: Record<string, string> = {};
 
@@ -36,5 +36,7 @@ describe("raw Tailwind palette classes (DU-1.3)", () => {
   it("is not vacuous", () => {
     expect(collect(SRC_ROOT).length).toBeGreaterThan(50);
     expect(RAW.test('className="bg-amber-50"')).toBe(true);
+    expect(RAW.test('className="focus:ring-offset-red-600"')).toBe(true);
+    expect(RAW.test('className="ring-offset-destructive"')).toBe(false);
   });
 });

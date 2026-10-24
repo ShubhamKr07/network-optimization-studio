@@ -482,7 +482,7 @@ function ScenarioRow({
             type="button"
             data-testid={`button-confirm-delete-${scenario.id}`}
             onClick={() => { onDelete(); setConfirmingDelete(false); }}
-            className="text-xs font-semibold text-danger hover:text-danger flex-shrink-0"
+            className="text-xs font-semibold text-danger hover:underline flex-shrink-0"
           >
             Delete
           </button>
