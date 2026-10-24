@@ -3037,7 +3037,7 @@ In `artifacts/studio/src/__tests__/Workspace.Super.test.tsx`:
     vi.restoreAllMocks();
   });
 
-  it("QFX-1: while browsing history both Import network and Export ▾ are hidden", () => {
+  it("QFX-1: while browsing history Import network is hidden and Export ▾ stays usable", () => {
     const base = JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8"));
     const solved = { ...scenario, result: { ...base } };
     mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
@@ -3051,9 +3051,8 @@ In `artifacts/studio/src/__tests__/Workspace.Super.test.tsx`:
     expect(screen.getByTestId("super-toolbar-import")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-result-back"));
     expect(screen.queryByTestId("super-toolbar-import")).toBeNull();
-    // handleSuperExport always exports the PERSISTED network, not the historical entry on screen,
-    // so offering it here would mislabel the file (per-table Download still exports the displayed rows).
-    expect(screen.queryByTestId("super-toolbar-export")).toBeNull();
+    // User decision C2 (2026-10-24): Export stays while browsing history; it exports the latest SAVED network.
+    expect(screen.getByTestId("super-toolbar-export")).toBeEnabled();
   });
 ```
 
@@ -3084,13 +3083,15 @@ import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 
 ```tsx
                 {/* QFX-1 — super's whole-network Import / Export sit right of Save. Every super input tab uses this
-                    row (no saveInLayersRow gate names super). Both are hidden while browsing history: Import would
-                    write, and Export always exports the PERSISTED network (handleSuperExport), not the entry on screen. */}
-                {modelId === "super-model" && currentScenario && !isBrowsingHistoryNow && (
+                    row (no saveInLayersRow gate names super). Import is hidden while browsing history (it writes);
+                    Export stays (user decision C2) and exports the latest SAVED network via the unchanged handleSuperExport. */}
+                {modelId === "super-model" && currentScenario && (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
-                      Import network
-                    </Button>
+                    {!isBrowsingHistoryNow && (
+                      <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
+                        Import network
+                      </Button>
+                    )}
                     <DownloadMenu
                       label="Export"
                       testId="super-toolbar-export"
@@ -3148,7 +3149,7 @@ The env var is mandatory (`artifacts/studio/e2e/CLAUDE.md`).
   - `super-toolbar-export`
   - `super-toolbar-export-csv|json|xlsx`
 - **Export ▾** is the QFX-2a `DownloadMenu`. Each item calls the unchanged `handleSuperExport(format)`, so the files are byte-identical. CSV is still a `.zip`.
-- **History.** While browsing history, both Import network and Export ▾ are hidden. Export always writes the persisted network (`exportScenarioNetwork`), not the historical entry on screen, so showing it there would mislabel the file. The spec was amended accordingly. Per-table Download stays, because it exports the displayed rows.
+- **History (user decision C2).** While browsing history, Import network is hidden and Export ▾ stays. Export writes the latest **saved** network (`exportScenarioNetwork`), not the historical entry on screen.
 - **Unchanged:** chapter models and the empty-state import prompt (`super-open-import`).
 
 **Tests.** `Workspace.Super.test.tsx`: the trio order on all ten super input tabs, header absence, the three formats through the same fetch, and the history rule. The SM-9/SM2-1 import tests were repointed to `super-toolbar-import`. E2E `super-model.spec.ts:150-151` was rewritten. Rollback point: this commit.
@@ -3179,7 +3180,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Contract notes (read first):**
 - The QFX-6 contract is honoured: `components/workspace/super/SuperAddRowDialog.tsx` plus the per-tab spec `SUPER_ADD_FORMS`, which lives in a new pure module `components/workspace/super/superAddForms.ts` so it can be unit-tested without React.
 - **Where the button lands.** The Distances tab does not render its own table. `SuperDistancesTab.tsx:42-44` renders `<SuperTableTab table="distanceOverrides" …>`, so the Add button for all 7 tables is in one place, the `toolbar.add` slot of `SuperTableTab.tsx:33-40`. `SuperDistancesTab` only forwards the new `network` prop.
-- **The form fields come from the table's own `SPECS`/`HEADERS`** (`superTables.tsx:15-53`), so the form and the table cannot drift. This assumes QFX-7 has landed: location specs have no `name` field; products keep `id, name`. As a result, the label for `costPerUnit` is the table header "Cost / unit", not the spec matrix's "Cost per unit". This is deliberate, so the form and its column read the same.
+- **The form fields come from the table's own `SPECS`/`HEADERS`** (`superTables.tsx:15-53`), so the form and the table cannot drift. This assumes QFX-7 has landed: location specs have no `name` field; products keep `id, name`. **User decision C4 (2026-10-24):** the label is "Cost per unit" in both the form and the column. This task changes `HEADERS.costPerUnit` in `superTables.tsx:51` from `"Cost / unit"` to `"Cost per unit"`, and the form inherits it. File columns use field keys (`costPerUnit`), so CSV/XLSX/JSON files are unaffected. No studio test or e2e spec asserts "Cost / unit" (grep, 2026-10-24).
 - **New required prop `network: SuperInputsLike`** on `SuperTableTab` and `SuperDistancesTab`. The form needs the whole draft for four things: location-ID uniqueness across three tables, the pair-table sources, the W×C×P limit, and `nextFreeId`. `SuperDistancesTab` keeps its `plantIds/warehouseIds/customerIds` props unchanged, because QFX-9 is written against them. Inside `SuperTableTab`, the table's own `rows` override `network[table]`, so the duplicate and limit checks always see the rows on screen.
 - **Studio has no copy of `SUPER_CAPS`.** `superAddForms.ts` mirrors `artifacts/api-server/src/validation/inputs/superInputs.ts:4` with a pointer comment. There is no cross-package import, because studio does not depend on api-server.
 - **Not merged with `SuperEntityDialog`.** That dialog is the Input Map's create/edit flow and carries per-product customer demand. The spec scopes QFX-6 to the table tabs, so it stays as it is.
@@ -3510,6 +3511,28 @@ Expected:
 - `SuperTableTab.test.tsx` fails with `expected element to have text content "Add capability"` / received `"+ Add row"`, then `Unable to find an element by: [data-testid="super-plantProducts-add-reason"]`, then `Unable to find role="dialog"`.
 - `Workspace.Super.test.tsx` "QFX-6" fails with `Unable to find an element by: [data-testid="super-add-id"]`.
 
+- [ ] **Step 2b: Rename the capability cost header (user decision C4)**
+
+Add this test to `src/__tests__/SuperTableTab.test.tsx`. It must fail before the edit:
+```tsx
+it("QFX-6/C4: the plant-capability cost column and its Add form both read 'Cost per unit'", async () => {
+  render(<SuperTableTab network={NET} table="plantProducts" rows={[]} onChange={vi.fn()} readOnly={false} options={options} />);
+  expect(screen.getByRole("columnheader", { name: /Cost per unit/ })).toBeInTheDocument();
+  expect(screen.queryByText("Cost / unit")).toBeNull();
+});
+```
+(`NET` and `options` are the fixtures this file already defines for QFX-6.)
+
+Then, in `src/components/workspace/super/superTables.tsx`, inside `HEADERS` (~`:51`), replace:
+```ts
+  plantId: "Plant", productId: "Product", capacity: "Capacity", costPerUnit: "Cost / unit",
+```
+with:
+```ts
+  plantId: "Plant", productId: "Product", capacity: "Capacity", costPerUnit: "Cost per unit",
+```
+The Add form reads its labels from `HEADERS`, so the dialog's field label follows. Step 1's `SuperAddRowDialog` tests should expect "Cost per unit".
+
 - [ ] **Step 3: Implement `superAddForms.ts` and export the specs from `superTables.tsx`**
 
 `superTables.tsx`:
@@ -3831,7 +3854,7 @@ Button disabled states:
 
 Add appends to the draft only, with no auto-save. `SuperTableTab` and `SuperDistancesTab` gain a required `network` prop (the whole draft). Inside the tab, its own `rows` override `network[table]`.
 
-- Deviation: the `costPerUnit` label is the table header "Cost / unit", so form and column read the same.
+- `HEADERS.costPerUnit` renamed "Cost / unit" → "Cost per unit" (user decision C4); the form and column share it.
 - Deviation: studio mirrors `SUPER_CAPS` as constants with a pointer to `superInputs.ts:4`; studio does not depend on api-server.
 - Deviation: the Input Map's `SuperEntityDialog` is unchanged. It has its own create/edit flow with per-product demand.
 - Tests: `superAddForms.test.ts` and `SuperAddRowDialog.test.tsx` (new); `SuperTableTab` (Add replaces "+ Add row"; source-gate message; own rows drive duplicates; Distances tab button); `SuperDistancesTab` (prop); `Workspace.Super` ("Add plant" appends, no auto-save, row in the Save payload). Non-vacuity: disabling the W×C×P check fails its test.

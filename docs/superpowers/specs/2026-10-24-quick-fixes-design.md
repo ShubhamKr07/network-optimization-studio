@@ -41,7 +41,7 @@
 - Render them in the toolbar Save row, right of Save, wherever `showToolbarSave` is true: `Save · Import network · Export ▾`.
 - Export ▾ is one `DownloadMenu` with items JSON / CSV / XLSX. Each item calls the unchanged `:2782` handler with its format.
 - Import network keeps its current dialog and behaviour.
-- When browsing history (`isBrowsingHistoryNow`, read-only), **both** Import network and Export ▾ are hidden. `handleSuperExport` (`Workspace.tsx:2785`) always exports the *persisted* network, not the historical entry on screen, so offering it there would mislabel the file. Per-table Download (QFX-2b) stays, because it exports the displayed rows. (Amended at plan time, 2026-10-24.)
+- When browsing history (`isBrowsingHistoryNow`, read-only), Import network is hidden and Export ▾ stays visible. Export writes the latest **saved** network (`handleSuperExport`, `Workspace.tsx:2785`), not the historical entry on screen (user decision C2, 2026-10-24).
 - Chapter models are unchanged.
 
 **Done when**
@@ -219,7 +219,7 @@
 | Plants | Add plant | ID\*, City, State, Lat\*, Lng\* | ID = `nextFreeId` | never |
 | Warehouses | Add warehouse | ID\*, City, State, Lat\*, Lng\*, Status\* | ID = `nextFreeId`, Status `active` | never |
 | Customers | Add customer | ID\*, City, State, Lat\*, Lng\*, Status\* | ID = `nextFreeId`, Status `active` | never |
-| Plant Capability | Add capability | Plant\* ▾, Product\* ▾, Capacity\*, Cost / unit\* (same label as the table column) | none | no plants or no products ("Add a plant and a product first.") |
+| Plant Capability | Add capability | Plant\* ▾, Product\* ▾, Capacity\*, Cost per unit\* (the table column header is renamed from "Cost / unit" to match; user decision C4) | none | no plants or no products ("Add a plant and a product first.") |
 | Demand | Add demand | Customer\* ▾, Product\* ▾, Demand\* | none | no customers or no products ("Add a customer and a product first.") |
 | Distances | Add distance override | From\* ▾, To\* ▾, Miles\* | none | no plant→warehouse and no warehouse→customer pair possible ("Add warehouses with plants or customers first.") |
 
