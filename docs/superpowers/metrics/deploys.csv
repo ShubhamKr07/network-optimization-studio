@@ -3,3 +3,5 @@ deployed_at,service,sha,smoke_pass,failed_checks,incident,notes
 2026-09-11T19:41:19.613Z,nos-studio,unknown,yes,,,
 2026-09-21T19:40:46.926Z,nos-api,unknown,yes,,,
 2026-09-21T19:40:46.926Z,nos-studio,unknown,yes,,,
+2026-10-24T11:17:47.190Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"QFX; sha from Render get_deploy (live)"
+2026-10-24T11:17:47.190Z,nos-studio,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"QFX; sha from Render get_deploy (live)"

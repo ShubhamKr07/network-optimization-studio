@@ -4773,3 +4773,7 @@ Bundle tip `33687501` (QFX-R1 on top of `9bf1d1c0`). All counts measured 2026-10
 - solver pytest: 369/369.
 - `e2e_accuracy.py`: 99/99. `e2e_journey.py http://localhost:3421 super`: 37/37.
 - `E2E_BASE_URL=http://localhost:5421 pnpm e2e:gate`: 90 expected / 0 unexpected / 2 flaky. Both flaky tests exercise DataTable filter/paging, which QFX-R1 changed, so they were re-run alone with `--workers=1 --retries=0`: `bundle5-homepage-distances.spec.ts` + `input-tables-qa.spec.ts` 8/8 twice.
+
+### QFX-DEPLOY - push + deploy of the Quick Fixes bundle
+
+`origin/main` `1e84282a..4312b00c` pushed 2026-10-24 (includes DU's docs-only merge `aaf4106d`). The commit webhook started no build on either service (`list_deploys` after the push: nos-api still `ff5686b0`, nos-studio still `e55a0d45`), so both were triggered by API in the order QFX-7 requires: nos-api `dep-dbe95tnavr4c73a4djb0` live at `4312b00c` (health 200), then nos-studio `dep-dbe9724s728c73bfafd0` live at `4312b00c`. Preflight `ff5686b0..4312b00c`: schema unchanged, no migrations, no new env vars. Post-deploy: `/compare` 200 with `id="root"`; `pnpm smoke` 7/7. The smoke run left `smoke+dercom-15762@example.com` on production (no deletion endpoint; per `docs/ops/smoke.md` harmless, any cleanup is a separate approved operation).
