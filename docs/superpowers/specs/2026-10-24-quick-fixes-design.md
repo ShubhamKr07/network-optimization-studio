@@ -1,7 +1,7 @@
 # Quick Fixes Bundle (QFX) — Design
 
 **Date:** 2026-10-24
-**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) folded; product decisions L1–L3 decided 2026-10-24
+**Status:** approved in brainstorm (2026-10-24); Codex medium review (2026-10-24, 20 findings) and final Codex review (9 findings) folded; product decisions L1–L3 decided 2026-10-24
 **Scope:** 10 UI quick fixes across the Studio workspace. All are frontend except QFX-7, the one cross-layer item: removing `name` from super-model location rows touches the server validator.
 **Decision record:** `.lavish/quick-fixes-findings.html` (gitignored scratch). The decisions are restated normatively below, and this document is the authority.
 
@@ -55,12 +55,13 @@
 - Chapter **input** tables have `Upload ▾`/`Download ▾` (CSV, JSON).
   - Built from `components/data-table/useEntityFileMenus.tsx` and `DownloadMenu.tsx:14-33`.
   - Uploads go to the server import endpoint as `csvText` or a JSON document (`components/ImportDialog.tsx:96-114`).
-  - Downloads are built client-side (`lib/exportEntity.ts:48-61`, `contexts/ExportContext.tsx:70-118`, `lib/clientCsv.ts:30-33`).
+  - Downloads are **server-built**. `downloadEntityExport` calls `exportScenario` with `csv` or `json`, then saves the response (`lib/exportEntity.ts:48-61`). The server and OpenAPI support only those two formats (`artifacts/api-server/src/routes/scenarios.ts:626-627`, `lib/api-spec/openapi.yaml:733-738`). A few downloads are client-built (`contexts/ExportContext.tsx:70-118`, `lib/clientCsv.ts:30-33`).
 - **Result** tables are download-only (`ExportContext.tsx:26-41`).
 - `JadeFlowsTab.tsx:218-224` builds its own client-side download.
 - `components/workspace/super/SuperTableTab.tsx` has no file menus.
 
 **Change A — XLSX everywhere**
+- The OpenAPI export enum stays `csv | json`; XLSX never reaches the server.
 - Add `"xlsx"` to `DownloadFormat` and to every consumer of that type:
   - `DownloadMenu`
   - `exportEntity`
@@ -68,8 +69,12 @@
   - `clientCsv`
   - `useEntityFileMenus`
   - `JadeFlowsTab`
-- **Download.** The rows already built for CSV are written as a one-sheet workbook with the vendored `xlsx` package:
-  - same columns, order and header labels as the CSV
+- **Download (no API change).** XLSX is produced in the browser from the CSV the existing route already returns:
+  - Fetch the **CSV** export with the same `unit` and `runId` options. For client-built downloads, use the CSV text they already build.
+  - Parse the CSV (the same CSV parser `superFiles.ts` uses) and write a one-sheet workbook with the vendored `xlsx` package.
+  - Cell typing: a field becomes a numeric cell only if it matches `^-?(0|[1-9]\d*)(\.\d+)?$`. Everything else, including IDs like `007` and blanks, becomes a text cell (`t: "s"`). Text cells are never interpreted as formulas, so a value starting with `=` stays literal.
+  - Filename: the CSV filename with `.xlsx`.
+  - Same columns, order and header labels as the CSV
   - sheet name = the entity's file stem
   - MIME type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 - **Upload** (input tables only). The browser reads the workbook with `xlsx`:
@@ -87,12 +92,18 @@
   - **XLSX:** first sheet only. The sheet name is ignored on upload; download has one sheet named `<table file>`.
   - **JSON:** an object `{ "<tableKey>": [rows] }`, the same shape as the whole-network document restricted to one key. On upload, any other key is an error: "This file must contain only <tableKey>." A bare array is rejected with the same message.
 - **Parsing.** Reuse `superFiles.ts` (`readSheet` with the table's `Col[]`). Add a `parseSuperTableFile(tableKey, file)` entry point that does not route by filename or sheet name.
+- **Duplicates.** `parseSuperTableFile` rejects duplicate keys **within the file** before the Replace/Merge dialog is offered. It uses the same key rules as the server (`services/superNetwork.ts:13-35`):
+  - location IDs share one namespace across plants, warehouses and customers
+  - products are their own namespace
+  - pair tables use `pairKey`
+- **Location IDs across tables.** For Replace and Merge on a location table, a key that collides with another location table's ID is reported on Save by the server's global-uniqueness check.
 - **Write semantics (decision L1).** After a file parses without errors, a dialog asks the user how to apply it. Both choices write **only the draft**; nothing is persisted until the user presses Save, which goes through the normal input-write path like any inline edit.
   - **Replace table:** the table's rows become exactly the file's rows. Rows missing from the file are removed.
   - **Merge (upsert):** a file row whose key matches an existing row overwrites that row in place. A new key is appended. Existing rows not in the file are kept. Keys are the server's `KEY` (`services/superNetwork.ts`): `id` for products and locations; `(plantId, productId)`, `(customerId, productId)` and `(fromId, toId)` for the pair tables.
   - The dialog shows the counts each choice would produce: "Replace: N rows (M removed)" and "Merge: A added, U updated, K kept". It has buttons **Replace**, **Merge** and **Cancel**. Cancel leaves the draft untouched.
   - Parse errors show in the dialog's place, and no choice is offered.
-  - Rejected: writing through `PUT …network?mode=replace`. It resets omitted tables to defaults and clears the road-distance cache (`routes/superNetwork.ts:54`, `roadDistances: "clear"`).
+  - Per-table uploads **never** call `POST /scenarios/:scenarioId/network/import` (`routes/superNetwork.ts:32-54`). They change local draft state only (`SuperTableTab` → `updateInputsField`, `Workspace.tsx:3835-3842`). Save uses the existing whole-input PATCH (`Workspace.tsx:2134-2176`).
+  - Rejected: writing through `POST …network/import?mode=replace`. It resets omitted tables to defaults and clears the road-distance cache (`routes/superNetwork.ts:54`, `roadDistances: "clear"`).
 - **Validation.** Cross-table errors are reported on Save through `describeWriteError` like any other write (e.g. demand still referencing a removed customer).
 
 **Done when**
@@ -125,7 +136,7 @@
 - The max-coverage `paramsSlot` instance embedded in `SolveDialog` (`:4672-4675`) does **not** pass `showSolveButton`, because the dialog has its own Solve.
 - When `solveBlockedReason` is non-null, it is shown under the button and the button is disabled.
 - The header "Run Optimizer" keeps opening `SolveDialog` unchanged (user decision).
-- **Super readiness (decision L2): block both buttons.** For the super model, `solveBlockedReason` (the single shared input) is also set from the server precheck that `SuperReadinessPanel` renders (`Workspace.tsx:1561`, `usePrecheckScenario`). The rule: when the draft is **clean** and `precheck.errors` is non-empty, `solveBlockedReason` is "Fix the readiness issues above before solving." plus the first error message. That one value disables **both** the tab Solve and the `SolveDialog` Solve, and is shown under each.
+- **Super readiness (decision L2): block both buttons.** For the super model, `solveBlockedReason` (the single shared input) is also set from the server precheck that `SuperReadinessPanel` renders (`Workspace.tsx:1561`, `usePrecheckScenario`). The rule uses the existing dirty flag (`Workspace.tsx:1927-1930`): when the draft is **clean** and `precheck.errors` is non-empty, `solveBlockedReason` is "Fix the readiness issues above before solving." plus the first error message. That one value disables **both** the tab Solve and the `SolveDialog` Solve, and is shown under each.
   - When the draft is **dirty**, the precheck describes the saved row rather than the draft, so it does not block. `handleSolve` saves first and the server rejects an invalid solve as it does today. Precheck refetches after the save.
   - When the precheck is loading or fails to load, it does not block.
   - The max-coverage objective hint keeps priority when both apply (only max-coverage can produce that hint, so they never collide in practice).
@@ -216,7 +227,11 @@
   - Text is trimmed.
   - Required means non-empty after trimming.
   - Lat must be −90..90 and lng −180..180.
-  - Numbers must be finite and ≥ 0; **0 is allowed** for capacity, cost, demand and miles.
+  - Lat and lng are signed finite numbers (no ≥ 0 rule).
+  - Capacity, cost per unit, demand and miles must be finite and ≥ 0; **0 is allowed**.
+  - Server limits (`superInputs.ts:4,20-27,85-86`): products 10, plants 20, warehouses 50, customers 500, and warehouses × customers × products ≤ 50,000.
+    - At a table's limit, its Add button is disabled with "Limit reached: at most N <rows>."
+    - An add that would push warehouses × customers × products past 50,000 shows that limit inline and cannot be confirmed.
   - IDs must be unique: across plants, warehouses and customers together, and separately among products.
   - The composite pair must not already exist (plant/product, customer/product, from/to).
 - Errors show inline, and Add stays disabled until the form is valid.
@@ -255,7 +270,7 @@
   - remove it from the `Workspace.tsx:698-709` projection
   - the copy action keeps the new-ID behaviour and drops the suffix
 - **Samples and template:** remove `name` from location rows.
-- **Tests:** update every test listed above. Add one API test with a populated real-shape fixture that has rows without `name` and rows with `name`; both are accepted and stripped.
+- **Tests:** update every test listed above, plus `SuperEntityDialog.test.tsx:5-35` and `SuperInputMap.test.tsx:12-16,88-107`. Then do a repo-wide search for super **location** `name` in fixtures and assertions (studio, api-server, e2e) and update every hit. Product `name` stays valid and is left untouched. Add one API test with a populated real-shape fixture that has rows without `name` and rows with `name`; both are accepted and stripped.
 - **Unchanged:**
   - `solve.py` (the label falls back; hard rule #6 is unaffected)
   - solved results already stored (results are immutable snapshots)
@@ -286,7 +301,7 @@
     - "Open mines": transport-coal
     - "Open facilities": two-echelon-gold-au, two-echelon-jade-us, super-model
     - An unknown model falls back to "Open sites".
-  - Label = `displayId · City, ST`, using the same display-code and city/state fields the tooltip uses (no type prefix, no customer count). City is omitted if absent.
+  - Label = `displayId · ` + `formatCityState(city, state)` (`lib/formatLocation.ts:12-14`), reusing the existing formatter rather than a new one. No type prefix and no customer count. When both city and state are empty, the label is just `displayId`.
   - Order: ascending ID, numeric-aware.
   - With 5 or fewer open sites, all are listed and "+N more" is absent.
   - "+N more" is a button that expands to the full list; "Show fewer" collapses it.
@@ -303,7 +318,12 @@
 - Road shows "Fetch road distances".
 
 **Change**
-- **Segmented control.** Replace the select with `Haversine | Circuity | Road`: `role="radiogroup"` with arrow-key navigation. Selecting a segment writes `distanceMethod` to the draft immediately.
+- **Segmented control.** Replace the select with `Haversine | Circuity | Road`. Selecting a segment writes `distanceMethod` to the draft immediately. Accessibility contract:
+  - The container is `role="radiogroup"` with `aria-label="Distance method"`.
+  - Each segment is a `<button role="radio" aria-checked>`.
+  - Roving tabindex: only the checked segment has `tabIndex=0`; the others have `-1`.
+  - ←/↑ and →/↓ move to the previous or next segment and select it, wrapping at the ends. Home and End go to the first and last segment.
+  - Space and Enter select the focused segment.
 - **Circuity factor.** Shown under Circuity:
   - a compact text input (~6ch, `inputMode="decimal"`) plus an **Apply** button
   - typing never touches the draft
@@ -387,9 +407,10 @@ At bundle end:
 ## 4. Order and dependencies
 
 1. QFX-10 (global CSS) and QFX-4 (`DataTable`) first. They touch shared components the others render.
-2. QFX-7 before QFX-6, because the forms must not include Name.
+2. QFX-7 before QFX-2 and QFX-6. It changes the `SUPER_TABLE_FILES` location columns and the legacy `name` parsing that QFX-2's per-table parser reuses, and the forms must not include Name.
 3. QFX-2 before QFX-1, because Export ▾ reuses the XLSX-capable `DownloadMenu`.
-4. QFX-3, QFX-5, QFX-8 and QFX-9 are independent.
+4. All tasks are sequential commits on one bundle branch, so each later task builds on the earlier ones' code. No parallel branches share the parser.
+5. QFX-3, QFX-5, QFX-8 and QFX-9 are independent.
 
 ## 5. Out of scope
 
