@@ -26,8 +26,8 @@ function collectSourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 /** Each `<select` opening tag's own className: the first `className="…"` before its first `<option`. */
-function nativeSelects(): Array<{ site: string; className: string | null }> {
-  const found: Array<{ site: string; className: string | null }> = [];
+function nativeSelects(): Array<{ site: string; className: string | null; dynamic: boolean }> {
+  const found: Array<{ site: string; className: string | null; dynamic: boolean }> = [];
   for (const file of collectSourceFiles(SRC_ROOT)) {
     const src = readFileSync(file, "utf8");
     for (const m of src.matchAll(/<select\b/g)) {
@@ -37,6 +37,7 @@ function nativeSelects(): Array<{ site: string; className: string | null }> {
       found.push({
         site: `${relative(SRC_ROOT, file).split(sep).join("/")}:${line}`,
         className: /className="([^"]*)"/.exec(tag)?.[1] ?? null,
+        dynamic: /className=\{/.test(tag),
       });
     }
   }
@@ -63,5 +64,11 @@ describe("native <select> styling (QFX-10)", () => {
     expect(selects.length).toBeGreaterThanOrEqual(3);
     const offenders = selects.filter(s => /(^|\s)(px|pr|pe)-\S+|(^|\s)bg-white(\s|$)/.test(s.className ?? ""));
     expect(offenders).toEqual([]);
+  });
+
+  it("no native select computes its className (className={…} is invisible to the literal check above)", () => {
+    // Asserted allow-list: add a site here only after checking its padding-right/bg by hand.
+    const ALLOWED_DYNAMIC_CLASSNAME: string[] = [];
+    expect(nativeSelects().filter(s => s.dynamic).map(s => s.site)).toEqual(ALLOWED_DYNAMIC_CLASSNAME);
   });
 });

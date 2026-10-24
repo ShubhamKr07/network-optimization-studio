@@ -3,7 +3,6 @@ import type { ColumnDef } from "@/components/data-table/types";
 import { DeleteRowButton, DraftNumberInput, READ_ONLY_TITLE, StatusToggle } from "@/components/data-table/entityCells";
 import type { SuperTable } from "@/lib/superNetwork";
 import { superRowKey } from "@/lib/superFiles";
-export { superRowKey };
 
 export type Row = Record<string, unknown>;
 /** DataTable row: the index is the React/row key, so editing an id cell never remounts its row. */

@@ -13,6 +13,8 @@ import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToE
 import { Button } from "@/components/ui/button";
 import { buildCompareCsv, buildCompareJson } from "@/lib/compareCsv";
 import { downloadAs } from "@/lib/clientCsv";
+import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
@@ -886,6 +888,8 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               "cost-summary-compare",
               format,
               format === "json" ? buildCompareJson(compareRows, compareScenarios, unitLabel) : buildCompareCsv(compareRows, compareScenarios),
+            ).catch(err =>
+                toast({ title: "Export failed", description: describeWriteError(err, "Could not export the table."), variant: "destructive" }),
             )
           }
         />,

@@ -11,6 +11,8 @@ import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu, type DownloadFormat } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
 import { downloadAs } from "@/lib/clientCsv";
+import { toast } from "@/hooks/use-toast";
+import { describeWriteError } from "@/lib/describeWriteError";
 import {
   jadeFlowsCsv,
   jadeFlowsJson,
@@ -221,6 +223,8 @@ export function JadeFlowsTab({
         leg.fileBase,
         format,
         format === "json" ? jadeFlowsJson(leg, screenRows, toDisplay, resolvedUnitLabel!) : jadeFlowsCsv(leg, screenRows, toDisplay, resolvedUnitLabel!),
+      ).catch(err =>
+          toast({ title: "Export failed", description: describeWriteError(err, "Could not export the table."), variant: "destructive" }),
       );
   };
   const formatRowDistance = (raw: number): string =>

@@ -4,11 +4,9 @@ import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
-import { XLSX_MIME } from "@/lib/clientCsv";
+import { FILE_ACCEPT } from "@/lib/clientCsv";
 import { parseSuperTableFile, SUPER_TABLE_FILES, superRowKey, type TableKey, type TableParseResult } from "@/lib/superFiles";
 import type { Row } from "./superTables";
-
-const ACCEPT: Record<DownloadFormat, string> = { csv: ".csv,text/csv", json: ".json,application/json", xlsx: `.xlsx,${XLSX_MIME}` };
 
 /** A file row whose key exists overwrites that row in place; a new key is appended (file order); other rows are kept. */
 export function mergeSuperRows(table: TableKey, existing: Row[], incoming: Row[]): Row[] {
@@ -56,7 +54,7 @@ export function SuperTableUploadDialog({ table, format, rows, onApply, onClose }
           <DialogDescription>Changes apply to the unsaved draft. Press Save to keep them.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2 text-sm">
-          <input type="file" accept={ACCEPT[format]} aria-label={`${file} file`} data-testid={`super-upload-file-${table}`}
+          <input type="file" accept={FILE_ACCEPT[format]} aria-label={`${file} file`} data-testid={`super-upload-file-${table}`}
             className="text-xs" onChange={e => void handleFile(e)} />
           {result && !result.ok && (
             <ul className="text-xs text-destructive max-h-40 overflow-auto" data-testid="super-upload-errors">

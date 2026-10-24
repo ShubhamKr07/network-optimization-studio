@@ -76,8 +76,6 @@ export function DataTable<T>({
   const [sort, setSort] = useState<SortState | null>(null);
   const cycleSort = (id: string) =>
     setSort(s => (!s || s.id !== id ? { id, dir: 1 } : s.dir === 1 ? { id, dir: -1 } : null));
-  // `columns` is rebuilt per render (types.ts), so this is not memoised; it is a no-op when unsorted.
-  const sortedRows = sortRows(filteredRows, sort, columns, sections);
   // Reset key = canonical filter state + sorted key set of ALL effective rows
   // (pageResetKey) + the sort: any filter or sort change, or add/delete, resets to
   // page 1; a cell edit or a reorder does not.
@@ -85,6 +83,20 @@ export function DataTable<T>({
     () => pageResetKey(rows, rowKey, filterState) + KEY_SEP + sortKey(sort),
     [rows, rowKey, filterState, sort],
   );
+  // QFX-R1 — the order is frozen between resetKey changes: editable cells commit per
+  // keystroke, and re-sorting then would make the edited row jump while typing.
+  const frozenOrder = useRef<{ key: string; rank: Map<string, number> } | null>(null);
+  let sortedRows = filteredRows;
+  if (!sort) frozenOrder.current = null; // a later sort must recompute, never reuse ranks from before the clear
+  else {
+    if (frozenOrder.current?.key !== resetKey) {
+      sortedRows = sortRows(filteredRows, sort, columns, sections);
+      frozenOrder.current = { key: resetKey, rank: new Map(sortedRows.map((r, i) => [rowKey(r), i])) };
+    } else {
+      const { rank } = frozenOrder.current;
+      sortedRows = [...filteredRows].sort((a, b) => (rank.get(rowKey(a)) ?? rank.size) - (rank.get(rowKey(b)) ?? rank.size));
+    }
+  }
   // The key the table will have once a focus jump has cleared every filter and the sort.
   const clearedKey = useMemo(() => pageResetKey(rows, rowKey, {}) + KEY_SEP + sortKey(null), [rows, rowKey]);
   const paged = usePagedRows(sortedRows, resetKey);

@@ -2,6 +2,7 @@ import { render as rtlRender, screen, fireEvent, cleanup, within } from "@testin
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import * as clientCsv from "@/lib/clientCsv";
+import * as useToast from "@/hooks/use-toast";
 import { chooseDownload } from "@/__tests__/helpers/downloadMenu";
 import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
@@ -1243,6 +1244,15 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(bar).toHaveClass("justify-between");
     expect(bar.firstElementChild).toBe(screen.getByTestId("button-toggle-compare"));
     expect(bar.lastElementChild).toBe(screen.getByTestId("button-download-cost-summary"));
+  });
+
+  it("QFX-R1: a failing compare export toasts instead of an unhandled rejection", async () => {
+    vi.spyOn(clientCsv, "downloadAs").mockRejectedValue(new Error("boom"));
+    const toastSpy = vi.spyOn(useToast, "toast").mockImplementation((() => ({})) as never);
+    renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
+    enterCompare();
+    chooseDownload("button-download-cost-summary", "button-download-cost-summary-xlsx");
+    await vi.waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Export failed", variant: "destructive" })));
   });
 
   it("in compare mode, Download CSV (right of the bar) downloads the comparison table as cost-summary-compare.csv", () => {

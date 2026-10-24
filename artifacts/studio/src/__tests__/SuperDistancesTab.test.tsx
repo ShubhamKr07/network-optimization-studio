@@ -109,6 +109,12 @@ describe("SuperDistancesTab method segmented control (QFX-9)", () => {
 });
 
 describe("SuperDistancesTab circuity factor + Apply (QFX-9)", () => {
+  it("QFX-R1: a stored 4-decimal value shows no error on load (Apply is already disabled)", () => {
+    setup({}, { method: "circuity", factor: 1.1234 });
+    expect(screen.queryByTestId("super-circuity-error")).toBeNull();
+    expect(screen.getByTestId("super-circuity-apply")).toBeDisabled();
+  });
+
   it("is shown only under Circuity", () => {
     setup({}, { method: "haversine" });
     expect(screen.queryByTestId("super-circuity-factor")).toBeNull();

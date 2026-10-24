@@ -538,6 +538,20 @@ describe("DataTable — sort (QFX-4)", () => {
     expect(visibleIds()).toEqual(["row-r1", "row-r2", "row-r3", "row-r4", "row-r5"]);
   });
 
+  it("a value-only edit in the sorted column keeps row order; the next header click re-sorts", async () => {
+    const user = userEvent.setup();
+    const props = { rowKey: (r: Row) => r.id, columns, testIds: { row: (r: Row) => `row-${r.id}` } };
+    const { rerender } = render(<DataTable<Row> rows={mixed} {...props} />);
+    await user.click(within(head("Demand")).getByRole("button"));
+    expect(visibleIds()).toEqual(["row-r3", "row-r1", "row-r4", "row-r5", "row-r2"]);
+    // r3 (2) is edited to 99 as if typed: new row object, same key set.
+    const edited = mixed.map(r => (r.id === "r3" ? { ...r, demand: 99 } : r));
+    rerender(<DataTable<Row> rows={edited} {...props} />);
+    expect(visibleIds()).toEqual(["row-r3", "row-r1", "row-r4", "row-r5", "row-r2"]);
+    await user.click(within(head("Demand")).getByRole("button"));
+    expect(visibleIds()).toEqual(["row-r3", "row-r5", "row-r1", "row-r4", "row-r2"]);
+  });
+
   it("numbers compare numerically; blanks last in both directions; ties keep input order", async () => {
     const user = userEvent.setup();
     renderTable({ rows: mixed });
@@ -630,6 +644,34 @@ describe("DataTable — sort (QFX-4)", () => {
     expect(ids("sec-added")).toEqual(["row-A2", "row-A1"]);
     expect(screen.getByTestId("sec-base").compareDocumentPosition(screen.getByTestId("sec-added")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const th of screen.getAllByRole("columnheader", { name: "Demand" })) expect(th).toHaveAttribute("aria-sort", "descending");
+  });
+
+  it("QFX-R1: after the sort is cleared, edits made while unsorted are honoured when the same sort is chosen again", async () => {
+    const base: Row[] = [
+      { id: "a", city: "A", demand: 1 },
+      { id: "b", city: "B", demand: 2 },
+      { id: "c", city: "C", demand: 3 },
+    ];
+    function Host() {
+      const [rows, setRows] = useState(base);
+      const [focus, setFocus] = useState<DataTableFocus<Row> | null>(null);
+      return (
+        <>
+          <button onClick={() => setFocus({ token: 1, matches: r => r.id === "b" })}>jump</button>
+          <button onClick={() => setRows(base.map(r => (r.id === "a" ? { ...r, demand: 99 } : r)))}>edit</button>
+          <DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} focus={focus} testIds={{ row: r => `row-${r.id}` }} />
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Host />);
+    await user.click(within(head("Demand")).getByRole("button"));
+    expect(visibleIds()).toEqual(["row-a", "row-b", "row-c"]);
+    await user.click(screen.getByText("jump")); // clears the sort
+    expect(head("Demand")).toHaveAttribute("aria-sort", "none");
+    await user.click(screen.getByText("edit"));
+    await user.click(within(head("Demand")).getByRole("button"));
+    expect(visibleIds()).toEqual(["row-b", "row-c", "row-a"]);
   });
 
   it("a focus jump clears the sort and lands on the target's page in unsorted order", async () => {

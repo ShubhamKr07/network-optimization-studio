@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   usePreviewScenarioImport,
   useApplyScenarioImport,
@@ -16,7 +16,7 @@ import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { describeWriteError } from "@/lib/describeWriteError";
 import type { DownloadFormat } from "@/components/data-table/DownloadMenu";
-import { XLSX_MIME } from "@/lib/clientCsv";
+import { FILE_ACCEPT } from "@/lib/clientCsv";
 
 interface ImportDialogProps {
   open: boolean;
@@ -59,11 +59,10 @@ function parseJsonDocument(text: string): ImportDocument | null {
   return null;
 }
 
-const ACCEPT: Record<DownloadFormat, string> = { csv: ".csv,text/csv", json: ".json,application/json", xlsx: `.xlsx,${XLSX_MIME}` };
-
 const rowLabel = (rowIndex: number | undefined) => (rowIndex === undefined ? undefined : `row ${rowIndex + 1}`);
 
 export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = "csv", onApplied, enableFilters = false }: ImportDialogProps) {
+  const selection = useRef(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [request, setRequest] = useState<ImportRequest | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -94,8 +93,9 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
     previewMutation.reset();
     setRequest(null);
     setFileName(file.name);
+    const mine = ++selection.current;
     if (format === "xlsx") {
-      void submitXlsx(file);
+      void submitXlsx(file, () => mine === selection.current);
       return;
     }
     const reader = new FileReader();
@@ -116,14 +116,15 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
   }
 
   // QFX-2a — no server change: the workbook's first sheet becomes the same csvText a CSV upload sends.
-  async function submitXlsx(file: File) {
+  async function submitXlsx(file: File, isCurrent: () => boolean) {
     try {
       const { xlsxFileToCsvText } = await import("@/lib/xlsxFile");
       const r = await xlsxFileToCsvText(file);
+      if (!isCurrent()) return; // a slower read from an older selection must not overwrite a newer one
       if (r.ok) submit({ entity, csvText: r.csvText });
       else setFileError(r.message);
     } catch {
-      setFileError("Could not read the file.");
+      if (isCurrent()) setFileError("Could not read the file.");
     }
   }
 
@@ -193,7 +194,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, format = 
           <div className="flex items-center gap-2">
             <input
               type="file"
-              accept={ACCEPT[format]}
+              accept={FILE_ACCEPT[format]}
               onChange={handleFileChange}
               data-testid={`input-import-file-${entity}`}
               className="text-xs"

@@ -4744,3 +4744,21 @@ Bundle tip `37b052a8` (`quick-fixes`, all 11 code tasks + QFX-QA). Every count m
 - `E2E_BASE_URL=http://localhost:5421 pnpm e2e:gate` (local api 3421 / studio 5421): **92 expected / 0 unexpected / 0 flaky** (`results.json` stats), 8.7m.
 
 Next: QFX-FINISH (finishing-a-development-branch, `/harness-retro QFX`, then stop for merge approval). Deploy note: QFX-7 changes the API validator, so `nos-api` must deploy before or with `nos-studio`.
+
+### QFX-R1 - whole-branch review fixes
+
+Fixes from the Quick Fixes whole-branch review (spec `2026-10-24-quick-fixes-design.md` stays the authority). Failing test first for each behavioural item.
+
+1. `DataTable.tsx`: sorted order is frozen between `resetKey` changes (filter / sort / row-key-set add-delete); a value-only edit in the sorted column no longer makes the row jump or leave its page. Test in `DataTable.test.tsx`; `SuperTableTab.test.tsx` QFX-4 regression updated to the frozen order (a delete still re-sorts).
+2. `JadeFlowsTab` / `CostSummaryTab`: `downloadAs(...)` now `.catch`es with an "Export failed" destructive toast via `describeWriteError` (inline, as `mutationErrorSurface` requires). Tests in both tab test files.
+3. `CostSummaryTab` Ch.5 band rows: NOT reproducible, no change - `noIncumbent` is only ever true for `max-coverage-us` (line 516) while band rows render only for `delivery-teaching-us`.
+4. `SuperDistancesTab`: no circuity error while the text equals the stored value (e.g. 1.1234). Test seen failing first.
+5. `ImportDialog.submitXlsx`: stale-selection ref guard. Test (older selection resolves last) seen failing first.
+6. `nativeSelectStyle.test.ts`: asserts no `<select className={...}>` outside an explicit (empty) allow-list.
+7. `FILE_ACCEPT` exported once from `lib/clientCsv.ts`; duplicate `ACCEPT` maps removed.
+8. `superFiles.ts`: `readTable` wrapper inlined (`t.legacy` kept).
+9. `superTables.tsx`: `superRowKey` re-export removed; `SuperTableTab` imports from `@/lib/superFiles`.
+
+Review follow-up (amend): the frozen order is dropped whenever the sort is off, so re-choosing the same sort after a focus-jump clear re-sorts by the edited values (test added).
+
+Measured (serial, touched files only): nativeSelectStyle, sortableEmptyHeaders, mutationErrorSurface, rawErrorMessageSurface, DataTable, superFiles, SuperTableTab, SuperDistancesTab, ImportDialog, CostSummaryTab, JadeFlowsTab, SuperNetworkImportDialog = 12 files, 330 tests passing; `pnpm run typecheck` clean. No `rawPaletteClasses` test exists on this branch.
