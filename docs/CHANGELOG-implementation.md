@@ -4559,6 +4559,14 @@ Deferred / follow-ups:
 - a11y: file input `aria-label`, mode fieldset `<legend class="sr-only">`, `DialogDescription` on the three new super dialogs.
 - Fail-first proven for the pending-close tests, the `.CSV` tests and the allow-list guard (duplicate site injected, then removed). Studio 2893/2893, typecheck clean.
 
+### SM2-D - Super Model Phases 2–3 + Input Map production deploy (2026-10-23)
+
+Whole-branch review of `9d9b6561..80febe12` (Opus, split API/solver and Studio) found no critical/high; one medium (road/import dialog could close mid-request, dropping the resync) and five lows, fixed in SM2-13 `fe6828be` (injective `pairKey` in road readiness; unused re-export) and SM2-14 `5a62f78f` (dialogs cannot close while pending; case-insensitive `.CSV`; allow-list exact-one-site guard; a11y labels/legend/descriptions), merged as `ff5686b0`. Gate on merged `main`: api-server 2171/2171, studio 2893/2893, pytest 369, `e2e_accuracy.py` 99/99 (0 concurrent vitest).
+- Pushed `9d9b6561..ff5686b0` to `origin/main`; no webhook build on either service (as before). Triggered manually, API first: `nos-api` `dep-dbdnoo8n74is739e9bng` live 15:26:41Z (healthz 200, `super-model` in `/api/models`, `POST …/network/road-distances` 401 unauth); then `nos-studio` `dep-dbdnpnnb9u1s73abaahg` live 15:27:54Z (`/compare` 200 with `id="root"`, `/super-model` 200, bundle contains `super-map-toolbar` / "Fetch road distances" / "Export JSON").
+- `ORS_API_KEY` NOT set on `nos-api` (user supplies later): the road fetch returns 503 `road_distances_unavailable` by design; `render.yaml` declares it `sync: false`, Blueprint not re-applied.
+- Expected one-time effect: `SOLVER_CODE_HASH` covers `merge_inputs.py`, so every cached solve result misses once.
+- Not yet done: a real-browser production smoke of CSV/XLSX import → Input Map; the live ORS check once the key exists.
+
 ### CH5T - rename Chapter 5 delivery card
 
 `artifacts/studio/src/lib/chapters.ts`: `delivery-teaching-us` card title "Delivery Company Teaching Example" -> "Introduction to Network Design"; lab header "Delivery Company · Model Lab" -> "Introduction to Network Design · Model Lab". Per user, the API manifest `name` (`solvers/delivery-teaching-us/manifest.json`) and code comments are unchanged. No studio test or e2e spec asserts either old string (grep). The full gate was not run (user stopped it).
