@@ -39,7 +39,7 @@ const HEX_RAW = [
   "text-body","text-muted","text-faint","text-brand",
   "surface-band","surface-band-fg","surface-selected","surface-sunken",
   "line","line-strong","primary-hover","primary-active","link","link-hover","focus-ring",
-  "success","success-bg","success-border","warning","warning-bg","warning-border","danger","danger-bg","danger-border",
+  "success","success-bg","success-border","warning","warning-bg","warning-border","danger","danger-bg","danger-border","info","info-bg","info-border",
   "band-0","band-1","band-2","band-3","band-4",
   "map-warehouse","map-warehouse-open","map-customer","map-customer-stroke","map-flow","map-inactive",
   "map-ring-forced-open","map-ring-select","map-ring-multiselect","map-default-stroke","map-plant",

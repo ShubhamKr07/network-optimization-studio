@@ -207,6 +207,8 @@ test.describe("DU-1.5 — Phase 1 real-browser QA", () => {
           });
           expect((await textBelowFloor(page)).some(l => l.includes("du1-probe")), "detector must flag a 10px probe").toBe(true);
           await page.evaluate(() => document.querySelector('[data-testid="du1-probe"]')?.remove());
+          // An ungenerated `text-2xs` class would fall back to inherited size and still pass the detector above.
+          await expect(page.locator("div.text-2xs", { hasText: /^Distance bands$/ })).toHaveCSS("font-size", "11px");
         }
         expect(await textBelowFloor(page)).toEqual([]);
 
@@ -316,16 +318,23 @@ test.describe("DU-1.5 — Phase 1 real-browser QA", () => {
       await expect(close).toBeVisible();
       await expect(close).toHaveCSS("opacity", "1");
 
+      // Computed colours can be oklab()/color() with alpha, so let the browser composite them:
+      // paint the toast bg, then the (translucent) icon colour over it, and read back the pixel.
       const px = await close.evaluate(el => {
         const li = el.closest("li")!;
-        return { color: getComputedStyle(el).color, bg: getComputedStyle(li).backgroundColor };
+        const color = getComputedStyle(el).color, bg = getComputedStyle(li).backgroundColor;
+        const ctx = document.createElement("canvas").getContext("2d", { colorSpace: "srgb" })!;
+        ctx.fillStyle = bg; ctx.fillRect(0, 0, 1, 1);
+        ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+        const icon = Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+        ctx.fillStyle = bg; ctx.fillRect(0, 0, 1, 1);
+        return { color, bg, icon, bgRgb: Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)) };
       });
-      const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
       const lum = ([r, g, b]: number[]) => {
         const f = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
         return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
       };
-      const [l1, l2] = [lum(rgb(px.color)), lum(rgb(px.bg))].sort((a, b) => b - a);
+      const [l1, l2] = [lum(px.icon), lum(px.bgRgb)].sort((a, b) => b - a);
       const ratio = (l1 + 0.05) / (l2 + 0.05);
       expect(ratio, `close icon ${px.color} on toast ${px.bg}`).toBeGreaterThanOrEqual(3);
       await page.screenshot({ path: test.info().outputPath("du1-destructive-toast.png") });
