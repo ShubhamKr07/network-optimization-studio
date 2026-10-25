@@ -51,6 +51,7 @@ vi.mock("react-leaflet", async () => {
 
 const { NetworkMap, buildCustomerPopupHtml } = await import("@/components/NetworkMap");
 const { getBandColor } = await import("@/lib/bandPalette");
+const { jadeRouteDataset, jadeRouteResult } = await import("./fixtures/jadeRouteFixture");
 
 const dataset = {
   warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
@@ -1275,7 +1276,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
   const popupInfo = {
     lat: 41, lng: -91,
     customerCity: "Sampleburg", customerState: "SB",
-    warehouseCity: "Testville", warehouseState: "TS",
+    warehouses: ["Testville, TS"],
     distanceMi: 1234, band: 0, bandLabelText: "—",
   };
 
@@ -2203,5 +2204,104 @@ describe("NetworkMap output selection focus (DU-3.3)", () => {
     fireEvent.click(m.markers()[0]);
     fireEvent.click(m.markers()[0]);
     expect(calls).toEqual([null, "W1", null]);
+  });
+});
+
+// ── DU-3.4 — popup hygiene, per-product routes (incl. split), legend yields ──
+describe("NetworkMap popup + legend (DU-3.4)", () => {
+  const baseProps = {
+    warehouseStatuses: [], showRoutes: true, bands: [500, 1000], distanceUnit: "mi" as const,
+    multiSelectedWarehouseIds: [], multiSelectedCustomerIds: [],
+    onToggleWarehouseMultiSelect: () => {}, onToggleCustomerMultiSelect: () => {},
+  };
+  const mountJade = (dataset = jadeRouteDataset) => {
+    tooltipCalls.length = 0;
+    const view = render(
+      <UnitProvider><NetworkMap {...baseProps} dataset={dataset} result={jadeRouteResult} plants={dataset.plants} /></UnitProvider>,
+    );
+    const customerMarkers = () => Array.from(view.container.querySelectorAll<HTMLElement>(".leaflet-overlay-pane path.leaflet-interactive"));
+    return { ...view, customerMarkers };
+  };
+  // Customer tooltips are the only ones with offset [0, -4] (route/warehouse/plant tooltips also name customers).
+  const tooltipTexts = () => tooltipCalls.filter((c) => (c.props.offset as number[])?.[1] === -4).map((c) => render(<>{c.children}</>).container.textContent ?? "");
+
+  it("injection: customer, warehouse, product and plant names render escaped in the popup", () => {
+    const evil = "<script>alert(1)</script>";
+    const ds = {
+      ...jadeRouteDataset,
+      warehouses: jadeRouteDataset.warehouses.map((w) => (w.id === "W1" ? { ...w, city: evil } : w)),
+      customers: jadeRouteDataset.customers.map((c) => (c.id === "C1" ? { ...c, city: evil } : c)),
+      plants: jadeRouteDataset.plants!.map((p) => (p.id === "P1" ? { ...p, city: evil } : p)),
+      products: jadeRouteDataset.products!.map((p) => (p.id === "steel" ? { ...p, name: evil } : p)),
+    };
+    const { container, customerMarkers } = mountJade(ds);
+    fireEvent.click(customerMarkers()[0]); // C1
+    const content = container.querySelector(".leaflet-popup-content")!;
+    expect(content.textContent).toContain(evil); // shown as text...
+    expect(content.querySelector("script")).toBeNull(); // ...never parsed as markup
+    expect(buildCustomerPopupHtml({ lat: 0, lng: 0, customerCity: evil, customerState: "", warehouses: [evil], distanceMi: 1, band: 0, bandLabelText: evil }, "mi")).not.toContain("<script>");
+  });
+
+  it("split: header reads 'Split across 2 warehouses' with one row per product, each with its own warehouse", () => {
+    const { container, customerMarkers } = mountJade();
+    fireEvent.click(customerMarkers()[1]); // C2
+    const text = container.querySelector(".leaflet-popup-content")!.textContent!;
+    expect(text).toContain("Split across 2 warehouses");
+    expect(text).toContain("Steel via Whiteville, TX");
+    expect(text).toContain("Wire via Wardtown, OK");
+    expect(text).toContain("from Pton, OH: 60");
+  });
+
+  it("a single-warehouse customer shows the warehouse name and its two product rows", () => {
+    const { container, customerMarkers } = mountJade();
+    fireEvent.click(customerMarkers()[0]); // C1
+    const text = container.querySelector(".leaflet-popup-content")!.textContent!;
+    expect(text).not.toContain("Split across");
+    expect(text).toContain("Whiteville, TX");
+    expect(text).toContain("Steel via");
+    expect(text).toContain("Wire via");
+  });
+
+  it("tooltip suppression: the selected customer's tooltip is dropped, other customers keep theirs", () => {
+    const { customerMarkers } = mountJade();
+    expect(tooltipTexts().filter((t) => t.includes("Cville"))).not.toHaveLength(0); // not vacuous
+    tooltipCalls.length = 0;
+    fireEvent.click(customerMarkers()[0]); // C1 = Cville
+    const after = tooltipTexts();
+    expect(after.some((t) => t.includes("Cville"))).toBe(false);
+    expect(after.some((t) => t.includes("Splitburg"))).toBe(true);
+  });
+
+  it("legend fades to opacity-15 while a popup is open and restores on close", () => {
+    const { container, customerMarkers } = mountJade();
+    const legend = () => container.querySelector('[data-testid="map-legend"]')!;
+    expect(legend().className).not.toContain("opacity-15");
+    fireEvent.click(customerMarkers()[0]);
+    expect(legend().className).toContain("opacity-15");
+    fireEvent.click(customerMarkers()[0]); // toggles selection off -> popup closes
+    expect(legend().className).not.toContain("opacity-15");
+  });
+});
+
+describe("MapOverlayEvents counter", () => {
+  it("stays dimmed until the LAST overlay closes and never goes negative", async () => {
+    const { MapContainer, useMap } = await import("react-leaflet");
+    const { MapOverlayEvents } = await import("@/components/workspace/map/MapOverlayEvents");
+    let map!: import("leaflet").Map;
+    const Grab = () => { map = useMap(); return null; };
+    const seen: boolean[] = [];
+    render(<MapContainer center={[0, 0]} zoom={2}><Grab /><MapOverlayEvents onChange={(o) => seen.push(o)} /></MapContainer>);
+    const last = () => seen[seen.length - 1];
+    map.fire("tooltipclose"); // stray close at 0: floored
+    map.fire("tooltipopen");
+    expect(last()).toBe(true);
+    map.fire("popupopen");
+    map.fire("tooltipclose");
+    expect(last()).toBe(true);
+    map.fire("popupclose");
+    expect(last()).toBe(false);
+    map.fire("popupclose"); // extra close must not push the counter below zero
+    map.fire("tooltipopen");
+    expect(last()).toBe(true);
   });
 });

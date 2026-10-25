@@ -10,7 +10,7 @@ import { formatChenObjective, formatObjective as formatObjectiveShared } from "@
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { isRetryableFailureCode } from "@/lib/solveFailure";
-import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
+import { UnverifiedInfo } from "@/components/UnverifiedInfo";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0];
@@ -214,14 +214,16 @@ export function Landing() {
                         {h.status}
                       </Badge>
                       {h.status === "succeeded" && h.legacyUnverified && (
+                        <>
                         <Badge
                           variant="outline"
                           className="text-2xs text-muted-foreground border-muted-foreground/40 bg-muted/30"
                           data-testid={`badge-legacy-unverified-${h.id}`}
-                          title={UNVERIFIED_TOOLTIP}
                         >
                           unverified
                         </Badge>
+                        <UnverifiedInfo />
+                        </>
                       )}
                       {isRetryable && (
                         <span

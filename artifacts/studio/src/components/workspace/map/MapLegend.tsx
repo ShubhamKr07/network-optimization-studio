@@ -148,6 +148,8 @@ export interface MapLegendProps {
    * since Plants has its own independent layer toggle. Optional, default
    * `false`. */
   hasPlants?: boolean;
+  /** DU-3.4 (Q5) — Output: fade to 15% while a map tooltip/popup is open. */
+  dimmed?: boolean;
 }
 
 // Static overlay — status swatches + demand reference bubbles (Input) or
@@ -174,6 +176,7 @@ export function MapLegend({
   showPlantLayer = false,
   distanceUnit,
   hasPlants = false,
+  dimmed = false,
 }: MapLegendProps = {}) {
   const unit = useDisplayUnit();
   const canonicalResolved = distanceUnit != null;
@@ -245,7 +248,7 @@ export function MapLegend({
       // no interactive elements — without this its corner rect intercepts map
       // clicks (swallowing a "+ Add on map" pin drop near the corner). Let
       // clicks pass through to the Leaflet canvas underneath.
-      className={`absolute bottom-4 ${corner === "br" ? "right-4" : "left-4"} bg-card border border-border rounded-md shadow p-2 z-10 text-xs pointer-events-none w-fit max-w-[260px] flex flex-col gap-2`}
+      className={`absolute bottom-4 ${corner === "br" ? "right-4" : "left-4"} bg-card border border-border rounded-md shadow p-2 z-10 text-xs pointer-events-none w-fit max-w-[260px] flex flex-col gap-2 transition-opacity${dimmed ? " opacity-15" : ""}`}
       data-testid="map-legend"
     >
       {showStatusGroup && (

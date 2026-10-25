@@ -10,6 +10,9 @@ import { bandRangeLabel } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { servingWarehouseIds } from "@/lib/warehouseFigures";
+import { productRoutesFor } from "@/lib/productRoutes";
+import { escapeHtml } from "@/lib/escapeHtml";
+import { MapOverlayEvents } from "@/components/workspace/map/MapOverlayEvents";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
@@ -244,13 +247,16 @@ interface PopupInfo {
   lng: number;
   customerCity: string;
   customerState: string;
-  warehouseCity: string;
-  warehouseState: string;
+  // DU-3.4 — every serving warehouse's display name (several = split sourcing, Q9).
+  warehouses: string[];
   distanceMi: number;
   band: number;
   // DU-2.2 — the band's range text ("≤ 250 mi", "> 1,000 mi"), from the
   // units bandRangeLabel authority; never hand-rolled here.
   bandLabelText: string;
+  // DU-3.4 — per-product routes (JADE/Super). All fields pre-formatted; the
+  // builder escapes them at render.
+  products?: { name: string; warehouse: string; outbound: string; sources: string[] }[];
 }
 
 // C4.11 — pure popup-markup builder, extracted so the distance unit is
@@ -266,23 +272,33 @@ interface PopupInfo {
 export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalUnit | null = null): string {
   const color = getBandColor(info.band);
   const distanceLine = distanceUnit == null ? "—" : `${formatDistanceDisplay(info.distanceMi)} ${distanceUnit}`;
-  return `
-      <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
-          ${info.customerCity}, ${info.customerState}
-        </div>
-        <div style="margin-bottom:3px;color:var(--text-body)">
-          <span style="color:var(--text-muted)">Warehouse:</span>
-          <strong style="margin-left:4px">${info.warehouseCity}, ${info.warehouseState}</strong>
-        </div>
+  const split = info.warehouses.length > 1;
+  const warehouseText = split ? `Split across ${info.warehouses.length} warehouses` : (info.warehouses[0] ?? "");
+  // A split customer has no single distance/band: each product row carries its own.
+  const summary = split ? "" : `
         <div style="margin-bottom:3px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Distance:</span>
-          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${distanceLine}</strong>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${escapeHtml(distanceLine)}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <strong style="font-family:var(--app-font-mono)">${info.bandLabelText}</strong>
+          <strong style="font-family:var(--app-font-mono)">${escapeHtml(info.bandLabelText)}</strong>
+        </div>`;
+  const products = (info.products ?? []).map((p) => `
+        <div style="margin-top:6px;padding-top:4px;border-top:1px solid var(--line);color:var(--text-body)">
+          <strong>${escapeHtml(p.name)}</strong> <span style="color:var(--text-muted)">via</span> ${escapeHtml(p.warehouse)}
+          <div style="font-family:var(--app-font-mono)">${escapeHtml(p.outbound)}</div>
+          ${p.sources.map((src) => `<div style="color:var(--text-muted)">${escapeHtml(src)}</div>`).join("")}
+        </div>`).join("");
+  return `
+      <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
+          ${escapeHtml(info.customerCity)}, ${escapeHtml(info.customerState)}
         </div>
+        <div style="margin-bottom:3px;color:var(--text-body)">
+          <span style="color:var(--text-muted)">Warehouse:</span>
+          <strong style="margin-left:4px">${escapeHtml(warehouseText)}</strong>
+        </div>${summary}${products}
       </div>
     `;
 }
@@ -321,7 +337,7 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
       map.off("popupclose", handleClose);
       map.closePopup(popup);
     };
-  }, [info.customerCity, info.warehouseCity, displayDistance, info.band, resolvedUnitLabel, info.bandLabelText]);
+  }, [info.customerCity, info.warehouses.join("|"), displayDistance, info.band, resolvedUnitLabel, info.bandLabelText, JSON.stringify(info.products)]);
 
   return null;
 }
@@ -474,6 +490,7 @@ export function NetworkMap({
   // degenerate-guard's LAST-resort fallback tier.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
   useEffect(() => { onWarehouseSelectionChange?.(selectedWarehouseId); }, [selectedWarehouseId, onWarehouseSelectionChange]);
 
   const { maxDemand, minDemand } = useMemo(() => {
@@ -589,20 +606,23 @@ export function NetworkMap({
   }, [result, visibleLegs]);
 
   // Build popup info for the selected customer
-  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText"> | null>(() => {
+  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText" | "products"> | null>(() => {
     if (!selectedCustomerId || !result) return null;
     const edge = assignmentMap.get(selectedCustomerId);
     if (!edge) return null;
     const customer = dataset.customers.find((c) => c.id === selectedCustomerId);
     const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
     if (!customer || !warehouse) return null;
+    const warehouses = servingWarehouseIds(result, selectedCustomerId).flatMap((id) => {
+      const w = dataset.warehouses.find((x) => x.id === id);
+      return w ? [formatCityState(w.city, w.state)] : [];
+    });
     return {
       lat: customer.lat,
       lng: customer.lng,
       customerCity: (customer as unknown as { city?: string }).city ?? "",
       customerState: (customer as unknown as { state?: string }).state ?? "",
-      warehouseCity: warehouse.city,
-      warehouseState: warehouse.state,
+      warehouses,
       distanceMi: edge.distance,
       // jade-B1 (#1 all-site overflow) — assignBandOrOverflow so a
       // beyond-highest-boundary distance gets the OVERFLOW_BAND sentinel
@@ -610,7 +630,24 @@ export function NetworkMap({
       band: assignBandOrOverflow(edge.distance, bands),
     };
   }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
-  const popupInfo: PopupInfo | null = popupBase && { ...popupBase, bandLabelText: rangeText(popupBase.distanceMi) };
+  const productRoutes = useMemo(
+    () => (selectedCustomerId && result ? productRoutesFor(result, dataset, selectedCustomerId) : []),
+    [selectedCustomerId, result, dataset],
+  );
+  const placeName = (id: string): string => {
+    const p = dataset.warehouses.find((w) => w.id === id) ?? plants.find((x) => x.id === id);
+    return p ? formatCityState(p.city, p.state) : id;
+  };
+  const popupInfo: PopupInfo | null = popupBase && {
+    ...popupBase,
+    bandLabelText: rangeText(popupBase.distanceMi),
+    products: productRoutes.map((r) => ({
+      name: r.productName,
+      warehouse: placeName(r.warehouseId),
+      outbound: `${formatEdgeDistance(r.outboundDistance)} · ${rangeText(r.outboundDistance)}`,
+      sources: r.sources.map((src) => `from ${placeName(src.sourceId)}: ${src.flow.toLocaleString()} (${formatEdgeDistance(src.distance)})`),
+    })),
+  };
 
   const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
   const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
@@ -689,6 +726,7 @@ export function NetworkMap({
         <FitBounds bounds={effectiveBounds} />
         <InvalidateOnResize />
         <MapClickDeselect onDeselect={handleDeselect} />
+        <MapOverlayEvents onChange={setOverlayOpen} />
 
         {popupInfo && (
           <CustomerPopup
@@ -844,7 +882,7 @@ export function NetworkMap({
                 },
               }}
             >
-              <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
+              {!(isCustomerSelected && popupInfo) && <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
                   <EntityName
                     type={customerTypeLabel(modelId)}
@@ -857,7 +895,7 @@ export function NetworkMap({
                   {" · "}
                   <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${rangeText(assignment.distance)}` : ""}</span>
                 </span>
-              </Tooltip>
+              </Tooltip>}
             </CircleMarker>
           );
         })}
@@ -935,6 +973,7 @@ export function NetworkMap({
         distanceUnit={distanceUnit}
         hasPlants={plants.length > 0}
         showPlantLayer={showPlantMarkers}
+        dimmed={overlayOpen}
       />
     </div>
   );

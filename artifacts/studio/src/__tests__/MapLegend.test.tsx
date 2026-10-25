@@ -11,6 +11,13 @@ import { UnitProvider } from "@/contexts/UnitContext";
 const LEGEND_DEMAND_SCALE = 0.55;
 
 describe("MapLegend", () => {
+  it("DU-3.4: dimmed fades the output legend to opacity-15 (and only then)", () => {
+    const { getByTestId, rerender } = render(<UnitProvider><MapLegend variant="output" /></UnitProvider>);
+    expect(getByTestId("map-legend").className).not.toContain("opacity-15");
+    rerender(<UnitProvider><MapLegend variant="output" dimmed /></UnitProvider>);
+    expect(getByTestId("map-legend").className).toContain("opacity-15");
+  });
+
   it("renders the three status labels from the shared statusPresentation mapping", () => {
     const { getByText } = render(<UnitProvider><MapLegend /></UnitProvider>);
     expect(getByText("Potential")).toBeInTheDocument();

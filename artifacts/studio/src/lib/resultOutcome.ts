@@ -48,10 +48,6 @@ export function hasIncumbent(outcome: ResultOutcome): boolean {
 // module can classify truthfully.
 export const UNVERIFIED_TOOLTIP = "Solved before solution quality was recorded. Re-run to verify.";
 
-// Native `title` for the Quality cell: only the legacy "Unverified" text needs one.
-export function resultQualityTitle(result: SolveResult): string | undefined {
-  return classifyResultOutcome(result) === "legacy_unverified" ? UNVERIFIED_TOOLTIP : undefined;
-}
 
 export function resultQualityText(result: SolveResult): string {
   const outcome = classifyResultOutcome(result);

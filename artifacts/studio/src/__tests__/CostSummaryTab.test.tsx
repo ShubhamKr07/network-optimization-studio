@@ -1,4 +1,5 @@
-import { render as rtlRender, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import * as clientCsv from "@/lib/clientCsv";
@@ -456,7 +457,20 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     expect(cell).not.toHaveTextContent("0");
   });
 
-  it("a legacy result (no solutionStatus at all) shows a neutral 'Unverified' text — NEVER 'Proven optimal'/'Optimal'", () => {
+  async function assertUnverifiedInfo(scope: HTMLElement) {
+    const btn = within(scope).getByTestId("button-unverified-info");
+    expect(btn).toHaveAttribute("aria-label", "Why unverified?");
+    expect(btn.className).toContain("min-h-6");
+    expect(btn.className).toContain("min-w-6");
+    expect(screen.queryByTestId("popover-unverified")).toBeNull();
+    btn.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByTestId("popover-unverified")).toHaveTextContent(UNVERIFIED_TOOLTIP);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("popover-unverified")).toBeNull());
+  }
+
+  it("a legacy result (no solutionStatus at all) shows a neutral 'Unverified' text — NEVER 'Proven optimal'/'Optimal'", async () => {
     // Genuinely pre-B2 shape: no solutionStatus/terminationReason/achievedGap
     // keys at all (not even explicit null) — matches what a real stored row
     // from before B2 actually looks like on the wire.
@@ -464,7 +478,8 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={legacyResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
     const cell = screen.getByTestId("cost-summary-value-quality");
     expect(cell).toHaveTextContent("Unverified");
-    expect(within(cell).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
+    expect(within(cell).getByText("Unverified")).not.toHaveAttribute("title");
+    await assertUnverifiedInfo(cell);
     expect(cell).not.toHaveTextContent("Proven optimal");
     expect(cell).not.toHaveTextContent("Optimal");
   });
@@ -491,7 +506,7 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     expect(gapCell.querySelector("[title]")).toBeNull();
   });
 
-  it("compare-mode 'Unverified' Quality cell carries the tooltip", () => {
+  it("compare-mode 'Unverified' Quality cell has the keyboard-reachable info popover (no native title)", async () => {
     const legacy = scenario({ id: 110, name: "Old", modelId: "p-median-us", result: { ...baseFields, status: "optimal" as const, quality: "Optimal" } });
     const proven = scenario({ id: 111, name: "New", modelId: "p-median-us", result: { ...result } });
     render(
@@ -500,7 +515,9 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
       /></ExportProvider></UnitProvider>,
     );
     fireEvent.click(compareToggle("cost-summary-compare-toggle-111").querySelector("input")!);
-    expect(within(screen.getByTestId("cost-summary-compare-quality-110")).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
+    const cell = screen.getByTestId("cost-summary-compare-quality-110");
+    expect(cell.querySelector("[title]")).toBeNull();
+    await assertUnverifiedInfo(cell);
   });
 });
 
