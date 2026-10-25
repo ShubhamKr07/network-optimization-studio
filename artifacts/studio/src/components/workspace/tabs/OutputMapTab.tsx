@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from "react";
+import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Plant, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import type { CanonicalUnit } from "@workspace/units";
@@ -145,7 +147,7 @@ export function OutputMapTab({
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
   const [showPlants, setShowPlants] = useState(true);
-  const [colorByBand, setColorByBand] = useState(true);
+  const [laneColour, setLaneColour] = useState<"band" | "leg" | "none">("band");
   const mapRef = useRef<HTMLDivElement>(null);
   const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
 
@@ -202,10 +204,11 @@ export function OutputMapTab({
   const showDistance = (canonicalValue: number): string =>
     distanceUnit == null
       ? "—"
-      : `${unit.toDisplay(canonicalValue, distanceUnit).toFixed(1)} ${unit.effectiveUnit(distanceUnit)}`;
+      : `${formatDistanceDisplay(unit.toDisplay(canonicalValue, distanceUnit))} ${unit.effectiveUnit(distanceUnit)}`;
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
-  const mapBands = colorByBand ? effectiveBands : [];
+  const otherLaneColour = modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "super-model" ? "leg" : "none";
+  const mapBands = laneColour === "band" ? effectiveBands : [];
 
   // ch5-edit-12 — infeasible/no_solution/unbounded/error all carry a
   // meaningless `objective: 0`/`weightedAvgDistance: 0` sentinel from
@@ -315,67 +318,85 @@ export function OutputMapTab({
     <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">
       <div className="flex items-center gap-5 flex-wrap flex-shrink-0" data-testid="output-map-toggles">
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-warehouses"
-            checked={showWarehouses}
-            onCheckedChange={checked => setShowWarehouses(checked === true)}
-            data-testid="checkbox-toggle-warehouses"
-          />
-          <Label htmlFor="output-map-toggle-warehouses" className="text-xs">Warehouses</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-warehouses"
+              checked={showWarehouses}
+              onCheckedChange={checked => setShowWarehouses(checked === true)}
+              data-testid="checkbox-toggle-warehouses"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-warehouses" className="text-xs inline-flex min-h-6 items-center">Warehouses</Label>
         </div>
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-customers"
-            checked={showCustomers}
-            onCheckedChange={checked => setShowCustomers(checked === true)}
-            data-testid="checkbox-toggle-customers"
-          />
-          <Label htmlFor="output-map-toggle-customers" className="text-xs">Customers</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-customers"
+              checked={showCustomers}
+              onCheckedChange={checked => setShowCustomers(checked === true)}
+              data-testid="checkbox-toggle-customers"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-customers" className="text-xs inline-flex min-h-6 items-center">Customers</Label>
         </div>
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-lanes"
-            checked={showLanes}
-            onCheckedChange={checked => setShowLanes(checked === true)}
-            data-testid="checkbox-toggle-lanes"
-          />
-          <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-lanes"
+              checked={showLanes}
+              onCheckedChange={checked => setShowLanes(checked === true)}
+              data-testid="checkbox-toggle-lanes"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-lanes" className="text-xs inline-flex min-h-6 items-center">Lanes</Label>
         </div>
         {/* jade-B1 (#2) — only shown when there's a plant echelon to toggle
             at all (mirrors showLegToggles' distinctLegs.length>=2 gate), so
             no non-JADE model ever shows an irrelevant "Plants" checkbox. */}
         {plants.length > 0 && (
           <div className="flex items-center gap-1.5">
-            <Checkbox
-              id="output-map-toggle-plants"
-              checked={showPlants}
-              onCheckedChange={checked => setShowPlants(checked === true)}
-              data-testid="checkbox-toggle-plants"
-            />
-            <Label htmlFor="output-map-toggle-plants" className="text-xs">Plants</Label>
+            <label className="inline-flex h-6 w-6 items-center justify-center">
+              <Checkbox
+                id="output-map-toggle-plants"
+                checked={showPlants}
+                onCheckedChange={checked => setShowPlants(checked === true)}
+                data-testid="checkbox-toggle-plants"
+              />
+            </label>
+            <Label htmlFor="output-map-toggle-plants" className="text-xs inline-flex min-h-6 items-center">Plants</Label>
           </div>
         )}
-        <div className="flex items-center gap-1.5 pl-3 border-l">
-          <Checkbox
-            id="output-map-color-by-band"
-            checked={colorByBand}
-            onCheckedChange={checked => setColorByBand(checked === true)}
-            disabled={!showLanes}
-            data-testid="checkbox-color-lanes-band"
-          />
-          <Label htmlFor="output-map-color-by-band" className="text-xs">Color lanes: Distance band</Label>
+        <div role="group" aria-label="Lane colour" data-testid="segmented-lane-colour" className="flex items-center gap-1.5 pl-3 border-l">
+          <span className="text-xs">Lane colour</span>
+          <div className="inline-flex rounded-md border overflow-hidden">
+            {([["band", "Distance band"], [otherLaneColour, otherLaneColour === "leg" ? "Leg" : "None"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={laneColour === value}
+                disabled={!showLanes}
+                onClick={() => setLaneColour(value)}
+                data-testid={`segment-lane-colour-${value}`}
+                className={`min-h-6 px-2 text-xs disabled:opacity-50 ${laneColour === value ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         {showLegToggles && (
           <div className="flex items-center gap-3 pl-3 border-l" data-testid="output-map-leg-toggles">
             {distinctLegs.map(leg => (
               <div key={leg} className="flex items-center gap-1.5">
-                <Checkbox
-                  id={`output-map-toggle-leg-${leg}`}
-                  checked={!hiddenLegs.has(leg)}
-                  onCheckedChange={checked => toggleLeg(leg, checked === true)}
-                  data-testid={`checkbox-toggle-leg-${leg}`}
-                />
-                <Label htmlFor={`output-map-toggle-leg-${leg}`} className="text-xs">{legLabel(leg)}</Label>
+                <label className="inline-flex h-6 w-6 items-center justify-center">
+                  <Checkbox
+                    id={`output-map-toggle-leg-${leg}`}
+                    checked={!hiddenLegs.has(leg)}
+                    onCheckedChange={checked => toggleLeg(leg, checked === true)}
+                    data-testid={`checkbox-toggle-leg-${leg}`}
+                  />
+                </label>
+                <Label htmlFor={`output-map-toggle-leg-${leg}`} className="text-xs inline-flex min-h-6 items-center">{legLabel(leg)}</Label>
               </div>
             ))}
           </div>
@@ -413,7 +434,9 @@ export function OutputMapTab({
               <>
                 <div>
                   <span className="text-muted-foreground">Objective: </span>
-                  <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
+                  <span className="font-medium font-mono">{modelId != null && distanceUnit != null
+                      ? formatObjective(modelId, objectiveModeOfDetails(result.details), result.objective, distanceUnit, unit)
+                      : formatChenObjective(result.objective, objectiveModeOfDetails(result.details)) ?? result.objective.toLocaleString("en-US")}</span>
                 </div>
                 {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
                     two-echelon result (>=2 avgDistanceByLeg entries) shows one
@@ -476,6 +499,7 @@ export function OutputMapTab({
           result={result}
           showRoutes={showLanes}
           bands={mapBands}
+          labelBands={effectiveBands}
           countryBounds={countryBounds}
           showWarehouseMarkers={showWarehouses}
           showCustomerMarkers={showCustomers}

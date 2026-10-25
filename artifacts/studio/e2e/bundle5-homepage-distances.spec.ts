@@ -109,6 +109,9 @@ test.describe("Bundle 5 — homepage chrome", () => {
     await expect(header.locator("img")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
     const footer = page.getByTestId("homepage-credit-footer");
+    // DU-2.8 — the footer is the last child INSIDE the scrolling <main>.
+    await expect(page.locator("main > footer[data-testid='homepage-credit-footer']")).toHaveCount(1);
+    await footer.scrollIntoViewIfNeeded();
     await expect(footer).toBeVisible();
     await expect(footer).toContainText("Developed by Shubham");
     await expect(page.getByTestId("app-footer")).not.toBeVisible();

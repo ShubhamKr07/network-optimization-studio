@@ -58,8 +58,13 @@ describe("EditWarehouseDialog", () => {
 
   it("shows read-only entity fields", () => {
     renderDialog();
-    expect(screen.getByTestId("edit-warehouse-display-code")).toHaveTextContent("CHI");
-    expect(screen.getByTestId("edit-warehouse-location")).toHaveTextContent("Chicago, IL");
+    // DU-2.7 — "Name" + "ID" (mono) rows; no "Code" label.
+    expect(screen.getByTestId("edit-warehouse-display-code")).toHaveTextContent(/^CHI$/);
+    expect(screen.getByTestId("edit-warehouse-display-code")).toHaveClass("font-mono");
+    expect(screen.getByTestId("edit-warehouse-location")).toHaveTextContent(/^Chicago, IL$/);
+    expect(screen.getByText("Name")).toBeInTheDocument();
+    expect(screen.getByText("ID")).toBeInTheDocument();
+    expect(screen.queryByText("Code")).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-warehouse-lat")).toHaveTextContent("41.8781");
     expect(screen.getByTestId("edit-warehouse-lng")).toHaveTextContent("-87.6298");
   });

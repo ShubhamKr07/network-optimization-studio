@@ -217,21 +217,6 @@ export function LegDistancesTab({
   // Rebuilt every render: cells close over live props (see DistancesTab).
   const columns: ColumnDef<LegDistanceOverride>[] = [
     {
-      id: "leg",
-      header: "Leg",
-      kind: "enum",
-      value: o => LEG_LABEL[legFor(o.fromId, o.toId)],
-      cell: o => {
-        const leg = legFor(o.fromId, o.toId);
-        return (
-          <Badge variant={leg === "unknown" ? "destructive" : "secondary"} data-testid={`badge-leg-${o.fromId}-${o.toId}`}>
-            {leg === "unknown" && <AlertTriangle className="w-3 h-3 mr-1" />}
-            {LEG_LABEL[leg]}
-          </Badge>
-        );
-      },
-    },
-    {
       id: "from",
       header: "From",
       kind: "text",
@@ -383,6 +368,21 @@ export function LegDistancesTab({
         }}
         toolbar={{ upload: files.upload, download: files.download }}
         scrollClassName="max-h-[55vh] overflow-y-auto"
+        // Q6 — the leg is a group header, not a column (one filter/sort/pager across all legs).
+        sections={(Object.keys(LEG_LABEL) as Leg[]).map(leg => ({
+          id: leg,
+          title:
+            leg === "unknown" ? (
+              <Badge variant="destructive">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                {LEG_LABEL[leg]}
+              </Badge>
+            ) : (
+              LEG_LABEL[leg]
+            ),
+          testId: `section-leg-${leg}`,
+          includes: (o: LegDistanceOverride) => legFor(o.fromId, o.toId) === leg,
+        }))}
         emptyState={
           <p className="text-sm text-muted-foreground">
             No leg distance overrides yet — add one below, or upload a CSV/JSON file.

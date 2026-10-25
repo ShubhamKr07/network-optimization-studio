@@ -358,12 +358,7 @@ export function DistancesTab({
     if (canonicalUnit == null) {
       return <Spinner className="w-3 h-3" data-testid={`spinner-distance-unit-${r.fromId}-${r.toId}`} />;
     }
-    if (referenceCapable) {
-      if (referenceQuery.isLoading) {
-        return <Spinner className="w-3 h-3" data-testid={`spinner-distance-base-${r.fromId}-${r.toId}`} />;
-      }
-      if (referenceQuery.isError) return "unavailable";
-    }
+    if (referenceCapable && referenceQuery.isError) return "unavailable";
     if (r.base == null) return "—";
     return formatDistanceDisplay(toDisplay(r.base, canonicalUnit));
   }
@@ -610,6 +605,7 @@ export function DistancesTab({
       }}
       toolbar={{ upload: files.upload, download: files.download }}
       scrollClassName="max-h-[55vh] overflow-y-auto"
+      loading={referenceCapable && referenceQuery.isLoading}
       emptyState={
         <p className="text-sm text-muted-foreground">No distance overrides yet — add one below, or upload a CSV/JSON file.</p>
       }
@@ -633,11 +629,6 @@ export function DistancesTab({
       {referenceCapable && referenceQuery.isError && (
         <p className="text-xs text-destructive mb-2" data-testid="distances-reference-error">
           Failed to load reference distances.
-        </p>
-      )}
-      {referenceCapable && referenceQuery.isLoading && (
-        <p className="text-xs text-muted-foreground mb-2" data-testid="distances-reference-loading">
-          Loading reference distances…
         </p>
       )}
       {/* Compat wrapper: present exactly when the model has a base×base matrix. */}

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   OVERFLOW_BAND, assignBandOrOverflow, bandLabelOrOverflow,
   computeCumulativeBandCoverage, computeExclusiveBandCoverage,
-  frozenBandCoverageToExclusive, serviceEdgesFor,
+  frozenBandCoverageToExclusive, serviceEdgesFor, bandRangeLabel,
 } from "../bands.js";
 
 const BANDS = [200, 400, 800];
@@ -215,5 +215,43 @@ describe("frozenBandCoverageToExclusive", () => {
   it("sorts rows by boundary before differencing", () => {
     expect(frozenBandCoverageToExclusive([{ band: 400, percent: 80 }, { band: 200, percent: 40 }], 0, "cumulative"))
       .toEqual([{ band: 200, percent: 40 }, { band: 400, percent: 40 }, { band: OVERFLOW_BAND, percent: 20 }]);
+  });
+});
+
+describe("bandRangeLabel (DU-2.2)", () => {
+  const B = [200, 400, 800, 1600];
+  it("first / middle / overflow text, upper-inclusive", () => {
+    expect(bandRangeLabel(0, B, "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabel(1, B, "mi")).toBe("200–400 mi");
+    expect(bandRangeLabel(3, B, "mi")).toBe("800–1,600 mi");
+    expect(bandRangeLabel(OVERFLOW_BAND, B, "mi")).toBe("> 1,600 mi");
+    expect(bandRangeLabel(assignBandOrOverflow(200, B), B, "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabel(assignBandOrOverflow(1600.0001, B), B, "mi")).toBe("> 1,600 mi");
+  });
+  it("sorts its input and uses the shared number format", () => {
+    expect(bandRangeLabel(1, [400, 200], "km")).toBe("200–400 km");
+    expect(bandRangeLabel(0, [321.8688], "km")).toBe("≤ 321.87 km");
+  });
+  it("no bands -> 'All distances'", () => {
+    expect(bandRangeLabel(0, [], "mi")).toBe("All distances");
+  });
+  it("never emits 'Band N'", () => {
+    for (const i of [0, 1, 2, 3, OVERFLOW_BAND]) expect(bandRangeLabel(i, B, "mi")).not.toMatch(/Band/);
+  });
+  // moved from studio exclusiveBands.test.ts (exclusiveBandLabels), re-expressed; first row is now "≤ 200"
+  it("labels every exclusive row, grouped, with the overflow row last", () => {
+    expect([0, 1, 2, 3, OVERFLOW_BAND].map(i => bandRangeLabel(i, B, "mi"))).toEqual([
+      "≤ 200 mi", "200–400 mi", "400–800 mi", "800–1,600 mi", "> 1,600 mi",
+    ]);
+  });
+  it("sorts boundaries", () => {
+    expect([0, 1, OVERFLOW_BAND].map(i => bandRangeLabel(i, [400, 200], "mi"))).toEqual(["≤ 200 mi", "200–400 mi", "> 400 mi"]);
+  });
+  it("rounds converted km boundaries to at most 2 dp", () => {
+    const km = [200, 400].map(v => v * 1.609344);
+    expect([0, 1, OVERFLOW_BAND].map(i => bandRangeLabel(i, km, "km"))).toEqual(["≤ 321.87 km", "321.87–643.74 km", "> 643.74 km"]);
+  });
+  it("rounds converted mi boundaries the same way", () => {
+    expect([0, OVERFLOW_BAND].map(i => bandRangeLabel(i, [600 / 1.609344], "mi"))).toEqual(["≤ 372.82 mi", "> 372.82 mi"]);
   });
 });

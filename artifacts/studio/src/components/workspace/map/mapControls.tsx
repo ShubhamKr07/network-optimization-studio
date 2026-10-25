@@ -183,9 +183,11 @@ export function LayerCheckbox({
           onToggle();
         }
       }}
-      className="flex items-center gap-1.5 text-2xs text-muted-foreground whitespace-nowrap cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+      className="flex min-h-6 items-center gap-1.5 text-2xs text-muted-foreground whitespace-nowrap cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
     >
-      <Checkbox checked={checked} tabIndex={-1} aria-hidden="true" className="h-3.5 w-3.5 pointer-events-none" />
+      <span className="inline-flex h-6 w-6 items-center justify-center">
+        <Checkbox checked={checked} tabIndex={-1} aria-hidden="true" className="h-3.5 w-3.5 pointer-events-none" />
+      </span>
       {children}
     </div>
   );

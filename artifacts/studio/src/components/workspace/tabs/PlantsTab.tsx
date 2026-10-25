@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { Plant, Scenario } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -114,7 +115,7 @@ export function PlantsTab({
       kind: "text",
       filter: "text",
       value: r => r.displayId,
-      cellClassName: "font-mono text-xs",
+      cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
       cell: r => r.displayId,
     },
     { id: "city", header: "City", kind: "text", filter: "text", value: r => r.city, cellClassName: "text-xs", cell: r => r.city },
@@ -133,7 +134,7 @@ export function PlantsTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -141,7 +142,7 @@ export function PlantsTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const addedColumns: ColumnDef<PlantRow>[] = [
@@ -195,7 +196,6 @@ export function PlantsTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="plants-tab-empty">
                 No plants in this dataset.
@@ -211,7 +211,6 @@ export function PlantsTab({
                   includes: (r: PlantRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: PlantRow) => `row-added-plant-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-plants-empty">
                       No added plants yet — use "+ Add plant" above to create one.

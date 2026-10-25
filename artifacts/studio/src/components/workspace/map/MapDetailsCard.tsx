@@ -1,3 +1,4 @@
+import { formatCityState, formatCoord } from "@/lib/formatLocation";
 import { useEffect, useRef } from "react";
 import { warehouseStatusPresentation } from "./statusPresentation";
 import type { MapEntity } from "./types";
@@ -94,7 +95,7 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
     <div
       ref={rootRef}
       role="dialog"
-      aria-label={`${e.displayCode} details`}
+      aria-label={`${formatCityState(e.city, e.state)} (${e.displayCode}) details`}
       tabIndex={-1}
       data-testid="map-details-card"
       data-flipped-x={flippedX || undefined}
@@ -104,9 +105,12 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
     >
       <div
         className="flex items-center justify-between gap-2.5 px-3 py-2 border-b border-border font-heading font-semibold tracking-wide text-sm"
-        data-testid="map-details-code"
       >
-        <span>{e.displayCode}</span>
+        <span data-testid="map-details-name">
+          {formatCityState(e.city, e.state)}
+          {" · "}
+          <span className="font-mono" data-testid="map-details-code">{e.displayCode}</span>
+        </span>
         {/* T4 (Bundle 2) — kind==="wh" no longer implies a status: a role
             with hasStatus:false (e.g. a mine) never populates `status` at
             all (see MapWarehouse's own comment), so this must check for its
@@ -117,17 +121,13 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
           </span>
         )}
       </div>
-      <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-city">
-        <span className="text-muted-foreground">City</span>
-        <span>{e.city}, {e.state}</span>
-      </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lat">
         <span className="text-muted-foreground">Latitude</span>
-        <span className="font-mono">{e.lat.toFixed(4)}</span>
+        <span className="font-mono">{formatCoord(e.lat)}</span>
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lng">
         <span className="text-muted-foreground">Longitude</span>
-        <span className="font-mono">{e.lng.toFixed(4)}</span>
+        <span className="font-mono">{formatCoord(e.lng)}</span>
       </div>
       {/* jade-T12 — a THREE-way check now (was a 2-way `kind === "wh" ? : `),
           since a plain `else` branch would try to read `.demand` off a

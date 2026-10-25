@@ -137,7 +137,7 @@ describe("CreateEntityDialog — table mode (SCU-2.P4.2)", () => {
     expect(errorText()).toBe("Capacity must be a positive number, or left blank for unconstrained.");
   });
 
-  it("an EMPTY scalar demand blocks submit (B2.9), and demand is grouped with a linked Units suffix", () => {
+  it("an EMPTY scalar demand blocks submit (B2.9), and demand is grouped, labelled with its unit, and has no suffix", () => {
     const { onCreate } = open("customer");
     fillLocation();
     submit();
@@ -147,8 +147,9 @@ describe("CreateEntityDialog — table mode (SCU-2.P4.2)", () => {
     type("create-entity-demand", "12345.5");
     expect(demand).toHaveValue("12,345.5");
     expect(demand).not.toHaveAttribute("aria-label");
-    const suffix = document.getElementById(demand.getAttribute("aria-describedby")!);
-    expect(suffix).toHaveTextContent("Units");
+    expect(demand).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByLabelText("Demand (units)")).toBe(demand);
+    expect(screen.queryByText("Units")).toBeNull();
   });
 
   it("JADE: an empty per-product demand blocks submit with that product's message (no silent 0)", () => {
@@ -177,9 +178,8 @@ describe("CreateEntityDialog — table mode (SCU-2.P4.2)", () => {
     expect(screen.getByTestId("create-entity-demand")).toHaveValue("");
     type("create-entity-demand", "8000000");
     expect(screen.getByTestId("create-entity-demand")).toHaveValue("8,000,000");
-    // station demand is in tons (user decision 2026-10-17); customers keep "Units"
-    const input = screen.getByTestId("create-entity-demand");
-    expect(document.getElementById(input.getAttribute("aria-describedby") ?? "")).toHaveTextContent("tons");
+    // DU-2.3: the unit is in the label, not a suffix (coal stations pass "tons")
+    expect(screen.getByTestId("create-entity-demand")).not.toHaveAttribute("aria-describedby");
   });
 
   it.each<[CreateEntityKind, RegExp, Record<string, unknown>]>([

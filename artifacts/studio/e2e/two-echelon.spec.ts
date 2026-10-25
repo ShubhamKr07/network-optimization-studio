@@ -127,7 +127,7 @@ test.describe("Two-Echelon (Chapter 10)", () => {
       const flowRows = page.locator('[data-testid^="flow-row-"]');
       await expect(flowRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByRole("columnheader", { name: "Distance (mi)" })).toBeVisible();
-      await expect(flowRows.first().locator("td").nth(2)).toHaveText(/^\d+\.\d$/);
+      await expect(flowRows.first().locator("td").nth(2)).toHaveText(/^[\d,]+(\.\d{1,2})?$/);
       await page.getByTestId("unit-toggle-km").click();
       await expect(page.getByRole("columnheader", { name: "Distance (km)" })).toBeVisible();
       await page.getByTestId("unit-toggle-mi").click();

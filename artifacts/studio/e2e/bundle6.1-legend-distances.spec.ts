@@ -284,7 +284,7 @@ test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () 
 test.describe("Bundle 6.1 — Leg distances (two-echelon-gold-au, T2b audit confirmed no-op)", () => {
   // @flaky (OBS-3, checkpoint #3): intermittent 2/20 in the frozen-commit audit (4be058f).
   // Quarantined from `pnpm e2e:gate`; runs via `pnpm e2e:quarantine`.
-  test("Leg distances tab renders the restyled table with its leg badge column", { tag: "@flaky" }, async ({ page }) => {
+  test("Leg distances tab renders the restyled table with its leg group headers", { tag: "@flaky" }, async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page, "b61-legdistances");
 
@@ -317,9 +317,11 @@ test.describe("Bundle 6.1 — Leg distances (two-echelon-gold-au, T2b audit conf
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("legdistances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      const legBadge = page.getByTestId(`badge-leg-${mine!.id}-${refinery!.id}`);
-      await expect(legBadge).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(legBadge).toContainText("Mine → Refinery");
+      // DU-2.6 (Q6): the leg is a group header, not a column/badge.
+      const legSection = page.getByTestId("section-leg-mine_to_refinery");
+      await expect(legSection).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(legSection).toContainText("Mine → Refinery");
+      await expect(legSection.getByTestId(`row-legdistance-${mine!.id}-${refinery!.id}`)).toBeVisible();
     } finally {
       await page.request.delete(`/api/scenarios/${scenarioId}`);
     }

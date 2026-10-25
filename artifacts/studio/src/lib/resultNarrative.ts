@@ -1,4 +1,6 @@
 import type { Edge, SolveResult } from "@workspace/api-client-react";
+import { formatMoney } from "@/lib/formatObjective";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { bandDecimals, computeExclusiveBandCoverage, serviceEdgesFor } from "@/lib/bands";
 import { classifyResultOutcome, hasIncumbent } from "@/lib/resultOutcome";
 import { openSiteIds } from "@/lib/openSites";
@@ -53,10 +55,8 @@ function list(items: string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/** $182.0M; under $1M -> $812K. */
-function money(v: number): string {
-  return Math.abs(v) >= 999_500 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}K`;
-}
+/** $182.00M; under $1M -> $812K. */
+const money = (v: number): string => formatMoney(v, { compact: true });
 
 function farthestEdge(edges: Edge[]): Edge | null {
   let far: Edge | null = null;
@@ -100,7 +100,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
   const bestCoverage = result.terminationReason === "time_limit" ? "the best coverage found before the time limit" : "the best coverage the solver found";
   const name = (id: string) => ctx.nameById?.[id] || id;
   const unitWord = d.unit === "mi" ? "miles" : d.unit;
-  const num = (canonical: number) => grouped(Math.round(d.toDisplay(canonical)));
+  const num = (canonical: number) => formatDistanceDisplay(Math.round(d.toDisplay(canonical)));
   const dist = (canonical: number) => `${num(canonical)} ${unitWord}`;
 
   // SM-8 — super-model has no distance bands, so its narrative never touches
@@ -111,7 +111,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
     const wc = finite(metrics.avgDistWhToCustomer);
     const ids = openSiteIds(result, modelId);
     if (total == null || pw == null || wc == null || !ids) return null;
-    const cost = `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const cost = formatMoney(total);
     return { text: `Opened ${ids.length} ${ids.length === 1 ? "warehouse" : "warehouses"}. Total cost ${cost}; plant\u2192warehouse shipments average ${dist(pw)} and warehouse\u2192customer deliveries ${dist(wc)}.` };
   }
 
@@ -199,7 +199,7 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
     if (!outLeg || inbound == null || outbound == null || !demand || !band || !far) return null;
     const before = finite(prev?.objective);
     const delta = before == null ? "" : money(Math.abs(result.objective - before));
-    const vs = before == null || result.objective === before || delta === "$0K" ? ""
+    const vs = before == null || result.objective === before || Math.abs(result.objective - before) < 500 ? ""
       : ` (${delta} ${result.objective < before ? "less" : "more"} than your previous run)`;
     return text(
       `Open ${list(open)}.`,

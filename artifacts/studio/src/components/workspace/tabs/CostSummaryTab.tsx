@@ -2,14 +2,14 @@ import { useState, type ReactNode } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
-import { formatChenObjective, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
+import { formatChenObjective, formatMoney, formatObjective, objectiveModeOfDetails, scenarioObjectiveMode } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
-import { classifyResultOutcome, hasIncumbent, resultQualityText } from "@/lib/resultOutcome";
+import { classifyResultOutcome, hasIncumbent, resultQualityText, resultQualityTitle } from "@/lib/resultOutcome";
 import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAlert";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
-import type { CanonicalUnit } from "@workspace/units";
+import { bandRangeLabel, type CanonicalUnit } from "@workspace/units";
 import { TEXTBOOK_TRANSPORT_COSTS, rateConversion, rateUnitLabel, type TransportCosts } from "@/lib/transportCosts";
-import { OVERFLOW_BAND, bandDecimals, exclusiveBandLabels, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
+import { OVERFLOW_BAND, bandDecimals, frozenBandCoverageToExclusive, frozenBandShape } from "@/lib/bands";
 import { Button } from "@/components/ui/button";
 import { buildCompareCsv, buildCompareJson } from "@/lib/compareCsv";
 import { downloadAs } from "@/lib/clientCsv";
@@ -31,12 +31,12 @@ import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 // guessed label.
 function formatDistance(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (raw == null || canonical == null) return "—";
-  return `${unit.toDisplay(raw, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+  return `${formatDistanceDisplay(unit.toDisplay(raw, canonical))} ${unit.effectiveUnit(canonical)}`;
 }
 
 function formatDistanceValueOnly(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
   if (raw == null || canonical == null) return "—";
-  return unit.toDisplay(raw, canonical).toFixed(1);
+  return formatDistanceDisplay(unit.toDisplay(raw, canonical));
 }
 
 function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefined, unit: UnitApi): string {
@@ -46,7 +46,7 @@ function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefin
   return `${converted} ${unit.effectiveUnit(canonical)}`;
 }
 
-function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): string | null {
+function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): CanonicalUnit | null {
   return canonical == null ? null : unit.effectiveUnit(canonical);
 }
 
@@ -59,8 +59,8 @@ function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi):
 // cannot render a fallback when EVERY selected envelope is a legacy one.
 const JADE_MODEL_ID = "two-echelon-jade-us";
 const SUPER_MODEL_ID = "super-model";
-// SM-8 / C1 — super costs are cents-precise in storage; display shows them to the cent.
-const money = (v: number): string => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// SM-8 / C1 — super costs are cents-precise in storage; DU-2.1 (Q1) displays whole dollars.
+const money = (v: number): string => formatMoney(v);
 // The seven summary lines; [key, label, value]. Distances are the unrounded
 // metrics (C1), converted/rounded only by formatDistance at render.
 const SUPER_METRIC_ROWS: Array<[string, string, "money" | "dist"]> = [
@@ -90,7 +90,7 @@ function solvedAtRates(result: { metrics?: { transportRates?: TransportCosts } }
     : { rates: stored, legacy: false };
 }
 
-const LEGACY_RATE_LABEL = "textbook default (legacy result)";
+const LEGACY_RATE_LABEL = "textbook default";
 
 /** A rate renders in the active display unit (reciprocal conversion); a
  *  minimum charge is $/ton and never converts. Follows this file's existing
@@ -181,6 +181,7 @@ interface SummaryRow {
   value: string;
   mono: boolean;
   testId: string;
+  title?: string;
 }
 
 function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
@@ -206,7 +207,7 @@ function summaryColumns(ownName: string): ColumnDef<SummaryRow>[] {
       sortable: false,
       cellTestId: r => r.testId,
       value: r => r.value,
-      cell: r => (r.mono ? <span className="font-mono">{r.value}</span> : r.value),
+      cell: r => (r.mono || r.title ? <span className={r.mono ? "font-mono" : undefined} title={r.title}>{r.value}</span> : r.value),
     },
   ];
 }
@@ -463,6 +464,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           <Button
             type="button"
             size="sm"
+            variant="outline"
             data-testid="button-toggle-compare"
             aria-expanded={pickerOpen}
             aria-controls="cost-summary-compare-toggles"
@@ -481,10 +483,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   // QFX-5 — the ONE band-row builder (labels + exclusive percentages), used by
   // the Chapter 5 single view AND Compare, so the two views cannot disagree.
-  const bandRowLabels = (boundaries: number[]): string[] =>
-    unitLabel == null
-      ? [...boundaries, OVERFLOW_BAND].map(() => "—")
-      : exclusiveBandLabels(boundaries, v => unit.toDisplay(v, canonicalDistanceUnit!), unitLabel);
+  const bandRowLabels = (boundaries: number[]): string[] => {
+    const sorted = [...boundaries].sort((a, b) => a - b);
+    if (unitLabel == null) return [...sorted, OVERFLOW_BAND].map(() => "—");
+    const display = sorted.map(v => unit.toDisplay(v, canonicalDistanceUnit!));
+    return [...sorted.keys(), OVERFLOW_BAND].map(i => bandRangeLabel(i, display, unitLabel));
+  };
   const exclusiveBands = (r: SolveResult) =>
     frozenBandCoverageToExclusive(r.metrics.bandCoverage, bandDecimals(modelId), frozenBandShape(modelId));
 
@@ -561,10 +565,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       }
     }
     if (!isSuper && result.metrics.inboundCost != null) {
-      rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
+      rows.push(["Inbound cost", formatMoney(result.metrics.inboundCost), true]);
     }
     if (!isSuper && result.metrics.outboundCost != null) {
-      rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
+      rows.push(["Outbound cost", formatMoney(result.metrics.outboundCost), true]);
     }
     if (!isSuper) rows.push(
       [showCoverageRows ? "Avg distance to customers" : "Weighted avg. distance",
@@ -618,6 +622,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       value,
       mono,
       testId: testId ?? `cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+      title: label === "Quality" ? resultQualityTitle(result) : undefined,
     }));
 
     return (
@@ -754,13 +759,13 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.inboundCost != null)) {
     pushRow(
       { key: "inbound", label: "Inbound cost", csvLabel: "Inbound cost", mono: true, testId: id => `cost-summary-compare-inbound-${id}` },
-      s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: s.result!.metrics.inboundCost.toLocaleString() } : EMPTY,
+      s => s.result!.metrics.inboundCost != null ? { raw: s.result!.metrics.inboundCost, display: formatMoney(s.result!.metrics.inboundCost) } : EMPTY,
     );
   }
   if (!isSuperCompare && compareScenarios.some(s => s.result!.metrics.outboundCost != null)) {
     pushRow(
       { key: "outbound", label: "Outbound cost", csvLabel: "Outbound cost", mono: true, testId: id => `cost-summary-compare-outbound-${id}` },
-      s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: s.result!.metrics.outboundCost.toLocaleString() } : EMPTY,
+      s => s.result!.metrics.outboundCost != null ? { raw: s.result!.metrics.outboundCost, display: formatMoney(s.result!.metrics.outboundCost) } : EMPTY,
     );
   }
 
@@ -851,7 +856,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   );
   pushRow(
     { key: "quality", label: "Quality", csvLabel: "Quality", mono: false, testId: id => `cost-summary-compare-quality-${id}` },
-    s => ({ raw: resultQualityText(s.result!), display: resultQualityText(s.result!) }),
+    s => ({
+      raw: resultQualityText(s.result!),
+      display: <span title={resultQualityTitle(s.result!)}>{resultQualityText(s.result!)}</span>,
+    }),
   );
 
   // SCU-1.2/1.3 (spec B1.9) — EXCLUSIVE band rows + overflow, only when every

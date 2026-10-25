@@ -57,12 +57,13 @@ describe("StationsTab on DataTable (SCU-2.P4.14)", () => {
     expect(screen.getByTestId("input-added-station-demand-as-1")).toHaveValue("900,000");
   });
 
-  it("integer mode: inputMode numeric, '.' rejected, \"tons\" suffix linked (user decision), no aria-label", () => {
+  it("integer mode: inputMode numeric, '.' rejected, no suffix (header carries \"tons\"), no aria-label", () => {
     renderTab();
     const input = screen.getByTestId("input-added-station-demand-as-1");
     expect(input).toHaveAttribute("inputmode", "numeric");
     expect(input).not.toHaveAttribute("aria-label");
-    expect(document.getElementById(input.getAttribute("aria-describedby") ?? "")).toHaveTextContent("tons");
+    expect(input).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("columnheader", { name: /Demand override \(tons\)/ })).toBeInTheDocument();
     fireEvent.change(input, { target: { value: "900,000.5" } });
     expect(input).toHaveValue("900,000");
   });

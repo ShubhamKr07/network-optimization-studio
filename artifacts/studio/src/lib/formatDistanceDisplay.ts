@@ -1,25 +1,15 @@
-// ch4-fixes item 4 — the ONE display formatter for a distance shown in a
-// Distances-tab grid: thousands-grouped, at most 2 decimal places.
+// DU-2.1 — the display formatter for EVERY displayed distance (grids, chips,
+// map popups, narrative): thousands-grouped, at most 2 decimal places, en-US
+// pinned. It is a re-export of the `@workspace/units` authority so the server
+// exports (DU-4.2) share the same number text.
 //
-// Deliberately separate from `@workspace/units`' `roundForFile` (4 dp, no
-// grouping), which is the SERIALIZATION contract for exports (spec Part E)
-// and must not change: a file round-trips through a parser, a grid cell is
-// read by a human. Mixing the two would either put commas in a CSV or drop
-// two real digits from every exported override.
+// Deliberately separate from `roundForFile` (4 dp, no grouping), the
+// SERIALIZATION contract for exports, which must not change.
 //
-// Scope note: this is display-only and opt-in. It never touches a canonical
-// stored value, and it is NOT applied to the distance inputs outside the
-// Distances tabs (SolveDialog / OptimizationParametersTab / WarehouseTable /
-// CustomerTable / BandChipEditor all keep raw text) — see
-// `useDistanceDraft`'s `presentation` option.
-
-// Pinned to en-US (app is English-only): these labels feed downloaded
-// JADE Flows CSV/JSON, so they must not vary with the viewer's locale.
-/** A display-unit distance -> "12,004.8" / "1,234.57" / "892". */
-export function formatDistanceDisplay(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
-}
+// Scope note: display-only. It is NOT applied to editable distance inputs
+// (SolveDialog / OptimizationParametersTab / WarehouseTable / CustomerTable /
+// BandChipEditor keep raw text) — see `useDistanceDraft`'s `presentation`.
+export { formatDistanceNumber as formatDistanceDisplay } from "@workspace/units";
 
 /**
  * Inverse-ish helper for the write path: strip the grouping separators a

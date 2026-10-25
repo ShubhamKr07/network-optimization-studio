@@ -4,11 +4,12 @@ import { useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { plantIdCityState } from "@/lib/formatLocation";
 import {
-  bandDecimals, computeExclusiveBandCoverage, exclusiveBandLabels,
+  bandDecimals, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, frozenBandShape, OVERFLOW_BAND,
 } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
 import { type CanonicalUnit } from "@workspace/units";
+import { BandLabel } from "@/components/BandLabel";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
 import { DataTable } from "@/components/data-table/DataTable";
@@ -339,19 +340,17 @@ export function ServiceStatsTab({
         <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-no-bands">No band coverage data for this solve.</div>
       ) : (
         <div className="p-4 space-y-2">
-          {/* jade-T14 / SCU-1.2 — exclusive rows: "0–200 mi", "200–400 mi", …,
-              and a `band: -1` overflow row labelled "> {last boundary}". The
-              sentinel itself is never converted — only real boundaries go
-              through toDisplay (a converted -1 would render "-0.62"). */}
+          {/* DU-2.2 — `b.band` is a boundary VALUE (or OVERFLOW_BAND), not an index: the
+              index is its position among the sorted real boundaries. Only real boundaries
+              go through toDisplay (a converted -1 would render "-0.62"). */}
           {(() => {
-            const labels = exclusiveBandLabels(
-              bandCoverage.filter(b => b.band !== OVERFLOW_BAND).map(b => b.band),
-              v => toDisplay(v, canonicalUnit),
-              distanceUnit,
-            );
-            return bandCoverage.map((b, i) => (
+            const boundaries = bandCoverage.filter(b => b.band !== OVERFLOW_BAND).map(b => b.band).sort((a, c) => a - c);
+            const displayBands = boundaries.map(v => toDisplay(v, canonicalUnit));
+            return bandCoverage.map((b) => (
               <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
-                <span className="w-28 flex-shrink-0 font-mono">{labels[i]}</span>
+                <span className="w-44 flex-shrink-0 font-mono">
+                  <BandLabel index={b.band === OVERFLOW_BAND ? OVERFLOW_BAND : boundaries.indexOf(b.band)} bands={displayBands} unit={distanceUnit} />
+                </span>
                 <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
                   <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
                 </div>

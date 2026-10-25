@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -43,8 +44,8 @@ export function MineTable({ mines, overrides, onChange }: MineTableProps) {
                 <TableCell className="font-mono text-xs">{m.id}</TableCell>
                 <TableCell className="text-xs">{m.city}</TableCell>
                 <TableCell className="text-xs">{m.state}</TableCell>
-                <TableCell className="text-xs font-mono">{m.lat.toFixed(4)}</TableCell>
-                <TableCell className="text-xs font-mono">{m.lng.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(m.lat)}</TableCell>
+                <TableCell className="text-xs font-mono">{formatCoord(m.lng)}</TableCell>
                 {mines.some(x => x.zip) && <TableCell className="text-xs font-mono">{m.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input

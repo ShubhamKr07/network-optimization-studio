@@ -410,12 +410,7 @@ export function JadeDistancesTab({
     if (canonicalUnit == null) {
       return <Spinner className="w-3 h-3" data-testid={`spinner-jadedistance-unit-${r.leg}-${r.fromId}-${r.toId}`} />;
     }
-    if (referenceCapable) {
-      if (referenceQuery.isLoading) {
-        return <Spinner className="w-3 h-3" data-testid={`spinner-jadedistance-base-${r.leg}-${r.fromId}-${r.toId}`} />;
-      }
-      if (referenceQuery.isError) return "unavailable";
-    }
+    if (referenceCapable && referenceQuery.isError) return "unavailable";
     if (r.base == null) return "—";
     return formatDistanceDisplay(toDisplay(r.base, canonicalUnit));
   }
@@ -440,17 +435,6 @@ export function JadeDistancesTab({
 
   // Rebuilt every render: cells close over live props (see DistancesTab).
   const columns: ColumnDef<MergedRow>[] = [
-    {
-      id: "leg",
-      header: "Leg",
-      kind: "enum",
-      value: r => LEG_LABEL[r.leg],
-      cell: r => (
-        <Badge variant="secondary" data-testid={`badge-leg-${r.leg}-${r.fromId}-${r.toId}`}>
-          {LEG_LABEL[r.leg]}
-        </Badge>
-      ),
-    },
     {
       id: "from",
       header: "From",
@@ -712,6 +696,14 @@ export function JadeDistancesTab({
       }}
       toolbar={{ upload: files.upload, download: files.download }}
       scrollClassName="max-h-[55vh] overflow-y-auto"
+      loading={referenceCapable && referenceQuery.isLoading}
+      // Q6 — the leg is a group header, not a column (one filter/sort/pager across both legs).
+      sections={(Object.keys(LEG_LABEL) as JadeLeg[]).map(leg => ({
+        id: leg,
+        title: LEG_LABEL[leg],
+        testId: `section-leg-${leg}`,
+        includes: (r: MergedRow) => r.leg === leg,
+      }))}
       emptyState={
         <p className="text-sm text-muted-foreground">No distance overrides yet — add one below, or upload a CSV/JSON file.</p>
       }
@@ -734,11 +726,6 @@ export function JadeDistancesTab({
       {referenceCapable && referenceQuery.isError && (
         <p className="text-xs text-destructive mb-2" data-testid="jadedistances-reference-error">
           Failed to load reference distances.
-        </p>
-      )}
-      {referenceCapable && referenceQuery.isLoading && (
-        <p className="text-xs text-muted-foreground mb-2" data-testid="jadedistances-reference-loading">
-          Loading reference distances…
         </p>
       )}
       {referenceCapable ? <div data-testid="jadedistances-reference-section">{table}</div> : table}

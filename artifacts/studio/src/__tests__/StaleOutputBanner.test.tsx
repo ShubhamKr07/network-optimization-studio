@@ -18,6 +18,7 @@ describe("StaleOutputBanner", () => {
   it("clicking the Run Optimizer CTA calls onRunOptimizer", async () => {
     const onRunOptimizer = vi.fn();
     render(<StaleOutputBanner onRunOptimizer={onRunOptimizer} />);
+    expect(screen.getByTestId("button-stale-banner-run-optimizer").className).not.toContain("bg-primary");
     await userEvent.click(screen.getByTestId("button-stale-banner-run-optimizer"));
     expect(onRunOptimizer).toHaveBeenCalledTimes(1);
   });

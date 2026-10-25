@@ -16,6 +16,20 @@ import { PAGE_SIZE, pageResetKey, usePagedRows } from "./usePagedRows";
 import { TablePager } from "./TablePager";
 import type { CellValue, ColumnDef, DataTableProps, DataTableSection } from "./types";
 
+function DataTableSkeleton({ cols, testId }: { cols: number; testId: string }) {
+  return (
+    <div className="space-y-2 animate-pulse" data-testid={testId}>
+      {Array.from({ length: 5 }, (_, r) => (
+        <div key={r} className="flex gap-3 px-3 py-1.5">
+          {Array.from({ length: Math.max(cols, 1) }, (_, c) => (
+            <div key={c} className="h-3 flex-1 rounded bg-muted" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const KEY_SEP = "\u0000";
 
 // QFX-4 — one sorted column at a time; dir 1 = ascending, -1 = descending.
@@ -54,6 +68,9 @@ function sortRows<T>(rows: T[], sort: SortState | null, columns: ColumnDef<T>[],
   return decorated.map(d => d.row);
 }
 
+// Cap so the wrapper is the real scroll ancestor (sticky thead/pager bind to it), in flat and sections mode alike.
+const DEFAULT_SCROLL = "max-h-[55vh] overflow-auto";
+
 export function DataTable<T>({
   rows,
   rowKey,
@@ -66,7 +83,9 @@ export function DataTable<T>({
   sections,
   focus,
   scrollClassName,
+  loading,
   footer,
+  countNoun,
 }: DataTableProps<T>) {
   // Pipeline (B2.2 + QFX-4, fixed order): effective rows (adapter) → filter → sort → clamp page → slice 50.
   const descriptors = useMemo(() => deriveFilterDescriptors(columns, rows), [columns, rows]);
@@ -163,7 +182,7 @@ export function DataTable<T>({
   ) => {
     const cols = allCols.filter(c => !c.hidden);
     return (
-      <Table className="table-auto" data-testid={opts.tableTestId}>
+      <Table className="table-auto" containerClassName="overflow-visible" data-testid={opts.tableTestId}>
         <TableHeader>
           <TableRow>
             {cols.map(c => {
@@ -172,7 +191,7 @@ export function DataTable<T>({
               return (
                 <TableHead
                   key={c.id}
-                  className={cn("h-auto px-3 py-1.5 whitespace-nowrap", c.kind === "number" && "text-center")}
+                  className={cn("h-auto px-3 py-1.5 whitespace-nowrap sticky top-0 z-10 bg-background", c.kind === "number" && "text-center")}
                   data-testid={c.headerTestId}
                   aria-sort={!sortable ? undefined : dir === 1 ? "ascending" : dir === -1 ? "descending" : "none"}
                 >
@@ -239,7 +258,7 @@ export function DataTable<T>({
       if (!owned) content = s.emptyState ?? null;
       else if (pageRows.length > 0 || showNoMatch)
         content = (
-          <div className={s.scrollClassName} data-testid={s.scrollTestId}>
+          <div data-testid={s.scrollTestId}>
             {renderTable(s.columns ?? columns, pageRows, {
               tableTestId: s.tableTestId,
               rowTestId: s.rowTestId ?? testIds.row,
@@ -258,28 +277,32 @@ export function DataTable<T>({
     });
   };
 
+  const pager = paged.showPager && (
+    <TablePager
+      page={paged.page}
+      pageCount={paged.pageCount}
+      onPageChange={p => paged.setPage(p)}
+      className="sticky bottom-0 z-10 bg-background py-1"
+      testIds={{ pager: testIds.pager, prev: testIds.pagerPrev, next: testIds.pagerNext, indicator: testIds.pageIndicator }}
+    />
+  );
   let body: ReactNode;
-  if (rows.length === 0 && emptyState !== undefined) {
+  if (loading) {
+    body = <DataTableSkeleton cols={columns.filter(c => !c.hidden).length} testId={testIds.loading ?? "data-table-loading"} />;
+  } else if (rows.length === 0 && emptyState !== undefined) {
     body = <div data-testid={testIds.empty}>{emptyState}</div>;
   } else {
+    // One scroll ancestor for thead (sticky top-0) and pager (sticky bottom-0), in both modes.
+    // Sections render inside it and never scroll themselves (nested scrollers break sticky).
     body = (
-      <>
+      <div className={scrollClassName ?? DEFAULT_SCROLL} data-testid={testIds.scroll}>
         {sections ? (
           <div className="space-y-3">{renderSections(sections)}</div>
         ) : (
-          <div className={scrollClassName} data-testid={testIds.scroll}>
-            {renderTable(columns, paged.pageRows, { tableTestId: testIds.table, rowTestId: testIds.row, showNoMatch: noMatch })}
-          </div>
+          renderTable(columns, paged.pageRows, { tableTestId: testIds.table, rowTestId: testIds.row, showNoMatch: noMatch })
         )}
-        {paged.showPager && (
-          <TablePager
-            page={paged.page}
-            pageCount={paged.pageCount}
-            onPageChange={p => paged.setPage(p)}
-            testIds={{ pager: testIds.pager, prev: testIds.pagerPrev, next: testIds.pagerNext, indicator: testIds.pageIndicator }}
-          />
-        )}
-      </>
+        {pager}
+      </div>
     );
   }
 
@@ -298,7 +321,9 @@ export function DataTable<T>({
           <div className="ml-auto flex items-center gap-2">
             {testIds.count && (
               <span className="text-xs text-muted-foreground" data-testid={testIds.count}>
-                {tableFilters.filteredCount} of {tableFilters.totalCount}
+                {countNoun && tableFilters.filteredCount === tableFilters.totalCount
+                  ? `${tableFilters.filteredCount} ${countNoun}`
+                  : `${tableFilters.filteredCount} of ${tableFilters.totalCount}${countNoun ? ` ${countNoun}` : ""}`}
               </span>
             )}
             {showFilter && <FilterMenu descriptors={descriptors} tableFilters={tableFilters} triggerTestId={testIds.filterTrigger} />}

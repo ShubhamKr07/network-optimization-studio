@@ -48,6 +48,15 @@ function renderTab(props: Partial<React.ComponentProps<typeof WarehousesTab>> = 
 }
 
 describe("WarehousesTab on DataTable (SCU-2.P4.10)", () => {
+  it("DU-2.6: the ID column never wraps and keeps a 6rem floor (class assertion; real layout is verified in DU-2.9)", () => {
+    renderTab();
+    const th = screen.getAllByRole("columnheader").find(h => h.textContent === "ID")!;
+    const idx = Array.from(th.parentElement!.children).indexOf(th);
+    const cell = screen.getByText("WH1").closest("td")!;
+    expect(Array.from(cell.parentElement!.children).indexOf(cell)).toBe(idx);
+    expect(cell).toHaveClass("whitespace-nowrap", "min-w-[6rem]");
+  });
+
   it("emits every testid in the matrix map (base + added, toolbar, menus)", () => {
     renderTab();
     for (const id of [

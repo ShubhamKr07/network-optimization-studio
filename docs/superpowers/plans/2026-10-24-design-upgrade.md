@@ -87,7 +87,7 @@ It also produces the CSS utilities `bg-success|warning|danger|info(-bg)`, `text-
 |---|---|---|
 | DU-2.1 | Formatter set + every call site in the spec §5.2.1 inventory switched over | `formatDistanceDisplay(value: number): string` (broadened scope, same signature); `formatMoney(value: number, opts?: { compact?: boolean }): string` in `lib/formatObjective.ts`; lat/lng 4 dp |
 | DU-2.2 | Range-label authority + `BandLabel` in every UI surface; the four old representations removed; tests and e2e rewritten. Adds guard `__tests__/bandLabelSource.test.ts`: a tree walk failing on any `Band ${` / `"Band " +` label construction outside `@workspace/units`, with an empty allow-list, a non-vacuity case, and an rg inventory of source + e2e hits in the task | `@workspace/units`: `bandRangeLabel(index: number, bands: number[], unit: CanonicalUnit): string` (upper-inclusive; `≤ a`, `a–b`, `> z`); studio `components/BandLabel.tsx`: `<BandLabel index bands unit />` |
-| DU-2.3 | Units in headers; `demandUnit` | `Chapter.demandUnit: "tons" \| "units"` (required; JADE `"tons"`) |
+| DU-2.3 | Units in headers; `demandUnit` | `Chapter.demandUnit: "tons" \| "units"` (required; JADE and `transport-coal` `"tons"`, the latter confirmed 2026-10-24, Phase 2 plan Q9) |
 | DU-2.4 | Copy pass (legacy result, Unverified, "4 plants", "Run 1 of N") | none |
 | DU-2.5 | Header title = chapter title; one primary action per view; lane-colour mode as a segmented control | none |
 | DU-2.6 | `DataTable`: sticky header, pinned pager, loading skeleton, ID `nowrap`, ≥ 24px targets, repeated-value → group header | `DataTable` prop `loading?: boolean` |

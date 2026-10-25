@@ -64,7 +64,7 @@ const SOLVE_TIMEOUT = 90_000;
 /**
  * Solve through the real UI. Result history is client SESSION state (the page
  * appends an entry each time a new result arrives while it is open), so two API
- * solves followed by a page load show 1/1, not 2/2 — the solves must happen with
+ * solves followed by a page load show one run (no pager), not "Run 2 of 2" — the solves must happen with
  * the page open. Completion signal: `solvedAt` advancing (e2e/CLAUDE.md).
  */
 async function solveViaUi(page: Page, id: string): Promise<void> {
@@ -130,7 +130,7 @@ test.describe("Input tables — history read-only (D2) and unit-reset (SCU-2.P4.
       await demand.fill("1500");
       await saveViaHeader(page);
       await solveViaUi(page, id);
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2", { timeout: HEADER_TIMEOUT });
 
       // Non-vacuity: at the latest entry each tab has enabled controls.
       for (const tab of TABS) {
@@ -144,7 +144,7 @@ test.describe("Input tables — history read-only (D2) and unit-reset (SCU-2.P4.
       await page.getByTestId("button-add-lanecost-row").click();
       await expect(page.getByTestId("add-lanecost-row-form")).toBeVisible();
       await page.getByTestId("button-result-back").click();
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 1 of 2", { timeout: HEADER_TIMEOUT });
       for (const tid of ["input-new-lanecost-from", "input-new-lanecost-to", "input-new-lanecost-value", "button-add-lanecost-confirm"]) {
         await expect(page.getByTestId(tid), `${tid} must be disabled in history`).toBeDisabled();
       }

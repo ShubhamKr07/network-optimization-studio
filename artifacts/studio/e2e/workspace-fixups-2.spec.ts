@@ -10,14 +10,14 @@
  *      (p-median-us's Customer Assignments) per the plan's own DoD.
  *   3. A JADE input tab has the Filter on the same line as Import/Export;
  *      a non-JADE input tab has no filter at all.
- *   4. Map marker hover shows "Type · ID · City, State" on BOTH the Input
+ *   4. Map marker hover shows "Type · City, State · ID" on BOTH the Input
  *      and Output map, for a warehouse, a customer, a plant, the gold-au
  *      fixed mine (keeps "(fixed)" on the Input map), a gold-au facility
  *      ("Refinery"), and transport-coal's supply/demand roles ("Mine"/
  *      "Station").
  *   5. The homepage "AL's Athletics" card shows no "P-Median".
- *   6. A JADE Distance-Band filter option reads "Band N: X mi - Y mi" /
- *      "Band N: > X mi"; table CELLS stay "Band N"/"Overflow".
+ *   6. A JADE Distance-Band filter option reads "≤ X mi" / "X–Y mi" /
+ *      "> X mi" (DU-2.2); table CELLS read the same range text.
  *   7. JADE's Run Optimizer shows the same free chip band editor as
  *      Chapter 3 (not a fixed-4 editor); a 5th band can be added and
  *      solved; removing bands down to one disables the last "×".
@@ -165,15 +165,13 @@ async function hoverUntilType(page: Page, mapTestId: string, candidateLoc: Locat
   throw new Error(`Could not find a "${expectedType}" tooltip among ${n} candidate marker(s) on ${mapTestId}.`);
 }
 
-/** Asserts the tooltip text starts with "<Type> · <id> · <City>, <ST>"
- * (real Australian states like "QLD" run 2-4 letters, hence the range; a
- * base plant's display id is a base-dataset `name` like "Plant 1" — a
- * multi-word string, not always a single token — hence the non-greedy
- * `.+?` rather than `\S+`) — extra suffixes (demand, band, customer count,
+/** Asserts the tooltip text starts with "<Type> · <City>, <ST> · <id>"
+ * (DU-2.7: name before ID; real Australian states like "QLD" run 2-4
+ * letters, hence the range) — extra suffixes (demand, band, customer count,
  * "(fixed)") are allowed after, per item 4's "existing extras preserved"
  * DoD. */
 function assertTooltipShape(text: string, type: string): void {
-  const re = new RegExp(`^${type} · .+? · [^,]+, [A-Z]{2,4}\\b`);
+  const re = new RegExp(`^${type} · [^,]+, [A-Z]{2,4} · \\S+`);
   expect(text).toMatch(re);
 }
 
@@ -565,8 +563,8 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       assertTooltipShape(plantTooltipOut, "Plant");
 
       // ── Item 6 — Distance-Band filter range labels, on the still-live
-      // (just-saved) ground-truth bands. Table CELLS stay "Band N"/
-      // "Overflow"; only the FILTER options get the range format. Computed
+      // (just-saved) ground-truth bands. Filter options and table CELLS
+      // both read the units range label (DU-2.2). Computed
       // deterministically from the known bands (no need to reproduce real
       // solved edge distances — every possible option is one of exactly
       // these 5 strings). ─────────────────────────────────────────────────
@@ -580,11 +578,11 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       const bandOptions = await distinctFilterOptionLabels(page, "band");
       expect(bandOptions.length).toBeGreaterThan(0);
       const expectedPossible = new Set([
-        "Band 1: 0 mi - 200 mi",
-        "Band 2: 200 mi - 400 mi",
-        "Band 3: 400 mi - 800 mi",
-        "Band 4: 800 mi - 1,600 mi",
-        "Band 5: > 1,600 mi",
+        "≤ 200 mi",
+        "200–400 mi",
+        "400–800 mi",
+        "800–1,600 mi",
+        "> 1,600 mi",
       ]);
       for (const label of bandOptions) {
         expect(expectedPossible.has(label)).toBe(true);
@@ -592,11 +590,11 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("filter-menu-popover")).not.toBeVisible();
 
-      // Table cells are unchanged — still bare "Band N"/"Overflow".
+      // Table cells read the same range text as the filter options (DU-2.2).
       const cellTexts = await page.locator('[data-testid^="cell-jadeassignment-band-"]').allInnerTexts();
       expect(cellTexts.length).toBeGreaterThan(0);
       for (const text of cellTexts) {
-        expect(text.trim()).toMatch(/^(Band \d+|Overflow)$/);
+        expect(text.trim()).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);
       }
 
       // ── Item 7 — Run Optimizer shows the SAME free chip band editor as

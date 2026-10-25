@@ -14,7 +14,7 @@ vi.mock("@workspace/units", async (importOriginal) => {
 });
 
 import { objectiveDimension, convertObjective, type CanonicalUnit } from "@workspace/units";
-import { formatChenObjective, objectiveModeOfDetails, formatObjective, scenarioObjectiveMode } from "@/lib/formatObjective";
+import { formatChenObjective, objectiveModeOfDetails, formatObjective, scenarioObjectiveMode, formatMoney } from "@/lib/formatObjective";
 import type { UnitApi } from "@/contexts/UnitContext";
 
 // C4.14 (D14) — the single source of truth for Chen's two mode-dependent
@@ -157,7 +157,7 @@ describe("formatObjective — seven-model contract", () => {
   it("a monetary/percent dimension is never converted (convertObjective's own no-op is respected, not overridden)", () => {
     const monetary = formatObjective("two-echelon-jade-us", null, 100, "mi", stubUnitApi("km"));
     // $100, unconverted — a naive distance conversion would have scaled it.
-    expect(monetary).toBe("$100.00");
+    expect(monetary).toBe("$100");
 
     const percent = formatObjective("max-coverage-us", "coverage", 66.6667, "mi", stubUnitApi("km"));
     expect(percent).toBe("66.67 %");
@@ -168,5 +168,44 @@ describe("formatObjective — seven-model contract", () => {
     // 1000 mi -> km via the REAL (spy-wrapped, not stubbed) convertObjective.
     expect(result).toContain("1,609.344");
     expect(result).toContain("demand-km");
+  });
+});
+
+describe("formatMoney (DU-2.1)", () => {
+  it("full: grouped whole dollars", () => {
+    expect(formatMoney(169061531.4)).toBe("$169,061,531");
+    expect(formatMoney(-1234.6)).toBe("-$1,235");
+  });
+  it("compact: B / M at 2 dp, K at 0 dp, small at 2 dp", () => {
+    expect(formatMoney(1_234_000_000, { compact: true })).toBe("$1.23B");
+    expect(formatMoney(169_061_531, { compact: true })).toBe("$169.06M");
+    expect(formatMoney(842_400, { compact: true })).toBe("$842K");
+    expect(formatMoney(842.5, { compact: true })).toBe("$842.50");
+    expect(formatMoney(-6_300_000, { compact: true })).toBe("-$6.30M");
+    // Tier on the rounded value: never "$1,000K" / "$1000.00M".
+    expect(formatMoney(999_600, { compact: true })).toBe("$1.00M");
+    expect(formatMoney(999_996_000, { compact: true })).toBe("$1.00B");
+  });
+  it("non-finite renders —", () => {
+    expect(formatMoney(Number.NaN)).toBe("—");
+    expect(formatMoney(Number.NEGATIVE_INFINITY, { compact: true })).toBe("—");
+  });
+  it("pins en-US even when the default locale is German", () => {
+    // Same technique as formatDistanceDisplay.test.ts: an undefined locale resolves to de-DE,
+    // so an unpinned toLocaleString() would print 169.061.531.
+    const orig = Number.prototype.toLocaleString;
+    Number.prototype.toLocaleString = function (this: number, loc?: string | string[], o?: Intl.NumberFormatOptions) {
+      return orig.call(this, loc === undefined ? "de-DE" : loc, o);
+    };
+    try {
+      expect(formatMoney(169061531)).toBe("$169,061,531");
+      expect(formatMoney(842_400, { compact: true })).toBe("$842K");
+      // formatObjective branches: monetary, demand-distance (suffixed), opaque.
+      expect(formatObjective("two-echelon-jade-us", null, 169061531, "mi", stubUnitApi("mi"))).toBe("$169,061,531");
+      expect(formatObjective("p-median-us", null, 1234567, "mi", stubUnitApi("mi"))).toBe("1,234,567 demand-mi");
+      expect(formatObjective("no-such-model", null, 1234567, "mi", stubUnitApi("mi"))).toBe("1,234,567");
+    } finally {
+      Number.prototype.toLocaleString = orig;
+    }
   });
 });

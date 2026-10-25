@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { MineOverride } from "@/components/tables/MineTable";
@@ -132,7 +133,7 @@ export function MinesTab({
       kind: "text",
       filter: "text",
       value: r => r.displayId,
-      cellClassName: "font-mono text-xs",
+      cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
       cell: r => {
         if (!added) return r.displayId;
         const missing = completenessCountForMine(precheckErrors, r.id);
@@ -173,7 +174,7 @@ export function MinesTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -181,7 +182,7 @@ export function MinesTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const capacity = (added: boolean): ColumnDef<MineTableRow> => ({
@@ -272,7 +273,6 @@ export function MinesTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="mines-tab-empty">
                 No mines in this dataset.
@@ -288,7 +288,6 @@ export function MinesTab({
                   includes: (r: MineTableRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: MineTableRow) => `row-added-mine-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-mines-empty">
                       No added mines yet — use "+ Add mine" above to create one.

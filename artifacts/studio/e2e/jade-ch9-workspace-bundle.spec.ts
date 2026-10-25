@@ -297,9 +297,9 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(pwAvg).toBeVisible();
       await expect(wcAvg).toBeVisible();
       await expect(overallAvg).toBeVisible();
-      await expect(pwAvg).toContainText(/Plant → Warehouse avg distance: [\d.]+ mi/);
-      await expect(wcAvg).toContainText(/Warehouse → Customer avg distance: [\d.]+ mi/);
-      await expect(overallAvg).toContainText(/Overall avg distance: [\d.]+ mi/);
+      await expect(pwAvg).toContainText(/Plant → Warehouse avg distance: [\d,.]+ mi/);
+      await expect(wcAvg).toContainText(/Warehouse → Customer avg distance: [\d,.]+ mi/);
+      await expect(overallAvg).toContainText(/Overall avg distance: [\d,.]+ mi/);
 
       // ── Item #1 — overflow color/label, live recolor, zero solve calls ──
       const solveCallsBeforeBandEdit = solveCalls.count();
@@ -333,7 +333,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // without navigating through a save/solve.
       await page.getByTestId("sidebar-output-customer-assignments").click();
       await expect(page.getByTestId("jade-assignments-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').first()).toHaveText("Overflow");
+      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').first()).toHaveText(/^> [\d,.]+ (mi|km)$/);
 
       // Back to the Output Map: the map lens is live too
       // (getBandColor(-1) === "var(--band-overflow)", set literally as the
@@ -364,7 +364,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(overflowPaths).toHaveCount(expectedOverflowCount);
       await expect(bandZeroPaths).toHaveCount(expectedBandZeroCount);
 
-      // Tooltip on a customer marker reads "Overflow" — pick a customer
+      // Tooltip on a customer marker reads the overflow range ("> X mi") — pick a customer
       // marker that's visually ISOLATED (no other marker overlapping its
       // bounding box) so hover/click deterministically lands on it (see
       // `pickIsolatedCustomerMarker`'s own comment: a naive `.first()`
@@ -375,10 +375,10 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await customerPath.hover({ timeout: HEADER_TIMEOUT });
       const tooltip = page.locator(".leaflet-tooltip");
       await expect(tooltip).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(tooltip).toContainText("Overflow");
-      await expect(tooltip).not.toContainText(/Band \d/);
+      await expect(tooltip).toContainText(/> [\d,.]+ (mi|km)/);
+      await expect(tooltip).not.toContainText(/Band \d|Overflow/);
 
-      // Popup (click) on the same customer: "Overflow" label + overflow
+      // Popup (click) on the same customer: overflow range text + overflow
       // color swatch, never "Band N" — and the marker's own highlight fill
       // switches to the overflow color too (consistency across lane +
       // highlight + popup + tooltip, spec §2's explicit all-site
@@ -386,8 +386,8 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await customerPath.click({ timeout: HEADER_TIMEOUT });
       const popupContent = page.locator(".leaflet-popup-content");
       await expect(popupContent).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(popupContent).toContainText("Overflow");
-      await expect(popupContent).not.toContainText(/Band \d/);
+      await expect(popupContent).toContainText(/> [\d,.]+ (mi|km)/);
+      await expect(popupContent).not.toContainText(/Band \d|Overflow/);
       await expect(customerPath).toHaveAttribute("fill", "var(--band-overflow)");
 
       // Zero solve/solve-job network calls fired anywhere in this whole
@@ -460,12 +460,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // [Fixed pre-existing stale assertion — unrelated to workspace-
       // fixups-2: the "workspace-fixups" bundle (2026-09-19, predates this
       // spec's own 2026-09-17 authoring) already appended " Units" to every
-      // capacity readout; this spec never got updated for it.]
+      // capacity readout; DU-2.3 then moved the unit into the column header.]
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-1")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
 
       // Enable the off-diagonal cell -> capacity flips live to 210,000,000
@@ -473,11 +473,11 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // only added-plant cells — spec §7).
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000");
       // Toggle back off -> reverts to 0.
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
 
       // ── Item #7 — no warehouse-capacity leak / no 10,000,000 ────────────
       await page.getByTestId("sidebar-input-warehouses").click();

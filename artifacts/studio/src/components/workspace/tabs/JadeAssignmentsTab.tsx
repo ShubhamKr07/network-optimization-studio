@@ -1,9 +1,12 @@
 import { useMemo } from "react";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
-import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { assignBandOrOverflow, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
+import { BandLabel } from "@/components/BandLabel";
 import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
@@ -77,17 +80,10 @@ interface JadeAssignmentsTabProps {
   /** The saved-inputs snapshot that produced `result` — added-entity id ->
    * city/state/displayCode lookups. */
   displayedInputs?: JadeAssignmentsDisplayedInputs | null;
-  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
-   * projection (`buildEntityIdentityById`, T3). This table already resolves
-   * a single-line "City - ST" label for every cell via `customerLabel`/
-   * `warehouseLabel` below (never showing the id/displayCode alongside it) —
-   * when `identityById` has an entry for a cell's id AND the table's
-   * UNFILTERED row count exceeds 10 (the item-2 `>10` upgrade rule), that
-   * cell upgrades to the shared stacked `EntityIdCell` (City,State + mono
-   * displayId). Below the threshold, or when `identityById`/the entry is
-   * absent, the cell keeps its pre-existing single-line string — so
-   * `identityById` unset is byte-unchanged from before this task at any row
-   * count (the no-regression contract). */
+  /** The snapshot-matched identity projection (`buildEntityIdentityById`). When it has
+   * an entry for a cell's id the cell renders the shared stacked `EntityIdCell`
+   * (City, ST + mono displayId) at any row count (DU-2.7, PR2-4); otherwise the
+   * single-line label. */
   identityById?: Record<string, EntityIdentity>;
 }
 
@@ -135,21 +131,18 @@ interface JadeAssignmentRow {
   warehouseId: string;
   warehouseLabel: string;
   distance: number;
-  band: string;
+  bandIndex: number;
 }
 
-// workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
-// true (unfiltered row count > 10) AND `identityById` has an entry for this
-// id, render the shared stacked cell (adds the mono displayId sub-label this
-// table never showed before); otherwise render the pre-existing single-line
-// string UNCHANGED (the no-regression fallback).
+// DU-2.7 (PR2-4) — when `identityById` has an entry for this id, render the shared
+// stacked cell (City, ST + mono displayId) at ANY row count; otherwise the
+// pre-existing single-line string (no-identity fallback).
 function renderJadeEntityCell(
   id: string,
   fallbackLabel: string,
   identityById: Record<string, EntityIdentity> | undefined,
-  upgrade: boolean,
 ) {
-  const identity = upgrade ? identityById?.[id] : undefined;
+  const identity = identityById?.[id];
   if (identity) {
     return (
       <EntityIdCell
@@ -193,18 +186,13 @@ export function JadeAssignmentsTab({
       warehouseId: a.warehouseId,
       warehouseLabel: warehouseLabel(a.warehouseId, dataset, displayedInputs?.addedWarehouses),
       distance: a.distanceMi,
-      band: bandLabel(a.distanceMi, effectiveBands),
+      bandIndex: assignBandOrOverflow(a.distanceMi, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, displayedInputs, bandsKey]);
 
-  // workspace-fixups-2 T10 — the `>10` identity upgrade reads the UNFILTERED count.
-  const upgrade = rows.length > 10;
-
   const columns = useMemo<ColumnDef<JadeAssignmentRow>[]>(() => {
-    // `bandRangeLabel` (lib/bands.ts) has no unit awareness of its own:
-    // converting BOTH the boundaries and the distance to the display unit
-    // keeps the printed range numerically correct.
+    // `bandRangeLabel` takes display-unit boundaries; the band INDEX was assigned in canonical space.
     const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
     return [
       { id: "product", header: "Product", kind: "enum", cellTestId: r => `cell-jadeassignment-product-${r.key}`, value: r => r.productLabel, cell: r => r.productLabel },
@@ -215,7 +203,7 @@ export function JadeAssignmentsTab({
         filter: "text", // pinned: today's descriptor type
         cellTestId: r => `cell-jadeassignment-customer-${r.key}`,
         value: r => r.customerLabel,
-        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById, upgrade),
+        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById),
       },
       {
         id: "warehouse",
@@ -225,7 +213,7 @@ export function JadeAssignmentsTab({
         filter: "select", // pinned: today's descriptor type, even above 20 warehouses
         cellTestId: r => `cell-jadeassignment-warehouse-${r.key}`,
         value: r => r.warehouseLabel,
-        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, upgrade),
+        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
       },
       {
         id: "distance",
@@ -236,22 +224,22 @@ export function JadeAssignmentsTab({
         // Filter range is in the DISPLAY unit — the number the student reads in the cell.
         value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
         filterResetKey: unit.pref,
-        cell: r => (canonicalResolved ? `${unit.toDisplay(r.distance, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—"),
+        cell: r => (canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(r.distance, distanceUnit))} ${resolvedUnitLabel}` : "—"),
       },
       {
         id: "band",
         header: "Distance Band",
         kind: "enum",
         cellTestId: r => `cell-jadeassignment-band-${r.key}`,
-        // The FILTER value is the unit-aware range label; the CELL keeps "Band N"/"Overflow".
-        value: r => (canonicalResolved ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!) : "—"),
-        cell: r => r.band,
+        // DU-2.2 — filter value and cell both read the one range label (index assigned in canonical space).
+        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
+        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
         // Workspace fixups T7 item 5 — a bands/unit change clears ONLY this filter.
         filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
       },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bandsKey, distanceUnit, unit.pref, identityById, upgrade]);
+  }, [bandsKey, distanceUnit, unit.pref, identityById]);
 
   if (!result) {
     return (

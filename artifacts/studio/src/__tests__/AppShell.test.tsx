@@ -192,7 +192,7 @@ describe("AppShell hero variant", () => {
   // it at any width. Docking it in the footer is what fixes that, so assert
   // CONTAINMENT rather than presence — a bare getByTestId would pass just as
   // happily with the launcher floating back over the content.
-  it("docks the feedback launcher in the footer, never in the scrolling region", () => {
+  it("docks the feedback launcher in the footer, and the footer scrolls as the last child of <main>", () => {
     renderShell(<AppShell userEmail="a@b.c" hero>{<div>body</div>}</AppShell>);
 
     const launcher = screen.getByTestId("feedback-button");
@@ -200,10 +200,12 @@ describe("AppShell hero variant", () => {
     const main = screen.getByText("body").closest("main") as HTMLElement;
 
     expect(footer).toContainElement(launcher);
-    expect(main).not.toContainElement(launcher);
-    // <main> is the scroll container; its parent is the stacking wrapper that
-    // used to host the launcher. Both must be clear of it.
-    expect(main.parentElement).not.toContainElement(launcher);
+    // DU-2.8 — the hero footer scrolls with the content: it is the LAST child
+    // INSIDE <main> (the scroll container), not a pinned sibling of it. The
+    // launcher is still reached only through the footer.
+    expect(main.lastElementChild).toBe(footer);
+    expect(footer.className).not.toContain("flex-shrink-0");
+    expect(main.parentElement?.nextElementSibling).toBeNull();
   });
 });
 

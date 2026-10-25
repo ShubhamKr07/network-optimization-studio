@@ -7,8 +7,11 @@
  * (disabled — no solved run possible with no scenario) and Run Optimizer
  * (disabled — nothing to solve), and the create-first-scenario flow must
  * actually work end to end (the dialog is reachable and, once confirmed,
- * becomes the active scenario with Bundle 6's one-shot Input Map seed
- * firing now that a scenario exists).
+ * becomes the active scenario). The Input Map one-shot seed fires only when
+ * the user made NO sidebar choice first (WFX-SEED): the second test below is
+ * the real-browser proof of that, and Workspace.test.tsx "one-shot Input Map
+ * seeding" covers it at unit level; this first test clicks through the sidebar,
+ * so its chosen view is kept.
  *
  * This targets the same bug CLASS documented in CLAUDE.md's "A `<Dialog>`
  * triggered from an early-return branch must also be RENDERED in that same
@@ -89,15 +92,19 @@ test.describe("Empty-first-run Workspace state", () => {
     await expect(page.getByTestId("sidebar-output-open-warehouses")).toBeDisabled();
 
     // 6. Create-first-scenario flow: dialog opens and is actually rendered
-    // (the historical bug class), confirming creates a real scenario, it
-    // becomes active, and the Input Map auto-opens (Bundle 6 one-shot seed
-    // now firing since currentScenario exists).
+    // (the historical bug class), confirming creates a real scenario and it
+    // becomes active. The view chosen in step 5 (Distances) is kept (WFX-SEED);
+    // the Input Map auto-open is proven by the second test in this file.
     await createBtn.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: HEADER_TIMEOUT });
     await dialog.getByRole("button", { name: /create/i }).click();
 
-    await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    // WFX-SEED: a sidebar choice made before the scenario loads is KEPT, not seeded over. Step 5 above last
+    // clicked "distances", so that view stays; the Input Map one-shot seed only fires when the user made no
+    // choice (covered by Workspace.test.tsx "one-shot Input Map seeding").
+    await expect(page.getByTestId("distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("input-map-tab")).toHaveCount(0);
     await expect(page.getByTestId("sidebar-section-scenarios").getByText("No scenarios yet")).not.toBeVisible();
     await expect(page.getByTestId("create-first-scenario-cta")).not.toBeVisible();
     await expect(page.getByTestId("button-run-optimizer")).toBeEnabled();

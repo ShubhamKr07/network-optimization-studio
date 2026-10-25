@@ -18,10 +18,9 @@
 // with zero call-site edits, while genuinely frontend-only helpers
 // (`DEFAULT_DISTANCE_BANDS`, `computeAutoBands`, the legacy non-overflow
 // `assignBand`, the legacy exclusive `computeBandCoverage`, and
-// `bandRangeLabel`) stay local. See `__tests__/bandsSingleSource.test.ts` for
+// the range label now lives in `@workspace/units`) stay local. See `__tests__/bandsSingleSource.test.ts` for
 // the reference-identity regression guard against a re-implementation
 // silently drifting from the shared classifier.
-import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import {
   OVERFLOW_BAND,
   assignBandOrOverflow,
@@ -106,32 +105,6 @@ export function computeBandCoverage(edges: BandEdge[], bands: number[]): BandCov
   });
 }
 
-// Workspace fixups bundle 2 (T1, item 6) — a unit-aware distance-band RANGE
-// label ("Band 1: 0 mi - 250 mi", "Band 2: 250 mi - 500 mi",
-// "Band 5: > 1000 mi"), for use as a filterable value in a table's band
-// column instead of the opaque `bandLabel` "Band N"/"Overflow" index. Built
-// on the same assignBandOrOverflow classification (sorted boundaries, <=
-// semantics, OVERFLOW_BAND sentinel) so a distance's range label always
-// matches its bandLabel/map-color bucket. Keeps the band NUMBER (present in
-// `bandLabel`) alongside the range, unlike the prior bundle's plain
-// "≤ 250 mi" / "250–500 mi" format. Only FilterMenu options use this — table
-// CELLS stay on the unmodified `bandLabel` ("Band N" / "Overflow").
-//
-// T1b note: takes a raw `unit` string with no km/mi display-toggle awareness
-// yet — that wiring is a later task's job, not this one's; signature and
-// behavior are unchanged here.
-export function bandRangeLabel(distance: number, bands: number[], unit: string): string {
-  const sorted = [...bands].sort((a, b) => a - b);
-  if (sorted.length === 0) return "All distances";
-  // SCU-2.R4 (decision A) — boundaries print through the app's one distance
-  // formatter (<= 2 dp, thousands-grouped) so a km conversion reads "321.87 km".
-  const f = (n: number) => `${formatDistanceDisplay(n)} ${unit}`;
-  const index = assignBandOrOverflow(distance, sorted);
-  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${f(sorted[sorted.length - 1])}`;
-  if (index === 0) return `Band 1: 0 ${unit} - ${f(sorted[0])}`;
-  return `Band ${index + 1}: ${f(sorted[index - 1])} - ${f(sorted[index])}`;
-}
-
 // SCU-1.1 (spec B1.9) — band precision per model: delivery-teaching-us
 // reports 2 dp (spec §5.7 of its own design); every other model's tests are
 // pinned to integers. The single place this rule lives (it used to be inline
@@ -147,25 +120,4 @@ export function bandDecimals(modelId: string | undefined): number {
 // :1052-1076, :1633, :1842-1845).
 export function frozenBandShape(modelId: string | undefined): FrozenBandShape {
   return modelId === "two-echelon-jade-us" ? "exclusive" : "cumulative";
-}
-
-// SCU-1.1 (spec B1.9 "Display") — one label per exclusive row, aligned with
-// computeExclusiveBandCoverage / frozenBandCoverageToExclusive output:
-// "0–200 mi", "200–400 mi", …, "> 1,600 mi". `toDisplay` converts a CANONICAL
-// boundary to the display unit (the caller's useDisplayUnit); `unit` is the
-// display unit label.
-// SCU-2.P3.9 (user decision 2026-10-17) — every boundary is printed with the
-// app's one distance display formatter, `formatDistanceDisplay` (≤ 2 dp,
-// thousands-grouped), so a converted km boundary reads "0–321.87 km", never
-// "0–321.8688 km". Formatting lives HERE, once, for Service Stats and the Compare
-// band rows. The Output Map narrative does NOT use it: per NAR-1 decision 5
-// (specs/2026-10-17-output-narrative-rewrite-design.md) it prints whole,
-// grouped distances in prose.
-export function exclusiveBandLabels(boundaries: number[], toDisplay: (canonical: number) => number, unit: string): string[] {
-  const sorted = [...boundaries].sort((a, b) => a - b);
-  if (sorted.length === 0) return [];
-  const fmt = (canonical: number) => formatDistanceDisplay(toDisplay(canonical));
-  const labels = sorted.map((b, i) => `${i === 0 ? "0" : fmt(sorted[i - 1])}–${fmt(b)} ${unit}`);
-  labels.push(`> ${fmt(sorted[sorted.length - 1])} ${unit}`);
-  return labels;
 }

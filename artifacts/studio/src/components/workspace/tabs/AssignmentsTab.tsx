@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { SolveResult } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
 import { entityFilterText, formatCityState } from "@/lib/formatLocation";
@@ -187,7 +188,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
       // Filter range is in the DISPLAY unit — the number the student reads in the cell.
       value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
       filterResetKey: unit.pref,
-      cell: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit).toFixed(1) : "—"),
+      cell: r => (canonicalResolved ? formatDistanceDisplay(unit.toDisplay(r.distance, distanceUnit)) : "—"),
     },
     {
       id: "flow",

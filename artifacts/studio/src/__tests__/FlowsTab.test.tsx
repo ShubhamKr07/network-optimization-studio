@@ -100,14 +100,14 @@ describe("FlowsTab", () => {
       expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
       expect(screen.queryByText(/^Distance \(/)).not.toBeInTheDocument();
       const row = screen.getByTestId("flow-row-KY-CHI");
-      expect(row).not.toHaveTextContent("300.0");
+      expect(row).not.toHaveTextContent("300");
       expect(row).toHaveTextContent("—");
     });
 
     it("renders the Distance header and value in mi when explicitly resolved", () => {
       render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
       expect(screen.getByText("Distance (mi)")).toBeInTheDocument();
-      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300");
     });
 
     it("renders the Distance header and value in km (never mi) for a Chen-like distanceUnit", () => {

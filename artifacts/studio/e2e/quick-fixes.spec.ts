@@ -216,13 +216,13 @@ test.describe("QFX quick fixes", () => {
       await expect(page.getByTestId("super-toolbar-import")).toBeVisible();
       state.seeded = resultOpening(["wh-1", "wh-2"]);
       await runSolveViaDialog(page);
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("2/2", { timeout: 30_000 });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 2 of 2", { timeout: 30_000 });
       await page.getByTestId("button-result-back").click({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2", { timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 1 of 2", { timeout: HEADER_TIMEOUT });
       // The Save/Import/Export row only exists on editable input tabs; a solve lands on Output Map, so go back to one.
       await page.getByTestId("sidebar-input-warehouses").click({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-tab-warehouses")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-result-history-position")).toHaveText("1/2");
+      await expect(page.getByTestId("text-result-history-position")).toHaveText("Run 1 of 2");
       // Decision C2: Import hidden (it writes), Export stays (exports the latest saved network).
       await expect(page.getByTestId("super-toolbar-import")).toHaveCount(0);
       await expect(page.getByTestId("super-toolbar-export")).toBeVisible();

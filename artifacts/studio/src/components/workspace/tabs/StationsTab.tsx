@@ -1,3 +1,5 @@
+import { formatCoord } from "@/lib/formatLocation";
+import type { Chapter } from "@/lib/chapters";
 import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import type { StationOverride } from "@/components/tables/StationTable";
@@ -56,6 +58,8 @@ interface StationsTabProps {
   /** SCU-2.P4.14 (D2) — browsing result history: base and added demand,
    * delete and the "+ Add station" trigger are disabled (no disabled prop before). */
   readOnly?: boolean;
+  /** Active chapter's demand unit (coal: tons). */
+  demandUnit?: Chapter["demandUnit"];
 }
 
 /** One effective row: a base station with its demand override, or an added station. */
@@ -92,6 +96,7 @@ export function StationsTab({
   onDeleteStation,
   precheckErrors = [],
   readOnly = false,
+  demandUnit = "tons",
 }: StationsTabProps) {
   const files = useEntityFileMenus({
     entity: "stations",
@@ -133,7 +138,7 @@ export function StationsTab({
       kind: "text",
       filter: "text",
       value: r => r.displayId,
-      cellClassName: "font-mono text-xs",
+      cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
       cell: r => {
         if (!added) return r.displayId;
         const missing = completenessCountForStation(precheckErrors, r.id);
@@ -174,7 +179,7 @@ export function StationsTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -182,7 +187,7 @@ export function StationsTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const demand = (added: boolean): ColumnDef<StationTableRow> => ({
@@ -193,7 +198,6 @@ export function StationsTab({
     value: r => r.demand,
     cell: r => (
       <DemandCell
-        suffix="tons"
         value={r.demand}
         integer
         clearCommits={!added}
@@ -275,7 +279,6 @@ export function StationsTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="stations-tab-empty">
                 No stations in this dataset.
@@ -291,7 +294,6 @@ export function StationsTab({
                   includes: (r: StationTableRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: StationTableRow) => `row-added-station-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-stations-empty">
                       No added stations yet — use "+ Add station" above to create one.
@@ -307,6 +309,7 @@ export function StationsTab({
           source="table"
           readOnly={readOnly}
           entityKind="station"
+          demandUnit={demandUnit}
           existingCodes={addedStations.map(s => s.displayCode).filter((c): c is string => !!c)}
           onCreate={r => {
             if (r.kind === "station") onAddedStationsChange?.([...addedStations, r.entity]);

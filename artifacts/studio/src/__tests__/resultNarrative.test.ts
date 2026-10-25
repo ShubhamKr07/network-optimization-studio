@@ -85,7 +85,7 @@ describe("buildResultNarrative — approved wording per model/objective (real en
 
   it("Ch 9 JADE: outbound leg only, $M costs, per-ton", () => {
     expect(run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us")).toBe(
-      "Open Baltimore, MD, Las Vegas, NV and Louisville, KY. The total transportation cost is $182.0M, about $118 per ton, the lowest possible with three warehouses. Roughly $101.5M of that is plant-to-warehouse and $80.5M is warehouse-to-customer. Outbound, customers are 431 miles from their warehouse on average, the largest share (48%) is 200–400 miles away, and the farthest, McAllen, TX, is 1,301 miles away.",
+      "Open Baltimore, MD, Las Vegas, NV and Louisville, KY. The total transportation cost is $181.99M, about $118 per ton, the lowest possible with three warehouses. Roughly $101.47M of that is plant-to-warehouse and $80.52M is warehouse-to-customer. Outbound, customers are 431 miles from their warehouse on average, the largest share (48%) is 200–400 miles away, and the farthest, McAllen, TX, is 1,301 miles away.",
     );
   });
 
@@ -171,11 +171,11 @@ describe("buildResultNarrative — NAR-1.R review folds", () => {
     expect(buildResultNarrative("p-median-us", asR({ solutionStatus: "feasible", terminationReason: "time_limit" }), ctx)!.text).toContain("before the time limit");
   });
 
-  it("JADE: sub-$500 delta shows no parenthetical; $999,600 reads $1.0M, never $1000K", () => {
+  it("JADE: sub-$500 delta shows no parenthetical; $999,600 reads $1.00M, never $1000K", () => {
     const j = fixture("two-echelon-jade-us");
     const c = { bands: bandsOf("two-echelon-jade-us"), distance: MI, nameById: namesFor("two-echelon-jade-us") };
     expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 400 } as SolveResult })!.text).not.toContain("previous run");
-    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 999_600 } as SolveResult })!.text).toContain("($1.0M less than your previous run)");
+    expect(buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 999_600 } as SolveResult })!.text).toContain("($1.00M less than your previous run)");
   });
 
   it("gold-au says truckload-km under the km toggle", () => {
@@ -249,14 +249,14 @@ describe("buildResultNarrative — compare to previous run", () => {
     const j = fixture("two-echelon-jade-us");
     const c = { bands: bandsOf("two-echelon-jade-us"), distance: MI, nameById: namesFor("two-echelon-jade-us") };
     const t = buildResultNarrative("two-echelon-jade-us", j, { ...c, previous: { ...j, objective: j.objective + 6.3e6 } as SolveResult })!.text;
-    expect(t).toContain("is $182.0M ($6.3M less than your previous run), about $118 per ton");
+    expect(t).toContain("is $181.99M ($6.30M less than your previous run), about $118 per ton");
   });
 
   it("super-model has its own band-free narrative (real solve envelope, bands: [])", () => {
     const r = JSON.parse(readFileSync(path.join(__dirname, "fixtures/superResult.json"), "utf8"));
     const text = buildResultNarrative("super-model", r, { bands: [], distance: MI })?.text;
     expect(text).toBe(
-      "Opened 2 warehouses. Total cost $254,060,828.62; plant\u2192warehouse shipments average 1,229 miles and warehouse\u2192customer deliveries 650 miles.",
+      "Opened 2 warehouses. Total cost $254,060,829; plant\u2192warehouse shipments average 1,229 miles and warehouse\u2192customer deliveries 650 miles.",
     );
   });
 });

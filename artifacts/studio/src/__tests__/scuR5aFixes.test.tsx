@@ -94,7 +94,7 @@ describe("number inputs in table cells are centred (D2)", () => {
     render(
       <>
         <DraftNumberInput value={1} parse={Number} onCommit={() => {}} disabled={false} testId="draft" />
-        <DemandCell value={1} onCommit={() => {}} clearCommits suffix="Units" disabled={false} testId="demand" />
+        <DemandCell value={1} onCommit={() => {}} clearCommits disabled={false} testId="demand" />
       </>,
     );
     expect(screen.getByTestId("draft")).toHaveClass("text-center");

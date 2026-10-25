@@ -193,7 +193,7 @@ describe("DistancesTab — merged table with a reference matrix", () => {
       />,
     );
     await waitFor(() => expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument());
-    expect(screen.getByTestId("distances-reference-section")).toContainElement(screen.getByTestId("row-distance-WH01-C001"));
+    expect(screen.getByTestId("distances-reference-section")).toContainElement(await screen.findByTestId("row-distance-WH01-C001"));
   });
 
   it("hides the compat wrapper when referenceCapable is absent (no reference matrix at all)", () => {
@@ -468,7 +468,7 @@ describe("DistancesTab — the 4 mandated override transitions (resolution #4)",
       );
     };
     renderWithQueryClient(<Wrapper />);
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     expect(screen.queryByTestId("badge-distance-changed-WH01-C001")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
@@ -513,7 +513,7 @@ describe("DistancesTab — resolution #2 combined regression: inactive/excluded 
     // first appearance, which can happen mid-loading as a base===null "added"
     // row before baseByKey picks it up) so isChangedRow's saved/current
     // comparison reflects the real base pair, not a transient loading state.
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
     expect(screen.queryByTestId("badge-distance-changed-WH01-C001")).not.toBeInTheDocument();
 
@@ -548,7 +548,7 @@ describe("DistancesTab — resolution #2 combined regression: inactive/excluded 
       );
     };
     renderWithQueryClient(<Wrapper />);
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
@@ -611,7 +611,7 @@ describe("DistancesTab — added-entity override rows", () => {
         referenceCapable
       />,
     );
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     // Once the 5200-pair base matrix has loaded, the added row sorts after
     // all of it (page ~104) — filter down to it so it's on the current page.
     filterText("from", "aw-1234");
@@ -766,7 +766,7 @@ describe("DistancesTab — resolution #7: invalid input handling (whole-value va
 });
 
 describe("DistancesTab — load/error states (resolution #6)", () => {
-  it("loading: base cells show a spinner (not '—'), and added-entity override rows still render + are editable", async () => {
+  it("loading: the skeleton replaces the body (DU-2.6) — no rows, no emptyState — and goes away once the matrix resolves", async () => {
     let resolveFetch: (r: Response) => void = () => {};
     fetchMock.mockImplementation(
       () =>
@@ -785,17 +785,13 @@ describe("DistancesTab — load/error states (resolution #6)", () => {
         referenceCapable
       />,
     );
-    expect(screen.getByTestId("distances-reference-loading")).toBeInTheDocument();
-    // No reference matrix has resolved yet, so `aw-1234|C001` is treated as an
-    // added row (base===null) — during loading its Base cell must still show
-    // a spinner, not "—", per resolution #6.
-    expect(screen.getByTestId("spinner-distance-base-aw-1234-C001")).toBeInTheDocument();
-    expect(screen.queryByText("—")).not.toBeInTheDocument();
-    // still editable during loading
-    fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "10" } });
+    expect(screen.getByTestId("data-table-loading")).toBeInTheDocument();
+    // DU-2.6: rows (incl. added-entity rows, previously shown with a Base spinner) wait for the matrix.
+    expect(screen.queryByTestId("row-distance-aw-1234-C001")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("distances-tab-empty")).not.toBeInTheDocument();
 
     resolveFetch(jsonResponse({ pairs: referencePairs, distanceUnit: "mi" }));
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
   });
 
   it("error: base cells show 'unavailable', and override rows stay editable", async () => {
@@ -830,7 +826,7 @@ describe("DistancesTab — load/error states (resolution #6)", () => {
         referenceCapable
       />,
     );
-    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     // The added row (aw-1234|C001) sorts after all 5200 base rows once the
     // matrix has loaded — filter down to it so it's actually on the current
     // page (this test is about its Base cell's content, not pagination).

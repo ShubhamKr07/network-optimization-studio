@@ -344,7 +344,7 @@ describe("ch9-tc — Transportation Costs tab registration", () => {
   // with a SECOND, distinct `.result` reference on the same scenario id (the
   // history-append effect's own trigger — see Workspace.Integration.test.tsx's
   // "#1 live band recolor" describe block for the same pattern), then step
-  // back once so the stepper reads "1/2" — `canGoForwardResult` is true,
+  // back once so the stepper reads "Run 1 of 2" — `canGoForwardResult` is true,
   // which is exactly "the stepper is parked on a non-latest entry".
   it("disables the fields while browsing a non-latest result", async () => {
     const resultA = {
@@ -358,14 +358,16 @@ describe("ch9-tc — Transportation Costs tab registration", () => {
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof mockUseGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [scenarioWithA] } as unknown as ReturnType<typeof mockUseListScenarios>);
     const view = renderWorkspace();
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    // one run: no pager (DU-2.4); save-as is the "history loaded" signal
+    expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof mockUseGetScenario>);
     view.rerender(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
 
     fireEvent.click(screen.getByTestId("button-result-back"));
-    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
 
     fireEvent.click(await screen.findByTestId("sidebar-input-transportCosts"));
     expect(await screen.findByTestId("input-transport-ic-rate")).toBeDisabled();

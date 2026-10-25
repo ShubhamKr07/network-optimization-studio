@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatCityState, plantIdCityState } from "./formatLocation";
+import { formatCityState, plantIdCityState, formatCoord } from "./formatLocation";
 
 describe("plantIdCityState", () => {
   it("returns '<id> — City, State' for a plant with a non-empty state", () => {
@@ -25,5 +25,12 @@ describe("plantIdCityState", () => {
       `pl-3 — ${formatCityState(plant.city, plant.state)}`,
     );
     expect(plantIdCityState(plant)).toBe("pl-3 — Shenzhen");
+  });
+});
+
+describe("formatCoord (DU-2.1)", () => {
+  it("renders 4 dp, — for non-finite", () => {
+    expect(formatCoord(39.099724)).toBe("39.0997");
+    expect(formatCoord(Number.NaN)).toBe("—");
   });
 });

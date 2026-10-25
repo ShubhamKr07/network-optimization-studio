@@ -1,3 +1,4 @@
+import { formatCityState, formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,22 +75,20 @@ export function EditWarehouseDialog({
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <span className="text-xs text-muted-foreground">Code</span>
-              <p data-testid="edit-warehouse-display-code">{entity.displayCode}</p>
+              <span className="text-xs text-muted-foreground">Name</span>
+              <p data-testid="edit-warehouse-location">{formatCityState(entity.city, entity.state)}</p>
             </div>
             <div>
-              <span className="text-xs text-muted-foreground">City / State</span>
-              <p data-testid="edit-warehouse-location">
-                {entity.city}, {entity.state}
-              </p>
+              <span className="text-xs text-muted-foreground">ID</span>
+              <p className="font-mono" data-testid="edit-warehouse-display-code">{entity.displayCode}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p className="font-mono" data-testid="edit-warehouse-lat">{entity.lat}</p>
+              <p className="font-mono" data-testid="edit-warehouse-lat">{formatCoord(entity.lat)}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p className="font-mono" data-testid="edit-warehouse-lng">{entity.lng}</p>
+              <p className="font-mono" data-testid="edit-warehouse-lng">{formatCoord(entity.lng)}</p>
             </div>
           </div>
 

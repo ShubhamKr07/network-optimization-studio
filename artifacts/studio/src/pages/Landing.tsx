@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { Lock } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,7 @@ import { formatChenObjective, formatObjective as formatObjectiveShared } from "@
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 import { isRetryableFailureCode } from "@/lib/solveFailure";
+import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0];
@@ -45,9 +47,9 @@ function formatHistoryObjective(
 function formatHistoryDistance(h: { weightedAvgDistance: number; distanceUnit: string }, unit: UnitApi): string {
   const canonical = asCanonicalUnit(h.distanceUnit);
   if (canonical != null) {
-    return `${unit.toDisplay(h.weightedAvgDistance, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+    return `${formatDistanceDisplay(unit.toDisplay(h.weightedAvgDistance, canonical))} ${unit.effectiveUnit(canonical)}`;
   }
-  return `${h.weightedAvgDistance.toFixed(1)} ${h.distanceUnit}`;
+  return `${formatDistanceDisplay(h.weightedAvgDistance)} ${h.distanceUnit}`;
 }
 
 export function Landing() {
@@ -216,6 +218,7 @@ export function Landing() {
                           variant="outline"
                           className="text-2xs text-muted-foreground border-muted-foreground/40 bg-muted/30"
                           data-testid={`badge-legacy-unverified-${h.id}`}
+                          title={UNVERIFIED_TOOLTIP}
                         >
                           unverified
                         </Badge>

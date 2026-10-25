@@ -1,3 +1,4 @@
+import { formatCoord } from "@/lib/formatLocation";
 import { useState } from "react";
 import type { WarehouseCandidate, Scenario } from "@workspace/api-client-react";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
@@ -189,7 +190,7 @@ export function WarehousesTab({
     kind: "text",
     filter: "text",
     value: r => r.displayId,
-    cellClassName: "font-mono text-xs",
+    cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
     cell: r => {
       if (!added) return r.displayId;
       const missing = completenessCountForWarehouse(precheckErrors, r.id);
@@ -236,7 +237,7 @@ export function WarehousesTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -244,7 +245,7 @@ export function WarehousesTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
   const hasZip = candidates.some(w => w.zip);
@@ -351,7 +352,6 @@ export function WarehousesTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
                 {emptyLabel}
@@ -367,7 +367,6 @@ export function WarehousesTab({
                   includes: (r: WarehouseRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: WarehouseRow) => `row-added-warehouse-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-warehouses-empty">
                       No added {addedEntityLabel}s yet — use "+ Add {addedEntityLabel}" above to create one.

@@ -6,7 +6,7 @@ import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./Entit
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { OVERFLOW_BAND } from "@/lib/bands";
 import { useDisplayUnit } from "@/contexts/UnitContext";
-import type { CanonicalUnit } from "@workspace/units";
+import { bandRangeLabel, type CanonicalUnit } from "@workspace/units";
 
 const STATUSES: WhStatus[] = ["active", "forced_open", "inactive"];
 
@@ -135,7 +135,7 @@ export interface MapLegendProps {
   showPlantLayer?: boolean;
   /** Output variant only — the active model's CANONICAL distance unit
    * (mirrors the route hover tooltip's own unit, Bundle 2.2 item 12). Used to
-   * label each distance-band swatch's upper bound ("≤ {bound} {unit}")
+   * label each distance-band swatch with its range (bandRangeLabel)
    * instead of the old ordinal "Band N". chen-bands-units, Part D "No
    * fallback unit — reads": `undefined`/`null` means the canonical unit
    * hasn't resolved yet — every band-swatch label shows a loading placeholder
@@ -178,8 +178,9 @@ export function MapLegend({
   const unit = useDisplayUnit();
   const canonicalResolved = distanceUnit != null;
   const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
-  const formatBandBoundary = (raw: number): string =>
-    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit)} ${resolvedUnitLabel}` : "—";
+  // DU-2.2 — every row is a range from the one units authority; bands are canonical, labels use display-unit boundaries.
+  const displayBands = canonicalResolved ? bands.map((b) => unit.toDisplay(b, distanceUnit)) : bands;
+  const bandText = (i: number): string => (canonicalResolved ? bandRangeLabel(i, displayBands, resolvedUnitLabel!) : "—");
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
   const scale = makeQuintileRadius(demands);
@@ -292,16 +293,12 @@ export function MapLegend({
         <div className="pt-1 border-t border-border">
           <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
-            {/* Each swatch is labeled by its band's upper bound ("≤ X unit")
+            {/* Each swatch is labeled by its band's range (DU-2.2: "≤ X", "X–Y", "> Z" + unit)
                 rather than the old ordinal "Band N" — matches
                 NetworkMap.tsx's own `assignBand`/`getBandColor(i)` coloring
-                exactly (bands.lib's assignBand is an exclusive bucket: a
-                distance <= bands[i] gets color i). There is no separate
-                overflow swatch here: assignBand clamps any distance beyond
-                the last boundary into the SAME last-band index (not a
-                distinct color), so a trailing "> X" row would misrepresent
-                the map as having a color it doesn't actually render. */}
-            {bands.map((boundary, i) => (
+                exactly (assignBandOrOverflow: a distance <= bands[i] gets
+                color i). The overflow row follows the band rows. */}
+            {bands.map((_, i) => (
               <Fragment key={i}>
                 {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
                 <span className="flex items-center gap-1">
@@ -316,7 +313,7 @@ export function MapLegend({
                   </svg>
                 </span>
                 <span className="text-muted-foreground font-mono text-2xs">
-                  ≤ {formatBandBoundary(boundary)}
+                  {bandText(i)}
                 </span>
               </Fragment>
             ))}
@@ -340,7 +337,7 @@ export function MapLegend({
                     <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
                   </svg>
                 </span>
-                <span className="text-muted-foreground font-mono text-2xs">Overflow</span>
+                <span className="text-muted-foreground font-mono text-2xs">{bandText(OVERFLOW_BAND)}</span>
               </Fragment>
             )}
           </div>

@@ -11,6 +11,7 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetLandingSummary: mockUseGetLandingSummary,
 }));
 
+import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
 import { Landing } from "@/pages/Landing";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -233,6 +234,7 @@ describe("Landing — A9 legacy badges, errorCode/errorMessage failures, retry",
     renderLanding();
     expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByTestId("badge-legacy-unverified-30")).toHaveTextContent("unverified");
+    expect(screen.getByTestId("badge-legacy-unverified-30")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
     // The literal false-proof claim this exists to prevent must never appear.
     expect(screen.queryByText(/Proven optimal/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Optimal$/i)).not.toBeInTheDocument();

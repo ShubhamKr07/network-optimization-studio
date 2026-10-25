@@ -1,6 +1,7 @@
 import type { Plant, Product, PlantProductCapability } from "@workspace/api-client-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable } from "@/components/data-table/DataTable";
+import type { Chapter } from "@/lib/chapters";
 import type { ColumnDef } from "@/components/data-table/types";
 import { isCellEnabled, cellCapacity, type CapabilityOverride } from "@/lib/jadeCapability";
 import { READ_ONLY_TITLE } from "@/components/data-table/entityCells";
@@ -56,6 +57,8 @@ interface CapabilityMatrixTabProps {
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
   /** SCU-2.P4.9 (D2) — browsing result history: every checkbox is disabled. */
   readOnly?: boolean;
+  /** Active chapter's unit for the capacity readouts; goes in the product column headers. */
+  demandUnit?: Chapter["demandUnit"];
 }
 
 // B5 — a plant row (not a product column) is this table's filterable unit
@@ -78,6 +81,7 @@ export function CapabilityMatrixTab({
   locationById,
   identityById,
   readOnly = false,
+  demandUnit = "units",
 }: CapabilityMatrixTabProps) {
   function resolvedPlantLocation(plant: Plant): { city: string; state: string } {
     const entry = identityById?.[plant.id];
@@ -137,7 +141,7 @@ export function CapabilityMatrixTab({
     ...products.map(
       (product): ColumnDef<Plant> => ({
         id: `product:${product.id}`,
-        header: product.name,
+        header: `${product.name} (${demandUnit})`,
         kind: "enum",
         filter: false,
         value: plant => (effectiveEnabled(plant.id, product.id) ? "enabled" : "disabled"),
@@ -146,19 +150,22 @@ export function CapabilityMatrixTab({
           const capacity = cellCapacity(baseCapabilities, plant.id, product.id, checked);
           return (
             <div className="flex flex-col items-start gap-0.5">
-              <Checkbox
-                checked={checked}
-                onCheckedChange={() => toggle(plant.id, product.id)}
-                disabled={readOnly}
-                title={readOnly ? READ_ONLY_TITLE : undefined}
-                data-testid={`checkbox-capability-${plant.id}-${product.id}`}
-                aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
-              />
+              {/* 24px hit area (WCAG 2.5.8); the visual box stays h-4 w-4 */}
+              <label className="inline-flex h-6 w-6 items-center justify-center">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => toggle(plant.id, product.id)}
+                  disabled={readOnly}
+                  title={readOnly ? READ_ONLY_TITLE : undefined}
+                  data-testid={`checkbox-capability-${plant.id}-${product.id}`}
+                  aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
+                />
+              </label>
               <span
                 className="font-mono text-2xs text-muted-foreground"
                 data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
               >
-                {capacity.toLocaleString()} Units
+                {capacity.toLocaleString()}
               </span>
             </div>
           );
@@ -170,6 +177,7 @@ export function CapabilityMatrixTab({
   return (
     <div data-testid="capability-matrix-tab">
       <DataTable<Plant>
+        countNoun="plants"
         rows={plants}
         rowKey={plant => plant.id}
         columns={columns}

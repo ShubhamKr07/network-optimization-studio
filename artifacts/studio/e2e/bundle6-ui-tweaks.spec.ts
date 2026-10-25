@@ -174,10 +174,11 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
       await expect(page.getByTestId("workspace-chapter-summary")).toBeVisible();
       await expect(page.getByTestId("workspace-chapter-summary")).toContainText("Chapter 3");
 
-      // T2 item 5 — the result-history stepper renders once a result exists
-      // (B is solved, so its buttons are present, even if Back starts disabled).
-      await expect(page.getByTestId("button-result-back")).toBeVisible();
-      await expect(page.getByTestId("button-result-forward")).toBeVisible();
+      // T2 item 5 — DU-2.4: with one run the stepper is hidden (nothing to
+      // step to) while Save as scenario still shows.
+      await expect(page.getByTestId("button-save-as-scenario")).toBeVisible();
+      await expect(page.getByTestId("button-result-back")).toHaveCount(0);
+      await expect(page.getByTestId("button-result-forward")).toHaveCount(0);
 
       // COSM-1 — replaces T2 item 1 (resolution #3)'s close-the-last-tab
       // case, which covered an affordance that no longer exists. What is

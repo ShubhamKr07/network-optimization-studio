@@ -32,6 +32,16 @@ function renderDialog(props: Partial<React.ComponentProps<typeof EditCustomerDia
 }
 
 describe("EditCustomerDialog", () => {
+  it("DU-2.7: shows a Name row and a mono ID row, no Code label", () => {
+    renderDialog();
+    expect(screen.getByTestId("edit-customer-location")).toHaveTextContent(/^Springfield, IL$/);
+    expect(screen.getByTestId("edit-customer-display-code")).toHaveTextContent(/^SPR$/);
+    expect(screen.getByTestId("edit-customer-display-code")).toHaveClass("font-mono");
+    expect(screen.getByText("Name")).toBeInTheDocument();
+    expect(screen.getByText("ID")).toBeInTheDocument();
+    expect(screen.queryByText("Code")).not.toBeInTheDocument();
+  });
+
   it("defaults the demand input to the entity's current demand", () => {
     renderDialog();
     expect(screen.getByTestId("edit-customer-demand-input")).toHaveValue(1000);

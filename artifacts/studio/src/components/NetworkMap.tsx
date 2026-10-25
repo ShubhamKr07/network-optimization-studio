@@ -5,7 +5,8 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge, Plant } from "@workspace/api-client-react";
-import { assignBandOrOverflow, bandLabel } from "@/lib/bands";
+import { assignBandOrOverflow } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
@@ -13,6 +14,8 @@ import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityName } from "@/components/EntityName";
+import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 
@@ -244,9 +247,8 @@ interface PopupInfo {
   warehouseState: string;
   distanceMi: number;
   band: number;
-  // jade-B1 (#1 all-site overflow) — "Band N" / "Overflow" text, computed
-  // via the shared bandLabel() so this popup can never hand-roll
-  // `Band ${band + 1}` and disagree with the map's own overflow sentinel.
+  // DU-2.2 — the band's range text ("≤ 250 mi", "> 1,000 mi"), from the
+  // units bandRangeLabel authority; never hand-rolled here.
   bandLabelText: string;
 }
 
@@ -262,7 +264,7 @@ interface PopupInfo {
 // before calling this.
 export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalUnit | null = null): string {
   const color = getBandColor(info.band);
-  const distanceLine = distanceUnit == null ? "—" : `${info.distanceMi.toLocaleString()} ${distanceUnit}`;
+  const distanceLine = distanceUnit == null ? "—" : `${formatDistanceDisplay(info.distanceMi)} ${distanceUnit}`;
   return `
       <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
         <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
@@ -277,7 +279,6 @@ export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalU
           <strong style="margin-left:4px;font-family:var(--app-font-mono)">${distanceLine}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
-          <span style="color:var(--text-muted)">Band:</span>
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
           <strong style="font-family:var(--app-font-mono)">${info.bandLabelText}</strong>
         </div>
@@ -334,6 +335,10 @@ interface NetworkMapProps {
   // `.band` (which reflects the bands at solve time and goes stale the
   // moment a student edits them without re-solving).
   bands: number[];
+  // DU-2.2 (PR2-3) — canonical boundaries used ONLY for band range LABELS
+  // (popup, hover); falls back to `bands`. Colour/dash classification stays
+  // on `bands`, which is [] in Leg/None lane modes.
+  labelBands?: number[];
   // E5.1: the active model's manifest countryBounds — falls back to a
   // continental-US default when not yet loaded/available.
   countryBounds?: CountryBounds;
@@ -421,7 +426,7 @@ interface NetworkMapProps {
 }
 
 export function NetworkMap({
-  dataset, warehouseStatuses, result, showRoutes, bands, countryBounds,
+  dataset, warehouseStatuses, result, showRoutes, bands, labelBands, countryBounds,
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
@@ -436,7 +441,13 @@ export function NetworkMap({
   const canonicalResolved = distanceUnit != null;
   const effectiveDistanceUnitLabel = canonicalResolved ? displayUnit.effectiveUnit(distanceUnit) : null;
   const formatEdgeDistance = (raw: number): string =>
-    canonicalResolved ? `${displayUnit.toDisplay(raw, distanceUnit).toLocaleString()} ${effectiveDistanceUnitLabel}` : "—";
+    canonicalResolved ? `${formatDistanceDisplay(displayUnit.toDisplay(raw, distanceUnit))} ${effectiveDistanceUnitLabel}` : "—";
+  const rangeText = (distance: number): string => {
+    const lb = labelBands ?? bands;
+    return canonicalResolved
+      ? bandRangeLabel(assignBandOrOverflow(distance, lb), lb.map((b) => displayUnit.toDisplay(b, distanceUnit)), effectiveDistanceUnitLabel!)
+      : "—";
+  };
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
   // construction — they are NOT reactive props. GET /api/models (the source
@@ -573,7 +584,7 @@ export function NetworkMap({
   }, [result, visibleLegs]);
 
   // Build popup info for the selected customer
-  const popupInfo = useMemo<PopupInfo | null>(() => {
+  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText"> | null>(() => {
     if (!selectedCustomerId || !result) return null;
     const edge = assignmentMap.get(selectedCustomerId);
     if (!edge) return null;
@@ -592,9 +603,9 @@ export function NetworkMap({
       // beyond-highest-boundary distance gets the OVERFLOW_BAND sentinel
       // (-1) here too, not folded into the last real band.
       band: assignBandOrOverflow(edge.distance, bands),
-      bandLabelText: bandLabel(edge.distance, bands),
     };
   }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
+  const popupInfo: PopupInfo | null = popupBase && { ...popupBase, bandLabelText: rangeText(popupBase.distanceMi) };
 
   const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
   const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
@@ -751,7 +762,7 @@ export function NetworkMap({
                     sticky
                   >
                     <span className="text-xs">
-                      {fromEntity.city} → {toEntity.city}
+                      {formatCityState(fromEntity.city, fromEntity.state)} → {formatCityState(toEntity.city, toEntity.state)}
                       <br />
                       <span className="font-mono">{formatEdgeDistance(edge.distance)}</span>
                     </span>
@@ -809,12 +820,16 @@ export function NetworkMap({
             >
               <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {customerTypeLabel(modelId)} · {displayIdById[c.id] ?? c.id} · {formatCityState(
-                    (c as unknown as { city?: string }).city ?? "",
-                    (c as unknown as { state?: string }).state ?? "",
-                  )}
+                  <EntityName
+                    type={customerTypeLabel(modelId)}
+                    name={formatCityState(
+                      (c as unknown as { city?: string }).city ?? "",
+                      (c as unknown as { state?: string }).state ?? "",
+                    )}
+                    id={displayIdById[c.id] ?? c.id}
+                  />
                   {" · "}
-                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${bandLabel(assignment.distance, bands)}` : ""}</span>
+                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${rangeText(assignment.distance)}` : ""}</span>
                 </span>
               </Tooltip>
             </CircleMarker>
@@ -856,7 +871,7 @@ export function NetworkMap({
                   always false for it) showed nothing on hover at all. */}
               <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {warehouseTypeLabel(w.kind, modelId)} · {displayIdById[w.id] ?? w.id} · {formatCityState(w.city, w.state)}
+                  <EntityName type={warehouseTypeLabel(w.kind, modelId)} name={formatCityState(w.city, w.state)} id={displayIdById[w.id] ?? w.id} />
                   {result && isOpen ? (
                     <span className="font-mono"> · {warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers</span>
                   ) : ""}
@@ -874,7 +889,7 @@ export function NetworkMap({
           <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
             <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
               <span className="font-semibold text-xs">
-                Plant · {displayIdById[p.id] ?? p.id} · {formatCityState(p.city, p.state)}
+                <EntityName type="Plant" name={formatCityState(p.city, p.state)} id={displayIdById[p.id] ?? p.id} />
               </span>
             </Tooltip>
           </Marker>

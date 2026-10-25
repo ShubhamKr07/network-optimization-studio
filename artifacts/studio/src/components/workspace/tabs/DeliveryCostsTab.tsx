@@ -375,16 +375,10 @@ export function DeliveryCostsTab({
     </Button>
   );
 
-  // Loading / error / no data replace the table (toolbar stays), each with
-  // its own testid — DataTable renders `emptyState` inside `testIds.empty`.
-  const emptyTestId = referenceQuery.isLoading
-    ? "delivery-costs-tab-loading"
-    : referenceQuery.isError
-      ? "delivery-costs-tab-error"
-      : "delivery-costs-tab-empty";
-  const emptyState = referenceQuery.isLoading ? (
-    <p className="text-sm text-muted-foreground">Loading cost data…</p>
-  ) : referenceQuery.isError ? (
+  // Error / no data replace the table (toolbar stays), each with its own testid —
+  // DataTable renders `emptyState` inside `testIds.empty`; `loading` shows the skeleton.
+  const emptyTestId = referenceQuery.isError ? "delivery-costs-tab-error" : "delivery-costs-tab-empty";
+  const emptyState = referenceQuery.isError ? (
     <p className="text-sm text-destructive">Failed to load cost data — try reloading the page.</p>
   ) : (
     <p className="text-sm text-muted-foreground">No cost data yet — add an override below.</p>
@@ -404,9 +398,11 @@ export function DeliveryCostsTab({
           pagerNext: "button-delivery-costs-next",
           pageIndicator: "delivery-costs-page-indicator",
           empty: emptyTestId,
+          loading: "delivery-costs-tab-loading",
         }}
         toolbar={{ upload: files.upload, download: files.download }}
         scrollClassName="max-h-[55vh] overflow-y-auto"
+        loading={referenceQuery.isLoading}
         emptyState={emptyState}
       />
       {addRowUi}

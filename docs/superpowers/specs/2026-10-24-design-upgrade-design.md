@@ -166,7 +166,8 @@ A studio `BandLabel` component renders that text plus a colour swatch and patter
 - Transportation Costs keeps the header unit and drops the repeat under each input.
 - Add `demandUnit: "tons" | "units"` to the `Chapter` type (`lib/chapters.ts:3-37`). It's **required**, so the compiler catches every entry:
   - `two-echelon-jade-us` → `"tons"` (user-confirmed, C1);
-  - the other 7 → `"units"` until confirmed otherwise.
+  - `transport-coal` → `"tons"` (user-confirmed 2026-10-24, Phase 2 plan review Q9; its Stations already label demand in tons);
+  - the other 6 → `"units"` until confirmed otherwise.
 - The consumers are the five files above plus any header that renders a demand column (rg at task time).
 - No manifest change.
 

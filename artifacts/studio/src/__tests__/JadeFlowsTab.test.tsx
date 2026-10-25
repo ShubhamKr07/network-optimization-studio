@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import * as clientCsv from "@/lib/clientCsv";
 import * as useToast from "@/hooks/use-toast";
-import { bandLabel, bandRangeLabel } from "@/lib/bands";
+import { assignBandOrOverflow } from "@/lib/bands";
+import { bandRangeLabel } from "@workspace/units";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
 import { ExportProvider } from "@/contexts/ExportContext";
 import { AllProviders, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
@@ -147,10 +148,10 @@ describe("JadeFlowsTab", () => {
       expect(row).toHaveTextContent("unknown-wh");
     });
 
-    it("formats Distance with .toFixed(1) and the distanceUnit suffix", () => {
+    it("formats Distance with formatDistanceDisplay (<=2 dp) and the distanceUnit suffix", () => {
       render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
-      expect(row).toHaveTextContent("293.7 mi");
+      expect(row).toHaveTextContent("293.66 mi");
     });
 
     // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
@@ -159,25 +160,26 @@ describe("JadeFlowsTab", () => {
     it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
       render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
-      expect(row).not.toHaveTextContent("293.7 mi");
+      expect(row).not.toHaveTextContent("293.66 mi");
       expect(row).not.toHaveTextContent("293.7");
       expect(row).toHaveTextContent("—");
     });
 
-    it("Distance Band matches the shared bandLabel helper, for both an in-range and an overflow distance", () => {
-      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+    it("Distance Band cell shows the units range label, for both an in-range and an overflow distance", () => {
+      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
       const inRangeRow = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11"); // 293.66 mi
       const overflowRow = screen.getByTestId("jade-flow-pw-row-plant-2-wh-14"); // 1200 mi > 1000
-      expect(inRangeRow).toHaveTextContent(bandLabel(293.66, bands));
-      expect(overflowRow).toHaveTextContent(bandLabel(1200, bands));
-      expect(overflowRow).toHaveTextContent("Overflow");
+      expect(inRangeRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(293.66, bands), bands, "mi"));
+      expect(overflowRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(1200, bands), bands, "mi"));
+      expect(overflowRow).toHaveTextContent("> 1,000 mi");
+      expect(overflowRow).not.toHaveTextContent(/Overflow|Band \d/);
     });
   });
 
   describe("Warehouse -> Customer", () => {
     async function renderOnWc() {
       const user = userEvent.setup();
-      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
       return user;
     }
@@ -206,21 +208,22 @@ describe("JadeFlowsTab", () => {
       expect(row).toHaveTextContent("Los Angeles, CA");
     });
 
-    it("Distance Band matches the shared bandLabel helper, for both an in-range and an overflow distance", async () => {
+    it("Distance Band cell shows the units range label, for both an in-range and an overflow distance", async () => {
       await renderOnWc();
       const inRangeRow = screen.getByTestId("jade-flow-wc-row-wh-11-customer-1"); // 42.1 mi
       const overflowRow = screen.getByTestId("jade-flow-wc-row-wh-14-customer-2"); // 1200 mi > 1000
-      expect(inRangeRow).toHaveTextContent(bandLabel(42.1, bands));
-      expect(overflowRow).toHaveTextContent(bandLabel(1200, bands));
-      expect(overflowRow).toHaveTextContent("Overflow");
+      expect(inRangeRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(42.1, bands), bands, "mi"));
+      expect(overflowRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(1200, bands), bands, "mi"));
+      expect(overflowRow).toHaveTextContent("> 1,000 mi");
+      expect(overflowRow).not.toHaveTextContent(/Overflow|Band \d/);
     });
   });
 
   it("falls back to DEFAULT_DISTANCE_BANDS when bands is empty/absent", () => {
-    render(<JadeFlowsTab result={jadeResult} dataset={dataset} />);
-    // DEFAULT_DISTANCE_BANDS = [250, 500, 750]; 293.66 mi -> Band 2.
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} distanceUnit="mi" />);
+    // DEFAULT_DISTANCE_BANDS = [250, 500, 750]; 293.66 mi -> 250–500 mi.
     const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
-    expect(row).toHaveTextContent("Band 2");
+    expect(row).toHaveTextContent("250–500 mi");
   });
 
   describe("Per-inner-tab FilterMenu visibility (>10 rule, independent per tab)", () => {
@@ -338,7 +341,7 @@ describe("JadeFlowsTab", () => {
   });
 
   // Workspace fixups bundle (T6, item 5) — the Distance Band filter option
-  // values (NOT the table cell, which stays "Band N"/"Overflow") become
+  // values (and the table cell, both DU-2.2 range text) become
   // unit-aware ranges, recompute live on a bands/unit change, and clear their
   // own stale selection independently per inner table.
   describe("Item 5: live distance-band range filters (both inner tables)", () => {
@@ -365,14 +368,14 @@ describe("JadeFlowsTab", () => {
     // Both helpers above, with bands=[250,500,750,1000], produce the same 5
     // distinct range labels in first-seen order for either leg.
     const expectedRangeLabels = [
-      "Band 1: 0 mi - 250 mi",
-      "Band 2: 250 mi - 500 mi",
-      "Band 3: 500 mi - 750 mi",
-      "Band 4: 750 mi - 1,000 mi",
-      "Band 5: > 1,000 mi",
+      "≤ 250 mi",
+      "250–500 mi",
+      "500–750 mi",
+      "750–1,000 mi",
+      "> 1,000 mi",
     ];
 
-    it("both inner tables' Distance Band filter dropdown lists unit-aware, band-numbered ranges", async () => {
+    it("both inner tables' Distance Band filter dropdown lists unit-aware ranges", async () => {
       const user = userEvent.setup();
       const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
       render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
@@ -394,10 +397,10 @@ describe("JadeFlowsTab", () => {
       expect(labels).toEqual(expectedRangeLabels);
     });
 
-    it("table cells still read 'Band N'/'Overflow' even though the filter options are ranges", () => {
+    it("table cells read the same range text as the filter options (no 'Band N')", () => {
       const spreadResult = makeResult(bandSpreadPwEdges(11));
       render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
-      expect(screen.getByTestId("jade-flow-pw-row-plant-0-wh-0")).toHaveTextContent(bandLabel(100, spreadBands));
+      expect(screen.getByTestId("jade-flow-pw-row-plant-0-wh-0")).toHaveTextContent("≤ 250 mi");
     });
 
     it("editing bands re-ranges the filter options live on a rerender, with no re-solve/network call (proves the memo-deps fix)", async () => {
@@ -415,7 +418,7 @@ describe("JadeFlowsTab", () => {
       const labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
-      expect(labels).toEqual(["Band 1: 0 mi - 1,000 mi", "Band 2: > 1,000 mi"]);
+      expect(labels).toEqual(["≤ 1,000 mi", "> 1,000 mi"]);
     });
 
     it("selecting a range in EACH inner table, then changing bands, clears only that table's own band filter — non-band filters survive and the two clears are independent", async () => {
@@ -427,7 +430,7 @@ describe("JadeFlowsTab", () => {
       await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
       let popover = screen.getByTestId("filter-menu-popover");
       await user.click(
-        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(100, spreadBands, "mi")}`),
+        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(assignBandOrOverflow(100, spreadBands), spreadBands, "mi")}`),
       );
       await user.type(within(popover).getByTestId("input-filter-flow-min"), "5");
       expect(within(popover).getByTestId("button-clear-filter-band")).toBeInTheDocument();
@@ -439,7 +442,7 @@ describe("JadeFlowsTab", () => {
       await user.click(screen.getByTestId("button-filter-jade-flows-wc"));
       popover = screen.getByTestId("filter-menu-popover");
       await user.click(
-        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(1600, spreadBands, "mi")}`),
+        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(assignBandOrOverflow(1600, spreadBands), spreadBands, "mi")}`),
       );
       await user.type(within(popover).getByTestId("input-filter-customer"), "customer-9");
       expect(within(popover).getByTestId("button-clear-filter-band")).toBeInTheDocument();
@@ -467,7 +470,7 @@ describe("JadeFlowsTab", () => {
 
   // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade
   // rule, applied INDEPENDENTLY per inner table.
-  describe("identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+  describe("identityById (name + ID at any row count)", () => {
     // aggregatePlantToWarehouse groups by (fromId,toId) — so a helper meant
     // to control the AGGREGATED row count (`pwRows.length`) needs DISTINCT
     // (plant,warehouse) pairs, not distinct productId on the same pair (that
@@ -498,19 +501,20 @@ describe("JadeFlowsTab", () => {
       "wh-11": { city: "Chicago", state: "IL", displayId: "WH-CHI-01" },
     };
 
-    it("Plant -> Warehouse: at exactly 10 unfiltered rows, keeps the pre-existing single-line label (no mono displayId yet)", () => {
+    it("DU-2.7 (PR2-4): Plant -> Warehouse with only 3 rows still shows name + mono ID (no >10 gate)", () => {
       render(
         <JadeFlowsTab
-          result={makeResult(manyPwEdgesKnownPlantWarehouse(10))}
+          result={makeResult(manyPwEdgesKnownPlantWarehouse(3))}
           dataset={dataset}
           bands={bands}
           identityById={identityById}
         />,
       );
-      // 10 distinct products on the same (plant,warehouse) pair aggregate into ONE row.
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
       expect(row).toHaveTextContent("Bethlehem, PA");
-      expect(row).not.toHaveTextContent("PLANT-1-CODE");
+      expect(within(row).getByText("PLANT-1-CODE")).toHaveClass("font-mono");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
 
     it("Plant -> Warehouse: at 11 unfiltered rows (crossing the boundary), upgrades to the stacked EntityIdCell with the mono displayId", () => {
@@ -529,14 +533,14 @@ describe("JadeFlowsTab", () => {
       expect(row).toHaveTextContent("WH-CHI-01");
     });
 
-    it("Warehouse -> Customer: independently gated on its OWN row count — stays below its own threshold even while Plant -> Warehouse is above 10", async () => {
+    it("DU-2.7 (PR2-4): Warehouse -> Customer with only 3 rows shows name + mono ID even while Plant -> Warehouse is above 10", async () => {
       const user = userEvent.setup();
       const result = makeResult([...manyPwEdgesKnownPlantWarehouse(11), ...manyWcEdgesKnownWarehouse(3)]);
       render(<JadeFlowsTab result={result} dataset={dataset} bands={bands} identityById={identityById} />);
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
       const row = screen.getByTestId("jade-flow-wc-row-wh-11-customer-0");
       expect(row).toHaveTextContent("Chicago, IL");
-      expect(row).not.toHaveTextContent("WH-CHI-01");
+      expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
 
     it("Warehouse -> Customer: upgrades once ITS OWN row count exceeds 10, independent of Plant -> Warehouse's count", async () => {

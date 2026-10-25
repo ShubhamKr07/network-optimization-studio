@@ -121,7 +121,19 @@ describe("OutputMapTab — layer toggles", () => {
     expect(getByTestId("checkbox-toggle-warehouses")).toHaveAttribute("aria-checked", "true");
     expect(getByTestId("checkbox-toggle-customers")).toHaveAttribute("aria-checked", "true");
     expect(getByTestId("checkbox-toggle-lanes")).toHaveAttribute("aria-checked", "true");
-    expect(getByTestId("checkbox-color-lanes-band")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("DU-2.10: each layer checkbox sits in a >=24px hit area and its label is >=24px tall", () => {
+    const { getByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    for (const t of ["warehouses", "customers", "lanes"]) {
+      const box = getByTestId(`checkbox-toggle-${t}`);
+      expect(box.parentElement).toHaveClass("h-6", "w-6");
+      expect(box.parentElement!.tagName).toBe("LABEL");
+      expect(document.querySelector(`label[for="output-map-toggle-${t}"]`)).toHaveClass("min-h-6");
+    }
   });
 
   it("unchecking Warehouses removes warehouse markers but leaves customer markers and lanes untouched", () => {
@@ -205,7 +217,7 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     const { getByTestId, container } = render(
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
     );
-    fireEvent.click(getByTestId("checkbox-color-lanes-band"));
+    fireEvent.click(getByTestId("segment-lane-colour-none"));
 
     const html = routePaneHtml(container);
     // Both edges (100mi and 900mi — normally different bands) must render
@@ -228,12 +240,35 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     expect(html.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
   });
 
-  it("the Color-by-band checkbox is disabled once Lanes itself is off", () => {
+  it("lane colour offers Distance band + Leg on two-echelon models with band pressed; clicking Leg clears band colouring", () => {
+    const { getByTestId, queryByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="two-echelon-jade-us" />,
+    );
+    expect(getByTestId("segmented-lane-colour")).toHaveAttribute("role", "group");
+    expect(queryByTestId("segment-lane-colour-none")).toBeNull();
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true");
+    expect(getByTestId("segment-lane-colour-leg")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(getByTestId("segment-lane-colour-leg"));
+    expect(getByTestId("segment-lane-colour-leg")).toHaveAttribute("aria-pressed", "true");
+    expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "false");
+    expect(routePaneHtml(container).toLowerCase()).not.toContain(getBandColor(-1).toLowerCase());
+  });
+
+  it("lane colour offers Distance band + None on p-median", () => {
+    const { getByTestId, queryByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us" />,
+    );
+    expect(getByTestId("segment-lane-colour-none")).toHaveTextContent("None");
+    expect(queryByTestId("segment-lane-colour-leg")).toBeNull();
+  });
+
+  it("the lane-colour control is disabled once Lanes itself is off", () => {
     const { getByTestId } = render(
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
     );
     fireEvent.click(getByTestId("checkbox-toggle-lanes"));
-    expect(getByTestId("checkbox-color-lanes-band")).toBeDisabled();
+    expect(getByTestId("segment-lane-colour-band")).toBeDisabled();
+    expect(getByTestId("segment-lane-colour-none")).toBeDisabled();
   });
 });
 
@@ -436,7 +471,7 @@ describe("OutputMapTab — per-leg lane visibility toggles (jade-T15.6)", () => 
     // colors. Turn it off so this test can keep identifying the surviving
     // route by its LEG color (the thing this test is actually about —
     // visibility filtering, not color-mode selection).
-    fireEvent.click(screen.getByTestId("checkbox-color-lanes-band"));
+    fireEvent.click(screen.getByTestId("segment-lane-colour-none"));
     fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
 
     expect(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse")).toHaveAttribute("aria-checked", "false");
@@ -488,7 +523,7 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
     );
     const overlay = screen.getByTestId("output-map-metric-overlay");
     expect(overlay).toHaveTextContent("1,234,567");
-    expect(overlay).toHaveTextContent("412.3 mi");
+    expect(overlay).toHaveTextContent("412.35 mi");
   });
 
   it("uses the resolved model's distanceUnit ('km'), not a hardcoded 'mi'", () => {
@@ -501,11 +536,11 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
         modelId="two-echelon-fake-km"
       />,
     );
-    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 km");
+    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500 km");
   });
 
   // chen-bands-units, Part D "No fallback unit — reads". This test previously
-  // asserted a "500.0 mi" default when modelId was absent. That expectation
+  // asserted a "500 mi" default when modelId was absent. That expectation
   // encoded the very fallback this bundle deletes: Chen is a km model, so
   // guessing "mi" renders a CORRECT number under a WRONG unit, which a student
   // reads as fact. With no modelId the canonical unit is unresolved, so the
@@ -619,7 +654,7 @@ describe("OutputMapTab — no-incumbent overlay (ch5-edit-12)", () => {
     expect(overlay).toHaveTextContent("Objective:");
     expect(overlay).toHaveTextContent("1");
     expect(overlay).toHaveTextContent("Weighted avg distance:");
-    expect(overlay).toHaveTextContent("500.0 mi");
+    expect(overlay).toHaveTextContent("500 mi");
   });
 
   it("a real feasible (gap-limited, non-optimal) solutionStatus also renders the normal overlay, not the no-incumbent text", () => {
@@ -667,12 +702,12 @@ describe("OutputMapTab — three weighted-average distance lines (jade-B1 #3)", 
     const overlay = screen.getByTestId("output-map-metric-overlay");
     // Per-leg lines, labelled via legLabel() (never a hardcoded JADE-only string).
     expect(overlay).toHaveTextContent("Plant → Warehouse avg distance:");
-    expect(overlay).toHaveTextContent("1500.0 mi");
+    expect(overlay).toHaveTextContent("1,500 mi");
     expect(overlay).toHaveTextContent("Warehouse → Customer avg distance:");
-    expect(overlay).toHaveTextContent("900.0 mi");
+    expect(overlay).toHaveTextContent("900 mi");
     // Overall line.
     expect(overlay).toHaveTextContent("Overall avg distance:");
-    expect(overlay).toHaveTextContent("1200.0 mi");
+    expect(overlay).toHaveTextContent("1,200 mi");
     // The old single "Weighted avg distance:" line is replaced, not duplicated.
     expect(overlay.textContent).not.toContain("Weighted avg distance:");
   });
@@ -802,7 +837,7 @@ describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", (
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · Testville, TS · W1");
   });
 
   it("forwards modelId so a two-echelon-gold-au facility marker labels 'Refinery'", () => {
@@ -824,7 +859,7 @@ describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", (
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
+    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · Cunnamulla, QLD · cunnamulla");
   });
 });
 

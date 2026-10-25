@@ -71,14 +71,20 @@ describe("CustomersTab on DataTable (SCU-2.P4.11)", () => {
     expect(screen.queryByTestId("customer-product-table")).toBeNull();
   });
 
-  it("B2.9: demand is grouped, has a linked Units suffix and NO aria-label (base and added)", () => {
+  it("B2.9 / DU-2.3: demand is grouped, has NO aria-label and NO per-cell suffix (the unit is in the header)", () => {
     renderTab();
     for (const id of ["input-customer-demand-C1", "input-added-customer-demand-ac-1"]) {
       const input = screen.getByTestId(id);
       expect(input).toHaveAttribute("type", "text");
       expect(input).not.toHaveAttribute("aria-label");
-      expect(describedSuffix(input)).toHaveTextContent("Units");
+      expect(describedSuffix(input)).toBeNull();
     }
+    expect(screen.queryByText("Units")).toBeNull();
+    expect(
+      within(screen.getAllByRole("table")[0]!)
+        .getAllByRole("columnheader")
+        .map(h => h.textContent),
+    ).toContain("Demand (units)");
     expect(screen.getByTestId("input-customer-demand-C1")).toHaveValue("1,234");
     expect(screen.getByTestId("input-added-customer-demand-ac-1")).toHaveValue("5,000");
   });
@@ -202,6 +208,7 @@ describe("CustomersTab JADE per-product on DataTable (SCU-2.P4.11)", () => {
         customers={jadeCustomers}
         overrides={[]}
         onChange={vi.fn()}
+        demandUnit="tons"
         products={products}
         productOverrides={[]}
         onProductOverridesChange={vi.fn()}
@@ -227,12 +234,12 @@ describe("CustomersTab JADE per-product on DataTable (SCU-2.P4.11)", () => {
     }
     expect(screen.getByTestId("input-customer-demand-C1-product-1")).toHaveValue("1,200");
     expect(screen.getByTestId("input-customer-demand-C1-product-1")).not.toHaveAttribute("aria-label");
-    expect(describedSuffix(screen.getByTestId("input-customer-demand-C1-product-1"))).toHaveTextContent("Units");
+    expect(describedSuffix(screen.getByTestId("input-customer-demand-C1-product-1"))).toBeNull();
     // the base table's headers: one demand column per product, State always shown
     const baseHeaders = within(screen.getByTestId("customer-product-table"))
       .getAllByRole("columnheader")
       .map(h => h.textContent);
-    expect(baseHeaders).toEqual(["ID", "City", "State", "Latitude", "Longitude", "Copper", "Aluminum", "Status"]);
+    expect(baseHeaders).toEqual(["ID", "City", "State", "Latitude", "Longitude", "Copper (tons)", "Aluminum (tons)", "Status"]);
   });
 
   it("history read-only (D2) now covers JADE base AND added per-product demand + status (was live)", () => {

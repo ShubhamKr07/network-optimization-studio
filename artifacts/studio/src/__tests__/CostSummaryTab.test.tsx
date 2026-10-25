@@ -93,6 +93,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetDatasetQueryKey: (params?: { modelId?: string }) => ["dataset", params],
 }));
 
+import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 
 // B4.1 — a modern (post-B2) solved result carries `solutionStatus`/
@@ -193,7 +194,7 @@ describe("Solution Summary — Chapter 4 coverage rows", () => {
   // converted wrongly or not at all. The km test below is what discriminates.
   it("renders the three rows for a Chapter 4 result (mi-canonical, no conversion)", () => {
     renderTab({ result: ch4Result, modelId: "max-coverage-us" });
-    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("450.0 mi");
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("450 mi");
     expect(screen.getByTestId("cost-summary-coverage-pct")).toHaveTextContent("68.42 %");
     expect(screen.getByTestId("cost-summary-covered-demand")).toHaveTextContent("53,385,024");
   });
@@ -217,10 +218,10 @@ describe("Solution Summary — Chapter 4 coverage rows", () => {
     window.localStorage.setItem("nos:display-unit-pref", "mi");
     renderTab({ result: ch4Result, modelId: "synthetic-km-model" });
 
-    // 450 km shown in mi: 450 / 1.609344 = 279.6169 -> "279.6 mi" at 1dp.
+    // 450 km shown in mi: 450 / 1.609344 = 279.6169 -> "279.62 mi" at <=2 dp.
     // Asserting the CONVERTED value (not just "not 450") is what fails if the
     // row stops routing through formatDistance.
-    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("279.6 mi");
+    expect(screen.getByTestId("cost-summary-high-service-cutoff")).toHaveTextContent("279.62 mi");
     expect(screen.getByTestId("cost-summary-high-service-cutoff")).not.toHaveTextContent("450");
 
     // A percentage has no distance dimension. Converted it would read
@@ -394,10 +395,10 @@ describe("CostSummaryTab — delivery-teaching-us (Task 12, spec §7.6/decision 
     edges: [], metrics: { weightedAvgDistance: 422.5511 }, details: { objective: "cost_adjusted" }, solverUsed: "CBC", infeasibilityReason: null,
   };
 
-  it("renders a $ objective for details.objective: 'cost_adjusted', weighted avg. distance at 422.6 mi (1dp), and no Open facilities row", () => {
+  it("renders a $ objective for details.objective: 'cost_adjusted', weighted avg. distance at 422.55 mi (<=2dp), and no Open facilities row", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={deliveryResult} scenarioId={1} modelId="delivery-teaching-us" /></ExportProvider></UnitProvider>);
-    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("$1,234.50");
-    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("422.6 mi");
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("$1,235");
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("422.55 mi");
     expect(screen.queryByText("Open facilities")).not.toBeInTheDocument();
   });
 
@@ -463,6 +464,7 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={legacyResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
     const cell = screen.getByTestId("cost-summary-value-quality");
     expect(cell).toHaveTextContent("Unverified");
+    expect(within(cell).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
     expect(cell).not.toHaveTextContent("Proven optimal");
     expect(cell).not.toHaveTextContent("Optimal");
   });
@@ -486,6 +488,19 @@ describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
     const gapCell = screen.getByTestId("cost-summary-compare-quality-101");
     expect(gapCell).not.toHaveTextContent("Optimal");
     expect(gapCell.textContent?.toLowerCase()).toContain("feasible");
+    expect(gapCell.querySelector("[title]")).toBeNull();
+  });
+
+  it("compare-mode 'Unverified' Quality cell carries the tooltip", () => {
+    const legacy = scenario({ id: 110, name: "Old", modelId: "p-median-us", result: { ...baseFields, status: "optimal" as const, quality: "Optimal" } });
+    const proven = scenario({ id: 111, name: "New", modelId: "p-median-us", result: { ...result } });
+    render(
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
+        result={legacy.result} scenarioId={110} modelId="p-median-us" scenarios={[legacy, proven]}
+      /></ExportProvider></UnitProvider>,
+    );
+    fireEvent.click(compareToggle("cost-summary-compare-toggle-111").querySelector("input")!);
+    expect(within(screen.getByTestId("cost-summary-compare-quality-110")).getByText("Unverified")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
   });
 });
 
@@ -564,8 +579,8 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     expect(screen.getByTestId("cost-summary-compare-table")).toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-objective-1")).toHaveTextContent("100");
     expect(screen.getByTestId("cost-summary-compare-objective-2")).toHaveTextContent("120");
-    expect(screen.getByTestId("cost-summary-compare-distance-1")).toHaveTextContent("300.0");
-    expect(screen.getByTestId("cost-summary-compare-distance-2")).toHaveTextContent("250.0");
+    expect(screen.getByTestId("cost-summary-compare-distance-1")).toHaveTextContent("300");
+    expect(screen.getByTestId("cost-summary-compare-distance-2")).toHaveTextContent("250");
     expect(screen.getByTestId("cost-summary-compare-runtime-1")).toHaveTextContent("0.45s");
     expect(screen.getByTestId("cost-summary-compare-quality-2")).toHaveTextContent("Proven optimal");
   });
@@ -914,7 +929,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     expect(screen.getByTestId("cost-summary-compare-band--1-1")).toHaveTextContent("20%");
     expect(screen.getByTestId("cost-summary-compare-band--1-2")).toHaveTextContent("10%");
     const labels = ["200", "400", "-1"].map(b => screen.getByTestId(`cost-summary-compare-band-${b}-1`).closest("tr")!.querySelector("td")!.textContent);
-    expect(labels).toEqual(["0–200 mi", "200–400 mi", "> 400 mi"]);
+    expect(labels).toEqual(["≤ 200 mi", "200–400 mi", "> 400 mi"]);
     expect(screen.queryByTestId("cost-summary-compare-bands-note")).not.toBeInTheDocument();
   });
 
@@ -1049,7 +1064,7 @@ describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
   it("falls back to the textbook values, labelled, for a legacy JADE result", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult(/* no transportRates */)} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("0.07");
-    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-rate-ic")).toHaveTextContent("textbook default");
   });
 
   it("renders no rate rows at all for a non-JADE model", () => {
@@ -1082,9 +1097,9 @@ describe("CostSummaryTab — ch9-tc-9 solved-at transportation rates", () => {
     const c2 = scenario({ id: 2, name: "C2", modelId: "two-echelon-jade-us", result: jadeResult({ ...rates, icTransCost: 0.09 }) });
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={c1.result} scenarioId={1} modelId="two-echelon-jade-us" scenarios={[c1, c2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(compareToggle("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default (legacy result)");
-    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default (legacy result)");
-    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default (legacy result)");
+    expect(screen.getByTestId("cost-summary-compare-rate-ic-1")).toHaveTextContent("textbook default");
+    expect(screen.getByTestId("cost-summary-compare-min-ic-1")).toHaveTextContent("textbook default");
+    expect(screen.getByTestId("cost-summary-compare-min-ob-1")).toHaveTextContent("textbook default");
     expect(screen.getByTestId("cost-summary-compare-rate-ic-2")).toHaveTextContent("0.09");
   });
 
@@ -1224,11 +1239,12 @@ describe("Solution Summary bar (SCU-1.3)", () => {
     expect(screen.queryByText(/Solution Summary/)).not.toBeInTheDocument();
   });
 
-  it("hides the picker by default; the green Compare Scenario button shows and hides it", () => {
+  it("hides the picker by default; the outline Compare Scenario button shows and hides it", () => {
     renderTab({ scenarios: [s1, s2], modelId: "p-median-us" });
     const toggle = screen.getByTestId("button-toggle-compare");
     expect(toggle).toHaveTextContent("Compare Scenario");
-    expect(toggle.className).toContain("bg-primary"); // Button default variant = the primary green token (index.css --primary)
+    expect(toggle.className).not.toContain("bg-primary"); // DU-2.5 Q4: outline variant, the header Run Optimizer is the one filled primary
+    expect(toggle.className).toContain("border");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("cost-summary-compare-toggles")).not.toBeInTheDocument();
     fireEvent.click(toggle);
@@ -1277,7 +1293,7 @@ describe("Solution Summary bar (SCU-1.3)", () => {
       ["Open facilities", fac(1), fac(2)].map(clientCsv.csvCell).join(","),
       "Runtime (s),0.45,0.45",
       "Quality,Proven optimal,Proven optimal",
-      "0–200 mi (%),40,60",
+      "≤ 200 mi (%),40,60",
       "200–400 mi (%),40,30",
       "> 400 mi (%),20,10",
     ].join("\n"));
@@ -1565,7 +1581,7 @@ describe("CostSummaryTab — Chapter 5 band rows (QFX-5)", () => {
     wrap(<CostSummaryTab result={r1} scenarioId={60} modelId="delivery-teaching-us" />);
     expect(BANDS.map(b => screen.getByTestId(`cost-summary-band-${b}`).textContent)).toEqual(["40.5%", "39.75%", "14.75%", "5%", "0%"]);
     expect(BANDS.map(b => labelOf(screen.getByTestId(`cost-summary-band-${b}`)))).toEqual([
-      "0–400 mi", "400–800 mi", "800–1,200 mi", "1,200–1,600 mi", "> 1,600 mi",
+      "≤ 400 mi", "400–800 mi", "800–1,200 mi", "1,200–1,600 mi", "> 1,600 mi",
     ]);
     // raw cumulative values are never shown
     expect(screen.queryByText("80.25%")).not.toBeInTheDocument();

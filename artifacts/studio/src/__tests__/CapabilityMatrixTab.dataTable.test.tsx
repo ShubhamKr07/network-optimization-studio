@@ -52,7 +52,7 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
     ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
-    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("11 of 11");
+    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("11 plants");
     const plantCell = screen.getByTestId("text-capability-plant-plant-1");
     expect(plantCell.tagName).toBe("TD");
     // e2e (workspace-fixups.spec.ts) counts the EntityIdCell's two spans inside the <td>.
@@ -61,7 +61,7 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
       within(screen.getByTestId("capability-matrix-tab"))
         .getAllByRole("columnheader")
         .map(h => h.textContent),
-    ).toEqual(["Plant", "Copper", "Aluminum"]);
+    ).toEqual(["Plant", "Copper (units)", "Aluminum (units)"]);
   });
 
   it("keeps the plant text filter and the filter-only state select (no rendered State column)", () => {
@@ -69,7 +69,7 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
     fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
     expect(screen.getByTestId("input-filter-plant")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("checkbox-filter-state-KY"));
-    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("1 of 11");
+    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("1 of 11 plants");
     expect(screen.getByTestId("row-capability-plant-11")).toBeInTheDocument();
     expect(screen.queryByTestId("row-capability-plant-1")).toBeNull();
     expect(screen.queryByTestId("filter-control-product:product-1")).toBeNull();
@@ -85,7 +85,7 @@ describe("CapabilityMatrixTab on DataTable (SCU-2.P4.9)", () => {
   it("no filter menu at ≤ 10 plants (JADE ships 4)", () => {
     renderTab({ plants: plants.slice(0, 4) });
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
-    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("4 of 4");
+    expect(screen.getByTestId("text-capability-count")).toHaveTextContent("4 plants");
   });
 
   it("history read-only (D2): every checkbox is disabled", () => {

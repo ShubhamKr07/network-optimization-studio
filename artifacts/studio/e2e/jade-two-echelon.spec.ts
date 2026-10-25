@@ -115,10 +115,10 @@ async function solveAndWait(page: Page, id: string): Promise<void> {
 /** Reads the Solution Summary's Objective cell as a number.
  *
  *  JADE's objective dimension is "monetary" (lib/units/src/objective.ts),
- *  so formatObjective() renders it as e.g. "$254,060,828.62" — a leading
+ *  so formatObjective() renders it as e.g. "$254,060,829" (whole dollars, DU-2.1) — a leading
  *  "$" a bare-comma strip can't survive (Number() silently returns NaN).
  *
- *  The "$" and 2-decimal shape are ASSERTED, not just stripped: a silent
+ *  The "$" and whole-dollar shape are ASSERTED, not just stripped: a silent
  *  strip-everything-non-numeric would keep passing even if JADE's dimension
  *  regressed to "opaque" (a bare, unlabelled number) — exactly the
  *  dimension-mislabelling class formatObjective's own comment calls worse
@@ -127,7 +127,7 @@ async function solveAndWait(page: Page, id: string): Promise<void> {
 async function readObjective(page: Page): Promise<number> {
   await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
   const text = (await page.getByTestId("cost-summary-value-objective").innerText({ timeout: HEADER_TIMEOUT })).trim();
-  expect(text).toMatch(/^\$[\d,]+\.\d{2}$/);
+  expect(text).toMatch(/^\$[\d,]+$/);
   return Number(text.replace(/[$,]/g, ""));
 }
 

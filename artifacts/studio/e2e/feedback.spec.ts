@@ -42,6 +42,9 @@ test("homepage feedback widget submits and thanks the user", async ({ page }) =>
   // DeveloperCredit block (the footer's "Developed by Shubham" line).
   const launcher = page.getByTestId("feedback-button");
   await expect(launcher).toBeVisible({ timeout: TIMEOUT });
+  // DU-2.8 — the hero footer now scrolls with the content; bring it on screen
+  // before measuring viewport-relative boxes.
+  await page.getByTestId("homepage-credit-footer").scrollIntoViewIfNeeded({ timeout: TIMEOUT });
   const viewport = page.viewportSize();
   const launcherBox = await launcher.boundingBox();
   const creditBox = await page.getByTestId("homepage-credit-footer").getByText("Developed by Shubham").boundingBox();

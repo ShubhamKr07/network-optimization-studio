@@ -1,3 +1,5 @@
+import { formatCoord } from "@/lib/formatLocation";
+import { demandHeader, type Chapter } from "@/lib/chapters";
 import { useState } from "react";
 import type { Customer, Product, Scenario } from "@workspace/api-client-react";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
@@ -101,6 +103,8 @@ interface CustomersTabProps {
   enableFilters?: boolean;
   /** SCU-2.P4.11 — narrows the Upload/Download expected-fields panel. */
   modelId?: string;
+  /** Active chapter's demand unit; goes in the demand column headers. */
+  demandUnit?: Chapter["demandUnit"];
   /** History read-only (decision 1h; SCU-2.P4.11 D2): every demand input,
    * status button, delete button and the "+ Add customer" trigger — base,
    * added and JADE per-product rows alike — is disabled. Defaults false. */
@@ -156,6 +160,7 @@ export function CustomersTab({
   enableFilters = false,
   disabled = false,
   modelId,
+  demandUnit = "units",
 }: CustomersTabProps) {
   const files = useEntityFileMenus({
     entity: "customers",
@@ -242,7 +247,7 @@ export function CustomersTab({
     kind: "text",
     filter: "text",
     value: r => r.displayId,
-    cellClassName: "font-mono text-xs",
+    cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
     cell: r => {
       if (!added) return r.displayId;
       const missing = completenessCountForCustomer(precheckErrors, r.id);
@@ -290,7 +295,7 @@ export function CustomersTab({
       kind: "number",
       value: r => r.lat,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lat.toFixed(4),
+      cell: r => formatCoord(r.lat),
     },
     {
       id: "lng",
@@ -298,7 +303,7 @@ export function CustomersTab({
       kind: "number",
       value: r => r.lng,
       cellClassName: "text-xs font-mono",
-      cell: r => r.lng.toFixed(4),
+      cell: r => formatCoord(r.lng),
     },
   ];
 
@@ -309,12 +314,11 @@ export function CustomersTab({
       ? products.map(p => ({
           // Descriptor key `demand:{productId}` is today's JADE filter key.
           id: `demand:${p.id}`,
-          header: p.name,
+          header: `${p.name} (${demandUnit})`,
           kind: "number" as const,
           value: (r: CustomerRow) => r.demands[p.id] ?? 0,
           cell: (r: CustomerRow) => (
             <DemandCell
-              suffix="Units"
               value={r.demands[p.id] ?? 0}
               clearCommits={!added}
               onCommit={v =>
@@ -335,12 +339,11 @@ export function CustomersTab({
       : [
           {
             id: "demand",
-            header: "Demand",
+            header: demandHeader(demandUnit),
             kind: "number",
             value: r => r.demand,
             cell: r => (
               <DemandCell
-                suffix="Units"
                 integer={integerDemand}
                 value={r.demand}
                 clearCommits={!added}
@@ -442,7 +445,6 @@ export function CustomersTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             // JADE's per-product base table keeps its wrapper testid.
             scrollTestId: productMode ? "customer-product-table" : undefined,
             emptyState: (
@@ -460,7 +462,6 @@ export function CustomersTab({
                   includes: (r: CustomerRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: CustomerRow) => `row-added-customer-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-customers-empty">
                       No added customers yet — use "+ Add customer" above to create one.
@@ -476,6 +477,7 @@ export function CustomersTab({
           source="table"
           readOnly={disabled}
           entityKind="customer"
+          demandUnit={demandUnit}
           integerDemand={integerDemand}
           hasStateColumn={hasStateColumn}
           products={productMode ? products : undefined}

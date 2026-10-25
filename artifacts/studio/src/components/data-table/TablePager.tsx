@@ -2,6 +2,7 @@
 // classes are DistancesTab's `Pager` (DistancesTab.tsx:203-243) so a migrated
 // table looks the same; testids are passed literally per table.
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 export interface TablePagerTestIds {
@@ -16,11 +17,12 @@ export interface TablePagerProps {
   pageCount: number;
   onPageChange: (page: number) => void;
   testIds?: TablePagerTestIds;
+  className?: string;
 }
 
-export function TablePager({ page, pageCount, onPageChange, testIds = {} }: TablePagerProps) {
+export function TablePager({ page, pageCount, onPageChange, testIds = {}, className }: TablePagerProps) {
   return (
-    <div className="flex items-center justify-end gap-2 mt-1 text-xs" data-testid={testIds.pager}>
+    <div className={cn("flex items-center justify-end gap-2 mt-1 text-xs", className)} data-testid={testIds.pager}>
       <Button
         size="sm"
         variant="outline"

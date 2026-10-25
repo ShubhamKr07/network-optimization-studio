@@ -187,7 +187,8 @@ test.describe("Super Model", () => {
       await expect(page.getByTestId("solve-progress-overlay")).toHaveCount(0, { timeout: HEADER_TIMEOUT });
 
       await page.getByTestId("sidebar-output-cost-summary").click({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("cost-summary-value-objective")).toContainText("254,060,828", { timeout: HEADER_TIMEOUT });
+      // DU-2.1: money renders at 0 dp (formatMoney), so the solver's 254,060,828.6157 reads "$254,060,829".
+      await expect(page.getByTestId("cost-summary-value-objective")).toContainText("$254,060,829", { timeout: HEADER_TIMEOUT });
 
       await page.getByTestId("sidebar-output-open-warehouses").click({ timeout: HEADER_TIMEOUT });
       const rows = page.locator('[data-testid^="open-warehouse-row-"]');
