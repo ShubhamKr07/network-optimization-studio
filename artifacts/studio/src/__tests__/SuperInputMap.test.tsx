@@ -194,3 +194,32 @@ describe("SuperInputMap actions", () => {
     expect(screen.queryByTestId("map-action-menu")).not.toBeInTheDocument();
   });
 });
+
+describe("SuperInputMap details card (DU-3.1)", () => {
+  it("left-click opens the card; Delete hands off on the FIRST click (confirmDelete=false)", () => {
+    const { container, onRequestDelete } = mount();
+    fireEvent.click(markers(container)[3]);
+    expect(screen.getByTestId("map-details-card")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("map-details-action-delete"));
+    expect(onRequestDelete).toHaveBeenCalledWith("customers", "C-1");
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+  it("Edit from the card opens SuperEntityDialog", () => {
+    const { container } = mount();
+    fireEvent.click(markers(container)[3]);
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("super-entity-demand-K2")).toHaveValue(7);
+  });
+  it("readOnly: the card opens but has no actions row", () => {
+    const { container } = mount(net(), true);
+    fireEvent.click(markers(container)[3]);
+    expect(screen.getByTestId("map-details-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-actions")).not.toBeInTheDocument();
+  });
+  it("a map click clears the selection", () => {
+    const { container } = mount();
+    fireEvent.click(markers(container)[3]);
+    fireEvent.click(container.querySelector(".leaflet-container")!, { clientX: 20, clientY: 20 });
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+});

@@ -5,7 +5,8 @@ import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 import L from "leaflet";
-import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
+import { MapActionMenu, actionsInContext, type EntityActionKey } from "@/components/workspace/map/MapActionMenu";
+import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
 import { MoveConfirmDialog } from "@/components/workspace/map/dialogs/MoveConfirmDialog";
 import { JADE_WAREHOUSE_ROLE, PLANT_ROLE, type MapEntity } from "@/components/workspace/map/types";
 import { MapEventsBridge, GhostFollower, AddEntityMenu, LayerCheckbox, type OverlayAnchor } from "@/components/workspace/map/mapControls";
@@ -36,6 +37,7 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
   const points = useMemo<[number, number][]>(
     () => [...rows.plants, ...rows.warehouses, ...rows.customers].map(l => [l.lat, l.lng]), [rows]);
   const [menu, setMenu] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [addAt, setAddAt] = useState<({ lat: number; lng: number } & OverlayAnchor) | null>(null);
   const [dialog, setDialog] = useState<{ mode: "create" | "edit"; kind: LocKind; initial: LocationDraft; demand: Record<string, number> } | null>(null);
   const [armedMove, setArmedMove] = useState<MapEntity | null>(null);
@@ -54,16 +56,16 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
 
   function onMapClick(e: L.LeafletMouseEvent) {
     if (armedMove) { setMoveTo({ entity: armedMove, lat: e.latlng.lat, lng: e.latlng.lng }); setArmedMove(null); return; }
-    setMenu(null); setAddAt(null);
+    setMenu(null); setAddAt(null); setSelected(null);
   }
   function onMapContextMenu(e: L.LeafletMouseEvent) {
     if (readOnly) return;
-    setMenu(null);
+    setMenu(null); setSelected(null);
     setAddAt({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint });
   }
   function onMarkerRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     if (readOnly) return;
-    setAddAt(null);
+    setAddAt(null); setSelected(null);
     setMenu({ entity, containerPoint: e.containerPoint });
   }
   function startCreate(kind: LocKind) {
@@ -71,12 +73,15 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
     setDialog({ mode: "create", kind, demand: {}, initial: { id: nextFreeId(inputs, kind), lat: addAt.lat, lng: addAt.lng, ...(kind === "pl" ? {} : { status: "active" }) } });
     setAddAt(null);
   }
-  function startEdit() {
-    if (!menu) return;
-    const r = rowOf(menu.entity);
-    setDialog({ mode: "edit", kind: menu.entity.kind,
-      initial: { id: String(r.id), city: r.city as string | undefined, state: r.state as string | undefined, lat: Number(r.lat), lng: Number(r.lng), status: r.status as string | undefined },
-      demand: menu.entity.kind === "cs" ? demandOf(inputs, String(r.id)) : {} });
+  function actOn(key: EntityActionKey, entity: MapEntity) {
+    if (key === "edit") {
+      const r = rowOf(entity);
+      setDialog({ mode: "edit", kind: entity.kind,
+        initial: { id: String(r.id), city: r.city as string | undefined, state: r.state as string | undefined, lat: Number(r.lat), lng: Number(r.lng), status: r.status as string | undefined },
+        demand: entity.kind === "cs" ? demandOf(inputs, String(r.id)) : {} });
+    } else if (key === "move") setArmedMove(entity);
+    else if (key === "copy") onInputsChange(copyLocation(inputs, entity.kind, entity.entity.id));
+    else onRequestDelete(LOC_TABLE[entity.kind], entity.entity.id);
     setMenu(null);
   }
   const flip = (k: "plants" | "warehouses" | "customers") => setToggles(t => ({ ...t, [k]: !(t[k] ?? true) }));
@@ -99,20 +104,23 @@ export function SuperInputMap({ inputs, fitKey, onInputsChange, onRequestDelete,
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <FitToPoints points={points} fitKey={fitKey} />
-          <MapEventsBridge onClick={onMapClick} onContextMenu={onMapContextMenu} onMoveOrZoomStart={() => { setMenu(null); setAddAt(null); }} />
+          <MapEventsBridge onClick={onMapClick} onContextMenu={onMapContextMenu} onMoveOrZoomStart={() => { setMenu(null); setAddAt(null); setSelected(null); }} />
           {armedMove && <GhostFollower tint="#2563eb" />}
           <EntityMarkers plants={rows.plants} warehouses={rows.warehouses} customers={rows.customers} toggles={toggles}
-            onLeftClick={() => {}} onRightClick={onMarkerRightClick}
+            onLeftClick={(entity, e) => { setMenu(null); setAddAt(null); setSelected({ entity, containerPoint: e.containerPoint }); }} onRightClick={onMarkerRightClick}
             onDragEnd={(entity, ll) => setMoveTo({ entity, lat: ll.lat, lng: ll.lng })} draggableIds={draggable} modelId="super-model" />
         </MapContainer>
         <MapLegend customers={rows.customers} showWarehouseLayer={toggles.warehouses} showCustomerLayer={toggles.customers}
           sizeByDemand={false} showPlantLayer={toggles.plants ?? true} />
+        {selected && (
+          <MapDetailsCard entity={selected.entity} containerPoint={selected.containerPoint} onClose={() => setSelected(null)}
+            actions={actionsInContext(selected.entity, { readOnly })} confirmDelete={false}
+            onAction={key => { const entity = selected.entity; setSelected(null); actOn(key, entity); }} />
+        )}
         {menu && (
           <MapActionMenu entity={menu.entity} containerPoint={menu.containerPoint} confirmDelete={false} onClose={() => setMenu(null)}
-            onEdit={startEdit}
-            onMove={() => { setArmedMove(menu.entity); setMenu(null); }}
-            onCopy={() => { onInputsChange(copyLocation(inputs, menu.entity.kind, menu.entity.entity.id)); setMenu(null); }}
-            onDelete={() => { onRequestDelete(LOC_TABLE[menu.entity.kind], menu.entity.entity.id); setMenu(null); }} />
+            onEdit={() => actOn("edit", menu.entity)} onMove={() => actOn("move", menu.entity)}
+            onCopy={() => actOn("copy", menu.entity)} onDelete={() => actOn("delete", menu.entity)} />
         )}
         {addAt && <AddEntityMenu containerPoint={addAt.containerPoint} showPlantOption onAdd={startCreate} onClose={() => setAddAt(null)} />}
       </div>

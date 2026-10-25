@@ -197,3 +197,21 @@ describe("InputMapTab (pmedian) — base marker action menu never grows a Move/D
     expect(screen.queryByTestId("map-action-delete")).not.toBeInTheDocument();
   });
 });
+
+describe("InputMapTab (pmedian) — details card action buttons (DU-3.1)", () => {
+  it("left-click an ADDED marker, then map-details-action-move arms the move", () => {
+    const inputs = makeInputs({ addedWarehouses: [{ id: "aw-1", displayCode: "WH-NV-RENO-01", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }] as PMedianMapInputs["addedWarehouses"] });
+    const { container } = renderPMedian({ warehouses: [addedWh()], inputs });
+    fireEvent.click(container.querySelector(".leaflet-marker-icon") as HTMLElement);
+    fireEvent.click(screen.getByTestId("map-details-action-move"));
+    expect(screen.getByTestId("armed-status-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+  it("the BASE card has no move or delete buttons", () => {
+    const { container } = renderPMedian({ warehouses: [baseWh()] });
+    fireEvent.click(container.querySelector(".leaflet-marker-icon") as HTMLElement);
+    expect(screen.getByTestId("map-details-action-edit")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-action-move")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-action-delete")).not.toBeInTheDocument();
+  });
+});

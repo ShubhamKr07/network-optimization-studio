@@ -297,3 +297,13 @@ describe("InputMapTab — transport mode: R4 Save-in-Layers", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("InputMapTab — transport mode: details card buttons (DU-3.1)", () => {
+  it("left-click a mine, then map-details-action-edit opens the edit dialog", () => {
+    const { container } = renderTransport({ mines: [baseMine()] });
+    fireEvent.click(container.querySelectorAll(".leaflet-marker-icon")[0]);
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("edit-warehouse-dialog")).toHaveTextContent("Edit mine");
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+});
