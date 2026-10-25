@@ -524,7 +524,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       ? resultQualityText(result)
       : modelId != null && canonicalDistanceUnit != null
         ? formatObjective(modelId, objectiveMode, result.objective, canonicalDistanceUnit, unit)
-        : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString();
+        : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString("en-US");
     const rows: Array<[string, string, boolean, string?]> = [["Objective", objectiveText, true]];
     // CH4O-10 (decisions 5-8) — Chapter 4's high-service-cutoff/coverage%/
     // covered-demand rows, moved here from Service Stats. Envelope-shape
@@ -602,9 +602,9 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       const rl = rateUnitLabel(canonicalDistanceUnit, unit);
       rows.push(
         [`Inbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.icTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ic"],
-        [`Inbound min ($/ton)`, `${rates.icMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ic"],
+        [`Inbound min ($/ton)`, `${rates.icMinTrans.toLocaleString("en-US")}${suffix}`, true, "cost-summary-min-ic"],
         [`Outbound rate${rl ? ` (${rl})` : ""}`, `${formatRate(rates.obTransCost, canonicalDistanceUnit, unit)}${suffix}`, true, "cost-summary-rate-ob"],
-        [`Outbound min ($/ton)`, `${rates.obMinTrans.toLocaleString()}${suffix}`, true, "cost-summary-min-ob"],
+        [`Outbound min ($/ton)`, `${rates.obMinTrans.toLocaleString("en-US")}${suffix}`, true, "cost-summary-min-ob"],
       );
     }
 
@@ -693,7 +693,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           raw: s.result!.objective,
           display: modelId != null && canonicalDistanceUnit != null
             ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
-            : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString(),
+            : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString("en-US"),
         },
   );
 
@@ -786,7 +786,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       { key: "min-ic", label: "Inbound min ($/ton)", csvLabel: "Inbound min ($/ton)", mono: true, testId: id => `cost-summary-compare-min-ic-${id}` },
       s => {
         const { rates, legacy } = solvedAtRates(s.result);
-        return { raw: rates.icMinTrans, display: <>{rates.icMinTrans.toLocaleString()}{legacy && legacyNote}</> };
+        return { raw: rates.icMinTrans, display: <>{rates.icMinTrans.toLocaleString("en-US")}{legacy && legacyNote}</> };
       },
     );
     pushRow(
@@ -800,7 +800,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       { key: "min-ob", label: "Outbound min ($/ton)", csvLabel: "Outbound min ($/ton)", mono: true, testId: id => `cost-summary-compare-min-ob-${id}` },
       s => {
         const { rates, legacy } = solvedAtRates(s.result);
-        return { raw: rates.obMinTrans, display: <>{rates.obMinTrans.toLocaleString()}{legacy && legacyNote}</> };
+        return { raw: rates.obMinTrans, display: <>{rates.obMinTrans.toLocaleString("en-US")}{legacy && legacyNote}</> };
       },
     );
   }

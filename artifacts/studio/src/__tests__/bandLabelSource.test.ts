@@ -9,7 +9,7 @@ import { resolve, join, relative, sep } from "node:path";
 // feed the frozen JADE flows client export until DU-4.2. EMPTY allow-list — keep it that way.
 const SRC_DIR = resolve(__dirname, "..");
 const E2E_DIR = resolve(__dirname, "../../e2e");
-const BAND_CONSTRUCT = /`Band \$\{|["']Band ["']\s*\+|["']Band \d/;
+const BAND_CONSTRUCT = /`Band\s?\$\{|["']Band ?["']\s*\+|["']Band \d/;
 const ALLOWED: string[] = [];
 const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
 
@@ -36,6 +36,8 @@ describe("band label source (DU-2.2)", () => {
     expect(BAND_CONSTRUCT.test("`Band ${i + 1}`")).toBe(true);
     expect(BAND_CONSTRUCT.test('"Band " + n')).toBe(true);
     expect(BAND_CONSTRUCT.test('"Band 2"')).toBe(true);
+    expect(BAND_CONSTRUCT.test("'Band' + n")).toBe(true);
+    expect(BAND_CONSTRUCT.test("`Band${n}`")).toBe(true);
     expect(BAND_CONSTRUCT.test("bandRangeLabel(i, b, u)")).toBe(false);
     expect(walk(SRC_DIR).length).toBeGreaterThan(100);
     expect(walk(E2E_DIR).filter(f => f.endsWith(".spec.ts")).length).toBeGreaterThan(20);

@@ -6,8 +6,7 @@
 // Rejected input (anything but digits, one ".", grouping commas/spaces —
 // so also "-" and exponents) and values above Number.MAX_SAFE_INTEGER leave
 // the field and the value unchanged. IME composition is passed through raw
-// and only formatted on `compositionend`. A visible suffix (e.g. "Units")
-// sits OUTSIDE the input and is linked via aria-describedby. The component
+// and only formatted on `compositionend`. The component
 // never adds an aria-label: whatever accessible name the caller gives the
 // input today (none, for the demand cells) is passed through unchanged.
 // `integer` (station demand) also rejects ".".
@@ -20,8 +19,6 @@ export interface FormattedNumberInputProps
   extends Omit<React.ComponentProps<"input">, "value" | "defaultValue" | "onChange" | "type" | "inputMode"> {
   value: number | null;
   onChange: (value: number | null) => void;
-  /** Visible text after the input, e.g. "Units". */
-  suffix?: string;
   /** Integers only (station demand): "." is rejected like any other non-digit; inputMode "numeric". */
   integer?: boolean;
   "data-testid"?: string;
@@ -74,13 +71,12 @@ function caretAfterSig(text: string, n: number): number {
 
 export const FormattedNumberInput = React.forwardRef<HTMLInputElement, FormattedNumberInputProps>(
   function FormattedNumberInput(
-    { value, onChange, suffix, integer = false, className, onCompositionStart, onCompositionEnd, ...rest },
+    { value, onChange, integer = false, className, onCompositionStart, onCompositionEnd, ...rest },
     forwardedRef,
   ) {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const composing = React.useRef(false);
     const pendingCaret = React.useRef<number | null>(null);
-    const suffixId = React.useId();
     const [text, setText] = React.useState(() => formatNumberValue(value));
     const [seenValue, setSeenValue] = React.useState(value);
 
@@ -120,8 +116,6 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
       }
     };
 
-    const describedBy = [rest["aria-describedby"], suffix ? suffixId : undefined].filter(Boolean).join(" ") || undefined;
-
     return (
       <span className="inline-flex items-center gap-1 w-full">
         <Input
@@ -134,7 +128,6 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
           type="text"
           inputMode={integer ? "numeric" : "decimal"}
           value={text}
-          aria-describedby={describedBy}
           className={cn("w-full", className)}
           onChange={e => {
             const raw = e.target.value;
@@ -169,11 +162,6 @@ export const FormattedNumberInput = React.forwardRef<HTMLInputElement, Formatted
             onCompositionEnd?.(e);
           }}
         />
-        {suffix && (
-          <span id={suffixId} className="text-xs text-muted-foreground whitespace-nowrap">
-            {suffix}
-          </span>
-        )}
       </span>
     );
   },

@@ -27,7 +27,6 @@ function Harness({
         setValue(v);
         onValue(v);
       }}
-      suffix="Units"
       disabled={disabled}
       integer={integer}
       data-testid="input-customer-demand-C1"
@@ -64,15 +63,12 @@ describe("pure helpers", () => {
 });
 
 describe("FormattedNumberInput", () => {
-  it("is a text input with decimal inputMode and links the visible 'Units' suffix via aria-describedby", () => {
+  it("is a text input with decimal inputMode and grouped en-US text", () => {
     render(<Harness initial={1234} />);
     const el = input();
     expect(el).toHaveAttribute("type", "text");
     expect(el).toHaveAttribute("inputmode", "decimal");
     expect(el.value).toBe("1,234");
-    const suffix = screen.getByText("Units");
-    expect(el.getAttribute("aria-describedby")).toBe(suffix.id);
-    expect(el).not.toContainElement(suffix);
   });
 
   it("adds no aria-label: a consumer without one (today's demand cells) stays without one", () => {
@@ -80,11 +76,9 @@ describe("FormattedNumberInput", () => {
     expect(input()).not.toHaveAttribute("aria-label");
   });
 
-  it("a consumer's own aria-describedby is kept alongside the suffix id", () => {
-    render(<FormattedNumberInput value={1} onChange={() => {}} suffix="Units" aria-describedby="hint" data-testid="x" />);
-    const ids = (screen.getByTestId("x").getAttribute("aria-describedby") ?? "").split(" ");
-    expect(ids[0]).toBe("hint");
-    expect(ids[1]).toBe(screen.getByText("Units").id);
+  it("a consumer's own aria-describedby is passed through", () => {
+    render(<FormattedNumberInput value={1} onChange={() => {}} aria-describedby="hint" data-testid="x" />);
+    expect(screen.getByTestId("x")).toHaveAttribute("aria-describedby", "hint");
   });
 
   it("integer mode (station demand): numeric inputMode, '.' rejected, digits accepted", async () => {
@@ -157,7 +151,7 @@ describe("FormattedNumberInput", () => {
     input().setSelectionRange(5, 5);
     await user.type(input(), "x"); // rejected: no state change
     input().setSelectionRange(1, 1);
-    rerender(<FormattedNumberInput value={1234} onChange={() => {}} suffix="Units" data-testid="input-customer-demand-C1" />);
+    rerender(<FormattedNumberInput value={1234} onChange={() => {}} data-testid="input-customer-demand-C1" />);
     expect(input().selectionStart).toBe(1);
   });
 

@@ -17,8 +17,8 @@
 // them below so every existing import path (`@/lib/bands`) keeps working
 // with zero call-site edits, while genuinely frontend-only helpers
 // (`DEFAULT_DISTANCE_BANDS`, `computeAutoBands`, the legacy non-overflow
-// `assignBand`, the legacy exclusive `computeBandCoverage`, and
-// the range label now lives in `@workspace/units`) stay local. See `__tests__/bandsSingleSource.test.ts` for
+// `assignBand`, and the legacy exclusive `computeBandCoverage`) stay
+// local; the range label now lives in `@workspace/units`. See `__tests__/bandsSingleSource.test.ts` for
 // the reference-identity regression guard against a re-implementation
 // silently drifting from the shared classifier.
 import {

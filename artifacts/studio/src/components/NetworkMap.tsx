@@ -716,13 +716,13 @@ export function NetworkMap({
               // resolution, spec §2) — the "Color lanes: Distance band"
               // toggle governs a two-echelon edge's color, using the SAME
               // empty-bands-array-means-off encoding OutputMapTab already
-              // uses for every model's own "Plain" lane mode (colorByBand
-              // false -> bands=[]): when bands is non-empty (colorByBand ON,
+              // uses for every model's own "Plain" lane mode (laneColour
+              // "leg"/"none" -> bands=[]): when bands is non-empty (laneColour "band",
               // the default post-solve state), distance-band coloring wins
               // for EVERY edge, JADE/Ch10 included, via assignBandOrOverflow
               // so an out-of-range lane gets the distinct overflow color
               // instead of folding into the last band. When bands is empty
-              // (colorByBand OFF), a two-echelon edge falls back to its leg
+              // (laneColour "leg"/"none"), a two-echelon edge falls back to its leg
               // color (green inbound / red outbound) exactly as before; a
               // single-echelon edge (no leg) still resolves via
               // assignBandOrOverflow(distance, []), which returns band 0 —

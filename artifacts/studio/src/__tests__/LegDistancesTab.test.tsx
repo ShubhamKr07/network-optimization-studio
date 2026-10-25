@@ -532,7 +532,7 @@ describe("LegDistancesTab — T11 identityById upgrade (item 2)", () => {
     }));
   }
 
-  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+  it("no-regression: with identityById UNSET, a table stays bare-id, byte-unchanged", () => {
     const rows = buildRows(11);
     render(
       <LegDistancesTab
@@ -572,7 +572,7 @@ describe("LegDistancesTab — T11 identityById upgrade (item 2)", () => {
     expect(row).toHaveTextContent("RF-A");
   });
 
-  it("does NOT upgrade at 10 rows or fewer, even with identityById present", () => {
+  it("shows name + mono ID at 10 rows or fewer (DU-2.R1: no row-count gate)", () => {
     const rows = buildRows(10);
     render(
       <LegDistancesTab
@@ -586,7 +586,7 @@ describe("LegDistancesTab — T11 identityById upgrade (item 2)", () => {
       />,
     );
     const row = screen.getByTestId("row-legdistance-kalgoorlie-refinery-1");
-    expect(row).not.toHaveTextContent("Kalgoorlie, WA");
+    expect(row).toHaveTextContent("Kalgoorlie, WA");
     expect(row).toHaveTextContent("MINE-1");
   });
 });

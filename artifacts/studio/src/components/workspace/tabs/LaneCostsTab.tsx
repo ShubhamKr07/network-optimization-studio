@@ -47,10 +47,9 @@ interface LaneCostsTabProps {
   /** T11 (workspace-fixups-2, item 2) — canonical id -> {city, state,
    * displayId} (base dataset ∪ scenario-local added entities), built by
    * Workspace.tsx's `buildEntityIdentityById(modelId, dataset, localInputs)`
-   * (the LIVE draft — this is an INPUT tab). This table was previously
-   * BARE-ID ONLY — upgrades to the stacked City/State + mono display-id cell
-   * (matching Open WHs) once the unfiltered row count exceeds 10 AND this
-   * map is present; unset (every pre-INT caller) is byte-unchanged. */
+   * (the LIVE draft — this is an INPUT tab). Renders the stacked
+   * City/State + mono display-id cell (matching Open WHs) at every row count
+   * whenever this map is present; unset is bare-id. */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
   /** chen-bands-units, Task 12 — the active model's canonical distance unit.
    * `laneCostOverrides.cost` values ARE distances in miles
@@ -124,9 +123,9 @@ export function LaneCostsTab({
   const stationIdSet = new Set(stationIds);
   const savedByKey = new Map(savedLaneCostOverrides.map(o => [pairKey(o.fromId, o.toId), o.cost]));
 
-  // T11 (workspace-fixups-2, item 2) — `identityById` upgrade above 10 rows (unchanged).
+  // T11 (workspace-fixups-2, item 2) — `identityById` location cell at every row count (DU-2.R1).
   function resolvedLocation(id: string): { city: string; state: string } | undefined {
-    if (identityById && laneCostOverrides.length > 10) {
+    if (identityById) {
       const entry = identityById[id];
       if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
     }

@@ -67,12 +67,9 @@ interface ServiceStatsTabProps {
   // projection (`buildEntityIdentityById`, T3). The Plant Production plant
   // cell already resolves a single-line "<id> — City, State" label via
   // `plantIdCityState` below (never a separate mono id sub-label) — when
-  // `identityById` has an entry for a row's plant id AND the section's
-  // UNFILTERED row count exceeds 10 (the item-2 `>10` upgrade rule), that
-  // cell upgrades to the shared stacked `EntityIdCell`. Below the threshold,
-  // or when `identityById`/the entry is absent, the cell keeps its
-  // pre-existing single-line string — `identityById` unset is byte-unchanged
-  // from before this task at any row count.
+  // `identityById` has an entry for a row's plant id that
+  // cell renders the shared stacked `EntityIdCell` at every row count (DU-2.R1);
+  // when `identityById`/the entry is absent it keeps its single-line string.
   identityById?: Record<string, EntityIdentity>;
 }
 
@@ -137,19 +134,15 @@ function buildPlantProductionRows(
   return rows;
 }
 
-// workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
-// true (unfiltered Plant Production row count > 10) AND `identityById` has
-// an entry for this plant id, render the shared stacked cell (adds the mono
-// displayId sub-label this section never showed before, separate from the
-// existing "<id> — City, State" single-line string); otherwise render the
-// pre-existing label UNCHANGED (the no-regression fallback).
+// When `identityById` has an entry for this plant id, render the shared
+// stacked cell (name + mono displayId) at every row count; otherwise the
+// single-line label (the no-regression fallback).
 function renderPlantCell(
   plantId: string,
   fallbackLabel: string,
   identityById: Record<string, EntityIdentity> | undefined,
-  upgrade: boolean,
 ) {
-  const identity = upgrade ? identityById?.[plantId] : undefined;
+  const identity = identityById?.[plantId];
   if (identity) {
     return (
       <EntityIdCell
@@ -166,8 +159,8 @@ function renderPlantCell(
 // today's descriptor keys (e2e clicks `checkbox-filter-plant-<label>`). The
 // derived filters now also include a Remaining-capacity range (spec B2.2:
 // descriptors come from every column; today it had none). Built per render
-// because the Plant cell depends on `identityById` + the unfiltered count.
-function plantProductionColumns(identityById: Record<string, EntityIdentity> | undefined, upgrade: boolean): ColumnDef<PlantProductionRow>[] {
+// because the Plant cell depends on `identityById`.
+function plantProductionColumns(identityById: Record<string, EntityIdentity> | undefined): ColumnDef<PlantProductionRow>[] {
   return [
     {
       id: "plant",
@@ -175,7 +168,7 @@ function plantProductionColumns(identityById: Record<string, EntityIdentity> | u
       kind: "enum",
       cellClassName: "text-xs",
       value: r => r.plantLabel,
-      cell: r => renderPlantCell(r.plantId, r.plantLabel, identityById, upgrade),
+      cell: r => renderPlantCell(r.plantId, r.plantLabel, identityById),
     },
     { id: "product", header: "Product", kind: "enum", cellClassName: "text-xs", value: r => r.productLabel, cell: r => r.productLabel },
     { id: "actual", header: "Actual production", kind: "number", cellClassName: "text-xs font-mono", value: r => r.actual, cell: r => r.actual.toLocaleString() },
@@ -259,10 +252,9 @@ export function ServiceStatsTab({
     return buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges);
   }, [effectivePlants, products, baseCapabilities, capabilityOverrides, edges]);
 
-  const plantProductionUpgrade = plantProductionRows.length > 10;
   const plantProductionCols = useMemo(
-    () => plantProductionColumns(identityById, plantProductionUpgrade),
-    [identityById, plantProductionUpgrade],
+    () => plantProductionColumns(identityById),
+    [identityById],
   );
 
   const showPlantProduction =

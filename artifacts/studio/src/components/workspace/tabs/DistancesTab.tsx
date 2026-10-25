@@ -94,12 +94,7 @@ interface DistancesTabProps {
    * COMPATIBILITY RESOLVER: a cell prefers this map's entry, else falls back
    * to the existing `locationById`/`displayCodeById` sources, else the
    * canonical id — so leaving this prop unset (every pre-INT caller) is
-   * byte-unchanged. The location-cell UPGRADE this map newly enables for a
-   * currently bare-id pair (p-median-us/brazil, which never had
-   * `locationById`) is additionally gated on the unfiltered row count
-   * exceeding 10 (item 2's ">10 upgrade" rule) — Chen's existing
-   * `locationById`-driven display already renders rich at every row count
-   * and is never gated by this threshold. */
+   * byte-unchanged. The location cell renders at every row count (DU-2.R1). */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
   /** chen-bands-units, Task 12 — the active model's canonical distance unit
    * ("km" | "mi"), sourced from the manifest. `null`/undefined while it
@@ -315,11 +310,11 @@ export function DistancesTab({
     return [...base, ...added];
   }, [referencePairs, distanceOverrides, baseByKey, overrideByKey, savedByKey, inactiveWarehouseIdSet, excludedCustomerIdSet]);
 
-  // T11 (workspace-fixups-2, item 2) — compatibility resolver (unchanged).
+  // T11 / DU-2.R1 — compatibility resolver; name + ID at every row count.
   function resolvedLocation(id: string): { city: string; state: string } | undefined {
     const existing = locationById?.[id];
     if (existing) return existing;
-    if (identityById && mergedRowsAll.length > 10) {
+    if (identityById) {
       const entry = identityById[id];
       if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
     }

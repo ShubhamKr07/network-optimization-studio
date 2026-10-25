@@ -507,7 +507,7 @@ describe("LaneCostsTab — T11 identityById upgrade (item 2)", () => {
     }));
   }
 
-  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+  it("no-regression: with identityById UNSET, a table stays bare-id, byte-unchanged", () => {
     const rows = buildRows(11);
     render(
       <LaneCostsTab
@@ -545,7 +545,7 @@ describe("LaneCostsTab — T11 identityById upgrade (item 2)", () => {
     expect(row).toHaveTextContent("STN-A");
   });
 
-  it("does NOT upgrade at 10 rows or fewer, even with identityById present", () => {
+  it("shows name + mono ID at 10 rows or fewer (DU-2.R1: no row-count gate)", () => {
     const rows = buildRows(10);
     render(
       <LaneCostsTab
@@ -558,7 +558,7 @@ describe("LaneCostsTab — T11 identityById upgrade (item 2)", () => {
       />,
     );
     const row = screen.getByTestId("row-lanecost-MN01-ST001");
-    expect(row).not.toHaveTextContent("Beckley, WV");
+    expect(row).toHaveTextContent("Beckley, WV");
     expect(row).toHaveTextContent("MINE-A");
   });
 });
