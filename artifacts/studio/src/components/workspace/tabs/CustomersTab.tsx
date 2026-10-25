@@ -445,7 +445,6 @@ export function CustomersTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             // JADE's per-product base table keeps its wrapper testid.
             scrollTestId: productMode ? "customer-product-table" : undefined,
             emptyState: (
@@ -463,7 +462,6 @@ export function CustomersTab({
                   includes: (r: CustomerRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: CustomerRow) => `row-added-customer-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-customers-empty">
                       No added customers yet — use "+ Add customer" above to create one.

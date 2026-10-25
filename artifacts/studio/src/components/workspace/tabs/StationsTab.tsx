@@ -279,7 +279,6 @@ export function StationsTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="stations-tab-empty">
                 No stations in this dataset.
@@ -295,7 +294,6 @@ export function StationsTab({
                   includes: (r: StationTableRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: StationTableRow) => `row-added-station-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-stations-empty">
                       No added stations yet — use "+ Add station" above to create one.

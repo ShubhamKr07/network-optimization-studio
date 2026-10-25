@@ -196,7 +196,6 @@ export function PlantsTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="plants-tab-empty">
                 No plants in this dataset.
@@ -212,7 +211,6 @@ export function PlantsTab({
                   includes: (r: PlantRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: PlantRow) => `row-added-plant-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-plants-empty">
                       No added plants yet — use "+ Add plant" above to create one.

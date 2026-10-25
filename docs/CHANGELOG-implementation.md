@@ -4918,3 +4918,14 @@ Caller inventory (capped before -> now):
 24px targets: OutputMapTab layer checkboxes (warehouses/customers/lanes/plants/per-leg) wrapped in an `h-6 w-6` `<label>` (native click-through to the checkbox) with `min-h-6` labels; testids unchanged. OptimizationParametersTab `button-p-quick-*` gets `min-h-6 min-w-6`.
 
 Tests: RTL class assertions only (jsdom cannot prove sticky); real-browser proof is `e2e/design-upgrade-p2.spec.ts` (qa-sdet).
+
+### DU-2.11 — one scroll area for sectioned DataTables (design upgrade, Phase 2; found by DU-2.9 review)
+Branch `du-2.11-work` (base `1ba5c7ca`).
+
+Bug: in `sections` mode the one global pager lives in the outer wrapper, which DU-2.10 left at uncapped `overflow-auto` while each section capped itself (60vh/40vh). The outer wrapper never scrolled, so the pager's `sticky bottom-0` was inert (Customers on p-median-us, 200 rows, was not pinned).
+
+Fix: the outer `testIds.scroll` wrapper defaults to `DEFAULT_SCROLL` (`max-h-[55vh] overflow-auto`) in both modes; an explicit top-level `scrollClassName` still wins. The per-section `scrollClassName` caps are deleted from WarehousesTab, CustomersTab, MinesTab, PlantsTab, StationsTab, and the now-dead `DataTableSection.scrollClassName` prop is removed (rg: no remaining user). `scrollTestId` stays (CustomersTab, DataTable test) on a plain, non-scrolling wrapper div.
+
+Header stacking: each section's `thead` th is `sticky top-0` inside its own table, so it can only stick while that table is in view; the next section's table pushes the earlier header out as it scrolls. Section titles scroll normally. No overlap. Leg-sectioned Jade/LegDistances tabs pass an explicit top-level cap and are unchanged.
+
+Tests: DataTable.test replaces the DU-2.10 "sections get no default cap" case with defaults/no-section-cap/pager-last-child assertions (jsdom cannot prove sticky; browser proof is `e2e/design-upgrade-p2.spec.ts`).

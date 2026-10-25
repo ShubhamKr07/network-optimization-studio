@@ -758,18 +758,31 @@ describe("DataTable — DU-2.6 affordances", () => {
     expect(screen.getByTestId("scroll")).not.toHaveClass("max-h-[55vh]");
   });
 
-  it("DU-2.10: sections mode does not get the default cap (each section caps itself)", () => {
-    render(
-      <DataTable<Row>
-        rows={makeRows(3, "A")}
-        rowKey={r => r.id}
-        columns={columns}
-        sections={[{ id: "a", title: "Group A", testId: "sec-a", includes: () => true, scrollClassName: "max-h-[40vh] overflow-y-auto", scrollTestId: "sec-scroll" }]}
-        testIds={{ scroll: "scroll" }}
-      />,
-    );
+  // DU-2.11 — jsdom cannot prove sticky; browser proof is e2e/design-upgrade-p2.spec.ts.
+  it("DU-2.11: sections mode defaults the outer wrapper to the cap; sections carry no scroll cap; pager is its last child", () => {
+    const rows = [...makeRows(30, "A"), ...makeRows(30, "B")];
+    const props = {
+      rows,
+      rowKey: (r: Row) => r.id,
+      columns,
+      sections: [
+        { id: "a", title: "Group A", testId: "sec-a", scrollTestId: "sec-scroll-a", includes: (r: Row) => r.id.startsWith("A") },
+        { id: "b", title: "Group B", testId: "sec-b", includes: (r: Row) => r.id.startsWith("B") },
+      ],
+      testIds: { scroll: "scroll", pager: "t-pager" },
+    };
+    const { unmount } = render(<DataTable<Row> {...props} />);
+    const scroll = screen.getByTestId("scroll");
+    expect(scroll).toHaveClass("max-h-[55vh]", "overflow-auto");
+    expect(scroll.lastElementChild).toBe(screen.getByTestId("t-pager"));
+    expect(screen.getByTestId("t-pager")).toHaveClass("sticky", "bottom-0");
+    for (const el of [screen.getByTestId("sec-a"), screen.getByTestId("sec-b"), screen.getByTestId("sec-scroll-a")]) {
+      expect(el.className).not.toMatch(/overflow|max-h/);
+    }
+    unmount();
+    render(<DataTable<Row> {...props} scrollClassName="max-h-[40vh] overflow-y-auto" />);
+    expect(screen.getByTestId("scroll")).toHaveClass("max-h-[40vh]");
     expect(screen.getByTestId("scroll")).not.toHaveClass("max-h-[55vh]");
-    expect(screen.getByTestId("sec-scroll")).toHaveClass("max-h-[40vh]");
   });
 
   it("StatusToggle buttons are at least 24px", () => {

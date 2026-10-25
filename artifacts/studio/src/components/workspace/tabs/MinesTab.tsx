@@ -273,7 +273,6 @@ export function MinesTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid="mines-tab-empty">
                 No mines in this dataset.
@@ -289,7 +288,6 @@ export function MinesTab({
                   includes: (r: MineTableRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: MineTableRow) => `row-added-mine-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-mines-empty">
                       No added mines yet — use "+ Add mine" above to create one.

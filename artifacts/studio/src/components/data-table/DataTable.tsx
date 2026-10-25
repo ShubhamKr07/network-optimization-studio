@@ -68,7 +68,7 @@ function sortRows<T>(rows: T[], sort: SortState | null, columns: ColumnDef<T>[],
   return decorated.map(d => d.row);
 }
 
-// Cap so the wrapper is the real scroll ancestor (sticky thead/pager bind to it); sections cap per section.
+// Cap so the wrapper is the real scroll ancestor (sticky thead/pager bind to it), in flat and sections mode alike.
 const DEFAULT_SCROLL = "max-h-[55vh] overflow-auto";
 
 export function DataTable<T>({
@@ -258,7 +258,7 @@ export function DataTable<T>({
       if (!owned) content = s.emptyState ?? null;
       else if (pageRows.length > 0 || showNoMatch)
         content = (
-          <div className={s.scrollClassName} data-testid={s.scrollTestId}>
+          <div data-testid={s.scrollTestId}>
             {renderTable(s.columns ?? columns, pageRows, {
               tableTestId: s.tableTestId,
               rowTestId: s.rowTestId ?? testIds.row,
@@ -293,9 +293,9 @@ export function DataTable<T>({
     body = <div data-testid={testIds.empty}>{emptyState}</div>;
   } else {
     // One scroll ancestor for thead (sticky top-0) and pager (sticky bottom-0), in both modes.
-    // Sections render inside it; a section's own scrollClassName still applies to its own wrapper.
+    // Sections render inside it and never scroll themselves (nested scrollers break sticky).
     body = (
-      <div className={scrollClassName ?? (sections ? "overflow-auto" : DEFAULT_SCROLL)} data-testid={testIds.scroll}>
+      <div className={scrollClassName ?? DEFAULT_SCROLL} data-testid={testIds.scroll}>
         {sections ? (
           <div className="space-y-3">{renderSections(sections)}</div>
         ) : (

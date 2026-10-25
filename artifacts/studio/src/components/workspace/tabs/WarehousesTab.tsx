@@ -352,7 +352,6 @@ export function WarehousesTab({
           {
             id: "base",
             includes: r => !r.added,
-            scrollClassName: "max-h-[60vh] overflow-y-auto",
             emptyState: (
               <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
                 {emptyLabel}
@@ -368,7 +367,6 @@ export function WarehousesTab({
                   includes: (r: WarehouseRow) => r.added,
                   columns: addedColumns,
                   rowTestId: (r: WarehouseRow) => `row-added-warehouse-${r.id}`,
-                  scrollClassName: "max-h-[40vh] overflow-y-auto",
                   emptyState: (
                     <p className="text-xs text-muted-foreground" data-testid="added-warehouses-empty">
                       No added {addedEntityLabel}s yet — use "+ Add {addedEntityLabel}" above to create one.

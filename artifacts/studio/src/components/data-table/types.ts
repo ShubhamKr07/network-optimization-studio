@@ -88,10 +88,8 @@ export interface DataTableSection<T> {
   testId?: string;
   /** data-testid on this section's <table>. */
   tableTestId?: string;
-  /** data-testid on this section's scroll wrapper <div>. */
+  /** data-testid on this section's wrapper <div> around its <table> (not a scroll container). */
   scrollTestId?: string;
-  /** Classes for this section's scroll wrapper (base and added scroll independently today). */
-  scrollClassName?: string;
   /** Row testid for this section; overrides `testIds.row`. */
   rowTestId?: (row: T) => string;
   /** A row renders in the FIRST section whose `includes` is true; a row matching none is not rendered. */
@@ -129,7 +127,7 @@ export interface DataTableProps<T> {
   noMatchText?: ReactNode;
   sections?: DataTableSection<T>[];
   focus?: DataTableFocus<T> | null;
-  /** Classes for the ONE scroll wrapper around the table(s) AND the pager (sticky header/pager bind to it), e.g. "max-h-[55vh] overflow-y-auto". Defaults to "max-h-[55vh] overflow-auto" (flat) / "overflow-auto" (sections mode; each section caps itself). */
+  /** Classes for the ONE scroll wrapper around the table(s) AND the pager (sticky header/pager bind to it), e.g. "max-h-[55vh] overflow-y-auto". Defaults to "max-h-[55vh] overflow-auto" in flat and sections mode (sections never scroll themselves). */
   scrollClassName?: string;
   /** While true a skeleton replaces the body; it wins over `emptyState` and rows. */
   loading?: boolean;
