@@ -214,6 +214,14 @@ export function EntityMarkers({
   function bindEventHandlers(entity: MapEntity) {
     return {
       click: (e: L.LeafletMouseEvent) => onLeftClick(entity, e),
+      // Leaflet 1.9.4 gives a focused marker (role=button, tabindex=0) a
+      // `keypress`, never a `click`, on Enter/Space; select it exactly as a click.
+      keypress: (e: L.LeafletKeyboardEvent) => {
+        const k = e.originalEvent.key;
+        if (k !== "Enter" && k !== " ") return;
+        e.originalEvent.preventDefault(); // Space would scroll the page
+        onLeftClick(entity, e as unknown as L.LeafletMouseEvent);
+      },
       contextmenu: (e: L.LeafletMouseEvent) => {
         // Marker's own contextmenu must not also bubble into the map's
         // empty-space "add here" contextmenu handler (T8 wires that on the

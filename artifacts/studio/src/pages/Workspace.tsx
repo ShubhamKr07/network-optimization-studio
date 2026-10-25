@@ -4175,7 +4175,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // functionally correct outcome within this task's stated scope.
       const outputDataset =
         modelId === "two-echelon-jade-us"
-          ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers }
+          ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers, products: dataset.products }
           : modelId === "super-model"
             ? superOutputDataset(activeOutputInputs)
             : dataset;

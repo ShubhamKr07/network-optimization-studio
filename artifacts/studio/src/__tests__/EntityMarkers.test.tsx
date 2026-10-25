@@ -290,6 +290,18 @@ describe("EntityMarkers", () => {
     expect(onLeftClick.mock.calls[0][0]).toEqual({ kind: "wh", entity: wh({ id: "W1" }) });
   });
 
+  it("Enter and Space on a focused marker select it like a click; other keys do not (DU-3.F1)", () => {
+    const onLeftClick = vi.fn();
+    const { container } = renderMarkers({ warehouses: [wh({ id: "W1" })], onLeftClick });
+    const marker = container.querySelector(".leaflet-marker-icon") as HTMLElement;
+    fireEvent.keyPress(marker, { key: "a", charCode: 97 });
+    expect(onLeftClick).not.toHaveBeenCalled();
+    fireEvent.keyPress(marker, { key: "Enter", charCode: 13 });
+    fireEvent.keyPress(marker, { key: " ", charCode: 32 });
+    expect(onLeftClick).toHaveBeenCalledTimes(2);
+    expect(onLeftClick.mock.calls[0][0]).toEqual({ kind: "wh", entity: wh({ id: "W1" }) });
+  });
+
   // R1 (supply/demand distinction) — Bundle 3 (T10) retargets both to the
   // book-cover --map-* tokens: customer bubbles are always --map-customer,
   // warehouse triangles are always --map-warehouse (Potential/outline here),

@@ -53,16 +53,25 @@ export function MapDetailsCard({ entity, anchor, markerSize, containerSize, onCl
         onClose();
       }
     }
+    // Close on an outside press that RELEASES in place; a drag (pan) keeps the
+    // card, which re-anchors to its marker (DU-3.2). Decided at mouseup, which
+    // still precedes the click that may select another marker.
+    let down: { x: number; y: number } | null = null;
     function handleMouseDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      down = rootRef.current && !rootRef.current.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null;
+    }
+    function handleMouseUp(e: MouseEvent) {
+      const d = down;
+      down = null;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [onClose]);
 

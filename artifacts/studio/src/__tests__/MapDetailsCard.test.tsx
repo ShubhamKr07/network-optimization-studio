@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
 import { entityActionsFor, actionsInContext } from "@/components/workspace/map/MapActionMenu";
@@ -250,5 +250,33 @@ describe("MapDetailsCard", () => {
     expect(card.getAttribute("data-flipped-x")).toBeNull();
     const left = parseFloat((card as HTMLElement).style.left);
     expect(left).toBeGreaterThan(100);
+  });
+});
+
+describe("MapDetailsCard — drag vs click outside (DU-3.F1)", () => {
+  const mount = (onClose: () => void) =>
+    render(
+      <div>
+        <div data-testid="outside">outside</div>
+        <MapDetailsCard entity={wh} anchor={A} markerSize={32} containerSize={C} onClose={onClose} actions={[]} onAction={vi.fn()} />
+      </div>,
+    );
+
+  it("a drag that starts outside the card (a pan) keeps it open", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    const o = screen.getByTestId("outside");
+    fireEvent.mouseDown(o, { clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(o, { clientX: 80, clientY: 60 });
+    fireEvent.mouseUp(o, { clientX: 80, clientY: 60 });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("a press that starts inside the card and releases outside keeps it open", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    fireEvent.mouseDown(screen.getByTestId("map-details-card"), { clientX: 10, clientY: 10 });
+    fireEvent.mouseUp(screen.getByTestId("outside"), { clientX: 10, clientY: 10 });
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

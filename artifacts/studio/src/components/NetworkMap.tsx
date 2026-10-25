@@ -56,7 +56,21 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const createTriangleIcon = (
+// A fresh divIcon per render makes react-leaflet's Marker call setIcon, which
+// REPLACES the marker's DOM node; a press that re-renders the map (e.g. the
+// tooltip closing on mousedown, DU-3.4) then loses its click. Same args ->
+// same icon instance -> the DOM node survives. Arg space is small and finite.
+function memoIcon<A extends (string | boolean)[]>(build: (...a: A) => L.DivIcon): (...a: A) => L.DivIcon {
+  const cache = new Map<string, L.DivIcon>();
+  return (...a) => {
+    const k = a.join("|");
+    let icon = cache.get(k);
+    if (!icon) cache.set(k, (icon = build(...a)));
+    return icon;
+  };
+}
+
+const createTriangleIcon = memoIcon((
   status: "potential" | "forced_open" | "inactive" | "open",
   highlighted = false,
   dimmed = false,
@@ -107,14 +121,14 @@ const createTriangleIcon = (
     iconSize: [size, size],
     iconAnchor: [anchor, anchor],
   });
-};
+});
 
 // Sibling of createTriangleIcon — identical status/ring/multiSelect/opacity/
 // size logic, only the shape differs: a 5-point star instead of a triangle.
 // Used to render the single non-overridable mine in two-echelon-gold-au
 // (WarehouseCandidate.kind === "mine"); every other model's rows have
 // kind undefined and still render the triangle unchanged.
-const createStarIcon = (
+const createStarIcon = memoIcon((
   status: "potential" | "forced_open" | "inactive" | "open",
   highlighted = false,
   dimmed = false,
@@ -168,7 +182,7 @@ const createStarIcon = (
     iconSize: [size, size],
     iconAnchor: [anchor, anchor],
   });
-};
+});
 
 // jade-B1 (#2) — Output Map plant marker: reuses the input-map square symbol
 // (EntityMarkers.plantSquareSvg) rather than a hand-drawn copy, so it can
@@ -176,14 +190,14 @@ const createStarIcon = (
 // status/selection vocabulary of its own (see EntityMarkers.tsx's own
 // comment), so — unlike createTriangleIcon/createStarIcon — this takes no
 // status/highlight arguments; it's a fixed icon.
-function createPlantIcon(dimmed = false): L.DivIcon {
+const createPlantIcon = memoIcon((dimmed = false): L.DivIcon => {
   return L.divIcon({
     html: dimmed ? plantSquareSvg().replace("<svg ", '<svg opacity="0.25" ') : plantSquareSvg(),
     className: "",
     iconSize: [20, 20],
     iconAnchor: [10, 10],
   });
-}
+});
 
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });
@@ -321,7 +335,14 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
 
     const popup = L.popup({
       closeButton: true,
-      autoPan: false,
+      // The popup opens ABOVE its point and Leaflet never flips it, so a tall
+      // (multi-product) one would poke out of the map's top, clipping its header
+      // and close button. Bound its (scrolling) content by the room above the
+      // point; the 50px covers tip + offset + margin. The map's maxBounds can
+      // block autoPan, so the bound is what guarantees the fit.
+      maxHeight: Math.max(120, map.latLngToContainerPoint([info.lat, info.lng]).y - 50),
+      autoPan: true,
+      autoPanPadding: [16, 16],
       offset: [0, -4],
     })
       .setLatLng([info.lat, info.lng])

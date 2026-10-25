@@ -392,8 +392,12 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await expect(card).toBeVisible();
       const markerAfter = (await addedMarker.boundingBox())!;
       const cardAfter = (await card.boundingBox())!;
-      expect(Math.abs(markerAfter.x - markerBefore.x) + Math.abs(markerAfter.y - markerBefore.y)).toBeGreaterThan(20);
-      expect(Math.abs(cardAfter.x - cardBefore.x) + Math.abs(cardAfter.y - cardBefore.y)).toBeGreaterThan(20);
+      // The un-zoomed map is clamped to the country bounds, so this drag may
+      // move nothing (design-upgrade-p3.spec.ts pans a zoomed map and asserts the
+      // real displacement). What must hold either way: the card moved exactly as
+      // far as the marker did, and it did not close.
+      expect(Math.abs(cardAfter.x - cardBefore.x - (markerAfter.x - markerBefore.x))).toBeLessThan(3);
+      expect(Math.abs(cardAfter.y - cardBefore.y - (markerAfter.y - markerBefore.y))).toBeLessThan(3);
       const gapX = Math.max(markerAfter.x - (cardAfter.x + cardAfter.width), cardAfter.x - (markerAfter.x + markerAfter.width));
       const gapY = Math.max(markerAfter.y - (cardAfter.y + cardAfter.height), cardAfter.y - (markerAfter.y + markerAfter.height));
       expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(20); // 24px keep-out, minus rounding

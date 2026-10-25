@@ -999,3 +999,18 @@ describe("OutputMapTab — open-sites caption (QFX-8)", () => {
     expect(screen.queryByTestId("output-map-open-sites")).not.toBeInTheDocument();
   });
 });
+
+// DU-3.F1 — the popup's product rows must show product NAMES, through the real
+// OutputMapTab -> effectiveDataset -> NetworkMap -> productRoutesFor wiring.
+describe("OutputMapTab — popup product names (DU-3.F1)", () => {
+  it("a customer popup names products, not ids", async () => {
+    const { jadeRouteDataset, jadeRouteResult } = await import("./fixtures/jadeRouteFixture");
+    const { container } = render(
+      <OutputMapTab dataset={jadeRouteDataset} warehouseStatuses={[]} result={jadeRouteResult} bands={[500, 1000]} plants={jadeRouteDataset.plants} />,
+    );
+    fireEvent.click(container.querySelectorAll<HTMLElement>(".leaflet-overlay-pane path.leaflet-interactive")[0]);
+    const text = container.querySelector(".leaflet-popup-content")!.textContent!;
+    expect(text).toContain("Steel via Whiteville, TX");
+    expect(text).not.toContain("steel via");
+  });
+});

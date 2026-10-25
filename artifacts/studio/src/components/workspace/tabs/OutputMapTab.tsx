@@ -310,6 +310,7 @@ export function OutputMapTab({
   // no-op merge (dataset unchanged) everywhere except p-median-us/
   // p-median-brazil.
   const effectiveDataset: Dataset = {
+    products: dataset.products,
     warehouses: [
       ...dataset.warehouses,
       ...addedWarehouses.map(w => ({ id: w.id, city: w.city, state: w.state, lat: w.lat, lng: w.lng })),
