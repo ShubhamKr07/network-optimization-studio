@@ -188,6 +188,7 @@ export function SolveDialog({
                   className="h-8 text-sm mt-1 font-mono"
                   data-testid="solve-dialog-input-gap"
                 />
+                <p className="text-2xs text-muted-foreground mt-1" data-testid="solve-dialog-text-help-gap">Stop when the solution is within this % of the best possible.</p>
               </div>
               <div>
                 <Label htmlFor="solve-dialog-time-limit" className="text-xs text-muted-foreground">
@@ -201,6 +202,7 @@ export function SolveDialog({
                   className="h-8 text-sm mt-1 font-mono"
                   data-testid="solve-dialog-input-time-limit"
                 />
+                <p className="text-2xs text-muted-foreground mt-1" data-testid="solve-dialog-text-help-time-limit">The solver stops after this many seconds and keeps the best solution found.</p>
               </div>
             </div>
 

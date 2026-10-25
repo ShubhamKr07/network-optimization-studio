@@ -105,17 +105,20 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
           context, so the background canvas (z-0) sits behind <main> (z-10). */}
       <div className="flex-1 min-h-0 relative">
         {hero && <NetworkBackground />}
-        <main className="absolute inset-0 overflow-y-auto z-10">{children}</main>
+        <main className="absolute inset-0 overflow-y-auto z-10">
+          {children}
+          {/* DU-2.8 — hero footer scrolls with the content. QF-B: it is the
+              positioning context for the feedback launcher, which floats just
+              above this footer's top border line at the bottom-right. */}
+          {hero && (
+            <footer data-testid="homepage-credit-footer" className="relative border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
+              <FeedbackWidget />
+              <DeveloperCredit />
+            </footer>
+          )}
+        </main>
       </div>
-      {hero
-        ? // QF-B: the footer is the positioning context for the feedback
-          // launcher, which floats just above this footer's top border line
-          // at the bottom-right (see FeedbackWidget).
-          <footer data-testid="homepage-credit-footer" className="relative flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
-            <FeedbackWidget />
-            <DeveloperCredit />
-          </footer>
-        : <AppFooter />}
+      {!hero && <AppFooter />}
     </div>
   );
 }

@@ -188,6 +188,12 @@ describe("SolveDialog — built-in controls for non-slot callers", () => {
     expect(screen.getByTestId("solve-dialog-input-time-limit")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
   });
+
+  it("shows the gap and time-limit helper text (DU-2.8)", () => {
+    renderDialog({ p: 3, distanceBands: [200, 400, 800] });
+    expect(screen.getByTestId("solve-dialog-text-help-gap")).toHaveTextContent("Stop when the solution is within this % of the best possible.");
+    expect(screen.getByTestId("solve-dialog-text-help-time-limit")).toHaveTextContent("The solver stops after this many seconds and keeps the best solution found.");
+  });
 });
 
 // jade-INT (workspace-fixups-2, item 7) — SolveDialog used to render a

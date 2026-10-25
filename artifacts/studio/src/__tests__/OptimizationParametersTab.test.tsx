@@ -84,8 +84,14 @@ describe("OptimizationParametersTab", () => {
   it("clicking a P quick-select button calls onChange('p', n) — not a solve, just a draft edit", () => {
     const onChange = vi.fn();
     render(<OptimizationParametersTab {...baseProps} onChange={onChange} />);
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
-    expect(onChange).toHaveBeenCalledWith("p", 10);
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
+    expect(onChange).toHaveBeenCalledWith("p", 5);
+  });
+
+  it("shows helper text under the gap and time-limit fields (DU-2.8)", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("text-help-gap")).toHaveTextContent("Stop when the solution is within this % of the best possible.");
+    expect(screen.getByTestId("text-help-time-limit")).toHaveTextContent("The solver stops after this many seconds and keeps the best solution found.");
   });
 
   it("editing the gap input calls onChange('gap', value) on every keystroke (the draft, not a save)", () => {
@@ -205,8 +211,9 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
     render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
     const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(thumb).toHaveAttribute("aria-valuemax", "50");
-    // Quick-select 25 still renders (25 <= 50).
-    expect(screen.getByTestId("button-p-quick-25")).toBeInTheDocument();
+    // DU-2.8 — quick-selects are P±2 (p=3 -> 1..5), clamped to 1..pMax.
+    for (const n of [1, 2, 3, 4, 5]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-6")).not.toBeInTheDocument();
   });
 
   it("clamps the slider's max to the supplied pMax (tracks effective active warehouse count)", () => {
@@ -216,12 +223,10 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
   });
 
   it("hides quick-select values above pMax", () => {
-    render(<OptimizationParametersTab {...baseProps} pMax={5} onChange={vi.fn()} />);
-    expect(screen.getByTestId("button-p-quick-2")).toBeInTheDocument();
-    expect(screen.getByTestId("button-p-quick-3")).toBeInTheDocument();
-    expect(screen.getByTestId("button-p-quick-4")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-p-quick-10")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-p-quick-25")).not.toBeInTheDocument();
+    render(<OptimizationParametersTab {...baseProps} p={4} pMax={5} onChange={vi.fn()} />);
+    for (const n of [2, 3, 4, 5]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-6")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-1")).not.toBeInTheDocument();
   });
 });
 
@@ -306,13 +311,14 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
     expect(onChange).toHaveBeenCalledWith("avgServiceDistCapMi", 1200);
   });
 
-  // D27 — the P slider caps at 25 (26 cannot be authored), and the 25
-  // quick-select still renders (25 <= 25).
+  // D27 — the P slider caps at 25 (26 cannot be authored), and the quick-selects
+  // clamp to it (DU-2.8: p=25 -> 23..25, never 26/27).
   it("caps the P slider at 25 (26 is unreachable)", () => {
-    render(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+    render(<OptimizationParametersTab {...chenCoverageProps} p={25} onChange={vi.fn()} />);
     const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(thumb).toHaveAttribute("aria-valuemax", "25");
-    expect(screen.getByTestId("button-p-quick-25")).toBeInTheDocument();
+    for (const n of [23, 24, 25]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-26")).not.toBeInTheDocument();
   });
 
   // D13/D19 — Chen's bands are derived [high, max]; the free-edit band editor
@@ -680,12 +686,13 @@ describe("Adjust Cost Table (delivery-teaching-us)", () => {
   // The component default is pMax = 50 against a schema cap of 33. P is a
   // Radix <Slider data-testid="slider-p-value" max={pMax}> whose max lives as
   // aria-valuemax on the child [role="slider"] thumb, plus quick-pick
-  // buttons [2,3,4,10,25] filtered by n <= pMax. There is no "input-p".
-  it("caps the P slider at 33 and keeps every quick-pick (all five are <= 33)", () => {
-    render(<OptimizationParametersTab {...deliveryProps} />);
+  // buttons P±2 clamped to pMax (DU-2.8). There is no "input-p".
+  it("caps the P slider at 33 and clamps the quick-picks to it (p=33 -> 31..33)", () => {
+    render(<OptimizationParametersTab {...deliveryProps} p={33} />);
     const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
     expect(thumb).toHaveAttribute("aria-valuemax", "33");
-    for (const n of [2, 3, 4, 10, 25]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+    for (const n of [31, 32, 33]) expect(screen.getByTestId(`button-p-quick-${n}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-34")).not.toBeInTheDocument();
   });
 });
 

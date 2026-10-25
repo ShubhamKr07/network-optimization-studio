@@ -1389,7 +1389,7 @@ describe("Workspace — Optimization Parameters tab", () => {
   it("an edit does NOT save on its own — only an explicit Save click persists it via useUpdateScenario (the same shared mechanism as Warehouses/Customers)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     expect(screen.getByTestId("button-save")).toBeEnabled();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
@@ -1401,7 +1401,7 @@ describe("Workspace — Optimization Parameters tab", () => {
     expect(args).toEqual({
       scenarioId: 1,
       data: {
-        inputs: expect.objectContaining({ p: 10 }),
+        inputs: expect.objectContaining({ p: 5 }),
       },
     });
   });
@@ -1433,7 +1433,7 @@ describe("Workspace — Optimization Parameters tab", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
 
@@ -1476,7 +1476,7 @@ describe("Workspace — Optimization Parameters tab", () => {
   // ORDINARY-dirty path, as opposed to the lens-only "Save bands" path the
   // test above the Solve-dialog block already covers) used to swallow a
   // rejected `saveWholeInputsAsync()` with no toast at all. Reaches it via
-  // the same `button-p-quick-10` ordinary edit the save-success test above
+  // the same `button-p-quick-5` ordinary edit the save-success test above
   // uses, then rejects the save the same way the Solve-dialog's own
   // save-before-solve test does.
   it("a rejected toolbar Save (ordinary-dirty path) shows a destructive toast, not silence", async () => {
@@ -1493,7 +1493,7 @@ describe("Workspace — Optimization Parameters tab", () => {
     });
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     fireEvent.click(screen.getByTestId("button-save"));
 
@@ -1517,7 +1517,7 @@ describe("Workspace — Optimization Parameters tab", () => {
 // chen-bands-units, Part A (decision 1i), Task 14 Step 1/5 — the dirty-nav
 // prompt intercepting stepResultBack/Forward while an ORDINARY input edit is
 // unsaved. Builds the same 2-entry history Task 6's own tests already
-// establish (resultA/p=3, resultB/p=10), then makes a THIRD, unsaved
+// establish (resultA/p=3, resultB/p=5), then makes a THIRD, unsaved
 // ordinary edit on top of the latest entry before stepping back.
 describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () => {
   const resultA = {
@@ -1526,7 +1526,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
   };
   const resultB = { ...resultA, objective: 222 };
   const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
-  const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+  const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 5 }, result: resultB, stale: false };
 
   async function buildTwoEntryHistoryAtLatest() {
     updateScenarioResolvesWithPersistedRow();
@@ -1548,7 +1548,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
@@ -1564,10 +1564,10 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
   it("intercepts Back with an unsaved ordinary edit on the latest entry — a REJECTED Save leaves everything exactly as it was", async () => {
     await buildTwoEntryHistoryAtLatest();
 
-    // Unsaved ordinary edit on top of the latest (2/2, p=10) entry.
+    // Unsaved ordinary edit on top of the latest (2/2, p=5) entry.
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-25"));
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+    fireEvent.click(screen.getByTestId("button-p-quick-7"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("7");
 
     fireEvent.click(screen.getByTestId("button-result-back"));
     expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
@@ -1584,19 +1584,19 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
     expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("7");
   });
 
   it("a SUCCESSFUL Save from the prompt proceeds with navigation", async () => {
     await buildTwoEntryHistoryAtLatest();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+    fireEvent.click(screen.getByTestId("button-p-quick-7"));
 
     fireEvent.click(screen.getByTestId("button-result-back"));
     expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
 
     mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (u: unknown) => void }) =>
-      opts.onSuccess({ ...scenarioWithB, inputs: { ...scenarioWithB.inputs, p: 25 } }),
+      opts.onSuccess({ ...scenarioWithB, inputs: { ...scenarioWithB.inputs, p: 7 } }),
     );
     fireEvent.click(screen.getByTestId("dirty-nav-save"));
 
@@ -1607,7 +1607,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
   it("Discard reverts the draft to the last-saved snapshot and proceeds with navigation", async () => {
     await buildTwoEntryHistoryAtLatest();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+    fireEvent.click(screen.getByTestId("button-p-quick-7"));
 
     fireEvent.click(screen.getByTestId("button-result-back"));
     fireEvent.click(screen.getByTestId("dirty-nav-discard"));
@@ -1616,14 +1616,14 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    // Stepped to the entry that produced resultA (p=3), not the discarded p=25.
+    // Stepped to the entry that produced resultA (p=3), not the discarded p=7.
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
   });
 
   it("Cancel leaves the index and the draft completely untouched", async () => {
     await buildTwoEntryHistoryAtLatest();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+    fireEvent.click(screen.getByTestId("button-p-quick-7"));
 
     fireEvent.click(screen.getByTestId("button-result-back"));
     fireEvent.click(screen.getByTestId("dirty-nav-cancel"));
@@ -1631,7 +1631,7 @@ describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () =>
     expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("Run 2 of 2");
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("7");
   });
 
   it("an unsaved band-lens-only edit never prompts — navigation proceeds immediately", async () => {
@@ -1659,10 +1659,10 @@ describe("Workspace — Solve dialog", () => {
   it("editing p in the Optimization Parameters tab is reflected in the Solve dialog (single source of truth)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.getByTestId("solve-dialog-p-value")).toHaveTextContent("10");
+    expect(screen.getByTestId("solve-dialog-p-value")).toHaveTextContent("5");
   });
 
   it("editing gap in the Solve dialog is reflected in the Optimization Parameters tab (single source of truth)", () => {
@@ -1798,7 +1798,7 @@ describe("Workspace — Solve dialog", () => {
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
@@ -1807,7 +1807,7 @@ describe("Workspace — Solve dialog", () => {
     const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
     expect(saveArgs).toEqual({
       scenarioId: 1,
-      data: { inputs: expect.objectContaining({ p: 10 }) },
+      data: { inputs: expect.objectContaining({ p: 5 }) },
     });
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
     expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
@@ -1822,7 +1822,7 @@ describe("Workspace — Solve dialog", () => {
     mockUpdateScenario.mutate.mockReset();
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
@@ -1861,7 +1861,7 @@ describe("Workspace — Solve dialog", () => {
     });
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
@@ -2017,7 +2017,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     };
     const resultB = { ...resultA, objective: 222 };
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
-    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 5 }, result: resultB, stale: false };
 
     // Save (used by the second, dirty-draft solve) and solve both resolve
     // synchronously via their mocked onSuccess callbacks.
@@ -2049,9 +2049,9 @@ describe("Workspace — result history stepper (Task 6)", () => {
     expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     // Change P (dirty draft), solve again — handleSolve saves first, then
-    // solves, producing `scenarioWithB` (objective B, p=10) on the wire.
+    // solves, producing `scenarioWithB` (objective B, p=5) on the wire.
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
@@ -2086,7 +2086,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     };
     const resultB = { ...resultA, objective: 222 };
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
-    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 5 }, result: resultB, stale: false };
 
     updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
@@ -2111,7 +2111,7 @@ describe("Workspace — result history stepper (Task 6)", () => {
     expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
@@ -2144,7 +2144,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     };
     const resultB = { ...resultA, objective: 222 };
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
-    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 5 }, result: resultB, stale: false };
 
     updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
@@ -2160,7 +2160,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
 
     // Build a 2-entry history (same setup as Task 6's own test), then step
     // back to entry 1 (p=3, resultA) — that's the "currently-viewed" entry
-    // this test asserts Save as scenario reads from, NOT entry 2 (p=10).
+    // this test asserts Save as scenario reads from, NOT entry 2 (p=5).
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
@@ -2170,7 +2170,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     expect(screen.queryByTestId("text-result-history-position")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
@@ -2181,7 +2181,7 @@ describe("Workspace — save as scenario from a history entry (Task 7)", () => {
     expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("Run 1 of 2");
 
     // Now clicking Save as scenario must create a scenario from entry 1's
-    // inputs (p=3), not entry 2's (p=10).
+    // inputs (p=3), not entry 2's (p=5).
     const created = {
       id: 42,
       name: "3 Warehouses (saved run)",
@@ -2388,7 +2388,7 @@ describe("Workspace — rename scenario", () => {
     renderWorkspace();
     // Dirty the ACTIVE scenario's (id=1) unsaved input state first.
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
 
     // Rename scenario 2 — a sibling, not the active one.
@@ -2406,7 +2406,7 @@ describe("Workspace — rename scenario", () => {
     // The active scenario's dirty editing state (a wholly separate concern)
     // is untouched by the sibling's rename.
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("5");
   });
 
   it("renaming the active scenario also fires the same immediate name-only PATCH (not bundled with inputs)", () => {
@@ -2559,7 +2559,7 @@ describe("Workspace — header grid layout (Bundle 6 T2)", () => {
       edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
     };
     const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
-    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: { ...resultA, objective: 2 }, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 5 }, result: { ...resultA, objective: 2 }, stale: false };
     updateScenarioResolvesWithPersistedRow();
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
       opts.onSuccess({ jobId: 7 }),
@@ -2576,7 +2576,7 @@ describe("Workspace — header grid layout (Bundle 6 T2)", () => {
     view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
     expect(await screen.findByTestId("button-save-as-scenario")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
     mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
@@ -3663,7 +3663,7 @@ describe("CH4UX-6 — the solve overlay owns the running and failed phases", () 
     // Make the draft ordinarily dirty so handleSolve takes its
     // save-before-solve branch (this file's existing dirty-edit moves).
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     openAndSolve();
     expect(screen.getByTestId("solve-progress-error")).toHaveTextContent("P must be at least 1.");
     expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
@@ -3942,10 +3942,10 @@ describe("Workspace — Optimization Parameters Solve button (QFX-3)", () => {
     updateScenarioResolvesWithPersistedRow();
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-p-quick-5"));
     fireEvent.click(screen.getByTestId("button-tab-solve"));
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-    expect(mockUpdateScenario.mutate.mock.calls[0][0].data.inputs).toMatchObject({ p: 10 });
+    expect(mockUpdateScenario.mutate.mock.calls[0][0].data.inputs).toMatchObject({ p: 5 });
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
   });

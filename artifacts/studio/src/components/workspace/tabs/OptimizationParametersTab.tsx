@@ -7,6 +7,7 @@ import { type CanonicalUnit, resolveMaxCoverageRun } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
+import { pPresets } from "@/lib/pPresets";
 
 export type OptimizationParametersField =
   | "p"
@@ -364,7 +365,7 @@ export function OptimizationParametersTab({
             className="my-1"
           />
           <div className="flex gap-1.5 flex-wrap">
-            {[2, 3, 4, 10, 25].filter(n => n <= pMax).map(n => (
+            {pPresets(p, pMax).map(n => (
               <button
                 key={n}
                 type="button"
@@ -584,6 +585,7 @@ export function OptimizationParametersTab({
             className="h-8 text-sm mt-1 font-mono"
             data-testid={tid("input-gap")}
           />
+          <p className="text-2xs text-muted-foreground mt-1" data-testid={tid("text-help-gap")}>Stop when the solution is within this % of the best possible.</p>
         </div>
         <div>
           <Label htmlFor={pid("input-time-limit")} className="text-xs text-muted-foreground">Max time (seconds)</Label>
@@ -595,6 +597,7 @@ export function OptimizationParametersTab({
             className="h-8 text-sm mt-1 font-mono"
             data-testid={tid("input-time-limit")}
           />
+          <p className="text-2xs text-muted-foreground mt-1" data-testid={tid("text-help-time-limit")}>The solver stops after this many seconds and keeps the best solution found.</p>
         </div>
       </div>
 
