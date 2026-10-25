@@ -747,6 +747,31 @@ describe("DataTable — DU-2.6 affordances", () => {
     expect(pager).toHaveClass("sticky", "bottom-0", "z-10", "bg-background");
   });
 
+  // DU-2.10 — jsdom cannot prove sticky/scroll; the real-browser proof is
+  // e2e/design-upgrade-p2.spec.ts. These assert the cap that makes the wrapper the scroll ancestor.
+  it("DU-2.10: flat tables cap the scroll wrapper by default; an explicit scrollClassName replaces (not stacks on) it", () => {
+    const { unmount } = renderTable({ testIds: { scroll: "scroll" } });
+    expect(screen.getByTestId("scroll")).toHaveClass("max-h-[55vh]", "overflow-auto");
+    unmount();
+    renderTable({ testIds: { scroll: "scroll" }, scrollClassName: "max-h-[40vh] overflow-y-auto" });
+    expect(screen.getByTestId("scroll")).toHaveClass("max-h-[40vh]", "overflow-y-auto");
+    expect(screen.getByTestId("scroll")).not.toHaveClass("max-h-[55vh]");
+  });
+
+  it("DU-2.10: sections mode does not get the default cap (each section caps itself)", () => {
+    render(
+      <DataTable<Row>
+        rows={makeRows(3, "A")}
+        rowKey={r => r.id}
+        columns={columns}
+        sections={[{ id: "a", title: "Group A", testId: "sec-a", includes: () => true, scrollClassName: "max-h-[40vh] overflow-y-auto", scrollTestId: "sec-scroll" }]}
+        testIds={{ scroll: "scroll" }}
+      />,
+    );
+    expect(screen.getByTestId("scroll")).not.toHaveClass("max-h-[55vh]");
+    expect(screen.getByTestId("sec-scroll")).toHaveClass("max-h-[40vh]");
+  });
+
   it("StatusToggle buttons are at least 24px", () => {
     render(
       <StatusToggle options={["a", "b"] as const} value="a" labelOf={s => s} activeClassOf={() => "x"} onChange={() => {}} disabled={false} testIdOf={s => `t-${s}`} />,

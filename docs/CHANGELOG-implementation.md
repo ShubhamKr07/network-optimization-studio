@@ -4903,3 +4903,18 @@ Branch `du-2.8-work` (base `a2c43713`); plan `docs/superpowers/plans/2026-10-24-
 - **Helper text.** `text-2xs text-muted-foreground mt-1` under the gap and time-limit fields in `OptimizationParametersTab` (`text-help-gap`, `text-help-time-limit`, through `tid(...)`) and `SolveDialog` (`solve-dialog-text-help-gap`, `solve-dialog-text-help-time-limit`; prefixed because both surfaces can be mounted at once).
 - **Landing footer.** On the hero page only, `homepage-credit-footer` is now the last child INSIDE the scrolling `<main>` and drops `flex-shrink-0`, so it scrolls with the content. The non-hero `AppFooter` is unchanged and still pinned. `FeedbackWidget` / `DeveloperCredit` still render inside the footer.
 - **Tests/e2e.** New `pPresets.test.ts`; OptimizationParametersTab and SolveDialog helper-text cases; every `button-p-quick-10/-25` use rewritten to the P±2 set for that test's P (Workspace.test: click `-5`, then `-7`; history fixtures' second P is 5 not 10); AppShell footer-placement assertion rewritten (last child of `<main>`). e2e `feedback.spec.ts` and `bundle5-homepage-distances.spec.ts` scroll the footer into view first (jsdom cannot witness scroll behaviour; DU-2.9 verifies in a browser).
+
+### DU-2.10 — sticky header/pager on every DataTable + remaining 24px targets (design upgrade, Phase 2; found by DU-2.9 QA)
+
+Bug: DU-2.6 made the DataTable scroll wrapper the sticky ancestor, but it only scrolls when height-capped. Output/Super tabs passed no cap, so the wrapper was inert and `position: sticky` bound to it (nearest overflow ancestor) instead of the outer tab pane; header scrolled away (th top 48 -> -352) and the pager sat at y=2235 in a 720px viewport.
+
+Fix (central, one line): `DataTable` `scrollClassName` now defaults to `max-h-[55vh] overflow-auto` when flat, and stays `overflow-auto` in `sections` mode (each section caps itself, so a top-level cap would nest two scrollers). An explicit `scrollClassName` replaces the default (no double cap). Chosen over per-caller props because 10 callers were uncapped and any future caller would regress silently; per-caller cost 10+ edits for the same result.
+
+Caller inventory (capped before -> now):
+- Already capped via explicit prop (unchanged): LegDistances, JadeDistances, CapabilityMatrix, LaneCosts, DeliveryCosts, Distances (55/60vh); sections with per-section caps: Warehouses, Mines, Plants, Stations, Customers (60vh/40vh).
+- Uncapped -> default 55vh: Assignments, Flows, JadeAssignments, JadeFlows (x2 tables via shared renderer), OpenWarehouses, CostSummary (summary + compare), ServiceStats (Plant Production), TransportCosts, SuperTableTab (Super Warehouses/Customers/Plant Capability/Demand/Distances).
+- The outer `overflow-auto flex-1 p-2` wrappers in the output tabs were left in place as a fallback pane scroller (toolbar + 55vh can exceed a tiny viewport); sticky binds to the nearest overflow ancestor, which is now the capped, actually-scrolling DataTable wrapper.
+
+24px targets: OutputMapTab layer checkboxes (warehouses/customers/lanes/plants/per-leg) wrapped in an `h-6 w-6` `<label>` (native click-through to the checkbox) with `min-h-6` labels; testids unchanged. OptimizationParametersTab `button-p-quick-*` gets `min-h-6 min-w-6`.
+
+Tests: RTL class assertions only (jsdom cannot prove sticky); real-browser proof is `e2e/design-upgrade-p2.spec.ts` (qa-sdet).

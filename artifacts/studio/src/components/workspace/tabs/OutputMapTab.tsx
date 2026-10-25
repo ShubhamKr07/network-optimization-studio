@@ -318,44 +318,52 @@ export function OutputMapTab({
     <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">
       <div className="flex items-center gap-5 flex-wrap flex-shrink-0" data-testid="output-map-toggles">
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-warehouses"
-            checked={showWarehouses}
-            onCheckedChange={checked => setShowWarehouses(checked === true)}
-            data-testid="checkbox-toggle-warehouses"
-          />
-          <Label htmlFor="output-map-toggle-warehouses" className="text-xs">Warehouses</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-warehouses"
+              checked={showWarehouses}
+              onCheckedChange={checked => setShowWarehouses(checked === true)}
+              data-testid="checkbox-toggle-warehouses"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-warehouses" className="text-xs inline-flex min-h-6 items-center">Warehouses</Label>
         </div>
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-customers"
-            checked={showCustomers}
-            onCheckedChange={checked => setShowCustomers(checked === true)}
-            data-testid="checkbox-toggle-customers"
-          />
-          <Label htmlFor="output-map-toggle-customers" className="text-xs">Customers</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-customers"
+              checked={showCustomers}
+              onCheckedChange={checked => setShowCustomers(checked === true)}
+              data-testid="checkbox-toggle-customers"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-customers" className="text-xs inline-flex min-h-6 items-center">Customers</Label>
         </div>
         <div className="flex items-center gap-1.5">
-          <Checkbox
-            id="output-map-toggle-lanes"
-            checked={showLanes}
-            onCheckedChange={checked => setShowLanes(checked === true)}
-            data-testid="checkbox-toggle-lanes"
-          />
-          <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
+          <label className="inline-flex h-6 w-6 items-center justify-center">
+            <Checkbox
+              id="output-map-toggle-lanes"
+              checked={showLanes}
+              onCheckedChange={checked => setShowLanes(checked === true)}
+              data-testid="checkbox-toggle-lanes"
+            />
+          </label>
+          <Label htmlFor="output-map-toggle-lanes" className="text-xs inline-flex min-h-6 items-center">Lanes</Label>
         </div>
         {/* jade-B1 (#2) — only shown when there's a plant echelon to toggle
             at all (mirrors showLegToggles' distinctLegs.length>=2 gate), so
             no non-JADE model ever shows an irrelevant "Plants" checkbox. */}
         {plants.length > 0 && (
           <div className="flex items-center gap-1.5">
-            <Checkbox
-              id="output-map-toggle-plants"
-              checked={showPlants}
-              onCheckedChange={checked => setShowPlants(checked === true)}
-              data-testid="checkbox-toggle-plants"
-            />
-            <Label htmlFor="output-map-toggle-plants" className="text-xs">Plants</Label>
+            <label className="inline-flex h-6 w-6 items-center justify-center">
+              <Checkbox
+                id="output-map-toggle-plants"
+                checked={showPlants}
+                onCheckedChange={checked => setShowPlants(checked === true)}
+                data-testid="checkbox-toggle-plants"
+              />
+            </label>
+            <Label htmlFor="output-map-toggle-plants" className="text-xs inline-flex min-h-6 items-center">Plants</Label>
           </div>
         )}
         <div role="group" aria-label="Lane colour" data-testid="segmented-lane-colour" className="flex items-center gap-1.5 pl-3 border-l">
@@ -380,13 +388,15 @@ export function OutputMapTab({
           <div className="flex items-center gap-3 pl-3 border-l" data-testid="output-map-leg-toggles">
             {distinctLegs.map(leg => (
               <div key={leg} className="flex items-center gap-1.5">
-                <Checkbox
-                  id={`output-map-toggle-leg-${leg}`}
-                  checked={!hiddenLegs.has(leg)}
-                  onCheckedChange={checked => toggleLeg(leg, checked === true)}
-                  data-testid={`checkbox-toggle-leg-${leg}`}
-                />
-                <Label htmlFor={`output-map-toggle-leg-${leg}`} className="text-xs">{legLabel(leg)}</Label>
+                <label className="inline-flex h-6 w-6 items-center justify-center">
+                  <Checkbox
+                    id={`output-map-toggle-leg-${leg}`}
+                    checked={!hiddenLegs.has(leg)}
+                    onCheckedChange={checked => toggleLeg(leg, checked === true)}
+                    data-testid={`checkbox-toggle-leg-${leg}`}
+                  />
+                </label>
+                <Label htmlFor={`output-map-toggle-leg-${leg}`} className="text-xs inline-flex min-h-6 items-center">{legLabel(leg)}</Label>
               </div>
             ))}
           </div>

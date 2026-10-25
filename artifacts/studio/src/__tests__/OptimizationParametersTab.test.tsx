@@ -216,6 +216,11 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
     expect(screen.queryByTestId("button-p-quick-6")).not.toBeInTheDocument();
   });
 
+  it("DU-2.10: P quick-select buttons are at least 24px", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    for (const n of [1, 2, 3, 4, 5]) expect(screen.getByTestId(`button-p-quick-${n}`)).toHaveClass("min-h-6", "min-w-6");
+  });
+
   it("clamps the slider's max to the supplied pMax (tracks effective active warehouse count)", () => {
     render(<OptimizationParametersTab {...baseProps} pMax={5} onChange={vi.fn()} />);
     const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');

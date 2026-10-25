@@ -129,7 +129,7 @@ export interface DataTableProps<T> {
   noMatchText?: ReactNode;
   sections?: DataTableSection<T>[];
   focus?: DataTableFocus<T> | null;
-  /** Classes for the ONE scroll wrapper around the table(s) AND the pager (sticky header/pager bind to it), e.g. "max-h-[55vh] overflow-y-auto". Defaults to "overflow-auto". */
+  /** Classes for the ONE scroll wrapper around the table(s) AND the pager (sticky header/pager bind to it), e.g. "max-h-[55vh] overflow-y-auto". Defaults to "max-h-[55vh] overflow-auto" (flat) / "overflow-auto" (sections mode; each section caps itself). */
   scrollClassName?: string;
   /** While true a skeleton replaces the body; it wins over `emptyState` and rows. */
   loading?: boolean;

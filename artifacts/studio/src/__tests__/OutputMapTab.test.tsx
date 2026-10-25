@@ -124,6 +124,18 @@ describe("OutputMapTab — layer toggles", () => {
     expect(getByTestId("segment-lane-colour-band")).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("DU-2.10: each layer checkbox sits in a >=24px hit area and its label is >=24px tall", () => {
+    const { getByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    for (const t of ["warehouses", "customers", "lanes"]) {
+      const box = getByTestId(`checkbox-toggle-${t}`);
+      expect(box.parentElement).toHaveClass("h-6", "w-6");
+      expect(box.parentElement!.tagName).toBe("LABEL");
+      expect(document.querySelector(`label[for="output-map-toggle-${t}"]`)).toHaveClass("min-h-6");
+    }
+  });
+
   it("unchecking Warehouses removes warehouse markers but leaves customer markers and lanes untouched", () => {
     const { getByTestId, container } = render(
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,

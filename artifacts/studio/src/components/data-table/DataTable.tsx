@@ -68,6 +68,9 @@ function sortRows<T>(rows: T[], sort: SortState | null, columns: ColumnDef<T>[],
   return decorated.map(d => d.row);
 }
 
+// Cap so the wrapper is the real scroll ancestor (sticky thead/pager bind to it); sections cap per section.
+const DEFAULT_SCROLL = "max-h-[55vh] overflow-auto";
+
 export function DataTable<T>({
   rows,
   rowKey,
@@ -79,7 +82,7 @@ export function DataTable<T>({
   noMatchText = "No rows match the current filter.",
   sections,
   focus,
-  scrollClassName = "overflow-auto",
+  scrollClassName,
   loading,
   footer,
   countNoun,
@@ -292,7 +295,7 @@ export function DataTable<T>({
     // One scroll ancestor for thead (sticky top-0) and pager (sticky bottom-0), in both modes.
     // Sections render inside it; a section's own scrollClassName still applies to its own wrapper.
     body = (
-      <div className={scrollClassName} data-testid={testIds.scroll}>
+      <div className={scrollClassName ?? (sections ? "overflow-auto" : DEFAULT_SCROLL)} data-testid={testIds.scroll}>
         {sections ? (
           <div className="space-y-3">{renderSections(sections)}</div>
         ) : (

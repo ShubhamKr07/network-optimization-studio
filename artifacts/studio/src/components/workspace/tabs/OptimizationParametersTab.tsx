@@ -371,7 +371,7 @@ export function OptimizationParametersTab({
                 type="button"
                 data-testid={tid(`button-p-quick-${n}`)}
                 onClick={() => onChange("p", n)}
-                className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
+                className={`text-xs font-mono px-2 py-0.5 min-h-6 min-w-6 rounded border transition-colors ${
                   p === n ? "bg-primary text-white border-primary" : "bg-white text-foreground border-border hover:border-primary"
                 }`}
               >
