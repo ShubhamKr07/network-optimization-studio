@@ -419,6 +419,35 @@ test.describe("DU-3.5 Input Map on desktop (mouse + keyboard)", () => {
     }
   });
 
+  test("DU-3.R1: keyboard re-select after ONE Delete press does not arm Delete on the next added warehouse", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    const inputs = { ...SOLVED_MODEL_INPUTS["p-median-us"], addedWarehouses: [ADDED_WH, { ...ADDED_WH, id: "ADDED-2", city: "Otherburg", lat: 35.0, lng: -90.0 }] };
+    const id = await createScenario(page, "p-median-us", inputs, "E2E DU-3.R1 p-median-us");
+    try {
+      await openWorkspace(page, "p-median-us", id);
+      const whs = markersOf(page, "wh-marker");
+      const n = await whs.count();
+      expect(await reachableIndices(whs), "both added markers reachable").toEqual(expect.arrayContaining([n - 2, n - 1]));
+      const del = page.getByTestId("map-details-action-delete");
+      await whs.nth(n - 2).click({ timeout: T });
+      await expect(del).toBeVisible({ timeout: T });
+      await del.click({ timeout: T });
+      await expect(del, "A's Delete is armed (non-vacuous)").toHaveText("Confirm delete?");
+      const b = whs.nth(n - 1);
+      await b.focus();
+      await page.keyboard.press("Enter");
+      await expect(card(page).getByTestId("map-details-code")).not.toHaveText("", { timeout: T });
+      await expect(del, "B's Delete starts disarmed").not.toHaveText("Confirm delete?");
+      await del.focus();
+      await page.keyboard.press("Enter");
+      await expect(del, "one press only arms").toHaveText("Confirm delete?");
+      expect(await whs.count(), "nothing deleted").toBe(n);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
   test("hint truth + ring + close: base, added (click) — footer equals 'Right-click for' + the visible action labels", async ({ page }) => {
     test.setTimeout(120_000);
     await registerAndGoHome(page);

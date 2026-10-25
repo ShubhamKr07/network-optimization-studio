@@ -2205,6 +2205,23 @@ describe("NetworkMap output selection focus (DU-3.3)", () => {
     fireEvent.click(m.markers()[0]);
     expect(calls).toEqual([null, "W1", null]);
   });
+
+  it("clears the warehouse selection when the result changes (re-solve)", () => {
+    const calls: (string | null)[] = [];
+    const m = mount(JADE, false, (id) => calls.push(id));
+    fireEvent.click(m.markers()[0]);
+    expect(calls).toEqual([null, "W1"]);
+    const { dataset, result, plants } = sceneFor(JADE, false);
+    m.rerender(
+      <UnitProvider><NetworkMap
+        dataset={dataset} warehouseStatuses={[]} result={{ ...result }} showRoutes bands={[500, 1000]}
+        multiSelectedWarehouseIds={[]} multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}} onToggleCustomerMultiSelect={() => {}}
+        plants={plants} distanceUnit="mi" onWarehouseSelectionChange={(id) => calls.push(id)}
+      /></UnitProvider>,
+    );
+    expect(calls[calls.length - 1]).toBeNull();
+  });
 });
 
 // ── DU-3.4 — popup hygiene, per-product routes (incl. split), legend yields ──
