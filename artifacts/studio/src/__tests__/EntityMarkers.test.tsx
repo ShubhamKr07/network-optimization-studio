@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { render, fireEvent, within } from "@testing-library/react";
 import { MapContainer, TileLayer } from "react-leaflet";
-import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg, warehouseTypeLabel, customerTypeLabel } from "@/components/workspace/map/EntityMarkers";
+import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg, markerEnvelope, warehouseTypeLabel, customerTypeLabel } from "@/components/workspace/map/EntityMarkers";
 import type { MapWarehouse, MapCustomer, MapPlant } from "@/components/workspace/map/types";
 
 // T5 (workspace-fixups-2, item 4) — capture every <Tooltip> child so its
@@ -556,5 +556,69 @@ describe("EntityMarkers marker tooltip: Type · City, State · DisplayId (T5, it
     const texts = tooltipChildren.map((child) => render(<>{child}</>).container.textContent ?? "");
     expect(texts.find((t) => t.includes("Chengdu"))).toBe("Warehouse · Chengdu · WH-CN-CHE-01");
     expect(texts.find((t) => t.includes("Changchun"))).toBe("Customer · Changchun · CS-CN-CHA-01");
+  });
+});
+
+// DU-3.2 — selection ring, larger icon, markerEnvelope.
+describe("EntityMarkers selection (DU-3.2)", () => {
+  const ICON = ".leaflet-marker-icon";
+  const sizeOf = (el: Element) => Number(el.querySelector("svg")!.getAttribute("width"));
+
+  it("ringed and 32px for the selected warehouse only; the other has neither", () => {
+    const { container } = renderMarkers({ warehouses: [wh({ id: "W1" }), wh({ id: "W2", lat: 40 })], selectedKey: "wh:W1" });
+    const [a, b] = Array.from(container.querySelectorAll(ICON));
+    expect(a.innerHTML).toContain("var(--map-ring-select)");
+    expect(sizeOf(a)).toBe(32);
+    expect(b.innerHTML).not.toContain("var(--map-ring-select)");
+    expect(sizeOf(b)).toBe(22);
+  });
+
+  it("a plant key rings the plant (32px, not 20)", () => {
+    const { container } = renderMarkers({ plants: [pl({ id: "P1" })], selectedKey: "pl:P1" });
+    const el = container.querySelector(".pl-marker")!;
+    expect(el.innerHTML).toContain("var(--map-ring-select)");
+    expect(sizeOf(el)).toBe(32);
+  });
+
+  it("a customer key rings the customer and grows it by 6", () => {
+    const base = renderMarkers({ customers: [cs({ id: "C1" })] });
+    const plain = sizeOf(base.container.querySelector(".cs-marker")!);
+    base.unmount();
+    const { container } = renderMarkers({ customers: [cs({ id: "C1" })], selectedKey: "cs:C1" });
+    const el = container.querySelector(".cs-marker")!;
+    expect(el.innerHTML).toContain("var(--map-ring-select)");
+    expect(sizeOf(el)).toBe(plain + 6);
+  });
+
+  it("the key includes the kind: a customer whose id is W1 is not ringed by wh:W1", () => {
+    const { container } = renderMarkers({ customers: [cs({ id: "W1" })], selectedKey: "wh:W1" });
+    expect(container.querySelector(".cs-marker")!.innerHTML).not.toContain("var(--map-ring-select)");
+  });
+
+  it("no selectedKey -> no ring anywhere", () => {
+    const { container } = renderMarkers({ warehouses: [wh()], customers: [cs()], plants: [pl()] });
+    expect(container.innerHTML).not.toContain("var(--map-ring-select)");
+  });
+
+  it("markerEnvelope equals each rendered icon's size, selected or not, including demand-sized customers", () => {
+    const population = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand, i) => cs({ id: `C${i}`, demand }));
+    for (const selected of [false, true]) {
+      const { container, unmount } = renderMarkers({
+        warehouses: [wh()], plants: [pl()], customers: population,
+        toggles: { warehouses: true, customers: true, showInactive: false, sizeByDemand: true },
+        selectedKey: selected ? "cs:C9" : undefined,
+      });
+      const opts = { customers: population, sizeByDemand: true };
+      const sel = (key: string) => selected && key === "cs:C9";
+      population.forEach((c, i) => {
+        const el = container.querySelectorAll(".cs-marker")[i];
+        expect(markerEnvelope("cs", c, { ...opts, selected: sel(`cs:${c.id}`) })).toBe(sizeOf(el));
+      });
+      expect(markerEnvelope("wh", wh(), opts)).toBe(sizeOf(container.querySelector(".wh-marker")!));
+      expect(markerEnvelope("pl", pl(), opts)).toBe(sizeOf(container.querySelector(".pl-marker")!));
+      unmount();
+    }
+    expect(markerEnvelope("wh", wh(), { customers: [], selected: true })).toBe(32);
+    expect(markerEnvelope("pl", pl(), { customers: [], selected: true })).toBe(32);
   });
 });

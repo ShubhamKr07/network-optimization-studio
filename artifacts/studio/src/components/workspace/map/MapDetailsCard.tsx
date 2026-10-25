@@ -1,23 +1,22 @@
 import { formatCityState, formatCoord } from "@/lib/formatLocation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { placeCard, type Point, type Size } from "./placeCard";
 import type { EntityAction, EntityActionKey } from "./MapActionMenu";
 import { warehouseStatusPresentation } from "./statusPresentation";
 import type { MapEntity } from "./types";
 
-// Fixed-size heuristic, not a measured DOM rect (jsdom reports 0 for
-// offsetWidth/offsetHeight anyway, and a two-pass measure-then-position
-// render would flash at the wrong spot first) — matches the mockup's own
-// approach (`input-map-mockup.html`'s `onLeftClick`: `Math.min(p[0]+22,
-// wrap.clientWidth-240)`). Close enough to the card's real rendered size to
-// keep it inside the map viewport; doesn't need to be exact.
+// Width is fixed; height is measured after mount (jsdom reports 0, so this is
+// also the fallback) and includes the action row.
 const CARD_WIDTH = 224;
-const CARD_HEIGHT = 190;
-const OFFSET = 14;
+const CARD_HEIGHT = 230;
 
 export interface MapDetailsCardProps {
   entity: MapEntity;
-  containerPoint: { x: number; y: number };
-  containerSize?: { width: number; height: number };
+  /** The selected MARKER's point in the map container's pixel space (MapAnchorBridge). */
+  anchor: Point;
+  /** The marker's rendered icon size in px (markerEnvelope), so the card keeps clear of it. */
+  markerSize: number;
+  containerSize: Size;
   onClose: () => void;
   /** The entity's actions (from actionsInContext): drives the button row and the footer hint. */
   actions: EntityAction[];
@@ -34,9 +33,10 @@ function fmt(n: number): string {
 // absolutely-positioned overlay OVER the Leaflet container (never a Leaflet
 // `<Popup>` — a Popup lives inside Leaflet's own pane stack and doesn't
 // compose with React state/portals the way the rest of Workspace does).
-export function MapDetailsCard({ entity, containerPoint, containerSize, onClose, actions, onAction, confirmDelete = true }: MapDetailsCardProps) {
+export function MapDetailsCard({ entity, anchor, markerSize, containerSize, onClose, actions, onAction, confirmDelete = true }: MapDetailsCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [cardHeight, setCardHeight] = useState(CARD_HEIGHT);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -66,25 +66,12 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
     };
   }, [onClose]);
 
-  // Clamp/flip at the container edges: default position is offset
-  // down-right of the click point; flips to up-left once the card would
-  // overflow that edge, then clamps so it never goes negative either.
-  let left = containerPoint.x + OFFSET;
-  let flippedX = false;
-  if (containerSize && left + CARD_WIDTH > containerSize.width) {
-    left = containerPoint.x - CARD_WIDTH - OFFSET;
-    flippedX = true;
-  }
-  let top = containerPoint.y - OFFSET;
-  let flippedY = false;
-  if (containerSize && top + CARD_HEIGHT > containerSize.height) {
-    top = containerPoint.y - CARD_HEIGHT + OFFSET;
-    flippedY = true;
-  }
-  if (containerSize) {
-    left = Math.max(4, Math.min(left, containerSize.width - CARD_WIDTH - 4));
-    top = Math.max(4, Math.min(top, containerSize.height - CARD_HEIGHT - 4));
-  }
+  useLayoutEffect(() => {
+    const h = rootRef.current?.offsetHeight;
+    if (h && h !== cardHeight) setCardHeight(h);
+  });
+
+  const { left, top, flippedX, flippedY } = placeCard(anchor, { width: CARD_WIDTH, height: cardHeight }, containerSize, markerSize);
 
   const { entity: e, kind } = entity;
 
@@ -117,6 +104,15 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
             {warehouseStatusPresentation[e.status].label}
           </span>
         )}
+        <button
+          type="button"
+          aria-label="Close"
+          data-testid="map-details-close"
+          className="min-h-6 min-w-6 ml-auto text-muted-foreground hover:bg-accent-100"
+          onClick={onClose}
+        >
+          ×
+        </button>
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lat">
         <span className="text-muted-foreground">Latitude</span>

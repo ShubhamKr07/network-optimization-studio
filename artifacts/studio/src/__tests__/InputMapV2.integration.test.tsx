@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render as rtlRender, fireEvent, screen } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -14,6 +14,8 @@ const render = (
 
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import type { MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
+import { placeCard } from "@/components/workspace/map/placeCard";
+import { markerEnvelope } from "@/components/workspace/map/EntityMarkers";
 
 // T8 (Bundle 2.2, A3) — PMedianInputMap now calls `useListModels()` (to gate the
 // added-customer exclusion control by capability), so InputMapTab rendered directly
@@ -213,5 +215,46 @@ describe("InputMapTab (pmedian) — details card action buttons (DU-3.1)", () =>
     expect(screen.getByTestId("map-details-action-edit")).toBeInTheDocument();
     expect(screen.queryByTestId("map-details-action-move")).not.toBeInTheDocument();
     expect(screen.queryByTestId("map-details-action-delete")).not.toBeInTheDocument();
+  });
+});
+
+// DU-3.2 — the card is placed off the MARKER (its container point), not the click point.
+// A Leaflet marker's layer-pane position is its container point while the map has not been panned.
+const markerPoint = (el: HTMLElement) => {
+  const m = /translate3d\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(el.style.transform);
+  return m ? { x: Number(m[1]), y: Number(m[2]) } : { x: parseFloat(el.style.left), y: parseFloat(el.style.top) };
+};
+
+describe("InputMapTab (pmedian) — card anchored to the marker (DU-3.2)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("card position equals placeCard from the marker's container point, not e.containerPoint; wrapper is the shared relative origin", () => {
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockReturnValue(800);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(600);
+    const w = baseWh();
+    const { container } = renderPMedian({ warehouses: [w] });
+    const marker = container.querySelector(".leaflet-marker-icon") as HTMLElement;
+    fireEvent.click(marker, { clientX: 5, clientY: 5 });
+    const card = screen.getByTestId("map-details-card");
+    const anchor = markerPoint(container.querySelector(".leaflet-marker-icon") as HTMLElement);
+    const size = markerEnvelope("wh", w, { customers: [cs()], selected: true });
+    const want = placeCard(anchor, { width: 224, height: 230 }, { width: 800, height: 600 }, size);
+    expect(card.style.left).toBe(`${want.left}px`);
+    expect(card.style.top).toBe(`${want.top}px`);
+    const atClick = placeCard({ x: 5, y: 5 }, { width: 224, height: 230 }, { width: 800, height: 600 }, size);
+    expect([card.style.left, card.style.top]).not.toEqual([`${atClick.left}px`, `${atClick.top}px`]);
+    // Same coordinate space: card and MapContainer are siblings under one `relative` wrapper.
+    const map = container.querySelector(".leaflet-container") as HTMLElement;
+    expect(card.parentElement).toBe(map.parentElement);
+    expect(map.parentElement).toHaveClass("relative");
+  });
+
+  it("the selected marker is ringed and the close button dismisses the card", () => {
+    const { container } = renderPMedian({ warehouses: [baseWh()] });
+    fireEvent.click(container.querySelector(".leaflet-marker-icon") as HTMLElement);
+    expect(container.querySelector(".leaflet-marker-icon")!.innerHTML).toContain("var(--map-ring-select)");
+    fireEvent.click(screen.getByTestId("map-details-close"));
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+    expect(container.querySelector(".leaflet-marker-icon")!.innerHTML).not.toContain("var(--map-ring-select)");
   });
 });

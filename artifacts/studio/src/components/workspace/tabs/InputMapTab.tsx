@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { MapEventsBridge, GhostFollower, AddEntityMenu, ToggleChip, LayerCheckbox, type OverlayAnchor } from "@/components/workspace/map/mapControls";
 import { SuperInputMap } from "@/components/workspace/super/SuperInputMap";
 import type { SuperInputsLike } from "@/lib/superNetwork";
-import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
+import { EntityMarkers, markerEnvelope, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
+import { MapAnchorBridge } from "@/components/workspace/map/MapAnchorBridge";
+import type { Point, Size } from "@/components/workspace/map/placeCard";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityName } from "@/components/EntityName";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
@@ -512,7 +514,8 @@ function PMedianInputMap({
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -577,6 +580,11 @@ function PMedianInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -616,7 +624,7 @@ function PMedianInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -800,7 +808,8 @@ function PMedianInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* modelId fallback: this variant only ever renders the p-median FAMILY
               (us/brazil/max-coverage-us), all of which label Warehouse/Customer regardless of
@@ -811,6 +820,7 @@ function PMedianInputMap({
             warehouses={warehouses}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -831,10 +841,11 @@ function PMedianInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
             actions={actionsInContext(selected.entity, { fixedGeography })}
@@ -1044,7 +1055,8 @@ function TransportInputMap({
 }: Extract<InputMapTabProps, { mode: "transport" }>) {
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -1090,6 +1102,11 @@ function TransportInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -1115,7 +1132,7 @@ function TransportInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -1284,12 +1301,14 @@ function TransportInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
             warehouses={mines}
             customers={displayStations}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -1308,10 +1327,11 @@ function TransportInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayStations, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
             actions={actionsInContext(selected.entity, {})}
@@ -1534,7 +1554,8 @@ function TwoEchelonInputMap({
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion("two-echelon-gold-au");
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -1583,6 +1604,11 @@ function TwoEchelonInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -1608,7 +1634,7 @@ function TwoEchelonInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -1773,7 +1799,8 @@ function TwoEchelonInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* T7 — the fixed mine: a plain, non-interactive marker (no
               `eventHandlers`, not draggable, not in the `refineries` array
@@ -1806,6 +1833,7 @@ function TwoEchelonInputMap({
             warehouses={refineries}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -1824,10 +1852,11 @@ function TwoEchelonInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
             actions={actionsInContext(selected.entity, {})}
@@ -2093,7 +2122,8 @@ function JadeInputMap({
     sizeByDemand: false,
   });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" | "pl" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -2141,6 +2171,11 @@ function JadeInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -2166,7 +2201,7 @@ function JadeInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -2350,13 +2385,15 @@ function JadeInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
             plants={plants}
             warehouses={warehouses}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -2371,10 +2408,11 @@ function JadeInputMap({
           sizeByDemand={toggles.sizeByDemand ?? false}
           showPlantLayer={toggles.plants ?? true}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
             actions={actionsInContext(selected.entity, {})}
