@@ -195,6 +195,7 @@ export function Landing() {
               // promoted to (and never rendered as) anything resembling
               // "Proven optimal".
               const isRetryable = h.status === "failed" && isRetryableFailureCode(h.errorCode);
+              const unverified = h.status === "succeeded" && h.legacyUnverified;
               const row = (
                 <div className="flex flex-col gap-0.5 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
                   <div className="flex items-center justify-between">
@@ -213,8 +214,7 @@ export function Landing() {
                       >
                         {h.status}
                       </Badge>
-                      {h.status === "succeeded" && h.legacyUnverified && (
-                        <>
+                      {unverified && (
                         <Badge
                           variant="outline"
                           className="text-2xs text-muted-foreground border-muted-foreground/40 bg-muted/30"
@@ -222,8 +222,6 @@ export function Landing() {
                         >
                           unverified
                         </Badge>
-                        <UnverifiedInfo />
-                        </>
                       )}
                       {isRetryable && (
                         <span
@@ -258,18 +256,25 @@ export function Landing() {
               // absent. The row still RENDERS (the solve happened; hiding it
               // would misreport their own history), just inert.
               const rowLocked = chapterForModelId(h.modelId)?.locked === true;
+              // DU-3.F2 — the ⓘ is a SIBLING of the link (a <button> inside an <a> is
+              // invalid HTML and an a11y trap), so it needs no preventDefault.
+              const info = unverified ? <div className="pr-3 flex-shrink-0"><UnverifiedInfo /></div> : null;
               return chapterPath && !rowLocked ? (
-                <Link key={h.id} href={`${chapterPath}?scenario=${h.scenarioId}`} data-testid={`link-solve-history-${h.id}`}>
-                  {row}
-                </Link>
+                <div key={h.id} className="flex items-center">
+                  <Link href={`${chapterPath}?scenario=${h.scenarioId}`} data-testid={`link-solve-history-${h.id}`} className="block flex-1 min-w-0">
+                    {row}
+                  </Link>
+                  {info}
+                </div>
               ) : (
                 <div
                   key={h.id}
-                  className={rowLocked ? "opacity-60 cursor-not-allowed" : undefined}
+                  className={`flex items-center${rowLocked ? " opacity-60 cursor-not-allowed" : ""}`}
                   data-testid={rowLocked ? `locked-solve-history-${h.id}` : undefined}
                   title={rowLocked ? "This chapter is locked." : undefined}
                 >
-                  {row}
+                  <div className="flex-1 min-w-0">{row}</div>
+                  {info}
                 </div>
               );
             })}

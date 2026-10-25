@@ -16,7 +16,7 @@ import { MapOverlayEvents } from "@/components/workspace/map/MapOverlayEvents";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
-import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
+import { memoIcon, plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityName } from "@/components/EntityName";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
@@ -55,20 +55,6 @@ L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   shadowUrl: markerShadow,
 });
-
-// A fresh divIcon per render makes react-leaflet's Marker call setIcon, which
-// REPLACES the marker's DOM node; a press that re-renders the map (e.g. the
-// tooltip closing on mousedown, DU-3.4) then loses its click. Same args ->
-// same icon instance -> the DOM node survives. Arg space is small and finite.
-function memoIcon<A extends (string | boolean)[]>(build: (...a: A) => L.DivIcon): (...a: A) => L.DivIcon {
-  const cache = new Map<string, L.DivIcon>();
-  return (...a) => {
-    const k = a.join("|");
-    let icon = cache.get(k);
-    if (!icon) cache.set(k, (icon = build(...a)));
-    return icon;
-  };
-}
 
 const createTriangleIcon = memoIcon((
   status: "potential" | "forced_open" | "inactive" | "open",
@@ -333,14 +319,17 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
   useEffect(() => {
     const content = buildCustomerPopupHtml({ ...info, distanceMi: displayDistance }, resolvedUnitLabel);
 
+    // The popup opens ABOVE its point and Leaflet never flips it, so a tall
+    // (multi-product) one would poke out of the map's top, clipping its header
+    // and close button. Bound its (scrolling) content by the room above the
+    // point minus the popup chrome (content margins 26 + wrapper 2 + tip 20 +
+    // offset 4 + margin 8 = 60). The map's maxBounds can block autoPan, so the
+    // bound is what guarantees the fit. The floor only keeps a sliver visible:
+    // a point within ~100px of the top has no room above it by construction.
+    const fitHeight = () => Math.max(40, map.latLngToContainerPoint([info.lat, info.lng]).y - 60);
     const popup = L.popup({
       closeButton: true,
-      // The popup opens ABOVE its point and Leaflet never flips it, so a tall
-      // (multi-product) one would poke out of the map's top, clipping its header
-      // and close button. Bound its (scrolling) content by the room above the
-      // point; the 50px covers tip + offset + margin. The map's maxBounds can
-      // block autoPan, so the bound is what guarantees the fit.
-      maxHeight: Math.max(120, map.latLngToContainerPoint([info.lat, info.lng]).y - 50),
+      maxHeight: fitHeight(),
       autoPan: true,
       autoPanPadding: [16, 16],
       offset: [0, -4],
@@ -353,9 +342,13 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
       if (e.popup === popup) onClose();
     };
     map.on("popupclose", handleClose);
+    // The point moves on zoom, so the room above it does too.
+    const refit = () => { popup.options.maxHeight = fitHeight(); popup.update(); };
+    map.on("zoomend", refit);
 
     return () => {
       map.off("popupclose", handleClose);
+      map.off("zoomend", refit);
       map.closePopup(popup);
     };
   }, [info.customerCity, info.warehouses.join("|"), displayDistance, info.band, resolvedUnitLabel, info.bandLabelText, JSON.stringify(info.products)]);

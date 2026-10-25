@@ -143,13 +143,28 @@ export function customerBubbleSvg(radiusPx: number, _tone: DemandTone = "blue", 
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">${ring}<circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(--map-customer)" fill-opacity="0.55" stroke="var(--map-customer-stroke)" stroke-width="1.5" /></svg>`;
 }
 
+// A fresh divIcon per render makes react-leaflet's Marker call setIcon, which
+// REPLACES the marker's DOM node; a press that re-renders the map (e.g. the
+// tooltip closing on mousedown, DU-3.4) then loses its click. Same args ->
+// same icon instance -> the DOM node survives. Arg space is small and finite; EVERY visual
+// input must be an argument (it is the cache key).
+export function memoIcon<A extends (string | number | boolean | undefined)[]>(build: (...a: A) => L.DivIcon): (...a: A) => L.DivIcon {
+  const cache = new Map<string, L.DivIcon>();
+  return (...a) => {
+    const k = a.join("|");
+    let icon = cache.get(k);
+    if (!icon) cache.set(k, (icon = build(...a)));
+    return icon;
+  };
+}
+
 // T4 (Bundle 2) — `status` is optional now: a role with `hasStatus: false`
 // (transport-coal mines) never populates MapWarehouse.status at all. There
 // is no meaningful "status" to color-code in that case, so it always
 // renders the plain outline triangle (same shape as p-median-us's own
 // "Potential" default) and carries no `status-*` class — a caller/test can
 // tell "no status" apart from "active status" by the class's absence.
-function warehouseIcon(status: WhStatus | undefined, selected: boolean): L.DivIcon {
+const warehouseIcon = memoIcon(function warehouseIcon(status: WhStatus | undefined, selected: boolean): L.DivIcon {
   const marker = status ? warehouseStatusPresentation[status].marker : "outline";
   const statusClass = status ? ` status-${status}` : "";
   return L.divIcon({
@@ -158,12 +173,12 @@ function warehouseIcon(status: WhStatus | undefined, selected: boolean): L.DivIc
     iconSize: [selected ? SELECTED_ICON : 22, selected ? SELECTED_ICON : 22],
     iconAnchor: [selected ? 16 : 11, selected ? 16 : 11],
   });
-}
+});
 
 // jade-T12 — no status/marker-style argument (a plant has no status
 // vocabulary at all, unlike `warehouseIcon` above), so this is a fixed icon,
 // not a per-row-computed one.
-function plantIcon(selected: boolean): L.DivIcon {
+const plantIcon = memoIcon(function plantIcon(selected: boolean): L.DivIcon {
   const size = selected ? SELECTED_ICON : 20;
   return L.divIcon({
     html: plantSquareSvg(selected),
@@ -171,9 +186,9 @@ function plantIcon(selected: boolean): L.DivIcon {
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
+});
 
-function customerIcon(radius: number, excluded: boolean, tone: DemandTone, selected: boolean): L.DivIcon {
+const customerIcon = memoIcon(function customerIcon(radius: number, excluded: boolean, tone: DemandTone, selected: boolean): L.DivIcon {
   const size = customerIconSize(radius, selected);
   return L.divIcon({
     html: customerBubbleSvg(radius, tone, selected),
@@ -181,7 +196,7 @@ function customerIcon(radius: number, excluded: boolean, tone: DemandTone, selec
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
+});
 
 // Renders a Marker per warehouse/customer as an SVG divIcon — triangle
 // style keyed off the shared statusPresentation, bubble radius off the

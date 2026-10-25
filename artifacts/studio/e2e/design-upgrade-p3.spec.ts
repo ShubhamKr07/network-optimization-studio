@@ -362,8 +362,9 @@ test.describe("DU-3.5 touch parity (820x1180, hasTouch, isMobile)", () => {
       const row = page.getByTestId("link-solve-history-9001");
       await expect(row).toBeVisible({ timeout: T });
       await expect(page.getByTestId("badge-legacy-unverified-9001")).toBeVisible();
-      const info = row.getByTestId("button-unverified-info");
-      expect(await info.count(), "ⓘ inside the history row").toBe(1);
+      const info = page.getByTestId("button-unverified-info");
+      expect(await info.count(), "one ⓘ on the page").toBe(1);
+      expect(await row.getByTestId("button-unverified-info").count(), "ⓘ is NOT a descendant of the row's <a>").toBe(0);
       await info.tap({ timeout: T });
       await expect(page.getByTestId("popover-unverified")).toBeVisible({ timeout: T });
       await page.waitForTimeout(800); // a wrong navigation would have happened by now
@@ -395,6 +396,29 @@ type Box = { x: number; y: number; width: number; height: number };
 const inside = (inner: Box, outer: Box) => inner.x >= outer.x - 0.5 && inner.y >= outer.y - 0.5 && inner.x + inner.width <= outer.x + outer.width + 0.5 && inner.y + inner.height <= outer.y + outer.height + 0.5;
 
 test.describe("DU-3.5 Input Map on desktop (mouse + keyboard)", () => {
+  test("DU-3.F2: clicking marker B while A's card is open selects B (card + ring), no Close first", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    const id = await pickScenarioWithAdded(page, "p-median-us");
+    try {
+      await openWorkspace(page, "p-median-us", id);
+      const whs = markersOf(page, "wh-marker");
+      const n = await whs.count();
+      const reach = (await reachableIndices(whs)).filter(i => i !== n - 1);
+      expect(reach.length, "two reachable base warehouses").toBeGreaterThan(1);
+      await whs.nth(reach[0]).click({ timeout: T });
+      await expect(card(page)).toBeVisible({ timeout: T });
+      const textA = await card(page).innerText();
+      await whs.nth(reach[1]).click({ timeout: T });
+      await expect.poll(async () => (await card(page).count()) ? await card(page).innerText() : "", { timeout: T, message: "card is now B's" }).not.toBe("");
+      expect(await card(page).innerText(), "card content changed to B").not.toBe(textA);
+      const rings = await ringedMarkers(page);
+      expect(rings.length, "exactly one ring").toBe(1);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
   test("hint truth + ring + close: base, added (click) — footer equals 'Right-click for' + the visible action labels", async ({ page }) => {
     test.setTimeout(120_000);
     await registerAndGoHome(page);
@@ -1004,7 +1028,9 @@ test.describe("DU-3.5 Output Map filter, popup, legend (desktop)", () => {
       const w2 = split.details.openWarehouseIds.find(w => w !== w1)!;
       const moved = rows.find(r => r.productId === "product-2")!;
       moved.warehouseId = w2;
+      // DU-3.F2 — a different warehouse is a different distance (was: W1's distance kept, mislabelled "via W2").
       const orig = split.edges.find(e => e.toId === cust.id && !INBOUND_LEGS.has(e.leg ?? ""))!;
+      moved.distanceMi = Math.round(moved.distanceMi) + 137;
       split.edges.push({ ...orig, fromId: w2, flow: moved.flow, distance: moved.distanceMi });
       orig.flow = orig.flow - moved.flow;
       expect(orig.flow, "the original lane keeps some flow").toBeGreaterThan(0);
@@ -1029,6 +1055,9 @@ test.describe("DU-3.5 Output Map filter, popup, legend (desktop)", () => {
       expect(text).toMatch(new RegExp(`(?:Product Family 2|product-2) via ${whName(w2)}`));
       const other = rows.find(r => r.productId !== "product-2")!;
       expect(text).toMatch(new RegExp(`(?:${ds.products!.find(p => p.id === other.productId)!.name}|${other.productId}) via ${whName(w1)}`));
+      const outbound = await popup.locator('.leaflet-popup-content div[style*="border-top"] > div:first-of-type').allInnerTexts();
+      expect(outbound.length, "one outbound-distance line per product row").toBe(rows.length);
+      expect(new Set(outbound.map(t => t.trim())).size, "the per-product rows show DIFFERENT outbound distances").toBeGreaterThan(1);
       await shot(page.locator(OUT), "07-split-sourced-popup.png");
 
       const o = laneOracle(split, { customer: cust.id });
@@ -1091,6 +1120,31 @@ test.describe("DU-3.5 Output Map filter, popup, legend (desktop)", () => {
 });
 
 test.describe("DU-3.5 JADE popup fits in a laptop-height map (1280x720)", () => {
+  test("DU-3.F2: the topmost customer with room for a popup (>=130px below the map top) gets one inside the map", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerAndGoHome(page);
+    const modelId = "two-echelon-jade-us";
+    const fixture = loadFixture(modelId) as Fixture;
+    const id = await createScenario(page, modelId, SOLVED_MODEL_INPUTS[modelId], "E2E DU-3.F2 popup top");
+    try {
+      await openOutputMap(page, modelId, id, fixture);
+      const k = (await page.locator(`${OUT} .leaflet-container`).boundingBox())!;
+      const { reachable } = await reachableCircles(page);
+      const top = reachable.filter(c => c.x > k.x + 40 && c.x < k.x + k.width - 40 && c.y > k.y + 130).reduce((a, b) => (b.y < a.y ? b : a));
+      await clickAt(page, top.x, top.y);
+      const popup = page.locator(".leaflet-popup");
+      await expect(popup).toBeVisible({ timeout: T });
+      await page.waitForTimeout(500);
+      const pb = (await popup.boundingBox())!;
+      const close = (await popup.locator(".leaflet-popup-close-button").boundingBox())!;
+      const after = (await page.locator(`${OUT} .leaflet-container`).boundingBox())!;
+      expect(pb.y, `popup top ${pb.y.toFixed(0)} vs map top ${after.y.toFixed(0)} (customer at ${(top.y - k.y).toFixed(0)}px from top)`).toBeGreaterThanOrEqual(after.y - 1);
+      expect(close.y).toBeGreaterThanOrEqual(after.y);
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
+  });
+
   test("the per-product popup stays inside the map for a customer near the map's vertical centre (header + close button visible)", async ({ page }) => {
     test.setTimeout(120_000);
     await registerAndGoHome(page);

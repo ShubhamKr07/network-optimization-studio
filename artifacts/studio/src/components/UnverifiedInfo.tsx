@@ -3,10 +3,7 @@ import { UNVERIFIED_TOOLTIP } from "@/lib/resultOutcome";
 
 /** Tap/keyboard-reachable replacement for the native `title` "Unverified" tooltip. */
 export function UnverifiedInfo() {
-  // The span stops an enclosing <a> (Landing history rows) from navigating on a click here;
-  // React events bubble through the portal too, so the popover content is covered.
   return (
-    <span onClick={(e) => e.preventDefault()} className="inline-flex">
     <Popover>
       <PopoverTrigger asChild>
         <button
@@ -22,6 +19,5 @@ export function UnverifiedInfo() {
         {UNVERIFIED_TOOLTIP}
       </PopoverContent>
     </Popover>
-    </span>
   );
 }

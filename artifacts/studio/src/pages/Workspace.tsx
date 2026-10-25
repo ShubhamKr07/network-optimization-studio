@@ -707,6 +707,8 @@ function superOutputDataset(inputs: Record<string, unknown> | null): Dataset {
   return {
     warehouses: [...superRowsFromInputs(inputs, "warehouses"), ...superRowsFromInputs(inputs, "plants")].map(pick),
     customers: superRowsFromInputs(inputs, "customers").map(c => ({ ...pick(c), demand: demand.get(c.id) ?? 0 })),
+    // DU-3.F2 — popups name products (productRoutesFor reads dataset.products).
+    products: superRowsFromInputs(inputs, "products").map(p => ({ id: p.id, name: p.name })),
   };
 }
 
