@@ -39,6 +39,9 @@ export function MapDetailsCard({ entity, anchor, markerSize, containerSize, onCl
   const [cardHeight, setCardHeight] = useState(CARD_HEIGHT);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // A re-select that keeps the card mounted must not inherit an armed Delete.
+  useEffect(() => setConfirmingDelete(false), [entity.kind, entity.entity.id]);
+
   useEffect(() => {
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     rootRef.current?.focus();
@@ -80,7 +83,10 @@ export function MapDetailsCard({ entity, anchor, markerSize, containerSize, onCl
     if (h && h !== cardHeight) setCardHeight(h);
   });
 
-  const { left, top, flippedX, flippedY } = placeCard(anchor, { width: CARD_WIDTH, height: cardHeight }, containerSize, markerSize);
+  // Live bounds: the anchor re-reports on map resize, which re-renders here; the click-time prop is the first-paint/jsdom fallback.
+  const op = rootRef.current?.offsetParent as HTMLElement | null | undefined;
+  const bounds = op?.clientWidth ? { width: op.clientWidth, height: op.clientHeight } : containerSize;
+  const { left, top, flippedX, flippedY } = placeCard(anchor, { width: CARD_WIDTH, height: cardHeight }, bounds, markerSize);
 
   const { entity: e, kind } = entity;
 

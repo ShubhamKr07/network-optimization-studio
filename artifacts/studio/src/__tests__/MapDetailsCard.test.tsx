@@ -220,6 +220,16 @@ describe("MapDetailsCard", () => {
     expect(onAction).toHaveBeenCalledWith("delete");
   });
 
+  it("re-selecting a different entity disarms an armed Delete", async () => {
+    const other: MapEntity = { kind: "cs", entity: { ...(cs.entity as object), id: "C2", displayCode: "CS02" } as never };
+    const props = { anchor: A, markerSize: 32, containerSize: C, onClose: vi.fn(), onAction: vi.fn() };
+    const { rerender } = render(<MapDetailsCard entity={cs} actions={entityActionsFor(cs)} {...props} />);
+    await userEvent.click(screen.getByTestId("map-details-action-delete"));
+    expect(screen.getByTestId("map-details-action-delete")).toHaveTextContent("Confirm delete?");
+    rerender(<MapDetailsCard entity={other} actions={entityActionsFor(other)} {...props} />);
+    expect(screen.getByTestId("map-details-action-delete")).not.toHaveTextContent("Confirm delete?");
+  });
+
   it("actions=[] renders neither the footer nor the button row", () => {
     render(<MapDetailsCard entity={cs} anchor={A} markerSize={32} containerSize={C} onClose={vi.fn()} actions={[]} onAction={vi.fn()} />);
     expect(screen.queryByTestId("map-details-footer")).not.toBeInTheDocument();

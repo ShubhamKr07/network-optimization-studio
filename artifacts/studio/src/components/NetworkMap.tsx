@@ -344,11 +344,11 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
     map.on("popupclose", handleClose);
     // The point moves on zoom, so the room above it does too.
     const refit = () => { popup.options.maxHeight = fitHeight(); popup.update(); };
-    map.on("zoomend", refit);
+    map.on("zoomend moveend resize", refit);
 
     return () => {
       map.off("popupclose", handleClose);
-      map.off("zoomend", refit);
+      map.off("zoomend moveend resize", refit);
       map.closePopup(popup);
     };
   }, [info.customerCity, info.warehouses.join("|"), displayDistance, info.band, resolvedUnitLabel, info.bandLabelText, JSON.stringify(info.products)]);
@@ -505,6 +505,8 @@ export function NetworkMap({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
+  // A re-solve may close the selected warehouse; its filter would dim every lane.
+  useEffect(() => { setSelectedWarehouseId(null); }, [result]);
   useEffect(() => { onWarehouseSelectionChange?.(selectedWarehouseId); }, [selectedWarehouseId, onWarehouseSelectionChange]);
 
   const { maxDemand, minDemand } = useMemo(() => {
