@@ -434,7 +434,7 @@ describe("ServiceStatsTab", () => {
     const baseCapabilities = [{ plantId: "p1", productId: "product-1", capacity: 210_000_000 }];
     const identityById = { p1: { city: "Reno", state: "NV", displayId: "PLANT-NV-RENO-01" } };
 
-    it("at exactly 1 (<=10) unfiltered row, keeps the pre-existing '<id> — City, State' label — identityById does not upgrade it", () => {
+    it("at exactly 1 (<=10) unfiltered row, renders the stacked name + mono ID cell (DU-2.R1: no row-count gate)", () => {
       const plants = [{ id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 }];
       render(
         <ServiceStatsTab
@@ -449,8 +449,8 @@ describe("ServiceStatsTab", () => {
         />,
       );
       const row = screen.getByTestId("row-plant-production-p1-product-1");
-      expect(row).toHaveTextContent("p1 — Springfield, IL");
-      expect(row).not.toHaveTextContent("PLANT-NV-RENO-01");
+      expect(row).toHaveTextContent("Reno, NV");
+      expect(row).toHaveTextContent("PLANT-NV-RENO-01");
     });
 
     it("at 16 (>10) unfiltered rows, upgrades the plant cell with an identityById entry to the stacked EntityIdCell", () => {

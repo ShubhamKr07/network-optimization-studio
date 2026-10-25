@@ -133,7 +133,6 @@ export function DemandCell({
   value,
   onCommit,
   clearCommits,
-  suffix,
   integer,
   disabled,
   title,
@@ -143,8 +142,6 @@ export function DemandCell({
   value: number | null;
   onCommit: (value: number | null) => void;
   clearCommits: boolean;
-  /** Optional visible unit after the input; demand units now live in column headers (DU-2.3). */
-  suffix?: string;
   integer?: boolean;
   disabled: boolean;
   title?: string;
@@ -165,7 +162,6 @@ export function DemandCell({
         onCommit(v);
       }}
       onBlur={() => setBlank(false)}
-      suffix={suffix}
       integer={integer}
       disabled={disabled}
       title={title}

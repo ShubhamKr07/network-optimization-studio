@@ -51,9 +51,9 @@ export interface DataTableTestIds<T> {
   toolbar?: string;
   /** The <table> element (single-table mode; sections use `DataTableSection.tableTestId`). */
   table?: string;
-  /** The scroll wrapper <div> around the <table> (single-table mode; sections use `scrollTestId`). */
+  /** The single scroll wrapper <div> around the table(s) and pager, in both flat and sections mode. */
   scroll?: string;
-  /** Always-visible "{filtered} of {total}" counter in the toolbar (e.g. `text-jadeassignments-count`). Omitted = no counter. */
+  /** Always-visible counter in the toolbar (e.g. `text-jadeassignments-count`): "{filtered} of {total}", or the `countNoun` form ("4 plants" / "1 of 4 plants"). Omitted = no counter. */
   count?: string;
   row?: (row: T) => string;
   pager?: string;

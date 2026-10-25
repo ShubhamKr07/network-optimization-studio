@@ -1279,7 +1279,7 @@ describe("DistancesTab — T11 identityById upgrade (item 2)", () => {
     }));
   }
 
-  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+  it("no-regression: with identityById UNSET, a table stays bare-id, byte-unchanged", () => {
     const rows = buildRows(11);
     renderWithQueryClient(
       <DistancesTab
@@ -1295,7 +1295,7 @@ describe("DistancesTab — T11 identityById upgrade (item 2)", () => {
     expect(row).toHaveTextContent("C001");
   });
 
-  it("does NOT upgrade at exactly 10 rows (boundary) even with identityById present", () => {
+  it("shows name + mono ID at exactly 10 rows (DU-2.R1: no row-count gate)", () => {
     const rows = buildRows(10);
     renderWithQueryClient(
       <DistancesTab
@@ -1311,7 +1311,7 @@ describe("DistancesTab — T11 identityById upgrade (item 2)", () => {
       />,
     );
     const row = screen.getByTestId("row-distance-WH01-C001");
-    expect(row).not.toHaveTextContent("Newtown");
+    expect(row).toHaveTextContent("Newtown, PA");
     expect(row).toHaveTextContent("WH-A");
   });
 

@@ -46,4 +46,4 @@ SM2,super-model-2,2026-10-23T14:03:40+05:30,2026-10-23T19:47:29+05:30,unknown,un
 QFX,quick-fixes,2026-10-24T07:20:44+05:30,2026-10-24T13:52:01+05:30,unknown,no,unknown,4,391,unknown,b6e48f02d695b215ab8627f23b4adfd5ddae410a,no,unknown
 DU-1,design-upgrade-p1,2026-10-24T08:57:38+05:30,2026-10-24T17:01:33+05:30,6,no,yes,unknown,484,unknown,51d40559d6e5dbb6acc6e49ab6d426cb69db25f4,no,unknown
 WFX,wfx-race,2026-10-24T18:15:50+05:30,2026-10-24T18:37:00+05:30,4,yes,no,unknown,21,unknown,064c19ddd17918873adcb1c09d23b7cea6ce1320,no,unknown
-DU-2,design-upgrade-p2,2026-10-24T22:59:13+05:30,2026-10-25T07:11:07+05:30,16,yes,unknown,1,492,unknown,unknown,unknown,unknown
+DU-2,design-upgrade-p2,2026-10-24T22:59:13+05:30,2026-10-25T08:41:30+05:30,16,no,unknown,2,582,unknown,unknown,unknown,unknown

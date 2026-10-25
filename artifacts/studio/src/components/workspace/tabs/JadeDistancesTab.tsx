@@ -5,7 +5,6 @@ import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@wor
 import type { CanonicalUnit } from "@workspace/units";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { DataTable } from "@/components/data-table/DataTable";
 import type { ColumnDef } from "@/components/data-table/types";
