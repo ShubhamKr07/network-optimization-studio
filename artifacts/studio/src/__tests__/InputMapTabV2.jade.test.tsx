@@ -451,3 +451,12 @@ describe("InputMapTab — jade mode: R4 Save-in-Layers", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("InputMapTab — jade mode: details card buttons (DU-3.1)", () => {
+  it("left-click a warehouse, then map-details-action-edit opens the edit dialog", () => {
+    const { container } = renderJade({ warehouses: [baseWarehouse()] });
+    fireEvent.click(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")[1]);
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("edit-warehouse-dialog")).toHaveTextContent("Edit warehouse");
+  });
+});

@@ -376,16 +376,33 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await expect(page.getByTestId("move-confirm-dialog")).not.toBeVisible();
       await expect(page.getByTestId("button-save")).toBeDisabled(); // nothing changed
 
-      // 6) Pan closes an open details card. Left-click the added marker to
-      // open its inspect card, then drag the MAP (not a marker) to pan —
-      // movestart should close the overlay.
+      // 6) DU-3.2 — pan keeps the details card attached to its marker (MapAnchorBridge
+      // re-anchors on move); a map-background click then dismisses it. Left-click the
+      // added marker, drag the MAP (not a marker) a short way, and check the card moved
+      // with the marker and still keeps clear of the marker's box.
       await addedMarker.click();
-      await expect(page.getByTestId("map-details-card")).toBeVisible();
+      const card = page.getByTestId("map-details-card");
+      await expect(card).toBeVisible();
+      const markerBefore = (await addedMarker.boundingBox())!;
+      const cardBefore = (await card.boundingBox())!;
       await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
       await page.mouse.down();
-      await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 6 });
+      await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3, { steps: 6 });
       await page.mouse.up();
-      await expect(page.getByTestId("map-details-card")).not.toBeVisible();
+      await expect(card).toBeVisible();
+      const markerAfter = (await addedMarker.boundingBox())!;
+      const cardAfter = (await card.boundingBox())!;
+      // The un-zoomed map is clamped to the country bounds, so this drag may
+      // move nothing (design-upgrade-p3.spec.ts pans a zoomed map and asserts the
+      // real displacement). What must hold either way: the card moved exactly as
+      // far as the marker did, and it did not close.
+      expect(Math.abs(cardAfter.x - cardBefore.x - (markerAfter.x - markerBefore.x))).toBeLessThan(3);
+      expect(Math.abs(cardAfter.y - cardBefore.y - (markerAfter.y - markerBefore.y))).toBeLessThan(3);
+      const gapX = Math.max(markerAfter.x - (cardAfter.x + cardAfter.width), cardAfter.x - (markerAfter.x + markerAfter.width));
+      const gapY = Math.max(markerAfter.y - (cardAfter.y + cardAfter.height), cardAfter.y - (markerAfter.y + markerAfter.height));
+      expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(20); // 24px keep-out, minus rounding
+      await canvas.click({ position: emptyMapOffset(box) });
+      await expect(card).not.toBeVisible();
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
+import { MapActionMenu, entityActionsFor, actionsInContext } from "@/components/workspace/map/MapActionMenu";
 import type { MapEntity } from "@/components/workspace/map/types";
 
 const baseWh: MapEntity = {
@@ -159,5 +159,27 @@ describe("MapActionMenu", () => {
   it("does not throw on unmount when restoreFocusTo is not provided", () => {
     const { unmount } = renderMenu(addedCs);
     expect(() => unmount()).not.toThrow();
+  });
+});
+
+describe("entityActionsFor / actionsInContext", () => {
+  it("base -> edit, copy", () => expect(entityActionsFor(baseWh).map(a => a.key)).toEqual(["edit", "copy"]));
+  it("added -> all four; delete is danger", () => {
+    const a = entityActionsFor(addedCs);
+    expect(a.map(x => x.key)).toEqual(["edit", "move", "copy", "delete"]);
+    expect(a.find(x => x.key === "delete")!.danger).toBe(true);
+  });
+  it("fixed geography -> edit only, even for added", () =>
+    expect(actionsInContext(addedCs, { fixedGeography: true }).map(a => a.key)).toEqual(["edit"]));
+  it("read-only -> none", () => expect(actionsInContext(addedCs, { readOnly: true })).toEqual([]));
+  it("no ctx flags -> identical to entityActionsFor", () => expect(actionsInContext(baseWh, {})).toEqual(entityActionsFor(baseWh)));
+  it.each([
+    ["base", baseWh, undefined],
+    ["added", addedCs, undefined],
+    ["fixedGeography", addedCs, { fixedGeography: true }],
+  ] as const)("menu renders exactly actionsInContext keys, in order (%s)", (_n, entity, ctx) => {
+    renderMenu(entity, { ctx });
+    const keys = screen.getAllByRole("menuitem").map(el => el.getAttribute("data-testid")!.replace("map-action-", ""));
+    expect(keys).toEqual(actionsInContext(entity, ctx ?? {}).map(a => a.key));
   });
 });

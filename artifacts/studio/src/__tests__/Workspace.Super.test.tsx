@@ -102,7 +102,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 // SM-9 — spy on the props Workspace hands the Output Map (real component still renders).
-const mapProps = vi.hoisted(() => ({ current: null as null | { warehouseStatuses: { warehouseId: string; status: string }[] } }));
+const mapProps = vi.hoisted(() => ({ current: null as null | { warehouseStatuses: { warehouseId: string; status: string }[]; dataset: { products?: { id: string; name: string }[] } } }));
 vi.mock("@/components/workspace/tabs/OutputMapTab", async importOriginal => {
   const real = await importOriginal<typeof import("@/components/workspace/tabs/OutputMapTab")>();
   return { ...real, OutputMapTab: (p: React.ComponentProps<typeof real.OutputMapTab>) => { mapProps.current = p as never; return <real.OutputMapTab {...p} />; } };
@@ -243,6 +243,16 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(screen.getByTestId("output-map-tab")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
     expect(screen.getByText(/Phoenix/)).toBeInTheDocument();
+  });
+
+  it("DU-3.F2: the Output Map dataset carries the scenario's products (popups name them, not ids)", () => {
+    const solved = { ...scenario, result: JSON.parse(fs.readFileSync(path.resolve(__dirname, "fixtures/superResult.json"), "utf8")) };
+    mockUseGetScenario.mockReturnValue({ data: solved } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solved] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(sample.products.length).toBeGreaterThan(0);
+    expect(mapProps.current!.dataset.products).toEqual(sample.products.map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })));
   });
 
   it("SM-9: Output Map styles forced_open / inactive warehouses from the super warehouse rows", () => {

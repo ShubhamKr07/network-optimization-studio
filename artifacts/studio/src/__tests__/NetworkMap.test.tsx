@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
+import type { Edge } from "@workspace/api-client-react";
 
 // Capture every <Tooltip> child rendered by NetworkMap so we can assert that a
 // Tooltip (hover label) is rendered for each customer/station marker with the
@@ -21,11 +22,20 @@ const tooltipCalls: { props: Record<string, unknown>; children: React.ReactNode 
 // MapContainer (rather than replacing it) so it still provides the Leaflet
 // context that descendant hooks (useMap/useMapEvents) rely on under jsdom.
 const mapContainerProps: Record<string, unknown>[] = [];
+// DU-3.3 (PR3-14) — record every <Polyline>'s pathOptions (keyed by its
+// endpoints' coordinates) while still rendering the real polyline, so lane
+// dimming (opacity) is observable. Cleared by the DU-3.3 describe's tests.
+const polylineCalls: { positions: unknown; pathOptions: { opacity?: number } }[] = [];
 vi.mock("react-leaflet", async () => {
   const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
   const RealMapContainer = actual.MapContainer;
+  const RealPolyline = actual.Polyline;
   return {
     ...actual,
+    Polyline: (props: React.ComponentProps<typeof RealPolyline>) => {
+      polylineCalls.push({ positions: props.positions, pathOptions: (props.pathOptions ?? {}) as { opacity?: number } });
+      return <RealPolyline {...props} />;
+    },
     Tooltip: (props: { children?: React.ReactNode } & Record<string, unknown>) => {
       if (props.children) tooltipChildren.push(props.children);
       tooltipCalls.push({ props, children: props.children });
@@ -41,6 +51,7 @@ vi.mock("react-leaflet", async () => {
 
 const { NetworkMap, buildCustomerPopupHtml } = await import("@/components/NetworkMap");
 const { getBandColor } = await import("@/lib/bandPalette");
+const { jadeRouteDataset, jadeRouteResult } = await import("./fixtures/jadeRouteFixture");
 
 const dataset = {
   warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
@@ -1265,7 +1276,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
   const popupInfo = {
     lat: 41, lng: -91,
     customerCity: "Sampleburg", customerState: "SB",
-    warehouseCity: "Testville", warehouseState: "TS",
+    warehouses: ["Testville, TS"],
     distanceMi: 1234, band: 0, bandLabelText: "—",
   };
 
@@ -2072,5 +2083,225 @@ describe("NetworkMap FitBounds runs only when the bounds change (ERR-2)", () => 
     rerender(<UnitProvider><NetworkMap {...props} multiSelectedWarehouseIds={[]} /></UnitProvider>);
 
     expect(fitBounds.mock.calls.length).toBe(afterMount);
+  });
+});
+
+// ── DU-3.3 — both-leg focus dimming, unconnected-source dimming, callback ───
+describe("NetworkMap output selection focus (DU-3.3)", () => {
+  type Leg = { inLeg: string; outLeg: string };
+  const GOLD: Leg = { inLeg: "mine_to_refinery", outLeg: "refinery_to_customer" };
+  const JADE: Leg = { inLeg: "plant_to_warehouse", outLeg: "warehouse_to_customer" };
+  const coord: Record<string, [number, number]> = {
+    S1: [30, -100], S2: [31, -101], W1: [40, -90], W2: [41, -91], C1: [42, -92], C2: [43, -93], C3: [44, -94],
+  };
+  const ent = (id: string) => ({ id, city: id, state: "TS", lat: coord[id][0], lng: coord[id][1] });
+  // S1->W1, S1->W2, S2->W2 inbound; W1->C1, W2->C2, and C3 split across W1+W2.
+  const edgeSpecs: [string, string, "in" | "out"][] = [
+    ["S1", "W1", "in"], ["S1", "W2", "in"], ["S2", "W2", "in"],
+    ["W1", "C1", "out"], ["W2", "C2", "out"], ["W1", "C3", "out"], ["W2", "C3", "out"],
+  ];
+  const sceneFor = (legs: Leg, sourcesAreMines: boolean) => {
+    const mines = ["S1", "S2"].map((id) => ({ ...ent(id), kind: "mine" as const }));
+    const dataset = {
+      warehouses: [...(sourcesAreMines ? mines : []), ent("W1"), ent("W2")],
+      customers: ["C1", "C2", "C3"].map((id) => ({ ...ent(id), demand: 100 })),
+    };
+    const result = {
+      status: "optimal" as const, objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: edgeSpecs.map(([f, t, k]) => ({ fromId: f, toId: t, flow: 10, distance: 100, leg: (k === "in" ? legs.inLeg : legs.outLeg) as Edge["leg"] })),
+      metrics: { weightedAvgDistance: 100, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["W1", "W2"], assignments: [] },
+      solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    const plants = sourcesAreMines ? [] : ["S1", "S2"].map((id) => ({ ...ent(id), capacity: 1 }));
+    return { dataset, result, plants };
+  };
+  const idAt = (pos: unknown) => {
+    const [lat, lng] = pos as [number, number];
+    return Object.keys(coord).find((k) => coord[k][0] === lat && coord[k][1] === lng)!;
+  };
+  /** Latest opacity per "from|to" (Polyline positions are [to, from]). */
+  const opacities = () => {
+    const out: Record<string, number | undefined> = {};
+    for (const c of polylineCalls) {
+      const [to, from] = c.positions as unknown[];
+      out[`${idAt(from)}|${idAt(to)}`] = c.pathOptions.opacity;
+    }
+    return out;
+  };
+  const mount = (legs: Leg, mines: boolean, onSel?: (id: string | null) => void) => {
+    polylineCalls.length = 0;
+    const { dataset, result, plants } = sceneFor(legs, mines);
+    const view = render(
+      <UnitProvider><NetworkMap
+        dataset={dataset} warehouseStatuses={[]} result={result} showRoutes bands={[500, 1000]}
+        multiSelectedWarehouseIds={[]} multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}} onToggleCustomerMultiSelect={() => {}}
+        plants={plants} distanceUnit="mi" onWarehouseSelectionChange={onSel}
+      /></UnitProvider>,
+    );
+    const markers = () => Array.from(view.container.querySelectorAll<HTMLElement>(".leaflet-marker-pane .leaflet-marker-icon"));
+    const customers = () => Array.from(view.container.querySelectorAll<HTMLElement>(".leaflet-overlay-pane path.leaflet-interactive"));
+    return { ...view, markers, customers, mines };
+  };
+  // Marker order: [mines S1,S2,] W1, W2, [plants S1,S2].
+  const whIdx = (mines: boolean, w: 1 | 2) => (mines ? 2 : 0) + (w - 1);
+
+  it("is not vacuous: with no selection nothing is dimmed", () => {
+    mount(JADE, false);
+    const o = opacities();
+    expect(Object.keys(o)).toHaveLength(edgeSpecs.length);
+    expect(Object.values(o).every((v) => v !== 0.1)).toBe(true);
+  });
+
+  it.each([["gold", GOLD, true], ["jade", JADE, false], ["super", JADE, false]] as const)(
+    "%s: filtering warehouse W1 keeps its outbound + inbound lanes at 0.75 and dims every other lane (incl. inbound into W2) to 0.1",
+    (_n, legs, mines) => {
+      const m = mount(legs, mines);
+      fireEvent.click(m.markers()[whIdx(mines, 1)]);
+      const o = opacities();
+      for (const k of ["S1|W1", "W1|C1", "W1|C3"]) expect(o[k], k).toBe(0.75);
+      for (const k of ["S1|W2", "S2|W2", "W2|C2", "W2|C3"]) expect(o[k], k).toBe(0.1);
+    },
+  );
+
+  it("filtering a warehouse dims the plant that does not feed it, keeps the one that does", () => {
+    const m = mount(JADE, false);
+    fireEvent.click(m.markers()[0]); // W1: fed only by S1
+    const [s1, s2] = m.markers().slice(2);
+    expect(s1.innerHTML).not.toContain('opacity="0.25"');
+    expect(s2.innerHTML).toContain('opacity="0.25"');
+  });
+
+  it("filtering a warehouse dims the mine that does not feed it (gold)", () => {
+    const m = mount(GOLD, true);
+    fireEvent.click(m.markers()[whIdx(true, 1)]);
+    const [s1, s2] = m.markers();
+    expect(s1.innerHTML).not.toContain('opacity="0.25"');
+    expect(s2.innerHTML).toContain('opacity="0.25"');
+  });
+
+  it("single-sourced customer C1 keeps its lane + the inbound into its warehouse; dims the rest", () => {
+    const m = mount(JADE, false);
+    fireEvent.click(m.customers()[0]);
+    const o = opacities();
+    for (const k of ["W1|C1", "S1|W1"]) expect(o[k], k).not.toBe(0.1);
+    for (const k of ["S1|W2", "S2|W2", "W2|C2", "W1|C3", "W2|C3"]) expect(o[k], k).toBe(0.1);
+  });
+
+  it("split-sourced customer C3 keeps both its lanes + inbound into BOTH serving warehouses (Q3)", () => {
+    const m = mount(JADE, false);
+    fireEvent.click(m.customers()[2]);
+    const o = opacities();
+    for (const k of ["W1|C3", "W2|C3", "S1|W1", "S1|W2", "S2|W2"]) expect(o[k], k).not.toBe(0.1);
+    for (const k of ["W1|C1", "W2|C2"]) expect(o[k], k).toBe(0.1);
+  });
+
+  it("onWarehouseSelectionChange fires with the warehouse, then null on re-click", () => {
+    const calls: (string | null)[] = [];
+    const m = mount(JADE, false, (id) => calls.push(id));
+    expect(calls).toEqual([null]);
+    fireEvent.click(m.markers()[0]);
+    fireEvent.click(m.markers()[0]);
+    expect(calls).toEqual([null, "W1", null]);
+  });
+});
+
+// ── DU-3.4 — popup hygiene, per-product routes (incl. split), legend yields ──
+describe("NetworkMap popup + legend (DU-3.4)", () => {
+  const baseProps = {
+    warehouseStatuses: [], showRoutes: true, bands: [500, 1000], distanceUnit: "mi" as const,
+    multiSelectedWarehouseIds: [], multiSelectedCustomerIds: [],
+    onToggleWarehouseMultiSelect: () => {}, onToggleCustomerMultiSelect: () => {},
+  };
+  const mountJade = (dataset = jadeRouteDataset) => {
+    tooltipCalls.length = 0;
+    const view = render(
+      <UnitProvider><NetworkMap {...baseProps} dataset={dataset} result={jadeRouteResult} plants={dataset.plants} /></UnitProvider>,
+    );
+    const customerMarkers = () => Array.from(view.container.querySelectorAll<HTMLElement>(".leaflet-overlay-pane path.leaflet-interactive"));
+    return { ...view, customerMarkers };
+  };
+  // Customer tooltips are the only ones with offset [0, -4] (route/warehouse/plant tooltips also name customers).
+  const tooltipTexts = () => tooltipCalls.filter((c) => (c.props.offset as number[])?.[1] === -4).map((c) => render(<>{c.children}</>).container.textContent ?? "");
+
+  it("injection: customer, warehouse, product and plant names render escaped in the popup", () => {
+    const evil = "<script>alert(1)</script>";
+    const ds = {
+      ...jadeRouteDataset,
+      warehouses: jadeRouteDataset.warehouses.map((w) => (w.id === "W1" ? { ...w, city: evil } : w)),
+      customers: jadeRouteDataset.customers.map((c) => (c.id === "C1" ? { ...c, city: evil } : c)),
+      plants: jadeRouteDataset.plants!.map((p) => (p.id === "P1" ? { ...p, city: evil } : p)),
+      products: jadeRouteDataset.products!.map((p) => (p.id === "steel" ? { ...p, name: evil } : p)),
+    };
+    const { container, customerMarkers } = mountJade(ds);
+    fireEvent.click(customerMarkers()[0]); // C1
+    const content = container.querySelector(".leaflet-popup-content")!;
+    expect(content.textContent).toContain(evil); // shown as text...
+    expect(content.querySelector("script")).toBeNull(); // ...never parsed as markup
+    expect(buildCustomerPopupHtml({ lat: 0, lng: 0, customerCity: evil, customerState: "", warehouses: [evil], distanceMi: 1, band: 0, bandLabelText: evil }, "mi")).not.toContain("<script>");
+  });
+
+  it("split: header reads 'Split across 2 warehouses' with one row per product, each with its own warehouse", () => {
+    const { container, customerMarkers } = mountJade();
+    fireEvent.click(customerMarkers()[1]); // C2
+    const text = container.querySelector(".leaflet-popup-content")!.textContent!;
+    expect(text).toContain("Split across 2 warehouses");
+    expect(text).toContain("Steel via Whiteville, TX");
+    expect(text).toContain("Wire via Wardtown, OK");
+    expect(text).toContain("from Pton, OH: 60");
+  });
+
+  it("a single-warehouse customer shows the warehouse name and its two product rows", () => {
+    const { container, customerMarkers } = mountJade();
+    fireEvent.click(customerMarkers()[0]); // C1
+    const text = container.querySelector(".leaflet-popup-content")!.textContent!;
+    expect(text).not.toContain("Split across");
+    expect(text).toContain("Whiteville, TX");
+    expect(text).toContain("Steel via");
+    expect(text).toContain("Wire via");
+  });
+
+  it("tooltip suppression: the selected customer's tooltip is dropped, other customers keep theirs", () => {
+    const { customerMarkers } = mountJade();
+    expect(tooltipTexts().filter((t) => t.includes("Cville"))).not.toHaveLength(0); // not vacuous
+    tooltipCalls.length = 0;
+    fireEvent.click(customerMarkers()[0]); // C1 = Cville
+    const after = tooltipTexts();
+    expect(after.some((t) => t.includes("Cville"))).toBe(false);
+    expect(after.some((t) => t.includes("Splitburg"))).toBe(true);
+  });
+
+  it("legend fades to opacity-15 while a popup is open and restores on close", () => {
+    const { container, customerMarkers } = mountJade();
+    const legend = () => container.querySelector('[data-testid="map-legend"]')!;
+    expect(legend().className).not.toContain("opacity-15");
+    fireEvent.click(customerMarkers()[0]);
+    expect(legend().className).toContain("opacity-15");
+    fireEvent.click(customerMarkers()[0]); // toggles selection off -> popup closes
+    expect(legend().className).not.toContain("opacity-15");
+  });
+});
+
+describe("MapOverlayEvents counter", () => {
+  it("stays dimmed until the LAST overlay closes and never goes negative", async () => {
+    const { MapContainer, useMap } = await import("react-leaflet");
+    const { MapOverlayEvents } = await import("@/components/workspace/map/MapOverlayEvents");
+    let map!: import("leaflet").Map;
+    const Grab = () => { map = useMap(); return null; };
+    const seen: boolean[] = [];
+    render(<MapContainer center={[0, 0]} zoom={2}><Grab /><MapOverlayEvents onChange={(o) => seen.push(o)} /></MapContainer>);
+    const last = () => seen[seen.length - 1];
+    map.fire("tooltipclose"); // stray close at 0: floored
+    map.fire("tooltipopen");
+    expect(last()).toBe(true);
+    map.fire("popupopen");
+    map.fire("tooltipclose");
+    expect(last()).toBe(true);
+    map.fire("popupclose");
+    expect(last()).toBe(false);
+    map.fire("popupclose"); // extra close must not push the counter below zero
+    map.fire("tooltipopen");
+    expect(last()).toBe(true);
   });
 });

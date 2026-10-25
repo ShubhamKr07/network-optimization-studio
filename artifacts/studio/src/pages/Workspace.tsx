@@ -707,6 +707,8 @@ function superOutputDataset(inputs: Record<string, unknown> | null): Dataset {
   return {
     warehouses: [...superRowsFromInputs(inputs, "warehouses"), ...superRowsFromInputs(inputs, "plants")].map(pick),
     customers: superRowsFromInputs(inputs, "customers").map(c => ({ ...pick(c), demand: demand.get(c.id) ?? 0 })),
+    // DU-3.F2 — popups name products (productRoutesFor reads dataset.products).
+    products: superRowsFromInputs(inputs, "products").map(p => ({ id: p.id, name: p.name })),
   };
 }
 
@@ -4175,7 +4177,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // functionally correct outcome within this task's stated scope.
       const outputDataset =
         modelId === "two-echelon-jade-us"
-          ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers }
+          ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers, products: dataset.products }
           : modelId === "super-model"
             ? superOutputDataset(activeOutputInputs)
             : dataset;

@@ -1,33 +1,28 @@
 import { formatCityState, formatCoord } from "@/lib/formatLocation";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { placeCard, type Point, type Size } from "./placeCard";
+import type { EntityAction, EntityActionKey } from "./MapActionMenu";
 import { warehouseStatusPresentation } from "./statusPresentation";
 import type { MapEntity } from "./types";
 
-// Fixed-size heuristic, not a measured DOM rect (jsdom reports 0 for
-// offsetWidth/offsetHeight anyway, and a two-pass measure-then-position
-// render would flash at the wrong spot first) — matches the mockup's own
-// approach (`input-map-mockup.html`'s `onLeftClick`: `Math.min(p[0]+22,
-// wrap.clientWidth-240)`). Close enough to the card's real rendered size to
-// keep it inside the map viewport; doesn't need to be exact.
+// Width is fixed; height is measured after mount (jsdom reports 0, so this is
+// also the fallback) and includes the action row.
 const CARD_WIDTH = 224;
-const CARD_HEIGHT = 190;
-const OFFSET = 14;
+const CARD_HEIGHT = 230;
 
 export interface MapDetailsCardProps {
   entity: MapEntity;
-  containerPoint: { x: number; y: number };
-  containerSize?: { width: number; height: number };
+  /** The selected MARKER's point in the map container's pixel space (MapAnchorBridge). */
+  anchor: Point;
+  /** The marker's rendered icon size in px (markerEnvelope), so the card keeps clear of it. */
+  markerSize: number;
+  containerSize: Size;
   onClose: () => void;
-  /** M-8 (whole-branch review) — true on delivery-teaching-us's map (Task 9's
-   * `readOnly` prop, threaded through InputMapTab/PMedianInputMap). ch5-edit-6
-   * (§14.5) — renamed to `fixedGeography` and narrowed: right-click now DOES
-   * open an action menu there (an "Edit…" action reaches status/demand), so
-   * this only changes the footer hint's wording, never whether it renders.
-   * Gated at the render site only (the call site already knows
-   * `fixedGeography`) — never a `modelId` check inside this shared
-   * component, matching Task 9's established pattern. Defaults to false:
-   * every pre-existing caller is byte-unchanged. */
-  fixedGeography?: boolean;
+  /** The entity's actions (from actionsInContext): drives the button row and the footer hint. */
+  actions: EntityAction[];
+  onAction: (key: EntityActionKey) => void;
+  /** Two-step local delete (default true). false when the caller confirms itself (Super's cascade dialog). */
+  confirmDelete?: boolean;
 }
 
 function fmt(n: number): string {
@@ -38,8 +33,10 @@ function fmt(n: number): string {
 // absolutely-positioned overlay OVER the Leaflet container (never a Leaflet
 // `<Popup>` — a Popup lives inside Leaflet's own pane stack and doesn't
 // compose with React state/portals the way the rest of Workspace does).
-export function MapDetailsCard({ entity, containerPoint, containerSize, onClose, fixedGeography = false }: MapDetailsCardProps) {
+export function MapDetailsCard({ entity, anchor, markerSize, containerSize, onClose, actions, onAction, confirmDelete = true }: MapDetailsCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [cardHeight, setCardHeight] = useState(CARD_HEIGHT);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -56,38 +53,34 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
         onClose();
       }
     }
+    // Close on an outside press that RELEASES in place; a drag (pan) keeps the
+    // card, which re-anchors to its marker (DU-3.2). Decided at mouseup, which
+    // still precedes the click that may select another marker.
+    let down: { x: number; y: number } | null = null;
     function handleMouseDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      down = rootRef.current && !rootRef.current.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null;
+    }
+    function handleMouseUp(e: MouseEvent) {
+      const d = down;
+      down = null;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [onClose]);
 
-  // Clamp/flip at the container edges: default position is offset
-  // down-right of the click point; flips to up-left once the card would
-  // overflow that edge, then clamps so it never goes negative either.
-  let left = containerPoint.x + OFFSET;
-  let flippedX = false;
-  if (containerSize && left + CARD_WIDTH > containerSize.width) {
-    left = containerPoint.x - CARD_WIDTH - OFFSET;
-    flippedX = true;
-  }
-  let top = containerPoint.y - OFFSET;
-  let flippedY = false;
-  if (containerSize && top + CARD_HEIGHT > containerSize.height) {
-    top = containerPoint.y - CARD_HEIGHT + OFFSET;
-    flippedY = true;
-  }
-  if (containerSize) {
-    left = Math.max(4, Math.min(left, containerSize.width - CARD_WIDTH - 4));
-    top = Math.max(4, Math.min(top, containerSize.height - CARD_HEIGHT - 4));
-  }
+  useLayoutEffect(() => {
+    const h = rootRef.current?.offsetHeight;
+    if (h && h !== cardHeight) setCardHeight(h);
+  });
+
+  const { left, top, flippedX, flippedY } = placeCard(anchor, { width: CARD_WIDTH, height: cardHeight }, containerSize, markerSize);
 
   const { entity: e, kind } = entity;
 
@@ -120,6 +113,15 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
             {warehouseStatusPresentation[e.status].label}
           </span>
         )}
+        <button
+          type="button"
+          aria-label="Close"
+          data-testid="map-details-close"
+          className="min-h-6 min-w-6 ml-auto text-muted-foreground hover:bg-accent-100"
+          onClick={onClose}
+        >
+          ×
+        </button>
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lat">
         <span className="text-muted-foreground">Latitude</span>
@@ -146,12 +148,29 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose,
           <span className="font-mono">{fmt(e.demand)} units</span>
         </div>
       ) : null}
-      {/* ch5-edit-6 (§14.5) — always rendered now (was hidden entirely
-          under the old `readOnly` gate); only the wording narrows, since a
-          fixed-geography entity's right-click menu offers Edit alone. */}
-      <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">
-        {fixedGeography ? "Right-click for Edit" : "Right-click for Edit · Move · Copy · Delete"}
-      </div>
+      {actions.length > 0 && (
+        <>
+          <div role="group" aria-label="Actions" data-testid="map-details-actions" className="flex flex-wrap gap-1 border-t border-border px-3 py-1.5">
+            {actions.map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                data-testid={`map-details-action-${a.key}`}
+                className={`min-h-6 px-2 text-xs border border-border hover:bg-accent-100 ${a.danger ? "text-danger" : ""}`}
+                onClick={() => {
+                  if (a.key === "delete" && confirmDelete && !confirmingDelete) setConfirmingDelete(true);
+                  else onAction(a.key);
+                }}
+              >
+                {a.key === "delete" && confirmingDelete ? "Confirm delete?" : a.label}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">
+            Right-click for {actions.map((a) => a.label.replace("…", "")).join(" · ")}
+          </div>
+        </>
+      )}
     </div>
   );
 }

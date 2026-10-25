@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Router as WouterRouter } from "wouter";
 
 const { mockUseGetSolveHistory, mockUseGetLandingSummary } = vi.hoisted(() => ({
@@ -222,7 +223,7 @@ describe("Landing — mode-aware recent-solve objective label (D14)", () => {
 // errorCode-errorMessage failure rendering / retry affordance, on the real
 // live consumer of SolveHistoryEntry.
 describe("Landing — A9 legacy badges, errorCode/errorMessage failures, retry", () => {
-  it("shows a neutral 'unverified' badge for a succeeded-but-legacyUnverified row, alongside (never replacing) the succeeded badge", () => {
+  it("shows a neutral 'unverified' badge for a succeeded-but-legacyUnverified row, alongside (never replacing) the succeeded badge", async () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 30, scenarioId: 6, scenarioName: "Old Run", modelId: "p-median-us",
@@ -234,7 +235,16 @@ describe("Landing — A9 legacy badges, errorCode/errorMessage failures, retry",
     renderLanding();
     expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByTestId("badge-legacy-unverified-30")).toHaveTextContent("unverified");
-    expect(screen.getByTestId("badge-legacy-unverified-30")).toHaveAttribute("title", UNVERIFIED_TOOLTIP);
+    expect(screen.getByTestId("badge-legacy-unverified-30")).not.toHaveAttribute("title");
+    const btn = screen.getByTestId("button-unverified-info");
+    expect(btn).toHaveAttribute("aria-label", "Why unverified?");
+    expect(btn.className).toContain("min-h-6");
+    expect(btn.className).toContain("min-w-6");
+    btn.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByTestId("popover-unverified")).toHaveTextContent(UNVERIFIED_TOOLTIP);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("popover-unverified")).toBeNull());
     // The literal false-proof claim this exists to prevent must never appear.
     expect(screen.queryByText(/Proven optimal/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Optimal$/i)).not.toBeInTheDocument();

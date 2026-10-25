@@ -58,9 +58,15 @@ export interface EntityMarkersToggles {
  * (off-white) as a cut-out color rather than introducing another new
  * custom property. Envelope (`width="20" height="20" viewBox="0 0 24 24"`)
  * is unchanged so marker sizing/bounds/legend geometry are unaffected. */
-export function plantSquareSvg(): string {
-  return `<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polygon points="2,22 2,10 6,4 6,10 10,4 10,10 14,4 14,10 18,4 18,10 22,4 22,22" fill="var(--map-plant)" /><rect x="5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="10.5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="16" y="14" width="3" height="4" fill="var(--surface-band-fg)" /></svg>`;
+export function plantSquareSvg(selected = false): string {
+  const size = selected ? SELECTED_ICON : 20;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${selected ? SELECT_RING_24 : ""}<polygon points="2,22 2,10 6,4 6,10 10,4 10,10 14,4 14,10 18,4 18,10 22,4 22,22" fill="var(--map-plant)" /><rect x="5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="10.5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="16" y="14" width="3" height="4" fill="var(--surface-band-fg)" /></svg>`;
 }
+
+// DU-3.2 — selected 24-viewBox icons (warehouse, plant) render at 32px with the Output Map's
+// selection ring (NetworkMap.tsx), the same token and geometry.
+const SELECTED_ICON = 32;
+const SELECT_RING_24 = `<circle cx="12" cy="12" r="11" fill="none" stroke="var(--map-ring-select)" stroke-width="2" />`;
 
 /** A2 (Bundle 2.2) — the fixed OFF-state customer/station marker radius,
  * per the plan's Global Constraints (`FIXED_CUSTOMER_RADIUS = 6` px).
@@ -80,6 +86,8 @@ export interface EntityMarkersProps {
   onRightClick: (entity: MapEntity, e: L.LeafletMouseEvent) => void;
   onDragEnd: (entity: MapEntity, latlng: { lat: number; lng: number }) => void;
   draggableIds: Set<string>;
+  /** DU-3.2 — `${kind}:${id}` of the selected marker; it gets the selection ring and a larger icon. */
+  selectedKey?: string;
   /** No longer used by `demandTone` (types.ts's demandTone is green for
    * every model now, since R1's fast-follow) — but T5 (workspace-fixups-2,
    * item 4) revives this for the marker Tooltip's `<Type>` label
@@ -105,13 +113,19 @@ export interface EntityMarkersProps {
 // inactive gray. All three are already COMPLETE colors (bare hex/HSL — see
 // index.css's raw-token block), so they're consumed unwrapped as
 // `var(--token)`, never re-wrapped in `hsl(...)`.
-export function warehouseTriangleSvg(marker: "outline" | "filled" | "dashed"): string {
+export function warehouseTriangleSvg(marker: "outline" | "filled" | "dashed", selected = false): string {
   const filled = marker === "filled";
   const dashed = marker === "dashed";
   const stroke = dashed ? "var(--map-inactive)" : filled ? "var(--map-warehouse-open)" : "var(--map-warehouse)";
   const fill = filled ? "var(--map-warehouse-open)" : "none";
   const dashAttr = dashed ? ' stroke-dasharray="4"' : "";
-  return `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polygon points="12,2 22,20 2,20" fill="${fill}" stroke="${stroke}" stroke-width="2"${dashAttr} /></svg>`;
+  const size = selected ? SELECTED_ICON : 22;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${selected ? SELECT_RING_24 : ""}<polygon points="12,2 22,20 2,20" fill="${fill}" stroke="${stroke}" stroke-width="2"${dashAttr} /></svg>`;
+}
+
+/** DU-3.2 — a customer bubble's rendered icon size; +6 when selected so the ring fits. */
+export function customerIconSize(radiusPx: number, selected = false): number {
+  return Math.ceil(radiusPx * 2) + 4 + (selected ? 6 : 0);
 }
 
 // Bundle 3 (T10) — demand bubbles are always the map-customer green/stroke
@@ -122,10 +136,26 @@ export function warehouseTriangleSvg(marker: "outline" | "filled" | "dashed"): s
 // swatches use, so all three can never drift apart. `tone` stays a real
 // parameter (unused for color) so existing call sites (MapLegend.tsx) don't
 // need a signature change.
-export function customerBubbleSvg(radiusPx: number, _tone: DemandTone = "blue"): string {
-  const size = Math.ceil(radiusPx * 2) + 4;
+export function customerBubbleSvg(radiusPx: number, _tone: DemandTone = "blue", selected = false): string {
+  const size = customerIconSize(radiusPx, selected);
   const center = size / 2;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(--map-customer)" fill-opacity="0.55" stroke="var(--map-customer-stroke)" stroke-width="1.5" /></svg>`;
+  const ring = selected ? `<circle cx="${center}" cy="${center}" r="${radiusPx + 4}" fill="none" stroke="var(--map-ring-select)" stroke-width="2" />` : "";
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">${ring}<circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(--map-customer)" fill-opacity="0.55" stroke="var(--map-customer-stroke)" stroke-width="1.5" /></svg>`;
+}
+
+// A fresh divIcon per render makes react-leaflet's Marker call setIcon, which
+// REPLACES the marker's DOM node; a press that re-renders the map (e.g. the
+// tooltip closing on mousedown, DU-3.4) then loses its click. Same args ->
+// same icon instance -> the DOM node survives. Arg space is small and finite; EVERY visual
+// input must be an argument (it is the cache key).
+export function memoIcon<A extends (string | number | boolean | undefined)[]>(build: (...a: A) => L.DivIcon): (...a: A) => L.DivIcon {
+  const cache = new Map<string, L.DivIcon>();
+  return (...a) => {
+    const k = a.join("|");
+    let icon = cache.get(k);
+    if (!icon) cache.set(k, (icon = build(...a)));
+    return icon;
+  };
 }
 
 // T4 (Bundle 2) — `status` is optional now: a role with `hasStatus: false`
@@ -134,38 +164,39 @@ export function customerBubbleSvg(radiusPx: number, _tone: DemandTone = "blue"):
 // renders the plain outline triangle (same shape as p-median-us's own
 // "Potential" default) and carries no `status-*` class — a caller/test can
 // tell "no status" apart from "active status" by the class's absence.
-function warehouseIcon(status: WhStatus | undefined): L.DivIcon {
+const warehouseIcon = memoIcon(function warehouseIcon(status: WhStatus | undefined, selected: boolean): L.DivIcon {
   const marker = status ? warehouseStatusPresentation[status].marker : "outline";
   const statusClass = status ? ` status-${status}` : "";
   return L.divIcon({
-    html: warehouseTriangleSvg(marker),
+    html: warehouseTriangleSvg(marker, selected),
     className: `wh-marker${statusClass} marker-${marker}`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    iconSize: [selected ? SELECTED_ICON : 22, selected ? SELECTED_ICON : 22],
+    iconAnchor: [selected ? 16 : 11, selected ? 16 : 11],
   });
-}
+});
 
 // jade-T12 — no status/marker-style argument (a plant has no status
 // vocabulary at all, unlike `warehouseIcon` above), so this is a fixed icon,
 // not a per-row-computed one.
-function plantIcon(): L.DivIcon {
+const plantIcon = memoIcon(function plantIcon(selected: boolean): L.DivIcon {
+  const size = selected ? SELECTED_ICON : 20;
   return L.divIcon({
-    html: plantSquareSvg(),
+    html: plantSquareSvg(selected),
     className: "pl-marker",
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
-}
+});
 
-function customerIcon(radius: number, excluded: boolean, tone: DemandTone): L.DivIcon {
-  const size = Math.ceil(radius * 2) + 4;
+const customerIcon = memoIcon(function customerIcon(radius: number, excluded: boolean, tone: DemandTone, selected: boolean): L.DivIcon {
+  const size = customerIconSize(radius, selected);
   return L.divIcon({
-    html: customerBubbleSvg(radius, tone),
+    html: customerBubbleSvg(radius, tone, selected),
     className: `cs-marker${excluded ? " cs-excluded" : ""}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
+});
 
 // Renders a Marker per warehouse/customer as an SVG divIcon — triangle
 // style keyed off the shared statusPresentation, bubble radius off the
@@ -185,6 +216,7 @@ export function EntityMarkers({
   onRightClick,
   onDragEnd,
   draggableIds,
+  selectedKey,
   modelId,
 }: EntityMarkersProps) {
   const tone = demandTone(modelId);
@@ -197,6 +229,14 @@ export function EntityMarkers({
   function bindEventHandlers(entity: MapEntity) {
     return {
       click: (e: L.LeafletMouseEvent) => onLeftClick(entity, e),
+      // Leaflet 1.9.4 gives a focused marker (role=button, tabindex=0) a
+      // `keypress`, never a `click`, on Enter/Space; select it exactly as a click.
+      keypress: (e: L.LeafletKeyboardEvent) => {
+        const k = e.originalEvent.key;
+        if (k !== "Enter" && k !== " ") return;
+        e.originalEvent.preventDefault(); // Space would scroll the page
+        onLeftClick(entity, e as unknown as L.LeafletMouseEvent);
+      },
       contextmenu: (e: L.LeafletMouseEvent) => {
         // Marker's own contextmenu must not also bubble into the map's
         // empty-space "add here" contextmenu handler (T8 wires that on the
@@ -225,7 +265,7 @@ export function EntityMarkers({
             <Marker
               key={pl.id}
               position={[pl.lat, pl.lng]}
-              icon={plantIcon()}
+              icon={plantIcon(selectedKey === `pl:${pl.id}`)}
               draggable={draggableIds.has(pl.id)}
               eventHandlers={bindEventHandlers(entity)}
               zIndexOffset={1000}
@@ -246,7 +286,7 @@ export function EntityMarkers({
             <Marker
               key={wh.id}
               position={[wh.lat, wh.lng]}
-              icon={warehouseIcon(wh.status)}
+              icon={warehouseIcon(wh.status, selectedKey === `wh:${wh.id}`)}
               draggable={draggableIds.has(wh.id)}
               eventHandlers={bindEventHandlers(entity)}
               // Warehouses are the primary interaction target (facility-location
@@ -274,7 +314,7 @@ export function EntityMarkers({
             <Marker
               key={cs.id}
               position={[cs.lat, cs.lng]}
-              icon={customerIcon(radius, cs.excluded, tone)}
+              icon={customerIcon(radius, cs.excluded, tone, selectedKey === `cs:${cs.id}`)}
               draggable={draggableIds.has(cs.id)}
               eventHandlers={bindEventHandlers(entity)}
             >
@@ -288,4 +328,20 @@ export function EntityMarkers({
         })}
     </>
   );
+}
+
+/** DU-3.2 — the rendered icon size (px) of one marker, so a card can keep clear of its real envelope.
+ *  `customers` must be the same population passed to <EntityMarkers> (the demand scale is computed from it). */
+export function markerEnvelope(
+  kind: MapEntity["kind"],
+  entity: MapWarehouse | MapCustomer | MapPlant,
+  opts: { customers: MapCustomer[]; sizeByDemand?: boolean; selected?: boolean },
+): number {
+  const selected = opts.selected ?? false;
+  if (kind === "wh") return selected ? SELECTED_ICON : 22;
+  if (kind === "pl") return selected ? SELECTED_ICON : 20;
+  const radius = opts.sizeByDemand
+    ? makeQuintileRadius(opts.customers.map((c) => c.demand)).radiusOf((entity as MapCustomer).demand)
+    : FIXED_CUSTOMER_RADIUS;
+  return customerIconSize(radius, selected);
 }

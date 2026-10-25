@@ -9,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { MapEventsBridge, GhostFollower, AddEntityMenu, ToggleChip, LayerCheckbox, type OverlayAnchor } from "@/components/workspace/map/mapControls";
 import { SuperInputMap } from "@/components/workspace/super/SuperInputMap";
 import type { SuperInputsLike } from "@/lib/superNetwork";
-import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
+import { EntityMarkers, markerEnvelope, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
+import { MapAnchorBridge } from "@/components/workspace/map/MapAnchorBridge";
+import type { Point, Size } from "@/components/workspace/map/placeCard";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityName } from "@/components/EntityName";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
-import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
+import { MapActionMenu, actionsInContext, type EntityActionKey } from "@/components/workspace/map/MapActionMenu";
 import { EditWarehouseDialog } from "@/components/workspace/map/dialogs/EditWarehouseDialog";
 import { EditCustomerDialog } from "@/components/workspace/map/dialogs/EditCustomerDialog";
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
@@ -191,9 +193,8 @@ export type InputMapTabProps =
        * Move/Copy/Delete, draggable added-entity markers)
        * stays suppressed at this arm's own render sites below, never inside
        * the shared AddEntityMenu/MapActionMenu components (those are reused
-       * by transport/twoEchelon/jade too — see FixedGeographyActionMenu's
-       * own comment on why this arm renders its own small menu instead of
-       * widening MapActionMenu's props for all four modes). SCU-1.5 (spec B1.2)
+       * by transport/twoEchelon/jade too — this arm passes
+       * `ctx={{ fixedGeography }}` to the shared MapActionMenu). SCU-1.5 (spec B1.2)
        * — the Layers-row Save is NOT a geometry affordance and is gated on
        * `onSave` alone. Defaults false —
        * every existing caller (InputMapTabV2.test.tsx etc.) keeps today's
@@ -355,81 +356,6 @@ function useSupportsAddedCustomerExclusion(modelId: string | undefined): boolean
   return models?.find(m => m.id === modelId)?.capabilities.supportsAddedCustomerExclusion ?? false;
 }
 
-// ch5-edit-6 (§14.5) — a delivery-teaching-us-only action-menu variant.
-// MapActionMenu.tsx's own `actions` array is driven purely by
-// `entity.entity.isAdded` (base -> [edit, copy], added -> [edit, move,
-// copy, delete]) and delivery-teaching-us never has an added entity (no
-// added-entity affordance exists for it), so reusing MapActionMenu
-// unmodified would still surface "Copy" for every base entity — armable,
-// and its drop click creates a brand-new added row via CreateEntityDialog,
-// which IS a geometry change §14.5 must keep refusing. Rather than widen
-// MapActionMenu.tsx's props (shared by transport-coal/two-echelon-gold-au/
-// two-echelon-jade-us too, none of which have this requirement) for one
-// model's restriction, this is a small, InputMapTab-local menu with exactly
-// one action — same overlay-positioning/outside-click/Escape behavior as
-// MapActionMenu, same `map-action-menu`/`map-action-edit` testids, so no
-// caller needs to know which menu variant it's looking at.
-function FixedGeographyActionMenu({
-  entity,
-  containerPoint,
-  containerSize,
-  onEdit,
-  onClose,
-}: {
-  entity: MapEntity;
-  containerPoint: { x: number; y: number };
-  containerSize?: { width: number; height: number };
-  onEdit: () => void;
-  onClose: () => void;
-}) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleMouseDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
-
-  let left = containerPoint.x + 6;
-  let top = containerPoint.y + 6;
-  if (containerSize) {
-    left = Math.max(4, Math.min(left, containerSize.width - 150 - 4));
-    top = Math.max(4, Math.min(top, containerSize.height - 50 - 4));
-  }
-
-  const { entity: e } = entity;
-
-  return (
-    <div
-      ref={rootRef}
-      role="menu"
-      aria-label={`${e.displayCode} actions`}
-      data-testid="map-action-menu"
-      className="absolute bg-card border border-border shadow-md text-xs min-w-[150px] z-40"
-      style={{ left, top }}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        data-testid="map-action-edit"
-        className="w-full text-left px-3 py-1.5 hover:bg-accent-100"
-        onClick={onEdit}
-      >
-        Edit…
-      </button>
-    </div>
-  );
-}
-
 // ── Pure PMedianMapInputs mutators — D7 identity contract: an added
 // entity's `id` is the stable join key and NEVER changes, only
 // displayCode/coords/status/capacity/demand do. Move/delete touch ONLY the
@@ -588,7 +514,8 @@ function PMedianInputMap({
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -653,6 +580,11 @@ function PMedianInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -692,7 +624,7 @@ function PMedianInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -749,30 +681,21 @@ function PMedianInputMap({
     setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
   }
 
-  function handleMenuEdit() {
-    if (!actionMenu) return;
-    setEditEntity(actionMenu.entity);
-    setActionMenu(null);
-  }
-  function handleMenuMove() {
-    if (!actionMenu) return;
-    setArmed({ kind: "move", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuCopy() {
-    if (!actionMenu) return;
-    setArmed({ kind: "copy", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuDelete() {
-    if (!actionMenu) return;
-    // jade-T12 — MapEntity's "kind" widened to include "pl" (a genuinely
-    // different mode's entity kind); this mode's own `warehouses`/
-    // `customers` arrays never populate one, so this narrows back down to
-    // this mode's own closed "wh"|"cs" kind set (a type-only cast — never a
-    // real "pl" value flows through here).
-    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
-    onInputsChange(deleteAdded(inputs, kind, entity.id));
+  // One handler set shared by the right-click menu and the details card's buttons
+  // (DU-3.1): both pass the entity explicitly instead of reading `actionMenu`.
+  function actOn(key: EntityActionKey, target: MapEntity) {
+    if (key === "edit") setEditEntity(target);
+    else if (key === "move") setArmed({ kind: "move", entity: target });
+    else if (key === "copy") setArmed({ kind: "copy", entity: target });
+    else {
+      // jade-T12 — MapEntity's "kind" widened to include "pl" (a genuinely
+      // different mode's entity kind); this mode's own `warehouses`/
+      // `customers` arrays never populate one, so this narrows back down to
+      // this mode's own closed "wh"|"cs" kind set (a type-only cast — never a
+      // real "pl" value flows through here).
+      const { kind, entity: row } = target as Extract<MapEntity, { kind: "wh" | "cs" }>;
+      onInputsChange(deleteAdded(inputs, kind, row.id));
+    }
     setActionMenu(null);
   }
 
@@ -800,7 +723,7 @@ function PMedianInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    // jade-T12 — see handleMenuDelete's own comment on this same narrowing cast.
+    // jade-T12 — see actOn's delete-branch comment on this same narrowing cast.
     const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAdded(inputs, kind, entity.id, next));
     setMoveConfirm(null);
@@ -885,7 +808,8 @@ function PMedianInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* modelId fallback: this variant only ever renders the p-median FAMILY
               (us/brazil/max-coverage-us), all of which label Warehouse/Customer regardless of
@@ -896,6 +820,7 @@ function PMedianInputMap({
             warehouses={warehouses}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -916,57 +841,47 @@ function PMedianInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
-            fixedGeography={fixedGeography}
+            actions={actionsInContext(selected.entity, { fixedGeography })}
+            onAction={(key) => { const entity = selected.entity; setSelected(null); actOn(key, entity); }}
           />
         )}
         {/* ch5-del-9/ch5-edit-6 — the action menu itself is no longer
             gated off entirely: §14.5 keeps the right-click "Edit…" action
             (handleEntityRightClick still sets `actionMenu` state
             unconditionally — that handler is shared with left-click's
-            `selected` state machine and isn't itself gated). Which MENU
-            renders is what's gated: `fixedGeography` renders
-            FixedGeographyActionMenu (Edit only — see its own comment on why
-            it doesn't reuse MapActionMenu's `isAdded`-driven action set),
-            everything else renders the full MapActionMenu (Edit/Move/Copy/
-            Delete for an added entity, Edit/Copy for a base one). */}
+            `selected` state machine and isn't itself gated). Which
+            actions the menu lists is gated by `ctx={{ fixedGeography }}`
+            (actionsInContext: Edit only), otherwise Edit/Move/Copy/Delete
+            for an added entity and Edit/Copy for a base one. */}
         {actionMenu && (
-          fixedGeography ? (
-            <FixedGeographyActionMenu
-              key={actionMenu.openId}
-              entity={actionMenu.entity}
-              containerPoint={actionMenu.containerPoint}
-              containerSize={actionMenu.containerSize}
-              onEdit={handleMenuEdit}
-              onClose={() => setActionMenu(null)}
-            />
-          ) : (
-            <MapActionMenu
-              // Forces a full unmount/remount on every open (even a re-open
-              // for the very same entity+position) so its mount effect always
-              // re-focuses the first menu item and its unmount cleanup always
-              // restores focus to THIS open's own restoreFocusTo — without
-              // this, React can coalesce a "close old / open new" pair (e.g.
-              // right-clicking a marker while another marker's menu is still
-              // open) into a single props update on the SAME instance, and
-              // the effect that captures/restores focus never re-runs.
-              key={actionMenu.openId}
-              entity={actionMenu.entity}
-              containerPoint={actionMenu.containerPoint}
-              containerSize={actionMenu.containerSize}
-              restoreFocusTo={actionMenu.restoreFocusTo}
-              onEdit={handleMenuEdit}
-              onMove={handleMenuMove}
-              onCopy={handleMenuCopy}
-              onDelete={handleMenuDelete}
-              onClose={() => setActionMenu(null)}
-            />
-          )
+          <MapActionMenu
+            // Forces a full unmount/remount on every open (even a re-open
+            // for the very same entity+position) so its mount effect always
+            // re-focuses the first menu item and its unmount cleanup always
+            // restores focus to THIS open's own restoreFocusTo — without
+            // this, React can coalesce a "close old / open new" pair (e.g.
+            // right-clicking a marker while another marker's menu is still
+            // open) into a single props update on the SAME instance, and
+            // the effect that captures/restores focus never re-runs.
+            key={actionMenu.openId}
+            entity={actionMenu.entity}
+            containerPoint={actionMenu.containerPoint}
+            containerSize={actionMenu.containerSize}
+            restoreFocusTo={actionMenu.restoreFocusTo}
+            ctx={{ fixedGeography }}
+            onEdit={() => actOn("edit", actionMenu.entity)}
+            onMove={() => actOn("move", actionMenu.entity)}
+            onCopy={() => actOn("copy", actionMenu.entity)}
+            onDelete={() => actOn("delete", actionMenu.entity)}
+            onClose={() => setActionMenu(null)}
+          />
         )}
         {/* ch5-del-9/ch5-edit-6 — belt-and-suspenders: handleMapContextMenu
             already returns early on `fixedGeography` so `addMenu` state is
@@ -1140,7 +1055,8 @@ function TransportInputMap({
 }: Extract<InputMapTabProps, { mode: "transport" }>) {
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -1186,6 +1102,11 @@ function TransportInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -1211,7 +1132,7 @@ function TransportInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -1261,26 +1182,17 @@ function TransportInputMap({
     setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
   }
 
-  function handleMenuEdit() {
-    if (!actionMenu) return;
-    setEditEntity(actionMenu.entity);
-    setActionMenu(null);
-  }
-  function handleMenuMove() {
-    if (!actionMenu) return;
-    setArmed({ kind: "move", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuCopy() {
-    if (!actionMenu) return;
-    setArmed({ kind: "copy", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuDelete() {
-    if (!actionMenu) return;
-    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
-    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
-    onInputsChange(deleteAddedTransport(inputs, kind, entity.id));
+  // One handler set shared by the right-click menu and the details card's buttons
+  // (DU-3.1): both pass the entity explicitly instead of reading `actionMenu`.
+  function actOn(key: EntityActionKey, target: MapEntity) {
+    if (key === "edit") setEditEntity(target);
+    else if (key === "move") setArmed({ kind: "move", entity: target });
+    else if (key === "copy") setArmed({ kind: "copy", entity: target });
+    else {
+      // jade-T12 — see PMedianInputMap's actOn for why this cast.
+      const { kind, entity: row } = target as Extract<MapEntity, { kind: "wh" | "cs" }>;
+      onInputsChange(deleteAddedTransport(inputs, kind, row.id));
+    }
     setActionMenu(null);
   }
 
@@ -1320,7 +1232,7 @@ function TransportInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    // jade-T12 — see PMedianInputMap's actOn for why this cast.
     const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAddedTransport(inputs, kind, entity.id, next));
     setMoveConfirm(null);
@@ -1389,12 +1301,14 @@ function TransportInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
             warehouses={mines}
             customers={displayStations}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -1413,12 +1327,15 @@ function TransportInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayStations, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
+            actions={actionsInContext(selected.entity, {})}
+            onAction={(key) => { const entity = selected.entity; setSelected(null); actOn(key, entity); }}
           />
         )}
         {actionMenu && (
@@ -1428,10 +1345,10 @@ function TransportInputMap({
             containerPoint={actionMenu.containerPoint}
             containerSize={actionMenu.containerSize}
             restoreFocusTo={actionMenu.restoreFocusTo}
-            onEdit={handleMenuEdit}
-            onMove={handleMenuMove}
-            onCopy={handleMenuCopy}
-            onDelete={handleMenuDelete}
+            onEdit={() => actOn("edit", actionMenu.entity)}
+            onMove={() => actOn("move", actionMenu.entity)}
+            onCopy={() => actOn("copy", actionMenu.entity)}
+            onDelete={() => actOn("delete", actionMenu.entity)}
             onClose={() => setActionMenu(null)}
           />
         )}
@@ -1637,7 +1554,8 @@ function TwoEchelonInputMap({
   const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion("two-echelon-gold-au");
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -1686,6 +1604,11 @@ function TwoEchelonInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -1711,7 +1634,7 @@ function TwoEchelonInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -1761,26 +1684,17 @@ function TwoEchelonInputMap({
     setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
   }
 
-  function handleMenuEdit() {
-    if (!actionMenu) return;
-    setEditEntity(actionMenu.entity);
-    setActionMenu(null);
-  }
-  function handleMenuMove() {
-    if (!actionMenu) return;
-    setArmed({ kind: "move", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuCopy() {
-    if (!actionMenu) return;
-    setArmed({ kind: "copy", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuDelete() {
-    if (!actionMenu) return;
-    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
-    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
-    onInputsChange(deleteAddedTwoEchelon(inputs, kind, entity.id));
+  // One handler set shared by the right-click menu and the details card's buttons
+  // (DU-3.1): both pass the entity explicitly instead of reading `actionMenu`.
+  function actOn(key: EntityActionKey, target: MapEntity) {
+    if (key === "edit") setEditEntity(target);
+    else if (key === "move") setArmed({ kind: "move", entity: target });
+    else if (key === "copy") setArmed({ kind: "copy", entity: target });
+    else {
+      // jade-T12 — see PMedianInputMap's actOn for why this cast.
+      const { kind, entity: row } = target as Extract<MapEntity, { kind: "wh" | "cs" }>;
+      onInputsChange(deleteAddedTwoEchelon(inputs, kind, row.id));
+    }
     setActionMenu(null);
   }
 
@@ -1817,7 +1731,7 @@ function TwoEchelonInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    // jade-T12 — see PMedianInputMap's actOn for why this cast.
     const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAddedTwoEchelon(inputs, kind, entity.id, next));
     setMoveConfirm(null);
@@ -1885,7 +1799,8 @@ function TwoEchelonInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* T7 — the fixed mine: a plain, non-interactive marker (no
               `eventHandlers`, not draggable, not in the `refineries` array
@@ -1918,6 +1833,7 @@ function TwoEchelonInputMap({
             warehouses={refineries}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -1936,12 +1852,15 @@ function TwoEchelonInputMap({
           showCustomerLayer={toggles.customers}
           sizeByDemand={toggles.sizeByDemand ?? false}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
+            actions={actionsInContext(selected.entity, {})}
+            onAction={(key) => { const entity = selected.entity; setSelected(null); actOn(key, entity); }}
           />
         )}
         {actionMenu && (
@@ -1951,10 +1870,10 @@ function TwoEchelonInputMap({
             containerPoint={actionMenu.containerPoint}
             containerSize={actionMenu.containerSize}
             restoreFocusTo={actionMenu.restoreFocusTo}
-            onEdit={handleMenuEdit}
-            onMove={handleMenuMove}
-            onCopy={handleMenuCopy}
-            onDelete={handleMenuDelete}
+            onEdit={() => actOn("edit", actionMenu.entity)}
+            onMove={() => actOn("move", actionMenu.entity)}
+            onCopy={() => actOn("copy", actionMenu.entity)}
+            onDelete={() => actOn("delete", actionMenu.entity)}
             onClose={() => setActionMenu(null)}
           />
         )}
@@ -2203,7 +2122,8 @@ function JadeInputMap({
     sizeByDemand: false,
   });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" | "pl" } | null>(null);
-  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [selected, setSelected] = useState<{ entity: MapEntity; containerSize?: Size } | null>(null);
+  const [anchor, setAnchor] = useState<Point | null>(null);
   const [actionMenu, setActionMenu] = useState<
     ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
   >(null);
@@ -2251,6 +2171,11 @@ function JadeInputMap({
 
   function closeOverlays() {
     setSelected(null);
+    closeOverlaysKeepSelection();
+  }
+
+  // Pan/zoom re-anchors the details card via MapAnchorBridge, so only the menus close.
+  function closeOverlaysKeepSelection() {
     setActionMenu(null);
     setAddMenu(null);
   }
@@ -2276,7 +2201,7 @@ function JadeInputMap({
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
-    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    setSelected({ entity, containerSize: getContainerSize() });
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
@@ -2333,25 +2258,16 @@ function JadeInputMap({
     setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
   }
 
-  function handleMenuEdit() {
-    if (!actionMenu) return;
-    setEditEntity(actionMenu.entity);
-    setActionMenu(null);
-  }
-  function handleMenuMove() {
-    if (!actionMenu) return;
-    setArmed({ kind: "move", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuCopy() {
-    if (!actionMenu) return;
-    setArmed({ kind: "copy", entity: actionMenu.entity });
-    setActionMenu(null);
-  }
-  function handleMenuDelete() {
-    if (!actionMenu) return;
-    const { kind, entity } = actionMenu.entity;
-    onInputsChange(deleteAddedJade(inputs, kind, entity.id));
+  // One handler set shared by the right-click menu and the details card's buttons
+  // (DU-3.1): both pass the entity explicitly instead of reading `actionMenu`.
+  function actOn(key: EntityActionKey, target: MapEntity) {
+    if (key === "edit") setEditEntity(target);
+    else if (key === "move") setArmed({ kind: "move", entity: target });
+    else if (key === "copy") setArmed({ kind: "copy", entity: target });
+    else {
+      const { kind, entity: row } = target;
+      onInputsChange(deleteAddedJade(inputs, kind, row.id));
+    }
     setActionMenu(null);
   }
 
@@ -2469,13 +2385,15 @@ function JadeInputMap({
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
           <InvalidateOnResize />
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlaysKeepSelection} />
+          <MapAnchorBridge latLng={selected ? [selected.entity.entity.lat, selected.entity.entity.lng] : null} onAnchor={setAnchor} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
             plants={plants}
             warehouses={warehouses}
             customers={displayCustomers}
             toggles={toggles}
+            selectedKey={selected ? `${selected.entity.kind}:${selected.entity.entity.id}` : undefined}
             onLeftClick={handleEntityLeftClick}
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
@@ -2490,12 +2408,15 @@ function JadeInputMap({
           sizeByDemand={toggles.sizeByDemand ?? false}
           showPlantLayer={toggles.plants ?? true}
         />
-        {selected && (
+        {selected && anchor && selected.containerSize && (
           <MapDetailsCard
             entity={selected.entity}
-            containerPoint={selected.containerPoint}
+            anchor={anchor}
+            markerSize={markerEnvelope(selected.entity.kind, selected.entity.entity, { customers: displayCustomers, sizeByDemand: toggles.sizeByDemand, selected: true })}
             containerSize={selected.containerSize}
             onClose={() => setSelected(null)}
+            actions={actionsInContext(selected.entity, {})}
+            onAction={(key) => { const entity = selected.entity; setSelected(null); actOn(key, entity); }}
           />
         )}
         {actionMenu && (
@@ -2505,10 +2426,10 @@ function JadeInputMap({
             containerPoint={actionMenu.containerPoint}
             containerSize={actionMenu.containerSize}
             restoreFocusTo={actionMenu.restoreFocusTo}
-            onEdit={handleMenuEdit}
-            onMove={handleMenuMove}
-            onCopy={handleMenuCopy}
-            onDelete={handleMenuDelete}
+            onEdit={() => actOn("edit", actionMenu.entity)}
+            onMove={() => actOn("move", actionMenu.entity)}
+            onCopy={() => actOn("copy", actionMenu.entity)}
+            onDelete={() => actOn("delete", actionMenu.entity)}
             onClose={() => setActionMenu(null)}
           />
         )}

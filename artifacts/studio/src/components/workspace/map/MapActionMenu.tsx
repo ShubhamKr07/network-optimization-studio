@@ -23,13 +23,34 @@ export interface MapActionMenuProps {
   /** SM2-2 — default true (today's two-step "Confirm delete?"). false: the first click calls onDelete because the
    *  caller shows its own confirmation (Super's D3 cascade dialog states the referencing-row count). */
   confirmDelete?: boolean;
+  /** View rules (fixed geography / read-only) applied via actionsInContext. */
+  ctx?: { fixedGeography?: boolean; readOnly?: boolean };
 }
 
-interface MenuAction {
-  key: "edit" | "move" | "copy" | "delete";
+export type EntityActionKey = "edit" | "move" | "copy" | "delete";
+export interface EntityAction {
+  key: EntityActionKey;
   label: string;
   danger?: boolean;
-  run: () => void;
+}
+
+/** Master §A — the ONE action list for an entity: added -> edit, move, copy, delete; base -> edit, copy. */
+export function entityActionsFor(entity: MapEntity): EntityAction[] {
+  const edit: EntityAction = { key: "edit", label: "Edit…" };
+  const copy: EntityAction = { key: "copy", label: "Copy" };
+  return entity.entity.isAdded
+    ? [edit, { key: "move", label: "Move" }, copy, { key: "delete", label: "Delete", danger: true }]
+    : [edit, copy];
+}
+
+/** View rules on top of entityActionsFor (PR3-1): readOnly -> []; fixedGeography -> [edit]; else entityActionsFor. */
+export function actionsInContext(
+  entity: MapEntity,
+  ctx: { fixedGeography?: boolean; readOnly?: boolean },
+): EntityAction[] {
+  if (ctx.readOnly) return [];
+  const all = entityActionsFor(entity);
+  return ctx.fixedGeography ? all.filter((a) => a.key === "edit") : all;
 }
 
 // Right-click action menu, rendered as the same kind of plain overlay as
@@ -51,34 +72,24 @@ export function MapActionMenu({
   onDelete,
   onClose,
   confirmDelete = true,
+  ctx,
 }: MapActionMenuProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const isAdded = entity.entity.isAdded;
-  const actions: MenuAction[] = isAdded
-    ? [
-        { key: "edit", label: "Edit…", run: onEdit },
-        { key: "move", label: "Move", run: onMove },
-        { key: "copy", label: "Copy", run: onCopy },
-        {
-          key: "delete",
-          label: confirmingDelete ? "Confirm delete?" : "Delete",
-          danger: true,
-          run: () => {
-            if (!confirmDelete || confirmingDelete) {
-              onDelete();
-            } else {
-              setConfirmingDelete(true);
-            }
-          },
-        },
-      ]
-    : [
-        { key: "edit", label: "Edit…", run: onEdit },
-        { key: "copy", label: "Copy", run: onCopy },
-      ];
+  const run: Record<EntityActionKey, () => void> = {
+    edit: onEdit,
+    move: onMove,
+    copy: onCopy,
+    delete: () => {
+      if (!confirmDelete || confirmingDelete) onDelete();
+      else setConfirmingDelete(true);
+    },
+  };
+  const actions = actionsInContext(entity, ctx ?? {}).map((a) =>
+    a.key === "delete" && confirmingDelete ? { ...a, label: "Confirm delete?" } : a,
+  );
 
   useEffect(() => {
     // `restoreFocusTo` must come from the prop (captured by the caller
@@ -167,7 +178,7 @@ export function MapActionMenu({
           className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-accent-100 ${
             action.danger ? "text-accent-900" : ""
           } ${action.key === "delete" && confirmingDelete ? "bg-accent-100 font-semibold" : ""}`}
-          onClick={() => action.run()}
+          onClick={() => run[action.key]()}
         >
           {action.label}
         </button>

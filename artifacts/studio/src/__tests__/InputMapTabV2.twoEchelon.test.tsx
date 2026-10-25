@@ -445,3 +445,12 @@ describe("InputMapTab — twoEchelon mode: R4 Save-in-Layers", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("InputMapTab — twoEchelon mode: details card buttons (DU-3.1)", () => {
+  it("left-click a refinery, then map-details-action-edit opens the edit dialog", () => {
+    const { container } = renderTwoEchelon({ refineries: [baseRefinery()] });
+    fireEvent.click(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")[1]);
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("edit-warehouse-dialog")).toHaveTextContent("Edit refinery");
+  });
+});

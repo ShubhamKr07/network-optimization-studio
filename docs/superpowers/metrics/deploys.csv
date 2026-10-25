@@ -7,3 +7,7 @@ deployed_at,service,sha,smoke_pass,failed_checks,incident,notes
 2026-10-24T11:17:47.190Z,nos-studio,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"QFX; sha from Render get_deploy (live)"
 2026-10-24T12:06:51.738Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"DU-1 deploy smoke; nos-api not redeployed, still the QFX build (Render list_deploys live)"
 2026-10-24T12:06:51.738Z,nos-studio,457be982b2b2743c933da53ef9da192e93bc89ac,yes,,,"DU-1; sha from Render get_deploy dep-dbe9u0tg1s2s73etdrg0 (live)"
+2026-10-24T17:13:33.783Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"WFX deploy smoke; nos-api not redeployed, still the QFX build (Render list_deploys live); row restored from session output after /tmp was cleared by a reboot"
+2026-10-24T17:13:33.783Z,nos-studio,080fe5cdcaab9e01f5d28ee35f5b1d141e9d4bca,yes,,,"WFX; sha from Render get_deploy dep-dbeedt0ae00c73cslbd0 (live); row restored from session output after /tmp was cleared by a reboot"
+2026-10-25T04:29:03.438Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"DU-2 deploy smoke; nos-api not redeployed, still the QFX build (Render list_deploys live)"
+2026-10-25T04:29:03.438Z,nos-studio,e71c4fb5bfe1482cf95bbe2cde4d6e6daf4543c7,yes,,,"DU-2; sha from Render get_deploy dep-dbeoagom7kps73ehibjg (live)"

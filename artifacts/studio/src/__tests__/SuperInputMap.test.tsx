@@ -3,6 +3,8 @@ import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import L from "leaflet";
 import { UnitProvider } from "@/contexts/UnitContext";
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
+import { placeCard } from "@/components/workspace/map/placeCard";
+import { markerEnvelope } from "@/components/workspace/map/EntityMarkers";
 import { superMapRows, type SuperInputsLike } from "@/lib/superNetwork";
 
 const render = (ui: Parameters<typeof rtlRender>[0]) => rtlRender(ui, { wrapper: UnitProvider });
@@ -192,5 +194,68 @@ describe("SuperInputMap actions", () => {
     expect(screen.queryByTestId("map-add-menu")).not.toBeInTheDocument();
     fireEvent.contextMenu(markers(container)[0]);
     expect(screen.queryByTestId("map-action-menu")).not.toBeInTheDocument();
+  });
+});
+
+describe("SuperInputMap details card (DU-3.1)", () => {
+  it("left-click opens the card; Delete hands off on the FIRST click (confirmDelete=false)", () => {
+    const { container, onRequestDelete } = mount();
+    fireEvent.click(markers(container)[3]);
+    expect(screen.getByTestId("map-details-card")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("map-details-action-delete"));
+    expect(onRequestDelete).toHaveBeenCalledWith("customers", "C-1");
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+  it("Edit from the card opens SuperEntityDialog", () => {
+    const { container } = mount();
+    fireEvent.click(markers(container)[3]);
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("super-entity-demand-K2")).toHaveValue(7);
+  });
+  it("readOnly: the card opens but has no actions row", () => {
+    const { container } = mount(net(), true);
+    fireEvent.click(markers(container)[3]);
+    expect(screen.getByTestId("map-details-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-actions")).not.toBeInTheDocument();
+  });
+  it("a map click clears the selection", () => {
+    const { container } = mount();
+    fireEvent.click(markers(container)[3]);
+    fireEvent.click(container.querySelector(".leaflet-container")!, { clientX: 20, clientY: 20 });
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
+  });
+});
+
+describe("SuperInputMap card anchored to the marker (DU-3.2)", () => {
+  const point = (e: Element) => {
+    const el = e as HTMLElement;
+    const m = /translate3d\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px/.exec(el.style.transform);
+    return m ? { x: Number(m[1]), y: Number(m[2]) } : { x: parseFloat(el.style.left), y: parseFloat(el.style.top) };
+  };
+  it("card position equals placeCard from the marker's container point, not e.containerPoint; shared relative wrapper", () => {
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockReturnValue(800);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(600);
+    const { container } = mount();
+    fireEvent.click(markers(container)[3], { clientX: 5, clientY: 5 });
+    const card = screen.getByTestId("map-details-card");
+    const anchor = point(markers(container)[3]);
+    const rows = superMapRows(net());
+    const size = markerEnvelope("cs", rows.customers[0], { customers: rows.customers, sizeByDemand: false, selected: true });
+    const C = { width: 800, height: 600 };
+    const want = placeCard(anchor, { width: 224, height: 230 }, C, size);
+    expect(card.style.left).toBe(`${want.left}px`);
+    expect(card.style.top).toBe(`${want.top}px`);
+    const atClick = placeCard({ x: 5, y: 5 }, { width: 224, height: 230 }, C, size);
+    expect([card.style.left, card.style.top]).not.toEqual([`${atClick.left}px`, `${atClick.top}px`]);
+    const map = container.querySelector(".leaflet-container") as HTMLElement;
+    expect(card.parentElement).toBe(map.parentElement);
+    expect(map.parentElement).toHaveClass("relative");
+  });
+  it("the selected marker is ringed; Close dismisses the card", () => {
+    const { container } = mount();
+    fireEvent.click(markers(container)[3]);
+    expect(markers(container)[3].innerHTML).toContain("var(--map-ring-select)");
+    fireEvent.click(screen.getByTestId("map-details-close"));
+    expect(screen.queryByTestId("map-details-card")).not.toBeInTheDocument();
   });
 });

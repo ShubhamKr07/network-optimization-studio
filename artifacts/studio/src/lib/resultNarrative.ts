@@ -4,6 +4,7 @@ import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { bandDecimals, computeExclusiveBandCoverage, serviceEdgesFor } from "@/lib/bands";
 import { classifyResultOutcome, hasIncumbent } from "@/lib/resultOutcome";
 import { openSiteIds } from "@/lib/openSites";
+import { warehouseFigures } from "@/lib/warehouseFigures";
 
 // NAR-1 (spec 2026-10-17-output-narrative-rewrite-design.md) — the Output
 // Map's plain-language reading of the DISPLAYED result: 2-4 sentences, every
@@ -26,6 +27,12 @@ export interface NarrativeContext {
   nameById?: Record<string, string>;
   /** An earlier result of the same scenario (result history), for the "vs your previous run" parenthetical. */
   previous?: SolveResult | null;
+  /** DU-3.3 — the warehouse the Output Map is filtered to; the narrative then describes it alone. */
+  selectedWarehouseId?: string | null;
+  /** DU-3.3 — Chapter.demandUnit ("tons" | "units"), for the selected-warehouse sentence. */
+  demandUnit?: string;
+  /** DU-3.3 — role label of the feeding sources ("mine" on gold, "plant" on JADE/Super). */
+  sourceRole?: string;
 }
 
 export interface ResultNarrative {
@@ -102,6 +109,18 @@ export function buildResultNarrative(modelId: string, result: SolveResult, ctx: 
   const unitWord = d.unit === "mi" ? "miles" : d.unit;
   const num = (canonical: number) => formatDistanceDisplay(Math.round(d.toDisplay(canonical)));
   const dist = (canonical: number) => `${num(canonical)} ${unitWord}`;
+
+  // DU-3.3 — a filtered warehouse gets its own sentence (before the Super
+  // branch, which returns first). Edge figures only; never a cost.
+  if (ctx.selectedWarehouseId) {
+    const id = ctx.selectedWarehouseId;
+    const f = warehouseFigures(result, id);
+    if (f.customers === 0 || f.avgDistance == null || !f.farthest) return { text: `${name(id)} serves no customers in this result.` };
+    const unitText = ctx.demandUnit ? ` ${ctx.demandUnit}` : "";
+    const fed = f.feedingIds.length > 0 && ctx.sourceRole
+      ? ` It is fed from ${ctx.sourceRole}${f.feedingIds.length === 1 ? "" : "s"} ${list(f.feedingIds.map(name))}.` : "";
+    return { text: `${name(id)} serves ${f.customers} ${f.customers === 1 ? "customer" : "customers"} \u2014 ${grouped(Math.round(f.demandServed))}${unitText} of demand, about ${dist(f.avgDistance)} on average; the farthest is ${name(f.farthest.customerId)} at ${dist(f.farthest.distance)}.${fed}` };
+  }
 
   // SM-8 — super-model has no distance bands, so its narrative never touches
   // largestBand; it reads the cost/distance summary metrics only.

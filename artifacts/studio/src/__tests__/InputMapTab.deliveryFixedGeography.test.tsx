@@ -177,6 +177,11 @@ describe("InputMapTab pmedian — fixedGeography (delivery-teaching-us, §14.5)"
     expect(screen.getByTestId("map-details-lat")).toBeInTheDocument();
     expect(screen.getByTestId("map-details-footer")).toHaveTextContent("Right-click for Edit");
     expect(screen.getByTestId("map-details-footer")).not.toHaveTextContent("Move");
+    // DU-3.1 — the buttons come from the same list: Edit only, and it reaches the status edit.
+    expect(screen.getByTestId("map-details-action-edit")).toBeInTheDocument();
+    for (const a of ["move", "copy", "delete"]) expect(screen.queryByTestId(`map-details-action-${a}`)).toBeNull();
+    fireEvent.click(screen.getByTestId("map-details-action-edit"));
+    expect(screen.getByTestId("edit-warehouse-dialog")).toBeInTheDocument();
   });
 
   it("right-click on a marker opens the action menu with Edit only — Move/Copy/Delete stay hidden", () => {

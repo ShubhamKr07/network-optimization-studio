@@ -62,6 +62,9 @@ vi.mock("react-leaflet", async () => {
       fitBounds: vi.fn(),
       getContainer: () => document.createElement("div"),
       invalidateSize: vi.fn(),
+      // DU-3.4 — MapOverlayEvents subscribes to tooltip/popup events.
+      on: vi.fn(),
+      off: vi.fn(),
     }),
     useMapEvents: () => null,
     MapContainer: ({ children }: { children: React.ReactNode }) => (

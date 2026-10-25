@@ -9,10 +9,14 @@ import { assignBandOrOverflow } from "@/lib/bands";
 import { bandRangeLabel } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
+import { servingWarehouseIds } from "@/lib/warehouseFigures";
+import { productRoutesFor } from "@/lib/productRoutes";
+import { escapeHtml } from "@/lib/escapeHtml";
+import { MapOverlayEvents } from "@/components/workspace/map/MapOverlayEvents";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
-import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
+import { memoIcon, plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityName } from "@/components/EntityName";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
@@ -52,7 +56,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const createTriangleIcon = (
+const createTriangleIcon = memoIcon((
   status: "potential" | "forced_open" | "inactive" | "open",
   highlighted = false,
   dimmed = false,
@@ -103,14 +107,14 @@ const createTriangleIcon = (
     iconSize: [size, size],
     iconAnchor: [anchor, anchor],
   });
-};
+});
 
 // Sibling of createTriangleIcon — identical status/ring/multiSelect/opacity/
 // size logic, only the shape differs: a 5-point star instead of a triangle.
 // Used to render the single non-overridable mine in two-echelon-gold-au
 // (WarehouseCandidate.kind === "mine"); every other model's rows have
 // kind undefined and still render the triangle unchanged.
-const createStarIcon = (
+const createStarIcon = memoIcon((
   status: "potential" | "forced_open" | "inactive" | "open",
   highlighted = false,
   dimmed = false,
@@ -164,7 +168,7 @@ const createStarIcon = (
     iconSize: [size, size],
     iconAnchor: [anchor, anchor],
   });
-};
+});
 
 // jade-B1 (#2) — Output Map plant marker: reuses the input-map square symbol
 // (EntityMarkers.plantSquareSvg) rather than a hand-drawn copy, so it can
@@ -172,14 +176,14 @@ const createStarIcon = (
 // status/selection vocabulary of its own (see EntityMarkers.tsx's own
 // comment), so — unlike createTriangleIcon/createStarIcon — this takes no
 // status/highlight arguments; it's a fixed icon.
-function createPlantIcon(): L.DivIcon {
+const createPlantIcon = memoIcon((dimmed = false): L.DivIcon => {
   return L.divIcon({
-    html: plantSquareSvg(),
+    html: dimmed ? plantSquareSvg().replace("<svg ", '<svg opacity="0.25" ') : plantSquareSvg(),
     className: "",
     iconSize: [20, 20],
     iconAnchor: [10, 10],
   });
-}
+});
 
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });
@@ -243,13 +247,16 @@ interface PopupInfo {
   lng: number;
   customerCity: string;
   customerState: string;
-  warehouseCity: string;
-  warehouseState: string;
+  // DU-3.4 — every serving warehouse's display name (several = split sourcing, Q9).
+  warehouses: string[];
   distanceMi: number;
   band: number;
   // DU-2.2 — the band's range text ("≤ 250 mi", "> 1,000 mi"), from the
   // units bandRangeLabel authority; never hand-rolled here.
   bandLabelText: string;
+  // DU-3.4 — per-product routes (JADE/Super). All fields pre-formatted; the
+  // builder escapes them at render.
+  products?: { name: string; warehouse: string; outbound: string; sources: string[] }[];
 }
 
 // C4.11 — pure popup-markup builder, extracted so the distance unit is
@@ -265,23 +272,33 @@ interface PopupInfo {
 export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalUnit | null = null): string {
   const color = getBandColor(info.band);
   const distanceLine = distanceUnit == null ? "—" : `${formatDistanceDisplay(info.distanceMi)} ${distanceUnit}`;
-  return `
-      <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
-          ${info.customerCity}, ${info.customerState}
-        </div>
-        <div style="margin-bottom:3px;color:var(--text-body)">
-          <span style="color:var(--text-muted)">Warehouse:</span>
-          <strong style="margin-left:4px">${info.warehouseCity}, ${info.warehouseState}</strong>
-        </div>
+  const split = info.warehouses.length > 1;
+  const warehouseText = split ? `Split across ${info.warehouses.length} warehouses` : (info.warehouses[0] ?? "");
+  // A split customer has no single distance/band: each product row carries its own.
+  const summary = split ? "" : `
         <div style="margin-bottom:3px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Distance:</span>
-          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${distanceLine}</strong>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${escapeHtml(distanceLine)}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <strong style="font-family:var(--app-font-mono)">${info.bandLabelText}</strong>
+          <strong style="font-family:var(--app-font-mono)">${escapeHtml(info.bandLabelText)}</strong>
+        </div>`;
+  const products = (info.products ?? []).map((p) => `
+        <div style="margin-top:6px;padding-top:4px;border-top:1px solid var(--line);color:var(--text-body)">
+          <strong>${escapeHtml(p.name)}</strong> <span style="color:var(--text-muted)">via</span> ${escapeHtml(p.warehouse)}
+          <div style="font-family:var(--app-font-mono)">${escapeHtml(p.outbound)}</div>
+          ${p.sources.map((src) => `<div style="color:var(--text-muted)">${escapeHtml(src)}</div>`).join("")}
+        </div>`).join("");
+  return `
+      <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
+          ${escapeHtml(info.customerCity)}, ${escapeHtml(info.customerState)}
         </div>
+        <div style="margin-bottom:3px;color:var(--text-body)">
+          <span style="color:var(--text-muted)">Warehouse:</span>
+          <strong style="margin-left:4px">${escapeHtml(warehouseText)}</strong>
+        </div>${summary}${products}
       </div>
     `;
 }
@@ -302,9 +319,19 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
   useEffect(() => {
     const content = buildCustomerPopupHtml({ ...info, distanceMi: displayDistance }, resolvedUnitLabel);
 
+    // The popup opens ABOVE its point and Leaflet never flips it, so a tall
+    // (multi-product) one would poke out of the map's top, clipping its header
+    // and close button. Bound its (scrolling) content by the room above the
+    // point minus the popup chrome (content margins 26 + wrapper 2 + tip 20 +
+    // offset 4 + margin 8 = 60). The map's maxBounds can block autoPan, so the
+    // bound is what guarantees the fit. The floor only keeps a sliver visible:
+    // a point within ~100px of the top has no room above it by construction.
+    const fitHeight = () => Math.max(40, map.latLngToContainerPoint([info.lat, info.lng]).y - 60);
     const popup = L.popup({
       closeButton: true,
-      autoPan: false,
+      maxHeight: fitHeight(),
+      autoPan: true,
+      autoPanPadding: [16, 16],
       offset: [0, -4],
     })
       .setLatLng([info.lat, info.lng])
@@ -315,12 +342,16 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
       if (e.popup === popup) onClose();
     };
     map.on("popupclose", handleClose);
+    // The point moves on zoom, so the room above it does too.
+    const refit = () => { popup.options.maxHeight = fitHeight(); popup.update(); };
+    map.on("zoomend", refit);
 
     return () => {
       map.off("popupclose", handleClose);
+      map.off("zoomend", refit);
       map.closePopup(popup);
     };
-  }, [info.customerCity, info.warehouseCity, displayDistance, info.band, resolvedUnitLabel, info.bandLabelText]);
+  }, [info.customerCity, info.warehouses.join("|"), displayDistance, info.band, resolvedUnitLabel, info.bandLabelText, JSON.stringify(info.products)]);
 
   return null;
 }
@@ -423,6 +454,9 @@ interface NetworkMapProps {
   // raw-id tooltip. INT (T9) feeds this from the solved-snapshot
   // `outputIdentityById`.
   displayIdById?: Record<string, string>;
+  // DU-3.3 — fires (from an effect) with the filtered warehouse id, or null,
+  // so the Output Map tab's narrative can follow the selection.
+  onWarehouseSelectionChange?: (id: string | null) => void;
 }
 
 export function NetworkMap({
@@ -431,7 +465,7 @@ export function NetworkMap({
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
   hideClosedWarehouses = false, distanceUnit, visibleLegs,
-  plants = [], showPlantMarkers = true, modelId, displayIdById = {},
+  plants = [], showPlantMarkers = true, modelId, displayIdById = {}, onWarehouseSelectionChange,
 }: NetworkMapProps) {
   const displayUnit = useDisplayUnit();
   // chen-bands-units, Part D "No fallback unit — reads" — resolved once here
@@ -470,6 +504,8 @@ export function NetworkMap({
   // degenerate-guard's LAST-resort fallback tier.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => { onWarehouseSelectionChange?.(selectedWarehouseId); }, [selectedWarehouseId, onWarehouseSelectionChange]);
 
   const { maxDemand, minDemand } = useMemo(() => {
     let max = 0;
@@ -584,20 +620,23 @@ export function NetworkMap({
   }, [result, visibleLegs]);
 
   // Build popup info for the selected customer
-  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText"> | null>(() => {
+  const popupBase = useMemo<Omit<PopupInfo, "bandLabelText" | "products"> | null>(() => {
     if (!selectedCustomerId || !result) return null;
     const edge = assignmentMap.get(selectedCustomerId);
     if (!edge) return null;
     const customer = dataset.customers.find((c) => c.id === selectedCustomerId);
     const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
     if (!customer || !warehouse) return null;
+    const warehouses = servingWarehouseIds(result, selectedCustomerId).flatMap((id) => {
+      const w = dataset.warehouses.find((x) => x.id === id);
+      return w ? [formatCityState(w.city, w.state)] : [];
+    });
     return {
       lat: customer.lat,
       lng: customer.lng,
       customerCity: (customer as unknown as { city?: string }).city ?? "",
       customerState: (customer as unknown as { state?: string }).state ?? "",
-      warehouseCity: warehouse.city,
-      warehouseState: warehouse.state,
+      warehouses,
       distanceMi: edge.distance,
       // jade-B1 (#1 all-site overflow) — assignBandOrOverflow so a
       // beyond-highest-boundary distance gets the OVERFLOW_BAND sentinel
@@ -605,7 +644,24 @@ export function NetworkMap({
       band: assignBandOrOverflow(edge.distance, bands),
     };
   }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
-  const popupInfo: PopupInfo | null = popupBase && { ...popupBase, bandLabelText: rangeText(popupBase.distanceMi) };
+  const productRoutes = useMemo(
+    () => (selectedCustomerId && result ? productRoutesFor(result, dataset, selectedCustomerId) : []),
+    [selectedCustomerId, result, dataset],
+  );
+  const placeName = (id: string): string => {
+    const p = dataset.warehouses.find((w) => w.id === id) ?? plants.find((x) => x.id === id);
+    return p ? formatCityState(p.city, p.state) : id;
+  };
+  const popupInfo: PopupInfo | null = popupBase && {
+    ...popupBase,
+    bandLabelText: rangeText(popupBase.distanceMi),
+    products: productRoutes.map((r) => ({
+      name: r.productName,
+      warehouse: placeName(r.warehouseId),
+      outbound: `${formatEdgeDistance(r.outboundDistance)} · ${rangeText(r.outboundDistance)}`,
+      sources: r.sources.map((src) => `from ${placeName(src.sourceId)}: ${src.flow.toLocaleString()} (${formatEdgeDistance(src.distance)})`),
+    })),
+  };
 
   const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
   const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
@@ -639,6 +695,29 @@ export function NetworkMap({
 
   const anySelection = hasCustomerSelection || hasWarehouseFilter;
 
+  // DU-3.3 — the lanes kept bright per selection, on ALL legs (Q3): a
+  // warehouse keeps its outbound lanes + the inbound lanes into it; a
+  // customer keeps its own lanes + the inbound lanes into every warehouse
+  // serving it (split sourcing included). `touchedIds` = their endpoints, so
+  // an unconnected mine/plant dims.
+  const { focusEdgeKeys, touchedIds } = useMemo(() => {
+    const keys = new Set<string>();
+    const ids = new Set<string>();
+    if (!result) return { focusEdgeKeys: keys, touchedIds: ids };
+    let wanted: Set<string> | null = null;
+    if (selectedWarehouseId) wanted = new Set([selectedWarehouseId]);
+    else if (selectedCustomerId) wanted = new Set(servingWarehouseIds(result, selectedCustomerId));
+    if (!wanted) return { focusEdgeKeys: keys, touchedIds: ids };
+    for (const e of result.edges) {
+      const inbound = isInboundLeg(e.leg);
+      const hit = inbound
+        ? wanted.has(e.toId)
+        : selectedWarehouseId ? e.fromId === selectedWarehouseId : e.toId === selectedCustomerId;
+      if (hit) { keys.add(`${e.fromId}|${e.toId}`); ids.add(e.fromId); ids.add(e.toId); }
+    }
+    return { focusEdgeKeys: keys, touchedIds: ids };
+  }, [result, selectedWarehouseId, selectedCustomerId]);
+
   const hintText = (() => {
     if (hasWarehouseFilter) return "Click warehouse again or map background to reset";
     if (showRoutes && result) return "Click a warehouse ▲ to filter its customers · Click a customer dot to inspect its route";
@@ -661,6 +740,7 @@ export function NetworkMap({
         <FitBounds bounds={effectiveBounds} />
         <InvalidateOnResize />
         <MapClickDeselect onDeselect={handleDeselect} />
+        <MapOverlayEvents onChange={setOverlayOpen} />
 
         {popupInfo && (
           <CustomerPopup
@@ -706,11 +786,9 @@ export function NetworkMap({
                 : dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!toEntity || !fromEntity) return null;
 
-              // An inbound leg isn't tied to any one customer, so
-              // customer-focus dimming (inspecting a specific customer's
-              // route) doesn't apply to it — it stays fully visible.
-              const focused = isInboundEdge || isCustomerFocused(edge.toId);
-              const dimmed = !isInboundEdge && anySelection && !focused;
+              // DU-3.3 — every leg dims unless it is in the selection's focus set.
+              const focused = !anySelection || focusEdgeKeys.has(`${edge.fromId}|${edge.toId}`);
+              const dimmed = anySelection && !focused;
 
               // jade-B1 (#1 all-site overflow + JADE leg-vs-band coloring
               // resolution, spec §2) — the "Color lanes: Distance band"
@@ -818,7 +896,7 @@ export function NetworkMap({
                 },
               }}
             >
-              <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
+              {!(isCustomerSelected && popupInfo) && <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
                   <EntityName
                     type={customerTypeLabel(modelId)}
@@ -831,7 +909,7 @@ export function NetworkMap({
                   {" · "}
                   <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${rangeText(assignment.distance)}` : ""}</span>
                 </span>
-              </Tooltip>
+              </Tooltip>}
             </CircleMarker>
           );
         })}
@@ -846,7 +924,7 @@ export function NetworkMap({
           // genuinely closed candidate, even though it's not one.
           if (hideClosedWarehouses && w.kind !== "mine" && !isOpen) return null;
           const isHighlighted = w.id === selectedWarehouseId;
-          const isDimmed = hasWarehouseFilter && !isHighlighted && isOpen;
+          const isDimmed = anySelection && !isHighlighted && !touchedIds.has(w.id) && (w.kind === "mine" || (hasWarehouseFilter && isOpen));
 
           return (
             <Marker
@@ -886,7 +964,7 @@ export function NetworkMap({
             source, not a facility-location open/close decision). Gated only
             on the independent showPlantMarkers toggle. */}
         {showPlantMarkers && plants.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon(anySelection && !touchedIds.has(p.id))}>
             <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
               <span className="font-semibold text-xs">
                 <EntityName type="Plant" name={formatCityState(p.city, p.state)} id={displayIdById[p.id] ?? p.id} />
@@ -909,6 +987,7 @@ export function NetworkMap({
         distanceUnit={distanceUnit}
         hasPlants={plants.length > 0}
         showPlantLayer={showPlantMarkers}
+        dimmed={overlayOpen}
       />
     </div>
   );
