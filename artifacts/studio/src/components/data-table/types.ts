@@ -64,6 +64,8 @@ export interface DataTableTestIds<T> {
   filterTrigger?: string;
   /** Element rendered when `rows` is empty. */
   empty?: string;
+  /** Skeleton rendered while `loading` (default `data-table-loading`). */
+  loading?: string;
   /** The single full-width row rendered when the filter matches nothing. */
   noMatch?: string;
 }
@@ -127,8 +129,10 @@ export interface DataTableProps<T> {
   noMatchText?: ReactNode;
   sections?: DataTableSection<T>[];
   focus?: DataTableFocus<T> | null;
-  /** Classes for the scroll wrapper around the table (single-table mode), e.g. "max-h-[55vh] overflow-y-auto". */
+  /** Classes for the ONE scroll wrapper around the table(s) AND the pager (sticky header/pager bind to it), e.g. "max-h-[55vh] overflow-y-auto". Defaults to "overflow-auto". */
   scrollClassName?: string;
+  /** While true a skeleton replaces the body; it wins over `emptyState` and rows. */
+  loading?: boolean;
   /** Rendered inside the root after the pager (e.g. CostSummary's bands note). */
   footer?: ReactNode;
   /** Plural noun for the toolbar count: "4 plants" unfiltered, "1 of 4 plants" filtered. Without it: "N of M". */

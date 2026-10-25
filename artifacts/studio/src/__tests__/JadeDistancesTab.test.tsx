@@ -193,8 +193,8 @@ describe("JadeDistancesTab — rendering (no reference matrix)", () => {
   });
 });
 
-describe("JadeDistancesTab — Leg column", () => {
-  it("shows a Plant → Warehouse badge for an inbound-leg row and a Warehouse → Customer badge for an outbound-leg row", () => {
+describe("JadeDistancesTab — leg group headers (Q6)", () => {
+  it("groups an inbound-leg row under Plant → Warehouse and an outbound-leg row under Warehouse → Customer", () => {
     renderWithQueryClient(
       <JadeDistancesTab
         distanceOverrides={overrides}
@@ -205,10 +205,13 @@ describe("JadeDistancesTab — Leg column", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("badge-leg-plant_to_warehouse-plant-1-wh-1")).toHaveTextContent("Plant → Warehouse");
-    expect(screen.getByTestId("badge-leg-warehouse_to_customer-wh-1-customer-1")).toHaveTextContent(
-      "Warehouse → Customer",
-    );
+    const inbound = screen.getByTestId("section-leg-plant_to_warehouse");
+    expect(inbound).toHaveTextContent("Plant → Warehouse");
+    expect(inbound).toContainElement(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1"));
+    const outbound = screen.getByTestId("section-leg-warehouse_to_customer");
+    expect(outbound).toHaveTextContent("Warehouse → Customer");
+    expect(outbound).toContainElement(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1"));
+    expect(screen.queryByTestId("badge-leg-plant_to_warehouse-plant-1-wh-1")).not.toBeInTheDocument();
   });
 });
 
@@ -519,7 +522,7 @@ describe("JadeDistancesTab — the 4 override transitions, leg-discriminated", (
       );
     };
     renderWithQueryClient(<Wrapper />);
-    await waitFor(() => expect(screen.queryByTestId("jadedistances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     expect(screen.queryByTestId("badge-jadedistance-changed-plant_to_warehouse-plant-1-wh-1")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-remove-jadedistance-plant_to_warehouse-plant-1-wh-1"));
@@ -573,9 +576,13 @@ describe("JadeDistancesTab — status filter (inactive warehouse / excluded cust
         inactiveWarehouseIds={["wh-1"]}
       />,
     );
-    await waitFor(() =>
-      expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).toBeInTheDocument(),
-    );
+    // DU-2.6: the skeleton hides rows until the matrix loads; the override's row then sits deep in
+    // the merged list, so filter down to it (as the sibling tests do).
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "wh-1");
+    await user.type(screen.getByTestId("input-filter-to"), "customer-1");
+    expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).toBeInTheDocument();
     expect(
       screen.getByTestId("badge-jadedistance-changed-warehouse_to_customer-wh-1-customer-1"),
     ).toBeInTheDocument();
@@ -596,7 +603,7 @@ describe("JadeDistancesTab — status filter (inactive warehouse / excluded cust
         excludedCustomerIds={["customer-1"]}
       />,
     );
-    await waitFor(() => expect(screen.queryByTestId("jadedistances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     // Both wh-1|customer-1 (excluded, hidden) and wh-1|customer-2 (kept) sort
     // deep in the 2600-pair merged list — filter down to wh-1's outbound rows
     // so both are on the same (visible) page.
@@ -623,7 +630,7 @@ describe("JadeDistancesTab — added-entity override rows", () => {
         referenceCapable
       />,
     );
-    await waitFor(() => expect(screen.queryByTestId("jadedistances-reference-loading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("data-table-loading")).not.toBeInTheDocument());
     const user = await openDistanceFilterMenu();
     await user.type(screen.getByTestId("input-filter-from"), "aw-1234");
     const row = screen.getByTestId("row-jadedistance-warehouse_to_customer-aw-1234-customer-1");
@@ -747,7 +754,7 @@ describe("JadeDistancesTab — invalid input handling", () => {
 });
 
 describe("JadeDistancesTab — load/error states", () => {
-  it("loading: base cells show a spinner, error: base cells show 'unavailable', override rows stay editable in both", async () => {
+  it("error: base cells show 'unavailable', override rows stay editable (loading is the DataTable skeleton, DU-2.6)", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
     renderWithQueryClient(
       <JadeDistancesTab

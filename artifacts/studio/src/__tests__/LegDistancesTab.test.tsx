@@ -1,6 +1,6 @@
 import { cloneElement, type ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -118,7 +118,7 @@ describe("LegDistancesTab — rendering", () => {
   });
 });
 
-describe("LegDistancesTab — leg badge", () => {
+describe("LegDistancesTab — leg group headers (Q6)", () => {
   it("labels a mine->refinery pair correctly", () => {
     render(
       <LegDistancesTab
@@ -130,7 +130,8 @@ describe("LegDistancesTab — leg badge", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("badge-leg-kalgoorlie-daggar-hills")).toHaveTextContent("Mine → Refinery");
+    expect(screen.getByTestId("section-leg-mine_to_refinery")).toHaveTextContent("Mine → Refinery");
+    expect(screen.getByTestId("section-leg-mine_to_refinery")).toContainElement(screen.getByTestId("row-legdistance-kalgoorlie-daggar-hills"));
   });
 
   it("labels a refinery->customer pair correctly", () => {
@@ -144,7 +145,8 @@ describe("LegDistancesTab — leg badge", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("badge-leg-cunnamulla-sydney")).toHaveTextContent("Refinery → Customer");
+    expect(screen.getByTestId("section-leg-refinery_to_customer")).toHaveTextContent("Refinery → Customer");
+    expect(screen.getByTestId("section-leg-refinery_to_customer")).toContainElement(screen.getByTestId("row-legdistance-cunnamulla-sydney"));
   });
 
   it("flags a pair that resolves as neither leg as unrecognized", () => {
@@ -159,7 +161,11 @@ describe("LegDistancesTab — leg badge", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("badge-leg-kalgoorlie-sydney")).toHaveTextContent("Unrecognized pair");
+    const section = screen.getByTestId("section-leg-unknown");
+    expect(section).toHaveTextContent("Unrecognized pair");
+    // The unknown-leg title stays a red destructive Badge (it is an error, Q6).
+    expect(within(section).getByText("Unrecognized pair").closest("div")).toHaveClass("bg-destructive");
+    expect(section).toContainElement(screen.getByTestId("row-legdistance-kalgoorlie-sydney"));
   });
 });
 

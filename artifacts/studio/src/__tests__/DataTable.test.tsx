@@ -3,6 +3,7 @@ import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataTable } from "@/components/data-table/DataTable";
+import { StatusToggle } from "@/components/data-table/entityCells";
 import type { ColumnDef, DataTableFocus, DataTableProps } from "@/components/data-table/types";
 
 interface Row {
@@ -704,5 +705,75 @@ describe("DataTable — sort (QFX-4)", () => {
     expect(head("Demand")).toHaveAttribute("aria-sort", "none");
     expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 2 of 3");
     expect(screen.getByTestId("row-C75")).toBeInTheDocument();
+  });
+});
+
+// DU-2.6 — jsdom cannot prove `position: sticky` or scrolling. These tests assert the
+// CLASSES that produce the behaviour (sticky thead, single scroll ancestor, pinned
+// pager, 24px targets); DU-2.9 verifies them in a real browser.
+describe("DataTable — DU-2.6 affordances", () => {
+  it("loading: the skeleton shows and wins over emptyState and rows", () => {
+    renderTable({ rows: [], emptyState: <p>Nothing here</p>, loading: true });
+    expect(screen.getByTestId("data-table-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing here")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("loading wins over rows and honours testIds.loading", () => {
+    renderTable({ loading: true, testIds: { loading: "my-skeleton", row: r => `row-${r.id}` } });
+    expect(screen.getByTestId("my-skeleton")).toBeInTheDocument();
+    expect(visibleIds()).toEqual([]);
+  });
+
+  it("not loading: no skeleton", () => {
+    renderTable({ loading: false });
+    expect(screen.queryByTestId("data-table-loading")).toBeNull();
+  });
+
+  it("thead cells are sticky and the Table wrapper is not its own scroll container", () => {
+    renderTable({ testIds: { scroll: "scroll" } });
+    for (const th of screen.getAllByRole("columnheader")) expect(th).toHaveClass("sticky", "top-0", "z-10", "bg-background");
+    const wrapper = screen.getByRole("table").parentElement!;
+    expect(wrapper).toHaveClass("overflow-visible");
+    expect(wrapper).toHaveClass("relative");
+    expect(screen.getByTestId("scroll")).toHaveClass("overflow-auto"); // default scrollClassName
+  });
+
+  it("the pager is the last child INSIDE the scroll wrapper and is sticky-bottom", () => {
+    renderTable({ rows: makeRows(60), testIds: { scroll: "scroll", pager: "t-pager" } });
+    const scroll = screen.getByTestId("scroll");
+    const pager = screen.getByTestId("t-pager");
+    expect(scroll.lastElementChild).toBe(pager);
+    expect(pager).toHaveClass("sticky", "bottom-0", "z-10", "bg-background");
+  });
+
+  it("StatusToggle buttons are at least 24px", () => {
+    render(
+      <StatusToggle options={["a", "b"] as const} value="a" labelOf={s => s} activeClassOf={() => "x"} onChange={() => {}} disabled={false} testIdOf={s => `t-${s}`} />,
+    );
+    for (const id of ["t-a", "t-b"]) expect(screen.getByTestId(id)).toHaveClass("min-h-6", "min-w-6");
+  });
+
+  it("sections: ONE global pager inside the single scroll wrapper; a page spans both sections (PR2-9)", () => {
+    const rows = [...makeRows(30, "A"), ...makeRows(30, "B")];
+    render(
+      <DataTable<Row>
+        rows={rows}
+        rowKey={r => r.id}
+        columns={columns}
+        sections={[
+          { id: "a", title: "Group A", testId: "sec-a", includes: r => r.id.startsWith("A") },
+          { id: "b", title: "Group B", testId: "sec-b", includes: r => r.id.startsWith("B") },
+        ]}
+        testIds={{ row: r => `row-${r.id}`, scroll: "scroll", pager: "t-pager", pageIndicator: "t-ind" }}
+      />,
+    );
+    expect(screen.getByTestId("t-ind")).toHaveTextContent("Page 1 of 2");
+    expect(within(screen.getByTestId("sec-a")).getAllByTestId(/^row-/)).toHaveLength(30);
+    expect(within(screen.getByTestId("sec-b")).getAllByTestId(/^row-/)).toHaveLength(20);
+    expect(screen.getByTestId("sec-a")).toHaveTextContent("Group A");
+    expect(screen.getByTestId("sec-b")).toHaveTextContent("Group B");
+    expect(screen.getAllByTestId("t-pager")).toHaveLength(1);
+    expect(screen.getByTestId("scroll").lastElementChild).toBe(screen.getByTestId("t-pager"));
   });
 });

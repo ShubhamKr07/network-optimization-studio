@@ -138,7 +138,7 @@ export function StationsTab({
       kind: "text",
       filter: "text",
       value: r => r.displayId,
-      cellClassName: "font-mono text-xs",
+      cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
       cell: r => {
         if (!added) return r.displayId;
         const missing = completenessCountForStation(precheckErrors, r.id);

@@ -98,7 +98,10 @@ describe("DeliveryCostsTab on DataTable (SCU-2.P4.7)", () => {
   it("loading / error states keep their testids", () => {
     mockUseGetReferenceCosts.mockReturnValue({ data: undefined, isLoading: true, isError: false });
     const { unmount } = renderTab();
-    expect(screen.getByTestId("delivery-costs-tab-loading")).toHaveTextContent("Loading cost data");
+    // DU-2.6: the skeleton (same testid) replaces the loading copy; no emptyState while loading.
+    expect(screen.getByTestId("delivery-costs-tab-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Loading cost data…")).toBeNull();
+    expect(screen.queryByTestId("delivery-costs-tab-empty")).toBeNull();
     unmount();
     mockUseGetReferenceCosts.mockReturnValue({ data: undefined, isLoading: false, isError: true });
     renderTab();

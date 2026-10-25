@@ -42,7 +42,7 @@ export function StatusToggle<S extends string>({
           onClick={() => onChange(s)}
           disabled={disabled}
           title={disabled ? READ_ONLY_TITLE : undefined}
-          className={`px-2 py-1 transition-colors whitespace-nowrap ${
+          className={`px-2 py-1 min-h-6 min-w-6 inline-flex items-center justify-center transition-colors whitespace-nowrap ${
             value === s ? activeClassOf(s) : "bg-white text-muted-foreground hover:bg-muted"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >

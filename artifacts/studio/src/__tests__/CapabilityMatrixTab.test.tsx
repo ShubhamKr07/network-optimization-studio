@@ -49,6 +49,14 @@ describe("CapabilityMatrixTab", () => {
     expect(screen.getByTestId("checkbox-capability-plant-2-product-1")).toHaveAttribute("aria-checked", "false");
   });
 
+  it("DU-2.6: each checkbox sits in a 24px hit area (class assertion; DU-2.9 measures it in a browser)", () => {
+    render(
+      <CapabilityMatrixTab plants={plants} products={products} baseCapabilities={baseCapabilities} overrides={[]} onChange={vi.fn()} demandUnit="tons" />,
+    );
+    const hit = screen.getByTestId("checkbox-capability-plant-1-product-1").closest("label")!;
+    expect(hit).toHaveClass("h-6", "w-6");
+  });
+
   it("toggling a cell writes an override entry", async () => {
     const onChange = vi.fn();
     render(

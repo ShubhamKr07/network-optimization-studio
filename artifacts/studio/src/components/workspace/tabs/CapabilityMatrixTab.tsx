@@ -150,14 +150,17 @@ export function CapabilityMatrixTab({
           const capacity = cellCapacity(baseCapabilities, plant.id, product.id, checked);
           return (
             <div className="flex flex-col items-start gap-0.5">
-              <Checkbox
-                checked={checked}
-                onCheckedChange={() => toggle(plant.id, product.id)}
-                disabled={readOnly}
-                title={readOnly ? READ_ONLY_TITLE : undefined}
-                data-testid={`checkbox-capability-${plant.id}-${product.id}`}
-                aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
-              />
+              {/* 24px hit area (WCAG 2.5.8); the visual box stays h-4 w-4 */}
+              <label className="inline-flex h-6 w-6 items-center justify-center">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => toggle(plant.id, product.id)}
+                  disabled={readOnly}
+                  title={readOnly ? READ_ONLY_TITLE : undefined}
+                  data-testid={`checkbox-capability-${plant.id}-${product.id}`}
+                  aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
+                />
+              </label>
               <span
                 className="font-mono text-2xs text-muted-foreground"
                 data-testid={`text-capability-capacity-${plant.id}-${product.id}`}

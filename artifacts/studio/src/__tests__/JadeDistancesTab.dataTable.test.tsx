@@ -71,7 +71,7 @@ describe("JadeDistancesTab on DataTable (SCU-2.P4.5)", () => {
       "button-download-legdistances",
       "button-filter-menu-trigger",
       `row-jadedistance-${k}`,
-      `badge-leg-${k}`,
+      "section-leg-plant_to_warehouse",
       `input-jadedistance-${k}`,
       `badge-jadedistance-estimated-${k}`,
       `cell-jadedistance-cost-${k}`,
@@ -92,21 +92,22 @@ describe("JadeDistancesTab on DataTable (SCU-2.P4.5)", () => {
     expect(screen.getByTestId("select-new-jadedistance-leg")).toBeInTheDocument();
   });
 
-  it("from/to keep their 'City, ST code' text filters; leg is a select", () => {
+  it("from/to keep their 'City, ST code' text filters; the leg is a group header, not a filter (Q6)", () => {
     renderTab();
     fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
     expect(screen.getByTestId("input-filter-from")).toBeInTheDocument();
     expect(screen.getByTestId("input-filter-to")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("checkbox-filter-leg-Warehouse → Customer"));
-    expect(screen.queryByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toBeNull();
-    expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-1-cust-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("checkbox-filter-leg-Warehouse → Customer")).toBeNull();
+    expect(screen.getByTestId("section-leg-plant_to_warehouse")).toContainElement(
+      screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1"),
+    );
   });
 
   it("numbers centred (Base, Override, $/ton)", () => {
     renderTab();
-    const headers = within(screen.getByTestId("jade-distances-tab")).getAllByRole("columnheader");
-    expect(headers.map(h => h.textContent)).toEqual(["Leg", "From", "To", "Base (mi)", "Override (mi)", "$/ton", "Min?", ""]);
-    for (const i of [3, 4, 5]) expect(headers[i]).toHaveClass("text-center");
+    const headers = within(screen.getByTestId("section-leg-plant_to_warehouse")).getAllByRole("columnheader");
+    expect(headers.map(h => h.textContent)).toEqual(["From", "To", "Base (mi)", "Override (mi)", "$/ton", "Min?", ""]);
+    for (const i of [2, 3, 4]) expect(headers[i]).toHaveClass("text-center");
   });
 
   it("history read-only (D2)", () => {

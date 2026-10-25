@@ -65,7 +65,7 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
       "button-download-legdistances",
       "button-filter-menu-trigger",
       "row-legdistance-kalgoorlie-daggar-hills",
-      "badge-leg-kalgoorlie-daggar-hills",
+      "section-leg-mine_to_refinery",
       "input-legdistance-kalgoorlie-daggar-hills",
       "button-remove-legdistance-kalgoorlie-daggar-hills",
       "badge-legdistance-changed-cunnamulla-town-8",
@@ -73,7 +73,7 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
     ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
-    expect(screen.getByTestId("badge-leg-kalgoorlie-daggar-hills")).toHaveTextContent("Mine → Refinery");
+    expect(screen.getByTestId("section-leg-mine_to_refinery")).toHaveTextContent("Mine → Refinery");
     fireEvent.click(screen.getByTestId("button-download-legdistances"));
     expect(screen.getByTestId("button-export-legdistances-csv")).toBeInTheDocument();
     expect(screen.getByTestId("button-export-legdistances-json")).toBeInTheDocument();
@@ -86,19 +86,19 @@ describe("LegDistancesTab on DataTable (SCU-2.P4.4)", () => {
     expect(screen.queryByTestId("button-filter-menu-trigger")).toBeNull();
   });
 
-  it("the Leg column filters as a select over its labels", () => {
+  it("there is no Leg column or Leg filter any more: the leg is a group header (Q6)", () => {
     renderTab();
     fireEvent.click(screen.getByTestId("button-filter-menu-trigger"));
-    fireEvent.click(screen.getByTestId("checkbox-filter-leg-Mine → Refinery"));
-    expect(screen.getByTestId("row-legdistance-kalgoorlie-daggar-hills")).toBeInTheDocument();
-    expect(screen.queryByTestId("row-legdistance-cunnamulla-sydney")).toBeNull();
+    expect(screen.queryByTestId("checkbox-filter-leg-Mine → Refinery")).toBeNull();
+    expect(screen.getByTestId("section-leg-mine_to_refinery")).toContainElement(screen.getByTestId("row-legdistance-kalgoorlie-daggar-hills"));
+    expect(screen.getByTestId("section-leg-refinery_to_customer")).toContainElement(screen.getByTestId("row-legdistance-cunnamulla-sydney"));
   });
 
   it("numbers centred; amber on the changed row only", () => {
     renderTab();
-    const headers = within(screen.getByTestId("legdistances-tab")).getAllByRole("columnheader");
-    expect(headers.map(h => h.textContent)).toEqual(["Leg", "From", "To", "Distance (km)", ""]);
-    expect(headers[3]).toHaveClass("text-center");
+    const headers = within(screen.getByTestId("section-leg-mine_to_refinery")).getAllByRole("columnheader");
+    expect(headers.map(h => h.textContent)).toEqual(["From", "To", "Distance (km)", ""]);
+    expect(headers[2]).toHaveClass("text-center");
     expect(screen.getByTestId("row-legdistance-cunnamulla-town-8")).toHaveClass("bg-warning-bg");
     expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).not.toHaveClass("bg-warning-bg");
   });

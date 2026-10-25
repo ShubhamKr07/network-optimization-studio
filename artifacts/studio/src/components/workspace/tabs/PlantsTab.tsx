@@ -115,7 +115,7 @@ export function PlantsTab({
       kind: "text",
       filter: "text",
       value: r => r.displayId,
-      cellClassName: "font-mono text-xs",
+      cellClassName: "font-mono text-xs whitespace-nowrap min-w-[6rem]",
       cell: r => r.displayId,
     },
     { id: "city", header: "City", kind: "text", filter: "text", value: r => r.city, cellClassName: "text-xs", cell: r => r.city },
