@@ -14,6 +14,7 @@ import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityName } from "@/components/EntityName";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
@@ -761,7 +762,7 @@ export function NetworkMap({
                     sticky
                   >
                     <span className="text-xs">
-                      {fromEntity.city} → {toEntity.city}
+                      {formatCityState(fromEntity.city, fromEntity.state)} → {formatCityState(toEntity.city, toEntity.state)}
                       <br />
                       <span className="font-mono">{formatEdgeDistance(edge.distance)}</span>
                     </span>
@@ -819,10 +820,14 @@ export function NetworkMap({
             >
               <Tooltip direction="top" offset={[0, -4]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {customerTypeLabel(modelId)} · {displayIdById[c.id] ?? c.id} · {formatCityState(
-                    (c as unknown as { city?: string }).city ?? "",
-                    (c as unknown as { state?: string }).state ?? "",
-                  )}
+                  <EntityName
+                    type={customerTypeLabel(modelId)}
+                    name={formatCityState(
+                      (c as unknown as { city?: string }).city ?? "",
+                      (c as unknown as { state?: string }).state ?? "",
+                    )}
+                    id={displayIdById[c.id] ?? c.id}
+                  />
                   {" · "}
                   <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${rangeText(assignment.distance)}` : ""}</span>
                 </span>
@@ -866,7 +871,7 @@ export function NetworkMap({
                   always false for it) showed nothing on hover at all. */}
               <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {warehouseTypeLabel(w.kind, modelId)} · {displayIdById[w.id] ?? w.id} · {formatCityState(w.city, w.state)}
+                  <EntityName type={warehouseTypeLabel(w.kind, modelId)} name={formatCityState(w.city, w.state)} id={displayIdById[w.id] ?? w.id} />
                   {result && isOpen ? (
                     <span className="font-mono"> · {warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers</span>
                   ) : ""}
@@ -884,7 +889,7 @@ export function NetworkMap({
           <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
             <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
               <span className="font-semibold text-xs">
-                Plant · {displayIdById[p.id] ?? p.id} · {formatCityState(p.city, p.state)}
+                <EntityName type="Plant" name={formatCityState(p.city, p.state)} id={displayIdById[p.id] ?? p.id} />
               </span>
             </Tooltip>
           </Marker>

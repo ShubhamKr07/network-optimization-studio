@@ -825,7 +825,7 @@ describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", (
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · Testville, TS · W1");
   });
 
   it("forwards modelId so a two-echelon-gold-au facility marker labels 'Refinery'", () => {
@@ -847,7 +847,7 @@ describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", (
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
+    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · Cunnamulla, QLD · cunnamulla");
   });
 });
 

@@ -4,6 +4,7 @@ import L from "leaflet";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
 import { demandTone, makeQuintileRadius, type DemandTone, type MapWarehouse, type MapCustomer, type MapPlant, type MapEntity } from "./types";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityName } from "@/components/EntityName";
 
 // T5 (workspace-fixups-2, item 4) — marker-type label by role. A "wh"-kind
 // (triangle) row is Warehouse-shaped for every model except transport-coal
@@ -229,9 +230,9 @@ export function EntityMarkers({
               eventHandlers={bindEventHandlers(entity)}
               zIndexOffset={1000}
             >
-              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  Plant · {pl.displayCode || pl.id} · {formatCityState(pl.city, pl.state)}
+                  <EntityName type="Plant" name={formatCityState(pl.city, pl.state)} id={pl.displayCode || pl.id} />
                 </span>
               </Tooltip>
             </Marker>
@@ -257,9 +258,9 @@ export function EntityMarkers({
               // own (default 0) zIndexOffset.
               zIndexOffset={1000}
             >
-              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {warehouseTypeLabel(modelId)} · {wh.displayCode || wh.id} · {formatCityState(wh.city, wh.state)}
+                  <EntityName type={warehouseTypeLabel(modelId)} name={formatCityState(wh.city, wh.state)} id={wh.displayCode || wh.id} />
                 </span>
               </Tooltip>
             </Marker>
@@ -277,9 +278,9 @@ export function EntityMarkers({
               draggable={draggableIds.has(cs.id)}
               eventHandlers={bindEventHandlers(entity)}
             >
-              <Tooltip direction="top" offset={[0, -6]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -6]} opacity={1} className="nos-map-tooltip">
                 <span className="font-semibold text-xs">
-                  {customerTypeLabel(modelId)} · {cs.displayCode || cs.id} · {formatCityState(cs.city, cs.state)}
+                  <EntityName type={customerTypeLabel(modelId)} name={formatCityState(cs.city, cs.state)} id={cs.displayCode || cs.id} />
                 </span>
               </Tooltip>
             </Marker>

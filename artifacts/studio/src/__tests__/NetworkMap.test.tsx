@@ -82,8 +82,8 @@ describe("NetworkMap customer/station hover tooltip", () => {
 });
 
 // ── T5 (workspace-fixups-2, item 4) — `<Type> · <DisplayId> · City, State` ──
-describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 4)", () => {
-  it("a plain warehouse (no kind, no modelId) shows 'Warehouse · <id> · City, State'", () => {
+describe("NetworkMap marker tooltip: Type · City, State · DisplayId (T5, item 4)", () => {
+  it("a plain warehouse (no kind, no modelId) shows 'Warehouse · City, State · <id>'", () => {
     tooltipChildren.length = 0;
     render(
       <UnitProvider><NetworkMap
@@ -102,10 +102,10 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · Testville, TS · W1");
   });
 
-  it("a plain customer (no modelId) shows 'Customer · <id> · City, State'", () => {
+  it("a plain customer (no modelId) shows 'Customer · City, State · <id>'", () => {
     tooltipChildren.length = 0;
     render(
       <UnitProvider><NetworkMap
@@ -124,10 +124,10 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · C1 · Sampleburg, SB");
+    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · Sampleburg, SB · C1");
   });
 
-  it("a warehouse tagged kind:'mine' shows 'Mine · <id> · City, State' regardless of modelId", () => {
+  it("a warehouse tagged kind:'mine' shows 'Mine · City, State · <id>' regardless of modelId", () => {
     tooltipChildren.length = 0;
     const mineDataset = {
       warehouses: [{ id: "M1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const }],
@@ -151,10 +151,10 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Kalgoorlie"))).toContain("Mine · M1 · Kalgoorlie, WA");
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toContain("Mine · Kalgoorlie, WA · M1");
   });
 
-  it("a two-echelon-gold-au facility (kind:'facility', not the mine) shows 'Refinery · <id> · City, State' given modelId", () => {
+  it("a two-echelon-gold-au facility (kind:'facility', not the mine) shows 'Refinery · City, State · <id>' given modelId", () => {
     tooltipChildren.length = 0;
     const goldDataset = {
       warehouses: [{ id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, kind: "facility" as const }],
@@ -178,10 +178,10 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
+    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · Cunnamulla, QLD · cunnamulla");
   });
 
-  it("a transport-coal warehouse-role marker shows 'Mine · <id> · City, State' (matching the model's own vocabulary — its Warehouses tab is titled 'Mines'), and its customer-role marker still shows 'Station · <id> · City, State', given modelId", () => {
+  it("a transport-coal warehouse-role marker shows 'Mine · City, State · <id>' (matching the model's own vocabulary — its Warehouses tab is titled 'Mines'), and its customer-role marker still shows 'Station · City, State · <id>', given modelId", () => {
     tooltipChildren.length = 0;
     const transportDataset = {
       warehouses: [{ id: "KY", city: "Pikeville", state: "KY", lat: 37.54, lng: -82.75 }],
@@ -205,11 +205,11 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Pikeville"))).toContain("Mine · KY · Pikeville, KY");
-    expect(texts.find((t) => t.includes("Pittsburgh"))).toContain("Station · S1 · Pittsburgh, PA");
+    expect(texts.find((t) => t.includes("Pikeville"))).toContain("Mine · Pikeville, KY · KY");
+    expect(texts.find((t) => t.includes("Pittsburgh"))).toContain("Station · Pittsburgh, PA · S1");
   });
 
-  it("a plant marker shows 'Plant · <id> · City, State'", () => {
+  it("a plant marker shows 'Plant · City, State · <id>'", () => {
     tooltipChildren.length = 0;
     const plantOnlyDataset = { warehouses: [], customers: [] };
     render(
@@ -230,7 +230,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Springfield"))).toContain("Plant · plant-1 · Springfield, IL");
+    expect(texts.find((t) => t.includes("Springfield"))).toContain("Plant · Springfield, IL · plant-1");
   });
 
   it("displayIdById resolves a marker's DisplayId (e.g. an added entity's display code, not its canonical uid)", () => {
@@ -257,8 +257,8 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · WH-TS-TES-01 · Testville, TS");
-    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · CS-SB-SAM-01 · Sampleburg, SB");
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · Testville, TS · WH-TS-TES-01");
+    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · Sampleburg, SB · CS-SB-SAM-01");
     expect(texts.join("")).not.toContain("aw-uuid-1");
     expect(texts.join("")).not.toContain("ac-uuid-1");
   });
@@ -282,7 +282,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · Testville, TS · W1");
   });
 
   it("formats a missing state without a trailing comma (formatCityState) for both warehouse and customer markers", () => {
@@ -308,9 +308,9 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Chengdu"))).toContain("Warehouse · W1 · Chengdu");
+    expect(texts.find((t) => t.includes("Chengdu"))).toContain("Warehouse · Chengdu · W1");
     expect(texts.find((t) => t.includes("Chengdu"))).not.toContain("Chengdu,");
-    expect(texts.find((t) => t.includes("Changchun"))).toContain("Customer · C1 · Changchun");
+    expect(texts.find((t) => t.includes("Changchun"))).toContain("Customer · Changchun · C1");
     expect(texts.find((t) => t.includes("Changchun"))).not.toContain("Changchun,");
   });
 });
@@ -467,7 +467,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
     // The old bare "(mine)" suffix is retired: the "Mine" type label now
     // carries that information, so it's asserted via the Type prefix
     // instead, not a trailing "(mine)".
-    expect(tooltipContainer.textContent).toContain("Mine · M1 · Kalgoorlie, WA");
+    expect(tooltipContainer.textContent).toContain("Mine · Kalgoorlie, WA · M1");
   });
 
   it("does NOT show a 'Mine (fixed)' legend entry for models with no mine", () => {
@@ -1172,7 +1172,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
     expect(tooltipContainer.textContent).toContain("Testville");
     expect(tooltipContainer.textContent).toContain("Sampleburg");
-    expect(tooltipContainer.textContent).toContain("Testville → Sampleburg");
+    expect(tooltipContainer.textContent).toContain("Testville, TS → Sampleburg, SB");
     // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
     // was passed, so the canonical unit is unresolved — the tooltip shows a
     // placeholder, never a guessed "mi".
@@ -2031,10 +2031,10 @@ describe("NetworkMap — Output Map tooltips are opaque nos-map-tooltip (SCU-1.8
     // The mock records every render, so assert by CONTENT that all four
     // sites were exercised, then that every recorded call is opaque + classed.
     const texts = tooltipCalls.map(c => render(<>{c.children}</>).container.textContent ?? "");
-    expect(texts.some(t => t.includes("Testville → Sampleburg"))).toBe(true); // lane
-    expect(texts.some(t => t.includes("Customer · C1"))).toBe(true);          // customer
-    expect(texts.some(t => t.includes("Warehouse · W1"))).toBe(true);         // warehouse
-    expect(texts.some(t => t.includes("Plant · P1"))).toBe(true);             // plant
+    expect(texts.some(t => t.includes("Testville, TS → Sampleburg, SB"))).toBe(true); // lane
+    expect(texts.some(t => t.includes("Customer · Sampleburg, SB · C1"))).toBe(true);          // customer
+    expect(texts.some(t => t.includes("Warehouse · Testville, TS · W1"))).toBe(true);         // warehouse
+    expect(texts.some(t => t.includes("Plant · Plantown, PL · P1"))).toBe(true);             // plant
     for (const call of tooltipCalls) {
       expect(call.props.className).toContain("nos-map-tooltip");
       expect(call.props.opacity).toBe(1);

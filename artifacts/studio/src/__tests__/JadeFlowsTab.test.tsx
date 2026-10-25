@@ -470,7 +470,7 @@ describe("JadeFlowsTab", () => {
 
   // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade
   // rule, applied INDEPENDENTLY per inner table.
-  describe("identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+  describe("identityById (name + ID at any row count)", () => {
     // aggregatePlantToWarehouse groups by (fromId,toId) — so a helper meant
     // to control the AGGREGATED row count (`pwRows.length`) needs DISTINCT
     // (plant,warehouse) pairs, not distinct productId on the same pair (that
@@ -501,19 +501,20 @@ describe("JadeFlowsTab", () => {
       "wh-11": { city: "Chicago", state: "IL", displayId: "WH-CHI-01" },
     };
 
-    it("Plant -> Warehouse: at exactly 10 unfiltered rows, keeps the pre-existing single-line label (no mono displayId yet)", () => {
+    it("DU-2.7 (PR2-4): Plant -> Warehouse with only 3 rows still shows name + mono ID (no >10 gate)", () => {
       render(
         <JadeFlowsTab
-          result={makeResult(manyPwEdgesKnownPlantWarehouse(10))}
+          result={makeResult(manyPwEdgesKnownPlantWarehouse(3))}
           dataset={dataset}
           bands={bands}
           identityById={identityById}
         />,
       );
-      // 10 distinct products on the same (plant,warehouse) pair aggregate into ONE row.
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
       expect(row).toHaveTextContent("Bethlehem, PA");
-      expect(row).not.toHaveTextContent("PLANT-1-CODE");
+      expect(within(row).getByText("PLANT-1-CODE")).toHaveClass("font-mono");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
 
     it("Plant -> Warehouse: at 11 unfiltered rows (crossing the boundary), upgrades to the stacked EntityIdCell with the mono displayId", () => {
@@ -532,14 +533,14 @@ describe("JadeFlowsTab", () => {
       expect(row).toHaveTextContent("WH-CHI-01");
     });
 
-    it("Warehouse -> Customer: independently gated on its OWN row count — stays below its own threshold even while Plant -> Warehouse is above 10", async () => {
+    it("DU-2.7 (PR2-4): Warehouse -> Customer with only 3 rows shows name + mono ID even while Plant -> Warehouse is above 10", async () => {
       const user = userEvent.setup();
       const result = makeResult([...manyPwEdgesKnownPlantWarehouse(11), ...manyWcEdgesKnownWarehouse(3)]);
       render(<JadeFlowsTab result={result} dataset={dataset} bands={bands} identityById={identityById} />);
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
       const row = screen.getByTestId("jade-flow-wc-row-wh-11-customer-0");
       expect(row).toHaveTextContent("Chicago, IL");
-      expect(row).not.toHaveTextContent("WH-CHI-01");
+      expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
 
     it("Warehouse -> Customer: upgrades once ITS OWN row count exceeds 10, independent of Plant -> Warehouse's count", async () => {

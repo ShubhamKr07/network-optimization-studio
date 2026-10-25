@@ -352,7 +352,7 @@ describe("JadeAssignmentsTab", () => {
   });
 
   // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade rule.
-  describe("identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+  describe("identityById (name + ID at any row count)", () => {
     function manyRowsWithKnownWarehouse(count: number) {
       return makeResult(
         Array.from({ length: count }, (_, i) => ({
@@ -367,10 +367,10 @@ describe("JadeAssignmentsTab", () => {
       "wh-11": { city: "Chicago", state: "IL", displayId: "WH-CHI-01" },
     };
 
-    it("at exactly 10 unfiltered rows (the boundary), keeps the pre-existing single-line label — no mono displayId sub-label yet", () => {
+    it("DU-2.7 (PR2-4): at only 3 rows the warehouse cell still shows name + mono ID (no >10 gate)", () => {
       render(
         <JadeAssignmentsTab
-          result={manyRowsWithKnownWarehouse(10)}
+          result={manyRowsWithKnownWarehouse(3)}
           dataset={dataset}
           bands={bands}
           scenarioId={1}
@@ -378,9 +378,8 @@ describe("JadeAssignmentsTab", () => {
         />,
       );
       const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
-      // Pre-existing format uses " - " (cityStateLabel), never a comma.
-      expect(row).toHaveTextContent("Chicago - IL");
-      expect(row).not.toHaveTextContent("WH-CHI-01");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
 
     it("at 11 unfiltered rows (crossing the boundary), upgrades the warehouse cell to the stacked EntityIdCell with the mono displayId", () => {

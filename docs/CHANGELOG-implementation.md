@@ -4886,3 +4886,13 @@ Branch `du-2.6-work` (base `acf73a52`); plan `docs/superpowers/plans/2026-10-24-
 - **Q6.** Leg column removed from JadeDistancesTab and LegDistancesTab; `sections` per leg, testids `section-leg-${leg}`; the unknown-leg title keeps the red destructive Badge + AlertTriangle. Side effect: the Leg select filter is gone (one global filter/sort/pager, a page spans legs, PR2-9).
 - **Tests/e2e.** New DataTable affordance tests (class assertions for CSS-only behaviour; jsdom has no layout, DU-2.9 verifies in a browser), 60-row 30/30 section pager test, `MapControls.targets.test.tsx`; rewrote Distances/JadeDistances/LegDistances/DeliveryCosts tests (`data-table-loading`, `section-leg-*`, post-load filters), WarehousesTab ID class test; e2e `bundle6.1-legend-distances.spec.ts` leg badge -> section.
 - **Gate.** studio 180 files / 3000 tests; `pnpm run typecheck` and `typecheck:e2e` clean.
+
+### DU-2.7 — entity naming + tooltip typography (design upgrade, Phase 2)
+Branch `du-2.7-work` (base `cc0a0a97`); plan `docs/superpowers/plans/2026-10-24-design-upgrade-phase-2.md` Task DU-2.7, row PR2-4.
+- **`EntityName`.** New `components/EntityName.tsx` `<EntityName type? name id />` renders `Type · Name · ID` (ID in `font-mono`); `name` is `formatCityState`. Canonical shape `Warehouse · Chicago, IL · WH-IL-CHI-01` (replaces `Type · ID · City`). Used by every NetworkMap tooltip (customer, warehouse, plant), EntityMarkers (plant, warehouse, customer) and the InputMapTab fixed mine (`Mine · Kalgoorlie, WA · kalgoorlie (fixed)`).
+- **Route tooltip.** `formatCityState(from) → formatCityState(to)` (was bare city names); distance stays mono.
+- **One tooltip typography.** `nos-map-tooltip` now also on EntityMarkers' three tooltips and the input-map mine tooltip (`index.css` comment updated).
+- **MapDetailsCard.** Header is name + mono ID; `map-details-code` now sits on the ID span, new `map-details-name` on the wrapper; aria-label `` `${name} (${id}) details` ``. The separate City row (`map-details-city`) is removed so the name appears once.
+- **Edit dialogs.** Warehouse and Customer: "Code" + "City / State" rows become "Name" (testid `*-location` kept) + mono "ID" (testid `*-display-code` kept).
+- **PR2-4.** JadeAssignmentsTab and JadeFlowsTab render `EntityIdCell` whenever `identityById` has the entity, at any row count; the `rows.length > 10` gate and `upgrade` param are gone.
+- **Tests/e2e.** Rewrote EntityMarkers, NetworkMap, OutputMapTab, InputMapTabV2.twoEchelon, MapDetailsCard, EditWarehouseDialog literals; new EditCustomerDialog test; 3-row JADE Assignments/Flows tests replace the `exactly 10` boundary tests; e2e `assertTooltipShape` regex is `^${type} · [^,]+, [A-Z]{2,4} · \S+`.

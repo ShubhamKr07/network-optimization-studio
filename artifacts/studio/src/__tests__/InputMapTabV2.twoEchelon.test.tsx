@@ -31,12 +31,16 @@ vi.mock("@workspace/api-client-react", () => ({
 // (react-leaflet's non-permanent Tooltip never attaches its children to the
 // jsdom document until hovered in a real browser).
 const tooltipChildren: React.ReactNode[] = [];
+const tooltipClassNames: unknown[] = [];
 vi.mock("react-leaflet", async () => {
   const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
   return {
     ...actual,
-    Tooltip: (props: { children?: React.ReactNode }) => {
-      if (props.children) tooltipChildren.push(props.children);
+    Tooltip: (props: { children?: React.ReactNode; className?: string }) => {
+      if (props.children) {
+        tooltipChildren.push(props.children);
+        tooltipClassNames.push(props.className);
+      }
       return null;
     },
   };
@@ -213,14 +217,22 @@ describe("InputMapTab — twoEchelon mode: fixed mine has zero edit affordances 
   // `displayId` is formatted DIRECTLY off the live mine row passed as a
   // prop (`mine.displayCode ?? mine.id`) — input-live, never a solved-
   // snapshot identity map.
-  it("the fixed mine's tooltip reads 'Mine · <displayId> · City, State (fixed)'", () => {
+  it("the fixed mine's tooltip reads 'Mine · City, State · <displayId> (fixed)'", () => {
     tooltipChildren.length = 0;
     renderTwoEchelon();
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · kalgoorlie · Kalgoorlie, WA (fixed)");
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · Kalgoorlie, WA · kalgoorlie (fixed)");
+  });
+
+  it("DU-2.7: input-map tooltips share the nos-map-tooltip class", () => {
+    tooltipChildren.length = 0;
+    tooltipClassNames.length = 0;
+    renderTwoEchelon();
+    expect(tooltipClassNames.length).toBeGreaterThan(0);
+    for (const c of tooltipClassNames) expect(c).toBe("nos-map-tooltip");
   });
 
   it("the fixed mine's tooltip falls back to the mine's own id when it has no displayCode", () => {
@@ -230,7 +242,7 @@ describe("InputMapTab — twoEchelon mode: fixed mine has zero edit affordances 
       const { container } = render(<>{child}</>);
       return container.textContent ?? "";
     });
-    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · mine-raw-id · Kalgoorlie, WA (fixed)");
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · Kalgoorlie, WA · mine-raw-id (fixed)");
   });
 });
 

@@ -11,6 +11,7 @@ import { SuperInputMap } from "@/components/workspace/super/SuperInputMap";
 import type { SuperInputsLike } from "@/lib/superNetwork";
 import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityName } from "@/components/EntityName";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
 import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
@@ -1899,16 +1900,16 @@ function TwoEchelonInputMap({
               both. */}
           {mine && toggles.warehouses && (
             <Marker position={[mine.lat, mine.lng]} zIndexOffset={900} data-testid="mine-marker-fixed">
-              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
                 {/* T9 (workspace-fixups-2, item 4) — matches EntityMarkers'
-                    own `<Type> · <displayId> · <City>, <State>` tooltip
+                    own `<Type> · <City>, <State> · <displayId>` tooltip
                     convention, plus the `(fixed)` qualifier this marker has
                     always carried. `displayId` is formatted DIRECTLY off
                     this live mine row (`mine.displayCode ?? mine.id`) —
                     never from a solved-snapshot identity map (this tab is
                     input-live, not output-snapshot). */}
                 <span className="font-semibold text-xs">
-                  Mine · {mine.displayCode || mine.id} · {formatCityState(mine.city, mine.state)} (fixed)
+                  <EntityName type="Mine" name={formatCityState(mine.city, mine.state)} id={mine.displayCode || mine.id} /> (fixed)
                 </span>
               </Tooltip>
             </Marker>

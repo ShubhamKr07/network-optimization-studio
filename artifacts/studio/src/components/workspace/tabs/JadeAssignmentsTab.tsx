@@ -80,17 +80,10 @@ interface JadeAssignmentsTabProps {
   /** The saved-inputs snapshot that produced `result` — added-entity id ->
    * city/state/displayCode lookups. */
   displayedInputs?: JadeAssignmentsDisplayedInputs | null;
-  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
-   * projection (`buildEntityIdentityById`, T3). This table already resolves
-   * a single-line "City - ST" label for every cell via `customerLabel`/
-   * `warehouseLabel` below (never showing the id/displayCode alongside it) —
-   * when `identityById` has an entry for a cell's id AND the table's
-   * UNFILTERED row count exceeds 10 (the item-2 `>10` upgrade rule), that
-   * cell upgrades to the shared stacked `EntityIdCell` (City,State + mono
-   * displayId). Below the threshold, or when `identityById`/the entry is
-   * absent, the cell keeps its pre-existing single-line string — so
-   * `identityById` unset is byte-unchanged from before this task at any row
-   * count (the no-regression contract). */
+  /** The snapshot-matched identity projection (`buildEntityIdentityById`). When it has
+   * an entry for a cell's id the cell renders the shared stacked `EntityIdCell`
+   * (City, ST + mono displayId) at any row count (DU-2.7, PR2-4); otherwise the
+   * single-line label. */
   identityById?: Record<string, EntityIdentity>;
 }
 
@@ -141,18 +134,15 @@ interface JadeAssignmentRow {
   bandIndex: number;
 }
 
-// workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
-// true (unfiltered row count > 10) AND `identityById` has an entry for this
-// id, render the shared stacked cell (adds the mono displayId sub-label this
-// table never showed before); otherwise render the pre-existing single-line
-// string UNCHANGED (the no-regression fallback).
+// DU-2.7 (PR2-4) — when `identityById` has an entry for this id, render the shared
+// stacked cell (City, ST + mono displayId) at ANY row count; otherwise the
+// pre-existing single-line string (no-identity fallback).
 function renderJadeEntityCell(
   id: string,
   fallbackLabel: string,
   identityById: Record<string, EntityIdentity> | undefined,
-  upgrade: boolean,
 ) {
-  const identity = upgrade ? identityById?.[id] : undefined;
+  const identity = identityById?.[id];
   if (identity) {
     return (
       <EntityIdCell
@@ -201,9 +191,6 @@ export function JadeAssignmentsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, displayedInputs, bandsKey]);
 
-  // workspace-fixups-2 T10 — the `>10` identity upgrade reads the UNFILTERED count.
-  const upgrade = rows.length > 10;
-
   const columns = useMemo<ColumnDef<JadeAssignmentRow>[]>(() => {
     // `bandRangeLabel` takes display-unit boundaries; the band INDEX was assigned in canonical space.
     const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
@@ -216,7 +203,7 @@ export function JadeAssignmentsTab({
         filter: "text", // pinned: today's descriptor type
         cellTestId: r => `cell-jadeassignment-customer-${r.key}`,
         value: r => r.customerLabel,
-        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById, upgrade),
+        cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById),
       },
       {
         id: "warehouse",
@@ -226,7 +213,7 @@ export function JadeAssignmentsTab({
         filter: "select", // pinned: today's descriptor type, even above 20 warehouses
         cellTestId: r => `cell-jadeassignment-warehouse-${r.key}`,
         value: r => r.warehouseLabel,
-        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, upgrade),
+        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
       },
       {
         id: "distance",
@@ -252,7 +239,7 @@ export function JadeAssignmentsTab({
       },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bandsKey, distanceUnit, unit.pref, identityById, upgrade]);
+  }, [bandsKey, distanceUnit, unit.pref, identityById]);
 
   if (!result) {
     return (

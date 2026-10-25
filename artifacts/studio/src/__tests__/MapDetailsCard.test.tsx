@@ -55,7 +55,11 @@ describe("MapDetailsCard", () => {
     expect(screen.queryByTestId("map-details-capacity")).not.toBeInTheDocument();
     expect(screen.queryByTestId("map-details-demand")).not.toBeInTheDocument();
     expect(screen.queryByTestId("map-details-status")).not.toBeInTheDocument();
-    expect(screen.getByTestId("map-details-code")).toHaveTextContent("PL01");
+    // DU-2.7 — header is name + mono ID; map-details-code holds exactly the ID.
+    expect(screen.getByTestId("map-details-name")).toHaveTextContent("Ashland, KY · PL01");
+    expect(screen.getByTestId("map-details-code")).toHaveTextContent(/^PL01$/);
+    expect(screen.getByTestId("map-details-code")).toHaveClass("font-mono");
+    expect(screen.getByRole("dialog", { name: "Ashland, KY (PL01) details" })).toBeInTheDocument();
   });
 
   it("shows capacity + status label for a warehouse entity", () => {
@@ -82,9 +86,11 @@ describe("MapDetailsCard", () => {
     expect(screen.queryByTestId("map-details-status")).not.toBeInTheDocument();
   });
 
-  it("shows city/state and 4-decimal lat/lng for either kind", () => {
+  it("shows the name once (header only) and 4-decimal lat/lng for either kind", () => {
     render(<MapDetailsCard entity={wh} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
-    expect(screen.getByTestId("map-details-city")).toHaveTextContent("Dallas, TX");
+    expect(screen.getByTestId("map-details-name")).toHaveTextContent("Dallas, TX");
+    expect(screen.queryByTestId("map-details-city")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Dallas, TX/)).toHaveLength(1);
     expect(screen.getByTestId("map-details-lat")).toHaveTextContent("32.7767");
     expect(screen.getByTestId("map-details-lng")).toHaveTextContent("-96.7970");
   });

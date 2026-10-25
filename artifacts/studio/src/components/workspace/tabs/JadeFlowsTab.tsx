@@ -115,17 +115,10 @@ interface JadeFlowsTabProps {
    * round-trip (spec §5c/OQ-2), so this is currently unused inside the
    * component. */
   scenarioId?: number;
-  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
-   * projection (`buildEntityIdentityById`, T3). Both inner tables already
-   * resolve a single-line "City, ST" label per cell via `warehouseLabel`/
-   * `customerLabel`/`resolvePlantLabel` below (never showing the id/
-   * displayCode alongside it) — when `identityById` has an entry for a
-   * cell's id AND that inner table's OWN unfiltered row count exceeds 10
-   * (the item-2 `>10` upgrade rule, applied independently per inner table),
-   * the cell upgrades to the shared stacked `EntityIdCell`. Below the
-   * threshold, or when `identityById`/the entry is absent, the cell keeps
-   * its pre-existing single-line string — `identityById` unset is
-   * byte-unchanged from before this task at any row count. */
+  /** The snapshot-matched identity projection (`buildEntityIdentityById`). When it has
+   * an entry for a cell's id the cell renders the shared stacked `EntityIdCell`
+   * (City, ST + mono displayId) at any row count (DU-2.7, PR2-4); otherwise the
+   * single-line label. */
   identityById?: Record<string, EntityIdentity>;
 }
 
@@ -181,18 +174,15 @@ function warehouseToCustomerEdges(edges: Edge[]): { warehouseId: string; custome
     .map(e => ({ warehouseId: e.fromId, customerId: e.toId, distance: e.distance, flow: e.flow }));
 }
 
-// workspace-fixups-2, T10 (item 2) — the `>10` upgrade, applied
-// independently per inner table (the caller passes each table's own
-// unfiltered row count as `upgrade`). When true AND `identityById` has an
-// entry for this id, render the shared stacked cell; otherwise render the
-// pre-existing single-line string UNCHANGED (the no-regression fallback).
+// DU-2.7 (PR2-4) — when `identityById` has an entry for this id, render the shared
+// stacked cell (City, ST + mono displayId) at ANY row count; otherwise the
+// pre-existing single-line string (no-identity fallback).
 function renderJadeEntityCell(
   id: string,
   fallbackLabel: string,
   identityById: Record<string, EntityIdentity> | undefined,
-  upgrade: boolean,
 ) {
-  const identity = upgrade ? identityById?.[id] : undefined;
+  const identity = identityById?.[id];
   if (identity) {
     return (
       <EntityIdCell
@@ -326,7 +316,6 @@ export function JadeFlowsTab({
     ];
   }
 
-  const pwUpgrade = pwRows.length > 10;
   const pwColumns = useMemo<ColumnDef<PlantWarehouseRow>[]>(
     () =>
       legColumns<PlantWarehouseRow>("pw", "Flow", [
@@ -336,7 +325,7 @@ export function JadeFlowsTab({
           kind: "enum",
           cellTestId: r => `cell-jade-flow-pw-plant-${r.key}`,
           value: r => r.plantLabel,
-          cell: r => renderJadeEntityCell(r.plantId, r.plantLabel, identityById, pwUpgrade),
+          cell: r => renderJadeEntityCell(r.plantId, r.plantLabel, identityById),
         },
         {
           id: "warehouse",
@@ -344,16 +333,15 @@ export function JadeFlowsTab({
           kind: "enum",
           cellTestId: r => `cell-jade-flow-pw-warehouse-${r.key}`,
           value: r => r.warehouseLabel,
-          cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, pwUpgrade),
+          cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
         },
       ]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bandsKey, distanceUnit, unit.pref, identityById, pwUpgrade],
+    [bandsKey, distanceUnit, unit.pref, identityById],
   );
 
   // SCU-2.P3.6 — Warehouse -> Customer, same factory (header "Flows"; the
   // band filter has its own filterResetKey, cleared independently of P->W's).
-  const wcUpgrade = wcRows.length > 10;
   const wcColumns = useMemo<ColumnDef<WarehouseCustomerRow>[]>(
     () =>
       legColumns<WarehouseCustomerRow>("wc", "Flows", [
@@ -363,7 +351,7 @@ export function JadeFlowsTab({
           kind: "enum",
           cellTestId: r => `cell-jade-flow-wc-warehouse-${r.key}`,
           value: r => r.warehouseLabel,
-          cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, wcUpgrade),
+          cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
         },
         {
           id: "customer",
@@ -372,11 +360,11 @@ export function JadeFlowsTab({
           filter: "text", // pinned: today's descriptor type
           cellTestId: r => `cell-jade-flow-wc-customer-${r.key}`,
           value: r => r.customerLabel,
-          cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById, wcUpgrade),
+          cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById),
         },
       ]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bandsKey, distanceUnit, unit.pref, identityById, wcUpgrade],
+    [bandsKey, distanceUnit, unit.pref, identityById],
   );
 
   if (!result) {

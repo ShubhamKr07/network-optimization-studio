@@ -10,7 +10,7 @@
  *      (p-median-us's Customer Assignments) per the plan's own DoD.
  *   3. A JADE input tab has the Filter on the same line as Import/Export;
  *      a non-JADE input tab has no filter at all.
- *   4. Map marker hover shows "Type · ID · City, State" on BOTH the Input
+ *   4. Map marker hover shows "Type · City, State · ID" on BOTH the Input
  *      and Output map, for a warehouse, a customer, a plant, the gold-au
  *      fixed mine (keeps "(fixed)" on the Input map), a gold-au facility
  *      ("Refinery"), and transport-coal's supply/demand roles ("Mine"/
@@ -165,15 +165,13 @@ async function hoverUntilType(page: Page, mapTestId: string, candidateLoc: Locat
   throw new Error(`Could not find a "${expectedType}" tooltip among ${n} candidate marker(s) on ${mapTestId}.`);
 }
 
-/** Asserts the tooltip text starts with "<Type> · <id> · <City>, <ST>"
- * (real Australian states like "QLD" run 2-4 letters, hence the range; a
- * base plant's display id is a base-dataset `name` like "Plant 1" — a
- * multi-word string, not always a single token — hence the non-greedy
- * `.+?` rather than `\S+`) — extra suffixes (demand, band, customer count,
+/** Asserts the tooltip text starts with "<Type> · <City>, <ST> · <id>"
+ * (DU-2.7: name before ID; real Australian states like "QLD" run 2-4
+ * letters, hence the range) — extra suffixes (demand, band, customer count,
  * "(fixed)") are allowed after, per item 4's "existing extras preserved"
  * DoD. */
 function assertTooltipShape(text: string, type: string): void {
-  const re = new RegExp(`^${type} · .+? · [^,]+, [A-Z]{2,4}\\b`);
+  const re = new RegExp(`^${type} · [^,]+, [A-Z]{2,4} · \\S+`);
   expect(text).toMatch(re);
 }
 
