@@ -18,6 +18,8 @@ import { buildResultNarrative, legLabel } from "@/lib/resultNarrative";
 import { formatCityState } from "@/lib/formatLocation";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { OutputMapNarrative } from "@/components/workspace/tabs/OutputMapNarrative";
+import { chapterForModelId } from "@/lib/chapters";
+import { MINE_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
 import { OpenSitesCaption } from "@/components/workspace/OpenSitesCaption";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
@@ -229,6 +231,7 @@ export function OutputMapTab({
     () => Object.fromEntries(Object.entries(identityById).map(([id, i]) => [id, formatCityState(i.city, i.state)])),
     [identityById],
   );
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const narrative =
     result && modelId
       ? buildResultNarrative(modelId, result, {
@@ -238,6 +241,9 @@ export function OutputMapTab({
             : { toDisplay: v => unit.toDisplay(v, distanceUnit), unit: unit.effectiveUnit(distanceUnit) },
           nameById,
           previous: previousResult,
+          selectedWarehouseId,
+          demandUnit: chapterForModelId(modelId)?.demandUnit,
+          sourceRole: modelId === "two-echelon-gold-au" ? MINE_ROLE.label : PLANT_ROLE.label,
         })
       : null;
 
@@ -514,6 +520,7 @@ export function OutputMapTab({
           showPlantMarkers={showPlants}
           modelId={modelId}
           displayIdById={displayIdById}
+          onWarehouseSelectionChange={setSelectedWarehouseId}
         />
       </div>
       {narrative && <OutputMapNarrative narrative={narrative} />}

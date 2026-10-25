@@ -7,6 +7,7 @@ import path from "node:path";
 import { describe, it, expect } from "vitest";
 import type { SolveResult } from "@workspace/api-client-react";
 import { buildResultNarrative } from "@/lib/resultNarrative";
+import { warehouseFigures } from "@/lib/warehouseFigures";
 
 const fixture = (name: string): SolveResult =>
   JSON.parse(readFileSync(path.join(__dirname, "fixtures/narrative", `${name}.json`), "utf8")).result;
@@ -258,5 +259,77 @@ describe("buildResultNarrative — compare to previous run", () => {
     expect(text).toBe(
       "Opened 2 warehouses. Total cost $254,060,829; plant\u2192warehouse shipments average 1,229 miles and warehouse\u2192customer deliveries 650 miles.",
     );
+  });
+});
+
+// DU-3.3 — the narrative follows the filtered warehouse. Expected strings are
+// derived from the fixture via warehouseFigures, never hardcoded.
+describe("buildResultNarrative — selected warehouse (DU-3.3)", () => {
+  const n = (v: number) => Math.round(v).toLocaleString("en-US");
+  const expected = (r: SolveResult, id: string, names: Record<string, string>, unit: string, role?: string) => {
+    const f = warehouseFigures(r, id);
+    const nm = (x: string) => names[x] ?? x;
+    const fed = role && f.feedingIds.length > 0
+      ? ` It is fed from ${role}${f.feedingIds.length === 1 ? "" : "s"} ${f.feedingIds.length === 1 ? nm(f.feedingIds[0]) : `${f.feedingIds.slice(0, -1).map(nm).join(", ")} and ${nm(f.feedingIds[f.feedingIds.length - 1])}`}.`
+      : "";
+    return `${nm(id)} serves ${f.customers} ${f.customers === 1 ? "customer" : "customers"} \u2014 ${n(f.demandServed)} ${unit} of demand, about ${n(f.avgDistance!)} miles on average; the farthest is ${nm(f.farthest!.customerId)} at ${n(f.farthest!.distance)} miles.${fed}`;
+  };
+
+  it("p-median-us: no feeding sentence", () => {
+    const r = fixture("p-median-us");
+    const names = namesFor("p-median-us");
+    const text = run("p-median-us", "p-median-us", "p-median-us", { selectedWarehouseId: "DAL", demandUnit: "units", sourceRole: "plant" });
+    expect(text).toBe(expected(r, "DAL", names, "units"));
+    expect(text).not.toContain("fed from");
+  });
+
+  it("gold: fed from mines", () => {
+    const r = fixture("two-echelon-gold-au");
+    const text = run("two-echelon-gold-au", "two-echelon-gold-au", "two-echelon-gold-au", { selectedWarehouseId: "cunnamulla", demandUnit: "tons", sourceRole: "mine" });
+    expect(text).toBe(expected(r, "cunnamulla", namesFor("two-echelon-gold-au"), "tons", "mine"));
+    expect(text).toContain(`It is fed from mine ${namesFor("two-echelon-gold-au").kalgoorlie}.`);
+  });
+
+  it("jade: fed from plants", () => {
+    const r = fixture("two-echelon-jade-us");
+    const text = run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us", { selectedWarehouseId: "wh-16", demandUnit: "tons", sourceRole: "plant" });
+    expect(text).toBe(expected(r, "wh-16", namesFor("two-echelon-jade-us"), "tons", "plant"));
+  });
+
+  it("super: the selected branch wins over the Super branch", () => {
+    const r = JSON.parse(readFileSync(path.join(__dirname, "fixtures/superResult.json"), "utf8")) as SolveResult;
+    const text = buildResultNarrative("super-model", r, { bands: [], distance: MI, selectedWarehouseId: "wh-11", demandUnit: "tons", sourceRole: "plant" })?.text;
+    expect(text).toBe(expected(r, "wh-11", {}, "tons", "plant"));
+    expect(text).not.toContain("Opened");
+  });
+
+  it("a warehouse with no outbound flow gets the short sentence", () => {
+    const r = fixture("p-median-us");
+    const names = namesFor("p-median-us");
+    const quiet = { ...r, edges: r.edges.filter(e => e.fromId !== "BAL") };
+    const text = buildResultNarrative("p-median-us", quiet, { bands: bandsOf("p-median-us"), distance: MI, nameById: names, selectedWarehouseId: "BAL" })?.text;
+    expect(text).toBe(`${names.BAL} serves no customers in this result.`);
+  });
+
+  it("states no cost, and an unselected narrative is unchanged", () => {
+    const sel = run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us", { selectedWarehouseId: "wh-16", demandUnit: "tons", sourceRole: "plant" })!;
+    expect(sel).not.toContain("$");
+    const none = run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us", { selectedWarehouseId: null, demandUnit: "tons", sourceRole: "plant" });
+    expect(none).toBe(run("two-echelon-jade-us", "two-echelon-jade-us", "two-echelon-jade-us"));
+  });
+
+  it("singular/plural copy: 1 customer, 1 source, 2 sources, 3+ sources", () => {
+    const edge = (fromId: string, toId: string, leg: string) => ({ fromId, toId, flow: 10, distance: 100, leg });
+    const synth = (customers: string[], sources: string[]) => ({
+      ...fixture("two-echelon-jade-us"),
+      edges: [...sources.map(s => edge(s, "W", "plant_to_warehouse")), ...customers.map(c => edge("W", c, "warehouse_to_customer"))],
+    }) as unknown as SolveResult;
+    const say = (r: SolveResult) =>
+      buildResultNarrative("two-echelon-jade-us", r, { bands: [], distance: MI, selectedWarehouseId: "W", demandUnit: "tons", sourceRole: "plant" })!.text;
+    const one = say(synth(["C1"], ["P1"]));
+    expect(one).toContain("W serves 1 customer \u2014");
+    expect(one).toContain("It is fed from plant P1.");
+    expect(say(synth(["C1", "C2"], ["P1", "P2"]))).toMatch(/W serves 2 customers .* It is fed from plants P1 and P2\.$/);
+    expect(say(synth(["C1", "C2"], ["P1", "P2", "P3"]))).toMatch(/It is fed from plants P1, P2 and P3\.$/);
   });
 });

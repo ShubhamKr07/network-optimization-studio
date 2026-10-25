@@ -48,6 +48,8 @@ vi.mock("react-leaflet", async () => {
 const mockUseListModels = vi.fn(() => ({
   data: [
     { id: "p-median-us", distanceUnit: "mi" },
+    { id: "two-echelon-gold-au", distanceUnit: "mi" },
+    { id: "two-echelon-jade-us", distanceUnit: "mi" },
     { id: "two-echelon-fake-km", distanceUnit: "km" },
     { id: "delivery-teaching-us", distanceUnit: "mi" },
     { id: "max-coverage-us", distanceUnit: "mi" },
@@ -913,6 +915,53 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
     const map = container.querySelector(".leaflet-container")!;
     expect(map.contains(narrative)).toBe(false);
     expect(map.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("follows the filtered warehouse (DU-3.3), and returns to the summary on deselect", () => {
+    const { container } = render(
+      <OutputMapTab
+        dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us"
+        identityById={{ W1: { city: "Boston", state: "MA", displayId: "W1" } }}
+      />,
+    );
+    const marker = container.querySelector(".leaflet-marker-pane .leaflet-marker-icon") as HTMLElement;
+    fireEvent.click(marker);
+    expect(screen.getByTestId("output-map-narrative")).toHaveTextContent(/^Boston, MA serves 2 customers \u2014 100 units of demand, about 500 miles on average/);
+    fireEvent.click(marker);
+    expect(screen.getByTestId("output-map-narrative")).toHaveTextContent("Open Boston, MA. A typical unit ships");
+  });
+
+  // DU-3.3 — the demand unit and source role come from the chapter, not a default.
+  it.each([
+    ["two-echelon-gold-au", "units of demand", "mine"],
+    ["two-echelon-jade-us", "tons of demand", "plant"],
+  ])("%s: the filtered-warehouse narrative uses the chapter's demand unit (%s) and role (%s)", (modelId, unitText, role) => {
+    const ds = {
+      warehouses: [
+        ...(role === "mine" ? [{ id: "S1", city: "Src", state: "SS", lat: 35, lng: -95, kind: "mine" as const }] : []),
+        { id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 },
+      ],
+      customers: [{ id: "C1", city: "Nearburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 }],
+    };
+    const [inLeg, outLeg] = role === "mine" ? ["mine_to_refinery", "refinery_to_customer"] : ["plant_to_warehouse", "warehouse_to_customer"];
+    const res = {
+      ...result,
+      edges: [
+        { fromId: "S1", toId: "W1", flow: 100, distance: 300, leg: inLeg },
+        { fromId: "W1", toId: "C1", flow: 100, distance: 100, leg: outLeg },
+      ],
+      details: { openWarehouseIds: ["W1"], assignments: [] },
+    } as unknown as typeof result;
+    const { container } = render(
+      <OutputMapTab dataset={ds} warehouseStatuses={[]} result={res} bands={[250, 500, 750]} modelId={modelId}
+        plants={role === "plant" ? [{ id: "S1", city: "Src", state: "SS", lat: 35, lng: -95 }] : []}
+        identityById={{ W1: { city: "Testville", state: "TS", displayId: "W1" }, S1: { city: "Src", state: "SS", displayId: "S1" } }} />,
+    );
+    const wh = Array.from(container.querySelectorAll<HTMLElement>(".leaflet-marker-pane .leaflet-marker-icon"))[role === "mine" ? 1 : 0];
+    fireEvent.click(wh);
+    const text = screen.getByTestId("output-map-narrative").textContent ?? "";
+    expect(text).toContain(`Testville, TS serves 1 customer \u2014 100 ${unitText}`);
+    expect(text).toContain(`It is fed from ${role} Src, SS.`);
   });
 
   it("renders no narrative for a model with no adapter", () => {

@@ -9,6 +9,7 @@ import { assignBandOrOverflow } from "@/lib/bands";
 import { bandRangeLabel } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
+import { servingWarehouseIds } from "@/lib/warehouseFigures";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { InvalidateOnResize } from "@/components/workspace/map/InvalidateOnResize";
@@ -172,9 +173,9 @@ const createStarIcon = (
 // status/selection vocabulary of its own (see EntityMarkers.tsx's own
 // comment), so — unlike createTriangleIcon/createStarIcon — this takes no
 // status/highlight arguments; it's a fixed icon.
-function createPlantIcon(): L.DivIcon {
+function createPlantIcon(dimmed = false): L.DivIcon {
   return L.divIcon({
-    html: plantSquareSvg(),
+    html: dimmed ? plantSquareSvg().replace("<svg ", '<svg opacity="0.25" ') : plantSquareSvg(),
     className: "",
     iconSize: [20, 20],
     iconAnchor: [10, 10],
@@ -423,6 +424,9 @@ interface NetworkMapProps {
   // raw-id tooltip. INT (T9) feeds this from the solved-snapshot
   // `outputIdentityById`.
   displayIdById?: Record<string, string>;
+  // DU-3.3 — fires (from an effect) with the filtered warehouse id, or null,
+  // so the Output Map tab's narrative can follow the selection.
+  onWarehouseSelectionChange?: (id: string | null) => void;
 }
 
 export function NetworkMap({
@@ -431,7 +435,7 @@ export function NetworkMap({
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
   hideClosedWarehouses = false, distanceUnit, visibleLegs,
-  plants = [], showPlantMarkers = true, modelId, displayIdById = {},
+  plants = [], showPlantMarkers = true, modelId, displayIdById = {}, onWarehouseSelectionChange,
 }: NetworkMapProps) {
   const displayUnit = useDisplayUnit();
   // chen-bands-units, Part D "No fallback unit — reads" — resolved once here
@@ -470,6 +474,7 @@ export function NetworkMap({
   // degenerate-guard's LAST-resort fallback tier.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
+  useEffect(() => { onWarehouseSelectionChange?.(selectedWarehouseId); }, [selectedWarehouseId, onWarehouseSelectionChange]);
 
   const { maxDemand, minDemand } = useMemo(() => {
     let max = 0;
@@ -639,6 +644,29 @@ export function NetworkMap({
 
   const anySelection = hasCustomerSelection || hasWarehouseFilter;
 
+  // DU-3.3 — the lanes kept bright per selection, on ALL legs (Q3): a
+  // warehouse keeps its outbound lanes + the inbound lanes into it; a
+  // customer keeps its own lanes + the inbound lanes into every warehouse
+  // serving it (split sourcing included). `touchedIds` = their endpoints, so
+  // an unconnected mine/plant dims.
+  const { focusEdgeKeys, touchedIds } = useMemo(() => {
+    const keys = new Set<string>();
+    const ids = new Set<string>();
+    if (!result) return { focusEdgeKeys: keys, touchedIds: ids };
+    let wanted: Set<string> | null = null;
+    if (selectedWarehouseId) wanted = new Set([selectedWarehouseId]);
+    else if (selectedCustomerId) wanted = new Set(servingWarehouseIds(result, selectedCustomerId));
+    if (!wanted) return { focusEdgeKeys: keys, touchedIds: ids };
+    for (const e of result.edges) {
+      const inbound = isInboundLeg(e.leg);
+      const hit = inbound
+        ? wanted.has(e.toId)
+        : selectedWarehouseId ? e.fromId === selectedWarehouseId : e.toId === selectedCustomerId;
+      if (hit) { keys.add(`${e.fromId}|${e.toId}`); ids.add(e.fromId); ids.add(e.toId); }
+    }
+    return { focusEdgeKeys: keys, touchedIds: ids };
+  }, [result, selectedWarehouseId, selectedCustomerId]);
+
   const hintText = (() => {
     if (hasWarehouseFilter) return "Click warehouse again or map background to reset";
     if (showRoutes && result) return "Click a warehouse ▲ to filter its customers · Click a customer dot to inspect its route";
@@ -706,11 +734,9 @@ export function NetworkMap({
                 : dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!toEntity || !fromEntity) return null;
 
-              // An inbound leg isn't tied to any one customer, so
-              // customer-focus dimming (inspecting a specific customer's
-              // route) doesn't apply to it — it stays fully visible.
-              const focused = isInboundEdge || isCustomerFocused(edge.toId);
-              const dimmed = !isInboundEdge && anySelection && !focused;
+              // DU-3.3 — every leg dims unless it is in the selection's focus set.
+              const focused = !anySelection || focusEdgeKeys.has(`${edge.fromId}|${edge.toId}`);
+              const dimmed = anySelection && !focused;
 
               // jade-B1 (#1 all-site overflow + JADE leg-vs-band coloring
               // resolution, spec §2) — the "Color lanes: Distance band"
@@ -846,7 +872,7 @@ export function NetworkMap({
           // genuinely closed candidate, even though it's not one.
           if (hideClosedWarehouses && w.kind !== "mine" && !isOpen) return null;
           const isHighlighted = w.id === selectedWarehouseId;
-          const isDimmed = hasWarehouseFilter && !isHighlighted && isOpen;
+          const isDimmed = anySelection && !isHighlighted && !touchedIds.has(w.id) && (w.kind === "mine" || (hasWarehouseFilter && isOpen));
 
           return (
             <Marker
@@ -886,7 +912,7 @@ export function NetworkMap({
             source, not a facility-location open/close decision). Gated only
             on the independent showPlantMarkers toggle. */}
         {showPlantMarkers && plants.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon(anySelection && !touchedIds.has(p.id))}>
             <Tooltip direction="top" offset={[0, -10]} opacity={1} className="nos-map-tooltip">
               <span className="font-semibold text-xs">
                 <EntityName type="Plant" name={formatCityState(p.city, p.state)} id={displayIdById[p.id] ?? p.id} />
