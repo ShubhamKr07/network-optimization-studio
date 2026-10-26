@@ -5030,3 +5030,6 @@ Branch `du-3.r1-work` (base `d9bb8e48`). Findings 4 and 6 of the review are out 
 - **3 (stale card bounds) — fixed in the card:** it reads its `offsetParent` client size at render (the anchor already re-reports on map `resize`, which re-renders it) and falls back to the click-time `containerSize` prop (first paint, jsdom). No tab changes.
 - **5 (warehouse filter across re-solve) — fixed:** `NetworkMap` clears `selectedWarehouseId` when the `result` identity changes. Unit test re-renders with a new result and asserts `onWarehouseSelectionChange(null)` (fails without the fix).
 - **Gate:** studio vitest 3103/3103, typecheck clean, `E2E_BASE_URL=http://localhost:5141 pnpm e2e:gate` 141 passed, 1 flaky (registry), 0 failed.
+
+### DU-3 deploy (2026-10-26)
+- `main` pushed `e71c4fb5..7d1492cc` (Phase 3 merge `d3ba42e6` + DU-3.R1 review-fold merge `7d1492cc`). The push started no build; `nos-studio` triggered via API → `dep-dbf89pnb9u1s73bvvfqg`, live at `7d1492cc`. `nos-api` not redeployed (preflight: no api/solver/schema change; still `4312b00c`). `/compare` 200 with `id="root"`; `pnpm smoke --env production` 7/7. Smoke account `smoke+dercom-6045@example.com` left for manual removal.

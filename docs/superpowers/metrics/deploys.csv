@@ -11,3 +11,5 @@ deployed_at,service,sha,smoke_pass,failed_checks,incident,notes
 2026-10-24T17:13:33.783Z,nos-studio,080fe5cdcaab9e01f5d28ee35f5b1d141e9d4bca,yes,,,"WFX; sha from Render get_deploy dep-dbeedt0ae00c73cslbd0 (live); row restored from session output after /tmp was cleared by a reboot"
 2026-10-25T04:29:03.438Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,"DU-2 deploy smoke; nos-api not redeployed, still the QFX build (Render list_deploys live)"
 2026-10-25T04:29:03.438Z,nos-studio,e71c4fb5bfe1482cf95bbe2cde4d6e6daf4543c7,yes,,,"DU-2; sha from Render get_deploy dep-dbeoagom7kps73ehibjg (live)"
+2026-10-25T22:39:45.048Z,nos-api,4312b00ca790e70e212334651d6091fc297dd443,yes,,,smoke after DU-3 studio deploy; nos-api not redeployed (live dep-dbe95tnavr4c73a4djb0)
+2026-10-25T22:39:45.048Z,nos-studio,7d1492cc4bb8653f2d7ee7ad4cc3d8bd8a8d3286,yes,,,DU-3 Phase 3 + DU-3.R1; dep-dbf89pnb9u1s73bvvfqg (trigger api; push webhook did not fire); smoke 7/7; /compare 200; smoke account smoke+dercom-6045@example.com needs manual removal
