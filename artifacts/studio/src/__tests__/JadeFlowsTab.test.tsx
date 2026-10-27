@@ -665,6 +665,18 @@ describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.
     expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
   });
 
+  it("DU-4.2: the exported band text equals the visible Distance Band cell text", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    const visible = screen.getByTestId("cell-jade-flow-pw-band-plant-1|wh-11").textContent!;
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
+    expect(visible).toBe(bandRangeLabel(assignBandOrOverflow(293.66, bands), bands, "mi"));
+    expect(dl.text(0)).toContain(visible);
+    expect(dl.text(0)).not.toMatch(/Band \d|Overflow/);
+  });
+
   it("QFX-R1: a failing XLSX export toasts instead of an unhandled rejection", async () => {
     vi.spyOn(clientCsv, "downloadAs").mockRejectedValue(new Error("boom"));
     const toastSpy = vi.spyOn(useToast, "toast").mockImplementation((() => ({})) as never);
@@ -860,4 +872,39 @@ describe("JadeFlowsTab — Distance range filter follows the display unit (SCU-2
       }
     });
   }
+});
+
+describe("JadeFlowsTab — inbound band set (DU-4.1)", () => {
+  it("Plant→Warehouse bands against inboundBands, Warehouse→Customer against bands", async () => {
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} inboundBands={[100, 300]} distanceUnit="mi" />);
+    // 293.66 mi: ≤ 300 in the inbound set, 250–500 in the customer-facing one.
+    expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("100–300 mi");
+    await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+    expect(screen.getByTestId("jade-flow-wc-row-wh-11-customer-1")).toHaveTextContent("≤ 250 mi");
+  });
+
+  it("Plant→Warehouse falls back to bands when inboundBands is absent", () => {
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("250–500 mi");
+  });
+
+  it("Plant→Warehouse band filter options use the inbound set while Warehouse→Customer keeps bands", async () => {
+    const user = userEvent.setup();
+    // 11 rows spanning 100..1600 mi on both legs (enough rows for the filter trigger to render).
+    const spread = (leg: "plant_to_warehouse" | "warehouse_to_customer") =>
+      Array.from({ length: 11 }, (_, i) => ({ fromId: `f-${i}`, toId: `t-${i}`, flow: 10 + i, distance: 100 + i * 150, leg }));
+    render(<JadeFlowsTab result={makeResult([...spread("plant_to_warehouse"), ...spread("warehouse_to_customer")])} bands={[250, 500, 750, 1000]} inboundBands={[300, 900]} distanceUnit="mi" />);
+    const options = () => within(screen.getByTestId("filter-menu-popover"))
+      .getAllByTestId(/^option-filter-band-/)
+      .map(el => el.textContent);
+
+    await user.click(screen.getByTestId("button-filter-jade-flows-pw"));
+    expect(options()).toEqual(["≤ 300 mi", "300–900 mi", "> 900 mi"]);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+    await user.click(screen.getByTestId("button-filter-jade-flows-wc"));
+    expect(options()).toEqual(["≤ 250 mi", "250–500 mi", "500–750 mi", "750–1,000 mi", "> 1,000 mi"]);
+  });
 });

@@ -569,3 +569,146 @@ describe("A1 — writer enumeration, real HTTP (PATCH /scenarios/:id vs the dist
     expect(row!.solveInputRevision).toBe(2);
   });
 });
+
+// DU-4.1 — inboundDistanceBands is a second reporting-only lens. Real app +
+// real DB: the epoch rule on every write path (PR4-7), and the field route's
+// atomicity (one jsonb statement, no inputsUpdatedAt bump, other keys intact).
+describe("DU-4.1 — inboundDistanceBands epoch rule and field-scoped route (real Postgres)", () => {
+  const jadeInputs = {
+    p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 30,
+    warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
+    addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+  };
+
+  async function registerAndGetCookie(): Promise<string> {
+    const email = `du41-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+    const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    registeredUserIds.push(res.body.user.id);
+    return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
+  }
+  async function createJade(cookie: string, inputs: Record<string, unknown> = jadeInputs) {
+    const created = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "du41 jade", modelId: "two-echelon-jade-us", inputs });
+    expect(created.status).toBe(201);
+    scenarioIds.push(created.body.id);
+    return created.body.id as number;
+  }
+  /** Mark the row solved at "now" so `stale` is meaningful. */
+  async function markSolved(id: number) {
+    await db.update(scenariosTable).set({
+      result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null },
+      solvedAt: sql`now() + interval '1 second'`,
+    }).where(eq(scenariosTable.id, id));
+  }
+  async function row(id: number) {
+    const [r] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, id));
+    return r!;
+  }
+
+  it("general PATCH whose sole changed key is inboundDistanceBands is reporting-only", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie);
+    await markSolved(id);
+    const before = await row(id);
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, inboundDistanceBands: [300, 900] } });
+    expect(res.status).toBe(200);
+    const after = await row(id);
+    expect(after.solveInputRevision).toBe(before.solveInputRevision);
+    expect(after.inputsUpdatedAt.getTime()).toBe(before.inputsUpdatedAt.getTime());
+    expect(res.body.stale).toBe(false);
+    expect((after.inputs as Record<string, unknown>).inboundDistanceBands).toEqual([300, 900]);
+  });
+
+  it("general PATCH changing distanceBands AND inboundDistanceBands together is still reporting-only", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie);
+    const before = await row(id);
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, distanceBands: [100, 500], inboundDistanceBands: [300, 900] } });
+    expect(res.status).toBe(200);
+    expect((await row(id)).solveInputRevision).toBe(before.solveInputRevision);
+  });
+
+  it("general PATCH changing inboundDistanceBands AND p bumps the epoch (mixed change is geometric)", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie);
+    const before = await row(id);
+    const res = await request(app).patch(`/api/scenarios/${id}`).set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, p: 3, inboundDistanceBands: [300, 900] } });
+    expect(res.status).toBe(200);
+    expect((await row(id)).solveInputRevision).toBe(before.solveInputRevision + 1);
+  });
+
+  it("create persists the key, and clone carries it to a result-free clone", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie, { ...jadeInputs, inboundDistanceBands: [300, 900] });
+    expect((await row(id)).inputs).toMatchObject({ inboundDistanceBands: [300, 900] });
+    await markSolved(id);
+    const clone = await request(app).post(`/api/scenarios/${id}/clone`).set("Cookie", cookie);
+    expect(clone.status).toBe(201);
+    scenarioIds.push(clone.body.id);
+    expect(clone.body.inputs.inboundDistanceBands).toEqual([300, 900]);
+    expect(clone.body.result).toBeNull();
+  });
+
+  it("import/apply on a scenario carrying the key preserves it and bumps the epoch (geometric)", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie, { ...jadeInputs, inboundDistanceBands: [300, 900] });
+    const before = await row(id);
+    const csvText = [
+      "template_version,id,display_code,city,state,lat,lng,capacity,status",
+      "1,wh-1,,Los Angeles,CA,33.974044,-118.248849,,forced_open",
+    ].join("\n");
+    const applied = await request(app).post(`/api/scenarios/${id}/import/apply`).set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText, mode: "partial" });
+    expect(applied.status).toBe(200);
+    const after = await row(id);
+    expect((after.inputs as Record<string, unknown>).inboundDistanceBands).toEqual([300, 900]);
+    expect(after.solveInputRevision).toBe(before.solveInputRevision + 1);
+  });
+
+  it("field route: no epoch bump, stale stays false on a solved row, other keys intact", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie);
+    await markSolved(id);
+    const before = await row(id);
+    const res = await request(app).patch(`/api/scenarios/${id}/inbound-distance-bands`).set("Cookie", cookie)
+      .send({ inboundDistanceBands: [250, 750] });
+    expect(res.status).toBe(200);
+    const after = await row(id);
+    expect(after.solveInputRevision).toBe(before.solveInputRevision);
+    expect(after.inputsUpdatedAt.getTime()).toBe(before.inputsUpdatedAt.getTime());
+    expect(res.body.stale).toBe(false);
+    expect(after.inputs).toEqual({ ...(before.inputs as object), inboundDistanceBands: [250, 750] });
+  });
+
+  it("field route: null clears the key, leaving the epoch and every other key unchanged", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie, { ...jadeInputs, inboundDistanceBands: [300, 900] });
+    const before = await row(id);
+    const res = await request(app).patch(`/api/scenarios/${id}/inbound-distance-bands`).set("Cookie", cookie)
+      .send({ inboundDistanceBands: null });
+    expect(res.status).toBe(200);
+    const after = await row(id);
+    expect("inboundDistanceBands" in (after.inputs as object)).toBe(false);
+    const { inboundDistanceBands: _gone, ...rest } = before.inputs as Record<string, unknown>;
+    expect(after.inputs).toEqual(rest);
+    expect(after.solveInputRevision).toBe(before.solveInputRevision);
+    expect(after.inputsUpdatedAt.getTime()).toBe(before.inputsUpdatedAt.getTime());
+  });
+
+  it("field route: a concurrent write to another inputs key is preserved (single jsonb_set)", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await createJade(cookie);
+    // Concurrent raw write to another key, racing the route's UPDATE.
+    const [res] = await Promise.all([
+      request(app).patch(`/api/scenarios/${id}/inbound-distance-bands`).set("Cookie", cookie).send({ inboundDistanceBands: [250, 750] }),
+      db.execute(sql`UPDATE scenarios SET inputs = jsonb_set(inputs, '{gap}', '0.5'::jsonb) WHERE id = ${id}`),
+    ]);
+    expect(res.status).toBe(200);
+    const inputs = (await row(id)).inputs as Record<string, unknown>;
+    expect(inputs.gap).toBe(0.5);
+    expect(inputs.inboundDistanceBands).toEqual([250, 750]);
+  });
+});

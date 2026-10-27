@@ -10,16 +10,21 @@ import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } 
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 import {
   assignBandOrOverflow,
-  bandLabelOrOverflow,
+  bandRangeLabelForDistance,
   computeCumulativeBandCoverage,
+  computeInboundBandFlows,
   serviceEdgesFor,
   toDisplay,
   roundForFile,
   objectiveDimension,
   convertObjective,
   OVERFLOW_BAND,
+  bandsForLeg,
 } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+
+/** DU-4.1 — the scenario's saved band lenses; each leg picks its set via bandsForLeg. */
+export type BandLens = { distanceBands: number[]; inboundDistanceBands?: number[] };
 import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, csvColumns } from "@workspace/import-schema";
 
@@ -70,6 +75,22 @@ export const OUTPUT_TEMPLATE_VERSION = 3;
 // avgDistWhToCustomer), appended after solverUsed so the v4 column prefix is
 // unchanged. openapi.yaml's CostSummaryExportEnvelope enum moves with it.
 export const COST_SUMMARY_TEMPLATE_VERSION = 5;
+
+// DU-4.2 — grid-local, same reasoning as COST_SUMMARY_TEMPLATE_VERSION: the two
+// two-echelon-jade-us grids (assignments, flows) change their `band` column from
+// "Band N"/"Overflow" to range text, but OUTPUT_TEMPLATE_VERSION is also read by
+// grids whose rows did not change and must stay 3. Read ONLY by
+// buildJadeAssignmentRows, buildJadeFlowRows and the JADE branch of the export
+// route; openapi.yaml's JadeAssignmentsExportEnvelope/JadeFlowsExportEnvelope
+// enum moves with it.
+export const JADE_EXPORT_TEMPLATE_VERSION = 4;
+
+// DU-4.3 — grid-local, same reasoning: only the serviceStats grid gained the
+// `section` + `flow` columns, so the shared OUTPUT_TEMPLATE_VERSION (still read
+// by assignments/flows) stays 3. Read ONLY by buildServiceStatsRows,
+// serviceStatsRowsToCsv and the export route's serviceStats wrapper;
+// openapi.yaml's ServiceStatsExportEnvelope enum moves with it.
+export const SERVICE_STATS_TEMPLATE_VERSION = 4;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
@@ -1782,9 +1803,11 @@ export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJson
 // is NEVER unit-converted, in this schema or any other.
 export interface ServiceStatsTemplateRow {
   templateVersion: number;
+  section: "outbound" | "inbound";
   band: number;
   distanceUnit: string;
   percent: number;
+  flow: number | null;
 }
 
 // Chen-bands-units bundle — switched from reading the solver's solve-time
@@ -1811,29 +1834,39 @@ export function buildServiceStatsRows(
   result: ResultEnvelope,
   canonicalUnit: CanonicalUnit,
   requestedUnit: CanonicalUnit = canonicalUnit,
-  savedBands: number[] = [],
+  lens: BandLens = { distanceBands: [] },
   modelId: string | null = null,
 ): ServiceStatsTemplateRow[] {
   const edges = serviceEdgesFor(result.edges);
-  const coverage = computeCumulativeBandCoverage(
-    edges,
-    savedBands,
-    modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
-  );
-  return coverage.map(c => ({
-    templateVersion: OUTPUT_TEMPLATE_VERSION,
+  const decimals = modelId === "delivery-teaching-us" ? 2 : 0;
+  const coverage = computeCumulativeBandCoverage(edges, lens.distanceBands, { decimals });
+  // DU-4.3 (Q9) — the boundary is converted, the overflow sentinel never is.
+  const boundary = (b: number) => (b === OVERFLOW_BAND ? OVERFLOW_BAND : roundForFile(toDisplay(b, canonicalUnit, requestedUnit)));
+  const outbound = coverage.map(c => ({
+    templateVersion: SERVICE_STATS_TEMPLATE_VERSION,
+    section: "outbound" as const,
     // Classify (computeCumulativeBandCoverage already worked in canonical
     // values) then convert the boundary — never the reverse. The overflow
     // sentinel is categorical and is never converted.
-    band: c.band === OVERFLOW_BAND ? OVERFLOW_BAND : roundForFile(toDisplay(c.band, canonicalUnit, requestedUnit)),
+    band: boundary(c.band),
     distanceUnit: requestedUnit,
     percent: c.percent,
+    flow: null,
   }));
+  const inbound = computeInboundBandFlows(result.edges, lens, decimals).map(r => ({
+    templateVersion: SERVICE_STATS_TEMPLATE_VERSION,
+    section: "inbound" as const,
+    band: boundary(r.band),
+    distanceUnit: requestedUnit,
+    percent: r.percent,
+    flow: roundForFile(r.flow),
+  }));
+  return [...outbound, ...inbound];
 }
 
 export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
-  const header = "template_version,band,distance_unit,percent";
-  const lines = rows.map(r => [r.templateVersion, r.band, r.distanceUnit, r.percent].map(csvCell).join(","));
+  const header = "template_version,section,band,distance_unit,percent,flow";
+  const lines = rows.map(r => [r.templateVersion, r.section, r.band, r.distanceUnit, r.percent, r.flow ?? ""].map(csvCell).join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1841,12 +1874,14 @@ export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
 // and `distanceUnit` are envelope-only in JSON — locked shape `{band,
 // percent}`. Not yet wired into routes/scenarios.ts (out of scope here).
 export interface ServiceStatsJsonRow {
+  section: "outbound" | "inbound";
   band: number;
   percent: number;
+  flow: number | null;
 }
 
 export function toServiceStatsJsonRow(r: ServiceStatsTemplateRow): ServiceStatsJsonRow {
-  return { band: r.band, percent: r.percent };
+  return { section: r.section, band: r.band, percent: r.percent, flow: r.flow };
 }
 
 // Chen-bands-units bundle — v3: `distanceMi` renamed to neutral `distance` +
@@ -1891,7 +1926,7 @@ export function buildFlowRows(
   result: ResultEnvelope,
   canonicalUnit: CanonicalUnit = "mi",
   requestedUnit: CanonicalUnit = canonicalUnit,
-  savedBands: number[] = [],
+  lens: BandLens = { distanceBands: [] },
 ): FlowTemplateRow[] {
   return result.edges
     .filter(e => e.leg !== "refinery_to_customer")
@@ -1901,7 +1936,8 @@ export function buildFlowRows(
       toId: e.toId,
       distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
       distanceUnit: requestedUnit,
-      band: assignBandOrOverflow(e.distance, savedBands),
+      // DU-4.1 — each leg is classified against ITS OWN band set.
+      band: assignBandOrOverflow(e.distance, bandsForLeg(e.leg, lens)),
       flow: e.flow,
     }));
 }
@@ -1950,11 +1986,9 @@ export function toFlowJsonRow(r: FlowTemplateRow): FlowJsonRow {
 // (scenarios.ts branches on modelId before choosing which builder to call).
 // ---------------------------------------------------------------------------
 
-// Chen-bands-units bundle — the local `jadeBandLabel` mirror is gone;
-// `bandLabelOrOverflow` from `@workspace/units` is the shared helper now
-// (identical semantics: upper-inclusive boundary assignment, 1-indexed
-// "Band N" labels, "Overflow" above the highest boundary — no second copy of
-// this logic anywhere in the repo, frontend or backend).
+// DU-4.2 — `band` is the range text from `bandRangeLabelForDistance`
+// (`@workspace/units`; upper-inclusive boundary assignment, "≤ a u" / "a–b u" /
+// "> z u"), the same label authority the UI uses — no "Band N" / "Overflow".
 
 // Matches 5a's on-screen contract exactly: Product / Customer / Assigned
 // Warehouse / Distance / Distance Band -- no Demand, no Flow. One row per
@@ -1962,11 +1996,10 @@ export function toFlowJsonRow(r: FlowTemplateRow): FlowJsonRow {
 // (`{customerId, warehouseId, productId, flow, distanceMi}` --
 // solve.py:1145-1148), not `result.edges`.
 //
-// Chen-bands-units bundle — v3: `band` is now recomputed from the scenario's
-// SAVED distanceBands lens via the shared `bandLabelOrOverflow` (a
-// DISPLAY-LABEL string, "Band N" / "Overflow" — JADE's existing on-screen
-// contract, deliberately NOT the numeric index generic assignments use — see
-// buildAssignmentRows), replacing the ad hoc local `jadeBandLabel`.
+// Chen-bands-units bundle — v3: `band` is recomputed from the scenario's SAVED
+// distanceBands lens. DU-4.2 — v4: it is the range-text DISPLAY label in the
+// requested unit (deliberately NOT the numeric index generic assignments use —
+// see buildAssignmentRows).
 export interface JadeAssignmentTemplateRow {
   templateVersion: number;
   productId: string;
@@ -2007,14 +2040,14 @@ export function buildJadeAssignmentRows(
   const raw = result.details.assignments;
   const list = Array.isArray(raw) ? raw : [];
   return list.filter(isJadeRawDetailAssignment).map(a => ({
-    templateVersion: OUTPUT_TEMPLATE_VERSION,
+    templateVersion: JADE_EXPORT_TEMPLATE_VERSION,
     productId: a.productId,
     customerId: a.customerId,
     warehouseId: a.warehouseId,
     // Classify on the CANONICAL distanceMi, then convert, then round.
     distance: roundForFile(toDisplay(a.distanceMi, canonicalUnit, requestedUnit)),
     distanceUnit: requestedUnit,
-    band: bandLabelOrOverflow(a.distanceMi, bands),
+    band: bandRangeLabelForDistance(a.distanceMi, bands, canonicalUnit, requestedUnit),
   }));
 }
 
@@ -2071,7 +2104,7 @@ export interface JadeFlowTemplateRow {
 // and behaves correctly without a route change.
 export function buildJadeFlowRows(
   result: ResultEnvelope,
-  bands: number[],
+  lens: BandLens,
   canonicalUnit: CanonicalUnit = "mi",
   requestedUnit: CanonicalUnit = canonicalUnit,
 ): JadeFlowTemplateRow[] {
@@ -2089,25 +2122,25 @@ export function buildJadeFlowRows(
   // Classify on the CANONICAL (aggregated) distance, then convert, then
   // round — never the reverse.
   const inboundRows: JadeFlowTemplateRow[] = [...inboundByPair.values()].map(p => ({
-    templateVersion: OUTPUT_TEMPLATE_VERSION,
+    templateVersion: JADE_EXPORT_TEMPLATE_VERSION,
     leg: "plant_to_warehouse",
     fromId: p.fromId,
     toId: p.toId,
     distance: roundForFile(toDisplay(p.distance, canonicalUnit, requestedUnit)),
     distanceUnit: requestedUnit,
-    band: bandLabelOrOverflow(p.distance, bands),
+    band: bandRangeLabelForDistance(p.distance, bandsForLeg("plant_to_warehouse", lens), canonicalUnit, requestedUnit),
     flows: p.flows,
   }));
   const outboundRows: JadeFlowTemplateRow[] = result.edges
     .filter(e => e.leg === "warehouse_to_customer")
     .map(e => ({
-      templateVersion: OUTPUT_TEMPLATE_VERSION,
+      templateVersion: JADE_EXPORT_TEMPLATE_VERSION,
       leg: "warehouse_to_customer" as const,
       fromId: e.fromId,
       toId: e.toId,
       distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
       distanceUnit: requestedUnit,
-      band: bandLabelOrOverflow(e.distance, bands),
+      band: bandRangeLabelForDistance(e.distance, bandsForLeg(e.leg, lens), canonicalUnit, requestedUnit),
       flows: e.flow,
     }));
   return [...inboundRows, ...outboundRows];

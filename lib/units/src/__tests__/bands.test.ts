@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
-  OVERFLOW_BAND, assignBandOrOverflow, bandLabelOrOverflow,
+  OVERFLOW_BAND, assignBandOrOverflow, bandRangeLabelForDistance,
   computeCumulativeBandCoverage, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, serviceEdgesFor, bandRangeLabel,
+  INBOUND_LEGS, OUTBOUND_LEGS, bandsForLeg, computeInboundBandFlows,
 } from "../bands.js";
+import { formatDistanceNumber } from "../format.js";
+import { toDisplay } from "../convert.js";
 
 const BANDS = [200, 400, 800];
 
@@ -15,9 +18,19 @@ describe("assignBandOrOverflow", () => {
   it("beyond the last boundary is the overflow sentinel, never the last band", () => {
     expect(assignBandOrOverflow(800.0001, BANDS)).toBe(OVERFLOW_BAND);
   });
-  it("labels render the sentinel categorically", () => {
-    expect(bandLabelOrOverflow(150, BANDS)).toBe("Band 1");
-    expect(bandLabelOrOverflow(9999, BANDS)).toBe("Overflow");
+});
+
+describe("bandRangeLabelForDistance (DU-4.2)", () => {
+  it("first band is ≤, middle is a–b, overflow is >, boundary belongs to the lower band", () => {
+    expect(bandRangeLabelForDistance(150, BANDS, "mi", "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabelForDistance(200, BANDS, "mi", "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabelForDistance(300, BANDS, "mi", "mi")).toBe("200–400 mi");
+    expect(bandRangeLabelForDistance(9999, BANDS, "mi", "mi")).toBe("> 800 mi");
+  });
+  it("classifies canonically, renders boundaries in the display unit", () => {
+    const km = formatDistanceNumber(toDisplay(100, "mi", "km"));
+    expect(bandRangeLabelForDistance(50, [100], "mi", "km")).toBe(`≤ ${km} km`);
+    expect(bandRangeLabelForDistance(101, [100], "mi", "km")).toBe(`> ${km} km`);
   });
 });
 
@@ -253,5 +266,59 @@ describe("bandRangeLabel (DU-2.2)", () => {
   });
   it("rounds converted mi boundaries the same way", () => {
     expect([0, OVERFLOW_BAND].map(i => bandRangeLabel(i, [600 / 1.609344], "mi"))).toEqual(["≤ 372.82 mi", "> 372.82 mi"]);
+  });
+});
+
+describe("bandsForLeg (DU-4.1)", () => {
+  const inputs = { distanceBands: [200, 400], inboundDistanceBands: [500, 1500] };
+  it("inbound legs read inboundDistanceBands", () => {
+    expect(bandsForLeg("plant_to_warehouse", inputs)).toEqual([500, 1500]);
+    expect(bandsForLeg("mine_to_refinery", inputs)).toEqual([500, 1500]);
+  });
+  it("inbound legs fall back to distanceBands when the key is absent (Q7)", () => {
+    expect(bandsForLeg("plant_to_warehouse", { distanceBands: [200, 400] })).toEqual([200, 400]);
+  });
+  it("outbound, unknown and absent legs read distanceBands", () => {
+    for (const leg of ["warehouse_to_customer", "refinery_to_customer", "typo_leg", null, undefined]) {
+      expect(bandsForLeg(leg, inputs)).toEqual([200, 400]);
+    }
+  });
+  it("role sets are the one authority", () => {
+    expect([...INBOUND_LEGS].sort()).toEqual(["mine_to_refinery", "plant_to_warehouse"]);
+    expect([...OUTBOUND_LEGS].sort()).toEqual(["refinery_to_customer", "warehouse_to_customer"]);
+  });
+});
+
+describe("computeInboundBandFlows (DU-4.3)", () => {
+  const e = (distance: number, flow: number, leg: string | null) => ({ distance, flow, leg });
+  const inputs = { distanceBands: [200, 400, 800], inboundDistanceBands: [300, 900] };
+  const edges = [
+    e(100, 10, "plant_to_warehouse"), e(300, 20, "plant_to_warehouse"), e(1000, 30, "plant_to_warehouse"),
+    e(50, 999, "warehouse_to_customer"),
+  ];
+
+  it("is exclusive per inbound band, counts only inbound legs, and boundary lands in the lower band", () => {
+    const rows = computeInboundBandFlows(edges, inputs);
+    expect(rows.map(r => [r.band, r.flow])).toEqual([[300, 30], [900, 0], [OVERFLOW_BAND, 30]]);
+    expect(rows.reduce((s, r) => s + r.flow, 0)).toBe(60);
+  });
+
+  it("percent sums to exactly 100 (withResidual)", () => {
+    const third = [e(1, 1, "mine_to_refinery"), e(500, 1, "mine_to_refinery"), e(2000, 1, "mine_to_refinery")];
+    for (const d of [0, 2]) {
+      const rows = computeInboundBandFlows(third, inputs, d);
+      expect(Math.round(rows.reduce((s, r) => s + r.percent, 0) * 100) / 100).toBe(100);
+    }
+  });
+
+  it("overflow row is always present (zeros when no flow); inbound set absent falls back to distanceBands", () => {
+    const rows = computeInboundBandFlows([e(10, 0, "plant_to_warehouse")], { distanceBands: [200] });
+    expect(rows).toEqual([{ band: 200, flow: 0, percent: 0 }, { band: OVERFLOW_BAND, flow: 0, percent: 0 }]);
+  });
+
+  it("legless or outbound-only edges, or no boundaries, give []", () => {
+    expect(computeInboundBandFlows([e(10, 5, null)], inputs)).toEqual([]);
+    expect(computeInboundBandFlows([e(10, 5, "warehouse_to_customer")], inputs)).toEqual([]);
+    expect(computeInboundBandFlows(edges, { distanceBands: [] })).toEqual([]);
   });
 });

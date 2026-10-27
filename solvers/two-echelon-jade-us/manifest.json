@@ -25,6 +25,12 @@
         "minItems": 1,
         "default": [200, 400, 800, 1600]
       },
+      "inboundDistanceBands": {
+        "type": "array",
+        "items": { "type": "number", "exclusiveMinimum": 0 },
+        "minItems": 1,
+        "description": "Optional inbound-leg reporting lens; absent = inbound lanes use distanceBands"
+      },
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
       "transportCosts": {

@@ -8,6 +8,7 @@ import {
   useGetDataset,
   useUpdateScenario,
   useUpdateDistanceBands,
+  useUpdateInboundDistanceBands,
   useSolveScenario,
   useCreateScenario,
   useCloneScenario,
@@ -112,6 +113,7 @@ import type {
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
 import { workspaceViewId, type WorkspaceView } from "@/lib/workspaceView";
 import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
+import { hasInboundBands, bandLaneLabels } from "@/lib/inboundBands";
 import superDefaults from "@/lib/superDefaults.json";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
@@ -314,6 +316,12 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// DU-4.1 — null = the key is absent (inbound lanes fall back to distanceBands).
+function inboundBandsFromInputs(inputs: Record<string, unknown> | null | undefined): number[] | null {
+  const raw = inputs?.inboundDistanceBands;
+  return Array.isArray(raw) ? (raw as number[]) : null;
 }
 
 function optionalNumberFromInputs(inputs: Record<string, unknown> | null, key: string): number | undefined {
@@ -1479,6 +1487,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const updateScenario = useUpdateScenario();
   // chen-bands-units, Part G — field-scoped `distanceBands` PATCH.
   const updateDistanceBandsMutation = useUpdateDistanceBands();
+  const updateInboundDistanceBandsMutation = useUpdateInboundDistanceBands();
 
   // Originally written for chens-cosmetics-cn — a China dataset where every
   // warehouse/customer row had `state: ""`. Gate WarehousesTab/CustomersTab's
@@ -1617,6 +1626,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // re-running this effect.
   const [activeBandLens, setActiveBandLens] = useState<number[]>([]);
   const savedBandLensRef = useRef<number[]>([]);
+  // DU-4.1 — the inbound-lane lens beside it. null = key absent = fallback to the
+  // customer-facing set. Its saved ref is written from the SERVER's row at every
+  // site the outbound ref is (seed, whole-input save, bands-only save, solve-save).
+  const [activeInboundBandLens, setActiveInboundBandLens] = useState<number[] | null>(null);
+  const savedInboundBandLensRef = useRef<number[] | null>(null);
+  // DU-4.F1 — live scenario id, so a save response that lands after a scenario
+  // switch cannot write the OLD scenario's saved lens into the new one's refs.
+  const liveScenarioIdRef = useRef<number | undefined>(undefined);
+  liveScenarioIdRef.current = currentScenario?.id;
 
   useEffect(() => {
     if (currentScenario) {
@@ -1625,6 +1643,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const bands = distanceBandsFromInputs(currentScenario.inputs);
       setActiveBandLens(bands);
       savedBandLensRef.current = bands;
+      const inbound = inboundBandsFromInputs(currentScenario.inputs);
+      setActiveInboundBandLens(inbound);
+      savedInboundBandLensRef.current = inbound;
     }
   }, [currentScenario?.id]);
 
@@ -1940,7 +1961,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // `savedInputsRef`). `isBrowsingHistoryNow` mirrors `canGoForwardResult`
   // exactly ("the stepper is parked on a non-latest entry").
   const ordinaryDirty = isDirty;
-  const lensDirty = JSON.stringify(activeBandLens) !== JSON.stringify(savedBandLensRef.current);
+  const outboundLensDirty = JSON.stringify(activeBandLens) !== JSON.stringify(savedBandLensRef.current);
+  const inboundLensDirty = JSON.stringify(activeInboundBandLens) !== JSON.stringify(savedInboundBandLensRef.current);
+  const lensDirty = outboundLensDirty || inboundLensDirty;
   const isBrowsingHistoryNow = canGoForwardResult;
 
   // Part A (decision 1h) — "ordinary input editing is disabled" while
@@ -1977,11 +2000,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // guarded by `isBrowsingHistoryNow` here — it stays editable while
   // browsing history (decision 1b/1h; the history action matrix's "Save
   // bands" row).
-  function handleOptimizationParamsChange(field: OptimizationParametersField, value: number | number[] | boolean) {
+  function handleOptimizationParamsChange(field: OptimizationParametersField, value: number | number[] | boolean | null) {
     if (field === "distanceBands") {
       setActiveBandLens(Array.isArray(value) ? (value as number[]) : []);
       return;
     }
+    if (field === "inboundDistanceBands") {
+      setActiveInboundBandLens(Array.isArray(value) ? (value as number[]) : null);
+      return;
+    }
+    if (value === null) return; // only the inbound lens reset sends null
     updateInputsField(field, value);
   }
 
@@ -2113,7 +2141,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function buildWholeInputPayload(): Record<string, unknown> {
     // Super Model has no distance bands (spec §6), and roadDistances is server-written (§8): never send either.
     if (modelId === "super-model") { const { roadDistances: _server, ...rest } = localInputs ?? {}; return rest; }
-    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
+    // DU-4.1 — localInputs is seeded from the persisted row and may carry a stale
+    // inboundDistanceBands: drop it and re-add from the lens, so a cleared lens
+    // removes the key and an absent one stays absent.
+    const { inboundDistanceBands: _persisted, ...rest } = localInputs ?? {};
+    return { ...rest, distanceBands: activeBandLens, ...(activeInboundBandLens ? { inboundDistanceBands: activeInboundBandLens } : {}) };
   }
 
   // CH4OS (spec §6.1) — Solve is gated on the LOCAL draft, not the persisted
@@ -2180,7 +2212,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // chen-bands-units — a whole-input save always carries the
             // active lens (buildWholeInputPayload), so the lens's own saved
             // ref advances too, keeping `lensDirty` correct afterward.
-            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+            if (liveScenarioIdRef.current === scenarioId) {
+              savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+              savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            }
             queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
@@ -2229,25 +2264,51 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function handleSaveBandsOnly() {
     if (!currentScenario) return;
     const scenarioId = currentScenario.id;
-    const bands = activeBandLens;
-    updateDistanceBandsMutation.mutate(
-      { scenarioId, data: { distanceBands: bands } },
-      {
-        onSuccess: updated => {
-          savedBandLensRef.current = bands;
-          queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+    const settle = (updated: Scenario) => {
+      queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
+      queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+    };
+    if (outboundLensDirty) {
+      const bands = activeBandLens;
+      updateDistanceBandsMutation.mutate(
+        { scenarioId, data: { distanceBands: bands } },
+        {
+          onSuccess: updated => {
+            if (liveScenarioIdRef.current === scenarioId) savedBandLensRef.current = bands;
+            settle(updated);
+          },
+          onError: err => {
+            toast({
+              title: "Couldn't save the distance bands",
+              description: describeWriteError(err),
+              variant: "destructive",
+            });
+          },
         },
-        onError: err => {
-          toast({
-            title: "Couldn't save the distance bands",
-            description: describeWriteError(err),
-            variant: "destructive",
-          });
+      );
+    }
+    // DU-4.1 — the inbound lens saves through its own field-scoped route; an
+    // array writes the key, null removes it (Q4 reset). The ref is written from
+    // the SERVER's row (PR4-2), never the pre-mutation local value.
+    if (inboundLensDirty) {
+      updateInboundDistanceBandsMutation.mutate(
+        { scenarioId, data: { inboundDistanceBands: activeInboundBandLens } },
+        {
+          onSuccess: updated => {
+            if (liveScenarioIdRef.current === scenarioId) savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            settle(updated);
+          },
+          onError: err => {
+            toast({
+              title: "Couldn't save the inbound distance bands",
+              description: describeWriteError(err),
+              variant: "destructive",
+            });
+          },
         },
-      },
-    );
+      );
+    }
   }
 
   // chen-bands-units, Part A — the history action matrix, implemented
@@ -2266,7 +2327,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // The road route reads the SAVED row, and the resync after it must not discard unsaved edits.
   const superFetchDisabledReason = saveEnabled ? "Save your changes first" : null;
   const saveLabel = !ordinaryDirty && lensDirty ? "Save bands" : "Save";
-  const saveIsPending = updateScenario.isPending || updateDistanceBandsMutation.isPending;
+  const saveIsPending = updateScenario.isPending || updateDistanceBandsMutation.isPending || updateInboundDistanceBandsMutation.isPending;
 
   function handleSaveClick() {
     if (isBrowsingHistoryNow) {
@@ -3115,7 +3176,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onSuccess: updated => {
             setLocalInputs(updated.inputs);
             savedInputsRef.current = updated.inputs;
-            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+            if (liveScenarioIdRef.current === scenarioId) {
+              savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+              savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            }
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
             runSolve();
@@ -3270,7 +3334,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // band edit on top of this historical entry's other inputs. Draft
     // rather than saved lens deliberately — the clone is a brand-new
     // scenario, so persisting an unsaved lens edit here is harmless.
-    const inputs = { ...entry.inputs, distanceBands: activeBandLens };
+    const { inboundDistanceBands: _entryInbound, ...entryRest } = entry.inputs as Record<string, unknown>;
+    const inputs = { ...entryRest, distanceBands: activeBandLens, ...(activeInboundBandLens ? { inboundDistanceBands: activeInboundBandLens } : {}) };
     createScenario.mutate(
       { data: { name, modelId, inputs } },
       {
@@ -3387,6 +3452,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       onSolve: handleSolve,
       solveDisabled: !currentScenario || isBrowsingHistoryNow || solvePhase !== "idle",
       solveBlockedReason,
+      // DU-4.1 (Q5) — the inbound editor lives on this tab ONLY; the Solve dialog
+      // configures the solve and inbound bands never reach the solver.
+      ...(hasInboundBands(activeModelManifest?.inputsSchema as Record<string, unknown> | undefined) && {
+        showInboundBandEditor: true,
+        inboundDistanceBands: activeInboundBandLens ?? activeBandLens,
+        inboundUsesFallback: activeInboundBandLens === null,
+        inboundBandsLabel: bandLaneLabels(modelId).inbound,
+        outboundBandsLabel: bandLaneLabels(modelId).outbound,
+      }),
     };
 
   const solveDialogParamsProps: OptimizationParametersTabProps | null =
@@ -4208,6 +4282,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // above), so persisting this edit never staleifies the scenario
           // or reverts on step-away/step-back either.
           bands={activeBandLens}
+          inboundBands={activeInboundBandLens ?? undefined}
           countryBounds={activeModelManifest?.countryBounds}
           addedWarehouses={
             !projectsAddedEntities
@@ -4390,6 +4465,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             dataset={dataset}
             effectivePlants={effectiveFlowsPlants}
             bands={activeBandLens}
+            inboundBands={activeInboundBandLens ?? undefined}
             distanceUnit={canonicalUnit}
             scenarioId={currentScenario!.id}
             identityById={outputIdentityById}
@@ -4431,6 +4507,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
           capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(activeOutputInputs) : []}
           presentationBands={activeBandLens}
+          inboundBands={activeInboundBandLens ?? undefined}
           identityById={outputIdentityById}
         />
       );

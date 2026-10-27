@@ -295,7 +295,8 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       // readouts are bare grouped numbers] (both an enabled and a disabled cell).
       await expect(page.getByTestId("capability-matrix-tab").getByRole("columnheader", { name: /\(tons\)/ }).first()).toBeVisible();
       await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      // DU-4.4: a disabled cell prints no capacity.
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveCount(0);
 
       // ── Solve, so the Output Map and Customer Assignments have real data
       // to check items 1/5 against. ───────────────────────────────────────
@@ -328,10 +329,10 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
         expect(label).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);
       }
 
-      // Select a non-band filter (Product) first, capture its solo count —
+      // Select a non-band filter (Assigned Warehouse; Product filter removed by DU-4.4) first, capture its solo count —
       // this is the "unrelated filter" whose survival across a band edit
       // item 5 requires.
-      const { checkboxTestId: productCheckboxTestId, label: productLabel } = await selectFirstFilterOption(page, "product");
+      const { checkboxTestId: productCheckboxTestId, label: productLabel } = await selectFirstFilterOption(page, "warehouse");
       const productOnlyCountText = (await page.getByTestId("text-filter-count").textContent())!.trim();
       const productOnlyCount = Number(productOnlyCountText.split(" of ")[0]);
       expect(productOnlyCount).toBeGreaterThan(0);
@@ -418,7 +419,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
 
       // Non-band filter survived untouched.
       await expect(page.getByTestId(productCheckboxTestId)).toBeChecked();
-      await expect(page.getByTestId("button-clear-filter-product")).toBeVisible();
+      await expect(page.getByTestId("button-clear-filter-warehouse")).toBeVisible();
 
       // Clear the product filter so the next check (band-range correctness)
       // isn't accidentally starved to zero rows by an unrelated filter.

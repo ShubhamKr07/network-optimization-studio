@@ -211,7 +211,7 @@ describe("CapabilityMatrixTab", () => {
   // B5 (spec §7) — read-only capacity readout per cell, sourced from A2's
   // shared `cellCapacity` helper.
   describe("read-only capacity (A2 jadeCapability wiring)", () => {
-    it("a disabled base off-diagonal cell shows 0", () => {
+    it("a disabled base off-diagonal cell shows no capacity", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -223,7 +223,8 @@ describe("CapabilityMatrixTab", () => {
       );
       // plant-1/product-2 is off-diagonal (base capacity 0) and off by
       // default (no override).
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+      expect(screen.queryByTestId("text-capability-capacity-plant-1-product-2")).not.toBeInTheDocument();
+      expect(screen.getByTestId("checkbox-capability-plant-1-product-2")).toBeInTheDocument();
     });
 
     // Controlled harness — CapabilityMatrixTab itself is a pure/controlled
@@ -243,19 +244,19 @@ describe("CapabilityMatrixTab", () => {
       );
     }
 
-    it("enabling a base off-diagonal cell flips the displayed value 0 -> 210,000,000 live", async () => {
+    it("enabling a base off-diagonal cell shows the capacity once enabled (none while disabled) live", async () => {
       render(<ControlledHarness />);
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+      expect(screen.queryByTestId("text-capability-capacity-plant-1-product-2")).not.toBeInTheDocument();
       await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
       expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("210,000,000");
     });
 
-    it("disabling it again flips the value back 210,000,000 -> 0 live", async () => {
+    it("disabling it again hides the capacity again live", async () => {
       render(<ControlledHarness />);
       await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
       expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("210,000,000");
       await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+      expect(screen.queryByTestId("text-capability-capacity-plant-1-product-2")).not.toBeInTheDocument();
     });
 
     it("a base-diagonal (already-capacitated) cell shows its own base capacity, unaffected by JADE_ENABLED_CAPACITY", () => {
@@ -271,7 +272,7 @@ describe("CapabilityMatrixTab", () => {
       expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent("210,000,000");
     });
 
-    it("an added plant's cell (no base entry) enabled shows 210,000,000; disabled shows 0", () => {
+    it("an added plant's cell (no base entry) enabled shows 210,000,000; disabled shows none", () => {
       const plantsWithAdded = [...plants, { id: "ap-new-1", name: undefined, city: "C", state: "QLD", lat: 3, lng: 3 }];
       render(
         <CapabilityMatrixTab
@@ -283,7 +284,7 @@ describe("CapabilityMatrixTab", () => {
         />,
       );
       expect(screen.getByTestId("text-capability-capacity-ap-new-1-product-1")).toHaveTextContent("210,000,000");
-      expect(screen.getByTestId("text-capability-capacity-ap-new-1-product-2")).toHaveTextContent("0");
+      expect(screen.queryByTestId("text-capability-capacity-ap-new-1-product-2")).not.toBeInTheDocument();
     });
   });
 
@@ -363,7 +364,7 @@ describe("CapabilityMatrixTab", () => {
       expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent(/^210,000,000$/);
     });
 
-    it("a disabled cell's capacity readout shows '0'", () => {
+    it("a disabled cell prints no capacity readout", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -373,7 +374,7 @@ describe("CapabilityMatrixTab", () => {
           onChange={vi.fn()}
         />,
       );
-      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent(/^0$/);
+      expect(screen.queryByTestId("text-capability-capacity-plant-1-product-2")).not.toBeInTheDocument();
     });
   });
 

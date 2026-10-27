@@ -1186,7 +1186,7 @@ export interface AssignmentExportRow {
 }
 
 /**
- * Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.
+ * Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow. For two-echelon models a row's band index is into that leg's band set (inbound legs use inboundDistanceBands when saved, otherwise distanceBands).
  */
 export interface FlowExportRow {
   fromId: string;
@@ -1197,7 +1197,7 @@ export interface FlowExportRow {
 }
 
 /**
- * two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.
+ * two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit.
  */
 export interface JadeAssignmentExportRow {
   productId: string;
@@ -1216,7 +1216,7 @@ export const JadeFlowExportRowLeg = {
 } as const;
 
 /**
- * two-echelon-jade-us combined-leg flow row — band is the display-label string.
+ * two-echelon-jade-us combined-leg flow row — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit, classified against that leg's band set.
  */
 export interface JadeFlowExportRow {
   leg: JadeFlowExportRowLeg;
@@ -1227,12 +1227,23 @@ export interface JadeFlowExportRow {
   flows: number;
 }
 
+export type ServiceStatsExportRowSection = typeof ServiceStatsExportRowSection[keyof typeof ServiceStatsExportRowSection];
+
+
+export const ServiceStatsExportRowSection = {
+  outbound: 'outbound',
+  inbound: 'inbound',
+} as const;
+
 /**
- * Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+ * v4 service-stats row. `section: outbound` rows are the cumulative + overflow coverage rows (flow null); `section: inbound` rows (two-echelon models only) are EXCLUSIVE per band, with `flow` the summed inbound flow and `percent` its share of total inbound flow. `band` is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow, never converted.
  */
 export interface ServiceStatsExportRow {
+  section: ServiceStatsExportRowSection;
   band: number;
   percent: number;
+  /** @nullable */
+  flow: number | null;
 }
 
 /**
@@ -1323,13 +1334,13 @@ export const AssignmentsExportEnvelopeUnit = {
 } as const;
 
 /**
- * v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.
+ * v3 assignments export — generic rows only (two-echelon-jade-us is served by JadeAssignmentsExportEnvelope at v4).
  */
 export interface AssignmentsExportEnvelope {
   templateVersion: AssignmentsExportEnvelopeTemplateVersion;
   entity: AssignmentsExportEnvelopeEntity;
   unit: AssignmentsExportEnvelopeUnit;
-  rows: (AssignmentExportRow | JadeAssignmentExportRow)[];
+  rows: AssignmentExportRow[];
 }
 
 export type FlowsExportEnvelopeTemplateVersion = typeof FlowsExportEnvelopeTemplateVersion[keyof typeof FlowsExportEnvelopeTemplateVersion];
@@ -1355,13 +1366,77 @@ export const FlowsExportEnvelopeUnit = {
 } as const;
 
 /**
- * v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.
+ * v3 flows export — generic rows only (two-echelon-jade-us is served by JadeFlowsExportEnvelope at v4).
  */
 export interface FlowsExportEnvelope {
   templateVersion: FlowsExportEnvelopeTemplateVersion;
   entity: FlowsExportEnvelopeEntity;
   unit: FlowsExportEnvelopeUnit;
-  rows: (FlowExportRow | JadeFlowExportRow)[];
+  rows: FlowExportRow[];
+}
+
+export type JadeAssignmentsExportEnvelopeTemplateVersion = typeof JadeAssignmentsExportEnvelopeTemplateVersion[keyof typeof JadeAssignmentsExportEnvelopeTemplateVersion];
+
+
+export const JadeAssignmentsExportEnvelopeTemplateVersion = {
+  NUMBER_4: 4,
+} as const;
+
+export type JadeAssignmentsExportEnvelopeEntity = typeof JadeAssignmentsExportEnvelopeEntity[keyof typeof JadeAssignmentsExportEnvelopeEntity];
+
+
+export const JadeAssignmentsExportEnvelopeEntity = {
+  assignments: 'assignments',
+} as const;
+
+export type JadeAssignmentsExportEnvelopeUnit = typeof JadeAssignmentsExportEnvelopeUnit[keyof typeof JadeAssignmentsExportEnvelopeUnit];
+
+
+export const JadeAssignmentsExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v4 two-echelon-jade-us assignments export. Grid-local version (services/templates.ts's JADE_EXPORT_TEMPLATE_VERSION): only the two JADE grids changed their `band` column to range text, so the shared v3 output version stays put for every other model. The enum is single-valued, and templateVersion keeps this envelope distinct from AssignmentsExportEnvelope even when rows is empty.
+ */
+export interface JadeAssignmentsExportEnvelope {
+  templateVersion: JadeAssignmentsExportEnvelopeTemplateVersion;
+  entity: JadeAssignmentsExportEnvelopeEntity;
+  unit: JadeAssignmentsExportEnvelopeUnit;
+  rows: JadeAssignmentExportRow[];
+}
+
+export type JadeFlowsExportEnvelopeTemplateVersion = typeof JadeFlowsExportEnvelopeTemplateVersion[keyof typeof JadeFlowsExportEnvelopeTemplateVersion];
+
+
+export const JadeFlowsExportEnvelopeTemplateVersion = {
+  NUMBER_4: 4,
+} as const;
+
+export type JadeFlowsExportEnvelopeEntity = typeof JadeFlowsExportEnvelopeEntity[keyof typeof JadeFlowsExportEnvelopeEntity];
+
+
+export const JadeFlowsExportEnvelopeEntity = {
+  flows: 'flows',
+} as const;
+
+export type JadeFlowsExportEnvelopeUnit = typeof JadeFlowsExportEnvelopeUnit[keyof typeof JadeFlowsExportEnvelopeUnit];
+
+
+export const JadeFlowsExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v4 two-echelon-jade-us flows export (grid-local version, see JadeAssignmentsExportEnvelope). Each leg's band text is classified against that leg's band set.
+ */
+export interface JadeFlowsExportEnvelope {
+  templateVersion: JadeFlowsExportEnvelopeTemplateVersion;
+  entity: JadeFlowsExportEnvelopeEntity;
+  unit: JadeFlowsExportEnvelopeUnit;
+  rows: JadeFlowExportRow[];
 }
 
 export type CostSummaryExportEnvelopeTemplateVersion = typeof CostSummaryExportEnvelopeTemplateVersion[keyof typeof CostSummaryExportEnvelopeTemplateVersion];
@@ -1400,7 +1475,7 @@ export type ServiceStatsExportEnvelopeTemplateVersion = typeof ServiceStatsExpor
 
 
 export const ServiceStatsExportEnvelopeTemplateVersion = {
-  NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;
 
 export type ServiceStatsExportEnvelopeEntity = typeof ServiceStatsExportEnvelopeEntity[keyof typeof ServiceStatsExportEnvelopeEntity];
@@ -1419,7 +1494,7 @@ export const ServiceStatsExportEnvelopeUnit = {
 } as const;
 
 /**
- * v3 serviceStats export — cumulative + overflow rows under the requested unit.
+ * v4 serviceStats export. Grid-local version (services/templates.ts's SERVICE_STATS_TEMPLATE_VERSION): only this grid gained the `section` and `flow` columns, so the shared v3 output version stays put for every other grid.
  */
 export interface ServiceStatsExportEnvelope {
   templateVersion: ServiceStatsExportEnvelopeTemplateVersion;
@@ -1429,9 +1504,9 @@ export interface ServiceStatsExportEnvelope {
 }
 
 /**
- * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.
+ * One of four versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows — plus costSummary and serviceStats, which are the same family but on their own grid-local versions, CostSummaryExportEnvelope and ServiceStatsExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.
  */
-export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
+export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | JadeAssignmentsExportEnvelope | JadeFlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
 
 export type GetDatasetParams = {
 modelId?: GetDatasetModelId;
@@ -1573,5 +1648,14 @@ export const ExportScenarioUnit = {
 export type UpdateDistanceBandsBody = {
   /** @minItems 1 */
   distanceBands: number[];
+};
+
+export type UpdateInboundDistanceBandsBody = {
+  /**
+     * Band boundaries. null clears the key: inbound lanes fall back to distanceBands.
+     * @minItems 1
+     * @nullable
+     */
+  inboundDistanceBands: number[] | null;
 };
 

@@ -591,7 +591,8 @@ test.describe("Workspace fixups 2 — two-echelon-jade-us", () => {
       await expect(page.getByTestId("filter-menu-popover")).not.toBeVisible();
 
       // Table cells read the same range text as the filter options (DU-2.2).
-      const cellTexts = await page.locator('[data-testid^="cell-jadeassignment-band-"]').allInnerTexts();
+      // DU-4.4: split customers (several warehouses) show "—" in the band cell.
+      const cellTexts = (await page.locator('[data-testid^="cell-jadeassignment-band-"]').allInnerTexts()).filter(t => t.trim() !== "—");
       expect(cellTexts.length).toBeGreaterThan(0);
       for (const text of cellTexts) {
         expect(text.trim()).toMatch(/^(≤ [\d,.]+ \S+|[\d,.]+–[\d,.]+ \S+|> [\d,.]+ \S+)$/);

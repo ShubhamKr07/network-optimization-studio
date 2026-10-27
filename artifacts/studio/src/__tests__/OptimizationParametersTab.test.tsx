@@ -1019,3 +1019,59 @@ describe("OptimizationParametersTab — Solve button (QFX-3)", () => {
     expect(screen.queryByTestId("tab-solve-blocked-hint")).not.toBeInTheDocument();
   });
 });
+
+describe("OptimizationParametersTab — inbound band editor (DU-4.1)", () => {
+  const inboundProps = {
+    showInboundBandEditor: true,
+    inboundDistanceBands: [300, 900],
+    inboundBandsLabel: "Inbound lanes (plant → warehouse)",
+    outboundBandsLabel: "Customer-facing lanes (warehouse → customer)",
+  };
+
+  it("renders two labelled editors when enabled", () => {
+    renderTab(inboundProps);
+    expect(screen.getByText("Inbound lanes (plant → warehouse)")).toBeInTheDocument();
+    expect(screen.getByText("Customer-facing lanes (warehouse → customer)")).toBeInTheDocument();
+    expect(screen.queryByText("Distance bands")).not.toBeInTheDocument();
+    // chips come from the inbound lens, under the inbound- testid prefix
+    expect(screen.getByTestId("inbound-band-300")).toBeInTheDocument();
+    expect(screen.getByTestId("inbound-band-900")).toBeInTheDocument();
+  });
+
+  it("keeps one editor labelled 'Distance bands' when not enabled (single-echelon)", () => {
+    renderTab({ inboundBandsLabel: "x", outboundBandsLabel: "y" });
+    expect(screen.getByText("Distance bands")).toBeInTheDocument();
+    expect(screen.queryByTestId("inbound-bands-hint")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("inbound-button-bands-plus")).not.toBeInTheDocument();
+  });
+
+  it("editing the inbound editor calls onChange('inboundDistanceBands', bands)", () => {
+    const onChange = vi.fn();
+    renderTab({ ...inboundProps, onChange });
+    fireEvent.click(screen.getByTestId("inbound-button-remove-band-900"));
+    expect(onChange).toHaveBeenCalledWith("inboundDistanceBands", [300]);
+  });
+
+  it("the fallback hint shows only while falling back, and the reset button only when it is not", () => {
+    const { unmount } = renderTab({ ...inboundProps, inboundUsesFallback: true });
+    expect(screen.getByTestId("inbound-bands-hint")).toHaveTextContent("Using the customer-facing bands until you change these.");
+    expect(screen.queryByTestId("inbound-bands-reset")).not.toBeInTheDocument();
+    unmount();
+    renderTab({ ...inboundProps, inboundUsesFallback: false });
+    expect(screen.queryByTestId("inbound-bands-hint")).not.toBeInTheDocument();
+    expect(screen.getByTestId("inbound-bands-reset")).toHaveTextContent("Use customer-facing bands");
+  });
+
+  it("the reset button sends null", () => {
+    const onChange = vi.fn();
+    renderTab({ ...inboundProps, inboundUsesFallback: false, onChange });
+    fireEvent.click(screen.getByTestId("inbound-bands-reset"));
+    expect(onChange).toHaveBeenCalledWith("inboundDistanceBands", null);
+  });
+
+  it("namespaces the inbound editor and reset testids with testIdPrefix", () => {
+    renderTab({ ...inboundProps, testIdPrefix: "solve-dialog-", idPrefix: "solve-dialog-" });
+    expect(screen.getByTestId("solve-dialog-inbound-band-300")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-inbound-bands-reset")).toBeInTheDocument();
+  });
+});

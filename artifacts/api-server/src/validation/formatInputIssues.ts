@@ -16,6 +16,7 @@ export const INPUT_FIELD_LABELS: Record<string, string> = {
   capacityMode: "Capacity mode",
   uniformCapacity: "Warehouse capacity",
   distanceBands: "Distance bands",
+  inboundDistanceBands: "Inbound distance bands",
   warehouseOverrides: "Warehouse overrides",
   customerOverrides: "Customer overrides",
   addedWarehouses: "Added warehouses",

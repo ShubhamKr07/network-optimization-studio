@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { DataTable } from "@/components/data-table/DataTable";
@@ -12,6 +12,7 @@ import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
+import { groupAssignmentsByCustomer } from "@/lib/groupAssignments";
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5/§5a) — Chapter 9 JADE's own
 // product-level Customer Assignments table. Deliberately a SEPARATE
@@ -122,16 +123,53 @@ function customerLabel(
   return cityStateLabel(base?.city, base?.state) ?? id;
 }
 
-interface JadeAssignmentRow {
-  key: string;
+interface JadeAssignmentLine {
   productId: string;
   productLabel: string;
-  customerId: string;
-  customerLabel: string;
   warehouseId: string;
   warehouseLabel: string;
   distance: number;
   bandIndex: number;
+}
+
+// DU-4.4 — one row per customer. `warehouseId` null = split across warehouses.
+interface JadeAssignmentRow {
+  key: string;
+  customerId: string;
+  customerLabel: string;
+  warehouseId: string | null;
+  warehouseLabel: string;
+  warehouseCount: number;
+  lines: JadeAssignmentLine[];
+  /** The single warehouse's distance/band; null when split. */
+  distance: number | null;
+  bandIndex: number | null;
+}
+
+// Q10 — in-row disclosure (no injected sub-rows: DataTable sort/filter/paging stay row-per-customer).
+function SplitDisclosure({ row, renderLine }: { row: JadeAssignmentRow; renderLine: (l: JadeAssignmentLine) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        className="inline-flex min-h-6 items-center rounded px-1 text-xs underline"
+        aria-expanded={open}
+        aria-controls={`jadeassignment-lines-${row.key}`}
+        data-testid={`button-jadeassignment-split-${row.key}`}
+        onClick={() => setOpen(o => !o)}
+      >
+        Split ({row.warehouseCount} warehouses)
+      </button>
+      <ul id={`jadeassignment-lines-${row.key}`} hidden={!open} className="mt-1 space-y-0.5 text-xs" data-testid={`list-jadeassignment-lines-${row.key}`}>
+        {row.lines.map(l => (
+          <li key={l.productId} data-testid={`line-jadeassignment-${row.key}-${l.productId}`}>
+            {renderLine(l)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 // DU-2.7 (PR2-4) — when `identityById` has an entry for this id, render the shared
@@ -177,17 +215,28 @@ export function JadeAssignmentsTab({
   const bandsKey = effectiveBands.join(",");
 
   const rows: JadeAssignmentRow[] = useMemo(() => {
-    return extractAssignments(result).map(a => ({
-      key: `${a.productId}|${a.customerId}`,
-      productId: a.productId,
-      productLabel: productLabel(a.productId, dataset),
-      customerId: a.customerId,
-      customerLabel: customerLabel(a.customerId, dataset, displayedInputs?.addedCustomers),
-      warehouseId: a.warehouseId,
-      warehouseLabel: warehouseLabel(a.warehouseId, dataset, displayedInputs?.addedWarehouses),
-      distance: a.distanceMi,
-      bandIndex: assignBandOrOverflow(a.distanceMi, effectiveBands),
-    }));
+    const whLabel = (id: string) => warehouseLabel(id, dataset, displayedInputs?.addedWarehouses);
+    return groupAssignmentsByCustomer(extractAssignments(result), id => productLabel(id, dataset)).map(g => {
+      const lines: JadeAssignmentLine[] = g.lines.map(l => ({
+        productId: l.productId,
+        productLabel: productLabel(l.productId, dataset),
+        warehouseId: l.warehouseId,
+        warehouseLabel: whLabel(l.warehouseId),
+        distance: l.distance,
+        bandIndex: assignBandOrOverflow(l.distance, effectiveBands),
+      }));
+      return {
+        key: g.customerId,
+        customerId: g.customerId,
+        customerLabel: customerLabel(g.customerId, dataset, displayedInputs?.addedCustomers),
+        warehouseId: g.warehouseId,
+        warehouseLabel: g.warehouseId === null ? "Split" : whLabel(g.warehouseId),
+        warehouseCount: g.warehouseCount,
+        lines,
+        distance: g.warehouseId === null ? null : lines[0].distance,
+        bandIndex: g.warehouseId === null ? null : lines[0].bandIndex,
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, displayedInputs, bandsKey]);
 
@@ -195,7 +244,6 @@ export function JadeAssignmentsTab({
     // `bandRangeLabel` takes display-unit boundaries; the band INDEX was assigned in canonical space.
     const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
     return [
-      { id: "product", header: "Product", kind: "enum", cellTestId: r => `cell-jadeassignment-product-${r.key}`, value: r => r.productLabel, cell: r => r.productLabel },
       {
         id: "customer",
         header: "Customer",
@@ -213,8 +261,23 @@ export function JadeAssignmentsTab({
         filter: "select", // pinned: today's descriptor type, even above 20 warehouses
         cellTestId: r => `cell-jadeassignment-warehouse-${r.key}`,
         value: r => r.warehouseLabel,
-        cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
+        cell: r =>
+          r.warehouseId === null ? (
+            <SplitDisclosure
+              row={r}
+              renderLine={l => (
+                <>
+                  {l.productLabel} → {l.warehouseLabel} ·{" "}
+                  {canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(l.distance, distanceUnit))} ${resolvedUnitLabel}` : "—"} ·{" "}
+                  {canonicalResolved ? <BandLabel index={l.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"}
+                </>
+              )}
+            />
+          ) : (
+            renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById)
+          ),
       },
+      { id: "products", header: "Products", kind: "number", cellTestId: r => `cell-jadeassignment-products-${r.key}`, value: r => r.lines.length, cell: r => r.lines.length },
       {
         id: "distance",
         header: "Distance",
@@ -222,9 +285,9 @@ export function JadeAssignmentsTab({
         cellClassName: "font-mono",
         cellTestId: r => `cell-jadeassignment-distance-${r.key}`,
         // Filter range is in the DISPLAY unit — the number the student reads in the cell.
-        value: r => (canonicalResolved ? unit.toDisplay(r.distance, distanceUnit) : null),
+        value: r => (canonicalResolved && r.distance !== null ? unit.toDisplay(r.distance, distanceUnit) : null),
         filterResetKey: unit.pref,
-        cell: r => (canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(r.distance, distanceUnit))} ${resolvedUnitLabel}` : "—"),
+        cell: r => (canonicalResolved && r.distance !== null ? `${formatDistanceDisplay(unit.toDisplay(r.distance, distanceUnit))} ${resolvedUnitLabel}` : "—"),
       },
       {
         id: "band",
@@ -232,8 +295,8 @@ export function JadeAssignmentsTab({
         kind: "enum",
         cellTestId: r => `cell-jadeassignment-band-${r.key}`,
         // DU-2.2 — filter value and cell both read the one range label (index assigned in canonical space).
-        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
-        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
+        value: r => (canonicalResolved && r.bandIndex !== null ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
+        cell: r => (canonicalResolved && r.bandIndex !== null ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
         // Workspace fixups T7 item 5 — a bands/unit change clears ONLY this filter.
         filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
       },

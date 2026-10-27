@@ -59,6 +59,14 @@ vi.mock("@/components/workspace/tabs/OutputMapTab", () => ({
   },
 }));
 
+const jadeFlowsTabSpy = vi.fn();
+vi.mock("@/components/workspace/tabs/JadeFlowsTab", () => ({
+  JadeFlowsTab: (props: unknown) => {
+    jadeFlowsTabSpy(props);
+    return <div data-testid="jade-flows-tab-stub" />;
+  },
+}));
+
 const warehousesTabSpy = vi.fn();
 vi.mock("@/components/workspace/tabs/WarehousesTab", () => ({
   WarehousesTab: (props: unknown) => {
@@ -85,6 +93,7 @@ vi.mock("@/components/workspace/tabs/OpenWarehousesTab", () => ({
 
 const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockUpdateDistanceBands = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockUpdateInboundDistanceBands = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
@@ -95,6 +104,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // chen-bands-units, Part G, T14 — field-scoped `distanceBands` PATCH,
   // used by the Save control when only the band lens is dirty.
   useUpdateDistanceBands: vi.fn(() => mockUpdateDistanceBands),
+  useUpdateInboundDistanceBands: vi.fn(() => mockUpdateInboundDistanceBands),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCloneScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
@@ -132,6 +142,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUpdateScenario.mutate.mockReset();
   mockSolveScenario.mutate.mockReset();
+  mockUpdateInboundDistanceBands.mutate.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
 });
 
@@ -852,5 +863,171 @@ describe("CH4O-2 — the Solve dialog renders Chapter 4's real parameter panel",
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     expect(screen.getByTestId("solve-dialog-slider-p")).toBeInTheDocument();
     expect(screen.queryByTestId("solve-dialog-optimization-parameters-tab")).toBeNull();
+  });
+});
+
+// ── DU-4.1 — inbound distance bands: second lens, save paths, reset ─────────
+describe("Workspace — DU-4.1 inbound distance bands (two-echelon-jade-us)", () => {
+  const jadeInputs = {
+    p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 120,
+    warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
+    addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+  };
+  const solvedResult = {
+    status: "optimal" as const, objective: 1, runTimeSec: 0.7, quality: "Proven optimal",
+    edges: [{ fromId: "plant-1", toId: "wh-11", flow: 1000, distance: 300, leg: "plant_to_warehouse" as const, productId: "product-1" }],
+    metrics: { weightedAvgDistance: 150, utilizationByNode: [], bandCoverage: [], openFacilityIds: ["wh-11"] },
+    details: {}, solverUsed: "CBC", infeasibilityReason: null,
+  };
+  const mkScenario = (inputs: Record<string, unknown>) => ({
+    id: 1, name: "JADE", modelId: "two-echelon-jade-us", inputs, result: solvedResult, stale: false,
+    createdAt: "2026-01-04T00:00:00Z", updatedAt: "2026-01-04T00:00:00Z",
+  });
+  const dataset = {
+    warehouses: [{ id: "wh-11", name: "Phoenix", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 }],
+    customers: [], plants: [{ id: "plant-1", name: "Plant 1", city: "Ashland", state: "KY", lat: 38.45, lng: -82.67 }],
+    products: [{ id: "product-1", name: "Product 1" }], plantProductCapabilities: [],
+  };
+  const inboundSchema = { type: "object", properties: { distanceBands: {}, inboundDistanceBands: {} } };
+
+  function setup(inputs: Record<string, unknown>, inputsSchema: unknown = inboundSchema) {
+    const sc = mkScenario(inputs);
+    mockUseListScenarios.mockReturnValue({ data: [sc] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: sc } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseListModels.mockReturnValue({
+      data: [{
+        id: "two-echelon-jade-us", countryBounds: { sw: [25.78, -122.69], ne: [47.61, -71.05] }, distanceUnit: "mi", inputsSchema,
+        capabilities: { supportsP: true, capacityModes: [], demandEditable: true, outputGrids: ["flows"], supportsFacilityStatus: true, supportsPlantProductCapability: true },
+      }],
+    } as unknown as ReturnType<typeof useListModels>);
+    const view = render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    // The saved ref is a ref (the real app re-renders via the query cache); re-render by hand.
+    const rerender = () => view.rerender(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    return { sc, rerender };
+  }
+
+  it("shows two labelled editors only when the manifest declares the key", () => {
+    setup(jadeInputs);
+    expect(screen.getByText(/Customer-facing lanes \(warehouse → customer\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Inbound lanes \(plant → warehouse\)/)).toBeInTheDocument();
+    expect(screen.getByTestId("inbound-bands-hint")).toBeInTheDocument();
+    expect(screen.queryByTestId("inbound-bands-reset")).toBeNull();
+  });
+
+  it("shows a single 'Distance bands' editor when the manifest lacks the key", () => {
+    setup(jadeInputs, { type: "object", properties: { distanceBands: {} } });
+    expect(screen.queryByText(/Inbound lanes/)).toBeNull();
+    expect(screen.getByText(/^Distance bands/)).toBeInTheDocument();
+  });
+
+  it("an inbound edit is a lens-only change: Save bands -> the inbound route only, then the lens is not dirty (PR4-2)", () => {
+    const { rerender } = setup(jadeInputs);
+    // The inbound editor is seeded with a copy of the customer-facing bands.
+    fireEvent.click(screen.getByTestId("inbound-button-remove-band-1600"));
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateDistanceBands.mutate).not.toHaveBeenCalled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockUpdateInboundDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateInboundDistanceBands.mutate.mock.calls[0][0]).toEqual({
+      scenarioId: 1, data: { inboundDistanceBands: [200, 400, 800] },
+    });
+    // The server's returned row advances the saved ref -> not dirty.
+    const opts = mockUpdateInboundDistanceBands.mutate.mock.calls[0][1];
+    act(() => opts.onSuccess({ ...mkScenario({ ...jadeInputs, inboundDistanceBands: [200, 400, 800] }) }));
+    rerender();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(screen.getByTestId("inbound-bands-reset")).toBeInTheDocument();
+  });
+
+  it("the OutputMapTab and JadeFlowsTab receive the inbound lens (undefined while falling back)", () => {
+    setup({ ...jadeInputs, inboundDistanceBands: [100, 500] });
+    outputMapTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600], inboundBands: [100, 500] }));
+    jadeFlowsTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("sidebar-output-flows"));
+    expect(jadeFlowsTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600], inboundBands: [100, 500] }));
+  });
+
+  it("a bands save that resolves after a scenario switch does not dirty the new scenario's lens (DU-4.F1)", () => {
+    const { rerender } = setup(jadeInputs);
+    fireEvent.click(screen.getByTestId("inbound-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("button-save"));
+    const opts = mockUpdateInboundDistanceBands.mutate.mock.calls[0][1];
+    // Switch to scenario 2 (same inputs, no inbound key) before the PATCH lands.
+    const scB = { ...mkScenario(jadeInputs), id: 2, name: "JADE B" };
+    mockUseGetScenario.mockReturnValue({ data: scB } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scB] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseSearch.mockReturnValue("?scenario=2");
+    rerender();
+    act(() => opts.onSuccess({ ...mkScenario({ ...jadeInputs, inboundDistanceBands: [200, 400, 800] }) }));
+    rerender();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("falling back passes inboundBands undefined to the map", () => {
+    setup(jadeInputs);
+    outputMapTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    const call = outputMapTabSpy.mock.calls.at(-1)?.[0] as { inboundBands?: number[] };
+    expect(call.inboundBands).toBeUndefined();
+  });
+
+  it("reset (Q4): 'Use customer-facing bands' sends null, the key leaves the lens, and the hint returns after the save", () => {
+    const { rerender } = setup({ ...jadeInputs, inboundDistanceBands: [100, 500] });
+    expect(screen.queryByTestId("inbound-bands-hint")).toBeNull();
+    fireEvent.click(screen.getByTestId("inbound-bands-reset"));
+    expect(screen.getByTestId("inbound-bands-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateInboundDistanceBands.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1, data: { inboundDistanceBands: null } });
+    const opts = mockUpdateInboundDistanceBands.mutate.mock.calls[0][1];
+    act(() => opts.onSuccess(mkScenario(jadeInputs)));
+    rerender();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(screen.getByTestId("inbound-bands-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("inbound-band-1600")).toBeInTheDocument(); // seeded with the customer-facing copy again
+  });
+
+  it("whole-input save carries the saved inbound lens from the persisted row and is not left dirty (PR4-2)", () => {
+    setup({ ...jadeInputs, inboundDistanceBands: [100, 500] });
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("button-save"));
+    const payload = mockUpdateScenario.mutate.mock.calls[0][0].data.inputs as Record<string, unknown>;
+    expect(payload.inboundDistanceBands).toEqual([100, 500]);
+    const opts = mockUpdateScenario.mutate.mock.calls[0][1];
+    act(() => opts.onSuccess({ ...mkScenario({ ...jadeInputs, gap: 5, inboundDistanceBands: [100, 500] }) }));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("whole-input save omits the key when the lens was reset", () => {
+    setup({ ...jadeInputs, inboundDistanceBands: [100, 500] });
+    fireEvent.click(screen.getByTestId("inbound-bands-reset"));
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect("inboundDistanceBands" in mockUpdateScenario.mutate.mock.calls[0][0].data.inputs).toBe(false);
+  });
+
+  it("whole-input save never invents the key for an absent lens", () => {
+    setup(jadeInputs);
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect("inboundDistanceBands" in mockUpdateScenario.mutate.mock.calls[0][0].data.inputs).toBe(false);
+  });
+
+  it("the solve-triggered save adopts the server's inbound lens (not dirty afterwards) and the Solve dialog has a single band editor (Q5)", () => {
+    setup({ ...jadeInputs, inboundDistanceBands: [100, 500] });
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.queryByTestId("solve-dialog-inbound-button-bands-plus")).toBeNull();
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    const [vars, opts] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(vars.data.inputs.inboundDistanceBands).toEqual([100, 500]);
+    act(() => opts.onSuccess({ ...mkScenario({ ...jadeInputs, gap: 5, inboundDistanceBands: [100, 500] }) }));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
   });
 });

@@ -52,6 +52,9 @@ export interface BandChipEditorProps {
    * any testid collision or churn to either caller's existing tests.
    * Defaults to "" (OptimizationParametersTab's existing bare ids). */
   testIdPrefix?: string;
+  /** DU-4.1 — replaces the "Distance bands" text (e.g. "Inbound lanes (plant → warehouse)").
+   * The unit suffix is unchanged. */
+  label?: string;
 }
 
 export function BandChipEditor(props: BandChipEditorProps) {
@@ -73,6 +76,7 @@ function LegacyBandChipEditor({
   disabled,
   distanceUnit,
   testIdPrefix = "",
+  label,
 }: BandChipEditorProps) {
   const [addingBand, setAddingBand] = useState(false);
   const [newBandValue, setNewBandValue] = useState("");
@@ -103,7 +107,7 @@ function LegacyBandChipEditor({
             number under a WRONG unit — the defect this bundle exists to remove.
             The unit-aware branch always has a real unit; this one may not. */}
         <Label className="text-xs font-semibold text-foreground">
-          Distance bands{distanceUnit ? ` (${distanceUnit})` : ""}
+          {label ?? "Distance bands"}{distanceUnit ? ` (${distanceUnit})` : ""}
         </Label>
         <Button
           type="button"
@@ -191,6 +195,7 @@ function UnitAwareBandChipEditor({
   disabled,
   canonicalUnit,
   testIdPrefix = "",
+  label: labelText,
 }: BandChipEditorProps & { canonicalUnit: CanonicalUnit | null }) {
   const { effectiveUnit, toDisplay, fromDisplay } = useDisplayUnit();
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
@@ -240,7 +245,8 @@ function UnitAwareBandChipEditor({
   }
 
   const emptyTestId = testIdPrefix ? `${testIdPrefix}bands-empty` : "distance-bands-empty";
-  const label = gated ? "Distance bands" : `Distance bands (${unit})`;
+  const base = labelText ?? "Distance bands";
+  const label = gated ? base : `${base} (${unit})`;
 
   return (
     <div className="space-y-2">

@@ -64,7 +64,8 @@ import type {
   SolveHistoryEntry,
   SolveJob,
   SolveJobQueued,
-  UpdateDistanceBandsBody
+  UpdateDistanceBandsBody,
+  UpdateInboundDistanceBandsBody
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1712,7 +1713,7 @@ export const getExportScenarioUrl = (scenarioId: number,
 }
 
 /**
- * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is derived from the scenario's CURRENT SAVED inputs.distanceBands (server-side bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary, "Overflow" above the highest boundary) — it reflects the last saved bands, not unsaved UI edits. Every other model's assignments/flows export is unchanged.
+ * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is the range text from the shared label authority ("≤ a u", "a–b u", "> z u", upper-inclusive boundary, boundaries in the requested unit; never "Band N"), derived from the scenario's CURRENT SAVED inputs (distanceBands, and for the inbound leg inboundDistanceBands when saved) — it reflects the last saved bands, not unsaved UI edits. These two JADE grids are served in their own v4 envelopes (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope). Every other model's assignments/flows export is unchanged (v3).
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 export const exportScenario = async (scenarioId: number,
@@ -1856,6 +1857,79 @@ export const useUpdateDistanceBands = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdateDistanceBandsMutationOptions(options));
+    }
+
+export const getUpdateInboundDistanceBandsUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/inbound-distance-bands`
+}
+
+/**
+ * Atomic, field-scoped update of inputs.inboundDistanceBands for the two-echelon models (two-echelon-jade-us, two-echelon-gold-au) — one jsonb statement, never a read-modify-write of the whole inputs blob. When the key is absent, inbound lanes fall back to inputs.distanceBands. Does not bump inputsUpdatedAt (a reporting lens, not a model-geometric change), so the returned Scenario.stale is unaffected. A model whose inputs schema has no such key (every single-echelon model) gets a 400.
+ * @summary Field-scoped update of a scenario's inbound-lane distance bands (reporting lens only)
+ */
+export const updateInboundDistanceBands = async (scenarioId: number,
+    updateInboundDistanceBandsBody: UpdateInboundDistanceBandsBody, options?: RequestInit): Promise<Scenario> => {
+
+  return customFetch<Scenario>(getUpdateInboundDistanceBandsUrl(scenarioId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateInboundDistanceBandsBody,)
+  }
+);}
+
+
+
+
+export const getUpdateInboundDistanceBandsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInboundDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateInboundDistanceBandsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateInboundDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateInboundDistanceBandsBody>}, TContext> => {
+
+const mutationKey = ['updateInboundDistanceBands'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateInboundDistanceBands>>, {scenarioId: number;data: BodyType<UpdateInboundDistanceBandsBody>}> = (props) => {
+          const {scenarioId,data} = props ?? {};
+
+          return  updateInboundDistanceBands(scenarioId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateInboundDistanceBandsMutationResult = NonNullable<Awaited<ReturnType<typeof updateInboundDistanceBands>>>
+    export type UpdateInboundDistanceBandsMutationBody = BodyType<UpdateInboundDistanceBandsBody>
+    export type UpdateInboundDistanceBandsMutationError = ErrorType<void>
+
+    /**
+ * @summary Field-scoped update of a scenario's inbound-lane distance bands (reporting lens only)
+ */
+export const useUpdateInboundDistanceBands = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInboundDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateInboundDistanceBandsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateInboundDistanceBands>>,
+        TError,
+        {scenarioId: number;data: BodyType<UpdateInboundDistanceBandsBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateInboundDistanceBandsMutationOptions(options));
     }
 
 export const getRegisterUserUrl = () => {

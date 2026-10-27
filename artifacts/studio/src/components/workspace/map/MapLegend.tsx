@@ -123,6 +123,10 @@ export interface MapLegendProps {
    * the 5-entry BAND_COLORS palette, matching the map itself — resolution
    * #5). Optional, default `[]`. */
   bands?: number[];
+  /** DU-4.1 — Output variant only: the inbound-lane band cut points. Absent =
+   * a single "Distance bands" section (today's exact legend); present = a
+   * second "Inbound lanes" section under a "Customer-facing lanes" one. */
+  inboundBands?: number[];
   /** Contextual hint line rendered under every group, e.g. selection-mode
    * instructions. Optional, default `null`. */
   hintText?: string | null;
@@ -172,6 +176,7 @@ export function MapLegend({
   result = null,
   showRoutes = false,
   bands = [],
+  inboundBands,
   hintText = null,
   showPlantLayer = false,
   distanceUnit,
@@ -182,8 +187,10 @@ export function MapLegend({
   const canonicalResolved = distanceUnit != null;
   const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
   // DU-2.2 — every row is a range from the one units authority; bands are canonical, labels use display-unit boundaries.
-  const displayBands = canonicalResolved ? bands.map((b) => unit.toDisplay(b, distanceUnit)) : bands;
-  const bandText = (i: number): string => (canonicalResolved ? bandRangeLabel(i, displayBands, resolvedUnitLabel!) : "—");
+  const bandTextFor = (sectionBands: number[]) => {
+    const display = canonicalResolved ? sectionBands.map((b) => unit.toDisplay(b, distanceUnit)) : sectionBands;
+    return (i: number): string => (canonicalResolved ? bandRangeLabel(i, display, resolvedUnitLabel!) : "—");
+  };
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
   const scale = makeQuintileRadius(demands);
@@ -242,6 +249,64 @@ export function MapLegend({
   // there's a result to color routes from.
   const showRouteGroup = variant === "output" && !!result && showRoutes;
 
+  const renderBandSection = (title: string, sectionBands: number[], idp: string) => {
+    const bandText = bandTextFor(sectionBands);
+    return (
+        <div className="pt-1 border-t border-border" key={title}>
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">{title}</div>
+          <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
+            {/* Each swatch is labeled by its band's range (DU-2.2: "≤ X", "X–Y", "> Z" + unit)
+                rather than the old ordinal "Band N" — matches
+                NetworkMap.tsx's own `assignBand`/`getBandColor(i)` coloring
+                exactly (assignBandOrOverflow: a distance <= bands[i] gets
+                color i). The overflow row follows the band rows. */}
+            {sectionBands.map((_, i) => (
+              <Fragment key={i}>
+                {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(i) }}
+                    data-testid={`legend-${idp}band-${i}`}
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid={`legend-${idp}dash-${i}`}>
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(i)} strokeWidth="2.5"
+                      strokeDasharray={getBandDash(i)} />
+                  </svg>
+                </span>
+                <span className="text-muted-foreground font-mono text-2xs">
+                  {bandText(i)}
+                </span>
+              </Fragment>
+            ))}
+            {/* jade-B1 (#1 all-site overflow) — a distance beyond the
+                highest boundary gets its own distinct swatch, never folded
+                into the last band's color. Only shown alongside at least one
+                real band (an empty `bands` array means "Plain"/leg-color
+                mode — no bands to overflow past). testid deliberately does
+                NOT start with "legend-band-" so it can't collide with the
+                `[data-testid^="legend-band-"]` per-band-count selector
+                existing tests use. */}
+            {sectionBands.length > 0 && (
+              <Fragment>
+                <span className="flex items-center gap-1">
+                  <span
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
+                    data-testid={`legend-${idp}overflow-band`}
+                  />
+                  <svg width="18" height="6" aria-hidden="true" data-testid={`legend-${idp}overflow-dash`}>
+                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
+                  </svg>
+                </span>
+                <span className="text-muted-foreground font-mono text-2xs">{bandText(OVERFLOW_BAND)}</span>
+              </Fragment>
+            )}
+          </div>
+        </div>
+    );
+  };
+
   return (
     <div
       // pointer-events-none: the legend is a purely informational overlay with
@@ -293,58 +358,10 @@ export function MapLegend({
         </div>
       )}
       {showRouteGroup && (
-        <div className="pt-1 border-t border-border">
-          <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
-          <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
-            {/* Each swatch is labeled by its band's range (DU-2.2: "≤ X", "X–Y", "> Z" + unit)
-                rather than the old ordinal "Band N" — matches
-                NetworkMap.tsx's own `assignBand`/`getBandColor(i)` coloring
-                exactly (assignBandOrOverflow: a distance <= bands[i] gets
-                color i). The overflow row follows the band rows. */}
-            {bands.map((_, i) => (
-              <Fragment key={i}>
-                {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
-                <span className="flex items-center gap-1">
-                  <span
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: getBandColor(i) }}
-                    data-testid={`legend-band-${i}`}
-                  />
-                  <svg width="18" height="6" aria-hidden="true" data-testid={`legend-dash-${i}`}>
-                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(i)} strokeWidth="2.5"
-                      strokeDasharray={getBandDash(i)} />
-                  </svg>
-                </span>
-                <span className="text-muted-foreground font-mono text-2xs">
-                  {bandText(i)}
-                </span>
-              </Fragment>
-            ))}
-            {/* jade-B1 (#1 all-site overflow) — a distance beyond the
-                highest boundary gets its own distinct swatch, never folded
-                into the last band's color. Only shown alongside at least one
-                real band (an empty `bands` array means "Plain"/leg-color
-                mode — no bands to overflow past). testid deliberately does
-                NOT start with "legend-band-" so it can't collide with the
-                `[data-testid^="legend-band-"]` per-band-count selector
-                existing tests use. */}
-            {bands.length > 0 && (
-              <Fragment>
-                <span className="flex items-center gap-1">
-                  <span
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
-                    data-testid="legend-overflow-band"
-                  />
-                  <svg width="18" height="6" aria-hidden="true" data-testid="legend-overflow-dash">
-                    <line x1="0" y1="3" x2="18" y2="3" stroke={getBandColor(OVERFLOW_BAND)} strokeWidth="2.5" />
-                  </svg>
-                </span>
-                <span className="text-muted-foreground font-mono text-2xs">{bandText(OVERFLOW_BAND)}</span>
-              </Fragment>
-            )}
-          </div>
-        </div>
+        <>
+          {renderBandSection(inboundBands ? "Customer-facing lanes" : "Distance bands", bands, "")}
+          {inboundBands && renderBandSection("Inbound lanes", inboundBands, "inbound-")}
+        </>
       )}
       {hintText && <div className="text-2xs text-muted-foreground pt-0.5 italic">{hintText}</div>}
     </div>

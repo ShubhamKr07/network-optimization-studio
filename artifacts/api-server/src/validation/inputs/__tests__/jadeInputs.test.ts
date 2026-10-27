@@ -423,3 +423,20 @@ describe("jadeInputsSchema — rollback-safety shape (unknown keys strip, not re
     expect(result.success).toBe(true);
   });
 });
+
+describe("jadeInputsSchema — inboundDistanceBands (DU-4.1)", () => {
+  it("retains a valid inboundDistanceBands", () => {
+    const parsed = jadeInputsSchema.parse({ ...BASE, inboundDistanceBands: [300, 900] });
+    expect(parsed.inboundDistanceBands).toEqual([300, 900]);
+  });
+  it("leaves the key absent when not supplied (no default)", () => {
+    const parsed = jadeInputsSchema.parse(BASE);
+    expect("inboundDistanceBands" in parsed).toBe(false);
+  });
+  it.each([[[]], [[0]], [[-5]]])("rejects %j", (bands) => {
+    expect(jadeInputsSchema.safeParse({ ...BASE, inboundDistanceBands: bands }).success).toBe(false);
+  });
+  it("rejects non-ascending bands (Q1: mirrors distanceBands)", () => {
+    expect(jadeInputsSchema.safeParse({ ...BASE, inboundDistanceBands: [900, 300] }).success).toBe(false);
+  });
+});

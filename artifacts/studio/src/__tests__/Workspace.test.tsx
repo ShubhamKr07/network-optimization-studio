@@ -88,6 +88,7 @@ const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: f
 // call on every render) so a test can configure `mutate`'s onError/onSuccess
 // before rendering, the same way every other mutation mock here does.
 const mockUpdateDistanceBands = { mutate: vi.fn(), isPending: false };
+const mockUpdateInboundDistanceBands = { mutate: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
@@ -96,6 +97,7 @@ vi.mock("@workspace/api-client-react", () => ({
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   // chen-bands-units, T14 - field-scoped distanceBands PATCH.
   useUpdateDistanceBands: vi.fn(() => mockUpdateDistanceBands),
+  useUpdateInboundDistanceBands: vi.fn(() => mockUpdateInboundDistanceBands),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),

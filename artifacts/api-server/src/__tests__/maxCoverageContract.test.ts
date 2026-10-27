@@ -11,6 +11,8 @@ import {
 import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 import {
   COST_SUMMARY_TEMPLATE_VERSION,
+  OUTPUT_TEMPLATE_VERSION,
+  SERVICE_STATS_TEMPLATE_VERSION,
   buildCostSummaryRows,
   toCostSummaryJsonRow,
 } from "../services/templates.js";
@@ -114,7 +116,7 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
       "plants", "plantCapabilities", "deliveryCosts", "openWarehouses",
     ]);
     const v2Entities = new Set(["distances", "laneCosts", "legDistances"]);
-    const v3Entities = new Set(["assignments", "flows", "serviceStats"]);
+    const v3Entities = new Set(["assignments", "flows"]);
 
     for (const entity of requestEntities) {
       let envelope: Record<string, unknown>;
@@ -130,8 +132,11 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
         // breach, found at whole-branch review). Pinned from the constant,
         // the next bump fails this test until openapi.yaml is bumped too.
         envelope = { templateVersion: COST_SUMMARY_TEMPLATE_VERSION, entity, unit: "km", rows: [] };
+      } else if (entity === "serviceStats") {
+        // DU-4.3 — grid-local SERVICE_STATS_TEMPLATE_VERSION, pinned to the constant.
+        envelope = { templateVersion: SERVICE_STATS_TEMPLATE_VERSION, entity, unit: "km", rows: [] };
       } else if (v3Entities.has(entity)) {
-        envelope = { templateVersion: 3, entity, unit: "km", rows: [] };
+        envelope = { templateVersion: OUTPUT_TEMPLATE_VERSION, entity, unit: "km", rows: [] };
       } else {
         throw new Error(`entity "${entity}" is not classified into any export envelope family — update this test`);
       }
@@ -207,7 +212,7 @@ describe("max-coverage-us OpenAPI contract (C4.5)", () => {
       coveredDemand: 1750000,
     });
 
-    // The envelope's templateVersion is a CLOSED literal (enum [4], not
+    // Deliberately negative (a literal 3 is the point): the envelope's templateVersion is a CLOSED literal (enum [4], not
     // [3, 4]) — an emitter that drifted back off the constant is rejected
     // rather than quietly accepted.
     expect(

@@ -11,7 +11,7 @@ import type { ServiceStatsExportEnvelopeUnit } from './serviceStatsExportEnvelop
 import type { ServiceStatsExportRow } from './serviceStatsExportRow';
 
 /**
- * v3 serviceStats export — cumulative + overflow rows under the requested unit.
+ * v4 serviceStats export. Grid-local version (services/templates.ts's SERVICE_STATS_TEMPLATE_VERSION): only this grid gained the `section` and `flow` columns, so the shared v3 output version stays put for every other grid.
  */
 export interface ServiceStatsExportEnvelope {
   templateVersion: ServiceStatsExportEnvelopeTemplateVersion;

@@ -9,8 +9,8 @@ import {
 } from "@/lib/jadeFlowsExport";
 
 const rows = [
-  { fromLabel: "plant-1 — Bethlehem, PA", toLabel: "Chicago, IL", distance: 293.66, flow: 1400, band: "Band 2" },
-  { fromLabel: "plant-2 — Houston, TX", toLabel: "Dallas, TX", distance: 1200, flow: 300, band: "Overflow" },
+  { fromLabel: "plant-1 — Bethlehem, PA", toLabel: "Chicago, IL", distance: 293.66, flow: 1400, band: "250–500 mi" },
+  { fromLabel: "plant-2 — Houston, TX", toLabel: "Dallas, TX", distance: 1200, flow: 300, band: "> 1000 mi" },
 ];
 const toKm = (mi: number) => mi * 1.609344;
 
@@ -20,14 +20,14 @@ describe("jadeFlowsCsv", () => {
   it("P→W: on-screen headers (unit in the Distance header), one line per on-screen row, 1-dp display-unit distance", () => {
     expect(jadeFlowsCsv(PLANT_WAREHOUSE_LEG, rows, d => d, "mi").split("\n")).toEqual([
       "Plant,Warehouse,Distance (mi),Flow,Distance Band",
-      '"plant-1 — Bethlehem, PA","Chicago, IL",293.7,1400,Band 2',
-      '"plant-2 — Houston, TX","Dallas, TX",1200,300,Overflow',
+      '"plant-1 — Bethlehem, PA","Chicago, IL",293.7,1400,250–500 mi',
+      '"plant-2 — Houston, TX","Dallas, TX",1200,300,> 1000 mi',
     ]);
   });
 
   it("W→C keeps its on-screen 'Flows' header and converts distance to the display unit", () => {
     const csv = jadeFlowsCsv(WAREHOUSE_CUSTOMER_LEG, rows.slice(0, 1), toKm, "km");
-    expect(csv.split("\n")).toEqual(["Warehouse,Customer,Distance (km),Flows,Distance Band", '"plant-1 — Bethlehem, PA","Chicago, IL",472.6,1400,Band 2']);
+    expect(csv.split("\n")).toEqual(["Warehouse,Customer,Distance (km),Flows,Distance Band", '"plant-1 — Bethlehem, PA","Chicago, IL",472.6,1400,250–500 mi']);
   });
 });
 
@@ -37,8 +37,8 @@ describe("jadeFlowsJson", () => {
       entity: "jadeFlowsPlantWarehouse",
       unit: "mi",
       rows: [
-        { plant: "plant-1 — Bethlehem, PA", warehouse: "Chicago, IL", distance: 293.7, flow: 1400, distanceBand: "Band 2" },
-        { plant: "plant-2 — Houston, TX", warehouse: "Dallas, TX", distance: 1200, flow: 300, distanceBand: "Overflow" },
+        { plant: "plant-1 — Bethlehem, PA", warehouse: "Chicago, IL", distance: 293.7, flow: 1400, distanceBand: "250–500 mi" },
+        { plant: "plant-2 — Houston, TX", warehouse: "Dallas, TX", distance: 1200, flow: 300, distanceBand: "> 1000 mi" },
       ],
     });
     expect(Object.keys(jadeFlowsJson(WAREHOUSE_CUSTOMER_LEG, rows, d => d, "mi").rows[0])).toEqual(["warehouse", "customer", "distance", "flows", "distanceBand"]);

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
@@ -7,11 +7,14 @@ import {
   bandDecimals, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, frozenBandShape, OVERFLOW_BAND,
 } from "@/lib/bands";
+import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
-import { type CanonicalUnit } from "@workspace/units";
+import { computeInboundBandFlows, type CanonicalUnit } from "@workspace/units";
+import { chapterForModelId } from "@/lib/chapters";
 import { BandLabel } from "@/components/BandLabel";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
+import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
@@ -62,6 +65,9 @@ interface ServiceStatsTabProps {
   // min-distance concept, not a distance-band recompute) — this prop is
   // no longer gated on `supportsPlantProductCapability` internally.
   presentationBands?: number[];
+  /** DU-4.3 — the saved inbound band set (`activeInboundBandLens ?? undefined`,
+   * DU-4.1); absent -> inbound lanes are classified against `presentationBands`. */
+  inboundBands?: number[];
 
   // workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
   // projection (`buildEntityIdentityById`, T3). The Plant Production plant
@@ -81,9 +87,6 @@ interface PlantProductionRow {
   actual: number;
   enabled: boolean;
   capacity: number;
-  /** `null` for a disabled cell -> rendered "—" (spec §6: "remaining only
-   * where capacity applies, i.e. enabled cells"). */
-  remaining: number | null;
 }
 
 // spec §6 — "the FULL effective plants × products grid, LEFT-JOINED to
@@ -127,11 +130,14 @@ function buildPlantProductionRows(
         actual,
         enabled,
         capacity,
-        remaining: enabled ? capacity - actual : null,
       });
     }
   }
   return rows;
+}
+
+function utilizationPct(r: PlantProductionRow): number | null {
+  return r.capacity > 0 ? Math.round((r.actual / r.capacity) * 100) : null;
 }
 
 // When `identityById` has an entry for this plant id, render the shared
@@ -174,12 +180,13 @@ function plantProductionColumns(identityById: Record<string, EntityIdentity> | u
     { id: "actual", header: "Actual production", kind: "number", cellClassName: "text-xs font-mono", value: r => r.actual, cell: r => r.actual.toLocaleString() },
     { id: "capacity", header: "Enabled capacity", kind: "number", cellClassName: "text-xs font-mono", value: r => r.capacity, cell: r => r.capacity.toLocaleString() },
     {
-      id: "remaining",
-      header: "Remaining capacity",
+      // DU-4.4 (Q11) — utilization replaces remaining capacity; "—" where there is no capacity.
+      id: "utilization",
+      header: "Utilization %",
       kind: "number",
       cellClassName: "text-xs font-mono",
-      value: r => r.remaining,
-      cell: r => (r.remaining === null ? "—" : r.remaining.toLocaleString()),
+      value: r => utilizationPct(r),
+      cell: r => `${utilizationPct(r) ?? "—"}${r.capacity > 0 ? "%" : ""}`,
     },
   ];
 }
@@ -218,6 +225,7 @@ export function ServiceStatsTab({
   baseCapabilities,
   capabilityOverrides = [],
   presentationBands,
+  inboundBands,
   identityById,
 }: ServiceStatsTabProps) {
   const { download, disabledReasonFor } = useExport();
@@ -252,6 +260,13 @@ export function ServiceStatsTab({
     return buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges);
   }, [effectivePlants, products, baseCapabilities, capabilityOverrides, edges]);
 
+  // DU-4.4 (Q11) — zero-capacity (disabled) plant-products hidden unless toggled.
+  const [showDisabledPlantProducts, setShowDisabledPlantProducts] = useState(false);
+  const visiblePlantProductionRows = useMemo(
+    () => (showDisabledPlantProducts ? plantProductionRows : plantProductionRows.filter(r => r.capacity > 0)),
+    [plantProductionRows, showDisabledPlantProducts],
+  );
+
   const plantProductionCols = useMemo(
     () => plantProductionColumns(identityById),
     [identityById],
@@ -275,6 +290,13 @@ export function ServiceStatsTab({
     const hasLegs = edges.some((e) => e.leg != null);
     return hasLegs ? edges.filter((e) => isOutboundLeg(e.leg)) : edges;
   }, [edges]);
+
+  // DU-4.3 — inbound lanes: exclusive flow per inbound band, from edges only.
+  // [] (section hidden) for any result without inbound-leg edges.
+  const inboundRows = useMemo(
+    () => computeInboundBandFlows(edges, { distanceBands: presentationBands?.length ? presentationBands : DEFAULT_DISTANCE_BANDS, inboundDistanceBands: inboundBands }, bandDecimals(modelId)),
+    [edges, presentationBands, inboundBands, modelId],
+  );
 
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-empty">No solved result yet.</div>;
@@ -353,13 +375,45 @@ export function ServiceStatsTab({
         </div>
       )}
 
+      {inboundRows.length > 0 && (() => {
+        const boundaries = inboundRows.filter(r => r.band !== OVERFLOW_BAND).map(r => r.band);
+        const displayInbound = boundaries.map(v => toDisplay(v, canonicalUnit));
+        const demandUnit = chapterForModelId(modelId)?.demandUnit ?? "units";
+        return (
+          <section aria-labelledby="inbound-lanes-heading" data-testid="service-stats-inbound" className="px-4 pb-4">
+            <h3 id="inbound-lanes-heading" className="text-sm font-medium">Inbound lanes</h3>
+            <p className="text-xs text-muted-foreground mb-2">Flow volume on inbound lanes per band, in {demandUnit}.</p>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1 font-medium">Distance band</th>
+                  <th className="py-1 font-medium text-right">Flow ({demandUnit})</th>
+                  <th className="py-1 font-medium text-right">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inboundRows.map(r => (
+                  <tr key={r.band} data-testid={`service-stats-inbound-band-${r.band}`} className="border-b last:border-0">
+                    <td className="py-1 font-mono">
+                      <BandLabel index={r.band === OVERFLOW_BAND ? OVERFLOW_BAND : boundaries.indexOf(r.band)} bands={displayInbound} unit={distanceUnit} />
+                    </td>
+                    <td className="py-1 text-right font-mono">{r.flow.toLocaleString()}</td>
+                    <td className="py-1 text-right font-mono">{r.percent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        );
+      })()}
+
       {/* B4 (spec §6) — JADE-only Plant Production section: the full
           effective plants × products grid, left-joined to aggregated
           inbound production. */}
       {showPlantProduction && (
         <div className="mt-2 border-t flex-shrink-0 p-2" data-testid="plant-production-section">
           <DataTable<PlantProductionRow>
-            rows={plantProductionRows}
+            rows={visiblePlantProductionRows}
             rowKey={r => `${r.plantId}|${r.productId}`}
             columns={plantProductionCols}
             testIds={{
@@ -369,7 +423,21 @@ export function ServiceStatsTab({
               pagerNext: "button-plant-production-next",
               pageIndicator: "plant-production-page-indicator",
             }}
-            toolbar={{ extra: <span className="text-sm font-medium">Plant Production</span> }}
+            toolbar={{
+              extra: (
+                <>
+                  <span className="text-sm font-medium">Plant Production</span>
+                  <label className="inline-flex min-h-6 items-center gap-2 text-xs">
+                    <Switch
+                      checked={showDisabledPlantProducts}
+                      onCheckedChange={setShowDisabledPlantProducts}
+                      data-testid="switch-show-disabled-plant-products"
+                    />
+                    Show disabled plant-products
+                  </label>
+                </>
+              ),
+            }}
           />
         </div>
       )}

@@ -10,5 +10,5 @@ export type ServiceStatsExportEnvelopeTemplateVersion = typeof ServiceStatsExpor
 
 
 export const ServiceStatsExportEnvelopeTemplateVersion = {
-  NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;

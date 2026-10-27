@@ -161,19 +161,19 @@ test.describe("Chapter 9 — JADE Multi-Product Two-Echelon", () => {
 
       // JADE is multi-product (JadeAssignmentsTab, not the generic
       // AssignmentsTab the shared `assignment-row-` prefix belongs to) — one
-      // row per (customer, product) pair, `row-jadeassignment-${key}`.
+      // row per customer (DU-4.4), `row-jadeassignment-${customerId}`.
       await page.getByTestId("sidebar-output-customer-assignments").click({ timeout: HEADER_TIMEOUT });
       const assignmentRows = page.locator('[data-testid^="row-jadeassignment-"]');
       await expect(assignmentRows.first()).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Paginated (`pagedRows`) — a DOM row count only reflects the current
       // page, so assert the total via the tab's own counter instead.
       await expect(page.getByTestId("text-jadeassignments-count"))
-        .toContainText("of 400", { timeout: HEADER_TIMEOUT }); // 100 customers x 4 product families
-        // SCU-2.P3.3 — the shell pager keeps today's literals (400 rows = 8 pages);
+        .toContainText("of 100", { timeout: HEADER_TIMEOUT }); // one row per customer (DU-4.4)
+        // SCU-2.P3.3 — the shell pager keeps today's literals (100 customer rows = 2 pages);
         // Download ▾ exports all 400 product-level rows (JADE v3 shape, with unit).
-        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 1 of 8");
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 1 of 2");
         await page.getByTestId("button-jadeassignments-next").click();
-        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 2 of 8");
+        await expect(page.getByTestId("jadeassignments-page-indicator")).toHaveText("Page 2 of 2");
         await expectCsvJsonDownload(page, "button-download-jadeassignments", { csvName: "assignments.csv", entity: "assignments", unit: "mi", rows: 400 });
 
       // JadeFlowsTab (not the generic FlowsTab the shared `flow-row-` prefix

@@ -5,8 +5,7 @@ import { resolve, join, relative, sep } from "node:path";
 // DU-2.2 (spec §5.2.2) — no UI source constructs a "Band N" label by hand: the one text authority is
 // `bandRangeLabel` in @workspace/units. Tree walk of studio src/ (non-test) AND artifacts/studio/e2e/
 // (the e2e local mirror of a label builder is exactly the copy this guard exists to catch).
-// Calls to the units `bandLabelOrOverflow` (re-exported as `bandLabel`) are not construction: they only
-// feed the frozen JADE flows client export until DU-4.2. EMPTY allow-list — keep it that way.
+// DU-4.2: the client JADE flows export now calls `bandRangeLabelForDistance` too. EMPTY allow-list — keep it that way.
 const SRC_DIR = resolve(__dirname, "..");
 const E2E_DIR = resolve(__dirname, "../../e2e");
 const BAND_CONSTRUCT = /`Band\s?\$\{|["']Band ?["']\s*\+|["']Band \d/;

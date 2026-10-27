@@ -190,18 +190,25 @@ const transportCostsSchema = z.object({
   obMinTrans: z.number().finite().min(0).max(JADE_MIN_CHARGE_MAX),
 });
 
+// DU-4.1 — one band-array rule shared by distanceBands and inboundDistanceBands
+// so the two keys cannot drift.
+const bandsSchema = z
+  .array(z.number().positive())
+  .min(1)
+  .refine(
+    (bands) => bands.every((b, i) => i === 0 || b > bands[i - 1]),
+    { message: "distanceBands must be one or more strictly-ascending positive numbers" },
+  );
+
 export const jadeInputsSchema = z.object({
   // No static max (unlike pMedian's p.max(50)) — the semantic max (effective
   // active warehouse count incl. added) is a T6 precheck concern, not a
   // shape rule.
   p: z.number().int().min(1),
-  distanceBands: z
-    .array(z.number().positive())
-    .min(1)
-    .refine(
-      (bands) => bands.every((b, i) => i === 0 || b > bands[i - 1]),
-      { message: "distanceBands must be one or more strictly-ascending positive numbers" },
-    ),
+  distanceBands: bandsSchema,
+  // DU-4.1 — optional inbound-lane reporting lens; NO `.default(...)` so an
+  // absent key stays absent. Same rule as distanceBands (Q1).
+  inboundDistanceBands: bandsSchema.optional(),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1), // required -- NaN here kills every solve
   // ch9-tc — optional with NO `.default(...)`: an absent key must stay

@@ -78,6 +78,54 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
   res.json(toApiScenario(row));
 });
 
+// DU-4.1 — field-scoped update of inputs.inboundDistanceBands only. Same
+// contract as the distance-bands route above: one atomic jsonb statement
+// (never a read-modify-write of inputs), no inputsUpdatedAt bump (a reporting
+// lens, spec Q3), 404 for a scenario the caller does not own, validated by
+// the model's own schema so JADE keeps its ascending rule.
+const inboundBandsBodySchema = z.object({
+  // null = clear the key (Q4): inbound lanes fall back to distanceBands.
+  inboundDistanceBands: z.array(z.number().positive()).min(1).nullable(),
+});
+
+router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+
+  // Ownership first (404, hard rule #5), then the lock, then the body — so a
+  // malformed body never tells a non-owner anything (PR4-3).
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
+
+  const parsedBody = inboundBandsBodySchema.safeParse(req.body);
+  if (!parsedBody.success) { res.status(400).json({ error: "Invalid inboundDistanceBands" }); return; }
+
+  const next = parsedBody.data.inboundDistanceBands;
+  if (next !== null) {
+    const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), inboundDistanceBands: next };
+    const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
+    if (!revalidated.success || !("inboundDistanceBands" in revalidated.data)) {
+      // The second clause rejects a model whose schema strips the key (every
+      // single-echelon model): writing it would persist a value nothing reads.
+      res.status(400).json({ error: "Invalid inboundDistanceBands for this model" });
+      return;
+    }
+  }
+
+  const [row] = await db.update(scenariosTable)
+    .set({
+      inputs: next === null
+        ? sql`${scenariosTable.inputs} - 'inboundDistanceBands'`
+        : sql`jsonb_set(${scenariosTable.inputs}, '{inboundDistanceBands}', ${JSON.stringify(next)}::jsonb)`,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+    .returning();
+
+  res.json(toApiScenario(row));
+});
+
 // Deliberately duplicated from scenarios.ts's own toApiScenario rather than
 // importing the whole projector — scenarios.ts is this bundle's sole-writer
 // file for a DIFFERENT reason (the export/solve route logic), and importing

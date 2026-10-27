@@ -1,4 +1,5 @@
 import { formatDistanceNumber } from "./format.js";
+import { toDisplay } from "./convert.js";
 import type { CanonicalUnit } from "./convert.js";
 
 export const OVERFLOW_BAND = -1;
@@ -6,7 +7,19 @@ export const OVERFLOW_BAND = -1;
 export interface BandEdge { distance: number; flow: number; leg?: string | null }
 export interface BandCoverageEntry { band: number; percent: number }
 
-const OUTBOUND_LEGS = new Set(["warehouse_to_customer", "refinery_to_customer"]);
+/** DU-4.1 — the ONE leg-role authority (moved from studio lib/legPalette.ts). */
+export const INBOUND_LEGS: ReadonlySet<string> = new Set(["mine_to_refinery", "plant_to_warehouse"]);
+export const OUTBOUND_LEGS: ReadonlySet<string> = new Set(["refinery_to_customer", "warehouse_to_customer"]);
+
+/** DU-4.1 — the ONE band-set choice per leg. Inbound legs use the scenario's
+ *  inboundDistanceBands when saved, else distanceBands (spec Q7); every other
+ *  leg, including none at all, uses distanceBands. */
+export function bandsForLeg(
+  leg: string | null | undefined,
+  inputs: { distanceBands: number[]; inboundDistanceBands?: number[] },
+): number[] {
+  return leg != null && INBOUND_LEGS.has(leg) ? inputs.inboundDistanceBands ?? inputs.distanceBands : inputs.distanceBands;
+}
 
 /**
  * Two-echelon models tag every edge with a `leg`; only the outbound/
@@ -27,12 +40,7 @@ export function assignBandOrOverflow(distance: number, bands: number[]): number 
   return idx === -1 ? OVERFLOW_BAND : idx;
 }
 
-export function bandLabelOrOverflow(distance: number, bands: number[]): string {
-  const i = assignBandOrOverflow(distance, bands);
-  return i === OVERFLOW_BAND ? "Overflow" : `Band ${i + 1}`;
-}
-
-/** DU-2.2 — the ONE band range label (UI now; exports from DU-4.2). `bands` are boundaries in the DISPLAY unit.
+/** DU-2.2 — the ONE band range label (UI and exports). `bands` are boundaries in the DISPLAY unit.
  *  Upper-inclusive (a boundary value belongs to the lower band, as assignBandOrOverflow): first `≤ a u`,
  *  middle `a–b u`, overflow `> z u`. Never "Band N". */
 export function bandRangeLabel(index: number, bands: number[], unit: CanonicalUnit): string {
@@ -42,6 +50,18 @@ export function bandRangeLabel(index: number, bands: number[], unit: CanonicalUn
   if (index === OVERFLOW_BAND || index >= s.length) return `> ${f(s[s.length - 1])} ${unit}`;
   if (index <= 0) return `≤ ${f(s[0])} ${unit}`;
   return `${f(s[index - 1])}–${f(s[index])} ${unit}`;
+}
+
+/** DU-4.2 — the export/client label for one distance: classify on the
+ *  CANONICAL distance, then render the range in the display unit. */
+export function bandRangeLabelForDistance(
+  distance: number, bands: number[], canonicalUnit: CanonicalUnit, displayUnit: CanonicalUnit,
+): string {
+  return bandRangeLabel(
+    assignBandOrOverflow(distance, bands),
+    bands.map(b => toDisplay(b, canonicalUnit, displayUnit)),
+    displayUnit,
+  );
 }
 
 // Task 12 (Chapter 5, delivery-teaching-us) — rounds `x` to `d` decimal
@@ -120,6 +140,35 @@ export function computeExclusiveBandCoverage(edges: BandEdge[], bands: number[],
   const total = flows.reduce((s, f) => s + f, 0);
   if (total === 0) return keys.map(band => ({ band, percent: 0 }));
   return withResidual(keys, flows.map(f => (f * 100) / total), decimals);
+}
+
+export interface InboundBandFlow { band: number; flow: number; percent: number }
+
+/** DU-4.3 — EXCLUSIVE inbound flow per band (keys = sorted boundaries, then
+ *  OVERFLOW_BAND), over edges whose leg is in INBOUND_LEGS, classified with
+ *  bandsForLeg. [] when the result has no inbound edges or no boundaries.
+ *  percent uses withResidual so the column sums to exactly 100. */
+export function computeInboundBandFlows(
+  edges: BandEdge[],
+  inputs: { distanceBands: number[]; inboundDistanceBands?: number[] },
+  decimals = 0,
+): InboundBandFlow[] {
+  const inbound = edges.filter(e => e.leg != null && INBOUND_LEGS.has(e.leg));
+  if (inbound.length === 0) return [];
+  // Every inbound leg resolves to the same set, so one lookup keys the rows.
+  const sorted = [...bandsForLeg(inbound[0].leg, inputs)].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const flows = new Array<number>(sorted.length + 1).fill(0);
+  for (const e of inbound) {
+    const i = assignBandOrOverflow(e.distance, bandsForLeg(e.leg, inputs));
+    flows[i === OVERFLOW_BAND ? sorted.length : i] += e.flow;
+  }
+  const keys = [...sorted, OVERFLOW_BAND];
+  const total = flows.reduce((s, f) => s + f, 0);
+  const pct = total === 0
+    ? keys.map(band => ({ band, percent: 0 }))
+    : withResidual(keys, flows.map(f => (f * 100) / total), decimals);
+  return pct.map((r, i) => ({ band: r.band, flow: flows[i], percent: r.percent }));
 }
 
 /**
