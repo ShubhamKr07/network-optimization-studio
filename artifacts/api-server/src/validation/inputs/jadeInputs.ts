@@ -197,7 +197,7 @@ const bandsSchema = z
   .min(1)
   .refine(
     (bands) => bands.every((b, i) => i === 0 || b > bands[i - 1]),
-    { message: "distanceBands must be one or more strictly-ascending positive numbers" },
+    { message: "must be one or more strictly-ascending positive numbers" },
   );
 
 export const jadeInputsSchema = z.object({

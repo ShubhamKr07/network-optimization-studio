@@ -105,9 +105,15 @@ router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) =
   if (next !== null) {
     const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), inboundDistanceBands: next };
     const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
-    if (!revalidated.success || !("inboundDistanceBands" in revalidated.data)) {
-      // The second clause rejects a model whose schema strips the key (every
-      // single-echelon model): writing it would persist a value nothing reads.
+    if (!revalidated.success) {
+      // The formatter's sentence names the real failing field (the whole row is
+      // revalidated, so it may be unrelated to the bands).
+      res.status(400).json({ error: revalidated.error });
+      return;
+    }
+    if (!("inboundDistanceBands" in revalidated.data)) {
+      // A model whose schema strips the key (every single-echelon model):
+      // writing it would persist a value nothing reads.
       res.status(400).json({ error: "Invalid inboundDistanceBands for this model" });
       return;
     }

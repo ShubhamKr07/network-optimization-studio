@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { jadeInputsSchema } from "../jadeInputs.js";
+import { formatInputIssues } from "../../formatInputIssues.js";
 
 const BASE = {
   p: 2,
@@ -88,9 +89,19 @@ describe("jadeInputsSchema — distanceBands (one or more strictly-ascending pos
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0].message).toBe(
-        "distanceBands must be one or more strictly-ascending positive numbers",
+        "must be one or more strictly-ascending positive numbers",
       );
     }
+  });
+
+  // DU-4.R1 — the shared refine message is key-neutral; the composed sentence names the right key.
+  it.each([
+    ["distanceBands", "Distance bands must be one or more strictly-ascending positive numbers."],
+    ["inboundDistanceBands", "Inbound distance bands must be one or more strictly-ascending positive numbers."],
+  ])("formats the %s ascending failure as a readable sentence", (key, sentence) => {
+    const result = jadeInputsSchema.safeParse({ ...BASE, [key]: [400, 200] });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(formatInputIssues(result.error.issues)).toBe(sentence);
   });
 
   // T3b-JADE: dropped .int() so a km->mi unit conversion (e.g. 500 km ->

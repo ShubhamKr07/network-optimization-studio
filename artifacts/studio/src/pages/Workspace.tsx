@@ -2207,12 +2207,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // immediately re-flag the scenario dirty (savedInputsRef would
             // disagree with what the server actually persisted the moment a
             // background refetch of currentScenario lands).
-            setLocalInputs(updated.inputs);
-            savedInputsRef.current = updated.inputs;
+            // DU-4.R1 — all per-scenario LOCAL writes are skipped when the user
+            // has since switched scenario (the cache write below is id-keyed).
             // chen-bands-units — a whole-input save always carries the
             // active lens (buildWholeInputPayload), so the lens's own saved
             // ref advances too, keeping `lensDirty` correct afterward.
             if (liveScenarioIdRef.current === scenarioId) {
+              setLocalInputs(updated.inputs);
+              savedInputsRef.current = updated.inputs;
               savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
               savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
             }
@@ -2269,29 +2271,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
     };
-    if (outboundLensDirty) {
-      const bands = activeBandLens;
-      updateDistanceBandsMutation.mutate(
-        { scenarioId, data: { distanceBands: bands } },
-        {
-          onSuccess: updated => {
-            if (liveScenarioIdRef.current === scenarioId) savedBandLensRef.current = bands;
-            settle(updated);
-          },
-          onError: err => {
-            toast({
-              title: "Couldn't save the distance bands",
-              description: describeWriteError(err),
-              variant: "destructive",
-            });
-          },
-        },
-      );
-    }
-    // DU-4.1 — the inbound lens saves through its own field-scoped route; an
-    // array writes the key, null removes it (Q4 reset). The ref is written from
-    // the SERVER's row (PR4-2), never the pre-mutation local value.
-    if (inboundLensDirty) {
+    // DU-4.R1 — when both lenses are dirty the inbound save runs from the
+    // outbound save's onSuccess, so the last setQueryData reflects both writes.
+    const saveInbound = () => {
+      // DU-4.1 — the inbound lens saves through its own field-scoped route; an
+      // array writes the key, null removes it (Q4 reset). The ref is written from
+      // the SERVER's row (PR4-2), never the pre-mutation local value.
       updateInboundDistanceBandsMutation.mutate(
         { scenarioId, data: { inboundDistanceBands: activeInboundBandLens } },
         {
@@ -2308,6 +2293,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           },
         },
       );
+    };
+    if (outboundLensDirty) {
+      const bands = activeBandLens;
+      updateDistanceBandsMutation.mutate(
+        { scenarioId, data: { distanceBands: bands } },
+        {
+          onSuccess: updated => {
+            if (liveScenarioIdRef.current === scenarioId) savedBandLensRef.current = bands;
+            settle(updated);
+            if (inboundLensDirty) saveInbound();
+          },
+          onError: err => {
+            toast({
+              title: "Couldn't save the distance bands",
+              description: describeWriteError(err),
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    } else if (inboundLensDirty) {
+      saveInbound();
     }
   }
 
@@ -2356,8 +2363,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setSuperFitKey(k => k + 1);
   }
   function handleImportApplied(updated: Scenario) {
-    setLocalInputs(updated.inputs);
-    savedInputsRef.current = updated.inputs;
+    // DU-4.R1 — skip the local resync if the user has switched scenario.
+    if (liveScenarioIdRef.current === updated.id) {
+      setLocalInputs(updated.inputs);
+      savedInputsRef.current = updated.inputs;
+    }
     queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
     // B5.2 — same reasoning as handleSaveInputs's precheck invalidation.
@@ -3173,10 +3183,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // as "min_distance" server-side), and `isDirty` is a
           // JSON.stringify comparison — so adopting the request would leave
           // the draft permanently "Unsaved changes".
+          // DU-4.R1 — local writes guarded against a scenario switch; the
+          // solve still enqueues for the captured id (the overlay is already
+          // up, skipping would strand it).
           onSuccess: updated => {
-            setLocalInputs(updated.inputs);
-            savedInputsRef.current = updated.inputs;
             if (liveScenarioIdRef.current === scenarioId) {
+              setLocalInputs(updated.inputs);
+              savedInputsRef.current = updated.inputs;
               savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
               savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
             }

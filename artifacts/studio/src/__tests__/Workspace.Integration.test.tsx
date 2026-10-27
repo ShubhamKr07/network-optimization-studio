@@ -969,6 +969,34 @@ describe("Workspace — DU-4.1 inbound distance bands (two-echelon-jade-us)", ()
     expect(screen.getByTestId("button-save")).toBeDisabled();
   });
 
+  it("a whole-input save that resolves after a scenario switch leaves the new scenario's draft untouched and clean (DU-4.R1)", () => {
+    const { rerender } = setup(jadeInputs);
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "5" } });
+    fireEvent.click(screen.getByTestId("button-save"));
+    const opts = mockUpdateScenario.mutate.mock.calls[0][1];
+    const scB = { ...mkScenario(jadeInputs), id: 2, name: "JADE B" };
+    mockUseGetScenario.mockReturnValue({ data: scB } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scB] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseSearch.mockReturnValue("?scenario=2");
+    rerender();
+    act(() => opts.onSuccess(mkScenario({ ...jadeInputs, gap: 5 })));
+    rerender();
+    expect((screen.getByTestId("input-gap") as HTMLInputElement).value).toBe("0");
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("with both lenses dirty the inbound save fires only after the outbound save resolves (DU-4.R1)", () => {
+    setup(jadeInputs);
+    fireEvent.click(screen.getByTestId("inbound-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("button-remove-band-200"));
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateInboundDistanceBands.mutate).not.toHaveBeenCalled();
+    const opts = mockUpdateDistanceBands.mutate.mock.calls[0][1];
+    act(() => opts.onSuccess(mkScenario({ ...jadeInputs, distanceBands: [400, 800, 1600] })));
+    expect(mockUpdateInboundDistanceBands.mutate).toHaveBeenCalledTimes(1);
+  });
+
   it("falling back passes inboundBands undefined to the map", () => {
     setup(jadeInputs);
     outputMapTabSpy.mockClear();
