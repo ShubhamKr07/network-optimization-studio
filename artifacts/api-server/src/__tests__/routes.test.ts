@@ -2814,6 +2814,16 @@ describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)", () 
     mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
     const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: [900, 300] });
     expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Inbound distance bands must be one or more strictly-ascending positive numbers.");
+  });
+
+  it("DU-4.R1: a row failing for an unrelated reason gets the formatter's sentence, not the bands message", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([{ ...jadeRow, inputs: { ...jadeRow.inputs, p: 0 } }]));
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: [100, 200] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/^Number of warehouses/);
+    expect(res.body.error).not.toMatch(/inboundDistanceBands/);
   });
 
   it("400s for a model whose schema strips the key (p-median-us)", async () => {
@@ -2822,6 +2832,7 @@ describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)", () 
     const res = await request(app).patch("/api/scenarios/1/inbound-distance-bands").set("Cookie", cookie)
       .send({ inboundDistanceBands: [100, 200] });
     expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Invalid inboundDistanceBands for this model");
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
