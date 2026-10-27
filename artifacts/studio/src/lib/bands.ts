@@ -11,8 +11,7 @@
 //
 // T1b (chen-bands-units) — `OVERFLOW_BAND`, `assignBandOrOverflow`,
 // `computeCumulativeBandCoverage`, `serviceEdgesFor`, `BandEdge`,
-// `BandCoverageEntry`, and `bandLabelOrOverflow` (re-exported here under this
-// module's established name `bandLabel`) now live in `@workspace/units`,
+// and `BandCoverageEntry` now live in `@workspace/units`,
 // shared with the API server's export builders — this file thinly re-exports
 // them below so every existing import path (`@/lib/bands`) keeps working
 // with zero call-site edits, while genuinely frontend-only helpers
@@ -28,7 +27,6 @@ import {
   computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive,
   serviceEdgesFor,
-  bandLabelOrOverflow,
   type BandEdge,
   type BandCoverageEntry,
   type FrozenBandShape,
@@ -45,9 +43,6 @@ export {
   type BandCoverageEntry,
   type FrozenBandShape,
 };
-
-// This frontend's established name for the shared label helper.
-export { bandLabelOrOverflow as bandLabel };
 
 // A3.1 (DD-5) — default distance-band cut points for a scenario that hasn't
 // configured its own yet (Optimization Parameters tab's distanceBands is

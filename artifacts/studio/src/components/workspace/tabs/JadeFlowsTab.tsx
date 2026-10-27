@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
-import { assignBandOrOverflow, bandLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { assignBandOrOverflow, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandRangeLabelForDistance } from "@workspace/units";
 import { bandsForLeg } from "@workspace/units";
 import { bandRangeLabel } from "@workspace/units";
 import { BandLabel } from "@/components/BandLabel";
@@ -231,6 +232,10 @@ export function JadeFlowsTab({
   const formatRowDistance = (raw: number): string =>
     canonicalResolved ? `${formatDistanceDisplay(unit.toDisplay(raw, distanceUnit))} ${resolvedUnitLabel}` : "—";
 
+  // DU-4.2 — the client export `band` uses the same units the Distance column does.
+  // Unresolved unit: no label (Download is disabled then, see downloadDisabledReason).
+  const bandText = (d: number, set: number[]): string =>
+    distanceUnit != null && resolvedUnitLabel != null ? bandRangeLabelForDistance(d, set, distanceUnit, resolvedUnitLabel) : "";
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const bandsKey = effectiveBands.join(",");
   const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
@@ -261,11 +266,11 @@ export function JadeFlowsTab({
       warehouseLabel: warehouseLabel(r.warehouseId, dataset),
       distance: r.distance,
       flow: r.flow,
-      band: bandLabel(r.distance, effectiveInbound),
+      band: bandText(r.distance, effectiveInbound),
       bandIndex: assignBandOrOverflow(r.distance, effectiveInbound),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, dataset, inboundKey, plantsSignature]);
+  }, [result, dataset, inboundKey, plantsSignature, distanceUnit, resolvedUnitLabel]);
 
   const wcRows: WarehouseCustomerRow[] = useMemo(() => {
     if (!result) return [];
@@ -277,17 +282,16 @@ export function JadeFlowsTab({
       customerLabel: customerLabel(r.customerId, dataset),
       distance: r.distance,
       flow: r.flow,
-      band: bandLabel(r.distance, effectiveBands),
+      band: bandText(r.distance, effectiveBands),
       bandIndex: assignBandOrOverflow(r.distance, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, dataset, bandsKey]);
+  }, [result, dataset, bandsKey, distanceUnit, resolvedUnitLabel]);
 
   // DU-2.2 — the `band` column's filter value AND cell are both the units
   // `bandRangeLabel` (index assigned in canonical space via `bandIndex`). The
-  // row's own `band: bandLabel(...)` string is NOT displayed: it is the
-  // client JADE-flows export column, mirroring the server's, and stays
-  // frozen until DU-4.2. The descriptor closes over `effectiveBands` /
+  // row's own `band` string is NOT rendered here: it is the
+  // client JADE-flows export column (DU-4.2: the same range text the cell shows). The descriptor closes over `effectiveBands` /
   // `distanceUnit`, so those are in this useMemo's deps; `filterResetKey`
   // clears ONLY that filter when the bands or the unit change.
   // One factory for both legs: the two entity columns differ per leg, the

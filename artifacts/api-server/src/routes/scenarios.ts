@@ -13,6 +13,7 @@ import type { CanonicalUnit } from "@workspace/units";
 import {
   TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  JADE_EXPORT_TEMPLATE_VERSION,
   COST_SUMMARY_TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
@@ -817,7 +818,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       const jadeJsonRows = entity === "assignments"
         ? (jadeRows as JadeAssignmentTemplateRow[]).map(toJadeAssignmentJsonRow)
         : (jadeRows as JadeFlowTemplateRow[]).map(toJadeFlowJsonRow);
-      res.json({ templateVersion: OUTPUT_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: jadeJsonRows });
+      res.json({ templateVersion: JADE_EXPORT_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: jadeJsonRows });
       return;
     }
 

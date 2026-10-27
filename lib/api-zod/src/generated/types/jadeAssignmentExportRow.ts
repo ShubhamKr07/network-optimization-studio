@@ -7,7 +7,7 @@
  */
 
 /**
- * two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.
+ * two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit.
  */
 export interface JadeAssignmentExportRow {
   productId: string;

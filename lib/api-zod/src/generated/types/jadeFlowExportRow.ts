@@ -8,7 +8,7 @@
 import type { JadeFlowExportRowLeg } from './jadeFlowExportRowLeg';
 
 /**
- * two-echelon-jade-us combined-leg flow row — band is the display-label string.
+ * two-echelon-jade-us combined-leg flow row — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit, classified against that leg's band set.
  */
 export interface JadeFlowExportRow {
   leg: JadeFlowExportRowLeg;

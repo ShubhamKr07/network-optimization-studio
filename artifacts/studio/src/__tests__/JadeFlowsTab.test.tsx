@@ -665,6 +665,18 @@ describe("JadeFlowsTab P→W on DataTable — testid map + client export (SCU-2.
     expect(dl.names).toEqual(["jade-flows-plant-warehouse.csv", "jade-flows-plant-warehouse.json"]);
   });
 
+  it("DU-4.2: the exported band text equals the visible Distance Band cell text", async () => {
+    const dl = captureDownloads();
+    const user = userEvent.setup();
+    render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
+    const visible = screen.getByTestId("cell-jade-flow-pw-band-plant-1|wh-11").textContent!;
+    await user.click(screen.getByTestId("button-download-jade-flows-pw"));
+    await user.click(screen.getByTestId("button-download-jade-flows-pw-csv"));
+    expect(visible).toBe(bandRangeLabel(assignBandOrOverflow(293.66, bands), bands, "mi"));
+    expect(dl.text(0)).toContain(visible);
+    expect(dl.text(0)).not.toMatch(/Band \d|Overflow/);
+  });
+
   it("QFX-R1: a failing XLSX export toasts instead of an unhandled rejection", async () => {
     vi.spyOn(clientCsv, "downloadAs").mockRejectedValue(new Error("boom"));
     const toastSpy = vi.spyOn(useToast, "toast").mockImplementation((() => ({})) as never);

@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
-  OVERFLOW_BAND, assignBandOrOverflow, bandLabelOrOverflow,
+  OVERFLOW_BAND, assignBandOrOverflow, bandRangeLabelForDistance,
   computeCumulativeBandCoverage, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, serviceEdgesFor, bandRangeLabel,
   INBOUND_LEGS, OUTBOUND_LEGS, bandsForLeg,
 } from "../bands.js";
+import { formatDistanceNumber } from "../format.js";
+import { toDisplay } from "../convert.js";
 
 const BANDS = [200, 400, 800];
 
@@ -16,9 +18,19 @@ describe("assignBandOrOverflow", () => {
   it("beyond the last boundary is the overflow sentinel, never the last band", () => {
     expect(assignBandOrOverflow(800.0001, BANDS)).toBe(OVERFLOW_BAND);
   });
-  it("labels render the sentinel categorically", () => {
-    expect(bandLabelOrOverflow(150, BANDS)).toBe("Band 1");
-    expect(bandLabelOrOverflow(9999, BANDS)).toBe("Overflow");
+});
+
+describe("bandRangeLabelForDistance (DU-4.2)", () => {
+  it("first band is ≤, middle is a–b, overflow is >, boundary belongs to the lower band", () => {
+    expect(bandRangeLabelForDistance(150, BANDS, "mi", "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabelForDistance(200, BANDS, "mi", "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabelForDistance(300, BANDS, "mi", "mi")).toBe("200–400 mi");
+    expect(bandRangeLabelForDistance(9999, BANDS, "mi", "mi")).toBe("> 800 mi");
+  });
+  it("classifies canonically, renders boundaries in the display unit", () => {
+    const km = formatDistanceNumber(toDisplay(100, "mi", "km"));
+    expect(bandRangeLabelForDistance(50, [100], "mi", "km")).toBe(`≤ ${km} km`);
+    expect(bandRangeLabelForDistance(101, [100], "mi", "km")).toBe(`> ${km} km`);
   });
 });
 

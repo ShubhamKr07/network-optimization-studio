@@ -9,14 +9,13 @@ import type { FlowExportRow } from './flowExportRow';
 import type { FlowsExportEnvelopeEntity } from './flowsExportEnvelopeEntity';
 import type { FlowsExportEnvelopeTemplateVersion } from './flowsExportEnvelopeTemplateVersion';
 import type { FlowsExportEnvelopeUnit } from './flowsExportEnvelopeUnit';
-import type { JadeFlowExportRow } from './jadeFlowExportRow';
 
 /**
- * v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.
+ * v3 flows export — generic rows only (two-echelon-jade-us is served by JadeFlowsExportEnvelope at v4).
  */
 export interface FlowsExportEnvelope {
   templateVersion: FlowsExportEnvelopeTemplateVersion;
   entity: FlowsExportEnvelopeEntity;
   unit: FlowsExportEnvelopeUnit;
-  rows: (FlowExportRow | JadeFlowExportRow)[];
+  rows: FlowExportRow[];
 }

@@ -712,12 +712,15 @@ paths:
         columns leg,from_id,to_id,distance,distance_band,flows: inbound
         plant_to_warehouse rows are aggregated per (plant,warehouse) pair
         with flows summed across products; outbound warehouse_to_customer
-        rows are one per customer. distance_band is derived from the
-        scenario's CURRENT SAVED inputs.distanceBands (server-side
-        bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary,
-        "Overflow" above the highest boundary) — it reflects the last saved
-        bands, not unsaved UI edits. Every other model's assignments/flows
-        export is unchanged.
+        rows are one per customer. distance_band is the range text from the
+        shared label authority ("≤ a u", "a–b u", "> z u", upper-inclusive
+        boundary, boundaries in the requested unit; never "Band N"), derived
+        from the scenario's CURRENT SAVED inputs (distanceBands, and for the
+        inbound leg inboundDistanceBands when saved) — it reflects the last
+        saved bands, not unsaved UI edits. These two JADE grids are served
+        in their own v4 envelopes (JadeAssignmentsExportEnvelope /
+        JadeFlowsExportEnvelope). Every other model's assignments/flows
+        export is unchanged (v3).
       parameters:
         - name: scenarioId
           in: path
@@ -2509,7 +2512,7 @@ components:
     # v3 output row shapes — copied verbatim from the spec's Part E "Exact v3
     # contracts" table. Band representation is schema-specific and never
     # conflated: generic rows carry a numeric index (-1 = overflow); JADE rows
-    # carry the display-label string ("Band N" / "Overflow"); serviceStats
+    # carry the range-text label ("≤ a u" / "a–b u" / "> z u"; v4); serviceStats
     # carries the distance boundary itself in the requested unit (-1 =
     # overflow). OVERFLOW_BAND (-1) is a categorical sentinel, never converted.
     AssignmentExportRow:
@@ -2525,7 +2528,10 @@ components:
 
     FlowExportRow:
       type: object
-      description: Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.
+      description: >-
+        Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow. For two-echelon models a
+        row's band index is into that leg's band set (inbound legs use inboundDistanceBands when saved,
+        otherwise distanceBands).
       properties:
         fromId: { type: string }
         toId: { type: string }
@@ -2536,7 +2542,7 @@ components:
 
     JadeAssignmentExportRow:
       type: object
-      description: two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.
+      description: two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit.
       properties:
         productId: { type: string }
         customerId: { type: string }
@@ -2547,7 +2553,7 @@ components:
 
     JadeFlowExportRow:
       type: object
-      description: two-echelon-jade-us combined-leg flow row — band is the display-label string.
+      description: two-echelon-jade-us combined-leg flow row — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit, classified against that leg's band set.
       properties:
         leg:
           type: string
@@ -2621,7 +2627,7 @@ components:
 
     AssignmentsExportEnvelope:
       type: object
-      description: v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.
+      description: v3 assignments export — generic rows only (two-echelon-jade-us is served by JadeAssignmentsExportEnvelope at v4).
       example: { templateVersion: 3, entity: assignments, unit: mi, rows: [] }
       properties:
         templateVersion:
@@ -2636,14 +2642,12 @@ components:
         rows:
           type: array
           items:
-            oneOf:
-              - $ref: "#/components/schemas/AssignmentExportRow"
-              - $ref: "#/components/schemas/JadeAssignmentExportRow"
+            $ref: "#/components/schemas/AssignmentExportRow"
       required: [templateVersion, entity, unit, rows]
 
     FlowsExportEnvelope:
       type: object
-      description: v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.
+      description: v3 flows export — generic rows only (two-echelon-jade-us is served by JadeFlowsExportEnvelope at v4).
       example: { templateVersion: 3, entity: flows, unit: km, rows: [] }
       properties:
         templateVersion:
@@ -2658,9 +2662,53 @@ components:
         rows:
           type: array
           items:
-            oneOf:
-              - $ref: "#/components/schemas/FlowExportRow"
-              - $ref: "#/components/schemas/JadeFlowExportRow"
+            $ref: "#/components/schemas/FlowExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    JadeAssignmentsExportEnvelope:
+      type: object
+      description: >-
+        v4 two-echelon-jade-us assignments export. Grid-local version (services/templates.ts's
+        JADE_EXPORT_TEMPLATE_VERSION): only the two JADE grids changed their `band` column to range text, so the
+        shared v3 output version stays put for every other model. The enum is single-valued, and templateVersion
+        keeps this envelope distinct from AssignmentsExportEnvelope even when rows is empty.
+      example: { templateVersion: 4, entity: assignments, unit: mi, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [4]
+        entity:
+          type: string
+          enum: [assignments]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/JadeAssignmentExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    JadeFlowsExportEnvelope:
+      type: object
+      description: >-
+        v4 two-echelon-jade-us flows export (grid-local version, see JadeAssignmentsExportEnvelope). Each leg's
+        band text is classified against that leg's band set.
+      example: { templateVersion: 4, entity: flows, unit: km, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [4]
+        entity:
+          type: string
+          enum: [flows]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/JadeFlowExportRow"
       required: [templateVersion, entity, unit, rows]
 
     CostSummaryExportEnvelope:
@@ -2718,17 +2766,21 @@ components:
 
     ExportEnvelope:
       description: >-
-        One of three versioned families (spec Part E): v1 unitless
+        One of four versioned families (spec Part E): v1 unitless
         (warehouses/customers/mines/stations/refineries/plants/
         plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input
         (distances/legDistances/laneCosts), or v3 unit-bearing output
         (assignments/flows/serviceStats — plus costSummary, which is the
         same family but on its own grid-local version, v4 as of CH4O; see
-        CostSummaryExportEnvelope). Never a single global v3+unit shape.
+        CostSummaryExportEnvelope), or the v4 two-echelon-jade-us family
+        (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text
+        bands). Never a single global v3+unit shape.
       oneOf:
         - $ref: "#/components/schemas/ExportEnvelopeV1"
         - $ref: "#/components/schemas/ExportEnvelopeV2"
         - $ref: "#/components/schemas/AssignmentsExportEnvelope"
         - $ref: "#/components/schemas/FlowsExportEnvelope"
+        - $ref: "#/components/schemas/JadeAssignmentsExportEnvelope"
+        - $ref: "#/components/schemas/JadeFlowsExportEnvelope"
         - $ref: "#/components/schemas/CostSummaryExportEnvelope"
         - $ref: "#/components/schemas/ServiceStatsExportEnvelope"

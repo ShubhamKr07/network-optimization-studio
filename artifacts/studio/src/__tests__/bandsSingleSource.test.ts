@@ -21,8 +21,10 @@ describe("lib/bands is a thin re-export of @workspace/units", () => {
     }
   );
 
-  it("bandLabel is the shared classifier itself, merely renamed", () => {
-    expect(studioBands.bandLabel).toBe(sharedUnits.bandLabelOrOverflow);
+  it("the old Band N helper is gone from both surfaces (DU-4.2)", () => {
+    expect(studioShared.bandLabel).toBeUndefined();
+    expect(packageShared.bandLabelOrOverflow).toBeUndefined();
+    expect(typeof packageShared.bandRangeLabelForDistance).toBe("function");
   });
 
   // SCU-1.1 (spec B1.9) — pins the exclusive helper to the shared classifier

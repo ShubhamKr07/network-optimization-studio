@@ -7,7 +7,7 @@
  */
 
 /**
- * Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.
+ * Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow. For two-echelon models a row's band index is into that leg's band set (inbound legs use inboundDistanceBands when saved, otherwise distanceBands).
  */
 export interface FlowExportRow {
   fromId: string;

@@ -86,7 +86,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
 import { MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
-import { COST_SUMMARY_TEMPLATE_VERSION } from "../services/templates.js";
+import { COST_SUMMARY_TEMPLATE_VERSION, OUTPUT_TEMPLATE_VERSION, JADE_EXPORT_TEMPLATE_VERSION } from "../services/templates.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { isModelLocked, lockedModelIds, setLockedModelsForTests } from "../middlewares/lockedModel.js";
@@ -2137,7 +2137,7 @@ describe("GET /api/scenarios/:id/export", () => {
     // 2 -> 3 (band is now always computed from the saved lens, never null).
     // T9 — the envelope carries `unit` once; JSON rows never duplicate
     // templateVersion/distanceUnit (CSV rows still carry both as columns).
-    expect(res.body.templateVersion).toBe(3);
+    expect(res.body.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
     expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([{ customerId: "C1", warehouseId: "ALN", distance: 42.1, band: 0, flow: 50 }]);
     expect(res.text).not.toContain("distanceMi");
@@ -2223,9 +2223,9 @@ describe("GET /api/scenarios/:id/export", () => {
     // now always computed (numeric index, never null) from the scenario's
     // saved distanceBands lens (empty here -> band 0, per
     // assignBandOrOverflow's contract for an empty bands array). The JSON
-    // wrapper version must match the row version — both now 3. T9 — `unit`
-    // lives on the envelope only; JSON rows never duplicate it.
-    expect(res.body.templateVersion).toBe(3);
+    // wrapper version must match the row version — both OUTPUT_TEMPLATE_VERSION.
+    // T9 — `unit` lives on the envelope only; JSON rows never duplicate it.
+    expect(res.body.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
     expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([{ fromId: "KY", toId: "CHI", distance: 300, band: 0, flow: 500 }]);
   });
@@ -2260,7 +2260,7 @@ describe("GET /api/scenarios/:id/export", () => {
   // buildCostSummaryRows now stamps rows with that constant; the JSON
   // wrapper follows so it never declares a version its own rows disagree
   // with. serviceStats/openWarehouses are unaffected by this task.
-  it("uses COST_SUMMARY_TEMPLATE_VERSION at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION (3) for serviceStats, v1 for openWarehouses", async () => {
+  it("uses COST_SUMMARY_TEMPLATE_VERSION at the JSON wrapper for costSummary, OUTPUT_TEMPLATE_VERSION for serviceStats, v1 for openWarehouses", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
@@ -2271,7 +2271,7 @@ describe("GET /api/scenarios/:id/export", () => {
       }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
-    for (const [entity, expected] of [["costSummary", COST_SUMMARY_TEMPLATE_VERSION], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
+    for (const [entity, expected] of [["costSummary", COST_SUMMARY_TEMPLATE_VERSION], ["serviceStats", OUTPUT_TEMPLATE_VERSION], ["openWarehouses", 1]] as const) {
       mockDb.select.mockReturnValue(makeChain([solvedRow]));
       const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
       expect(res.status).toBe(200);
@@ -2881,8 +2881,8 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
   // PL1 supplies WH1 with two products (P1, P2) — the inbound edges are
   // per-product, so P->W aggregation (summing flow across products into one
   // row per plant-warehouse pair) is actually exercised. WH1 serves two
-  // customers: C1 at 250mi (within [200,400,800,1600] -> "Band 2") and C2 at
-  // 2000mi (beyond the highest boundary -> "Overflow").
+  // customers: C1 at 250mi (within [200,400,800,1600] -> "200–400 mi") and C2 at
+  // 2000mi (beyond the highest boundary -> "> 1,600 mi").
   const jadeSolvedRow = {
     ...jadeRow,
     inputs: { ...jadeInputs, distanceBands: [200, 400, 800, 1600] },
@@ -2916,15 +2916,14 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
-    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3. T9 —
-    // `unit` lives on the envelope only; JSON rows never duplicate
-    // templateVersion/distanceUnit.
-    expect(res.body.templateVersion).toBe(3);
+    // DU-4.2 — JADE grids are on their own v4 envelope. T9 — `unit` lives on
+    // the envelope only; JSON rows never duplicate templateVersion/distanceUnit.
+    expect(res.body.templateVersion).toBe(JADE_EXPORT_TEMPLATE_VERSION);
     expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([
-      { productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" },
-      { productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" },
-      { productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, band: "Overflow" },
+      { productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "200–400 mi" },
+      { productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, band: "200–400 mi" },
+      { productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, band: "> 1,600 mi" },
     ]);
     // No demand/flow column — product-level, per spec §5a.
     expect(res.body.rows.every((r: Record<string, unknown>) => !("flow" in r) && !("demand" in r))).toBe(true);
@@ -2943,8 +2942,8 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     // become self-describing: the header now carries template_version +
     // distance_unit, matching the locked v3 table exactly.
     expect(lines[0]).toBe("template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band");
-    expect(lines).toContain("3,P1,C1,WH1,250,mi,Band 2");
-    expect(lines).toContain("3,P1,C2,WH1,2000,mi,Overflow");
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},P1,C1,WH1,250,mi,200–400 mi`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},P1,C2,WH1,2000,mi,"> 1,600 mi"`);
   });
 
   it("exports JADE flows as JSON — ONE combined file, P->W aggregated across products, W->C one row per customer", async () => {
@@ -2955,18 +2954,16 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("flows");
-    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3, and
-    // JadeFlowTemplateRow gained distanceUnit (it had none before). T9 —
-    // `unit` lives on the envelope only; JSON rows never duplicate
-    // templateVersion/distanceUnit.
-    expect(res.body.templateVersion).toBe(3);
+    // DU-4.2 — JADE grids are on their own v4 envelope. T9 — `unit` lives on
+    // the envelope only; JSON rows never duplicate templateVersion/distanceUnit.
+    expect(res.body.templateVersion).toBe(JADE_EXPORT_TEMPLATE_VERSION);
     expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([
       // Inbound: PL1->WH1 aggregated across P1 (100) + P2 (50) = 150.
-      { leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 },
+      { leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "≤ 200 mi", flows: 150 },
       // Outbound: one row per customer, no per-product duplication.
-      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "Band 2", flows: 120 },
-      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "Overflow", flows: 900 },
+      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "200–400 mi", flows: 120 },
+      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "> 1,600 mi", flows: 900 },
     ]);
   });
 
@@ -2978,9 +2975,9 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const res = await request(app).get("/api/scenarios/12/export?entity=flows&format=json").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.rows.map((r: { leg: string; band: string }) => [r.leg, r.band])).toEqual([
-      ["plant_to_warehouse", "Overflow"], // 150 > 100
-      ["warehouse_to_customer", "Band 2"],
-      ["warehouse_to_customer", "Overflow"],
+      ["plant_to_warehouse", "> 100 mi"], // 150 > 100
+      ["warehouse_to_customer", "200–400 mi"],
+      ["warehouse_to_customer", "> 1,600 mi"],
     ]);
   });
 
@@ -2995,13 +2992,13 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     // Chen-bands-units bundle, Part E (sixth-review #3) — header gains
     // template_version + distance_unit, matching the locked v3 table.
     expect(lines[0]).toBe("template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows");
-    expect(lines).toContain("3,plant_to_warehouse,PL1,WH1,150,mi,Band 1,150");
-    expect(lines).toContain("3,warehouse_to_customer,WH1,C2,2000,mi,Overflow,900");
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},plant_to_warehouse,PL1,WH1,150,mi,≤ 200 mi,150`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},warehouse_to_customer,WH1,C2,2000,mi,"> 1,600 mi",900`);
   });
 
   it("JADE distance_band reflects the CURRENT SAVED scenario.inputs.distanceBands, not solve.py's default", async () => {
     const cookie = await loginAs(OWNER);
-    // Narrow the bands so 250mi (previously "Band 2" under [200,400,800,1600])
+    // Narrow the bands so 250mi (previously "200–400 mi" under [200,400,800,1600])
     // now overflows past a lowered highest boundary.
     const narrowRow = { ...jadeSolvedRow, inputs: { ...jadeSolvedRow.inputs, distanceBands: [50, 100, 150, 200] } };
     mockDb.select.mockReturnValueOnce(makeChain([narrowRow]));
@@ -3009,7 +3006,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const res = await request(app).get("/api/scenarios/12/export?entity=assignments&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(200);
-    expect(res.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("Overflow");
+    expect(res.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("> 200 mi");
   });
 
   // Export after a non-staling bands-only save (spec §2/§5c, review R3-4) —
@@ -3035,13 +3032,13 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const setArg = (patchChain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(setArg).not.toHaveProperty("inputsUpdatedAt");
 
-    // Step 2: export reads the newly saved bands — 250mi was "Band 2" under
+    // Step 2: export reads the newly saved bands — 250mi was "200–400 mi" under
     // the original [200,400,800,1600]; under the narrowed [100,200,800,1600]
-    // it reclassifies to "Band 3".
+    // it reclassifies to "200–800 mi".
     mockDb.select.mockReturnValueOnce(makeChain([{ ...jadeSolvedRow, inputs: newInputs }]));
     const exportRes = await request(app).get("/api/scenarios/12/export?entity=assignments&format=json").set("Cookie", cookie);
     expect(exportRes.status).toBe(200);
-    expect(exportRes.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("Band 3");
+    expect(exportRes.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("200–800 mi");
   });
 
   // Non-JADE regression (task A4) — proves the generic edges-derived

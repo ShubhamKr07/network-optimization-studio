@@ -9,14 +9,13 @@ import type { AssignmentExportRow } from './assignmentExportRow';
 import type { AssignmentsExportEnvelopeEntity } from './assignmentsExportEnvelopeEntity';
 import type { AssignmentsExportEnvelopeTemplateVersion } from './assignmentsExportEnvelopeTemplateVersion';
 import type { AssignmentsExportEnvelopeUnit } from './assignmentsExportEnvelopeUnit';
-import type { JadeAssignmentExportRow } from './jadeAssignmentExportRow';
 
 /**
- * v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.
+ * v3 assignments export — generic rows only (two-echelon-jade-us is served by JadeAssignmentsExportEnvelope at v4).
  */
 export interface AssignmentsExportEnvelope {
   templateVersion: AssignmentsExportEnvelopeTemplateVersion;
   entity: AssignmentsExportEnvelopeEntity;
   unit: AssignmentsExportEnvelopeUnit;
-  rows: (AssignmentExportRow | JadeAssignmentExportRow)[];
+  rows: AssignmentExportRow[];
 }

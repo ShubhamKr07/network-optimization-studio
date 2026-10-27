@@ -1,4 +1,5 @@
 import { formatDistanceNumber } from "./format.js";
+import { toDisplay } from "./convert.js";
 import type { CanonicalUnit } from "./convert.js";
 
 export const OVERFLOW_BAND = -1;
@@ -39,12 +40,7 @@ export function assignBandOrOverflow(distance: number, bands: number[]): number 
   return idx === -1 ? OVERFLOW_BAND : idx;
 }
 
-export function bandLabelOrOverflow(distance: number, bands: number[]): string {
-  const i = assignBandOrOverflow(distance, bands);
-  return i === OVERFLOW_BAND ? "Overflow" : `Band ${i + 1}`;
-}
-
-/** DU-2.2 — the ONE band range label (UI now; exports from DU-4.2). `bands` are boundaries in the DISPLAY unit.
+/** DU-2.2 — the ONE band range label (UI and exports). `bands` are boundaries in the DISPLAY unit.
  *  Upper-inclusive (a boundary value belongs to the lower band, as assignBandOrOverflow): first `≤ a u`,
  *  middle `a–b u`, overflow `> z u`. Never "Band N". */
 export function bandRangeLabel(index: number, bands: number[], unit: CanonicalUnit): string {
@@ -54,6 +50,18 @@ export function bandRangeLabel(index: number, bands: number[], unit: CanonicalUn
   if (index === OVERFLOW_BAND || index >= s.length) return `> ${f(s[s.length - 1])} ${unit}`;
   if (index <= 0) return `≤ ${f(s[0])} ${unit}`;
   return `${f(s[index - 1])}–${f(s[index])} ${unit}`;
+}
+
+/** DU-4.2 — the export/client label for one distance: classify on the
+ *  CANONICAL distance, then render the range in the display unit. */
+export function bandRangeLabelForDistance(
+  distance: number, bands: number[], canonicalUnit: CanonicalUnit, displayUnit: CanonicalUnit,
+): string {
+  return bandRangeLabel(
+    assignBandOrOverflow(distance, bands),
+    bands.map(b => toDisplay(b, canonicalUnit, displayUnit)),
+    displayUnit,
+  );
 }
 
 // Task 12 (Chapter 5, delivery-teaching-us) — rounds `x` to `d` decimal

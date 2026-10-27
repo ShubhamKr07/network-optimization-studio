@@ -3,6 +3,7 @@ import {
   TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  JADE_EXPORT_TEMPLATE_VERSION,
   COST_SUMMARY_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
@@ -55,7 +56,7 @@ import {
   toJadeFlowJsonRow,
 } from "../services/templates.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
-import { objectiveDimension, convertObjective, OVERFLOW_BAND } from "@workspace/units";
+import { objectiveDimension, convertObjective, OVERFLOW_BAND, bandRangeLabelForDistance } from "@workspace/units";
 
 describe("applyWarehouseOverrides", () => {
   it("returns one row per baseline warehouse with default status 'active' and null capacity when no override exists", () => {
@@ -1496,9 +1497,9 @@ describe("buildJadeAssignmentRows", () => {
   it("reads from details.assignments (product-level), NOT result.edges — band is a DISPLAY-LABEL string, not a numeric index", () => {
     const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", bands);
     expect(rows).toEqual([
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "200–400 mi" },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "200–400 mi" },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "> 1,600 mi" },
     ]);
   });
 
@@ -1511,7 +1512,8 @@ describe("buildJadeAssignmentRows", () => {
     const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", bands, "km");
     expect(rows[0].distance).toBeCloseTo(250 * 1.609344, 4);
     expect(rows[0].distanceUnit).toBe("km");
-    expect(rows[0].band).toBe("Band 2"); // classification unaffected by conversion
+    expect(rows[0].band).toBe(bandRangeLabelForDistance(250, bands, "mi", "km")); // classified canonically, labelled in km
+    expect(rows[0].band).toContain(" km");
   });
 
   it("defaults requestedUnit to canonicalUnit when omitted (backward-compatible)", () => {
@@ -1527,8 +1529,8 @@ describe("jadeAssignmentRowsToCsv", () => {
     const csv = jadeAssignmentRowsToCsv(rows);
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe("template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band");
-    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},P1,C1,WH1,250,mi,Band 2`);
-    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},P1,C2,WH1,2000,mi,Overflow`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},P1,C1,WH1,250,mi,200–400 mi`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},P1,C2,WH1,2000,mi,"> 1,600 mi"`);
   });
 });
 
@@ -1536,7 +1538,7 @@ describe("toJadeAssignmentJsonRow", () => {
   it("strips templateVersion and distanceUnit — the exact locked shape", () => {
     const row = buildJadeAssignmentRows(makeJadeResult(), "mi", [200, 400, 800, 1600])[0];
     const jsonRow = toJadeAssignmentJsonRow(row);
-    expect(jsonRow).toEqual({ productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" });
+    expect(jsonRow).toEqual({ productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "200–400 mi" });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);
   });
@@ -1548,9 +1550,9 @@ describe("buildJadeFlowRows", () => {
   it("aggregates plant_to_warehouse edges across products (flows summed), one row per customer for warehouse_to_customer — band is a DISPLAY-LABEL string", () => {
     const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi");
     expect(rows).toEqual([
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "Band 1", flows: 150 },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "Band 2", flows: 120 },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, distanceUnit: "mi", band: "Overflow", flows: 900 },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "≤ 200 mi", flows: 150 },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "200–400 mi", flows: 120 },
+      { templateVersion: JADE_EXPORT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, distanceUnit: "mi", band: "> 1,600 mi", flows: 900 },
     ]);
   });
 
@@ -1561,9 +1563,9 @@ describe("buildJadeFlowRows", () => {
 
   it("DU-4.1: plant_to_warehouse rows band against inboundDistanceBands, warehouse_to_customer against distanceBands", () => {
     const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands, inboundDistanceBands: [100] }, "mi");
-    expect(rows[0]).toMatchObject({ leg: "plant_to_warehouse", distance: 150, band: "Overflow" }); // 150 > 100
-    expect(rows[1]).toMatchObject({ leg: "warehouse_to_customer", band: "Band 2" });
-    expect(rows[2]).toMatchObject({ leg: "warehouse_to_customer", band: "Overflow" });
+    expect(rows[0]).toMatchObject({ leg: "plant_to_warehouse", distance: 150, band: "> 100 mi" }); // 150 > 100
+    expect(rows[1]).toMatchObject({ leg: "warehouse_to_customer", band: "200–400 mi" });
+    expect(rows[2]).toMatchObject({ leg: "warehouse_to_customer", band: "> 1,600 mi" });
   });
 
   it("DU-4.1: an absent inboundDistanceBands exports byte-identically to an inbound set equal to distanceBands", () => {
@@ -1584,8 +1586,8 @@ describe("jadeFlowRowsToCsv", () => {
     const csv = jadeFlowRowsToCsv(rows);
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe("template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows");
-    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},plant_to_warehouse,PL1,WH1,150,mi,Band 1,150`);
-    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},warehouse_to_customer,WH1,C2,2000,mi,Overflow,900`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},plant_to_warehouse,PL1,WH1,150,mi,≤ 200 mi,150`);
+    expect(lines).toContain(`${JADE_EXPORT_TEMPLATE_VERSION},warehouse_to_customer,WH1,C2,2000,mi,"> 1,600 mi",900`);
   });
 });
 
@@ -1593,7 +1595,7 @@ describe("toJadeFlowJsonRow", () => {
   it("strips templateVersion and distanceUnit — the exact locked shape, `leg` stays the closed union", () => {
     const row = buildJadeFlowRows(makeJadeResult(), { distanceBands: [200, 400, 800, 1600] }, "mi")[0];
     const jsonRow = toJadeFlowJsonRow(row);
-    expect(jsonRow).toEqual({ leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 });
+    expect(jsonRow).toEqual({ leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "≤ 200 mi", flows: 150 });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);
   });
@@ -1606,14 +1608,14 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
 
   it("generic assignments CSV + JSON row both carry v3", () => {
     const row = buildAssignmentRows(makeResult(), "mi", "mi", bands)[0];
-    expect(row.templateVersion).toBe(3);
-    expect(assignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
+    expect(assignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
   });
 
   it("generic flows CSV + JSON row both carry v3 (was v1/TEMPLATE_VERSION)", () => {
     const row = buildFlowRows(makeResult(), "mi", "mi", { distanceBands: bands })[0];
-    expect(row.templateVersion).toBe(3);
-    expect(flowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
+    expect(flowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
   });
 
   // Task 11 (CH4O) — costSummary moved OFF this shared v3 onto its own
@@ -1627,20 +1629,20 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
 
   it("serviceStats CSV + JSON row both carry v3", () => {
     const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", bands)[0];
-    expect(row.templateVersion).toBe(3);
-    expect(serviceStatsRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
+    expect(serviceStatsRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
   });
 
-  it("JADE assignments CSV + JSON row both carry v3", () => {
+  it("JADE assignments CSV + JSON row both carry JADE_EXPORT_TEMPLATE_VERSION (v4)", () => {
     const row = buildJadeAssignmentRows(makeJadeResult(), "mi", bands)[0];
-    expect(row.templateVersion).toBe(3);
-    expect(jadeAssignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(JADE_EXPORT_TEMPLATE_VERSION);
+    expect(jadeAssignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(JADE_EXPORT_TEMPLATE_VERSION));
   });
 
-  it("JADE flows CSV + JSON row both carry v3", () => {
+  it("JADE flows CSV + JSON row both carry JADE_EXPORT_TEMPLATE_VERSION (v4)", () => {
     const row = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi")[0];
-    expect(row.templateVersion).toBe(3);
-    expect(jadeFlowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+    expect(row.templateVersion).toBe(JADE_EXPORT_TEMPLATE_VERSION);
+    expect(jadeFlowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(JADE_EXPORT_TEMPLATE_VERSION));
   });
 
   it("openWarehouses stays v1 — a non-distance entity, unaffected by this bundle", () => {

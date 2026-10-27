@@ -871,7 +871,7 @@ export const CloneScenarioParams = zod.object({
 
 
 /**
- * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is derived from the scenario's CURRENT SAVED inputs.distanceBands (server-side bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary, "Overflow" above the highest boundary) — it reflects the last saved bands, not unsaved UI edits. Every other model's assignments/flows export is unchanged.
+ * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is the range text from the shared label authority ("≤ a u", "a–b u", "> z u", upper-inclusive boundary, boundaries in the requested unit; never "Band N"), derived from the scenario's CURRENT SAVED inputs (distanceBands, and for the inbound leg inboundDistanceBands when saved) — it reflects the last saved bands, not unsaved UI edits. These two JADE grids are served in their own v4 envelopes (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope). Every other model's assignments/flows export is unchanged (v3).
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 export const ExportScenarioParams = zod.object({
@@ -906,38 +906,48 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['assignments']),
   "unit": zod.enum(['km', 'mi']),
-  "rows": zod.array(zod.union([zod.object({
+  "rows": zod.array(zod.object({
   "customerId": zod.string(),
   "warehouseId": zod.string(),
   "distance": zod.number(),
   "band": zod.number(),
   "flow": zod.number()
-}).describe('Generic (non-JADE) assignment row — band is the zero-based index, -1 = overflow.'),zod.object({
-  "productId": zod.string(),
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distance": zod.number(),
-  "band": zod.string()
-}).describe('two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.')]))
-}).describe('v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.'),zod.object({
+}).describe('Generic (non-JADE) assignment row — band is the zero-based index, -1 = overflow.'))
+}).describe('v3 assignments export — generic rows only (two-echelon-jade-us is served by JadeAssignmentsExportEnvelope at v4).'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['flows']),
   "unit": zod.enum(['km', 'mi']),
-  "rows": zod.array(zod.union([zod.object({
+  "rows": zod.array(zod.object({
   "fromId": zod.string(),
   "toId": zod.string(),
   "distance": zod.number(),
   "band": zod.number(),
   "flow": zod.number()
-}).describe('Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.'),zod.object({
+}).describe('Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow. For two-echelon models a row\'s band index is into that leg\'s band set (inbound legs use inboundDistanceBands when saved, otherwise distanceBands).'))
+}).describe('v3 flows export — generic rows only (two-echelon-jade-us is served by JadeFlowsExportEnvelope at v4).'),zod.object({
+  "templateVersion": zod.literal(4),
+  "entity": zod.enum(['assignments']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.object({
+  "productId": zod.string(),
+  "customerId": zod.string(),
+  "warehouseId": zod.string(),
+  "distance": zod.number(),
+  "band": zod.string()
+}).describe('two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit.'))
+}).describe('v4 two-echelon-jade-us assignments export. Grid-local version (services\/templates.ts\'s JADE_EXPORT_TEMPLATE_VERSION): only the two JADE grids changed their `band` column to range text, so the shared v3 output version stays put for every other model. The enum is single-valued, and templateVersion keeps this envelope distinct from AssignmentsExportEnvelope even when rows is empty.'),zod.object({
+  "templateVersion": zod.literal(4),
+  "entity": zod.enum(['flows']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.object({
   "leg": zod.enum(['plant_to_warehouse', 'warehouse_to_customer']),
   "fromId": zod.string(),
   "toId": zod.string(),
   "distance": zod.number(),
   "band": zod.string(),
   "flows": zod.number()
-}).describe('two-echelon-jade-us combined-leg flow row — band is the display-label string.')]))
-}).describe('v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.'),zod.object({
+}).describe('two-echelon-jade-us combined-leg flow row — band is the range text (`≤ a u`, `a–b u`, `> z u`) in the requested unit, classified against that leg\'s band set.'))
+}).describe('v4 two-echelon-jade-us flows export (grid-local version, see JadeAssignmentsExportEnvelope). Each leg\'s band text is classified against that leg\'s band set.'),zod.object({
   "templateVersion": zod.literal(5),
   "entity": zod.enum(['costSummary']),
   "unit": zod.enum(['km', 'mi']),
@@ -968,7 +978,7 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "band": zod.number(),
   "percent": zod.number()
 }).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
-}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/deliveryCosts\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope). Never a single global v3+unit shape.')
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of four versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/deliveryCosts\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope \/ JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.')
 
 
 /**
