@@ -35,7 +35,7 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
     inputs: { distanceBands: number[]; inboundDistanceBands?: number[] },
   ): number[]; // inbound -> inboundDistanceBands ?? distanceBands; otherwise distanceBands
   ```
-- Fixed route (master §A): `PATCH /scenarios/:scenarioId/inbound-distance-bands`, body `{ inboundDistanceBands: number[] }`, one `jsonb_set`, no `inputsUpdatedAt` bump, 404 when not owned. OpenAPI path + Orval regen in the same commit (DU-4.1).
+- Fixed route (master §A, extended by Q4): `PATCH /scenarios/:scenarioId/inbound-distance-bands`, body `{ inboundDistanceBands: number[] | null }` (`null` clears the key), one atomic jsonb statement (`jsonb_set` or `- 'inboundDistanceBands'`), no `inputsUpdatedAt` bump, 404 when not owned. OpenAPI path + Orval regen in the same commit (DU-4.1).
 - `inboundDistanceBands` goes into each manifest's `inputsSchema.properties` and **never** into `required[]`.
 - Hard rules #1 (never hand-edit generated code), #5 (`user_id` filter, 404 never 403) and #6 (no solver branches) apply. `pmedian.ts` builds the solver input by naming fields (`:29-297`), so the new key never reaches `solve.py`; do not add it there.
 - **Remove consumers before producers:** `bandLabelOrOverflow` is deleted in DU-4.2, in the same commit that moves its last two callers (server JADE builders and `JadeFlowsTab`'s client export) to the range label.
@@ -56,14 +56,16 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
   3. `git commit --only ${=P} -m "[DU-4.N] …"` (no `--` before the paths; message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
 - `docs/model-integration-precheck.md` is **mandatory reading** for DU-4.1–4.3 (spec §5.4.1); each brief cites its Gates 1, 6 and 6.5 (shared allowlists extended for one model and forgotten for a sibling).
 
-## Decisions (recommended defaults applied; to confirm before execution)
+## Decisions
+
+Q4, Q10, Q11 and Q12 were put to the user on 2026-10-27 (Q4 changed to a reset control; Q10–Q12 confirmed as defaulted). The rest are technical defaults.
 
 | ID | Default applied | Task |
 |---|---|---|
 | Q1 | **Validation mirrors each model's own `distanceBands` rule.** JADE's schema refines strictly-ascending; gold's does not. Each schema declares its band array once (`const bandsSchema = …`) and uses it for both keys (`inboundDistanceBands: bandsSchema.optional()`), so the two keys can never drift. This is stricter than the spec's literal `z.array(z.number().positive()).min(1).optional()` for JADE only, deliberately. | 4.1 |
 | Q2 | Editor labels: existing editor "Customer-facing lanes (warehouse → customer)" on JADE / "(refinery → customer)" on gold; new editor "Inbound lanes (plant → warehouse)" on JADE / "(mine → refinery)" on gold. The role words come from the model's map `EntityRoleConfig`. Single-echelon models keep today's "Distance bands" label unchanged. | 4.1 |
 | Q3 | **The second editor appears when the model's manifest `inputsSchema.properties` contains `inboundDistanceBands`** (helper `hasInboundBands(inputsSchema)`, the `lib/integerDemand.ts:4-5` precedent). No new capability flag, no OpenAPI capability change. | 4.1 |
-| Q4 | **No "clear" path.** When the key is absent the inbound editor is seeded with a copy of the customer-facing bands and shows the hint "Using the customer-facing bands until you change these." The first edit writes the key; from then on the two sets are independent. The route's body stays `{ inboundDistanceBands: number[] }` exactly as master §A fixes it. A reset-to-fallback control is deferred until someone asks for it. | 4.1 |
+| Q4 | **User decision 2026-10-27: add a reset control.** When the key is absent the inbound editor is seeded with a copy of the customer-facing bands and shows the hint "Using the customer-facing bands until you change these." The first edit writes the key. While a saved inbound set exists, a "Use customer-facing bands" button (≥ 24px target) clears it: the studio lens returns to `null` and the save removes the key. **Deviation from master §A, approved by this decision:** the route body becomes `{ inboundDistanceBands: number[] \| null }`; `null` runs `inputs - 'inboundDistanceBands'` (still one atomic jsonb statement, still reporting-only, still 404/lock first). | 4.1 |
 | Q5 | The inbound editor lives on Optimization Parameters only. `SolveDialog`'s band editor stays single (customer-facing) — the solve dialog configures the solve, and inbound bands never reach the solver. | 4.1 |
 | Q6 | **JADE exports get their own envelopes at v4.** `AssignmentsExportEnvelope` and `FlowsExportEnvelope` today admit both generic and JADE rows under one `enum: [3]` (`openapi.yaml:2571-2613`). DU-4.2 splits them: `JadeAssignmentsExportEnvelope` / `JadeFlowsExportEnvelope` (`enum: [4]`, JADE rows only) join `ExportEnvelope.oneOf`; the generic envelopes keep `enum: [3]` with generic rows only. `templateVersion` makes the `oneOf` unambiguous even for empty `rows`. Every non-JADE model's export is byte-identical. | 4.2 |
 | Q7 | **Generic flows stay v3.** gold's `mine_to_refinery` rows classify against `bandsForLeg` from DU-4.1, so their numeric `band` index is relative to the inbound set when one is saved. The shape is unchanged and an existing scenario (key absent) exports byte-identically, so no consumer's file changes; DU-4.2 documents the per-leg meaning in `FlowExportRow.description` instead of bumping a version shared with transport-coal (which has no legs and earned no bump). | 4.1, 4.2 |
@@ -71,7 +73,7 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
 | Q9 | **Service Stats export section shape (v4, all models):** every row gains `section: "outbound" \| "inbound"` and a nullable `flow`. Outbound rows are today's cumulative rows unchanged (`flow` null / blank). Inbound rows (two-echelon only) are **exclusive** per band: `band` = the band's upper boundary in the requested unit (`-1` = overflow, never converted), `flow` = summed inbound flow, `percent` = share of total inbound flow. CSV header `template_version,section,band,distance_unit,percent,flow`. | 4.3 |
 | Q10 | **Assignments "expand" is an in-cell disclosure, not injected sub-rows.** `DataTable` has no row expansion (`components/data-table/DataTable.tsx`), and injecting child rows breaks its sort, filter and paging. A split customer's row shows "Split (n warehouses)" as a button; pressing it reveals a per-product list (product → warehouse · distance · band) inside the row. Split rows show "—" for Distance and Distance Band; the warehouse filter offers each warehouse plus "Split". | 4.4 |
 | Q11 | Plant Production: rows with zero enabled capacity are hidden by default behind a "Show disabled plant-products" switch; "Remaining capacity" becomes "Utilization %" = `actual / capacity × 100`, 0 dp, "—" when capacity is 0. | 4.4 |
-| Q12 | Production row re-count (spec §5.4.1; master §A says "first", PR4-8). The hosted Render MCP cannot reach the database (IP allowlist, tried 2026-10-27). **Default: run it before DU-4.1 is dispatched**, by the user or after the user allowlists the MCP address, and record the result in the DU-4.1 changelog entry; if neither is possible, it moves to the pre-deploy step in "Phase 4 close-out" (the key is optional and never in `required[]`, so no existing row can fail validation because of it — the count is evidence, not a gate). SQL in "Phase 4 close-out". | 4.1 / close-out |
+| Q12 | Production row re-count (spec §5.4.1; master §A says "first", PR4-8). The hosted Render MCP cannot reach the database (IP allowlist, tried 2026-10-27). **User decision 2026-10-27: run it before deploy** (the pre-deploy step in "Phase 4 close-out"), not before building (the key is optional and never in `required[]`, so no existing row can fail validation because of it — the count is evidence, not a gate). SQL in "Phase 4 close-out". | 4.1 / close-out |
 | Q13 | **DU-4.3 stays its own commit (PR4-1).** Spec §5.4.3's "one task and one commit" covers the label-format contract (DU-4.2). Spec §6 allows DU-4.3 to be separate, and master §A / PR-12 fixed it as always separate. DU-4.2 owns the assignments/flows envelopes; DU-4.3 owns the independent Service Stats v4 contract and starts only from a green DU-4.2 tip. | 4.2, 4.3 |
 
 All paths below are relative to the repo root unless noted. Studio paths are under `artifacts/studio/src/`, server paths under `artifacts/api-server/src/`.
@@ -190,7 +192,7 @@ const isBandsOnlyChange = [...changed].every((k) => REPORTING_ONLY_KEYS.has(k));
 
 Update the comment block at `:115-125` to name both keys, and `:64-66` to name both field-scoped routes. Run — PASS.
 
-- [ ] **Step 7: field-scoped route — failing tests.** In `__tests__/routes.test.ts`, mirror the `describe("PATCH /api/scenarios/:scenarioId/distance-bands …")` block (`:2646-2770`) as `describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)")`: 200 + returned `inputs.inboundDistanceBands` for an owned JADE scenario; 404 for another user's id and for a missing id (never 403); 400 for `{}`, `{ inboundDistanceBands: [] }`, `[0]`; 400 for JADE `[900, 300]`; 401 unauthenticated; locked model → the lock response, with no write. **Precedence (PR4-3):** a malformed body on another user's scenario → 404, and a malformed body on an owned locked scenario → the lock response, so the body is parsed only after ownership and lock (assert both). In `scenarioSolveAtomicity.test.ts` (real Postgres): the route leaves `inputsUpdatedAt` and `solve_input_revision` unchanged and `stale` false on a solved scenario, and a concurrent write to another `inputs` key is preserved (one `jsonb_set`). Run — FAIL (404 route missing).
+- [ ] **Step 7: field-scoped route — failing tests.** In `__tests__/routes.test.ts`, mirror the `describe("PATCH /api/scenarios/:scenarioId/distance-bands …")` block (`:2646-2770`) as `describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)")`: 200 + returned `inputs.inboundDistanceBands` for an owned JADE scenario; 404 for another user's id and for a missing id (never 403); 400 for `{}`, `{ inboundDistanceBands: [] }`, `[0]`; 400 for JADE `[900, 300]`; 401 unauthenticated; locked model → the lock response, with no write. **Precedence (PR4-3):** a malformed body on another user's scenario → 404, and a malformed body on an owned locked scenario → the lock response, so the body is parsed only after ownership and lock (assert both). **Clear (Q4):** `{ inboundDistanceBands: null }` → 200 and the returned `inputs` has no `inboundDistanceBands` key; clearing an absent key is a 200 no-op; in the real-Postgres suite, clearing leaves `inputsUpdatedAt` / `solve_input_revision` unchanged and other `inputs` keys intact. In `scenarioSolveAtomicity.test.ts` (real Postgres): the route leaves `inputsUpdatedAt` and `solve_input_revision` unchanged and `stale` false on a solved scenario, and a concurrent write to another `inputs` key is preserved (one `jsonb_set`). Run — FAIL (404 route missing).
 
 - [ ] **Step 8: implement the route** in `routes/distanceBands.ts`, after the existing handler, sharing its `toApiScenario`:
 
@@ -202,7 +204,8 @@ Update the comment block at `:115-125` to name both keys, and `:64-66` to name b
 // model's own schema so a model without the key keeps rejecting nothing it
 // accepted before and JADE keeps its ascending rule.
 const inboundBandsBodySchema = z.object({
-  inboundDistanceBands: z.array(z.number().positive()).min(1),
+  // null = clear the key (Q4): inbound lanes fall back to distanceBands.
+  inboundDistanceBands: z.array(z.number().positive()).min(1).nullable(),
 });
 
 router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) => {
@@ -218,18 +221,23 @@ router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) =
   const parsedBody = inboundBandsBodySchema.safeParse(req.body);
   if (!parsedBody.success) { res.status(400).json({ error: "Invalid inboundDistanceBands" }); return; }
 
-  const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), inboundDistanceBands: parsedBody.data.inboundDistanceBands };
-  const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
-  if (!revalidated.success || !("inboundDistanceBands" in revalidated.data)) {
-    // The second clause rejects a model whose schema strips the key (every
-    // single-echelon model): writing it would persist a value nothing reads.
-    res.status(400).json({ error: "Invalid inboundDistanceBands for this model" });
-    return;
+  const next = parsedBody.data.inboundDistanceBands;
+  if (next !== null) {
+    const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), inboundDistanceBands: next };
+    const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
+    if (!revalidated.success || !("inboundDistanceBands" in revalidated.data)) {
+      // The second clause rejects a model whose schema strips the key (every
+      // single-echelon model): writing it would persist a value nothing reads.
+      res.status(400).json({ error: "Invalid inboundDistanceBands for this model" });
+      return;
+    }
   }
 
   const [row] = await db.update(scenariosTable)
     .set({
-      inputs: sql`jsonb_set(${scenariosTable.inputs}, '{inboundDistanceBands}', ${JSON.stringify(parsedBody.data.inboundDistanceBands)}::jsonb)`,
+      inputs: next === null
+        ? sql`${scenariosTable.inputs} - 'inboundDistanceBands'`
+        : sql`jsonb_set(${scenariosTable.inputs}, '{inboundDistanceBands}', ${JSON.stringify(next)}::jsonb)`,
       updatedAt: sql`now()`,
     })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
@@ -241,7 +249,7 @@ router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) =
 
 Add a test: p-median-us scenario → 400 (its `z.object()` strips the key). `validateInputsForModel` returns `{ success: true; data: Record<string, unknown> } | { success: false; … }` (`registry/modelRegistry.ts:130-132`), so the stripped-key check reads `revalidated.data`. Run the route tests and `lockedModelGuards.test.ts` — PASS.
 
-- [ ] **Step 9: OpenAPI + Orval.** In `lib/api-spec/openapi.yaml`, after the `/scenarios/{scenarioId}/distance-bands` path (`:803-841`), add `/scenarios/{scenarioId}/inbound-distance-bands` with `operationId: updateInboundDistanceBands`, the same parameter and response block, body `required: [inboundDistanceBands]`, `inboundDistanceBands: { type: array, minItems: 1, items: { type: number, exclusiveMinimum: 0 } }`, description naming the two-echelon models, the fallback, the reporting-only rule and the 400 for models without the key. Regenerate with `pnpm --filter @workspace/api-spec run codegen` (runs Orval, then `typecheck:libs`; confirm the package name with `jq -r .name lib/api-spec/package.json`). Commit the spec and the regenerated output together.
+- [ ] **Step 9: OpenAPI + Orval.** In `lib/api-spec/openapi.yaml`, after the `/scenarios/{scenarioId}/distance-bands` path (`:803-841`), add `/scenarios/{scenarioId}/inbound-distance-bands` with `operationId: updateInboundDistanceBands`, the same parameter and response block, body `required: [inboundDistanceBands]`, `inboundDistanceBands: { type: array, nullable: true, minItems: 1, items: { type: number, exclusiveMinimum: 0 } }` (match how this spec already writes nullable fields — rg `nullable: true` in `openapi.yaml`), `null` documented as "clear: inbound lanes fall back to distanceBands", description naming the two-echelon models, the fallback, the reporting-only rule and the 400 for models without the key. Regenerate with `pnpm --filter @workspace/api-spec run codegen` (runs Orval, then `typecheck:libs`; confirm the package name with `jq -r .name lib/api-spec/package.json`). Commit the spec and the regenerated output together.
 
 - [ ] **Step 10: server consumers via `bandsForLeg`.** `routes/scenarios.ts:777` and `:797`: build one lens object
 
@@ -259,7 +267,8 @@ and for the JADE branch `{ distanceBands: inputsLens.distanceBands ?? [200, 400,
   - `handleOptimizationParamsChange` (`:1980-1986`): `if (field === "inboundDistanceBands") { setActiveInboundBandLens(value as number[]); return; }`;
   - `lensDirty` (`:1943`) also compares the inbound lens to its ref;
   - `handleSaveBandsOnly` (`:2229-2251`) saves each lens that is dirty through its own mutation, each with the existing `onError: … describeWriteError` pattern (the `mutationErrorSurface.test.ts` guard reads this file — every new `.mutate(` needs an `onError`);
-  - `buildWholeInputPayload` (`:2113-2117`) and the clone merge (`:3273`): add `...(activeInboundBandLens ? { inboundDistanceBands: activeInboundBandLens } : {})` so the key stays absent when it was absent;
+  - `buildWholeInputPayload` (`:2113-2117`) and the clone merge (`:3273`): `localInputs` is seeded from the persisted row and may already carry the key, so drop it and re-add it from the lens — `const { inboundDistanceBands: _persisted, ...rest } = localInputs ?? {}; return { ...rest, distanceBands: activeBandLens, ...(activeInboundBandLens ? { inboundDistanceBands: activeInboundBandLens } : {}) };` — so a cleared lens (Q4) removes the key and an absent one stays absent (test both);
+  - the bands-only save sends `{ inboundDistanceBands: activeInboundBandLens }` (an array or `null`) when the inbound lens is dirty;
   - pass `inboundBands={activeInboundBandLens ?? undefined}` to `OutputMapTab` (`:4210`) and `JadeFlowsTab` (`:4392`), and `inboundDistanceBands: activeInboundBandLens ?? activeBandLens`, `inboundUsesFallback: activeInboundBandLens === null`, `showInboundBandEditor: hasInboundBands(activeModelManifest?.inputsSchema)` plus the two labels (Q2) into `optimizationParamsBaseProps` (`:3340`).
 
 - [ ] **Step 12: editor.** `lib/inboundBands.ts`:
@@ -272,7 +281,7 @@ export function hasInboundBands(inputsSchema: Record<string, unknown> | undefine
 }
 ```
 
-`BandChipEditor` gains an optional `label?: string` that replaces the "Distance bands" text (`:243`, legacy `:106`) when given (unit suffix unchanged). `OptimizationParametersTab` (`:737-745`): when `showInboundBandEditor`, render the existing editor with `label={outboundBandsLabel}` and a second `BandChipEditor` with `label={inboundBandsLabel}`, `bands={inboundDistanceBands}`, `onChange={b => onChange("inboundDistanceBands", b)}`, `testIdPrefix="inbound-"`, and under it the Q4 hint when the Workspace lens is `null` (pass `inboundUsesFallback`). Tests (`OptimizationParametersTab.test.tsx`, `inboundBands.test.ts`): JADE and gold show two labelled editors; p-median shows one, labelled "Distance bands"; editing the inbound editor calls `onChange("inboundDistanceBands", …)`; the hint shows only while falling back; `hasInboundBands` true for both two-echelon manifests (read the real manifest JSON) and false for the other six.
+`BandChipEditor` gains an optional `label?: string` that replaces the "Distance bands" text (`:243`, legacy `:106`) when given (unit suffix unchanged). `OptimizationParametersTab` (`:737-745`): when `showInboundBandEditor`, render the existing editor with `label={outboundBandsLabel}` and a second `BandChipEditor` with `label={inboundBandsLabel}`, `bands={inboundDistanceBands}`, `onChange={b => onChange("inboundDistanceBands", b)}`, `testIdPrefix="inbound-"`, and under it the Q4 hint when the Workspace lens is `null` (pass `inboundUsesFallback`). When `inboundUsesFallback` is false, render a "Use customer-facing bands" button (`data-testid="inbound-bands-reset"`) that calls `onChange("inboundDistanceBands", null)`; Workspace's handler sets the lens to `null` (widen the handler's value type for this one field). Tests (`OptimizationParametersTab.test.tsx`, `inboundBands.test.ts`): JADE and gold show two labelled editors; p-median shows one, labelled "Distance bands"; editing the inbound editor calls `onChange("inboundDistanceBands", …)`; the hint shows only while falling back; the reset button shows only when not falling back and sends `null`; after reset and save, the editor shows the customer-facing bands and the hint again; `hasInboundBands` true for both two-echelon manifests (read the real manifest JSON) and false for the other six.
 
 - [ ] **Step 13: map, legend, flows tab.**
   - `OutputMapTab.tsx:211-213`: `const effectiveInbound = inboundBands && inboundBands.length > 0 ? inboundBands : effectiveBands;` and `mapInbound = laneColour === "band" ? effectiveInbound : []`; pass `inboundBands={mapInbound}` / `inboundLabelBands={effectiveInbound}` to `NetworkMap` (`:507-508`). The narrative is outbound-only (`resultNarrative.ts:175`, `serviceEdgesFor`), so it stays on `effectiveBands` — note this in the changelog as a checked consumer.
@@ -447,7 +456,7 @@ Use the tab's existing table styling (match the Plant Production `DataTable` or 
 
 - [ ] **Step 1: sibling sweep.** rg `artifacts/studio/e2e/` for `Band [0-9]`, `Overflow`, `Distance bands`, `Remaining capacity`, `Assigned Warehouse`, `templateVersion`, `distance_band`, the capability-capacity testids, and every testid DU-4.1–4.4 changed. Rewrite the hits to the new UI and run each changed spec green.
 - [ ] **Step 2: new spec** against local servers (`E2E_BASE_URL` set; recipe in `artifacts/studio/e2e/CLAUDE.md`), seeded results (`seedSolvedResult`, as in `design-upgrade-p1/p3.spec.ts`):
-  - JADE and gold: Optimization Parameters shows "Customer-facing lanes" and "Inbound lanes" editors, with the fallback hint; editing inbound bands and saving persists across reload, the scenario does **not** turn stale, and only inbound lanes recolour on the Output Map; the legend shows two sections only when the sets differ;
+  - JADE and gold: Optimization Parameters shows "Customer-facing lanes" and "Inbound lanes" editors, with the fallback hint; "Use customer-facing bands" clears a saved inbound set, persists across reload, and restores the hint; editing inbound bands and saving persists across reload, the scenario does **not** turn stale, and only inbound lanes recolour on the Output Map; the legend shows two sections only when the sets differ;
   - p-median: one "Distance bands" editor, no inbound section anywhere;
   - JADE Flows: the Plant→Warehouse band column follows the inbound set; the client download's band text equals the cell text;
   - server exports (JADE assignments + flows, gold flows, serviceStats) download with range-text bands, the v4 envelopes, and the inbound section;

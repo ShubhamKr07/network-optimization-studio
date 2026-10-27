@@ -129,7 +129,7 @@ export function bandsForLeg(
 ): number[]; // inbound -> inboundDistanceBands ?? distanceBands; otherwise distanceBands
 ```
 
-The field-scoped route is `PATCH /scenarios/:scenarioId/inbound-distance-bands` (same method as the `distanceBands.ts:25` precedent), body `{ inboundDistanceBands: number[] }`, modelled on `routes/distanceBands.ts`: one `jsonb_set`, no `inputsUpdatedAt` bump, 404 when not owned. The OpenAPI path is added in DU-4.1 with Orval regen in the same commit.
+The field-scoped route is `PATCH /scenarios/:scenarioId/inbound-distance-bands` (same method as the `distanceBands.ts:25` precedent), body `{ inboundDistanceBands: number[] | null }` (`null` clears the key; extended by Phase 4 Q4, user decision 2026-10-27), modelled on `routes/distanceBands.ts`: one atomic jsonb statement, no `inputsUpdatedAt` bump, 404 when not owned. The OpenAPI path is added in DU-4.1 with Orval regen in the same commit.
 
 ### Phase 5: Dark mode
 
