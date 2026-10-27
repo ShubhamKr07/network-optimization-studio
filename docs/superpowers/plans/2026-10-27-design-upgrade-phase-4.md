@@ -71,7 +71,8 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
 | Q9 | **Service Stats export section shape (v4, all models):** every row gains `section: "outbound" \| "inbound"` and a nullable `flow`. Outbound rows are today's cumulative rows unchanged (`flow` null / blank). Inbound rows (two-echelon only) are **exclusive** per band: `band` = the band's upper boundary in the requested unit (`-1` = overflow, never converted), `flow` = summed inbound flow, `percent` = share of total inbound flow. CSV header `template_version,section,band,distance_unit,percent,flow`. | 4.3 |
 | Q10 | **Assignments "expand" is an in-cell disclosure, not injected sub-rows.** `DataTable` has no row expansion (`components/data-table/DataTable.tsx`), and injecting child rows breaks its sort, filter and paging. A split customer's row shows "Split (n warehouses)" as a button; pressing it reveals a per-product list (product → warehouse · distance · band) inside the row. Split rows show "—" for Distance and Distance Band; the warehouse filter offers each warehouse plus "Split". | 4.4 |
 | Q11 | Plant Production: rows with zero enabled capacity are hidden by default behind a "Show disabled plant-products" switch; "Remaining capacity" becomes "Utilization %" = `actual / capacity × 100`, 0 dp, "—" when capacity is 0. | 4.4 |
-| Q12 | Production row re-count (spec §5.4.1) is a **pre-deploy step**, not a planning step: the hosted Render MCP cannot reach the database (IP allowlist, tried 2026-10-27). SQL in "Phase 4 close-out". The key is optional, so the count is informational: no existing row can fail validation because of it. | close-out |
+| Q12 | Production row re-count (spec §5.4.1; master §A says "first", PR4-8). The hosted Render MCP cannot reach the database (IP allowlist, tried 2026-10-27). **Default: run it before DU-4.1 is dispatched**, by the user or after the user allowlists the MCP address, and record the result in the DU-4.1 changelog entry; if neither is possible, it moves to the pre-deploy step in "Phase 4 close-out" (the key is optional and never in `required[]`, so no existing row can fail validation because of it — the count is evidence, not a gate). SQL in "Phase 4 close-out". | 4.1 / close-out |
+| Q13 | **DU-4.3 stays its own commit (PR4-1).** Spec §5.4.3's "one task and one commit" covers the label-format contract (DU-4.2). Spec §6 allows DU-4.3 to be separate, and master §A / PR-12 fixed it as always separate. DU-4.2 owns the assignments/flows envelopes; DU-4.3 owns the independent Service Stats v4 contract and starts only from a green DU-4.2 tip. | 4.2, 4.3 |
 
 All paths below are relative to the repo root unless noted. Studio paths are under `artifacts/studio/src/`, server paths under `artifacts/api-server/src/`.
 
@@ -97,7 +98,14 @@ All paths below are relative to the repo root unless noted. Studio paths are und
 
 **Interfaces:**
 - Produces (units): the master §A block above, verbatim.
-- Produces (studio): `hasInboundBands(inputsSchema: Record<string, unknown> | undefined): boolean` in `lib/inboundBands.ts`; `NetworkMap` prop `inboundBands?: number[]` and `inboundLabelBands?: number[]`; `MapLegend` prop `inboundBands?: number[]`; `JadeFlowsTab` prop `inboundBands?: number[] | null`; `OptimizationParametersTab` props `inboundDistanceBands?: number[]`, `inboundBandsLabel?: string`, `outboundBandsLabel?: string`.
+- Produces (studio). **One convention (PR4-5):** Workspace holds `activeInboundBandLens: number[] | null` (`null` = key absent); every rendering prop is `inboundBands?: number[]` and every call site passes `activeInboundBandLens ?? undefined`. `undefined` always means "use the customer-facing set".
+  - `lib/inboundBands.ts`: `hasInboundBands(inputsSchema: Record<string, unknown> | undefined): boolean`.
+  - `OutputMapTab`: `inboundBands?: number[]` (its existing `bands` prop stays required).
+  - `NetworkMap`: `inboundBands?: number[]`, `inboundLabelBands?: number[]`.
+  - `MapLegend`: `inboundBands?: number[]` (absent = single section).
+  - `JadeFlowsTab`: `inboundBands?: number[]`.
+  - `OptimizationParametersTab` (PR4-6): `showInboundBandEditor?: boolean` (default `false`), `inboundDistanceBands?: number[]` (the editor's chips: the saved inbound lens, or a copy of the customer-facing lens while falling back), `inboundUsesFallback?: boolean` (shows the Q4 hint), `inboundBandsLabel?: string`, `outboundBandsLabel?: string` (when absent the outbound editor keeps "Distance bands").
+  - `BandChipEditor`: `label?: string`.
 - Produces (api): generated hook `useUpdateInboundDistanceBands` (operationId `updateInboundDistanceBands`).
 - Consumed by DU-4.2 (`bandsForLeg` in the JADE builders), DU-4.3 (`bandsForLeg`, `INBOUND_LEGS`), DU-6.1 (the route).
 
@@ -162,7 +170,14 @@ export function bandsForLeg(
 
 Do **not** touch `required`. Add the `INPUT_FIELD_LABELS` entry. Run the validation tests, `formatInputIssues.test.ts`, `registration.test.ts`, `lib/dataset-schema` tests — PASS.
 
-- [ ] **Step 5: reporting-only on the general PATCH — failing test.** In `solver/__tests__/scenarioSolveAtomicity.test.ts` beside `:514-525`, add: "a PATCH /scenarios/:id whose sole changed inputs key is inboundDistanceBands does NOT increment solve_input_revision" (JADE scenario; assert `solve_input_revision` and `inputsUpdatedAt` unchanged, `stale === false` on a solved row). Also: "changing distanceBands and inboundDistanceBands together is still reporting-only". Run — FAIL.
+- [ ] **Step 5: the epoch rule on every write path — failing tests (PR4-7).** In `solver/__tests__/scenarioSolveAtomicity.test.ts` (real Postgres) beside `:514-525`, on a JADE scenario:
+  - general PATCH whose sole changed key is `inboundDistanceBands` → `solve_input_revision` and `inputsUpdatedAt` unchanged, `stale === false` on a solved row;
+  - general PATCH changing `distanceBands` and `inboundDistanceBands` together → still reporting-only;
+  - general PATCH changing `inboundDistanceBands` **and** `p` → epoch bumps (mixed change is geometric);
+  - create (`POST /scenarios`) with `inboundDistanceBands` → key persisted;
+  - clone → key carried to the clone, which starts with no result (existing clone semantics);
+  - import/apply of an entity on a scenario that has the key → key preserved, epoch bumps (a geometric change).
+  Run — FAIL on the first two (and on create/clone if the key is stripped anywhere).
 
 - [ ] **Step 6: implement.** `services/scenarioInputWrite.ts:134`:
 
@@ -175,7 +190,7 @@ const isBandsOnlyChange = [...changed].every((k) => REPORTING_ONLY_KEYS.has(k));
 
 Update the comment block at `:115-125` to name both keys, and `:64-66` to name both field-scoped routes. Run — PASS.
 
-- [ ] **Step 7: field-scoped route — failing tests.** In `__tests__/routes.test.ts`, mirror the `describe("PATCH /api/scenarios/:scenarioId/distance-bands …")` block (`:2646-2770`) as `describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)")`: 200 + returned `inputs.inboundDistanceBands` for an owned JADE scenario; 404 for another user's id and for a missing id (never 403); 400 for `{}`, `{ inboundDistanceBands: [] }`, `[0]`; 400 for JADE `[900, 300]`; 401 unauthenticated; locked model → the lock response, with no write. In `scenarioSolveAtomicity.test.ts` (real Postgres): the route leaves `inputsUpdatedAt` and `solve_input_revision` unchanged and `stale` false on a solved scenario, and a concurrent write to another `inputs` key is preserved (one `jsonb_set`). Run — FAIL (404 route missing).
+- [ ] **Step 7: field-scoped route — failing tests.** In `__tests__/routes.test.ts`, mirror the `describe("PATCH /api/scenarios/:scenarioId/distance-bands …")` block (`:2646-2770`) as `describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)")`: 200 + returned `inputs.inboundDistanceBands` for an owned JADE scenario; 404 for another user's id and for a missing id (never 403); 400 for `{}`, `{ inboundDistanceBands: [] }`, `[0]`; 400 for JADE `[900, 300]`; 401 unauthenticated; locked model → the lock response, with no write. **Precedence (PR4-3):** a malformed body on another user's scenario → 404, and a malformed body on an owned locked scenario → the lock response, so the body is parsed only after ownership and lock (assert both). In `scenarioSolveAtomicity.test.ts` (real Postgres): the route leaves `inputsUpdatedAt` and `solve_input_revision` unchanged and `stale` false on a solved scenario, and a concurrent write to another `inputs` key is preserved (one `jsonb_set`). Run — FAIL (404 route missing).
 
 - [ ] **Step 8: implement the route** in `routes/distanceBands.ts`, after the existing handler, sharing its `toApiScenario`:
 
@@ -192,13 +207,16 @@ const inboundBandsBodySchema = z.object({
 
 router.patch("/scenarios/:scenarioId/inbound-distance-bands", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  const parsedBody = inboundBandsBodySchema.safeParse(req.body);
-  if (!parsedBody.success) { res.status(400).json({ error: "Invalid inboundDistanceBands" }); return; }
 
+  // Ownership first (404, hard rule #5), then the lock, then the body — so a
+  // malformed body never tells a non-owner anything (PR4-3).
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
+
+  const parsedBody = inboundBandsBodySchema.safeParse(req.body);
+  if (!parsedBody.success) { res.status(400).json({ error: "Invalid inboundDistanceBands" }); return; }
 
   const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), inboundDistanceBands: parsedBody.data.inboundDistanceBands };
   const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
@@ -235,13 +253,14 @@ const savedLens = { distanceBands: inputsLens.distanceBands ?? [], inboundDistan
 and for the JADE branch `{ distanceBands: inputsLens.distanceBands ?? [200, 400, 800, 1600], inboundDistanceBands: inputsLens.inboundDistanceBands }` (keeps the solve.py default fallback). Change `buildJadeFlowRows(result, lens, canonicalUnit, requestedUnit)` and `buildFlowRows(result, canonicalUnit, requestedUnit, lens)` to take `lens: { distanceBands: number[]; inboundDistanceBands?: number[] }` instead of `bands` / `savedBands`, classifying each row with `bandsForLeg(e.leg, lens)` (JADE inbound rows: `bandsForLeg("plant_to_warehouse", lens)`). `buildJadeAssignmentRows`, `buildAssignmentRows` and `buildServiceStatsRows` are outbound-only and keep taking `lens.distanceBands`. Update every caller of the changed signatures (rg `buildJadeFlowRows\|buildFlowRows`). Tests in the api-server export suites: a JADE scenario with `inboundDistanceBands: [100]` exports its `plant_to_warehouse` rows banded against `[100]` and its outbound rows against `distanceBands`; the same scenario without the key exports byte-identically to before (snapshot the CSV); a gold scenario's `mine_to_refinery` `band` index follows the inbound set.
 
 - [ ] **Step 11: studio state and save path.** In `pages/Workspace.tsx`:
-  - beside `:1618` add `const [activeInboundBandLens, setActiveInboundBandLens] = useState<number[] | null>(null);` seeded at `:1625-1627` from `Array.isArray(inputs?.inboundDistanceBands) ? inputs.inboundDistanceBands : null`, plus a `savedInboundBandLensRef` mirroring `savedBandLensRef`;
+  - beside `:1618` add `const [activeInboundBandLens, setActiveInboundBandLens] = useState<number[] | null>(null);` and a `savedInboundBandLensRef = useRef<number[] | null>(null)`, with one helper `inboundBandsFromInputs(inputs): number[] | null` (`Array.isArray(inputs?.inboundDistanceBands) ? inputs.inboundDistanceBands : null`);
+  - **the inbound ref is written at every site the outbound ref is (PR4-2)**, always from the server's returned row, never the pre-mutation local value: the scenario seed (`:1627`), the whole-input save success (`:2183`), the bands-only save success (`:2237` — from the field route's `updated.inputs`), and the solve-triggered save success (`:3118`). A test saves inbound bands through each path and asserts the lens is not dirty afterwards;
   - `const updateInboundDistanceBandsMutation = useUpdateInboundDistanceBands();` beside `:1481`;
   - `handleOptimizationParamsChange` (`:1980-1986`): `if (field === "inboundDistanceBands") { setActiveInboundBandLens(value as number[]); return; }`;
   - `lensDirty` (`:1943`) also compares the inbound lens to its ref;
   - `handleSaveBandsOnly` (`:2229-2251`) saves each lens that is dirty through its own mutation, each with the existing `onError: … describeWriteError` pattern (the `mutationErrorSurface.test.ts` guard reads this file — every new `.mutate(` needs an `onError`);
   - `buildWholeInputPayload` (`:2113-2117`) and the clone merge (`:3273`): add `...(activeInboundBandLens ? { inboundDistanceBands: activeInboundBandLens } : {})` so the key stays absent when it was absent;
-  - pass `inboundBands={activeInboundBandLens}` to `OutputMapTab` (`:4210`) and `JadeFlowsTab` (`:4392`), and `inboundDistanceBands: activeInboundBandLens ?? activeBandLens`, `showInboundBandEditor: hasInboundBands(activeModelManifest?.inputsSchema)` plus the two labels (Q2) into `optimizationParamsBaseProps` (`:3340`).
+  - pass `inboundBands={activeInboundBandLens ?? undefined}` to `OutputMapTab` (`:4210`) and `JadeFlowsTab` (`:4392`), and `inboundDistanceBands: activeInboundBandLens ?? activeBandLens`, `inboundUsesFallback: activeInboundBandLens === null`, `showInboundBandEditor: hasInboundBands(activeModelManifest?.inputsSchema)` plus the two labels (Q2) into `optimizationParamsBaseProps` (`:3340`).
 
 - [ ] **Step 12: editor.** `lib/inboundBands.ts`:
 
@@ -324,7 +343,7 @@ export function hasInboundBands(inputsSchema: Record<string, unknown> | undefine
 
 - [ ] **Step 5: studio client export.** `lib/bands.ts`: remove the `bandLabel` re-export and its comment lines. `JadeFlowsTab.tsx:252,268`: `band: bandRangeLabelForDistance(r.distance, <that table's set>, canonicalUnit, displayUnit)` — use the unit values the tab already uses for the Distance column (rg `useDisplayUnit` / `canonicalUnit` in the tab). Update the `:276` comment: the client export band now matches the on-screen label. Tests: `jadeFlowsExport.test.ts` keeps its literal fixtures (they are inputs to the serializer, not labels it computes) unless a case asserts `Band N` text the tab produced; `JadeFlowsTab.test.tsx` export test asserts the downloaded band equals the visible cell text.
 
-- [ ] **Step 6: sweep, gate, changelog, commit.** rg `Band [0-9]`, `"Overflow"`, `bandLabelOrOverflow`, `bandLabel\b`, `enum: \[3\]`, `templateVersion: 3` across `artifacts/` (incl. `e2e/`), `lib/`, `docs/ops/`; each remaining hit is either a generic-v3 path or listed in the changelog. Run the per-task gate (api + studio + units + typecheck + e2e typecheck). Changelog `### DU-4.2 — export band labels + JADE v4 envelopes` records Q6/Q7, the deleted helper, and the version split. Commit `[DU-4.2] export range band labels; move JADE grids to their own v4 envelopes`.
+- [ ] **Step 6: sweep, gate, changelog, commit.** rg `Band [0-9]`, `"Overflow"`, `bandLabelOrOverflow`, `bandLabel\b`, `enum: \[3\]`, `templateVersion: 3`, `toBe(3)` across `artifacts/` (incl. `e2e/`), `lib/`, `docs/ops/`. **Pin to constants (PR4-4):** every positive assertion or fixture of an export version in a test this task touches or that the sweep hits on assignments/flows/serviceStats becomes the constant (`OUTPUT_TEMPLATE_VERSION`, `JADE_EXPORT_TEMPLATE_VERSION`) — known sites: `__tests__/routes.test.ts:2135-2140`, `:2263-2278`, `__tests__/maxCoverageContract.test.ts:109-139`. A literal stays only in a deliberately negative test (e.g. "a v3 envelope with a JADE row is rejected"), with a comment saying why. Run the per-task gate (api + studio + units + typecheck + e2e typecheck). Changelog `### DU-4.2 — export band labels + JADE v4 envelopes` records Q6/Q7, the deleted helper, and the version split. Commit `[DU-4.2] export range band labels; move JADE grids to their own v4 envelopes`.
 
 ---
 
@@ -459,3 +478,16 @@ Use the tab's existing table styling (match the Plant Production `DataTable` or 
 - **Spec coverage:** §5.4.1 validation (4.1 Steps 3-4), persistence + field route (4.1 Steps 7-9), staleness on both write paths (4.1 Steps 5-8), fallback (units Step 1, editor Q4), one adapter + every consumer (4.1 Steps 2, 10, 13 + inventory in Step 14), editor (4.1 Step 12), Service Stats table + export (4.3); §5.4.2 (4.4); §5.4.3 (4.2: label authority, grid-local version, OpenAPI, Orval, contract tests pinned to the constant with populated production rows); §8 acceptance matrix rows "Inbound bands", "Export contract", "Service Stats", "Group-by" (4.1-4.4 tests); real-browser QA + solver scripts (4.5).
 - **Gaps the spec missed, now covered:** the general PATCH path's bands-only rule (`scenarioInputWrite.ts:134`) — without Step 6 an inbound edit through a whole-input save would turn every solved scenario stale; the `INPUT_FIELD_LABELS` coverage test; the shared JADE/generic `AssignmentsExportEnvelope`/`FlowsExportEnvelope` (Q6); the client JADE flows export (DU-4.2 Step 5).
 - **Type consistency:** `bandsForLeg`'s `inputs` shape is the lens object used by `buildFlowRows`, `buildJadeFlowRows`, `buildServiceStatsRows` and `computeInboundBandFlows`; `activeInboundBandLens: number[] | null` maps to `inboundDistanceBands?: number[]` via `?? undefined` at every studio call site.
+
+## Review log — Codex round 1 (high effort, 2026-10-27)
+
+| ID | Disposition | Where folded |
+|---|---|---|
+| PR4-1 DU-4.2/4.3 spec vs master | accept (clarify, no change of split) | Q13 |
+| PR4-2 saved inbound ref missing from save paths | accept | DU-4.1 Step 11 (all four ref sites, from the server row, + not-dirty test) |
+| PR4-3 body parsed before ownership/lock | accept | DU-4.1 Step 7 (precedence tests), Step 8 (handler order) |
+| PR4-4 version literals in tests | accept | DU-4.2 Step 6 (known sites listed; negative tests keep literals with a comment) |
+| PR4-5 null vs undefined prop convention | accept | DU-4.1 Interfaces (one convention), Step 11 call sites |
+| PR4-6 editor props not in interface list | accept | DU-4.1 Interfaces |
+| PR4-7 create/clone/import epoch tests | accept | DU-4.1 Step 5 |
+| PR4-8 recount timing | accept as default, user decision | Q12 |
