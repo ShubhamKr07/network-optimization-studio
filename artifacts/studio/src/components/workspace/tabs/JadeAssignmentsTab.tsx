@@ -161,15 +161,13 @@ function SplitDisclosure({ row, renderLine }: { row: JadeAssignmentRow; renderLi
       >
         Split ({row.warehouseCount} warehouses)
       </button>
-      {open && (
-        <ul id={`jadeassignment-lines-${row.key}`} className="mt-1 space-y-0.5 text-xs" data-testid={`list-jadeassignment-lines-${row.key}`}>
-          {row.lines.map(l => (
-            <li key={l.productId} data-testid={`line-jadeassignment-${row.key}-${l.productId}`}>
-              {renderLine(l)}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul id={`jadeassignment-lines-${row.key}`} hidden={!open} className="mt-1 space-y-0.5 text-xs" data-testid={`list-jadeassignment-lines-${row.key}`}>
+        {row.lines.map(l => (
+          <li key={l.productId} data-testid={`line-jadeassignment-${row.key}-${l.productId}`}>
+            {renderLine(l)}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

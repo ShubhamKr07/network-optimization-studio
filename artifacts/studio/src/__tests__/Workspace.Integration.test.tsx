@@ -59,6 +59,14 @@ vi.mock("@/components/workspace/tabs/OutputMapTab", () => ({
   },
 }));
 
+const jadeFlowsTabSpy = vi.fn();
+vi.mock("@/components/workspace/tabs/JadeFlowsTab", () => ({
+  JadeFlowsTab: (props: unknown) => {
+    jadeFlowsTabSpy(props);
+    return <div data-testid="jade-flows-tab-stub" />;
+  },
+}));
+
 const warehousesTabSpy = vi.fn();
 vi.mock("@/components/workspace/tabs/WarehousesTab", () => ({
   WarehousesTab: (props: unknown) => {
@@ -940,6 +948,25 @@ describe("Workspace — DU-4.1 inbound distance bands (two-echelon-jade-us)", ()
     outputMapTabSpy.mockClear();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
     expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600], inboundBands: [100, 500] }));
+    jadeFlowsTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("sidebar-output-flows"));
+    expect(jadeFlowsTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600], inboundBands: [100, 500] }));
+  });
+
+  it("a bands save that resolves after a scenario switch does not dirty the new scenario's lens (DU-4.F1)", () => {
+    const { rerender } = setup(jadeInputs);
+    fireEvent.click(screen.getByTestId("inbound-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("button-save"));
+    const opts = mockUpdateInboundDistanceBands.mutate.mock.calls[0][1];
+    // Switch to scenario 2 (same inputs, no inbound key) before the PATCH lands.
+    const scB = { ...mkScenario(jadeInputs), id: 2, name: "JADE B" };
+    mockUseGetScenario.mockReturnValue({ data: scB } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scB] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseSearch.mockReturnValue("?scenario=2");
+    rerender();
+    act(() => opts.onSuccess({ ...mkScenario({ ...jadeInputs, inboundDistanceBands: [200, 400, 800] }) }));
+    rerender();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
   });
 
   it("falling back passes inboundBands undefined to the map", () => {

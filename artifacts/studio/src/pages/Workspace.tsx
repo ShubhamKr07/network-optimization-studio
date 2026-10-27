@@ -1631,6 +1631,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // site the outbound ref is (seed, whole-input save, bands-only save, solve-save).
   const [activeInboundBandLens, setActiveInboundBandLens] = useState<number[] | null>(null);
   const savedInboundBandLensRef = useRef<number[] | null>(null);
+  // DU-4.F1 — live scenario id, so a save response that lands after a scenario
+  // switch cannot write the OLD scenario's saved lens into the new one's refs.
+  const liveScenarioIdRef = useRef<number | undefined>(undefined);
+  liveScenarioIdRef.current = currentScenario?.id;
 
   useEffect(() => {
     if (currentScenario) {
@@ -2208,8 +2212,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // chen-bands-units — a whole-input save always carries the
             // active lens (buildWholeInputPayload), so the lens's own saved
             // ref advances too, keeping `lensDirty` correct afterward.
-            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
-            savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            if (liveScenarioIdRef.current === scenarioId) {
+              savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+              savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            }
             queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
@@ -2269,7 +2275,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         { scenarioId, data: { distanceBands: bands } },
         {
           onSuccess: updated => {
-            savedBandLensRef.current = bands;
+            if (liveScenarioIdRef.current === scenarioId) savedBandLensRef.current = bands;
             settle(updated);
           },
           onError: err => {
@@ -2290,7 +2296,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         { scenarioId, data: { inboundDistanceBands: activeInboundBandLens } },
         {
           onSuccess: updated => {
-            savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            if (liveScenarioIdRef.current === scenarioId) savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
             settle(updated);
           },
           onError: err => {
@@ -3170,8 +3176,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onSuccess: updated => {
             setLocalInputs(updated.inputs);
             savedInputsRef.current = updated.inputs;
-            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
-            savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            if (liveScenarioIdRef.current === scenarioId) {
+              savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+              savedInboundBandLensRef.current = inboundBandsFromInputs(updated.inputs);
+            }
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
             runSolve();

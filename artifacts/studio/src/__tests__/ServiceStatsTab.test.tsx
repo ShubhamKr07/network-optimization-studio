@@ -1032,6 +1032,11 @@ describe("ServiceStatsTab — Inbound lanes section (DU-4.3)", () => {
     expect(screen.getByTestId("service-stats-inbound")).toHaveTextContent("in units.");
   });
 
+  it("falls back to DEFAULT_DISTANCE_BANDS for the inbound lookup when distanceBands is empty (agrees with the map legend)", () => {
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="two-echelon-jade-us" presentationBands={[]} />);
+    expect(screen.getByTestId("service-stats-inbound")).toBeInTheDocument();
+  });
+
   it("is absent for a single-echelon result", () => {
     const flat = edges.map(e => ({ fromId: e.fromId, toId: e.toId, flow: e.flow, distance: e.distance }));
     render(<ServiceStatsTab result={{ ...result, edges: flat }} scenarioId={1} modelId="p-median-us" presentationBands={[100]} />);

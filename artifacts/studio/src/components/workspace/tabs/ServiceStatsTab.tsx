@@ -7,6 +7,7 @@ import {
   bandDecimals, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, frozenBandShape, OVERFLOW_BAND,
 } from "@/lib/bands";
+import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
 import { computeInboundBandFlows, type CanonicalUnit } from "@workspace/units";
 import { chapterForModelId } from "@/lib/chapters";
@@ -293,7 +294,7 @@ export function ServiceStatsTab({
   // DU-4.3 — inbound lanes: exclusive flow per inbound band, from edges only.
   // [] (section hidden) for any result without inbound-leg edges.
   const inboundRows = useMemo(
-    () => computeInboundBandFlows(edges, { distanceBands: presentationBands ?? [], inboundDistanceBands: inboundBands }, bandDecimals(modelId)),
+    () => computeInboundBandFlows(edges, { distanceBands: presentationBands?.length ? presentationBands : DEFAULT_DISTANCE_BANDS, inboundDistanceBands: inboundBands }, bandDecimals(modelId)),
     [edges, presentationBands, inboundBands, modelId],
   );
 

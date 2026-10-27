@@ -2576,7 +2576,7 @@ components:
         section: { type: string, enum: [outbound, inbound] }
         band: { type: number }
         percent: { type: number }
-        flow: { type: number, nullable: true }
+        flow: { type: ["number", "null"] }
       required: [section, band, percent, flow]
 
     CostSummaryExportRow:

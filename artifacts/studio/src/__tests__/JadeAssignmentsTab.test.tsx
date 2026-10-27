@@ -98,7 +98,7 @@ describe("JadeAssignmentsTab", () => {
       const btn = screen.getByTestId("button-jadeassignment-split-customer-1");
       expect(btn).toHaveTextContent("Split (2 warehouses)");
       expect(btn).toHaveAttribute("aria-expanded", "false");
-      expect(screen.queryByTestId("list-jadeassignment-lines-customer-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("list-jadeassignment-lines-customer-1")).not.toBeVisible();
       expect(screen.getByTestId("cell-jadeassignment-distance-customer-1")).toHaveTextContent("—");
       expect(screen.getByTestId("cell-jadeassignment-band-customer-1")).toHaveTextContent("—");
     });
@@ -123,9 +123,9 @@ describe("JadeAssignmentsTab", () => {
       renderSplit();
       screen.getByTestId("button-jadeassignment-split-customer-1").focus();
       await userEvent.keyboard(key);
-      expect(screen.getByTestId("list-jadeassignment-lines-customer-1")).toBeInTheDocument();
+      expect(screen.getByTestId("list-jadeassignment-lines-customer-1")).toBeVisible();
       await userEvent.keyboard(key);
-      expect(screen.queryByTestId("list-jadeassignment-lines-customer-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("list-jadeassignment-lines-customer-1")).not.toBeVisible();
     });
 
     it("the warehouse filter offers 'Split' and it matches the split customer", async () => {

@@ -1242,6 +1242,7 @@ export interface ServiceStatsExportRow {
   section: ServiceStatsExportRowSection;
   band: number;
   percent: number;
+  /** @nullable */
   flow: number | null;
 }
 

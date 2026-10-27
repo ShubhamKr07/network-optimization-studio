@@ -613,7 +613,7 @@ test.describe("DU-4.5 — DU-4.4 collapse (desktop, keyboard)", () => {
       const btn = page.getByTestId(`button-jadeassignment-split-${key}`);
       await expect(btn).toHaveText("Split (2 warehouses)");
       await expect(btn).toHaveAttribute("aria-expanded", "false");
-      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toHaveCount(0);
+      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toBeHidden();
       await expect(page.getByTestId(`cell-jadeassignment-distance-${key}`)).toHaveText("—");
       await expect(page.getByTestId(`cell-jadeassignment-band-${key}`)).toHaveText("—");
       await expect(page.getByTestId(`cell-jadeassignment-products-${key}`)).toHaveText(String(s.lines));
@@ -625,7 +625,7 @@ test.describe("DU-4.5 — DU-4.4 collapse (desktop, keyboard)", () => {
       await expect(page.locator(`[data-testid^="line-jadeassignment-${key}-"]`)).toHaveCount(s.lines);
       await page.keyboard.press("Enter");
       await expect(btn).toHaveAttribute("aria-expanded", "false");
-      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toHaveCount(0);
+      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toBeHidden();
       await page.keyboard.press("Space");
       await expect(btn).toHaveAttribute("aria-expanded", "true");
       // Click closes it again (and opens it for the line checks).
@@ -755,7 +755,7 @@ test.describe("DU-4.5 — DU-4.4 collapse (touch viewport)", () => {
       await expect(page.locator(`[data-testid^="line-jadeassignment-${key}-"]`)).toHaveCount(s.lines);
       await btn.tap({ timeout: T });
       await expect(btn).toHaveAttribute("aria-expanded", "false");
-      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toHaveCount(0);
+      await expect(page.getByTestId(`list-jadeassignment-lines-${key}`)).toBeHidden();
     } finally {
       await page.request.delete(`/api/scenarios/${s.id}`);
     }
