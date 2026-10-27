@@ -35,3 +35,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-24T13:07:28.081Z,WFX,869,869,0,0,,101,0,"allow_new inflated: run from worktree nos-wfx-race whose .harness baseline is empty (known worktree blind spot); risky 0, broad 101 unchanged vs DU-1"
 2026-10-25T03:19:04.284Z,DU-2,869,0,0,0,,101,0,
 2026-10-25T18:38:11.167Z,DU-3,869,0,0,0,,101,0,
+2026-10-27T21:15:16.345Z,DU-4,869,0,0,0,,101,0,
