@@ -1403,7 +1403,7 @@ describe("buildFlowRows", () => {
 
   it("includes edges with no leg (transport-coal shape); v3: distance+distanceUnit (not distanceMi), band always a numeric index", () => {
     const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }] });
-    expect(buildFlowRows(result, "mi", "mi", bands)).toEqual([
+    expect(buildFlowRows(result, "mi", "mi", { distanceBands: bands })).toEqual([
       { templateVersion: OUTPUT_TEMPLATE_VERSION, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 1, flow: 500 },
     ]);
   });
@@ -1415,19 +1415,27 @@ describe("buildFlowRows", () => {
         { fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" },
       ],
     });
-    const rows = buildFlowRows(result, "mi", "mi", bands);
+    const rows = buildFlowRows(result, "mi", "mi", { distanceBands: bands });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ fromId: "kalgoorlie", toId: "daggar-hills" });
   });
 
+  it("DU-4.1: a mine_to_refinery row's band index follows inboundDistanceBands (gold)", () => {
+    const result = makeResult({
+      edges: [{ fromId: "kalgoorlie", toId: "daggar-hills", flow: 100, distance: 293.66, leg: "mine_to_refinery" }],
+    });
+    expect(buildFlowRows(result, "mi", "mi", { distanceBands: bands })[0].band).toBe(1); // 200 < 293.66 <= 400
+    expect(buildFlowRows(result, "mi", "mi", { distanceBands: bands, inboundDistanceBands: [300, 900] })[0].band).toBe(0);
+  });
+
   it("overflow: a distance above the last boundary gets the numeric OVERFLOW_BAND sentinel", () => {
     const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 2000 }] });
-    expect(buildFlowRows(result, "mi", "mi", bands)[0].band).toBe(OVERFLOW_BAND);
+    expect(buildFlowRows(result, "mi", "mi", { distanceBands: bands })[0].band).toBe(OVERFLOW_BAND);
   });
 
   it("boundary equality: a distance exactly equal to a boundary classifies into that band", () => {
     const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 800 }] });
-    expect(buildFlowRows(result, "mi", "mi", bands)[0].band).toBe(2);
+    expect(buildFlowRows(result, "mi", "mi", { distanceBands: bands })[0].band).toBe(2);
   });
 
   it("uses the backward-compatible default canonicalUnit='mi' when omitted (transport-coal/gold, the only current callers)", () => {
@@ -1438,7 +1446,7 @@ describe("buildFlowRows", () => {
 
 describe("flowRowsToCsv", () => {
   it("emits the v3 header (distance,distance_unit — no distance_mi)", () => {
-    const csv = flowRowsToCsv(buildFlowRows(makeResult(), "mi", "mi", [200, 400, 800, 1600]));
+    const csv = flowRowsToCsv(buildFlowRows(makeResult(), "mi", "mi", { distanceBands: [200, 400, 800, 1600] }));
     expect(csv.trim().split("\n")[0]).toBe("template_version,from_id,to_id,distance,distance_unit,band,flow");
     expect(csv).not.toContain("distance_mi");
   });
@@ -1446,7 +1454,7 @@ describe("flowRowsToCsv", () => {
 
 describe("toFlowJsonRow", () => {
   it("strips templateVersion and distanceUnit — the exact locked shape {fromId, toId, distance, band, flow}", () => {
-    const row = buildFlowRows(makeResult(), "mi", "mi", [200, 400, 800, 1600])[0];
+    const row = buildFlowRows(makeResult(), "mi", "mi", { distanceBands: [200, 400, 800, 1600] })[0];
     const jsonRow = toFlowJsonRow(row);
     expect(jsonRow).toEqual({ fromId: "ALN", toId: "C1", distance: 42.1, band: 0, flow: 205375 });
     expect("templateVersion" in jsonRow).toBe(false);
@@ -1538,7 +1546,7 @@ describe("buildJadeFlowRows", () => {
   const bands = [200, 400, 800, 1600];
 
   it("aggregates plant_to_warehouse edges across products (flows summed), one row per customer for warehouse_to_customer — band is a DISPLAY-LABEL string", () => {
-    const rows = buildJadeFlowRows(makeJadeResult(), bands, "mi");
+    const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi");
     expect(rows).toEqual([
       { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "Band 1", flows: 150 },
       { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "Band 2", flows: 120 },
@@ -1547,12 +1555,24 @@ describe("buildJadeFlowRows", () => {
   });
 
   it("defaults canonicalUnit to 'mi' (JADE's own canonical unit) when omitted (backward-compatible)", () => {
-    const rows = buildJadeFlowRows(makeJadeResult(), bands);
+    const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands });
     expect(rows[0].distanceUnit).toBe("mi");
   });
 
+  it("DU-4.1: plant_to_warehouse rows band against inboundDistanceBands, warehouse_to_customer against distanceBands", () => {
+    const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands, inboundDistanceBands: [100] }, "mi");
+    expect(rows[0]).toMatchObject({ leg: "plant_to_warehouse", distance: 150, band: "Overflow" }); // 150 > 100
+    expect(rows[1]).toMatchObject({ leg: "warehouse_to_customer", band: "Band 2" });
+    expect(rows[2]).toMatchObject({ leg: "warehouse_to_customer", band: "Overflow" });
+  });
+
+  it("DU-4.1: an absent inboundDistanceBands exports byte-identically to an inbound set equal to distanceBands", () => {
+    expect(buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi"))
+      .toEqual(buildJadeFlowRows(makeJadeResult(), { distanceBands: bands, inboundDistanceBands: bands }, "mi"));
+  });
+
   it("converts distance under a requested unit different from canonical", () => {
-    const rows = buildJadeFlowRows(makeJadeResult(), bands, "mi", "km");
+    const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi", "km");
     expect(rows[0].distance).toBeCloseTo(150 * 1.609344, 4);
     expect(rows[0].distanceUnit).toBe("km");
   });
@@ -1560,7 +1580,7 @@ describe("buildJadeFlowRows", () => {
 
 describe("jadeFlowRowsToCsv", () => {
   it("emits the v3 self-describing combined header (template_version, distance_unit added)", () => {
-    const rows = buildJadeFlowRows(makeJadeResult(), [200, 400, 800, 1600], "mi");
+    const rows = buildJadeFlowRows(makeJadeResult(), { distanceBands: [200, 400, 800, 1600] }, "mi");
     const csv = jadeFlowRowsToCsv(rows);
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe("template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows");
@@ -1571,7 +1591,7 @@ describe("jadeFlowRowsToCsv", () => {
 
 describe("toJadeFlowJsonRow", () => {
   it("strips templateVersion and distanceUnit — the exact locked shape, `leg` stays the closed union", () => {
-    const row = buildJadeFlowRows(makeJadeResult(), [200, 400, 800, 1600], "mi")[0];
+    const row = buildJadeFlowRows(makeJadeResult(), { distanceBands: [200, 400, 800, 1600] }, "mi")[0];
     const jsonRow = toJadeFlowJsonRow(row);
     expect(jsonRow).toEqual({ leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 });
     expect("templateVersion" in jsonRow).toBe(false);
@@ -1591,7 +1611,7 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
   });
 
   it("generic flows CSV + JSON row both carry v3 (was v1/TEMPLATE_VERSION)", () => {
-    const row = buildFlowRows(makeResult(), "mi", "mi", bands)[0];
+    const row = buildFlowRows(makeResult(), "mi", "mi", { distanceBands: bands })[0];
     expect(row.templateVersion).toBe(3);
     expect(flowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
   });
@@ -1618,7 +1638,7 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
   });
 
   it("JADE flows CSV + JSON row both carry v3", () => {
-    const row = buildJadeFlowRows(makeJadeResult(), bands, "mi")[0];
+    const row = buildJadeFlowRows(makeJadeResult(), { distanceBands: bands }, "mi")[0];
     expect(row.templateVersion).toBe(3);
     expect(jadeFlowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
   });

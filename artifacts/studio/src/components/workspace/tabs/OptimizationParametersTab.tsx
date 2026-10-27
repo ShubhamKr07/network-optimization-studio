@@ -14,6 +14,8 @@ export type OptimizationParametersField =
   | "gap"
   | "timeLimitSec"
   | "distanceBands"
+  // DU-4.1 — the two-echelon inbound-lane lens; `null` = reset to the customer-facing set.
+  | "inboundDistanceBands"
   // A5.1/A5.3 — model-specific solve parameters, all gated on presence the
   // same way `p` already is: undefined when the active model's inputs shape
   // has no such field (mirrors Studio.tsx's modelId-gated sections,
@@ -147,6 +149,18 @@ export interface OptimizationParametersTabProps {
    * renders. Kept as an opt-out seam for a future caller, not currently
    * exercised by any model. */
   showBandEditor?: boolean;
+  /** DU-4.1 (Q3/Q4) — render a second, inbound-lane band editor beside the
+   * customer-facing one. Workspace derives it from the manifest's
+   * `inputsSchema.properties` (`hasInboundBands`). */
+  showInboundBandEditor?: boolean;
+  /** The inbound editor's chips: the saved inbound lens, or a copy of the
+   * customer-facing lens while falling back. */
+  inboundDistanceBands?: number[];
+  /** True while no inbound set is saved: shows the fallback hint, hides the reset button. */
+  inboundUsesFallback?: boolean;
+  inboundBandsLabel?: string;
+  /** Label for the customer-facing editor when both show; absent = "Distance bands". */
+  outboundBandsLabel?: string;
   // ── ch5-del-10 — delivery-teaching-us's Adjust Cost Table feature ──────
   /** Chapter 5 (modified) - present only for delivery-teaching-us. Gated on
    * presence like every other model-specific parameter in this component,
@@ -161,7 +175,7 @@ export interface OptimizationParametersTabProps {
    * write through (A1.1). This component holds no save state of its own;
    * every edit is just a draft update, exactly like a keystroke in the
    * Warehouses/Customers tables. */
-  onChange: (field: OptimizationParametersField, value: number | number[] | boolean) => void;
+  onChange: (field: OptimizationParametersField, value: number | number[] | boolean | null) => void;
   /** CH4UX-2 — instance namespace. The Solve dialog embeds a SECOND copy of
    * this component while the Optimization Parameters tab may still be mounted
    * behind it; without a namespace both copies emit the same DOM `id`s (which
@@ -280,6 +294,11 @@ export function OptimizationParametersTab({
   onObjectiveChange,
   onServiceDistanceChange,
   showBandEditor = true,
+  showInboundBandEditor = false,
+  inboundDistanceBands,
+  inboundUsesFallback = false,
+  inboundBandsLabel,
+  outboundBandsLabel,
   costAdjustEnabled,
   distanceThreshold,
   costPerMile,
@@ -741,7 +760,37 @@ export function OptimizationParametersTab({
           distanceUnit={distanceUnit}
           canonicalUnit={canonicalUnit}
           testIdPrefix={testIdPrefix}
+          label={showInboundBandEditor ? outboundBandsLabel : undefined}
         />
+      )}
+
+      {showBandEditor && showInboundBandEditor && (
+        <div className="space-y-2">
+          <BandChipEditor
+            bands={inboundDistanceBands ?? distanceBands}
+            onChange={bands => onChange("inboundDistanceBands", bands)}
+            distanceUnit={distanceUnit}
+            canonicalUnit={canonicalUnit}
+            testIdPrefix={`${testIdPrefix}inbound-`}
+            label={inboundBandsLabel}
+          />
+          {inboundUsesFallback ? (
+            <p className="text-xs text-muted-foreground" data-testid={tid("inbound-bands-hint")}>
+              Using the customer-facing bands until you change these.
+            </p>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              onClick={() => onChange("inboundDistanceBands", null)}
+              data-testid={tid("inbound-bands-reset")}
+            >
+              Use customer-facing bands
+            </Button>
+          )}
+        </div>
       )}
 
       {/* QFX-3 — Solve from the tab itself; onSolve is Workspace's handleSolve. */}

@@ -2766,6 +2766,111 @@ describe("PATCH /api/scenarios/:scenarioId/distance-bands (T9, spec Part G)", ()
   });
 });
 
+describe("PATCH /api/scenarios/:scenarioId/inbound-distance-bands (DU-4.1)", () => {
+  const URL_ = "/api/scenarios/12/inbound-distance-bands";
+
+  it("returns the saved inboundDistanceBands for an owned JADE scenario and issues one update", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const bands = [300, 900];
+    const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, inboundDistanceBands: bands } }]);
+    mockDb.update.mockReturnValueOnce(chain);
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: bands });
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.inboundDistanceBands).toEqual(bands);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  it("accepts a gold (two-echelon-gold-au) scenario too", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([twoEchelonRow]));
+    mockDb.update.mockReturnValueOnce(makeChain([{ ...twoEchelonRow, inputs: { ...twoEchelonRow.inputs, inboundDistanceBands: [900, 300] } }]));
+    const res = await request(app).patch("/api/scenarios/11/inbound-distance-bands").set("Cookie", cookie)
+      .send({ inboundDistanceBands: [900, 300] });
+    expect(res.status).toBe(200);
+  });
+
+  it("404s for another user's scenario and for a missing one (never 403)", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    expect((await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: [100] })).status).toBe(404);
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    expect((await request(app).patch("/api/scenarios/999/inbound-distance-bands").set("Cookie", cookie)
+      .send({ inboundDistanceBands: [100] })).status).toBe(404);
+  });
+
+  it("400s for {}, [], [0]", async () => {
+    const cookie = await loginAs(OWNER);
+    for (const body of [{}, { inboundDistanceBands: [] }, { inboundDistanceBands: [0] }]) {
+      mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+      expect((await request(app).patch(URL_).set("Cookie", cookie).send(body)).status).toBe(400);
+    }
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("400s for JADE non-ascending bands (Q1)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: [900, 300] });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s for a model whose schema strips the key (p-median-us)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([pmedianRow]));
+    const res = await request(app).patch("/api/scenarios/1/inbound-distance-bands").set("Cookie", cookie)
+      .send({ inboundDistanceBands: [100, 200] });
+    expect(res.status).toBe(400);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("401s without a session", async () => {
+    expect((await request(app).patch(URL_).send({ inboundDistanceBands: [100] })).status).toBe(401);
+  });
+
+  it("returns the lock response and writes nothing for a locked model", async () => {
+    setLockedModelsForTests(["two-echelon-jade-us"]);
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: [100] });
+    expect(res.status).toBe(403);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("PR4-3 precedence: a malformed body on another user's scenario is 404; on an owned locked scenario it is the lock response", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    expect((await request(app).patch(URL_).set("Cookie", cookie).send({ nope: 1 })).status).toBe(404);
+
+    setLockedModelsForTests(["two-echelon-jade-us"]);
+    const ownerCookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    expect((await request(app).patch(URL_).set("Cookie", ownerCookie).send({ nope: 1 })).status).toBe(403);
+  });
+
+  it("null clears the key: 200 and the returned inputs have no inboundDistanceBands", async () => {
+    const cookie = await loginAs(OWNER);
+    const withKey = { ...jadeRow, inputs: { ...jadeInputs, inboundDistanceBands: [300, 900] } };
+    mockDb.select.mockReturnValueOnce(makeChain([withKey]));
+    const chain = makeChain([jadeRow]);
+    mockDb.update.mockReturnValueOnce(chain);
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: null });
+    expect(res.status).toBe(200);
+    expect("inboundDistanceBands" in res.body.inputs).toBe(false);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  it("clearing an absent key is a 200 no-op", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    mockDb.update.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch(URL_).set("Cookie", cookie).send({ inboundDistanceBands: null });
+    expect(res.status).toBe(200);
+  });
+});
+
 // ── JADE model-branched assignments/flows export (task A4, spec §5c) ───────
 // two-echelon-jade-us gets model-specific schemas for entity=assignments
 // (product-level, from details.assignments) and entity=flows (ONE combined
@@ -2862,6 +2967,20 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
       // Outbound: one row per customer, no per-product duplication.
       { leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "Band 2", flows: 120 },
       { leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "Overflow", flows: 900 },
+    ]);
+  });
+
+  it("DU-4.1: a saved inboundDistanceBands bands plant_to_warehouse rows, outbound rows keep distanceBands", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { ...jadeSolvedRow, inputs: { ...jadeSolvedRow.inputs, inboundDistanceBands: [100] } },
+    ]));
+    const res = await request(app).get("/api/scenarios/12/export?entity=flows&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows.map((r: { leg: string; band: string }) => [r.leg, r.band])).toEqual([
+      ["plant_to_warehouse", "Overflow"], // 150 > 100
+      ["warehouse_to_customer", "Band 2"],
+      ["warehouse_to_customer", "Overflow"],
     ]);
   });
 

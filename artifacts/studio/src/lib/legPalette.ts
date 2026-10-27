@@ -17,8 +17,7 @@
 // two-echelon model with zero new color decisions, and keeps a single map
 // render visually consistent regardless of which two-echelon model produced
 // the result (only one model's edges are ever shown at a time).
-const INBOUND_LEGS = new Set(["mine_to_refinery", "plant_to_warehouse"]);
-const OUTBOUND_LEGS = new Set(["refinery_to_customer", "warehouse_to_customer"]);
+import { INBOUND_LEGS, OUTBOUND_LEGS } from "@workspace/units";
 
 // Gate 6 (unknown-leg neutral fallback): a leg value that is neither a known
 // inbound nor outbound leg (e.g. a future/typo'd string) must render as this

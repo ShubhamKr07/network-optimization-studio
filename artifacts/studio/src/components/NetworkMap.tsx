@@ -6,7 +6,7 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge, Plant } from "@workspace/api-client-react";
 import { assignBandOrOverflow } from "@/lib/bands";
-import { bandRangeLabel } from "@workspace/units";
+import { bandRangeLabel, bandsForLeg } from "@workspace/units";
 import { getBandColor, getBandDash } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { servingWarehouseIds } from "@/lib/warehouseFigures";
@@ -370,6 +370,9 @@ interface NetworkMapProps {
   // (popup, hover); falls back to `bands`. Colour/dash classification stays
   // on `bands`, which is [] in Leg/None lane modes.
   labelBands?: number[];
+  // DU-4.1 — inbound-leg band set (two-echelon), classified per edge via
+  // bandsForLeg. Absent/[] -> inbound edges use `bands` (today's behaviour).
+  inboundBands?: number[];
   // E5.1: the active model's manifest countryBounds — falls back to a
   // continental-US default when not yet loaded/available.
   countryBounds?: CountryBounds;
@@ -460,7 +463,7 @@ interface NetworkMapProps {
 }
 
 export function NetworkMap({
-  dataset, warehouseStatuses, result, showRoutes, bands, labelBands, countryBounds,
+  dataset, warehouseStatuses, result, showRoutes, bands, labelBands, inboundBands, countryBounds,
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
@@ -807,13 +810,16 @@ export function NetworkMap({
               // single-echelon edge (no leg) still resolves via
               // assignBandOrOverflow(distance, []), which returns band 0 —
               // unchanged "Plain" behavior.
-              const bandIndex = assignBandOrOverflow(edge.distance, bands);
+              // DU-4.1 — each leg classifies against ITS OWN set (bandsForLeg). In
+              // leg/plain mode bands is [] and so is inboundBands (OutputMapTab).
+              const edgeBands = bandsForLeg(edge.leg, { distanceBands: bands, inboundDistanceBands: inboundBands });
+              const bandIndex = assignBandOrOverflow(edge.distance, edgeBands);
               const bandColor = getBandColor(bandIndex);
               // DU-1.2: pattern only when lanes are coloured by band; leg/plain
               // mode (bands = []) stays solid.
-              const bandDash = bands.length > 0 ? getBandDash(bandIndex) : undefined;
+              const bandDash = edgeBands.length > 0 ? getBandDash(bandIndex) : undefined;
               const legColor = getLegColor(edge.leg);
-              const routeColor = legColor != null && bands.length === 0 ? legColor : bandColor;
+              const routeColor = legColor != null && edgeBands.length === 0 ? legColor : bandColor;
 
               return (
                 <Polyline
@@ -985,6 +991,7 @@ export function NetworkMap({
         result={result}
         showRoutes={showRoutes}
         bands={bands}
+        inboundBands={inboundBands && inboundBands.length > 0 && JSON.stringify(inboundBands) !== JSON.stringify(bands) ? inboundBands : undefined}
         hintText={hintText}
         distanceUnit={distanceUnit}
         hasPlants={plants.length > 0}

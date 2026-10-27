@@ -63,6 +63,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // chen-bands-units, T14 - field-scoped distanceBands PATCH. Minimal mock;
   // only Workspace.test.tsx asserts on its call args (Save-bands routing).
   useUpdateDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUpdateInboundDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useSolveScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),

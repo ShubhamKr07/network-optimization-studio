@@ -3,6 +3,7 @@ import {
   OVERFLOW_BAND, assignBandOrOverflow, bandLabelOrOverflow,
   computeCumulativeBandCoverage, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, serviceEdgesFor, bandRangeLabel,
+  INBOUND_LEGS, OUTBOUND_LEGS, bandsForLeg,
 } from "../bands.js";
 
 const BANDS = [200, 400, 800];
@@ -253,5 +254,25 @@ describe("bandRangeLabel (DU-2.2)", () => {
   });
   it("rounds converted mi boundaries the same way", () => {
     expect([0, OVERFLOW_BAND].map(i => bandRangeLabel(i, [600 / 1.609344], "mi"))).toEqual(["≤ 372.82 mi", "> 372.82 mi"]);
+  });
+});
+
+describe("bandsForLeg (DU-4.1)", () => {
+  const inputs = { distanceBands: [200, 400], inboundDistanceBands: [500, 1500] };
+  it("inbound legs read inboundDistanceBands", () => {
+    expect(bandsForLeg("plant_to_warehouse", inputs)).toEqual([500, 1500]);
+    expect(bandsForLeg("mine_to_refinery", inputs)).toEqual([500, 1500]);
+  });
+  it("inbound legs fall back to distanceBands when the key is absent (Q7)", () => {
+    expect(bandsForLeg("plant_to_warehouse", { distanceBands: [200, 400] })).toEqual([200, 400]);
+  });
+  it("outbound, unknown and absent legs read distanceBands", () => {
+    for (const leg of ["warehouse_to_customer", "refinery_to_customer", "typo_leg", null, undefined]) {
+      expect(bandsForLeg(leg, inputs)).toEqual([200, 400]);
+    }
+  });
+  it("role sets are the one authority", () => {
+    expect([...INBOUND_LEGS].sort()).toEqual(["mine_to_refinery", "plant_to_warehouse"]);
+    expect([...OUTBOUND_LEGS].sort()).toEqual(["refinery_to_customer", "warehouse_to_customer"]);
   });
 });

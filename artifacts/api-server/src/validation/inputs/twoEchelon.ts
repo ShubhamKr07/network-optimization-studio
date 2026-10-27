@@ -83,6 +83,9 @@ function distanceOverridePairKey(o: { fromId: string; toId: string }): string {
   return o.fromId + "|" + o.toId;
 }
 
+// DU-4.1 — one band-array rule for both band keys so they cannot drift.
+const bandsSchema = z.array(z.number().positive()).min(1);
+
 export const twoEchelonInputsSchema = z.object({
   // .gt(1), not .positive(): a ratio at or below 1 means refining creates mass.
   // Rejecting at the edge beats debugging a nonsensical optimum later.
@@ -96,7 +99,9 @@ export const twoEchelonInputsSchema = z.object({
     demand: z.number().min(0).nullable().optional(),
     status: z.enum(["active", "excluded"]),
   })).default([]),
-  distanceBands: z.array(z.number().positive()).min(1),
+  distanceBands: bandsSchema,
+  // DU-4.1 — optional inbound-lane reporting lens; no `.default(...)` (absent stays absent).
+  inboundDistanceBands: bandsSchema.optional(),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1),   // required -- NaN here kills every solve
   addedRefineries: z.array(addedRefinerySchema).default([]),

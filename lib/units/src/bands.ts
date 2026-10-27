@@ -6,7 +6,19 @@ export const OVERFLOW_BAND = -1;
 export interface BandEdge { distance: number; flow: number; leg?: string | null }
 export interface BandCoverageEntry { band: number; percent: number }
 
-const OUTBOUND_LEGS = new Set(["warehouse_to_customer", "refinery_to_customer"]);
+/** DU-4.1 — the ONE leg-role authority (moved from studio lib/legPalette.ts). */
+export const INBOUND_LEGS: ReadonlySet<string> = new Set(["mine_to_refinery", "plant_to_warehouse"]);
+export const OUTBOUND_LEGS: ReadonlySet<string> = new Set(["refinery_to_customer", "warehouse_to_customer"]);
+
+/** DU-4.1 — the ONE band-set choice per leg. Inbound legs use the scenario's
+ *  inboundDistanceBands when saved, else distanceBands (spec Q7); every other
+ *  leg, including none at all, uses distanceBands. */
+export function bandsForLeg(
+  leg: string | null | undefined,
+  inputs: { distanceBands: number[]; inboundDistanceBands?: number[] },
+): number[] {
+  return leg != null && INBOUND_LEGS.has(leg) ? inputs.inboundDistanceBands ?? inputs.distanceBands : inputs.distanceBands;
+}
 
 /**
  * Two-echelon models tag every edge with a `leg`; only the outbound/

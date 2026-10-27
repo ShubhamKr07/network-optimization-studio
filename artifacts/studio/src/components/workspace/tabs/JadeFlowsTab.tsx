@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
 import { assignBandOrOverflow, bandLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandsForLeg } from "@workspace/units";
 import { bandRangeLabel } from "@workspace/units";
 import { BandLabel } from "@/components/BandLabel";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
@@ -102,6 +103,9 @@ interface JadeFlowsTabProps {
    * display fallback (mirrors `OutputMapTab.tsx`/`JadeAssignmentsTab.tsx`'s
    * own `effectiveBands` pattern) when empty/absent. */
   bands?: number[];
+  /** DU-4.1 — the inbound-lane lens; Plant→Warehouse classifies against it.
+   * Absent/empty = the customer-facing `bands`. */
+  inboundBands?: number[];
   /** Mirrors ListModelsResponseItem.distanceUnit (JADE's own canonical unit
    * is always "mi", but this is still threaded rather than defaulted — Part
    * D's toggle applies here too, and `undefined`/`null` means the manifest
@@ -199,6 +203,7 @@ export function JadeFlowsTab({
   result = null,
   dataset = null,
   bands = [],
+  inboundBands,
   distanceUnit,
   effectivePlants,
   identityById,
@@ -229,6 +234,13 @@ export function JadeFlowsTab({
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const bandsKey = effectiveBands.join(",");
   const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
+  // DU-4.1 — Plant→Warehouse is the inbound leg: its band set is the one authority's choice.
+  const effectiveInbound = bandsForLeg("plant_to_warehouse", {
+    distanceBands: effectiveBands,
+    inboundDistanceBands: inboundBands && inboundBands.length > 0 ? inboundBands : undefined,
+  });
+  const inboundKey = effectiveInbound.join(",");
+  const displayInbound = canonicalResolved ? effectiveInbound.map(b => unit.toDisplay(b, distanceUnit)) : effectiveInbound;
 
   // Workspace fixups bundle (T6, item 2) — the plant list used to resolve
   // the P->W Plant column. A signature over id+city+state (not just id) is
@@ -249,11 +261,11 @@ export function JadeFlowsTab({
       warehouseLabel: warehouseLabel(r.warehouseId, dataset),
       distance: r.distance,
       flow: r.flow,
-      band: bandLabel(r.distance, effectiveBands),
-      bandIndex: assignBandOrOverflow(r.distance, effectiveBands),
+      band: bandLabel(r.distance, effectiveInbound),
+      bandIndex: assignBandOrOverflow(r.distance, effectiveInbound),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, dataset, bandsKey, plantsSignature]);
+  }, [result, dataset, inboundKey, plantsSignature]);
 
   const wcRows: WarehouseCustomerRow[] = useMemo(() => {
     if (!result) return [];
@@ -282,7 +294,7 @@ export function JadeFlowsTab({
   // Distance / Flow / Distance Band tail is identical bar the testid prefix and
   // the Flow header ("Flow" vs "Flows"). The Distance FILTER range is in the
   // DISPLAY unit (what the cell shows) and resets when the unit changes.
-  function legColumns<R extends LegRow>(short: "pw" | "wc", flowHeader: string, entityCols: ColumnDef<R>[]): ColumnDef<R>[] {
+  function legColumns<R extends LegRow>(short: "pw" | "wc", flowHeader: string, entityCols: ColumnDef<R>[], tableDisplayBands: number[], tableBandsKey: string): ColumnDef<R>[] {
     return [
       ...entityCols,
       {
@@ -309,9 +321,9 @@ export function JadeFlowsTab({
         header: "Distance Band",
         kind: "enum",
         cellTestId: r => `cell-jade-flow-${short}-band-${r.key}`,
-        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, displayBands, resolvedUnitLabel!) : "—"),
-        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={displayBands} unit={resolvedUnitLabel!} /> : "—"),
-        filterResetKey: `${bandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
+        value: r => (canonicalResolved ? bandRangeLabel(r.bandIndex, tableDisplayBands, resolvedUnitLabel!) : "—"),
+        cell: r => (canonicalResolved ? <BandLabel index={r.bandIndex} bands={tableDisplayBands} unit={resolvedUnitLabel!} /> : "—"),
+        filterResetKey: `${tableBandsKey}|${distanceUnit ?? ""}|${unit.pref}`,
       },
     ];
   }
@@ -335,9 +347,9 @@ export function JadeFlowsTab({
           value: r => r.warehouseLabel,
           cell: r => renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById),
         },
-      ]),
+      ], displayInbound, inboundKey),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bandsKey, distanceUnit, unit.pref, identityById],
+    [inboundKey, distanceUnit, unit.pref, identityById],
   );
 
   // SCU-2.P3.6 — Warehouse -> Customer, same factory (header "Flows"; the
@@ -362,7 +374,7 @@ export function JadeFlowsTab({
           value: r => r.customerLabel,
           cell: r => renderJadeEntityCell(r.customerId, r.customerLabel, identityById),
         },
-      ]),
+      ], displayBands, bandsKey),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bandsKey, distanceUnit, unit.pref, identityById],
   );

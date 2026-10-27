@@ -78,6 +78,8 @@ interface OutputMapTabProps {
   // 250/500/750 default is applied here, once, purely for lane-coloring
   // display — it is never written back onto the scenario.
   bands: number[];
+  /** DU-4.1 — the inbound-lane lens (two-echelon). Absent = inbound lanes use `bands`. */
+  inboundBands?: number[];
   countryBounds?: CountryBounds;
   // T6/R7 (fast-followed to p-median-brazil by T5) — Workspace.tsx's own
   // addedWarehousesFromInputs/addedCustomersFromInputs applied to the
@@ -140,7 +142,7 @@ interface OutputMapTabProps {
 // assignBand()/getBandColor() resolve every edge to the same band-0 color,
 // which NetworkMap already does unmodified.
 export function OutputMapTab({
-  dataset, warehouseStatuses, result, bands, countryBounds,
+  dataset, warehouseStatuses, result, bands, inboundBands, countryBounds,
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
   plants = [], timing, displayIdById = {}, identityById = {}, previousResult = null,
 }: OutputMapTabProps) {
@@ -211,6 +213,9 @@ export function OutputMapTab({
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const otherLaneColour = modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "super-model" ? "leg" : "none";
   const mapBands = laneColour === "band" ? effectiveBands : [];
+  // DU-4.1 — the narrative below is outbound-only (serviceEdgesFor), so it stays on effectiveBands.
+  const effectiveInbound = inboundBands && inboundBands.length > 0 ? inboundBands : effectiveBands;
+  const mapInbound = laneColour === "band" ? effectiveInbound : [];
 
   // ch5-edit-12 — infeasible/no_solution/unbounded/error all carry a
   // meaningless `objective: 0`/`weightedAvgDistance: 0` sentinel from
@@ -506,6 +511,7 @@ export function OutputMapTab({
           result={result}
           showRoutes={showLanes}
           bands={mapBands}
+          inboundBands={mapInbound}
           labelBands={effectiveBands}
           countryBounds={countryBounds}
           showWarehouseMarkers={showWarehouses}

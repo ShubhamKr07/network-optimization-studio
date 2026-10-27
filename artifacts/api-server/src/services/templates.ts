@@ -18,8 +18,12 @@ import {
   objectiveDimension,
   convertObjective,
   OVERFLOW_BAND,
+  bandsForLeg,
 } from "@workspace/units";
 import type { CanonicalUnit } from "@workspace/units";
+
+/** DU-4.1 — the scenario's saved band lenses; each leg picks its set via bandsForLeg. */
+export type BandLens = { distanceBands: number[]; inboundDistanceBands?: number[] };
 import { deliveryBaseCost } from "../data/referenceCosts.js";
 import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, csvColumns } from "@workspace/import-schema";
 
@@ -1891,7 +1895,7 @@ export function buildFlowRows(
   result: ResultEnvelope,
   canonicalUnit: CanonicalUnit = "mi",
   requestedUnit: CanonicalUnit = canonicalUnit,
-  savedBands: number[] = [],
+  lens: BandLens = { distanceBands: [] },
 ): FlowTemplateRow[] {
   return result.edges
     .filter(e => e.leg !== "refinery_to_customer")
@@ -1901,7 +1905,8 @@ export function buildFlowRows(
       toId: e.toId,
       distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
       distanceUnit: requestedUnit,
-      band: assignBandOrOverflow(e.distance, savedBands),
+      // DU-4.1 — each leg is classified against ITS OWN band set.
+      band: assignBandOrOverflow(e.distance, bandsForLeg(e.leg, lens)),
       flow: e.flow,
     }));
 }
@@ -2071,7 +2076,7 @@ export interface JadeFlowTemplateRow {
 // and behaves correctly without a route change.
 export function buildJadeFlowRows(
   result: ResultEnvelope,
-  bands: number[],
+  lens: BandLens,
   canonicalUnit: CanonicalUnit = "mi",
   requestedUnit: CanonicalUnit = canonicalUnit,
 ): JadeFlowTemplateRow[] {
@@ -2095,7 +2100,7 @@ export function buildJadeFlowRows(
     toId: p.toId,
     distance: roundForFile(toDisplay(p.distance, canonicalUnit, requestedUnit)),
     distanceUnit: requestedUnit,
-    band: bandLabelOrOverflow(p.distance, bands),
+    band: bandLabelOrOverflow(p.distance, bandsForLeg("plant_to_warehouse", lens)),
     flows: p.flows,
   }));
   const outboundRows: JadeFlowTemplateRow[] = result.edges
@@ -2107,7 +2112,7 @@ export function buildJadeFlowRows(
       toId: e.toId,
       distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
       distanceUnit: requestedUnit,
-      band: bandLabelOrOverflow(e.distance, bands),
+      band: bandLabelOrOverflow(e.distance, bandsForLeg(e.leg, lens)),
       flows: e.flow,
     }));
   return [...inboundRows, ...outboundRows];

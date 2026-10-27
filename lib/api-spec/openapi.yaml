@@ -844,6 +844,57 @@ paths:
         "404":
           description: Not found (also returned for a scenario owned by another user)
 
+  /scenarios/{scenarioId}/inbound-distance-bands:
+    patch:
+      operationId: updateInboundDistanceBands
+      tags: [scenarios]
+      summary: Field-scoped update of a scenario's inbound-lane distance bands (reporting lens only)
+      description: >-
+        Atomic, field-scoped update of inputs.inboundDistanceBands for the
+        two-echelon models (two-echelon-jade-us, two-echelon-gold-au) — one
+        jsonb statement, never a read-modify-write of the whole inputs blob.
+        When the key is absent, inbound lanes fall back to
+        inputs.distanceBands. Does not bump inputsUpdatedAt (a reporting lens,
+        not a model-geometric change), so the returned Scenario.stale is
+        unaffected. A model whose inputs schema has no such key (every
+        single-echelon model) gets a 400.
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inboundDistanceBands]
+              properties:
+                inboundDistanceBands:
+                  type: ["array", "null"]
+                  minItems: 1
+                  items: { type: number, exclusiveMinimum: 0 }
+                  description: >-
+                    Band boundaries. null clears the key: inbound lanes fall
+                    back to distanceBands.
+      responses:
+        "200":
+          description: Updated scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "400":
+          description: Invalid or missing body, a model-invalid band array, or a model without inbound bands
+        "401":
+          description: Not authenticated
+        "403":
+          description: The model's chapter is locked
+        "404":
+          description: Not found (also returned for a scenario owned by another user)
+
   /auth/register:
     post:
       tags: [Auth]

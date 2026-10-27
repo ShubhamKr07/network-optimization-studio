@@ -487,6 +487,20 @@ describe("OutputMapTab — per-leg lane visibility toggles (jade-T15.6)", () => 
     expect(html.toLowerCase()).toContain(OUTBOUND_LEG_COLOR.toLowerCase());
   });
 
+  it("DU-4.1: inboundBands recolours the inbound lane only; outbound keeps `bands`; Plain mode keeps leg colours", () => {
+    const { container } = render(
+      <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} inboundBands={[50]} />,
+    );
+    const html = routePaneHtml(container).toLowerCase();
+    // inbound 100 mi > 50 -> overflow colour; outbound 200 mi <= 250 -> band 0 colour
+    expect(html).toContain(getBandColor(-1).toLowerCase());
+    expect(html).toContain(getBandColor(0).toLowerCase());
+    fireEvent.click(screen.getByTestId("segment-lane-colour-none"));
+    const plain = routePaneHtml(container).toLowerCase();
+    expect(plain).toContain(INBOUND_LEG_COLOR.toLowerCase());
+    expect(plain).toContain(OUTBOUND_LEG_COLOR.toLowerCase());
+  });
+
   it("re-checking a leg's toggle restores its route", () => {
     const { container } = render(
       <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,

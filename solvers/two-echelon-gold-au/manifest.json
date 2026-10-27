@@ -39,6 +39,12 @@
         "minItems": 1,
         "default": [500, 1000, 1500, 2000, 2600]
       },
+      "inboundDistanceBands": {
+        "type": "array",
+        "items": { "type": "number", "exclusiveMinimum": 0 },
+        "minItems": 1,
+        "description": "Optional inbound-leg reporting lens; absent = inbound lanes use distanceBands"
+      },
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
       "addedRefineries": {

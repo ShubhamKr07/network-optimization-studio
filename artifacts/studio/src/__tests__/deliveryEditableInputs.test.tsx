@@ -71,6 +71,7 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetDataset: vi.fn(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useUpdateDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUpdateInboundDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),

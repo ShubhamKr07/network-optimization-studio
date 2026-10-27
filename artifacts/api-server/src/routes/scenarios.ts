@@ -774,7 +774,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // (current) lens, not a lens snapshot from that run (Part F: "the run
     // supplies the result/edges; the lens is always the scenario's
     // currently-saved distanceBands").
-    const savedBands = ((scenario.inputs as { distanceBands?: unknown }).distanceBands as number[] | undefined) ?? [];
+    const inputsLens = scenario.inputs as { distanceBands?: number[]; inboundDistanceBands?: number[] };
+    const savedBands = inputsLens.distanceBands ?? [];
+    // DU-4.1 — two-echelon inbound legs classify against inboundDistanceBands
+    // when saved; every outbound-only builder keeps reading savedBands.
+    const savedLens = { distanceBands: savedBands, inboundDistanceBands: inputsLens.inboundDistanceBands };
 
     // JADE Ch.9 workspace bundle, task A4 (spec §5c) — two-echelon-jade-us's
     // `assignments`/`flows` export branches to its own model-specific
@@ -794,11 +798,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       // the last SAVED bands, diverging only from unsaved UI edits. Falls
       // back to solve.py's own default (solve.py:936) for a
       // legacy/malformed row with no distanceBands at all.
-      const bands = ((scenario.inputs as { distanceBands?: unknown }).distanceBands as number[] | undefined) ?? [200, 400, 800, 1600];
+      const bands = inputsLens.distanceBands ?? [200, 400, 800, 1600];
       const jadeRows: JadeAssignmentTemplateRow[] | JadeFlowTemplateRow[] =
         entity === "assignments"
           ? buildJadeAssignmentRows(result, canonicalUnit, bands, requestedUnit)
-          : buildJadeFlowRows(result, bands, canonicalUnit, requestedUnit);
+          : buildJadeFlowRows(result, { distanceBands: bands, inboundDistanceBands: inputsLens.inboundDistanceBands }, canonicalUnit, requestedUnit);
 
       if (format === "csv") {
         const csv = entity === "assignments"
@@ -822,7 +826,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
       : entity === "costSummary" ? buildCostSummaryRows(result, canonicalUnit, requestedUnit, scenario.modelId)
       : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands, scenario.modelId)
-      : buildFlowRows(result, canonicalUnit, requestedUnit, savedBands);
+      : buildFlowRows(result, canonicalUnit, requestedUnit, savedLens);
 
     if (format === "csv") {
       const csv = entity === "assignments" ? assignmentRowsToCsv(rows as AssignmentTemplateRow[])

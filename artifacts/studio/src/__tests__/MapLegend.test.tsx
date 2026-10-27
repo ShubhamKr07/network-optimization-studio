@@ -310,3 +310,33 @@ describe("MapLegend", () => {
     });
   });
 });
+
+describe("MapLegend — inbound lanes section (DU-4.1)", () => {
+  const result = { status: "optimal", edges: [], metrics: {}, details: {} } as unknown as import("@workspace/api-client-react").SolveResult;
+
+  it("renders a single 'Distance bands' section when inboundBands is absent (today's legend)", () => {
+    const { getByText, queryByText, container } = render(
+      <UnitProvider><MapLegend variant="output" result={result} showRoutes bands={[200, 400]} distanceUnit="mi" /></UnitProvider>,
+    );
+    expect(getByText("Distance bands")).toBeInTheDocument();
+    expect(queryByText("Inbound lanes")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-testid^="legend-band-"]').length).toBe(2);
+  });
+
+  it("renders 'Customer-facing lanes' then 'Inbound lanes', each with its own ranges and overflow row", () => {
+    const { getByText, queryByText, container } = render(
+      <UnitProvider><MapLegend variant="output" result={result} showRoutes bands={[200, 400]} inboundBands={[500, 1500, 3000]} distanceUnit="mi" /></UnitProvider>,
+    );
+    expect(getByText("Customer-facing lanes")).toBeInTheDocument();
+    expect(getByText("Inbound lanes")).toBeInTheDocument();
+    expect(queryByText("Distance bands")).not.toBeInTheDocument();
+    expect(getByText("≤ 200 mi")).toBeInTheDocument();
+    expect(getByText("≤ 500 mi")).toBeInTheDocument();
+    expect(getByText("> 3,000 mi")).toBeInTheDocument();
+    // outbound testids are untouched; inbound ones live under their own prefix
+    expect(container.querySelectorAll('[data-testid^="legend-band-"]').length).toBe(2);
+    expect(container.querySelectorAll('[data-testid^="legend-inbound-band-"]').length).toBe(3);
+    expect(container.querySelector('[data-testid="legend-inbound-overflow-band"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="legend-overflow-band"]')).not.toBeNull();
+  });
+});

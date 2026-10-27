@@ -1781,6 +1781,47 @@ describe("NetworkMap band coloring overrides leg coloring when bands is non-empt
   });
 });
 
+// DU-4.1 — each leg classifies against its own band set (bandsForLeg).
+describe("NetworkMap inbound band set (DU-4.1)", () => {
+  const dataset = {
+    warehouses: [{ id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 }],
+    customers: [{ id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 }],
+  };
+  const plants = [{ id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }];
+  const result = {
+    status: "optimal" as const, objective: 1, runTimeSec: 0.1, quality: "Optimal",
+    edges: [
+      { fromId: "plant-1", toId: "wh-11", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const },
+      { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 900, leg: "warehouse_to_customer" as const },
+    ],
+    metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["wh-11"], assignments: [] },
+    solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  };
+  const renderMap = (inboundBands?: number[]) => render(
+    <UnitProvider><NetworkMap
+      dataset={dataset} warehouseStatuses={[]} result={result} showRoutes plants={plants}
+      bands={[200, 400, 800, 1600]} inboundBands={inboundBands}
+      multiSelectedWarehouseIds={[]} multiSelectedCustomerIds={[]}
+      onToggleWarehouseMultiSelect={() => {}} onToggleCustomerMultiSelect={() => {}}
+    /></UnitProvider>,
+  );
+  const routeHtml = (c: HTMLElement) => (c.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "").toLowerCase();
+
+  it("without inboundBands both legs use `bands` (both land in band 3)", () => {
+    const html = routeHtml(renderMap().container);
+    expect(html).toContain(getBandColor(3).toLowerCase());
+    expect(html).not.toContain(getBandColor(-1).toLowerCase());
+  });
+
+  it("an inbound edge colours by inboundBands, an outbound edge by bands", () => {
+    // 1500 > 1000 -> overflow for the inbound edge; 900 still band 3 of `bands`.
+    const html = routeHtml(renderMap([1000]).container);
+    expect(html).toContain(getBandColor(-1).toLowerCase());
+    expect(html).toContain(getBandColor(3).toLowerCase());
+  });
+});
+
 // ── jade-B1 (#2) — plant markers + inbound-route connection to plant
 // coords ─────────────────────────────────────────────────────────────────
 describe("NetworkMap plant markers (jade-B1 #2)", () => {

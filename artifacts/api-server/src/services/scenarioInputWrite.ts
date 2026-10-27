@@ -61,8 +61,9 @@ export interface ApplyScenarioInputWriteParams {
  * CH4-26 — the SINGLE place `scenarios.inputs` is updated. Every update-side
  * writer (PATCH, import/apply) calls this instead of composing its own
  * `.set({ inputs, … })`; create and clone use `deriveServerOwnedInputs`.
- * `routes/distanceBands.ts` is the one deliberate exception: it writes a
- * single `jsonb_set` on `{distanceBands}` alone, which preserves the epoch BY
+ * `routes/distanceBands.ts` is the one deliberate exception (two field-scoped
+ * routes, distance-bands and inbound-distance-bands): each writes a
+ * single `jsonb_set` on its one key alone, which preserves the epoch BY
  * CONSTRUCTION and must keep its atomic field-scoped write — that property is
  * asserted by test, not re-implemented here.
  *
@@ -114,8 +115,8 @@ export async function applyScenarioInputWrite(
   const inputsToStore: Record<string, unknown> = deriveServerOwnedInputs(persisted.modelId, normalized);
 
   // Unchanged semantics for every model: a save is non-geometric (does not
-  // bump inputsUpdatedAt / solve_input_revision) ONLY when distanceBands is
-  // the sole changed key.
+  // bump inputsUpdatedAt / solve_input_revision) ONLY when the changed keys are
+  // all band lenses (distanceBands, inboundDistanceBands; DU-4.1).
   //
   // A2 — this absorbs import/apply's old invariant. That call site used to
   // carry the comment "import/apply is always a geometric input write ... so
@@ -131,7 +132,10 @@ export async function applyScenarioInputWrite(
   // CH4OS — `objective` is a real student input now: changing it alone is a
   // geometric change (bumps inputsUpdatedAt + solve_input_revision), so an
   // existing result goes stale. No key is exempted from the diff.
-  const isBandsOnlyChange = [...changed].every((k) => k === "distanceBands");
+  // DU-4.1 — both band lenses are reporting-only (spec Q3): a save whose changed
+  // keys are all lens keys never bumps the epoch.
+  const REPORTING_ONLY_KEYS = new Set(["distanceBands", "inboundDistanceBands"]);
+  const isBandsOnlyChange = [...changed].every((k) => REPORTING_ONLY_KEYS.has(k));
 
   const [row] = await tx.update(scenariosTable)
     .set({

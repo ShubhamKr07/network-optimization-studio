@@ -1575,3 +1575,12 @@ export type UpdateDistanceBandsBody = {
   distanceBands: number[];
 };
 
+export type UpdateInboundDistanceBandsBody = {
+  /**
+     * Band boundaries. null clears the key: inbound lanes fall back to distanceBands.
+     * @minItems 1
+     * @nullable
+     */
+  inboundDistanceBands: number[] | null;
+};
+
