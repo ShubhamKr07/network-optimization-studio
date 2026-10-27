@@ -65,17 +65,79 @@ describe("JadeAssignmentsTab", () => {
     expect(screen.getByTestId("jade-assignments-empty")).toBeInTheDocument();
   });
 
-  it("renders exact columns in order: Product, Customer, Assigned Warehouse, Distance, Distance Band", () => {
+  it("renders exact columns in order: Customer, Assigned Warehouse, Products, Distance, Distance Band", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
     const headers = screen.getAllByRole("columnheader").map(h => h.textContent);
-    expect(headers).toEqual(["Product", "Customer", "Assigned Warehouse", "Distance", "Distance Band"]);
+    expect(headers).toEqual(["Customer", "Assigned Warehouse", "Products", "Distance", "Distance Band"]);
   });
 
-  it("renders one product-level row per (product, customer) pair — not aggregated per customer", () => {
-    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
-    expect(screen.getByTestId("row-jadeassignment-product-1|customer-1")).toBeInTheDocument();
-    expect(screen.getByTestId("row-jadeassignment-product-2|customer-2")).toBeInTheDocument();
+  it("renders one row per customer (DU-4.4): row count equals customer count, not product x customer pairs", () => {
+    const res = makeResult([
+      { customerId: "customer-1", warehouseId: "wh-11", productId: "product-1", distanceMi: 10 },
+      { customerId: "customer-1", warehouseId: "wh-11", productId: "product-2", distanceMi: 10 },
+      { customerId: "customer-2", warehouseId: "wh-14", productId: "product-1", distanceMi: 20 },
+    ]);
+    render(<JadeAssignmentsTab result={res} dataset={dataset} bands={bands} scenarioId={1} />);
     expect(screen.getAllByTestId(/^row-jadeassignment-/)).toHaveLength(2);
+    expect(screen.getByTestId("cell-jadeassignment-products-customer-1")).toHaveTextContent("2");
+    expect(screen.getByTestId("cell-jadeassignment-products-customer-2")).toHaveTextContent("1");
+    // all-same customer: warehouse shown, no split button
+    expect(screen.getByTestId("row-jadeassignment-customer-1")).toHaveTextContent("Chicago - IL");
+    expect(screen.queryByTestId("button-jadeassignment-split-customer-1")).not.toBeInTheDocument();
+  });
+
+  describe("split customer disclosure (Q10)", () => {
+    const splitResult = makeResult([
+      { customerId: "customer-1", warehouseId: "wh-11", productId: "product-1", distanceMi: 42.1 },
+      { customerId: "customer-1", warehouseId: "wh-14", productId: "product-2", distanceMi: 1200 },
+    ]);
+    const renderSplit = () => render(<JadeAssignmentsTab result={splitResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+
+    it("shows a collapsed 'Split (2 warehouses)' button and em-dash distance/band", () => {
+      renderSplit();
+      const btn = screen.getByTestId("button-jadeassignment-split-customer-1");
+      expect(btn).toHaveTextContent("Split (2 warehouses)");
+      expect(btn).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByTestId("list-jadeassignment-lines-customer-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("cell-jadeassignment-distance-customer-1")).toHaveTextContent("—");
+      expect(screen.getByTestId("cell-jadeassignment-band-customer-1")).toHaveTextContent("—");
+    });
+
+    it("click expands one in-row line per product, with warehouse, distance and band", async () => {
+      renderSplit();
+      await userEvent.click(screen.getByTestId("button-jadeassignment-split-customer-1"));
+      expect(screen.getByTestId("button-jadeassignment-split-customer-1")).toHaveAttribute("aria-expanded", "true");
+      const l1 = screen.getByTestId("line-jadeassignment-customer-1-product-1");
+      const l2 = screen.getByTestId("line-jadeassignment-customer-1-product-2");
+      expect(l1).toHaveTextContent("Product Family 1");
+      expect(l1).toHaveTextContent("Chicago - IL");
+      expect(l1).toHaveTextContent("42.1 mi");
+      expect(l1).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(42.1, bands), bands, "mi"));
+      expect(l2).toHaveTextContent("Dallas - TX");
+      expect(l2).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(1200, bands), bands, "mi"));
+      // still a single row
+      expect(screen.getAllByTestId(/^row-jadeassignment-/)).toHaveLength(1);
+    });
+
+    it.each(["{Enter}", " "])("keyboard %j expands and a second press collapses", async key => {
+      renderSplit();
+      screen.getByTestId("button-jadeassignment-split-customer-1").focus();
+      await userEvent.keyboard(key);
+      expect(screen.getByTestId("list-jadeassignment-lines-customer-1")).toBeInTheDocument();
+      await userEvent.keyboard(key);
+      expect(screen.queryByTestId("list-jadeassignment-lines-customer-1")).not.toBeInTheDocument();
+    });
+
+    it("the warehouse filter offers 'Split' and it matches the split customer", async () => {
+      const many = makeResult([
+        ...splitResult.details.assignments,
+        ...Array.from({ length: 10 }, (_, i) => ({ customerId: `customer-${i + 2}`, warehouseId: "wh-11", productId: "product-1", distanceMi: 100 + i })),
+      ]);
+      render(<JadeAssignmentsTab result={many} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+      await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      await userEvent.click(screen.getByTestId("checkbox-filter-warehouse-Split"));
+      expect(screen.getAllByTestId(/^row-jadeassignment-/)).toHaveLength(1);
+    });
   });
 
   it("does not show Demand or Flow columns", () => {
@@ -85,15 +147,19 @@ describe("JadeAssignmentsTab", () => {
     expect(headers.join(" ")).not.toMatch(/flow/i);
   });
 
-  it("renders product name via dataset.products id->name lookup", () => {
-    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
-    expect(row).toHaveTextContent("Product Family 1");
+  it("resolves product names via dataset.products inside the split disclosure", async () => {
+    const res = makeResult([
+      { customerId: "customer-1", warehouseId: "wh-11", productId: "product-1", distanceMi: 10 },
+      { customerId: "customer-1", warehouseId: "wh-14", productId: "product-2", distanceMi: 20 },
+    ]);
+    render(<JadeAssignmentsTab result={res} dataset={dataset} bands={bands} scenarioId={1} />);
+    await userEvent.click(screen.getByTestId("button-jadeassignment-split-customer-1"));
+    expect(screen.getByTestId("row-jadeassignment-customer-1")).toHaveTextContent("Product Family 2");
   });
 
   it("renders customer/warehouse city-state labels", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    const row = screen.getByTestId("row-jadeassignment-customer-1");
     expect(row).toHaveTextContent("Los Angeles - CA");
     expect(row).toHaveTextContent("Chicago - IL");
   });
@@ -103,8 +169,7 @@ describe("JadeAssignmentsTab", () => {
       { customerId: "unknown-c", warehouseId: "unknown-w", productId: "unknown-p", distanceMi: 10 },
     ]);
     render(<JadeAssignmentsTab result={unresolvedResult} dataset={dataset} bands={bands} scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-unknown-p|unknown-c");
-    expect(row).toHaveTextContent("unknown-p");
+    const row = screen.getByTestId("row-jadeassignment-unknown-c");
     expect(row).toHaveTextContent("unknown-c");
     expect(row).toHaveTextContent("unknown-w");
   });
@@ -125,7 +190,7 @@ describe("JadeAssignmentsTab", () => {
         }}
       />,
     );
-    const row = screen.getByTestId("row-jadeassignment-product-1|ac-1");
+    const row = screen.getByTestId("row-jadeassignment-ac-1");
     expect(row).toHaveTextContent("Denver - CO");
     expect(row).toHaveTextContent("Boise - ID");
     expect(row).not.toHaveTextContent("aw-1");
@@ -134,7 +199,7 @@ describe("JadeAssignmentsTab", () => {
 
   it("formats Distance with .toFixed(1) and the distanceUnit suffix", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    const row = screen.getByTestId("row-jadeassignment-customer-1");
     expect(row).toHaveTextContent("42.1 mi");
   });
 
@@ -145,7 +210,7 @@ describe("JadeAssignmentsTab", () => {
   // defaulted).
   it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    const row = screen.getByTestId("row-jadeassignment-customer-1");
     expect(row).not.toHaveTextContent("42.1 mi");
     expect(row).not.toHaveTextContent("42.1");
     expect(row).toHaveTextContent("—");
@@ -153,8 +218,8 @@ describe("JadeAssignmentsTab", () => {
 
   it("Distance Band cell shows the units range label, for both an in-range and an overflow distance", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
-    const inRangeRow = screen.getByTestId("row-jadeassignment-product-1|customer-1"); // 42.1 mi
-    const overflowRow = screen.getByTestId("row-jadeassignment-product-2|customer-2"); // 1200 mi > 1000
+    const inRangeRow = screen.getByTestId("row-jadeassignment-customer-1"); // 42.1 mi
+    const overflowRow = screen.getByTestId("row-jadeassignment-customer-2"); // 1200 mi > 1000
     expect(inRangeRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(42.1, bands), bands, "mi"));
     expect(overflowRow).toHaveTextContent(bandRangeLabel(assignBandOrOverflow(1200, bands), bands, "mi"));
     expect(overflowRow).toHaveTextContent("> 1,000 mi");
@@ -163,7 +228,7 @@ describe("JadeAssignmentsTab", () => {
 
   it("falls back to DEFAULT_DISTANCE_BANDS when bands is empty/absent", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} distanceUnit="mi" scenarioId={1} />);
-    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    const row = screen.getByTestId("row-jadeassignment-customer-1");
     // DEFAULT_DISTANCE_BANDS = [250, 500, 750]; 42.1 mi -> ≤ 250 mi.
     expect(row).toHaveTextContent("≤ 250 mi");
   });
@@ -269,8 +334,8 @@ describe("JadeAssignmentsTab", () => {
       return makeResult(
         Array.from({ length: 11 }, (_, i) => ({
           customerId: `customer-${i}`,
-          warehouseId: "wh-11",
-          productId: i < 6 ? "product-1" : "product-2",
+          warehouseId: i < 6 ? "wh-11" : "wh-14",
+          productId: "product-1",
           distanceMi: 100 + i * 100, // 100..1100
         })),
       );
@@ -329,8 +394,8 @@ describe("JadeAssignmentsTab", () => {
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
       const popover = screen.getByTestId("filter-menu-popover");
 
-      // Activate a Product filter (non-band) — 6 rows are product-1.
-      await user.click(within(popover).getByTestId("checkbox-filter-product-Product Family 1"));
+      // Activate a Warehouse filter (non-band) — 6 rows go to wh-11.
+      await user.click(within(popover).getByTestId("checkbox-filter-warehouse-Chicago - IL"));
       // Activate a band-range filter — "≤ 250 mi" matches 2 of those 6 rows.
       await user.click(within(popover).getByTestId("checkbox-filter-band-≤ 250 mi"));
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 11");
@@ -344,10 +409,10 @@ describe("JadeAssignmentsTab", () => {
       );
 
       // Band filter cleared (its checkbox unchecked, count reflects only the
-      // surviving Product filter: all 6 product-1 rows), Product filter intact.
+      // surviving Warehouse filter: all 6 wh-11 rows), Warehouse filter intact.
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("6 of 11");
       expect(within(popover).getByTestId("checkbox-filter-band-≤ 500 mi")).not.toBeChecked();
-      expect(within(popover).getByTestId("checkbox-filter-product-Product Family 1")).toBeChecked();
+      expect(within(popover).getByTestId("checkbox-filter-warehouse-Chicago - IL")).toBeChecked();
     });
   });
 
@@ -377,7 +442,7 @@ describe("JadeAssignmentsTab", () => {
           identityById={identityById}
         />,
       );
-      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      const row = screen.getByTestId("row-jadeassignment-customer-0");
       expect(row).toHaveTextContent("Chicago, IL");
       expect(within(row).getByText("WH-CHI-01")).toHaveClass("font-mono");
     });
@@ -392,7 +457,7 @@ describe("JadeAssignmentsTab", () => {
           identityById={identityById}
         />,
       );
-      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      const row = screen.getByTestId("row-jadeassignment-customer-0");
       // Upgraded format uses formatCityState (a comma), plus the mono id.
       expect(row).toHaveTextContent("Chicago, IL");
       expect(row).toHaveTextContent("WH-CHI-01");
@@ -417,7 +482,7 @@ describe("JadeAssignmentsTab", () => {
           }}
         />,
       );
-      const row = screen.getByTestId("row-jadeassignment-product-1|ac-9");
+      const row = screen.getByTestId("row-jadeassignment-ac-9");
       expect(row).toHaveTextContent("C-ID-BOISE-01");
       expect(row).not.toHaveTextContent("ac-9");
       expect(row).toHaveTextContent("WH-CO-DENVER-01");
@@ -434,7 +499,7 @@ describe("JadeAssignmentsTab", () => {
           identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
         />,
       );
-      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      const row = screen.getByTestId("row-jadeassignment-customer-0");
       expect(row).toHaveTextContent("Chicago - IL");
     });
 
@@ -442,7 +507,7 @@ describe("JadeAssignmentsTab", () => {
       render(
         <JadeAssignmentsTab result={manyRowsWithKnownWarehouse(11)} dataset={dataset} bands={bands} scenarioId={1} />,
       );
-      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      const row = screen.getByTestId("row-jadeassignment-customer-0");
       expect(row).toHaveTextContent("Chicago - IL");
     });
   });
@@ -471,12 +536,12 @@ describe("JadeAssignmentsTab on DataTable — testid map (SCU-2.P3.3)", () => {
       })),
     );
 
-  it("emits the tab root, count, row and five cell testids; Download ▾ trigger + items", () => {
+  it("emits the tab root, count, row and five cell testids (DU-4.4 columns); Download ▾ trigger + items", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
-    const key = "product-1|customer-1";
+    const key = "customer-1";
     const tab = screen.getByTestId("jade-assignments-tab");
     expect(within(tab).getByTestId(`row-jadeassignment-${key}`).tagName).toBe("TR");
-    for (const col of ["product", "customer", "warehouse", "distance", "band"]) {
+    for (const col of ["customer", "warehouse", "products", "distance", "band"]) {
       expect(within(tab).getByTestId(`cell-jadeassignment-${col}-${key}`).tagName).toBe("TD");
     }
     expect(within(tab).getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 2");
@@ -495,11 +560,11 @@ describe("JadeAssignmentsTab on DataTable — testid map (SCU-2.P3.3)", () => {
     spy.mockRestore();
   });
 
-  it("thead th texts stay exactly the e2e contract; only Distance is centred", () => {
+  it("thead th texts stay exactly the e2e contract; Products and Distance are centred", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
     const heads = [...screen.getByTestId("jade-assignments-tab").querySelectorAll("thead th")];
-    expect(heads.map(h => h.textContent)).toEqual(["Product", "Customer", "Assigned Warehouse", "Distance", "Distance Band"]);
-    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, false, true, false]);
+    expect(heads.map(h => h.textContent)).toEqual(["Customer", "Assigned Warehouse", "Products", "Distance", "Distance Band"]);
+    expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, true, true, false]);
   });
 
   it("51 rows: shell pager with today's literals (prev/next/indicator); 50 rows: none", () => {
@@ -511,15 +576,15 @@ describe("JadeAssignmentsTab on DataTable — testid map (SCU-2.P3.3)", () => {
     expect(screen.getByTestId("button-jadeassignments-prev")).toBeDisabled();
     fireEvent.click(screen.getByTestId("button-jadeassignments-next"));
     expect(screen.getByTestId("jadeassignments-page-indicator")).toHaveTextContent("Page 2 of 2");
-    expect(screen.getByTestId("row-jadeassignment-product-1|customer-51")).toBeInTheDocument();
+    expect(screen.getByTestId("row-jadeassignment-customer-51")).toBeInTheDocument();
     expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("51 of 51");
   });
 
-  it("filter descriptor keys and types are today's: product/warehouse/band select, customer text, distance range", async () => {
+  it("filter descriptor keys and types: warehouse/band select, customer text, products/distance range", async () => {
     const user = userEvent.setup();
     render(<JadeAssignmentsTab result={many(30)} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
     await user.click(screen.getByTestId("button-filter-menu-trigger"));
-    expect(screen.getByTestId("select-filter-product")).toBeInTheDocument();
+    expect(screen.getByTestId("input-filter-products-min")).toBeInTheDocument();
     expect(screen.getByTestId("select-filter-warehouse")).toBeInTheDocument();
     expect(screen.getByTestId("select-filter-band")).toBeInTheDocument();
     expect(screen.getByTestId("input-filter-customer")).toBeInTheDocument();

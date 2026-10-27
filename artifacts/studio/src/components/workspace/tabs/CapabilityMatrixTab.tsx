@@ -161,12 +161,15 @@ export function CapabilityMatrixTab({
                   aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
                 />
               </label>
-              <span
-                className="font-mono text-2xs text-muted-foreground"
-                data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
-              >
-                {capacity.toLocaleString()}
-              </span>
+              {/* DU-4.4 — capacity printed only on enabled cells. */}
+              {checked && (
+                <span
+                  className="font-mono text-2xs text-muted-foreground"
+                  data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
+                >
+                  {capacity.toLocaleString()}
+                </span>
+              )}
             </div>
           );
         },

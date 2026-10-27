@@ -295,7 +295,8 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Plant Capabi
       // readouts are bare grouped numbers] (both an enabled and a disabled cell).
       await expect(page.getByTestId("capability-matrix-tab").getByRole("columnheader", { name: /\(tons\)/ }).first()).toBeVisible();
       await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      // DU-4.4: a disabled cell prints no capacity.
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveCount(0);
 
       // ── Solve, so the Output Map and Customer Assignments have real data
       // to check items 1/5 against. ───────────────────────────────────────

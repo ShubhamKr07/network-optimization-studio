@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import { useExport } from "@/contexts/ExportContext";
@@ -13,6 +13,7 @@ import { chapterForModelId } from "@/lib/chapters";
 import { BandLabel } from "@/components/BandLabel";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
+import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
 import type { ColumnDef } from "@/components/data-table/types";
@@ -85,9 +86,6 @@ interface PlantProductionRow {
   actual: number;
   enabled: boolean;
   capacity: number;
-  /** `null` for a disabled cell -> rendered "—" (spec §6: "remaining only
-   * where capacity applies, i.e. enabled cells"). */
-  remaining: number | null;
 }
 
 // spec §6 — "the FULL effective plants × products grid, LEFT-JOINED to
@@ -131,11 +129,14 @@ function buildPlantProductionRows(
         actual,
         enabled,
         capacity,
-        remaining: enabled ? capacity - actual : null,
       });
     }
   }
   return rows;
+}
+
+function utilizationPct(r: PlantProductionRow): number | null {
+  return r.capacity > 0 ? Math.round((r.actual / r.capacity) * 100) : null;
 }
 
 // When `identityById` has an entry for this plant id, render the shared
@@ -178,12 +179,13 @@ function plantProductionColumns(identityById: Record<string, EntityIdentity> | u
     { id: "actual", header: "Actual production", kind: "number", cellClassName: "text-xs font-mono", value: r => r.actual, cell: r => r.actual.toLocaleString() },
     { id: "capacity", header: "Enabled capacity", kind: "number", cellClassName: "text-xs font-mono", value: r => r.capacity, cell: r => r.capacity.toLocaleString() },
     {
-      id: "remaining",
-      header: "Remaining capacity",
+      // DU-4.4 (Q11) — utilization replaces remaining capacity; "—" where there is no capacity.
+      id: "utilization",
+      header: "Utilization %",
       kind: "number",
       cellClassName: "text-xs font-mono",
-      value: r => r.remaining,
-      cell: r => (r.remaining === null ? "—" : r.remaining.toLocaleString()),
+      value: r => utilizationPct(r),
+      cell: r => `${utilizationPct(r) ?? "—"}${r.capacity > 0 ? "%" : ""}`,
     },
   ];
 }
@@ -256,6 +258,13 @@ export function ServiceStatsTab({
     if (!effectivePlants || !products || !baseCapabilities) return [];
     return buildPlantProductionRows(effectivePlants, products, baseCapabilities, capabilityOverrides, edges);
   }, [effectivePlants, products, baseCapabilities, capabilityOverrides, edges]);
+
+  // DU-4.4 (Q11) — zero-capacity (disabled) plant-products hidden unless toggled.
+  const [showDisabledPlantProducts, setShowDisabledPlantProducts] = useState(false);
+  const visiblePlantProductionRows = useMemo(
+    () => (showDisabledPlantProducts ? plantProductionRows : plantProductionRows.filter(r => r.capacity > 0)),
+    [plantProductionRows, showDisabledPlantProducts],
+  );
 
   const plantProductionCols = useMemo(
     () => plantProductionColumns(identityById),
@@ -403,7 +412,7 @@ export function ServiceStatsTab({
       {showPlantProduction && (
         <div className="mt-2 border-t flex-shrink-0 p-2" data-testid="plant-production-section">
           <DataTable<PlantProductionRow>
-            rows={plantProductionRows}
+            rows={visiblePlantProductionRows}
             rowKey={r => `${r.plantId}|${r.productId}`}
             columns={plantProductionCols}
             testIds={{
@@ -413,7 +422,21 @@ export function ServiceStatsTab({
               pagerNext: "button-plant-production-next",
               pageIndicator: "plant-production-page-indicator",
             }}
-            toolbar={{ extra: <span className="text-sm font-medium">Plant Production</span> }}
+            toolbar={{
+              extra: (
+                <>
+                  <span className="text-sm font-medium">Plant Production</span>
+                  <label className="inline-flex min-h-6 items-center gap-2 text-xs">
+                    <Switch
+                      checked={showDisabledPlantProducts}
+                      onCheckedChange={setShowDisabledPlantProducts}
+                      data-testid="switch-show-disabled-plant-products"
+                    />
+                    Show disabled plant-products
+                  </label>
+                </>
+              ),
+            }}
           />
         </div>
       )}

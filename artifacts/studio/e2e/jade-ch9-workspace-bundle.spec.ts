@@ -333,7 +333,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // without navigating through a save/solve.
       await page.getByTestId("sidebar-output-customer-assignments").click();
       await expect(page.getByTestId("jade-assignments-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').first()).toHaveText(/^> [\d,.]+ (mi|km)$/);
+      await expect(page.locator('[data-testid^="cell-jadeassignment-band-"]').filter({ hasNotText: "—" }).first()).toHaveText(/^> [\d,.]+ (mi|km)$/);
 
       // Back to the Output Map: the map lens is live too
       // (getBandColor(-1) === "var(--band-overflow)", set literally as the
@@ -398,7 +398,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await page.getByTestId("sidebar-output-customer-assignments").click();
       await expect(page.getByTestId("jade-assignments-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       const assignmentHeaders = await page.locator('[data-testid="jade-assignments-tab"] thead th').allInnerTexts();
-      expect(assignmentHeaders).toEqual(["Product", "Customer", "Assigned Warehouse", "Distance", "Distance Band"]);
+      expect(assignmentHeaders).toEqual(["Customer", "Assigned Warehouse", "Products", "Distance", "Distance Band"]);
       expect(assignmentHeaders).not.toContain("Demand");
       expect(assignmentHeaders).not.toContain("Flow");
 
@@ -440,7 +440,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       const plantProdHeaders = await page
         .locator('[data-testid="plant-production-section"] thead th')
         .allInnerTexts();
-      expect(plantProdHeaders).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
+      expect(plantProdHeaders).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Utilization %"]);
       // SCU-2.P3.9 — tab-level Download ▾ (outside the Plant Production DataTable):
       // CSV and JSON carry the same rows; no pager at 16 rows.
       const { json: ssJson } = await expectCsvJsonDownload(page, "button-download-service-stats", { csvName: "serviceStats.csv", entity: "serviceStats", unit: "mi" });
@@ -448,9 +448,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("plant-production-page-indicator")).toHaveCount(0);
       // Full effective 4 plants × 4 products grid — every combo present,
       // including disabled/zero-production ones (not dropped).
+      // DU-4.4 (Q11): zero-capacity rows are hidden until the switch is on.
+      await expect(page.locator('[data-testid^="row-plant-production-"]')).toHaveCount(4);
+      await page.getByTestId("switch-show-disabled-plant-products").click();
       await expect(page.locator('[data-testid^="row-plant-production-"]')).toHaveCount(16);
       // A disabled (off-diagonal) combo still renders with capacity 0 and
-      // remaining "—".
+      // utilization "—".
       const disabledRow = page.getByTestId("row-plant-production-plant-1-product-2");
       await expect(disabledRow).toBeVisible();
       await expect(disabledRow).toContainText("0");
@@ -465,7 +468,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-1")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveCount(0); // DU-4.4
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
 
       // Enable the off-diagonal cell -> capacity flips live to 210,000,000
@@ -474,10 +477,10 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).toBeChecked();
       await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000");
-      // Toggle back off -> reverts to 0.
+      // Toggle back off -> the capacity readout disappears (DU-4.4).
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveCount(0);
 
       // ── Item #7 — no warehouse-capacity leak / no 10,000,000 ────────────
       await page.getByTestId("sidebar-input-warehouses").click();
@@ -505,6 +508,7 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // dataset-guaranteed >10-row table).
       await page.getByTestId("sidebar-output-service-stats").click();
       await expect(page.getByTestId("plant-production-section")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await page.getByTestId("switch-show-disabled-plant-products").click(); // DU-4.4: 16 rows only when shown
       const plantProdFilterTrigger = page
         .locator('[data-testid="plant-production-section"]')
         .getByTestId("button-filter-menu-trigger");

@@ -300,10 +300,25 @@ describe("ServiceStatsTab", () => {
       );
     }
 
-    it("renders the full 16-row plants × products grid, dropping nothing", () => {
+    // DU-4.4 (Q11) — zero-capacity rows are hidden until the switch is on.
+    async function showDisabled() {
+      await userEvent.click(screen.getByTestId("switch-show-disabled-plant-products"));
+    }
+
+    it("hides zero-capacity rows by default (4 diagonal + 1 enabled override) and shows all 16 when toggled", async () => {
       renderJade();
-      const rows = screen.getAllByTestId(/^row-plant-production-/);
-      expect(rows).toHaveLength(16);
+      const enabledCount = baseCapabilities.filter(c => c.capacity > 0).length + capabilityOverrides.length;
+      expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(enabledCount);
+      expect(screen.queryByTestId("row-plant-production-p2-product-1")).not.toBeInTheDocument();
+      await showDisabled();
+      expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(16);
+    });
+
+    it("has no 'Remaining capacity' header; it is 'Utilization %'", () => {
+      renderJade();
+      const heads = [...screen.getByTestId("plant-production-section").querySelectorAll("thead th")].map(h => h.textContent);
+      expect(heads).toContain("Utilization %");
+      expect(heads).not.toContain("Remaining capacity");
     });
 
     it("shows a zero-production row for an enabled cell with no inbound flow (p3/product-3)", () => {
@@ -313,14 +328,15 @@ describe("ServiceStatsTab", () => {
       expect(row).toHaveTextContent("Product 3");
       expect(row).toHaveTextContent("0"); // actual
       expect(row).toHaveTextContent("210,000,000"); // capacity
-      expect(row).toHaveTextContent("210,000,000"); // remaining == capacity - 0
+      expect(row).toHaveTextContent(`${Math.round((0 / 210_000_000) * 100)}%`); // utilization
     });
 
-    it("shows a disabled row with capacity 0 and remaining '—' (p2/product-1, no override)", () => {
+    it("shows a disabled row with capacity 0 and utilization '—' (p2/product-1, no override) once toggled on", async () => {
       renderJade();
+      await showDisabled();
       const row = screen.getByTestId("row-plant-production-p2-product-1");
       expect(row).toHaveTextContent("0"); // capacity
-      expect(row).toHaveTextContent("—"); // remaining, not a number
+      expect(row).toHaveTextContent("—"); // utilization undefined without capacity
     });
 
     it("computes actual production summed across multiple inbound edges for the same (plant, product)", () => {
@@ -328,7 +344,7 @@ describe("ServiceStatsTab", () => {
       const row = screen.getByTestId("row-plant-production-p1-product-1");
       expect(row).toHaveTextContent("800"); // 500 + 300
       expect(row).toHaveTextContent("210,000,000"); // base diagonal capacity
-      expect(row).toHaveTextContent("209,999,200"); // 210,000,000 - 800
+      expect(row).toHaveTextContent(`${Math.round((800 / 210_000_000) * 100)}%`); // utilization
     });
 
     it("uses the JADE_ENABLED_CAPACITY fallback (210,000,000) for an enabled base off-diagonal override, not the base cell's own 0 capacity", () => {
@@ -349,6 +365,7 @@ describe("ServiceStatsTab", () => {
 
     it("shows the Plant Production filter menu at 16 rows", async () => {
       renderJade();
+      await showDisabled();
       expect(screen.getByTestId("plant-production-section")).toBeInTheDocument();
       const trigger = screen.getByTestId("button-filter-menu-trigger");
       expect(trigger).toBeInTheDocument();
@@ -453,7 +470,7 @@ describe("ServiceStatsTab", () => {
       expect(row).toHaveTextContent("PLANT-NV-RENO-01");
     });
 
-    it("at 16 (>10) unfiltered rows, upgrades the plant cell with an identityById entry to the stacked EntityIdCell", () => {
+    it("with all 16 rows shown, upgrades the plant cell with an identityById entry to the stacked EntityIdCell", async () => {
       const plants = [
         { id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 },
         { id: "p2", name: "Plant Two", city: "B", state: "BB", lat: 0, lng: 0 },
@@ -485,6 +502,8 @@ describe("ServiceStatsTab", () => {
           identityById={identityById}
         />,
       );
+      expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(4); // diagonal only (Q11)
+      await userEvent.click(screen.getByTestId("switch-show-disabled-plant-products"));
       expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(16);
       const row = screen.getByTestId("row-plant-production-p1-product-1");
       expect(row).toHaveTextContent("Reno, NV");
@@ -876,29 +895,33 @@ describe("ServiceStatsTab Plant Production on DataTable — testid map (SCU-2.P3
       <ServiceStatsTab result={jade} scenarioId={1} modelId="two-echelon-jade-us" effectivePlants={plants} products={products} baseCapabilities={baseCapabilities} />,
     );
 
-  it("section root contains the title, filter trigger and the exact thead contract", () => {
+  it("section root contains the title, switch, filter trigger (16 rows) and the exact thead contract", async () => {
     renderJade();
+    await userEvent.click(screen.getByTestId("switch-show-disabled-plant-products"));
+    expect(screen.getByTestId("plant-production-section")).toHaveTextContent("Show disabled plant-products");
     const section = screen.getByTestId("plant-production-section");
     expect(section).toHaveTextContent("Plant Production");
     expect(section).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
     const heads = [...section.querySelectorAll("thead th")];
-    expect(heads.map(h => h.textContent)).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Remaining capacity"]);
+    expect(heads.map(h => h.textContent)).toEqual(["Plant", "Product", "Actual production", "Enabled capacity", "Utilization %"]);
     expect(heads.map(h => h.classList.contains("text-center"))).toEqual([false, false, true, true, true]);
   });
 
-  it("emits row-plant-production-{plant}-{product} on 16 <tr>s; remaining '—' for a disabled cell", () => {
+  it("emits row-plant-production-{plant}-{product} on 16 <tr>s; utilization '—' for a disabled cell", async () => {
     renderJade();
+    await userEvent.click(screen.getByTestId("switch-show-disabled-plant-products"));
     expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(16);
     expect(screen.getByTestId("row-plant-production-p1-product-1").tagName).toBe("TR");
-    expect(screen.getByTestId("row-plant-production-p1-product-1")).toHaveTextContent("600");
+    expect(screen.getByTestId("row-plant-production-p1-product-1")).toHaveTextContent(`${Math.round((400 / 1000) * 100)}%`); // 400 produced of 1000 capacity
     expect(screen.getByTestId("row-plant-production-p1-product-2")).toHaveTextContent("—");
   });
 
-  it("filter keys are today's (plant/product select, actual/capacity range) plus the derived remaining range", async () => {
+  it("filter keys are today's (plant/product select, actual/capacity range) plus the derived utilization range", async () => {
     const user = userEvent.setup();
     renderJade();
+    await user.click(screen.getByTestId("switch-show-disabled-plant-products"));
     await user.click(screen.getByTestId("button-filter-menu-trigger"));
-    for (const id of ["select-filter-plant", "select-filter-product", "input-filter-actual-min", "input-filter-capacity-min", "input-filter-remaining-min"]) {
+    for (const id of ["select-filter-plant", "select-filter-product", "input-filter-actual-min", "input-filter-capacity-min", "input-filter-utilization-min"]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     await user.click(screen.getByTestId("checkbox-filter-plant-p1 — City1, ST"));
