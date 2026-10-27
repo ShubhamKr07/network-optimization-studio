@@ -12,6 +12,7 @@ import {
   assignBandOrOverflow,
   bandRangeLabelForDistance,
   computeCumulativeBandCoverage,
+  computeInboundBandFlows,
   serviceEdgesFor,
   toDisplay,
   roundForFile,
@@ -83,6 +84,13 @@ export const COST_SUMMARY_TEMPLATE_VERSION = 5;
 // route; openapi.yaml's JadeAssignmentsExportEnvelope/JadeFlowsExportEnvelope
 // enum moves with it.
 export const JADE_EXPORT_TEMPLATE_VERSION = 4;
+
+// DU-4.3 — grid-local, same reasoning: only the serviceStats grid gained the
+// `section` + `flow` columns, so the shared OUTPUT_TEMPLATE_VERSION (still read
+// by assignments/flows) stays 3. Read ONLY by buildServiceStatsRows,
+// serviceStatsRowsToCsv and the export route's serviceStats wrapper;
+// openapi.yaml's ServiceStatsExportEnvelope enum moves with it.
+export const SERVICE_STATS_TEMPLATE_VERSION = 4;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
@@ -1795,9 +1803,11 @@ export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJson
 // is NEVER unit-converted, in this schema or any other.
 export interface ServiceStatsTemplateRow {
   templateVersion: number;
+  section: "outbound" | "inbound";
   band: number;
   distanceUnit: string;
   percent: number;
+  flow: number | null;
 }
 
 // Chen-bands-units bundle — switched from reading the solver's solve-time
@@ -1824,29 +1834,39 @@ export function buildServiceStatsRows(
   result: ResultEnvelope,
   canonicalUnit: CanonicalUnit,
   requestedUnit: CanonicalUnit = canonicalUnit,
-  savedBands: number[] = [],
+  lens: BandLens = { distanceBands: [] },
   modelId: string | null = null,
 ): ServiceStatsTemplateRow[] {
   const edges = serviceEdgesFor(result.edges);
-  const coverage = computeCumulativeBandCoverage(
-    edges,
-    savedBands,
-    modelId === "delivery-teaching-us" ? { decimals: 2 } : undefined,
-  );
-  return coverage.map(c => ({
-    templateVersion: OUTPUT_TEMPLATE_VERSION,
+  const decimals = modelId === "delivery-teaching-us" ? 2 : 0;
+  const coverage = computeCumulativeBandCoverage(edges, lens.distanceBands, { decimals });
+  // DU-4.3 (Q9) — the boundary is converted, the overflow sentinel never is.
+  const boundary = (b: number) => (b === OVERFLOW_BAND ? OVERFLOW_BAND : roundForFile(toDisplay(b, canonicalUnit, requestedUnit)));
+  const outbound = coverage.map(c => ({
+    templateVersion: SERVICE_STATS_TEMPLATE_VERSION,
+    section: "outbound" as const,
     // Classify (computeCumulativeBandCoverage already worked in canonical
     // values) then convert the boundary — never the reverse. The overflow
     // sentinel is categorical and is never converted.
-    band: c.band === OVERFLOW_BAND ? OVERFLOW_BAND : roundForFile(toDisplay(c.band, canonicalUnit, requestedUnit)),
+    band: boundary(c.band),
     distanceUnit: requestedUnit,
     percent: c.percent,
+    flow: null,
   }));
+  const inbound = computeInboundBandFlows(result.edges, lens, decimals).map(r => ({
+    templateVersion: SERVICE_STATS_TEMPLATE_VERSION,
+    section: "inbound" as const,
+    band: boundary(r.band),
+    distanceUnit: requestedUnit,
+    percent: r.percent,
+    flow: roundForFile(r.flow),
+  }));
+  return [...outbound, ...inbound];
 }
 
 export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
-  const header = "template_version,band,distance_unit,percent";
-  const lines = rows.map(r => [r.templateVersion, r.band, r.distanceUnit, r.percent].map(csvCell).join(","));
+  const header = "template_version,section,band,distance_unit,percent,flow";
+  const lines = rows.map(r => [r.templateVersion, r.section, r.band, r.distanceUnit, r.percent, r.flow ?? ""].map(csvCell).join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 
@@ -1854,12 +1874,14 @@ export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
 // and `distanceUnit` are envelope-only in JSON — locked shape `{band,
 // percent}`. Not yet wired into routes/scenarios.ts (out of scope here).
 export interface ServiceStatsJsonRow {
+  section: "outbound" | "inbound";
   band: number;
   percent: number;
+  flow: number | null;
 }
 
 export function toServiceStatsJsonRow(r: ServiceStatsTemplateRow): ServiceStatsJsonRow {
-  return { band: r.band, percent: r.percent };
+  return { section: r.section, band: r.band, percent: r.percent, flow: r.flow };
 }
 
 // Chen-bands-units bundle — v3: `distanceMi` renamed to neutral `distance` +

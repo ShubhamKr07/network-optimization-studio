@@ -47,6 +47,7 @@ import {
   openWarehouseRowsToCsv,
   costSummaryRowsToCsv,
   serviceStatsRowsToCsv,
+  SERVICE_STATS_TEMPLATE_VERSION,
   toDistanceJsonRow,
   toAssignmentJsonRow,
   toFlowJsonRow,
@@ -1253,9 +1254,10 @@ describe("costSummary CSV — Chapter 4 coverage columns", () => {
     expect(COST_SUMMARY_TEMPLATE_VERSION).not.toBe(OUTPUT_TEMPLATE_VERSION);
   });
 
-  it("leaves the serviceStats grid's version untouched (still OUTPUT_TEMPLATE_VERSION)", () => {
-    expect(buildServiceStatsRows(ch4Result, "mi", "mi", [200, 400], "max-coverage-us")[0].templateVersion)
-      .toBe(OUTPUT_TEMPLATE_VERSION);
+  it("the serviceStats grid has its own version, leaving the shared one alone", () => {
+    expect(buildServiceStatsRows(ch4Result, "mi", "mi", { distanceBands: [200, 400] }, "max-coverage-us")[0].templateVersion)
+      .toBe(SERVICE_STATS_TEMPLATE_VERSION);
+    expect(SERVICE_STATS_TEMPLATE_VERSION).not.toBe(OUTPUT_TEMPLATE_VERSION);
   });
 
   it("the JSON row projector carries the same three columns (format=json must not diverge from CSV)", () => {
@@ -1306,35 +1308,35 @@ describe("buildServiceStatsRows", () => {
   it("computes LIVE cumulative coverage from the SAVED bands lens (never metrics.bandCoverage), each row carrying distanceUnit", () => {
     // metrics.bandCoverage (if present) must be ignored entirely.
     const withStaleBandCoverage = makeResult({ ...twoEdgeResult, metrics: { bandCoverage: [{ band: 999, percent: 1 }] } });
-    expect(buildServiceStatsRows(withStaleBandCoverage, "mi", "mi", [200, 400])).toEqual([
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 60 },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 400, distanceUnit: "mi", percent: 100 },
+    expect(buildServiceStatsRows(withStaleBandCoverage, "mi", "mi", { distanceBands: [200, 400] })).toEqual([
+      { templateVersion: SERVICE_STATS_TEMPLATE_VERSION, section: "outbound", band: 200, distanceUnit: "mi", percent: 60, flow: null },
+      { templateVersion: SERVICE_STATS_TEMPLATE_VERSION, section: "outbound", band: 400, distanceUnit: "mi", percent: 100, flow: null },
     ]);
   });
 
   it("overflow present: a row beyond the last boundary appends an OVERFLOW_BAND row (-1, never converted)", () => {
-    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "km", [200]);
+    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "km", { distanceBands: [200] });
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ percent: 60 });
     expect(rows[1]).toMatchObject({ band: OVERFLOW_BAND, percent: 40 });
   });
 
   it("overflow absent: omitted entirely when zero (matches the existing if(overflowFlow>0) guard)", () => {
-    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "mi", [400]);
+    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "mi", { distanceBands: [400] });
     expect(rows).toHaveLength(1);
     expect(rows.some(r => r.band === OVERFLOW_BAND)).toBe(false);
   });
 
   it("zero flow: returns 0% rows, no division by zero", () => {
     const zeroFlow = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 0, distance: 100 }], metrics: {} });
-    expect(buildServiceStatsRows(zeroFlow, "mi", "mi", [200])).toEqual([
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 0 },
+    expect(buildServiceStatsRows(zeroFlow, "mi", "mi", { distanceBands: [200] })).toEqual([
+      { templateVersion: SERVICE_STATS_TEMPLATE_VERSION, section: "outbound", band: 200, distanceUnit: "mi", percent: 0, flow: null },
     ]);
   });
 
   it("boundary is converted to the requested unit — visibly different under km vs mi — while overflow stays exactly -1 in both", () => {
-    const mi = buildServiceStatsRows(twoEdgeResult, "mi", "mi", [200]);
-    const km = buildServiceStatsRows(twoEdgeResult, "mi", "km", [200]);
+    const mi = buildServiceStatsRows(twoEdgeResult, "mi", "mi", { distanceBands: [200] });
+    const km = buildServiceStatsRows(twoEdgeResult, "mi", "km", { distanceBands: [200] });
     expect(mi[0].band).toBe(200);
     expect(km[0].band).toBeCloseTo(200 * 1.609344, 4);
     expect(mi[1].band).toBe(OVERFLOW_BAND);
@@ -1349,10 +1351,12 @@ describe("buildServiceStatsRows", () => {
       ],
       metrics: {},
     });
-    const rows = buildServiceStatsRows(result, "mi", "mi", [200]);
-    // Only the 80-flow outbound edge counts — the 1000-flow inbound edge is
-    // excluded entirely, so coverage is 100% of 80, not diluted by 1000.
-    expect(rows).toEqual([{ templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 100 }]);
+    const rows = buildServiceStatsRows(result, "mi", "mi", { distanceBands: [200] });
+    // Only the 80-flow outbound edge counts in the outbound section — the
+    // 1000-flow inbound edge is excluded there, so coverage is 100% of 80,
+    // not diluted by 1000 (DU-4.3: it surfaces in the inbound section instead).
+    expect(rows.filter(r => r.section === "outbound")).toEqual([{ templateVersion: SERVICE_STATS_TEMPLATE_VERSION, section: "outbound", band: 200, distanceUnit: "mi", percent: 100, flow: null }]);
+    expect(rows.filter(r => r.section === "inbound").map(r => r.flow)).toEqual([1000, 0]);
   });
 
   it("returns an empty array when no bands are supplied (backward-compatible default)", () => {
@@ -1371,29 +1375,29 @@ describe("buildServiceStatsRows", () => {
       ],
       metrics: {},
     });
-    const delivery = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600], "delivery-teaching-us");
+    const delivery = buildServiceStatsRows(oneThird, "mi", "mi", { distanceBands: [400, 1600] }, "delivery-teaching-us");
     expect(delivery[0]!.percent).toBeCloseTo(33.33, 2);
 
-    const pmedian = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600], "p-median-us");
+    const pmedian = buildServiceStatsRows(oneThird, "mi", "mi", { distanceBands: [400, 1600] }, "p-median-us");
     expect(pmedian[0]!.percent).toBe(33);
 
-    const noModelId = buildServiceStatsRows(oneThird, "mi", "mi", [400, 1600]);
+    const noModelId = buildServiceStatsRows(oneThird, "mi", "mi", { distanceBands: [400, 1600] });
     expect(noModelId[0]!.percent).toBe(33);
   });
 });
 
 describe("serviceStatsRowsToCsv", () => {
-  it("emits the v3 template_version,band,distance_unit,percent header", () => {
-    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult({ metrics: {} }), "km", "km", [200, 400]));
-    expect(csv.trim().split("\n")[0]).toBe("template_version,band,distance_unit,percent");
+  it("emits the v4 template_version,section,band,distance_unit,percent,flow header", () => {
+    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult({ metrics: {} }), "km", "km", { distanceBands: [200, 400] }));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,section,band,distance_unit,percent,flow");
   });
 });
 
 describe("toServiceStatsJsonRow", () => {
-  it("strips templateVersion and distanceUnit — the exact locked shape {band, percent}", () => {
-    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", [200, 400])[0];
+  it("strips templateVersion and distanceUnit — the exact locked shape {section, band, percent, flow}", () => {
+    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", { distanceBands: [200, 400] })[0];
     const jsonRow = toServiceStatsJsonRow(row);
-    expect(jsonRow).toEqual({ band: row.band, percent: row.percent });
+    expect(jsonRow).toEqual({ section: "outbound", band: row.band, percent: row.percent, flow: null });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);
   });
@@ -1627,10 +1631,10 @@ describe("v3 version matrix — emitted artifact carries the correct version", (
     expect(costSummaryRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(COST_SUMMARY_TEMPLATE_VERSION));
   });
 
-  it("serviceStats CSV + JSON row both carry v3", () => {
-    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", bands)[0];
-    expect(row.templateVersion).toBe(OUTPUT_TEMPLATE_VERSION);
-    expect(serviceStatsRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
+  it("serviceStats CSV + JSON row both carry SERVICE_STATS_TEMPLATE_VERSION", () => {
+    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", { distanceBands: bands })[0];
+    expect(row.templateVersion).toBe(SERVICE_STATS_TEMPLATE_VERSION);
+    expect(serviceStatsRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe(String(SERVICE_STATS_TEMPLATE_VERSION));
   });
 
   it("JADE assignments CSV + JSON row both carry JADE_EXPORT_TEMPLATE_VERSION (v4)", () => {

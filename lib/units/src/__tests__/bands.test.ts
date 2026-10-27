@@ -3,7 +3,7 @@ import {
   OVERFLOW_BAND, assignBandOrOverflow, bandRangeLabelForDistance,
   computeCumulativeBandCoverage, computeExclusiveBandCoverage,
   frozenBandCoverageToExclusive, serviceEdgesFor, bandRangeLabel,
-  INBOUND_LEGS, OUTBOUND_LEGS, bandsForLeg,
+  INBOUND_LEGS, OUTBOUND_LEGS, bandsForLeg, computeInboundBandFlows,
 } from "../bands.js";
 import { formatDistanceNumber } from "../format.js";
 import { toDisplay } from "../convert.js";
@@ -286,5 +286,39 @@ describe("bandsForLeg (DU-4.1)", () => {
   it("role sets are the one authority", () => {
     expect([...INBOUND_LEGS].sort()).toEqual(["mine_to_refinery", "plant_to_warehouse"]);
     expect([...OUTBOUND_LEGS].sort()).toEqual(["refinery_to_customer", "warehouse_to_customer"]);
+  });
+});
+
+describe("computeInboundBandFlows (DU-4.3)", () => {
+  const e = (distance: number, flow: number, leg: string | null) => ({ distance, flow, leg });
+  const inputs = { distanceBands: [200, 400, 800], inboundDistanceBands: [300, 900] };
+  const edges = [
+    e(100, 10, "plant_to_warehouse"), e(300, 20, "plant_to_warehouse"), e(1000, 30, "plant_to_warehouse"),
+    e(50, 999, "warehouse_to_customer"),
+  ];
+
+  it("is exclusive per inbound band, counts only inbound legs, and boundary lands in the lower band", () => {
+    const rows = computeInboundBandFlows(edges, inputs);
+    expect(rows.map(r => [r.band, r.flow])).toEqual([[300, 30], [900, 0], [OVERFLOW_BAND, 30]]);
+    expect(rows.reduce((s, r) => s + r.flow, 0)).toBe(60);
+  });
+
+  it("percent sums to exactly 100 (withResidual)", () => {
+    const third = [e(1, 1, "mine_to_refinery"), e(500, 1, "mine_to_refinery"), e(2000, 1, "mine_to_refinery")];
+    for (const d of [0, 2]) {
+      const rows = computeInboundBandFlows(third, inputs, d);
+      expect(Math.round(rows.reduce((s, r) => s + r.percent, 0) * 100) / 100).toBe(100);
+    }
+  });
+
+  it("overflow row is always present (zeros when no flow); inbound set absent falls back to distanceBands", () => {
+    const rows = computeInboundBandFlows([e(10, 0, "plant_to_warehouse")], { distanceBands: [200] });
+    expect(rows).toEqual([{ band: 200, flow: 0, percent: 0 }, { band: OVERFLOW_BAND, flow: 0, percent: 0 }]);
+  });
+
+  it("legless or outbound-only edges, or no boundaries, give []", () => {
+    expect(computeInboundBandFlows([e(10, 5, null)], inputs)).toEqual([]);
+    expect(computeInboundBandFlows([e(10, 5, "warehouse_to_customer")], inputs)).toEqual([]);
+    expect(computeInboundBandFlows(edges, { distanceBands: [] })).toEqual([]);
   });
 });

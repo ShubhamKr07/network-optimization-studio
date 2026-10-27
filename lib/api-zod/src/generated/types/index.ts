@@ -157,6 +157,7 @@ export * from './serviceStatsExportEnvelopeEntity';
 export * from './serviceStatsExportEnvelopeTemplateVersion';
 export * from './serviceStatsExportEnvelopeUnit';
 export * from './serviceStatsExportRow';
+export * from './serviceStatsExportRowSection';
 export * from './solutionStatus';
 export * from './solveConflict';
 export * from './solveHistoryEntry';

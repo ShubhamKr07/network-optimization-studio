@@ -8,7 +8,8 @@ import {
   frozenBandCoverageToExclusive, frozenBandShape, OVERFLOW_BAND,
 } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
-import { type CanonicalUnit } from "@workspace/units";
+import { computeInboundBandFlows, type CanonicalUnit } from "@workspace/units";
+import { chapterForModelId } from "@/lib/chapters";
 import { BandLabel } from "@/components/BandLabel";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
@@ -62,6 +63,9 @@ interface ServiceStatsTabProps {
   // min-distance concept, not a distance-band recompute) — this prop is
   // no longer gated on `supportsPlantProductCapability` internally.
   presentationBands?: number[];
+  /** DU-4.3 — the saved inbound band set (`activeInboundBandLens ?? undefined`,
+   * DU-4.1); absent -> inbound lanes are classified against `presentationBands`. */
+  inboundBands?: number[];
 
   // workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
   // projection (`buildEntityIdentityById`, T3). The Plant Production plant
@@ -218,6 +222,7 @@ export function ServiceStatsTab({
   baseCapabilities,
   capabilityOverrides = [],
   presentationBands,
+  inboundBands,
   identityById,
 }: ServiceStatsTabProps) {
   const { download, disabledReasonFor } = useExport();
@@ -275,6 +280,13 @@ export function ServiceStatsTab({
     const hasLegs = edges.some((e) => e.leg != null);
     return hasLegs ? edges.filter((e) => isOutboundLeg(e.leg)) : edges;
   }, [edges]);
+
+  // DU-4.3 — inbound lanes: exclusive flow per inbound band, from edges only.
+  // [] (section hidden) for any result without inbound-leg edges.
+  const inboundRows = useMemo(
+    () => computeInboundBandFlows(edges, { distanceBands: presentationBands ?? [], inboundDistanceBands: inboundBands }, bandDecimals(modelId)),
+    [edges, presentationBands, inboundBands, modelId],
+  );
 
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-empty">No solved result yet.</div>;
@@ -352,6 +364,38 @@ export function ServiceStatsTab({
           })()}
         </div>
       )}
+
+      {inboundRows.length > 0 && (() => {
+        const boundaries = inboundRows.filter(r => r.band !== OVERFLOW_BAND).map(r => r.band);
+        const displayInbound = boundaries.map(v => toDisplay(v, canonicalUnit));
+        const demandUnit = chapterForModelId(modelId)?.demandUnit ?? "units";
+        return (
+          <section aria-labelledby="inbound-lanes-heading" data-testid="service-stats-inbound" className="px-4 pb-4">
+            <h3 id="inbound-lanes-heading" className="text-sm font-medium">Inbound lanes</h3>
+            <p className="text-xs text-muted-foreground mb-2">Flow volume on inbound lanes per band, in {demandUnit}.</p>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1 font-medium">Distance band</th>
+                  <th className="py-1 font-medium text-right">Flow ({demandUnit})</th>
+                  <th className="py-1 font-medium text-right">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inboundRows.map(r => (
+                  <tr key={r.band} data-testid={`service-stats-inbound-band-${r.band}`} className="border-b last:border-0">
+                    <td className="py-1 font-mono">
+                      <BandLabel index={r.band === OVERFLOW_BAND ? OVERFLOW_BAND : boundaries.indexOf(r.band)} bands={displayInbound} unit={distanceUnit} />
+                    </td>
+                    <td className="py-1 text-right font-mono">{r.flow.toLocaleString()}</td>
+                    <td className="py-1 text-right font-mono">{r.percent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        );
+      })()}
 
       {/* B4 (spec §6) — JADE-only Plant Production section: the full
           effective plants × products grid, left-joined to aggregated

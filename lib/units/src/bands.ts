@@ -142,6 +142,35 @@ export function computeExclusiveBandCoverage(edges: BandEdge[], bands: number[],
   return withResidual(keys, flows.map(f => (f * 100) / total), decimals);
 }
 
+export interface InboundBandFlow { band: number; flow: number; percent: number }
+
+/** DU-4.3 — EXCLUSIVE inbound flow per band (keys = sorted boundaries, then
+ *  OVERFLOW_BAND), over edges whose leg is in INBOUND_LEGS, classified with
+ *  bandsForLeg. [] when the result has no inbound edges or no boundaries.
+ *  percent uses withResidual so the column sums to exactly 100. */
+export function computeInboundBandFlows(
+  edges: BandEdge[],
+  inputs: { distanceBands: number[]; inboundDistanceBands?: number[] },
+  decimals = 0,
+): InboundBandFlow[] {
+  const inbound = edges.filter(e => e.leg != null && INBOUND_LEGS.has(e.leg));
+  if (inbound.length === 0) return [];
+  // Every inbound leg resolves to the same set, so one lookup keys the rows.
+  const sorted = [...bandsForLeg(inbound[0].leg, inputs)].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const flows = new Array<number>(sorted.length + 1).fill(0);
+  for (const e of inbound) {
+    const i = assignBandOrOverflow(e.distance, bandsForLeg(e.leg, inputs));
+    flows[i === OVERFLOW_BAND ? sorted.length : i] += e.flow;
+  }
+  const keys = [...sorted, OVERFLOW_BAND];
+  const total = flows.reduce((s, f) => s + f, 0);
+  const pct = total === 0
+    ? keys.map(band => ({ band, percent: 0 }))
+    : withResidual(keys, flows.map(f => (f * 100) / total), decimals);
+  return pct.map((r, i) => ({ band: r.band, flow: flows[i], percent: r.percent }));
+}
+
 /**
  * A solved result's frozen `metrics.bandCoverage` -> the same exclusive rows.
  * `-1` rows are never boundaries. "cumulative" (every model except JADE):

@@ -2567,11 +2567,17 @@ components:
 
     ServiceStatsExportRow:
       type: object
-      description: Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+      description: >-
+        v4 service-stats row. `section: outbound` rows are the cumulative + overflow coverage rows (flow null);
+        `section: inbound` rows (two-echelon models only) are EXCLUSIVE per band, with `flow` the summed inbound
+        flow and `percent` its share of total inbound flow. `band` is the distance BOUNDARY itself, converted to
+        the requested unit (not an index); -1 = overflow, never converted.
       properties:
+        section: { type: string, enum: [outbound, inbound] }
         band: { type: number }
         percent: { type: number }
-      required: [band, percent]
+        flow: { type: number, nullable: true }
+      required: [section, band, percent, flow]
 
     CostSummaryExportRow:
       type: object
@@ -2746,12 +2752,15 @@ components:
 
     ServiceStatsExportEnvelope:
       type: object
-      description: v3 serviceStats export — cumulative + overflow rows under the requested unit.
-      example: { templateVersion: 3, entity: serviceStats, unit: mi, rows: [] }
+      description: >-
+        v4 serviceStats export. Grid-local version (services/templates.ts's SERVICE_STATS_TEMPLATE_VERSION): only
+        this grid gained the `section` and `flow` columns, so the shared v3 output version stays put for every
+        other grid.
+      example: { templateVersion: 4, entity: serviceStats, unit: mi, rows: [] }
       properties:
         templateVersion:
           type: integer
-          enum: [3]
+          enum: [4]
         entity:
           type: string
           enum: [serviceStats]
@@ -2770,9 +2779,9 @@ components:
         (warehouses/customers/mines/stations/refineries/plants/
         plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input
         (distances/legDistances/laneCosts), or v3 unit-bearing output
-        (assignments/flows/serviceStats — plus costSummary, which is the
-        same family but on its own grid-local version, v4 as of CH4O; see
-        CostSummaryExportEnvelope), or the v4 two-echelon-jade-us family
+        (assignments/flows — plus costSummary and serviceStats, which are the
+        same family but on their own grid-local versions, CostSummaryExportEnvelope
+        and ServiceStatsExportEnvelope), or the v4 two-echelon-jade-us family
         (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text
         bands). Never a single global v3+unit shape.
       oneOf:

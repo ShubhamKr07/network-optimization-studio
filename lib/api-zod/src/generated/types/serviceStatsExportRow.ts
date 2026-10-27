@@ -5,11 +5,14 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { ServiceStatsExportRowSection } from './serviceStatsExportRowSection';
 
 /**
- * Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+ * v4 service-stats row. `section: outbound` rows are the cumulative + overflow coverage rows (flow null); `section: inbound` rows (two-echelon models only) are EXCLUSIVE per band, with `flow` the summed inbound flow and `percent` its share of total inbound flow. `band` is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow, never converted.
  */
 export interface ServiceStatsExportRow {
+  section: ServiceStatsExportRowSection;
   band: number;
   percent: number;
+  flow: number | null;
 }

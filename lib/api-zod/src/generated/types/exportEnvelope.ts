@@ -15,6 +15,6 @@ import type { JadeFlowsExportEnvelope } from './jadeFlowsExportEnvelope';
 import type { ServiceStatsExportEnvelope } from './serviceStatsExportEnvelope';
 
 /**
- * One of four versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.
+ * One of four versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows — plus costSummary and serviceStats, which are the same family but on their own grid-local versions, CostSummaryExportEnvelope and ServiceStatsExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.
  */
 export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | JadeAssignmentsExportEnvelope | JadeFlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;

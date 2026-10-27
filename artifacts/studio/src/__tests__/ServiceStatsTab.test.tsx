@@ -977,3 +977,42 @@ describe("ServiceStatsTab — BandLabel index from boundary values (DU-2.2)", ()
     }
   });
 });
+
+describe("ServiceStatsTab — Inbound lanes section (DU-4.3)", () => {
+  const edges = [
+    { fromId: "p1", toId: "w1", leg: "plant_to_warehouse" as const, flow: 100, distance: 50 },
+    { fromId: "p1", toId: "w2", leg: "plant_to_warehouse" as const, flow: 300, distance: 250 },
+    { fromId: "p2", toId: "w2", leg: "plant_to_warehouse" as const, flow: 100, distance: 2000 },
+    { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 7777, distance: 10 },
+  ];
+  const row = (id: string) => screen.getByTestId(`service-stats-inbound-band-${id}`);
+  const cells = (id: string) => Array.from(row(id).querySelectorAll("td")).map(td => td.textContent);
+
+  it("renders per inbound band flow and share against the inbound set; flows sum to total inbound flow, shares to 100", () => {
+    render(<ServiceStatsTab result={{ ...result, edges }} scenarioId={1} modelId="two-echelon-jade-us"
+      presentationBands={[100, 300]} inboundBands={[100, 300]} />);
+    expect(screen.getByTestId("service-stats-inbound")).toHaveTextContent("Flow volume on inbound lanes per band, in tons.");
+    expect(cells("100")).toEqual(["≤ 100 mi", "100", "20%"]);
+    expect(cells("300")).toEqual(["100–300 mi", "300", "60%"]);
+    expect(cells("-1")).toEqual(["> 300 mi", "100", "20%"]);
+    const ids = ["100", "300", "-1"];
+    expect(ids.reduce((s, i) => s + Number(cells(i)[1]!.replace(/,/g, "")), 0)).toBe(500);
+    expect(ids.reduce((s, i) => s + parseInt(cells(i)[2]!, 10), 0)).toBe(100);
+    // the outbound bars are untouched by the inbound table
+    expect(screen.getByTestId("service-stats-band-100")).toBeInTheDocument();
+  });
+
+  it("without a saved inbound set it classifies against presentationBands; each model uses its chapter's demand unit", () => {
+    const gold = edges.map(e => ({ ...e, leg: e.leg === "plant_to_warehouse" ? ("mine_to_refinery" as const) : ("refinery_to_customer" as const) }));
+    render(<ServiceStatsTab result={{ ...result, edges: gold }} scenarioId={1} modelId="two-echelon-gold-au" presentationBands={[300]} />);
+    expect(cells("300")[1]).toBe("400");
+    expect(screen.getByTestId("service-stats-inbound")).toHaveTextContent("in units.");
+  });
+
+  it("is absent for a single-echelon result", () => {
+    const flat = edges.map(e => ({ fromId: e.fromId, toId: e.toId, flow: e.flow, distance: e.distance }));
+    render(<ServiceStatsTab result={{ ...result, edges: flat }} scenarioId={1} modelId="p-median-us" presentationBands={[100]} />);
+    expect(screen.queryByTestId("service-stats-inbound")).toBeNull();
+    expect(screen.getByTestId("service-stats-band-100")).toBeInTheDocument();
+  });
+});

@@ -4499,6 +4499,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
           capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(activeOutputInputs) : []}
           presentationBands={activeBandLens}
+          inboundBands={activeInboundBandLens ?? undefined}
           identityById={outputIdentityById}
         />
       );

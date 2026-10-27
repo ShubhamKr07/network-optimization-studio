@@ -1227,12 +1227,22 @@ export interface JadeFlowExportRow {
   flows: number;
 }
 
+export type ServiceStatsExportRowSection = typeof ServiceStatsExportRowSection[keyof typeof ServiceStatsExportRowSection];
+
+
+export const ServiceStatsExportRowSection = {
+  outbound: 'outbound',
+  inbound: 'inbound',
+} as const;
+
 /**
- * Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+ * v4 service-stats row. `section: outbound` rows are the cumulative + overflow coverage rows (flow null); `section: inbound` rows (two-echelon models only) are EXCLUSIVE per band, with `flow` the summed inbound flow and `percent` its share of total inbound flow. `band` is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow, never converted.
  */
 export interface ServiceStatsExportRow {
+  section: ServiceStatsExportRowSection;
   band: number;
   percent: number;
+  flow: number | null;
 }
 
 /**
@@ -1464,7 +1474,7 @@ export type ServiceStatsExportEnvelopeTemplateVersion = typeof ServiceStatsExpor
 
 
 export const ServiceStatsExportEnvelopeTemplateVersion = {
-  NUMBER_3: 3,
+  NUMBER_4: 4,
 } as const;
 
 export type ServiceStatsExportEnvelopeEntity = typeof ServiceStatsExportEnvelopeEntity[keyof typeof ServiceStatsExportEnvelopeEntity];
@@ -1483,7 +1493,7 @@ export const ServiceStatsExportEnvelopeUnit = {
 } as const;
 
 /**
- * v3 serviceStats export — cumulative + overflow rows under the requested unit.
+ * v4 serviceStats export. Grid-local version (services/templates.ts's SERVICE_STATS_TEMPLATE_VERSION): only this grid gained the `section` and `flow` columns, so the shared v3 output version stays put for every other grid.
  */
 export interface ServiceStatsExportEnvelope {
   templateVersion: ServiceStatsExportEnvelopeTemplateVersion;
@@ -1493,7 +1503,7 @@ export interface ServiceStatsExportEnvelope {
 }
 
 /**
- * One of four versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/serviceStats — plus costSummary, which is the same family but on its own grid-local version, v4 as of CH4O; see CostSummaryExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.
+ * One of four versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/deliveryCosts/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows — plus costSummary and serviceStats, which are the same family but on their own grid-local versions, CostSummaryExportEnvelope and ServiceStatsExportEnvelope), or the v4 two-echelon-jade-us family (JadeAssignmentsExportEnvelope / JadeFlowsExportEnvelope, range-text bands). Never a single global v3+unit shape.
  */
 export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | JadeAssignmentsExportEnvelope | JadeFlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
 

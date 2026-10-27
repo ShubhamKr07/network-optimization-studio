@@ -15,6 +15,7 @@ import {
   OUTPUT_TEMPLATE_VERSION,
   JADE_EXPORT_TEMPLATE_VERSION,
   COST_SUMMARY_TEMPLATE_VERSION,
+  SERVICE_STATS_TEMPLATE_VERSION,
   DISTANCE_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
@@ -826,7 +827,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       entity === "assignments" ? buildAssignmentRows(result, canonicalUnit, requestedUnit, savedBands)
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
       : entity === "costSummary" ? buildCostSummaryRows(result, canonicalUnit, requestedUnit, scenario.modelId)
-      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands, scenario.modelId)
+      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedLens, scenario.modelId)
       : buildFlowRows(result, canonicalUnit, requestedUnit, savedLens);
 
     if (format === "csv") {
@@ -853,7 +854,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // while a CSV export of the identical data declares v4 per row.
     const wrapperVersion =
       entity === "costSummary" ? COST_SUMMARY_TEMPLATE_VERSION
-      : entity === "assignments" || entity === "serviceStats" || entity === "flows"
+      : entity === "serviceStats" ? SERVICE_STATS_TEMPLATE_VERSION
+      : entity === "assignments" || entity === "flows"
         ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
     // T9 — `unit` is added to the envelope ONLY for the four v3 (unit-
     // bearing) entities; openWarehouses (v1, non-distance) gets no `unit`
