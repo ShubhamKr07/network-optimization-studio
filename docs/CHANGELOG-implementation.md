@@ -5109,3 +5109,12 @@ Folds the post-merge review of Phase 4. DU-4.F1 guarded only the band-lens refs 
 - **(low) JADE Split path unreachable.** `groupAssignments.test.ts` runs `groupAssignmentsByCustomer` over the real solved JADE fixture and asserts every group has `warehouseCount === 1`, documenting the solve.py single-sourcing assumption so a solver change that splits trips it.
 - **Not fixed:** legend shows one section when a saved inbound set equals the customer-facing set (cosmetic; the reset button still reflects the saved key).
 - Gate: typecheck clean; api-server 94 files / 2231 tests passed; studio 188 files / 3145 tests passed; `typecheck:e2e` clean. No flakes observed.
+
+### SENTRY-4 — customer popup refit stack overflow (Sentry SCND_STUDIO-4/5)
+
+Production `RangeError: Maximum call stack size exceeded` on `/chapter-9/jade` (2 users, 3 events, 2026-10-27..29). Introduced by DU-3.R1 (`d91a8748`), which added `moveend` to `CustomerPopup`'s refit listener.
+
+- **Cause.** `refit` calls `popup.update()`; Leaflet 1.9.4's `Popup._adjustPan` (autoPan on) first calls `map._panAnim.stop()`, which fires `end` → `moveend` synchronously. maxBounds' `_panInsideMaxBounds` (registered at map creation, so it runs before refit) starts a new pan, then refit runs again and stops it → unbounded recursion. Both Sentry stacks are this exact cycle (`update → _adjustPan → stop → _complete → _onPanTransitionEnd → fire → refit`).
+- **Fix.** `NetworkMap.tsx`: `popup.options.autoPan = false` right after `openOn(map)`. autoPan still runs once on open; refit's later `update()` returns from `_adjustPan` before `stop()`. maxHeight refit (the DU-3.R1 intent) is unchanged.
+- **Test.** `NetworkMap.test.tsx` "moveend refit never re-enters through an in-flight pan": a `Map.addInitHook` moveend listener stands in for maxBounds; with a pan in flight, `fire("moveend")` overflowed before the fix (RangeError reproduced) and passes after. `animate: true` is forced because the jsdom map has 0 size and would otherwise take panBy's non-animated `_resetView` path.
+- Gate: typecheck clean; api-server 94 files / 2231 tests; studio 188 files / 3146 tests; solver pytest green. Not deployed.
