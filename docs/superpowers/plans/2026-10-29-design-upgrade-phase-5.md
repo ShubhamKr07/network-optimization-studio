@@ -11,7 +11,7 @@
 **Architecture:**
 - **Tokens:** the dead blue `.dark` block (`artifacts/studio/src/index.css:318-367`, never applied today) is replaced by a complete brand-derived block. Tailwind's `@custom-variant dark (&:is(.dark *))` (`index.css:34`) already keys off a `.dark` class on an ancestor, so the theme is one class on `<html>`.
 - **Maps stay light (Q1).** OpenStreetMap tiles are light and the spec forbids a new tile provider, so every map is a **light island**: the light token block's selector becomes `:root, .dark .map-surface`, and each map wrapper carries `map-surface`. Lanes, markers, legend, popups and map toolbars keep today's light values and gates in both themes. Band colours *off* the map (`BandLabel` in tables) use a dark-surface band ramp.
-- **Theme state:** `lib/theme.ts` (master §A interface) owns the preference, `localStorage` under `nos:theme-pref` with try/catch on every access, and the `<html>` class. A five-line inline script in `index.html` applies the class before first paint. A `ThemeToggle` segmented control sits in the AppShell and Workspace headers.
+- **Theme state:** `lib/theme.ts` (master §A interface) owns the preference, `localStorage` under `nos:theme-pref` with try/catch on every access, and the `<html>` class. A three-line inline script in `index.html` applies the class before first paint. A `ThemeToggle` segmented control sits in the AppShell and Workspace headers.
 - **Unchanged:** API, solver, DB, exports, every map visual, and the light theme. Every light-mode value a task touches is replaced by a token with the identical light value (DU-5.2 asserts this), so light mode renders the same.
 
 **Tech stack:** React 18 + Vite + Tailwind v4 (`@theme inline`, `@custom-variant`), vitest + RTL (jsdom), Playwright.
@@ -46,9 +46,9 @@ Q1 and Q2 need the user. The rest are technical defaults, open to change at plan
 
 | ID | Default applied | Task |
 |---|---|---|
-| Q1 | **Maps stay light in dark mode (light island).** OSM tiles are light (`#F2EFE9` land) and spec §5.5 says "no new tile provider". A dark-tile alternative (CSS `filter: invert(1) hue-rotate(180deg)` on `.leaflet-tile-pane`) would make the ink warehouse markers (`--map-warehouse #181A15`) vanish, need a second band ramp gated against a filter-derived tile colour, and redo the Phase 3 map QA. With the island, every map visual and gate is unchanged and map overlays stay legible. **Deviation from master §A** ("band vs dark tile" gate): there is no dark tile, so the on-map gate stays the light one, and the dark band ramp is gated against the dark card instead, where `BandLabel` draws it. **Needs user approval.** | 5.1 |
-| Q2 | **New dark colour values** (master constraint C3 allows only the listed new colours, so these need approval). Surfaces from the ink scale: background `#181A15` (ink-900), card/popover `#23261F` (ink-800), muted `#33362E` (ink-700), border `#3A3D34`, input/line-strong `#5B5F54` (ink-500). Text: body `#FCFCFA` (paper, 17.1:1 on bg), muted `#ADB1A4` (ink-300, 8.0:1), faint `#83887A` (ink-400, 4.8:1), brand `#93B747` (green-400, 7.6:1), primary text `#AFC975` (green-300, 9.6:1). Primary fill `#7DA436` (green-500) with ink text (6.0:1). Dark band ramp (off-map), one olive hue at five steps: `#E5EFD4 #B5D185 #8BB444 #749639 #5F7B2F` — vs dark card 12.9 / 9.1 / 6.4 / 4.5 / 3.2:1, adjacent 1.42 / 1.43 / 1.41 / 1.41:1. Status text on -bg: success `#4ADE80`/`#052E16` 8.6:1, warning `#FBBF24`/`#2A1E05` 9.8:1, danger `#F87171`/`#2C0B0B` 6.6:1, info `#38BDF8`/`#082030` 7.8:1 (Tailwind 400 text on 950-ish bg, the same family the light set uses). **Needs user approval.** | 5.1 |
-| Q3 | **Destructive in dark = light red fill with ink text** (`--destructive` `#F87171`, `--destructive-foreground` ink-900; 7.3:1). One token pair serves both `bg-destructive` buttons and ~40 `text-destructive` error lines. No red satisfies white-text-on-fill ≥ 4.5 *and* text-on-dark-bg ≥ 4.5 at once (needs luminance ≤ 0.18 and ≥ 0.22), so keeping white-on-red would leave every dark error line at ≤ 3.9:1. | 5.1 |
+| Q1 | **Maps stay light in dark mode (light island).** OSM tiles are light (`#F2EFE9` land) and spec §5.5 says "no new tile provider". A dark-tile alternative (CSS `filter: invert(1) hue-rotate(180deg)` on `.leaflet-tile-pane`) would make the ink warehouse markers (`--map-warehouse #181A15`) vanish, need a second band ramp gated against a filter-derived tile colour, and redo the Phase 3 map QA. With the island, every map visual and gate is unchanged and map overlays stay legible. **Deviation from master §A** ("band vs dark tile" gate): there is no dark tile, so the on-map gate stays the light one, and the dark band ramp is gated against the dark card instead, where `BandLabel` draws it. **Needs user approval.** On approval, DU-5.1 records the exception in master §A's Phase 5 row (`2026-10-24-design-upgrade.md:138`) in the same commit, so the two documents agree. | 5.1 |
+| Q2 | **New dark colour values** (master constraint C3 allows only the listed new colours, so these need approval). Surfaces from the ink scale (HSL triples, because `@theme` maps them through `hsl(var(--x))`; the rendered colour is what the gates measure): background `84 11% 9%` (renders `#171914`, ≈ ink-900), card/popover `86 10% 14%` (renders `#242720`, ≈ ink-800), muted `#33362E` (ink-700), border `#3A3D34`, input/line-strong `#5B5F54` (ink-500). Text (on rendered bg / card): body `#FCFCFA` (paper, 17.2 / 14.8:1), muted `#ADB1A4` (ink-300, 8.1 / 6.9:1), faint `#83887A` (ink-400, 4.9 / 4.2:1, decorative only), brand `#93B747` (green-400, 7.7 / 6.6:1), primary text `#AFC975` (green-300, 9.6 / 8.3:1). Primary fill `81 50% 43%` (renders `#7EA437`, ≈ green-500) with ink text (6.1:1). Dark band ramp (off-map), one olive hue at five steps: `#E5EFD4 #B5D185 #8BB444 #749639 #5F7B2F` — vs rendered dark card 12.7 / 9.0 / 6.3 / 4.5 / 3.2:1, adjacent 1.42 / 1.43 / 1.41 / 1.41:1. Status text on -bg: success `#4ADE80`/`#052E16` 8.6:1, warning `#FBBF24`/`#2A1E05` 9.8:1, danger `#F87171`/`#2C0B0B` 6.6:1, info `#38BDF8`/`#082030` 7.8:1 (Tailwind 400 text on 950-ish bg, the same family the light set uses). **Needs user approval.** | 5.1 |
+| Q3 | **Destructive in dark = light red fill with ink text** (`--destructive` `0 91% 71%`, renders `#F87272`; `--destructive-foreground` ink; 6.5:1, and the same red as error text on the dark background is 6.5:1). One token pair serves both `bg-destructive` buttons and ~40 `text-destructive` error lines. No red satisfies white-text-on-fill ≥ 4.5 *and* text-on-dark-bg ≥ 4.5 at once (needs luminance ≤ 0.18 and ≥ 0.22), so keeping white-on-red would leave every dark error line at ≤ 3.9:1. | 5.1 |
 | Q4 | **Four tasks, not master's three.** Master DU-5.1 (tokens) and DU-5.2 (control) leave out the surfaces that hard-code light: 16 `bg-white`, 9 `bg-primary text-white`, and ~12 `var(--green-700)` text sites. They get their own task (DU-5.2) with a source guard, so the token task stays reviewable. The control becomes DU-5.3 and QA DU-5.4. The §A `lib/theme.ts` interface is unchanged. | all |
 | Q5 | **Hand-rolled `lib/theme.ts`, not the installed `next-themes`.** Overkill check: `next-themes` is in `package.json` (only an unused `components/ui/sonner.tsx` imports it), but it needs a provider, its no-flash script only helps SSR, and §A fixes a plain-function interface. The hand-rolled module is ~25 lines on the `UnitContext.tsx` precedent, and the inline script is needed in a Vite SPA either way. | 5.3 |
 | Q6 | **Toggle placement:** AppShell header (both the hero and compact variants, before Log out) and the Workspace header (beside `UnitToggle`, `Workspace.tsx:4636`). Not on the login/register pages (`AuthShell`); they follow the stored or system preference. | 5.3 |
@@ -76,13 +76,27 @@ All paths below are relative to `artifacts/studio/` unless noted.
 
 ```ts
 const DARK = CSS.slice(CSS.indexOf(".dark {"), CSS.indexOf("}", CSS.indexOf(".dark {")));
-function darkToken(name: string): string {
-  const m = DARK.match(new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`));
-  if (!m) throw new Error(`token ${name} not found as a hex literal in .dark`);
-  return m[1];
+// A token is a hex literal or an "H S% L%" triple (consumed as hsl(var(--x))).
+// Triples are converted to the hex the browser renders, so every gate measures
+// what students see, not a nearby palette value (Codex PR5-4).
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100;
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
 }
-const DARK_BG = "#181A15";   // --background 84 11% 9%
-const DARK_CARD = "#23261F"; // --card 86 10% 14%, where BandLabel draws off-map bands
+function darkToken(name: string): string {
+  const m = DARK.match(new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6}|\\d+ \\d+% \\d+%)`));
+  if (!m) throw new Error(`token ${name} not declared in .dark`);
+  if (m[1].startsWith("#")) return m[1];
+  const [h, s, l] = m[1].split(/[ %]+/).map(Number);
+  return hslToHex(h, s, l);
+}
+const DARK_BG = darkToken("--background");
+const DARK_CARD = darkToken("--card"); // where BandLabel draws off-map bands
 
 describe("dark theme (DU-5.1, spec §5.5)", () => {
   it("band ramp on the dark card: each >= 3:1, adjacent >= 1.4:1, near = light -> far = dark", () => {
@@ -110,9 +124,30 @@ describe("dark theme (DU-5.1, spec §5.5)", () => {
   it("--text-faint stays decorative-only but is not invisible (>= 3:1)", () => {
     expect(contrast(darkToken("--text-faint"), DARK_BG)).toBeGreaterThanOrEqual(3);
   });
-  it("background and card hsl triples match the hex the gates assume", () => {
-    expect(DARK).toMatch(/--background:\s*84 11% 9%/);
-    expect(DARK).toMatch(/--card:\s*86 10% 14%/);
+  it("primary and destructive fills carry >= 4.5:1 foreground text", () => {
+    expect(contrast(darkToken("--primary-foreground"), darkToken("--primary"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(darkToken("--destructive-foreground"), darkToken("--destructive"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(darkToken("--destructive"), DARK_BG)).toBeGreaterThanOrEqual(4.5); // text-destructive (Q3)
+  });
+  it("muted-foreground >= 4.5:1 on muted", () => {
+    expect(contrast(darkToken("--muted-foreground"), darkToken("--muted"))).toBeGreaterThanOrEqual(4.5);
+  });
+  it("hslToHex is exact (non-vacuity)", () => {
+    expect(hslToHex(84, 11, 9)).toBe("#171914");
+    expect(hslToHex(0, 0, 100)).toBe("#FFFFFF");
+  });
+});
+
+describe("dark token inventory (DU-5.1, Codex PR5-7)", () => {
+  // Every semantic token declared in the light block has a dark value, except
+  // the families that are not theme-dependent or live on the map island.
+  const EXEMPT = /^--(?:green-\d|ink-\d|map-|accent-\d|demand|app-font|radius|tracking|spacing|.*-border$)/;
+  const declared = (block: string) => new Set([...block.matchAll(/(--[a-z0-9-]+):/g)].map(m => m[1]));
+  it("covers every light semantic token", () => {
+    const light = [...declared(ROOT)].filter(t => !EXEMPT.test(t));
+    expect(light.length).toBeGreaterThan(40); // non-vacuity
+    const dark = declared(DARK);
+    expect(light.filter(t => !dark.has(t))).toEqual([]);
   });
 });
 
@@ -125,19 +160,21 @@ describe("map light island (DU-5.1, Q1)", () => {
   });
   it("every file rendering a <MapContainer> wraps it in .map-surface", () => {
     const files = walk(resolve(__dirname, "..")).filter(f => /\.tsx$/.test(f) && !f.includes("__tests__"));
-    const mapFiles = files.filter(f => readFileSync(f, "utf8").includes("<MapContainer"));
+    // Code lines only: MapOverlayEvents/MapAnchorBridge/InvalidateOnResize
+    // mention <MapContainer in comments (Codex PR5-1).
+    const codeLines = (f: string) => readFileSync(f, "utf8").split("\n").filter(isCode);
+    const count = (lines: string[], re: RegExp) => lines.filter(l => re.test(l)).length;
+    const mapFiles = files.filter(f => count(codeLines(f), /<MapContainer\b/) > 0);
     expect(mapFiles.length).toBeGreaterThanOrEqual(3); // non-vacuity: NetworkMap, InputMapTab, SuperInputMap
     for (const f of mapFiles) {
-      const src = readFileSync(f, "utf8");
-      const maps = src.split("<MapContainer").length - 1;
-      const surfaces = (src.match(/\bmap-surface\b/g) ?? []).length;
-      expect(surfaces, f).toBeGreaterThanOrEqual(maps);
+      const lines = codeLines(f);
+      expect(count(lines, /\bmap-surface\b/), f).toBeGreaterThanOrEqual(count(lines, /<MapContainer\b/));
     }
   });
 });
 ```
 
-Add a `walk` helper beside `token()` (`readdirSync` recursive, `statSync().isDirectory()`); add `readdirSync, statSync` to the `node:fs` import. Add `--text-primary` to the light test: `expect(token("--text-primary").toUpperCase()).toBe("#48611E")`.
+Add the `collect` walker and `isCode` from `__tests__/rawPaletteClasses.test.ts:12,14-22` beside `token()` (copy, the repo's guard idiom); call it `walk` here; add `readdirSync, statSync` to the `node:fs` import. Add `--text-primary` to the light test: `expect(token("--text-primary").toUpperCase()).toBe("#48611E")`.
 
 - [ ] **Step 2:** `pnpm --filter studio test -- designTokens` — expect the new cases to FAIL (no hex tokens in `.dark`, no island selector).
 
@@ -190,8 +227,10 @@ Add a `walk` helper beside `token()` (`readdirSync` recursive, `statSync().isDir
   --primary-hover: #93B747; --primary-active: #AFC975; --link: #AFC975; --link-hover: #CDDCA6; --focus-ring: #93B747;
 }
 
-.dark .map-surface { color-scheme: light; }
+.dark .map-surface { color-scheme: light; color: hsl(var(--foreground)); }
 ```
+
+The `color` line matters: `body` sets `text-foreground` (`index.css:374-375`), and map cards/menus that set a light background but no text colour (`MapDetailsCard.tsx:102`, `MapActionMenu.tsx:161`, `mapControls.tsx:101`) would otherwise inherit paper text from the dark page. Inside the island `--foreground` is the light value, so this resets it to ink.
 
 Change `:root {` (`:148`) to `:root, .dark .map-surface {`. Add `--text-primary: #48611E;` to the light raw-text line. Before relying on the island, check by reading the light block that every token in it is a plain declaration (the `@supports`-less relative-colour pairs at `:254-316` re-derive per element, so they re-evaluate correctly inside `.map-surface`; comment `:280-286` already states this).
 
@@ -217,7 +256,8 @@ Change `:root {` (`:148`) to `:root, .dark .map-surface {`. Add `--text-primary:
 A site with no identical-value token is a STOP-and-report, not an invention.
 
 **Files (known, from rg on 2026-10-29; the sweep catches the rest):**
-- `bg-white` → `bg-card`: `components/UnitToggle.tsx:31`, `components/NetworkMap.tsx:740`, `components/MapBulkEditToolbar.tsx:41`, `components/tables/WarehouseTable.tsx:162`, `components/tables/CustomerTable.tsx:188`, `components/workspace/tabs/JadeFlowsTab.tsx:447,458`, `components/workspace/tabs/OptimizationParametersTab.tsx:394`, `components/workspace/map/mapControls.tsx:136`, `components/data-table/entityCells.tsx:46`, `components/ConstraintChips.tsx:69`, `pages/Landing.tsx:182`. (Sites inside `.map-surface` — `NetworkMap.tsx:740`, `MapBulkEditToolbar`, `mapControls` — still migrate: inside the island `bg-card` resolves to white.)
+- `bg-white` → `bg-card`: `components/UnitToggle.tsx:31`, `components/NetworkMap.tsx:740`, `components/MapBulkEditToolbar.tsx:41`, `components/tables/WarehouseTable.tsx:162`, `components/tables/CustomerTable.tsx:188`, `components/workspace/tabs/JadeFlowsTab.tsx:447,458`, `components/workspace/tabs/OptimizationParametersTab.tsx:394`, `components/workspace/map/mapControls.tsx:136`, `components/data-table/entityCells.tsx:46`, `components/ConstraintChips.tsx:69`, `pages/Landing.tsx:182`.
+- `bg-primary text-white` also at `components/workspace/super/superTables.tsx:98` (string returned by `activeClassOf`). (Sites inside `.map-surface` — `NetworkMap.tsx:740`, `MapBulkEditToolbar`, `mapControls` — still migrate: inside the island `bg-card` resolves to white.)
 - `text-white` with `bg-primary`: the same toggle/segment sites above.
 - `--green-700` text: `components/workspace/SolveDialog.tsx:161`, `components/workspace/tabs/OptimizationParametersTab.tsx:375`, `components/workspace/tabs/InputMapTab.tsx:798,1291,1789,2375`, `pages/Workspace.tsx:4712`, `pages/Landing.tsx:141`, `components/ui/button.tsx:28`, `components/ui/field.tsx:148`, `components/ui/empty.tsx:76`, `components/ui/item.tsx:138`.
 - `--green-600` icon colour: `components/DeveloperCredit.tsx:10,13`.
@@ -228,52 +268,62 @@ A site with no identical-value token is a STOP-and-report, not an invention.
 ```ts
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
 // DU-5.2 — surfaces that hard-code a light colour do not flip in dark mode.
-// Walks the whole tree (root CLAUDE.md: prefer a tree walk over a file list).
+// Same shape as rawPaletteClasses.test.ts: tree walk, comment lines skipped,
+// non-vacuity. Exceptions are per LINE, not per file (Codex PR5-5): an
+// allow-listed file can still hold a real offender elsewhere.
 const SRC = resolve(__dirname, "..");
 const PATTERNS: Array<[string, RegExp]> = [
   ["bg-white", /\bbg-white\b(?!\/)/],
   ["text-white", /\btext-white\b/],
   ["raw palette var", /var\(--(?:ink|green)-\d{3}\)/],
 ];
-// file -> reason. Each entry must still match (stale entries fail).
-const ALLOWED: Record<string, string> = {
-  "components/AppShell.tsx": "ink header band: --ink-300 / --green-400 are correct in both themes (Q8)",
-  "components/auth/AuthShell.tsx": "ink header band (Q8)",
-  "pages/Workspace.tsx": "ink header band :4593-4629 (Q8)",
-  "components/NetworkMap.tsx": "inside .map-surface: map marker highlight --green-700 is a map colour (Q1)",
-};
+const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
+// [file, substring that identifies the allowed line(s), reason]. Each entry must still match.
+const ALLOWED: Array<[string, string, string]> = [
+  ["components/AppShell.tsx", "var(--", "ink header band: --ink-300 / --green-400 are correct in both themes (Q8)"],
+  ["components/auth/AuthShell.tsx", "var(--", "ink header panel (Q8)"],
+  ["pages/Workspace.tsx", "var(--ink-", "ink header band :4593-4629 (Q8)"],
+  ["components/NetworkMap.tsx", "highlighted ? \"var(--green-700)\"", "map marker highlight inside .map-surface (Q1)"],
+];
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap(n => {
     const p = join(dir, n);
-    return statSync(p).isDirectory() ? (n === "__tests__" ? [] : walk(p)) : /\.tsx?$/.test(n) ? [p] : [];
+    return statSync(p).isDirectory() ? (n === "__tests__" ? [] : walk(p)) : /\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) ? [p] : [];
   });
 }
+const rel = (f: string) => relative(SRC, f).split(sep).join("/");
+const allowed = (file: string, line: string) => ALLOWED.some(([f, needle]) => f === file && line.includes(needle));
 
 describe("themed surfaces (DU-5.2)", () => {
   const files = walk(SRC);
-  it("scans the tree (non-vacuity)", () => expect(files.length).toBeGreaterThan(100));
+  it("is not vacuous", () => {
+    expect(files.length).toBeGreaterThan(100);
+    expect(PATTERNS[0][1].test('className="bg-white"')).toBe(true);
+    expect(PATTERNS[0][1].test('className="hover:bg-white/10"')).toBe(false);
+  });
   it("no hard-coded light surface outside the allow-list", () => {
-    const hits = files.flatMap(f => {
-      const rel = relative(SRC, f);
-      if (rel in ALLOWED) return [];
-      const src = readFileSync(f, "utf8");
-      return PATTERNS.filter(([, re]) => re.test(src)).map(([name]) => `${rel}: ${name}`);
-    });
+    const hits: string[] = [];
+    for (const f of files) {
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (!isCode(line) || allowed(rel(f), line)) return;
+        for (const [name, re] of PATTERNS) if (re.test(line)) hits.push(`${rel(f)}:${i + 1} ${name} — ${line.trim()}`);
+      });
+    }
     expect(hits).toEqual([]);
   });
-  it("every allow-list entry still contains a pattern", () => {
-    for (const rel of Object.keys(ALLOWED)) {
-      const src = readFileSync(join(SRC, rel), "utf8");
-      expect(PATTERNS.some(([, re]) => re.test(src)), rel).toBe(true);
+  it("every allow-list entry still matches a line with a pattern", () => {
+    for (const [f, needle] of ALLOWED) {
+      const lines = readFileSync(join(SRC, f), "utf8").split("\n").filter(l => isCode(l) && l.includes(needle));
+      expect(lines.some(l => PATTERNS.some(([, re]) => re.test(l))), f).toBe(true);
     }
   });
 });
 ```
 
-`DeveloperCredit.tsx` renders in the AppShell/AuthShell footers on the page surface, not the band, so it migrates (its `--green-600` icon colours) rather than being allow-listed. Verify each `AuthShell.tsx` raw-palette use sits on its ink panel (`:26` `--surface-band`) before keeping that entry.
+`DeveloperCredit.tsx` renders in the AppShell/AuthShell footers on the page surface, not the band, so it migrates (its `--green-600` icon colours) rather than being allow-listed. Verify each `AuthShell.tsx` raw-palette use sits on its ink panel (`:26` `--surface-band`) before keeping that entry; narrow its needle if any use sits off the panel. `Workspace.tsx:4712` (`--green-700` on the Save button) is **not** allowed and migrates.
 
 - [ ] **Step 2:** run it — expect FAIL listing the files above.
 - [ ] **Step 3:** apply the replacement table. Do not touch `hover:bg-white/10` on the band. Update any RTL test asserting the old class (rg `bg-white\|text-white\|green-700` in `src/__tests__`).
@@ -301,10 +351,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getThemePref, setThemePref, applyTheme } from "@/lib/theme";
 
+// vi.stubGlobal + unstubAllGlobals, the NetworkBackground.test.tsx:8-15,39
+// pattern; a direct window.matchMedia assignment would leak across tests.
 function mockSystemDark(dark: boolean) {
-  window.matchMedia = vi.fn().mockReturnValue({ matches: dark, addEventListener: vi.fn() }) as never;
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: dark, addEventListener: vi.fn() }));
 }
-beforeEach(() => { localStorage.clear(); document.documentElement.classList.remove("dark"); vi.restoreAllMocks(); });
+beforeEach(() => {
+  localStorage.clear();
+  document.documentElement.classList.remove("dark");
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("theme preference (DU-5.3)", () => {
   it("defaults to system", () => expect(getThemePref()).toBe("system"));
@@ -436,11 +493,12 @@ export function ThemeToggle() {
 
 - [ ] **Step 1: sibling sweep.** rg `e2e/` for `bg-white`, `text-white`, `green-700`, header testids next to which the toggle now renders, and any `toHaveCSS` colour assertion. Rewrite hits and run each changed spec green.
 - [ ] **Step 2: new spec** against local servers (`E2E_BASE_URL` set; recipe in `e2e/CLAUDE.md`), seeded results (`seedSolvedResult`, as in `design-upgrade-p1/p3.spec.ts`):
-  - **System default:** `page.emulateMedia({ colorScheme: "dark" })` with no stored pref → `<html>` has `dark`, `body` background computes to `rgb(24, 26, 21)`; `colorScheme: "light"` → no `dark`.
+  - **System default:** `page.emulateMedia({ colorScheme: "dark" })` with no stored pref → `<html>` has `dark`, `body` background equals a probe element styled `background: hsl(var(--background))` (never a hard-coded rgb: the triple renders `#171914`, not ink-900); `colorScheme: "light"` → no `dark`.
   - **Toggle:** Dark → reload keeps dark; Light overrides an OS-dark emulation; System follows a mid-session `emulateMedia` change.
   - **No storage:** a context whose `localStorage` throws (`addInitScript` overriding `Storage.prototype.getItem/setItem`) loads, renders, and still switches theme in-session.
   - **No flash:** with OS-dark emulation, the first `page.goto` response's first paint already has `dark` on `<html>` (assert via `page.evaluate` in `addInitScript` timing or `DOMContentLoaded`).
   - **All 8 chapters in dark:** Landing, each chapter's Workspace (Input Map, Output Map, one table tab, Optimization Parameters), Compare. For each: the map wrapper computes a light background inside `.map-surface`; a `BandLabel` swatch on a dark card computes to a dark-ramp value; status alerts, a destructive button, a disabled control, focus ring, and the four Q9 `dark:` shadcn pieces are legible. Attach a full-page screenshot per chapter per theme to the report for the user.
+  - **Map bands and patterns revalidated (spec §5.5):** on Output Map (p-median-us, JADE) and Input Map, in dark, every lane's computed `stroke` and `stroke-dasharray` (`NetworkMap.tsx:839-843`) and every legend swatch (`MapLegend.tsx:269-274`) equal the same elements' values in a light run of the same scenario; map card/menu text inside `.map-surface` computes to the light `--foreground`.
   - **Light unchanged:** the same pages in light compute `bg-card` surfaces to `rgb(255, 255, 255)` and primary text to `rgb(72, 97, 30)`.
 - [ ] **Step 3: gates.** `pnpm gate`; `E2E_BASE_URL=… pnpm e2e:gate`. Record the numbers in the changelog entry; never estimate a number that wasn't measured.
 - [ ] **Step 4: commit** `[DU-5.4] Phase 5 real-browser QA and sibling e2e sweep` with changelog.
@@ -458,3 +516,17 @@ export function ThemeToggle() {
 - **Spec coverage (§5.5):** dead `.dark` replaced with brand-derived values (5.1 Step 3); every Phase 1 semantic token has a dark value, maps by the island (5.1, Q1); both themes against §5.1.3 targets (5.1 Step 1 status/text gates; the light gates already exist); band ramp + patterns re-validated on the map (unchanged light ramp on light tiles, island guard) and off it (dark-card gate); no new tile provider (Q1); `prefers-color-scheme` default + light/dark/system header toggle + `localStorage` try/catch + correct render without storage (5.3 tests, 5.4 no-storage case); real-browser QA on all chapters (5.4).
 - **Gaps the spec missed, now covered:** hard-coded light surfaces that would not flip (5.2 + guard); destructive red cannot meet both contrast targets with white text (Q3); the no-flash script in a Vite SPA (5.3 Step 4); eight dormant `dark:` utilities going live (Q9).
 - **Type consistency:** `ThemePref` / `getThemePref` / `setThemePref` / `applyTheme` match master §A; storage key `nos:theme-pref` appears in `theme.ts`, `index.html` and the test; testids `theme-toggle-*` are used by 5.3's RTL test and 5.4's spec.
+
+## Review log — Codex round 1 (high effort, 2026-10-29)
+
+Folded into the plan above (PR5-n = Codex finding n):
+- **PR5-1** map guard matched `<MapContainer` in comments (`MapOverlayEvents.tsx:4`, `MapAnchorBridge.tsx:6`, `InvalidateOnResize.tsx:15`) → code lines only.
+- **PR5-2** island reset tokens but not inherited text colour (`body` `text-foreground`, `index.css:374-375`) → `.dark .map-surface` sets `color: hsl(var(--foreground))`; QA asserts map card text.
+- **PR5-3** Q1 contradicts master §A Phase 5 → still a user decision; on approval DU-5.1 updates master §A in the same commit.
+- **PR5-4** HSL triples render ≠ the ink hexes the gates assumed (`84 11% 9%` → `#171914`) → tests convert triples to the rendered hex; Q2/Q3 ratios recomputed from rendered colours (all gates still pass; destructive 6.5:1, not 7.3); e2e compares against a probe, not an rgb literal.
+- **PR5-5** file-level allow-list hid real offenders (`Workspace.tsx:4712`, `NetworkMap.tsx:740`) → per-line allow entries.
+- **PR5-6** guard would flag comments (`entityCells.tsx:29`) → `isCode` from `rawPaletteClasses.test.ts`.
+- **PR5-7** dark gates only saw hex literals; no completeness check → triple parsing + a light-vs-dark declaration inventory with a named exempt set, plus fill/foreground and muted gates.
+- **PR5-8** map band/pattern revalidation asserted but untested → DU-5.4 compares lane stroke/dash and legend swatches dark vs light.
+- **PR5-9** direct `window.matchMedia` assignment leaks → `vi.stubGlobal` / `unstubAllGlobals`.
+- **PR5-10** inventory missed `superTables.tsx:98` → added (the others it listed were already in DU-5.2's list).
