@@ -2330,6 +2330,30 @@ describe("NetworkMap popup + legend (DU-3.4)", () => {
     expect(after.some((t) => t.includes("Splitburg"))).toBe(true);
   });
 
+  // Sentry SCND_STUDIO-4/5: the popup's moveend refit called popup.update(),
+  // whose autoPan stops the map's in-flight pan; that stop fires moveend
+  // synchronously, maxBounds starts another pan, refit stops it… until the
+  // stack overflows. The init-hook listener stands in for maxBounds'
+  // _panInsideMaxBounds (registered at map creation, so it runs before refit).
+  it("moveend refit never re-enters through an in-flight pan (no stack overflow)", async () => {
+    const L = (await import("leaflet")).default;
+    const maps: import("leaflet").Map[] = [];
+    let armed = false;
+    onTestFinished(() => { armed = false; });
+    L.Map.addInitHook(function (this: import("leaflet").Map) {
+      const m = this;
+      maps.push(m);
+      m.on("moveend", () => { if (armed) m.panBy([1, 1], { animate: true }); });
+    });
+    const { container, customerMarkers } = mountJade();
+    fireEvent.click(customerMarkers()[0]);
+    expect(container.querySelector(".leaflet-popup-content")).not.toBeNull(); // not vacuous: popup (and refit) live
+    const map = maps[maps.length - 1];
+    armed = true;
+    map.panBy([1, 1], { animate: true }); // a pan in flight (jsdom map has 0 size, so force the animated path)
+    expect(() => map.fire("moveend")).not.toThrow();
+  });
+
   it("legend fades to opacity-15 while a popup is open and restores on close", () => {
     const { container, customerMarkers } = mountJade();
     const legend = () => container.querySelector('[data-testid="map-legend"]')!;
