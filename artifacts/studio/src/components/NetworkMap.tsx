@@ -337,17 +337,20 @@ function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClo
       .setLatLng([info.lat, info.lng])
       .setContent(content)
       .openOn(map);
-    // autoPan on open only. Left on, refit's update() below stops the map's
-    // in-flight pan, which fires moveend synchronously; maxBounds starts a new
-    // pan and refit stops it again — unbounded recursion (Sentry SCND_STUDIO-4/5).
-    popup.options.autoPan = false;
 
     const handleClose = (e: L.PopupEvent) => {
       if (e.popup === popup) onClose();
     };
     map.on("popupclose", handleClose);
-    // The point moves on zoom, so the room above it does too.
-    const refit = () => { popup.options.maxHeight = fitHeight(); popup.update(); };
+    // The point moves on zoom, so the room above it does too. autoPan only on
+    // zoomend: on moveend/resize, update()'s autoPan stops the map's in-flight
+    // pan, which fires moveend synchronously; maxBounds starts a new pan and
+    // refit stops it again — unbounded recursion (Sentry SCND_STUDIO-4/5).
+    const refit = (e: L.LeafletEvent) => {
+      popup.options.maxHeight = fitHeight();
+      popup.options.autoPan = e.type === "zoomend";
+      popup.update();
+    };
     map.on("zoomend moveend resize", refit);
 
     return () => {

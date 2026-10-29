@@ -2339,11 +2339,16 @@ describe("NetworkMap popup + legend (DU-3.4)", () => {
     const L = (await import("leaflet")).default;
     const maps: import("leaflet").Map[] = [];
     let armed = false;
-    onTestFinished(() => { armed = false; });
-    L.Map.addInitHook(function (this: import("leaflet").Map) {
+    const hook = function (this: import("leaflet").Map) {
       const m = this;
       maps.push(m);
       m.on("moveend", () => { if (armed) m.panBy([1, 1], { animate: true }); });
+    };
+    L.Map.addInitHook(hook);
+    onTestFinished(() => {
+      armed = false;
+      const hooks = (L.Map.prototype as unknown as { _initHooks: unknown[] })._initHooks;
+      hooks.splice(hooks.indexOf(hook), 1);
     });
     const { container, customerMarkers } = mountJade();
     fireEvent.click(customerMarkers()[0]);
@@ -2352,6 +2357,15 @@ describe("NetworkMap popup + legend (DU-3.4)", () => {
     armed = true;
     map.panBy([1, 1], { animate: true }); // a pan in flight (jsdom map has 0 size, so force the animated path)
     expect(() => map.fire("moveend")).not.toThrow();
+    expect(() => map.fire("resize")).not.toThrow();
+    // autoPan's first act is stopping the in-flight pan: never from moveend/resize, still from zoomend (pre-DU-3.R1 behaviour).
+    armed = false; // the stand-in's own panBy() also calls stop()
+    const stop = vi.spyOn((map as unknown as { _panAnim: { stop: () => void } })._panAnim, "stop");
+    map.fire("moveend");
+    map.fire("resize");
+    expect(stop).not.toHaveBeenCalled();
+    map.fire("zoomend");
+    expect(stop).toHaveBeenCalled();
   });
 
   it("legend fades to opacity-15 while a popup is open and restores on close", () => {

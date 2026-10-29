@@ -5118,3 +5118,9 @@ Production `RangeError: Maximum call stack size exceeded` on `/chapter-9/jade` (
 - **Fix.** `NetworkMap.tsx`: `popup.options.autoPan = false` right after `openOn(map)`. autoPan still runs once on open; refit's later `update()` returns from `_adjustPan` before `stop()`. maxHeight refit (the DU-3.R1 intent) is unchanged.
 - **Test.** `NetworkMap.test.tsx` "moveend refit never re-enters through an in-flight pan": a `Map.addInitHook` moveend listener stands in for maxBounds; with a pan in flight, `fire("moveend")` overflowed before the fix (RangeError reproduced) and passes after. `animate: true` is forced because the jsdom map has 0 size and would otherwise take panBy's non-animated `_resetView` path.
 - Gate: typecheck clean; api-server 94 files / 2231 tests; studio 188 files / 3146 tests; solver pytest green. Not deployed.
+
+### SENTRY-4.R1 — post-merge review fold
+
+- **(medium) Lost zoom autopan.** The first fix turned autoPan off for every post-open refit, dropping the zoomend autopan that predates DU-3.R1 and never overflowed in production. `refit` now sets `popup.options.autoPan = e.type === "zoomend"`: zoomend autopans as before; moveend/resize (the DU-3.R1 additions, and the cycle path) refit maxHeight only. Test extended: a `_panAnim.stop` spy (autoPan's first act) is not called on moveend/resize and is called on zoomend; the moveend/resize no-overflow assertions still fail with RangeError against `1a1aa240`.
+- **(nit) Test init-hook leak.** The `Map.addInitHook` stand-in is spliced out of `_initHooks` in `onTestFinished`.
+- **Retro note.** `tasks.csv` DU-3 `escaped_defects` 0 → 1 (in `21c1e229`) is the intended lagging-field correction: `d91a8748` (DU-3.R1) introduced this bug and is an ancestor of DU-3's merge `7d1492cc`.
