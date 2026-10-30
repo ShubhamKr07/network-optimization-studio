@@ -1894,6 +1894,28 @@ describe("Workspace — Solve dialog", () => {
     }));
   });
 
+  // SEC-3 — the server now refuses a second active solve on a scenario with
+  // 409 + the in-flight jobId (every model); the client attaches to that job.
+  it("attaches to the in-flight job when enqueue answers 409 with a jobId", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(Object.assign(new Error("HTTP 409 Conflict: A solve is already running for this scenario"), {
+        status: 409,
+        data: { error: "A solve is already running for this scenario", jobId: 7 },
+      }));
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId === 7
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Solve failed to start" }));
+    expect(screen.getByTestId("sidebar-output-output-map")).toHaveAttribute("aria-current", "true");
+  });
+
   it("on a successful poll, opens and activates the Output Map tab and closes the dialog", () => {
     mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
       opts.onSuccess({ jobId: 7 });

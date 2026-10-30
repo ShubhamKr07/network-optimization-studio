@@ -31,6 +31,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
   scenariosTable: { id: "id" },
+  usersTable: { id: "id" },
   resultCacheTable: { inputsHash: "inputs_hash", modelId: "model_id", result: "result" },
 }));
 
@@ -50,7 +51,7 @@ vi.mock("child_process", () => ({ spawn: mockSpawn, spawnSync: mockSpawnSync }))
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
-  ["select", "from", "where", "insert", "values", "returning", "update", "set", "onConflictDoNothing"].forEach((m) => {
+  ["select", "from", "where", "insert", "values", "returning", "update", "set", "onConflictDoNothing", "for", "limit"].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => Promise.resolve(returnValue).then(resolve);
@@ -247,6 +248,39 @@ describe("jobRunner", () => {
     emitFd3(child, SUCCESS_ENVELOPE);
     child.emit("close", 0);
     await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+  });
+
+  // SEC-3 review — DELETE /scenarios/:id removes a running job's row at once,
+  // but its solver keeps the slot until the heartbeat notices. The per-user
+  // check must still see it, then forget it once the job settles.
+  it("enqueueScenarioSolve is user_busy while this user's job is executing, even with no active DB row", async () => {
+    const { enqueueScenarioSolve } = await import("../solver/jobRunner.js");
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+    mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb));
+    // Scenario lock, users lock, then the active-job select: the row is gone.
+    const lockedSelects = (inputs: unknown) => mockDb.select
+      .mockReturnValueOnce(makeChain([{ id: 2, userId: "user-1", modelId: "p-median-us", inputs, solveInputRevision: 1 }]))
+      .mockReturnValueOnce(makeChain([{ id: "user-1" }]))
+      .mockReturnValueOnce(makeChain([]));
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    lockedSelects(baseInput.inputs);
+    expect(await enqueueScenarioSolve(2, "user-1")).toEqual({ kind: "user_busy" });
+
+    emitFd3(child, SUCCESS_ENVELOPE);
+    child.emit("close", 0);
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+    // Settled: the check passes and enqueue proceeds (to validation, which
+    // these deliberately invalid inputs fail, so nothing is inserted).
+    await vi.waitFor(async () => {
+      lockedSelects({ ...baseInput.inputs, capacityMode: "not-a-mode" });
+      expect((await enqueueScenarioSolve(2, "user-1")).kind).toBe("invalid");
+    });
   });
 
   // A3 — spawn() is now called with a detached process group + a 4-entry

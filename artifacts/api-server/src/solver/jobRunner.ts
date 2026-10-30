@@ -392,7 +392,7 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
     // UQ_solve_jobs_active_per_scenario (lib/db/src/schema/solve_jobs.ts,
     // partial unique index on max-coverage-us active jobs) into a clean 409
     // instead of a unique-violation 500 — do not drop this before that index.
-    await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId)).for("update");
+    await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId)).for("no key update");
     const [active] = await tx.select({ id: solveJobsTable.id, scenarioId: solveJobsTable.scenarioId }).from(solveJobsTable)
       .where(and(
         eq(solveJobsTable.userId, userId),
@@ -404,6 +404,7 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
         ? ({ kind: "conflict", jobId: active.id } as const)
         : ({ kind: "user_busy" } as const);
     }
+    if (executingJobsByUser.has(userId)) return { kind: "user_busy" } as const;
 
     const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
     if (!validation.success) {
@@ -1684,6 +1685,13 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
 // enqueue, dispatcher recovery, cache lookup), rather than in validation, so a
 // stored scenario with a larger value still solves, just bounded.
 export const MAX_SOLVE_TIME_LIMIT_SEC = 300;
+// SEC-3 review — jobs executing in THIS process, per user. DELETE /scenarios/:id
+// removes a running job's row at once, but its solver keeps the worker slot
+// until the heartbeat notices (up to ~10 s), so the DB-only per-user check
+// alone let delete + clone + solve loops hold every slot.
+// ponytail: per-process, matching the single nos-api instance; a second
+// instance would need this in the DB (e.g. a "cancelling" status).
+const executingJobsByUser = new Map<string, number>();
 function clampTimeLimit(input: SolveInput): SolveInput {
   return { ...input, inputs: { ...input.inputs, timeLimitSec: Math.min(input.inputs.timeLimitSec, MAX_SOLVE_TIME_LIMIT_SEC) } } as SolveInput;
 }
@@ -1699,6 +1707,7 @@ async function runJob(
   const input = clampTimeLimit(requestedInput);
   const stopHeartbeat = startOwnerHeartbeat(jobId, generation);
   const requestedLimits = jobRequestedLimitsFromInput(input);
+  executingJobsByUser.set(userId, (executingJobsByUser.get(userId) ?? 0) + 1);
   try {
     // A6 — flag selects the WHOLE cache path (both this read and the
     // write-through below share this single computed value). Flag off
@@ -1934,5 +1943,8 @@ async function runJob(
     }
   } finally {
     stopHeartbeat();
+    const left = (executingJobsByUser.get(userId) ?? 1) - 1;
+    if (left > 0) executingJobsByUser.set(userId, left);
+    else executingJobsByUser.delete(userId);
   }
 }
