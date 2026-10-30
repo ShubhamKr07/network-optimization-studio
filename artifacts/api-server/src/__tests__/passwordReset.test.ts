@@ -184,12 +184,39 @@ describe("POST /api/auth/forgot-password", () => {
 
   it("the global cap trips at the 121st request across distinct addresses, without the per-address limiter firing", async () => {
     mockDb.select.mockReturnValue(makeChain([]));
+    // Distinct client IPs (SEC-4), so the per-IP limiter never fires either.
+    const from = (i: number) => request(app).post("/api/auth/forgot-password").set("X-Forwarded-For", `203.0.113.${i + 1}, 172.71.202.122`);
     for (let i = 0; i < 120; i++) {
-      const ok = await request(app).post("/api/auth/forgot-password").send({ email: `g${i}@example.test` });
+      const ok = await from(i).send({ email: `g${i}@example.test` });
       expect(ok.status).toBe(200);
     }
-    const tripped = await request(app).post("/api/auth/forgot-password").send({ email: "g120@example.test" });
+    const tripped = await from(121).send({ email: "g120@example.test" });
     expect(tripped.status).toBe(429);
+  });
+
+  // SEC-4 (audit C4) — one caller rotating addresses is cut off by the per-IP
+  // limiter long before the global ceiling, and does not consume it.
+  it("429s an 11th request from one client IP across distinct addresses, while another IP still gets through", async () => {
+    mockDb.select.mockReturnValue(makeChain([]));
+    const from = (ip: string) => request(app).post("/api/auth/forgot-password").set("X-Forwarded-For", `${ip}, 172.71.202.122`);
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) statuses.push((await from("198.51.100.7").send({ email: `rot${i}@example.test` })).status);
+    expect(statuses).toEqual([...Array(10).fill(200), 429]);
+    expect((await from("198.51.100.8").send({ email: "victim@example.test" })).status).toBe(200);
+  });
+
+  it("plus-aliases share one mailbox's hourly budget", async () => {
+    mockDb.select.mockReturnValue(makeChain([]));
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = await request(app).post("/api/auth/forgot-password")
+        .set("X-Forwarded-For", `192.0.2.${i + 1}, 172.71.202.122`)
+        .send({ email: `inbox+${i}@example.test` });
+      statuses.push(r.status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    // A different mailbox is unaffected.
+    expect((await request(app).post("/api/auth/forgot-password").send({ email: "other+1@example.test" })).status).toBe(200);
   });
 
   // Non-vacuity of the leak assertions: the hash/token-hash a failed drizzle

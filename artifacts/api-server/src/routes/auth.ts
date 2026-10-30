@@ -255,6 +255,14 @@ router.get("/auth/user", async (req: Request, res: Response) => {
 const forgotGlobalLimiter = makeRateLimiter(120, 60 * 1000);
 const FORGOT_GLOBAL_KEY = "global";
 const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
+// SEC-4 — per client IP (real since `trust proxy: 2`), checked FIRST so one
+// caller can neither spend the global ceiling (locking everyone else out) nor
+// rotate addresses to send ~120 mails a minute.
+const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
+// SEC-4 — the per-address budget belongs to the MAILBOX: `a+1@x` and `a+2@x`
+// both land in `a@x`'s inbox, so they share one key. Rate-limit key only; the
+// lookup and the send still use the address as typed.
+const mailboxKey = (email: string) => email.replace(/\+[^@]*(?=@)/, "");
 // reset-password is unauthenticated and runs argon2 before its conditional
 // UPDATE (hashing after a SELECT would reintroduce the race), so a garbage
 // token costs as much CPU as a real one. What matters is argon2 CPU, so bound
@@ -266,6 +274,7 @@ let resetInFlight = 0;
 export function resetForgotPasswordLimitersForTests(): void {
   forgotGlobalLimiter.reset();
   forgotEmailLimiter.reset();
+  forgotIpLimiter.reset();
   resetInFlight = 0;
 }
 
@@ -308,9 +317,14 @@ async function issueResetToken(email: string): Promise<void> {
 router.post("/auth/forgot-password", (req: Request, res: Response) => {
   const parsed = ForgotPasswordBody.safeParse(withNormalizedEmail(req.body));
 
-  // `||` short-circuits, so a request already refused by the global cap does
-  // not also consume the address's hourly budget.
-  if (forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) || (parsed.success && forgotEmailLimiter.check(parsed.data.email))) {
+  // `||` short-circuits, so a request already refused by an earlier limiter
+  // does not also consume a later one's budget (an IP-refused flood never
+  // touches the global cap or anyone's hourly mailbox budget).
+  if (
+    forgotIpLimiter.check(req.ip ?? "unknown") ||
+    forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) ||
+    (parsed.success && forgotEmailLimiter.check(mailboxKey(parsed.data.email)))
+  ) {
     res.status(429).json({ error: "Too many reset requests, try again shortly" });
     return;
   }
