@@ -57,6 +57,28 @@ const inAnHour = () => new Date(Date.now() + 60 * 60 * 1000);
 const anHourAgo = () => new Date(Date.now() - 60 * 60 * 1000);
 
 describe("password reset against a real database", () => {
+  // SEC-2 (audit C2, pre-account hijack): a squatter registers the victim's
+  // address first; the victim recovers it through their mailbox. Every session
+  // issued before that reset must stop working, while the reset's own session works.
+  it("a completed reset revokes every session issued before it", async () => {
+    const email = `pwr-hijack-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+    const reg = await request(app).post("/api/auth/register").send({ email, password: "squatterpass1" });
+    expect(reg.status).toBe(201);
+    createdUserIds.push(reg.body.user.id);
+    const squatter = (reg.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+    expect((await request(app).get("/api/scenarios").set("Cookie", squatter)).status).toBe(200); // non-vacuity
+
+    const token = await plantToken(reg.body.user.id, inAnHour());
+    const reset = await request(app).post("/api/auth/reset-password").send({ token, password: "ownerpassword1" });
+    expect(reset.status).toBe(200);
+    const owner = (reset.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+
+    expect((await request(app).get("/api/scenarios").set("Cookie", squatter)).status).toBe(401);
+    expect((await request(app).get("/api/auth/user").set("Cookie", squatter)).body).toEqual({ user: null });
+    expect((await request(app).get("/api/scenarios").set("Cookie", owner)).status).toBe(200);
+    expect((await request(app).get("/api/auth/user").set("Cookie", owner)).body.user.email).toBe(email);
+  });
+
   it("accepts a live token, then refuses the same token a second time", async () => {
     const user = await registerFreshUser();
     const token = await plantToken(user.id, inAnHour());

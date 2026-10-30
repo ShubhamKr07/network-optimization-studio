@@ -515,6 +515,12 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     });
     return;
   }
+  if (outcome.kind === "user_busy") {
+    res.status(429)
+      .set("Retry-After", String(SOLVE_RETRY_AFTER_SECONDS))
+      .json({ error: "You already have a solve in progress. Wait for it to finish, then try again." });
+    return;
+  }
 
   posthog?.capture({
     distinctId: req.userId!,

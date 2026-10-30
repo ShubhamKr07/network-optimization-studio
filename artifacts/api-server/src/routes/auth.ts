@@ -17,7 +17,7 @@ import {
   resetPasswordBodyPasswordMin,
   resetPasswordBodyPasswordMax,
 } from "@workspace/api-zod";
-import { SESSION_COOKIE, SESSION_TTL_MS } from "../middlewares/auth.js";
+import { SESSION_COOKIE, SESSION_TTL_MS, sessionCookieValue, sessionUser } from "../middlewares/auth.js";
 import { posthog } from "../lib/posthog.js";
 import { withNormalizedEmail } from "../lib/normalizeEmail.js";
 import { sendEmail } from "../lib/email.js";
@@ -94,9 +94,9 @@ export function loginLimiterSizeForTests(): number {
   return loginLimiter.size();
 }
 
-function setSessionCookie(res: Response, userId: string) {
+function setSessionCookie(res: Response, user: { id: string; passwordHash: string | null }) {
   const crossOrigin = process.env.NODE_ENV === "production";
-  res.cookie(SESSION_COOKIE, userId, {
+  res.cookie(SESSION_COOKIE, sessionCookieValue(user), {
     httpOnly: true,
     signed: true,
     sameSite: crossOrigin ? "none" : "lax",
@@ -148,7 +148,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,
@@ -197,7 +197,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,
@@ -212,7 +212,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/logout", (req: Request, res: Response) => {
-  const userId = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
+  // Analytics only, so the unverified id prefix of the signed cookie is enough.
+  const userId = (req.signedCookies?.[SESSION_COOKIE] as string | undefined)?.split(".")[0];
   const crossOrigin = process.env.NODE_ENV === "production";
   res.clearCookie(SESSION_COOKIE, {
     path: "/",
@@ -231,16 +232,12 @@ router.post("/auth/logout", (req: Request, res: Response) => {
 });
 
 router.get("/auth/user", async (req: Request, res: Response) => {
-  const userId = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-  if (!userId) {
-    res.json(GetCurrentAuthUserResponse.parse({ user: null }));
-    return;
-  }
-  // No error binding: a failed drizzle query's message carries its params, i.e.
-  // the user id. See api-server/CLAUDE.md on DrizzleQueryError.
-  let user: typeof usersTable.$inferSelect | undefined;
+  // Same check as requireAuth (SEC-2): an expired or reset-revoked cookie is
+  // user: null here too. No error binding: a failed drizzle query's message
+  // carries its params, i.e. the user id. See api-server/CLAUDE.md on DrizzleQueryError.
+  let user: Awaited<ReturnType<typeof sessionUser>>;
   try {
-    [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    user = await sessionUser(req);
   } catch {
     logger.error({ step: "auth-user-lookup" }, "current user lookup failed");
     res.status(500).json({ error: "Could not load your account." });
@@ -258,6 +255,14 @@ router.get("/auth/user", async (req: Request, res: Response) => {
 const forgotGlobalLimiter = makeRateLimiter(120, 60 * 1000);
 const FORGOT_GLOBAL_KEY = "global";
 const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
+// SEC-4 — per client IP (real since `trust proxy: 2`), checked FIRST so one
+// caller can neither spend the global ceiling (locking everyone else out) nor
+// rotate addresses to send ~120 mails a minute.
+const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
+// SEC-4 — the per-address budget belongs to the MAILBOX: `a+1@x` and `a+2@x`
+// both land in `a@x`'s inbox, so they share one key. Rate-limit key only; the
+// lookup and the send still use the address as typed.
+const mailboxKey = (email: string) => email.replace(/\+[^@]*(?=@)/, "");
 // reset-password is unauthenticated and runs argon2 before its conditional
 // UPDATE (hashing after a SELECT would reintroduce the race), so a garbage
 // token costs as much CPU as a real one. What matters is argon2 CPU, so bound
@@ -269,6 +274,7 @@ let resetInFlight = 0;
 export function resetForgotPasswordLimitersForTests(): void {
   forgotGlobalLimiter.reset();
   forgotEmailLimiter.reset();
+  forgotIpLimiter.reset();
   resetInFlight = 0;
 }
 
@@ -311,9 +317,14 @@ async function issueResetToken(email: string): Promise<void> {
 router.post("/auth/forgot-password", (req: Request, res: Response) => {
   const parsed = ForgotPasswordBody.safeParse(withNormalizedEmail(req.body));
 
-  // `||` short-circuits, so a request already refused by the global cap does
-  // not also consume the address's hourly budget.
-  if (forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) || (parsed.success && forgotEmailLimiter.check(parsed.data.email))) {
+  // `||` short-circuits, so a request already refused by an earlier limiter
+  // does not also consume a later one's budget (an IP-refused flood never
+  // touches the global cap or anyone's hourly mailbox budget).
+  if (
+    forgotIpLimiter.check(req.ip ?? "unknown") ||
+    forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) ||
+    (parsed.success && forgotEmailLimiter.check(mailboxKey(parsed.data.email)))
+  ) {
     res.status(429).json({ error: "Too many reset requests, try again shortly" });
     return;
   }
@@ -393,7 +404,7 @@ async function handleResetPassword(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,

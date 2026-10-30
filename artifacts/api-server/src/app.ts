@@ -8,11 +8,9 @@ import { and, eq } from "drizzle-orm";
 import { db, scenariosTable } from "@workspace/db";
 import { MAX_IMPORT_BYTES, SUPER_NETWORK_MAX_BYTES } from "@workspace/import-schema";
 import router from "./routes";
-import { requireAuth } from "./middlewares/auth";
+import { requireAuth, SESSION_SECRET } from "./middlewares/auth";
 import { logger } from "./lib/logger";
 import { posthog } from "./lib/posthog";
-
-const COOKIE_SECRET = process.env.SESSION_SECRET || "arcadia-dev-secret";
 
 const app: Express = express();
 
@@ -68,7 +66,24 @@ app.use(
     origin: process.env.NODE_ENV === "production" ? allowedOrigins : true,
   }),
 );
-app.use(cookieParser(COOKIE_SECRET));
+app.use(cookieParser(SESSION_SECRET));
+// SEC-1 — CSRF. The production session cookie is SameSite=None (Studio and API
+// are different sites), so a browser attaches it to a cross-site form POST, and
+// CORS only withholds the response, it never blocks the request. A browser
+// always sends Origin on a cross-site POST/PATCH/DELETE; reject any that is not
+// allowlisted. No Origin + Sec-Fetch-Site: cross-site is also rejected; header-less
+// non-browser clients (curl, e2e_journey.py) carry no ambient cookie and pass.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== "production" || SAFE_METHODS.has(req.method)) return next();
+  const origin = req.get("origin");
+  const crossSite = origin ? !allowedOrigins.includes(origin) : req.get("sec-fetch-site") === "cross-site";
+  if (crossSite) {
+    res.status(403).json({ error: "cross_site_request_rejected" });
+    return;
+  }
+  next();
+});
 // SCU-2.P2.2 (B2.6; review #1) — the two import routes parse their own body
 // (route-scoped 2 MiB parser in routes/scenarios.ts, mounted after auth and
 // ownership). Every other route keeps this unchanged global parser.
@@ -96,14 +111,13 @@ async function patchBodyParser(req: Request, res: Response, next: NextFunction):
     scenarioWriteJsonBody(req, res, next);
   } catch (err) { next(err); }
 }
-// requireAuth (signed-cookie check, no DB; cookieParser ran above) goes BEFORE the
-// 2 MiB parser so an unauthenticated caller is 401'd without the body being read.
+// requireAuth (signed cookie + one users PK lookup; cookieParser ran above) goes BEFORE
+// the 2 MiB parser so an unauthenticated caller is 401'd without the body being read.
 app.use((req, res, next) => {
   if (IMPORT_BODY_PATH.test(req.path)) return next();
   if (!SCENARIO_WRITE(req.method, req.path)) return defaultJsonBody(req, res, next);
   requireAuth(req, res, (err?: unknown) => (err ? next(err) : void patchBodyParser(req, res, next)));
 });
-app.use(express.urlencoded({ extended: true }));
 
 // PostHog Express middleware: reads X-POSTHOG-SESSION-ID and
 // X-POSTHOG-DISTINCT-ID headers sent by posthog-js on the frontend so
