@@ -45,6 +45,20 @@ async function retireActiveJobs(userId: string = TEST_USER_ID): Promise<void> {
     .where(and(eq(solveJobsTable.userId, userId), inArray(solveJobsTable.status, ["queued", "running"])));
 }
 beforeEach(() => retireActiveJobs());
+// No test here needs a job to EXECUTE, and an in-process executing job also
+// counts against its user (executingJobsByUser), which retiring the DB row
+// cannot clear — so drain this process's pool for the whole file. Queued rows
+// are deleted before draining lifts, as in the CH4-11 block below.
+beforeEach(() => { setDraining(true); });
+afterEach(async () => {
+  try {
+    if (scenarioIds.length > 0) {
+      await db.delete(solveJobsTable).where(and(inArray(solveJobsTable.scenarioId, scenarioIds), eq(solveJobsTable.status, "queued")));
+    }
+  } finally {
+    setDraining(false);
+  }
+});
 
 afterAll(async () => {
   if (scenarioIds.length > 0) {

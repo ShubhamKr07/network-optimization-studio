@@ -205,6 +205,17 @@ describe("POST /api/auth/forgot-password", () => {
     expect((await from("198.51.100.8").send({ email: "victim@example.test" })).status).toBe(200);
   });
 
+  it("keys IPv6 clients by /64, so rotating addresses inside one prefix is one caller", async () => {
+    mockDb.select.mockReturnValue(makeChain([]));
+    const from = (ip: string) => request(app).post("/api/auth/forgot-password").set("X-Forwarded-For", `${ip}, 172.71.202.122`);
+    const statuses: number[] = [];
+    // Same /64 written ten different ways (compressed, padded, upper-case, full).
+    for (let i = 0; i < 10; i++) statuses.push((await from(`2001:db8:0:${i % 2 ? "0" : "0000"}:${i + 1}::${i}`).send({ email: `v6-${i}@example.test` })).status);
+    statuses.push((await from("2001:DB8:0:0:ffff:ffff:ffff:ffff").send({ email: "v6-x@example.test" })).status);
+    expect(statuses).toEqual([...Array(10).fill(200), 429]);
+    expect((await from("2001:db8:0:1::1").send({ email: "v6-y@example.test" })).status).toBe(200);
+  });
+
   it("plus-aliases share one mailbox's hourly budget", async () => {
     mockDb.select.mockReturnValue(makeChain([]));
     const statuses: number[] = [];

@@ -39,6 +39,9 @@ export async function sessionUser(req: Request) {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // Six path-less sub-routers each `router.use(requireAuth)`, so one request
+  // passes here several times; only this function sets req.userId.
+  if (req.userId) return next();
   let user: Awaited<ReturnType<typeof sessionUser>>;
   try {
     user = await sessionUser(req);

@@ -259,6 +259,17 @@ const forgotEmailLimiter = makeRateLimiter(3, 60 * 60 * 1000);
 // caller can neither spend the global ceiling (locking everyone else out) nor
 // rotate addresses to send ~120 mails a minute.
 const forgotIpLimiter = makeRateLimiter(10, 60 * 1000);
+// SEC-4 review — an IPv6 client is normally handed a whole /64, so a full
+// address is no caller identity there: key IPv6 by its /64 prefix. IPv4 and
+// IPv4-mapped (`::ffff:a.b.c.d`) addresses are keyed as they are.
+function clientKey(ip: string): string {
+  if (!ip.includes(":") || ip.toLowerCase().startsWith("::ffff:")) return ip;
+  const [head, tail] = ip.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
+  return `${groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
 // SEC-4 — the per-address budget belongs to the MAILBOX: `a+1@x` and `a+2@x`
 // both land in `a@x`'s inbox, so they share one key. Rate-limit key only; the
 // lookup and the send still use the address as typed.
@@ -321,7 +332,7 @@ router.post("/auth/forgot-password", (req: Request, res: Response) => {
   // does not also consume a later one's budget (an IP-refused flood never
   // touches the global cap or anyone's hourly mailbox budget).
   if (
-    forgotIpLimiter.check(req.ip ?? "unknown") ||
+    forgotIpLimiter.check(clientKey(req.ip ?? "unknown")) ||
     forgotGlobalLimiter.check(FORGOT_GLOBAL_KEY) ||
     (parsed.success && forgotEmailLimiter.check(mailboxKey(parsed.data.email)))
   ) {

@@ -3093,6 +3093,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       {
         onSuccess: job => setPollingJobId(job.jobId),
         onError: err => {
+          // SEC-3 — 409 means this scenario already has a solve in flight (e.g.
+          // started before a reload); its body carries that job's id, so attach
+          // to it exactly like a fresh enqueue. Duck-typed: ApiError is not
+          // exported (see lib/describeWriteError.ts).
+          const conflict = err as { status?: unknown; data?: { jobId?: unknown } | null };
+          if (conflict.status === 409 && typeof conflict.data?.jobId === "number") {
+            setPollingJobId(conflict.data.jobId);
+            return;
+          }
           const message = describeWriteError(err, "Could not enqueue the solve. Try again.");
           // Lock deliberately still held — the failure card is up, and
           // Close/Adjust (`resetSolveState`) own that release.

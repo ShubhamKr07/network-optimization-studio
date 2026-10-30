@@ -22,7 +22,10 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import app from "../app.js";
-import { requireAuth, sessionCookieValue, SESSION_TTL_MS } from "../middlewares/auth.js";
+import express from "express";
+import cookieParser from "cookie-parser";
+import { createHmac } from "node:crypto";
+import { requireAuth, sessionCookieValue, SESSION_SECRET, SESSION_TTL_MS } from "../middlewares/auth.js";
 
 type Chain = Record<string, ReturnType<typeof vi.fn>>;
 
@@ -335,6 +338,23 @@ describe("requireAuth middleware", () => {
     const { status } = await run("user-1");
     expect(status).toHaveBeenCalledWith(401);
     expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it("looks the session up once per request, however many routers mount requireAuth", async () => {
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const probe = express();
+    probe.use(cookieParser(SESSION_SECRET));
+    for (let i = 0; i < 6; i++) {
+      const r = express.Router();
+      r.use(requireAuth);
+      probe.use(r);
+    }
+    probe.get("/probe", (req, res) => res.json({ userId: req.userId }));
+    const v = sessionCookieValue(row);
+    const signed = `s:${v}.${createHmac("sha256", SESSION_SECRET).update(v).digest("base64").replace(/=+$/, "")}`;
+    const res = await request(probe).get("/probe").set("Cookie", `nos_session=${encodeURIComponent(signed)}`);
+    expect(res.body).toEqual({ userId: "user-1" });
+    expect(mockDb.select).toHaveBeenCalledTimes(1);
   });
 
   it("answers 500, not 401, when the lookup fails", async () => {
