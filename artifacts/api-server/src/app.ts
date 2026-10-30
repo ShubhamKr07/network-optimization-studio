@@ -69,6 +69,23 @@ app.use(
   }),
 );
 app.use(cookieParser(COOKIE_SECRET));
+// SEC-1 — CSRF. The production session cookie is SameSite=None (Studio and API
+// are different sites), so a browser attaches it to a cross-site form POST, and
+// CORS only withholds the response, it never blocks the request. A browser
+// always sends Origin on a cross-site POST/PATCH/DELETE; reject any that is not
+// allowlisted. No Origin + Sec-Fetch-Site: cross-site is also rejected; header-less
+// non-browser clients (curl, e2e_journey.py) carry no ambient cookie and pass.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== "production" || SAFE_METHODS.has(req.method)) return next();
+  const origin = req.get("origin");
+  const crossSite = origin ? !allowedOrigins.includes(origin) : req.get("sec-fetch-site") === "cross-site";
+  if (crossSite) {
+    res.status(403).json({ error: "cross_site_request_rejected" });
+    return;
+  }
+  next();
+});
 // SCU-2.P2.2 (B2.6; review #1) — the two import routes parse their own body
 // (route-scoped 2 MiB parser in routes/scenarios.ts, mounted after auth and
 // ownership). Every other route keeps this unchanged global parser.
@@ -103,7 +120,6 @@ app.use((req, res, next) => {
   if (!SCENARIO_WRITE(req.method, req.path)) return defaultJsonBody(req, res, next);
   requireAuth(req, res, (err?: unknown) => (err ? next(err) : void patchBodyParser(req, res, next)));
 });
-app.use(express.urlencoded({ extended: true }));
 
 // PostHog Express middleware: reads X-POSTHOG-SESSION-ID and
 // X-POSTHOG-DISTINCT-ID headers sent by posthog-js on the frontend so
