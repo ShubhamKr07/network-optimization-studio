@@ -22,7 +22,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import app from "../app.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, sessionCookieValue, SESSION_TTL_MS } from "../middlewares/auth.js";
 
 type Chain = Record<string, ReturnType<typeof vi.fn>>;
 
@@ -262,30 +262,89 @@ describe("GET /api/auth/user", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ user: null });
   });
+
+  it("returns the user for a cookie issued by login, and null once the password hash changes", async () => {
+    const row = { id: "user-1", email: "student@example.com", role: "student", passwordHash: await argon2.hash("supersecret") };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const login = await request(app).post("/api/auth/login").send({ email: row.email, password: "supersecret" });
+    const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+
+    const ok = await request(app).get("/api/auth/user").set("Cookie", cookie);
+    expect(ok.body).toEqual({ user: { id: "user-1", email: "student@example.com", role: "student" } });
+
+    mockDb.select.mockReturnValue(makeChain([{ ...row, passwordHash: await argon2.hash("reset-password") }]));
+    const revoked = await request(app).get("/api/auth/user").set("Cookie", cookie);
+    expect(revoked.body).toEqual({ user: null });
+  });
 });
 
+// SEC-2 — the session is bound to the user's current password hash and to an
+// issued-at time, checked against the users row on every request.
 describe("requireAuth middleware", () => {
-  it("returns 401 JSON and does not call next() when no session cookie is present", () => {
-    const req = { signedCookies: {} } as any;
+  const HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaGhhc2hoYXNo";
+  const row = { id: "user-1", email: "a@b.c", role: "student", passwordHash: HASH };
+
+  async function run(cookie: unknown) {
+    const req = { signedCookies: { nos_session: cookie } } as any;
     const json = vi.fn();
     const status = vi.fn(() => ({ json }));
-    const res = { status } as any;
     const next = vi.fn();
+    await requireAuth(req, { status } as any, next);
+    return { req, status, json, next };
+  }
 
-    requireAuth(req, res, next);
-
+  it("returns 401 JSON and does not call next() when no session cookie is present", async () => {
+    const { status, next } = await run(undefined);
     expect(status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("sets req.userId and calls next() when a session cookie is present", () => {
-    const req = { signedCookies: { nos_session: "user-1" } } as any;
-    const res = {} as any;
-    const next = vi.fn();
-
-    requireAuth(req, res, next);
-
+  it("sets req.userId and calls next() for a current session", async () => {
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const { req, next } = await run(sessionCookieValue(row));
     expect(req.userId).toBe("user-1");
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("401s a session issued before the password changed", async () => {
+    const cookie = sessionCookieValue(row);
+    mockDb.select.mockReturnValue(makeChain([{ ...row, passwordHash: HASH + "x" }]));
+    const { status, next } = await run(cookie);
+    expect(status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("401s a session older than SESSION_TTL_MS", async () => {
+    vi.useFakeTimers({ now: Date.now() - SESSION_TTL_MS - 1000 });
+    const cookie = sessionCookieValue(row);
+    vi.useRealTimers();
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const { status, next } = await run(cookie);
+    expect(status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("401s a deleted user", async () => {
+    const cookie = sessionCookieValue(row);
+    mockDb.select.mockReturnValue(makeChain([]));
+    const { status } = await run(cookie);
+    expect(status).toHaveBeenCalledWith(401);
+  });
+
+  it("401s a pre-SEC-2 cookie (bare user id) without a DB lookup", async () => {
+    const { status } = await run("user-1");
+    expect(status).toHaveBeenCalledWith(401);
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it("answers 500, not 401, when the lookup fails", async () => {
+    const cookie = sessionCookieValue(row);
+    const chain = makeChain([]);
+    (chain as { then: unknown }).then = (_ok: unknown, fail: (e: Error) => void) => Promise.reject(new Error("db down")).catch(fail);
+    mockDb.select.mockReturnValue(chain);
+    const { status, json, next } = await run(cookie);
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({ error: "Could not verify your session." });
+    expect(next).not.toHaveBeenCalled();
   });
 });

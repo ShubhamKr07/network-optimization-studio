@@ -83,7 +83,7 @@ describe("a failed user lookup never carries its params into an error sink", () 
     mockDb.select.mockReturnValue(failingSelect("victim-user-id-123", '"users"."id"'));
     const logSpy = vi.spyOn(logger, "error");
 
-    const res = await request(app).get("/api/auth/user").set("Cookie", `nos_session=${signed("victim-user-id-123")}`);
+    const res = await request(app).get("/api/auth/user").set("Cookie", `nos_session=${signed(`victim-user-id-123.${Date.now()}.tag`)}`);
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "Could not load your account." });

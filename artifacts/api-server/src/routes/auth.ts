@@ -17,7 +17,7 @@ import {
   resetPasswordBodyPasswordMin,
   resetPasswordBodyPasswordMax,
 } from "@workspace/api-zod";
-import { SESSION_COOKIE, SESSION_TTL_MS } from "../middlewares/auth.js";
+import { SESSION_COOKIE, SESSION_TTL_MS, sessionCookieValue, sessionUser } from "../middlewares/auth.js";
 import { posthog } from "../lib/posthog.js";
 import { withNormalizedEmail } from "../lib/normalizeEmail.js";
 import { sendEmail } from "../lib/email.js";
@@ -94,9 +94,9 @@ export function loginLimiterSizeForTests(): number {
   return loginLimiter.size();
 }
 
-function setSessionCookie(res: Response, userId: string) {
+function setSessionCookie(res: Response, user: { id: string; passwordHash: string | null }) {
   const crossOrigin = process.env.NODE_ENV === "production";
-  res.cookie(SESSION_COOKIE, userId, {
+  res.cookie(SESSION_COOKIE, sessionCookieValue(user), {
     httpOnly: true,
     signed: true,
     sameSite: crossOrigin ? "none" : "lax",
@@ -148,7 +148,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,
@@ -197,7 +197,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,
@@ -212,7 +212,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/logout", (req: Request, res: Response) => {
-  const userId = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
+  // Analytics only, so the unverified id prefix of the signed cookie is enough.
+  const userId = (req.signedCookies?.[SESSION_COOKIE] as string | undefined)?.split(".")[0];
   const crossOrigin = process.env.NODE_ENV === "production";
   res.clearCookie(SESSION_COOKIE, {
     path: "/",
@@ -231,16 +232,12 @@ router.post("/auth/logout", (req: Request, res: Response) => {
 });
 
 router.get("/auth/user", async (req: Request, res: Response) => {
-  const userId = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-  if (!userId) {
-    res.json(GetCurrentAuthUserResponse.parse({ user: null }));
-    return;
-  }
-  // No error binding: a failed drizzle query's message carries its params, i.e.
-  // the user id. See api-server/CLAUDE.md on DrizzleQueryError.
-  let user: typeof usersTable.$inferSelect | undefined;
+  // Same check as requireAuth (SEC-2): an expired or reset-revoked cookie is
+  // user: null here too. No error binding: a failed drizzle query's message
+  // carries its params, i.e. the user id. See api-server/CLAUDE.md on DrizzleQueryError.
+  let user: Awaited<ReturnType<typeof sessionUser>>;
   try {
-    [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    user = await sessionUser(req);
   } catch {
     logger.error({ step: "auth-user-lookup" }, "current user lookup failed");
     res.status(500).json({ error: "Could not load your account." });
@@ -393,7 +390,7 @@ async function handleResetPassword(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  setSessionCookie(res, user.id);
+  setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,

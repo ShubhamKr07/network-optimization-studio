@@ -59,6 +59,13 @@ vi.mock("../solver/jobRunner.js", () => ({
   QUEUE_DEPTH_LIMIT: 30,
 }));
 
+// SEC-2 — requireAuth's per-request users lookup. Returning the hash loginAs logged
+// in with keeps the real password-tag check in play without queueing a users row
+// ahead of every mocked db.select below.
+vi.mock("../lib/sessionUser.js", () => ({
+  findUserById: async (id: string) => ({ id, email: `${id}@example.com`, role: "student", passwordHash: testPasswordHash }),
+}));
+
 import app from "../app.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
