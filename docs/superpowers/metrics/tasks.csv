@@ -49,4 +49,5 @@ WFX,wfx-race,2026-10-24T18:15:50+05:30,2026-10-24T18:37:00+05:30,4,yes,no,unknow
 DU-2,design-upgrade-p2,2026-10-24T22:59:13+05:30,2026-10-25T08:41:30+05:30,16,no,unknown,2,582,unknown,35de1e93e99156164d8c877a6b1cbf196969c20a,no,0
 DU-3,design-upgrade-p3,2026-10-25T15:04:18+05:30,2026-10-26T00:00:33+05:30,unknown,no,unknown,2,536,unknown,7d1492cc4bb8653f2d7ee7ad4cc3d8bd8a8d3286,no,1
 DU-4,design-upgrade-p4,2026-10-27T18:03:30+05:30,2026-10-27T23:54:27+05:30,unknown,no,no,1,350,unknown,unknown,unknown,unknown
-SENTRY-4,fix/popup-refit-recursion,2026-10-29T14:08:25+05:30,2026-10-29T14:20:05+05:30,1,no,no,unknown,12,unknown,3163b339efb3d3258764534bbcd0d5928e4b956e,unknown,unknown
+SENTRY-4,fix/popup-refit-recursion,2026-10-29T14:08:25+05:30,2026-10-29T14:20:05+05:30,1,no,no,unknown,12,unknown,3163b339efb3d3258764534bbcd0d5928e4b956e,no,unknown
+SEC,sec-medium-fixes,2026-10-30T17:09:32+05:30,2026-10-30T17:29:29+05:30,unknown,yes,no,unknown,20,unknown,8d810ab7bc1aa9b3dfbdb37712d487e058634318,unknown,unknown

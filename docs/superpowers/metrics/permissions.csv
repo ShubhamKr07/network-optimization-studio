@@ -37,3 +37,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-25T18:38:11.167Z,DU-3,869,0,0,0,,101,0,
 2026-10-27T21:15:16.345Z,DU-4,869,0,0,0,,101,0,
 2026-10-29T08:51:02.646Z,SENTRY-4,869,0,0,0,,101,0,"corrected: record-task derived started_at 2026-09-12 (stale), so the audit window spanned 7 weeks of other sessions and attributed their 10 Bash denials here; this session transcript (start 2026-10-29T08:38:25Z) has 0 denials, so the recurring-denial gate does not apply"
+2026-10-30T12:02:27.781Z,SEC,870,1,0,0,,101,0,"corrected: run from the sec-medium-fixes worktree with the shared checkout's settings.local.json symlinked in; the worktree has no .harness allow-baseline, so the tool counted all 870 grants as new. Prior row allow_total 869, so +1"
