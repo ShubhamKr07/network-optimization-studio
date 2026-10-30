@@ -9,7 +9,7 @@
 // cycle per test — the predicate under test is entirely inside
 // markSucceeded; runJob's own wiring of it is covered by the mocked
 // jobRunner.test.ts/jobRunnerV2Cache.test.ts suites.
-import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from "vitest";
 import request from "supertest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, usersTable, scenariosTable, solveJobsTable, resultCacheTable } from "@workspace/db";
@@ -92,6 +92,15 @@ async function enqueueAndClaim(scenarioId: number, userId: string = TEST_USER_ID
   if (!claimed) throw new Error("unreachable: claim lost the race against itself");
   return { jobId: outcome.jobId, generation: claimed.claimGeneration!, enqueuedSolveInputRevision: claimed.enqueuedSolveInputRevision };
 }
+
+// SEC-3 — enqueueScenarioSolve refuses a user's second active (queued|running)
+// job, so every test starts with this file's user holding none, and a test
+// that enqueues twice retires the first job in between.
+async function retireActiveJobs(userId: string = TEST_USER_ID): Promise<void> {
+  await db.update(solveJobsTable).set({ status: "failed" })
+    .where(and(eq(solveJobsTable.userId, userId), inArray(solveJobsTable.status, ["queued", "running"])));
+}
+beforeEach(() => retireActiveJobs());
 
 async function bumpRevision(scenarioId: number): Promise<void> {
   await db.update(scenariosTable)
@@ -212,7 +221,13 @@ describe("A7 — inverted completion order / concurrent enqueues committing in i
     const scenario = await createScenario();
 
     const first = await enqueueAndClaim(scenario.id);
+    // SEC-3 means production can no longer have two active jobs for one user,
+    // so this inverted-order CAS is now defence in depth. To reach it, hide job
+    // 1 from the per-user guard for the second enqueue only, then restore it
+    // as the still-running job it was.
+    await db.update(solveJobsTable).set({ status: "failed" }).where(eq(solveJobsTable.id, first.jobId));
     const second = await enqueueAndClaim(scenario.id);
+    await db.update(solveJobsTable).set({ status: "running" }).where(eq(solveJobsTable.id, first.jobId));
     expect(second.jobId).toBeGreaterThan(first.jobId);
 
     // Job 2 (the newer request) completes and publishes FIRST.

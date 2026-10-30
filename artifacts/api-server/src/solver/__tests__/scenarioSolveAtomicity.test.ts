@@ -37,6 +37,15 @@ async function createScenario(
   return row!;
 }
 
+// SEC-3 — enqueueScenarioSolve refuses a user's second active (queued|running)
+// job, so every test starts with this file's user holding none, and a test
+// that enqueues twice retires the first job in between.
+async function retireActiveJobs(userId: string = TEST_USER_ID): Promise<void> {
+  await db.update(solveJobsTable).set({ status: "failed" })
+    .where(and(eq(solveJobsTable.userId, userId), inArray(solveJobsTable.status, ["queued", "running"])));
+}
+beforeEach(() => retireActiveJobs());
+
 afterAll(async () => {
   if (scenarioIds.length > 0) {
     await db.delete(solveJobsTable).where(inArray(solveJobsTable.scenarioId, scenarioIds));
@@ -191,6 +200,7 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
     const [firstJob] = await db.select().from(solveJobsTable).where(eq(solveJobsTable.id, firstOutcome.jobId));
     expect(firstJob!.enqueuedSolveInputRevision).toBe(1);
 
+    await retireActiveJobs();
     // A real geometric input mutation, exactly the way PATCH /scenarios/:id
     // increments it (DB-side SQL increment).
     await db.update(scenariosTable)
@@ -224,6 +234,7 @@ describe("A1 — enqueueScenarioSolve (the atomic enqueue authority transaction)
     const scenario = await createScenario(TEST_USER_ID);
 
     const outcomeA = await enqueueScenarioSolve(scenario.id, TEST_USER_ID);
+    await retireActiveJobs();
     const outcomeB = await enqueueScenarioSolve(scenario.id, TEST_USER_ID);
     if (outcomeA.kind !== "queued" || outcomeB.kind !== "queued") throw new Error("unreachable");
     expect(outcomeB.jobId).toBeGreaterThan(outcomeA.jobId);
@@ -349,6 +360,74 @@ describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", (
     const secondSolve = await request(app).post(`/api/scenarios/${created.body.id}/solve`).set("Cookie", cookie);
     expect(secondSolve.status).toBe(409);
     expect(secondSolve.body.jobId).toBe(firstSolve.body.jobId);
+  });
+});
+
+// SEC-3 — at most one active job per user, across scenarios and models.
+// Draining for the same reason as CH4-11 above: the first job must still be
+// active when the second enqueue arrives.
+describe("SEC-3 — one active solve job per user", () => {
+  beforeEach(async () => {
+    setDraining(true);
+    await db.insert(usersTable).values({ id: OTHER_USER_ID, email: `${OTHER_USER_ID}@example.test` }).onConflictDoNothing();
+  });
+  afterEach(async () => {
+    try {
+      await db.delete(solveJobsTable).where(and(inArray(solveJobsTable.scenarioId, scenarioIds), eq(solveJobsTable.status, "queued")));
+    } finally {
+      setDraining(false);
+    }
+  });
+
+  it("refuses a second scenario's enqueue with user_busy while another user's enqueue still queues", async () => {
+    const a = await createScenario(TEST_USER_ID);
+    const b = await createScenario(TEST_USER_ID);
+    const other = await createScenario(OTHER_USER_ID);
+
+    expect((await enqueueScenarioSolve(a.id, TEST_USER_ID)).kind).toBe("queued");
+    expect(await enqueueScenarioSolve(b.id, TEST_USER_ID)).toEqual({ kind: "user_busy" });
+    expect((await enqueueScenarioSolve(other.id, OTHER_USER_ID)).kind).toBe("queued");
+
+    const bJobs = await db.select().from(solveJobsTable).where(eq(solveJobsTable.scenarioId, b.id));
+    expect(bJobs.length).toBe(0);
+  });
+
+  it("a second enqueue on the SAME scenario is a conflict for every model, not only max-coverage-us", async () => {
+    const scenario = await createScenario(TEST_USER_ID);
+    const first = await enqueueScenarioSolve(scenario.id, TEST_USER_ID);
+    if (first.kind !== "queued") throw new Error("unreachable");
+    expect(await enqueueScenarioSolve(scenario.id, TEST_USER_ID)).toEqual({ kind: "conflict", jobId: first.jobId });
+  });
+
+  it("two concurrent enqueues on different scenarios of one user leave exactly one active job", async () => {
+    const a = await createScenario(TEST_USER_ID);
+    const b = await createScenario(TEST_USER_ID);
+    const outcomes = await Promise.all([enqueueScenarioSolve(a.id, TEST_USER_ID), enqueueScenarioSolve(b.id, TEST_USER_ID)]);
+    expect(outcomes.map((o) => o.kind).sort()).toEqual(["queued", "user_busy"]);
+    const active = await db.select().from(solveJobsTable)
+      .where(and(eq(solveJobsTable.userId, TEST_USER_ID), inArray(solveJobsTable.status, ["queued", "running"])));
+    expect(active.length).toBe(1);
+  });
+
+  it("POST /scenarios/:id/solve on a second scenario answers 429 with Retry-After", async () => {
+    const email = `sec3-busy-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    registeredUserIds.push(registerRes.body.user.id);
+    const cookie = (registerRes.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
+    const ids: number[] = [];
+    for (const name of ["sec3 a", "sec3 b"]) {
+      const created = await request(app).post("/api/scenarios").set("Cookie", cookie)
+        .send({ name, modelId: "p-median-us", inputs: validPmedianInputs });
+      expect(created.status).toBe(201);
+      scenarioIds.push(created.body.id);
+      ids.push(created.body.id);
+    }
+
+    expect((await request(app).post(`/api/scenarios/${ids[0]}/solve`).set("Cookie", cookie)).status).toBe(202);
+    const busy = await request(app).post(`/api/scenarios/${ids[1]}/solve`).set("Cookie", cookie);
+    expect(busy.status).toBe(429);
+    expect(busy.headers["retry-after"]).toBeDefined();
+    expect(busy.body.error).toMatch(/already have a solve in progress/);
   });
 });
 

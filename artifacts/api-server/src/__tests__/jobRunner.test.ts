@@ -223,6 +223,32 @@ describe("jobRunner", () => {
     expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === "optimal")).toBe(true);
   });
 
+  // SEC-3 — a stored timeLimitSec above the server ceiling still solves, but
+  // CBC's limit (the stdin payload) and the watchdog are both clamped.
+  it("clamps an oversized timeLimitSec to MAX_SOLVE_TIME_LIMIT_SEC for the payload and the watchdog", async () => {
+    const { MAX_SOLVE_TIME_LIMIT_SEC } = await import("../solver/jobRunner.js");
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 1_000_000 } });
+    await vi.waitFor(() => expect(child.stdin.write).toHaveBeenCalled());
+
+    const payload = JSON.parse(String(child.stdin.write.mock.calls[0]![0])) as { timeLimitSec: number };
+    expect(payload.timeLimitSec).toBe(MAX_SOLVE_TIME_LIMIT_SEC);
+    const delays = timeoutSpy.mock.calls.map((c) => c[1]);
+    expect(delays).toContain(MAX_SOLVE_TIME_LIMIT_SEC * 1000 + 50); // SOLVE_TIMEOUT_GRACE_MS=50, top of file
+    expect(delays).not.toContain(1_000_000 * 1000 + 50);
+    timeoutSpy.mockRestore();
+
+    emitFd3(child, SUCCESS_ENVELOPE);
+    child.emit("close", 0);
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+  });
+
   // A3 — spawn() is now called with a detached process group + a 4-entry
   // stdio array (index 3 is the fd3 IPC channel), and NOS_SOLVE_WORKDIR set
   // in the child's env.

@@ -337,7 +337,7 @@ paths:
         "404":
           description: Not found
         "409":
-          description: A solve job is already queued or running for this scenario (CH4-11 — at most one active job per scenario). The body carries the in-flight `jobId` so the client can attach to the running job instead of retrying.
+          description: A solve job is already queued or running for this scenario (CH4-11; SEC-3 — at most one active job per user, any model). The body carries the in-flight `jobId` so the client can attach to the running job instead of retrying.
           content:
             application/json:
               schema:
@@ -345,7 +345,7 @@ paths:
         "422":
           description: Validation errors prevent solving, or (p-median-us) the scenario's network edits fail the semantic precheck (B2.1) — body carries the same `errors` shape as `GET /scenarios/{scenarioId}/precheck`
         "429":
-          description: Solver worker pool is at capacity (queue depth threshold exceeded, P1.1); retry after the given delay
+          description: Solver worker pool is at capacity (queue depth threshold exceeded, P1.1), or (SEC-3) the user already has an active solve job on another scenario; retry after the given delay
           headers:
             Retry-After:
               description: Suggested number of seconds to wait before retrying
