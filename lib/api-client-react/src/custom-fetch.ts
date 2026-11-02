@@ -199,6 +199,21 @@ export class ApiError<T = unknown> extends Error {
   }
 }
 
+/**
+ * The request never got a response: offline, DNS, or a gateway dropping it.
+ * fetch() signals this with a browser-specific TypeError ("Failed to fetch",
+ * "Load failed", ...); naming it here means callers never have to guess from
+ * `TypeError`, which ordinary client-side bugs also throw.
+ */
+export class NetworkError extends Error {
+  readonly name = "NetworkError";
+
+  constructor(cause: unknown) {
+    super("Network request failed", { cause });
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export class ResponseParseError extends Error {
   readonly name = "ResponseParseError";
   readonly status: number;
@@ -360,12 +375,19 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, {
-    ...init,
-    method,
-    headers,
-    credentials: init.credentials ?? "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      ...init,
+      method,
+      headers,
+      credentials: init.credentials ?? "include",
+    });
+  } catch (cause) {
+    // An abort is a deliberate cancellation, not a network failure.
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new NetworkError(cause);
+  }
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

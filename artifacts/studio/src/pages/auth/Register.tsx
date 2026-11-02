@@ -36,9 +36,7 @@ export function Register() {
   }
 
   const errorMessage = registerUser.isError
-    ? (registerUser.error as { status?: number })?.status === 409
-      ? "An account with this email already exists."
-      : describeWriteError(registerUser.error, "Could not create the account. Please try again.")
+    ? describeWriteError(registerUser.error, "Could not create the account. Please try again.")
     : null;
 
   return (

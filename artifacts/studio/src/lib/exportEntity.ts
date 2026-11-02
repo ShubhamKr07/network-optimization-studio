@@ -32,7 +32,7 @@ export interface DownloadEntityExportOptions {
 // generated `ApiError` class (it isn't re-exported from the package index —
 // see custom-fetch.ts), so it duck-types the same shape every other
 // ApiError-catching call site in this codebase already relies on (e.g.
-// Register.tsx's `(err as { status?: number })?.status === 409`).
+// describeWriteError.ts's `isApiErrorShaped`).
 const LEGACY_RESULT_REQUIRES_RESOLVE = "LEGACY_RESULT_REQUIRES_RESOLVE";
 
 function isLegacyResolveRejection(
