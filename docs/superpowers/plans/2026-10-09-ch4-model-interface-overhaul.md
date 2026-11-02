@@ -1721,7 +1721,7 @@ Expected: 5 migrated, then `migrated: []` with the same 5 ids under `alreadyMigr
 
 - [ ] **Step 6: Write the runbook**
 
-Create `docs/ops/ch4-miles-migration-runbook.md` covering: that production's Chapter 4 scenario count is **unmeasurable from an agent session** (`query_render_postgres` connects from `35.227.164.209`, not on `nos-postgres`'s allowlist, so it needs `psql` from an allowlisted host); a `SELECT count(*) FROM scenarios WHERE model_id = 'max-coverage-us'` pre-check; the `--dry-run` stage and what to do with any `skipped` row; the real run; a post-check that every row has `highServiceDistMi`; and an explicit statement that **this runbook IS idempotent** — unlike `docs/ops/timestamptz-migration.md`, which silently double-converts — because of the presence-key guard.
+Create `docs/ops/ch4-miles-migration-runbook.md` covering: that production's Chapter 4 scenario count is **unmeasurable from an agent session** (`query_render_postgres` connects from `<db external IP>`, not on `nos-postgres`'s allowlist, so it needs `psql` from an allowlisted host); a `SELECT count(*) FROM scenarios WHERE model_id = 'max-coverage-us'` pre-check; the `--dry-run` stage and what to do with any `skipped` row; the real run; a post-check that every row has `highServiceDistMi`; and an explicit statement that **this runbook IS idempotent** — unlike `docs/ops/timestamptz-migration.md`, which silently double-converts — because of the presence-key guard.
 
 - [ ] **Step 7: Commit**
 

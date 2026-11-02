@@ -6,7 +6,7 @@ describe("CORS origin handling", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    process.env = { ...ORIGINAL_ENV };
+    process.env = { ...ORIGINAL_ENV, SESSION_SECRET: "test-secret" };
   });
 
   afterEach(() => {

@@ -12,7 +12,7 @@ describe("CSRF origin guard", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    process.env = { ...ORIGINAL_ENV, NODE_ENV: "production", CORS_ALLOWED_ORIGIN: STUDIO };
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: "production", CORS_ALLOWED_ORIGIN: STUDIO, SESSION_SECRET: "test-secret" };
   });
 
   afterEach(() => {
