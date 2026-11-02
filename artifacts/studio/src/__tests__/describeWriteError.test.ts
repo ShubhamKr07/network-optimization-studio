@@ -89,15 +89,20 @@ describe("describeWriteError", () => {
     expect(describeWriteError(err)).toBe("Something went wrong. Please try again.");
   });
 
-  // A request the network never delivered (offline, DNS, or a corporate
-  // gateway dropping it) makes fetch reject with a TypeError whose text varies
-  // by browser. None of those strings is a sentence a student can act on.
-  it.each(["Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."])(
-    "names a network failure instead of passing %j through",
-    (message) => {
-      const out = describeWriteError(new TypeError(message), "fallback");
-      expect(out).toBe(NETWORK_ERROR_MESSAGE);
-      expect(out).not.toContain(message);
-    },
-  );
+  // custom-fetch.ts names a request the network never delivered (offline,
+  // DNS, a corporate gateway dropping it) as a NetworkError. Duck-typed by
+  // name: the class is not re-exported, and studio tests mock the package.
+  it("names a network failure instead of passing the browser's text through", () => {
+    const err = Object.assign(new Error("Failed to fetch"), { name: "NetworkError" });
+    const out = describeWriteError(err, "fallback");
+    expect(out).toBe(NETWORK_ERROR_MESSAGE);
+    expect(out).not.toContain("Failed to fetch");
+  });
+
+  // A client-side bug (e.g. in an export's row builder) is also a TypeError;
+  // calling it a network failure would send the student after the wrong thing.
+  it("does not call a client-side TypeError a network failure", () => {
+    const out = describeWriteError(new TypeError("Cannot read properties of undefined (reading 'x')"));
+    expect(out).not.toBe(NETWORK_ERROR_MESSAGE);
+  });
 });

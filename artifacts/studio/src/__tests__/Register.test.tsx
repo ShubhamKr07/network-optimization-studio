@@ -68,7 +68,7 @@ describe("Register", () => {
   });
 
   it("shows a duplicate-email message on 409 without mentioning password match", () => {
-    registerState = { isPending: false, isError: true, error: { status: 409 } };
+    registerState = { isPending: false, isError: true, error: { status: 409, data: { error: "An account with this email already exists" } } };
     render(<Register />);
     const alert = screen.getByTestId("alert-register-error");
     expect(alert).toHaveTextContent(/already exists/i);
@@ -84,7 +84,7 @@ describe("Register", () => {
   // 2026-11-02: a corporate gateway dropped the signup POST and the student was
   // told to "check your details" — which were fine.
   it("says the server could not be reached when the request never arrived", () => {
-    registerState = { isPending: false, isError: true, error: new TypeError("Failed to fetch") };
+    registerState = { isPending: false, isError: true, error: Object.assign(new Error("Failed to fetch"), { name: "NetworkError" }) };
     render(<Register />);
     const alert = screen.getByTestId("alert-register-error");
     expect(alert).toHaveTextContent(/couldn't reach the server/i);

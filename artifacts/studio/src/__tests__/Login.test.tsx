@@ -77,11 +77,20 @@ describe("Login", () => {
 
   // A dropped request must not read as a wrong password.
   it("says the server could not be reached when the request never arrived", () => {
-    loginState = { isPending: false, isError: true, error: new TypeError("Failed to fetch") };
+    loginState = { isPending: false, isError: true, error: Object.assign(new Error("Failed to fetch"), { name: "NetworkError" }) };
     render(<Login />);
     const alert = screen.getByTestId("alert-login-error");
     expect(alert).toHaveTextContent(/couldn't reach the server/i);
     expect(alert.textContent).not.toMatch(/invalid email or password/i);
+  });
+
+  // A gateway or proxy answering with no usable body must not leak "HTTP 502 …".
+  it("falls back to a plain sentence when the failure carries no usable body", () => {
+    loginState = { isPending: false, isError: true, error: Object.assign(new Error("HTTP 502 Bad Gateway: <html>"), { status: 502, data: "<html>bad gateway</html>" }) };
+    render(<Login />);
+    const alert = screen.getByTestId("alert-login-error");
+    expect(alert).toHaveTextContent("Could not log in. Please try again.");
+    expect(alert.textContent).not.toMatch(/HTTP 502/);
   });
 
   it("shows the rate-limit sentence on 429, not a wrong-password message", () => {

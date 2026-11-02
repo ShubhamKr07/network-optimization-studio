@@ -60,12 +60,9 @@ export function describeWriteError(err: unknown, fallback: string = GENERIC): st
     if (detail) return detail;
     if (label) return label;
   }
-  // fetch rejects with a TypeError when the request never got a response
-  // (offline, DNS, a corporate gateway dropping it); its text varies by browser
-  // ("Failed to fetch", "Load failed", ...) and tells a student nothing.
-  // ponytail: custom-fetch's own config TypeErrors (e.g. a GET with a body)
-  // land here too; they are programmer errors that fail in development.
-  if (err instanceof TypeError && !isApiErrorShaped(err)) return NETWORK_ERROR_MESSAGE;
+  // custom-fetch.ts's NetworkError: the request never got a response. Matched
+  // by name for the same reason as isApiErrorShaped (not re-exported).
+  if (asRecord(err)?.name === "NetworkError") return NETWORK_ERROR_MESSAGE;
   if (err instanceof Error && !isApiErrorShaped(err)) {
     // A bare Error (not ApiError-shaped) carries no HTTP prefix convention to
     // worry about; an ApiError would have been handled by the `data` branch
