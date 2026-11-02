@@ -28,7 +28,7 @@ export const cookieAttributes: Check = async (env, ctx) => {
   // register response — but leaving it unreported is not.
   if (res.ok) ctx.createdAccounts.push(email);
   if (setCookie) ctx.cookieJar.value = setCookie.split(";")[0];
-  const isProd = env.apiBase.includes("onrender.com");
+  const isProd = /^https:\/\//i.test(env.apiBase);
   const hasSecure = !!setCookie && /;\s*Secure/i.test(setCookie);
   const hasSameSiteNone = !!setCookie && /;\s*SameSite=None/i.test(setCookie);
   // In production both are required; locally (http) Secure+None are correctly absent, so only

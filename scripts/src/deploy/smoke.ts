@@ -15,8 +15,8 @@ export const DEPLOYS_HEADER = ["deployed_at", "service", "sha", "smoke_pass", "f
 // Current operational defaults — NOT canonical project state. Documented in docs/ops/smoke.md;
 // override with --api-base/--studio-base flags or NOS_API_BASE/NOS_STUDIO_BASE env.
 const DEFAULTS = {
-  production: { apiBase: "https://nos-api-uwf8.onrender.com", studioBase: "https://nos-studio.onrender.com" },
-  preview: { apiBase: "https://nos-api-uwf8.onrender.com", studioBase: "https://nos-studio.onrender.com" },
+  production: { apiBase: "https://api.networkdesignbook.com", studioBase: "https://app.networkdesignbook.com" },
+  preview: { apiBase: "https://api.networkdesignbook.com", studioBase: "https://nos-studio.onrender.com" },
 };
 
 export interface SmokeArgs {

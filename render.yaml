@@ -50,7 +50,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: CORS_ALLOWED_ORIGIN
-        value: https://nos-studio.onrender.com,https://networkdesignbook.com,https://www.networkdesignbook.com
+        value: https://nos-studio.onrender.com,https://app.networkdesignbook.com,https://networkdesignbook.com,https://www.networkdesignbook.com
       - key: LOG_LEVEL
         value: info
       # PostHog analytics — read by src/lib/posthog.ts. Without
@@ -93,10 +93,12 @@ services:
                                   # vite.config.ts just needs it present
                                   # and numeric at build time (G6)
       - key: VITE_API_BASE_URL
-        # nos-api's actual assigned URL (the bare "nos-api" name was
-        # already taken globally; Render appended a random suffix) —
-        # confirmed live at deploy time, not the name-derived guess.
-        value: https://nos-api-uwf8.onrender.com
+        # nos-api's custom domain (2026-11-02). The onrender.com URL
+        # (https://nos-api-uwf8.onrender.com) stays enabled as the rollback
+        # target; corporate gateways blocked credential POSTs to it.
+        # nos-studio is Dashboard-managed: on rollback change the Dashboard
+        # value AND this line, or a Blueprint sync undoes the rollback.
+        value: https://api.networkdesignbook.com
       - key: NODE_VERSION
         value: "24"
       # Frontend PostHog (public project key — safe to expose, it's an ingest

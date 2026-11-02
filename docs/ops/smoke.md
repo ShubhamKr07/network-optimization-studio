@@ -16,7 +16,7 @@ NOS_API_BASE=http://localhost:3001 NOS_STUDIO_BASE=http://localhost:5174 pnpm sm
 ```
 
 Target resolution order: `--api-base`/`--studio-base` flags → `NOS_API_BASE`/`NOS_STUDIO_BASE` env →
-the current live fallback (`https://nos-api-uwf8.onrender.com` / `https://nos-studio.onrender.com`).
+the current live fallback (`https://api.networkdesignbook.com` / `https://app.networkdesignbook.com`).
 The fallback lives in `scripts/src/deploy/smoke.ts`'s `DEFAULTS` with a pointer back to this doc; it is
 a documented default, not immutable project state.
 
