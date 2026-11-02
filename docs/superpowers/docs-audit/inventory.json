@@ -611,7 +611,7 @@
         "line": 6
       }
     ],
-    "lastChange": "2026-10-05",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
       "CLAUDE.md",
       "docs/ops/v2-write-activation.md"
@@ -628,7 +628,8 @@
       "routes": [],
       "services": [
         "nos-api",
-        "nos-studio"
+        "nos-studio",
+        "nos-postgres"
       ],
       "files": [
         "solvers/*/manifest.json",
@@ -735,26 +736,26 @@
       },
       {
         "text": "Harness self-monitoring (OBS-1…OBS-11)",
-        "line": 55
+        "line": 56
       },
       {
         "text": "Hard rules",
-        "line": 64
+        "line": 65
       },
       {
         "text": "Branch discipline (standing)",
-        "line": 85
+        "line": 86
       },
       {
         "text": "v2 implementation progress",
-        "line": 137
+        "line": 139
       },
       {
         "text": "Gotchas",
-        "line": 150
+        "line": 152
       }
     ],
-    "lastChange": "2026-10-10",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -782,7 +783,6 @@
       "docs/superpowers/gates/doc_drift.md",
       "docs/superpowers/gates/flaky_test.md",
       "docs/superpowers/gates/other.md",
-      "docs/superpowers/metrics/README.md",
       "lib/db/CLAUDE.md"
     ],
     "references": {
@@ -795,7 +795,8 @@
         "AND"
       ],
       "symbols": [
-        "SolveInput"
+        "SolveInput",
+        "Prefer"
       ],
       "routes": [
         "POST /scenarios/:id/solve",
@@ -1356,92 +1357,15 @@
         "line": 96
       },
       {
-        "text": "Research & engineering notes",
-        "line": 153
-      },
-      {
-        "text": "We found a real bug in the published textbook notebook",
-        "line": 157
-      },
-      {
-        "text": "Goldens transcribed verbatim, then defended",
-        "line": 161
-      },
-      {
-        "text": "Business rules enter as data, never as branches",
-        "line": 169
-      },
-      {
-        "text": "Scenario-local network edits",
-        "line": 173
-      },
-      {
-        "text": "Units, geography, and data provenance",
-        "line": 177
-      },
-      {
-        "text": "Security posture",
-        "line": 183
-      },
-      {
-        "text": "A recurring bug class, closed by construction",
-        "line": 187
-      },
-      {
-        "text": "The development harness measures itself",
-        "line": 191
-      },
-      {
-        "text": "Bugs only production could find",
-        "line": 195
-      },
-      {
-        "text": "Quality gates",
-        "line": 201
-      },
-      {
-        "text": "Getting started",
-        "line": 223
-      },
-      {
-        "text": "API (needs DATABASE_URL)",
-        "line": 231
-      },
-      {
-        "text": "schema push (no migration files — Drizzle push)",
-        "line": 235
-      },
-      {
-        "text": "frontend, proxied to the API so cookies are same-origin",
-        "line": 238
-      },
-      {
-        "text": "1. edit lib/api-spec/openapi.yaml",
-        "line": 248
-      },
-      {
-        "text": "2. regenerate — never hand-edit src/generated/",
-        "line": 249
-      },
-      {
-        "text": "3. commit spec + regenerated output together",
-        "line": 251
-      },
-      {
-        "text": "Deploying",
-        "line": 254
-      },
-      {
         "text": "Credits",
-        "line": 260
+        "line": 153
       }
     ],
-    "lastChange": "2026-09-29",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
       "NETWORK_MIGRATION_PLAN.md",
-      "application-audit-and-remediation-plan.md",
       "docs/CHANGELOG-implementation.md",
       "docs/superpowers/HARNESS.md",
       "model-integration-precheck.md"
@@ -1449,9 +1373,7 @@
     "references": {
       "paths": [],
       "scripts": [],
-      "envVars": [
-        "VITE_API_BASE_URL"
-      ],
+      "envVars": [],
       "symbols": [],
       "routes": [
         "GET /api/models",
@@ -1459,161 +1381,34 @@
         "PATCH /scenarios/:id",
         "GET /scenarios/:id/solve-jobs/:jobId"
       ],
-      "services": [
-        "nos-studio",
-        "nos-api",
-        "nos-postgres"
-      ],
+      "services": [],
       "files": []
     }
   },
   {
     "path": "application-audit-and-remediation-plan.md",
     "origin": "repo",
-    "title": "Application audit & remediation plan",
+    "title": "Application audit & remediation plan (moved)",
     "headings": [
       {
-        "text": "Application audit & remediation plan",
+        "text": "Application audit & remediation plan (moved)",
         "line": 1
-      },
-      {
-        "text": "A. Security",
-        "line": 16
-      },
-      {
-        "text": "A1 — Session secret falls back to a public constant `[C0]`",
-        "line": 18
-      },
-      {
-        "text": "A2 — No server-side session store `[C1]`",
-        "line": 56
-      },
-      {
-        "text": "A3 — No security headers `[C2]`",
-        "line": 69
-      },
-      {
-        "text": "A4 — Rate limiting is per-process, per-IP, and login-only `[C2]`",
-        "line": 77
-      },
-      {
-        "text": "A5 — CORS misconfiguration fails silently in production `[C2]`",
-        "line": 91
-      },
-      {
-        "text": "A6 — CSV formula injection `[C2, verify]`",
-        "line": 104
-      },
-      {
-        "text": "B. Documentation drift",
-        "line": 115
-      },
-      {
-        "text": "B1 — The README describes a subsystem that does not exist `[C1 for planning]`",
-        "line": 117
-      },
-      {
-        "text": "B2 — Three model ids are accepted but unimplementable `[C2]`",
-        "line": 149
-      },
-      {
-        "text": "C. Reliability & operations",
-        "line": 165
-      },
-      {
-        "text": "C1 — `/healthz` is a stub `[C1]`",
-        "line": 167
-      },
-      {
-        "text": "C2 — Solve jobs orphaned on restart `[C1]`",
-        "line": 183
-      },
-      {
-        "text": "C3 — Cache failures are invisible `[C2]`",
-        "line": 200
-      },
-      {
-        "text": "C4 — No production migration path `[C1]`",
-        "line": 208
-      },
-      {
-        "text": "C5 — Single-process assumptions block horizontal scaling `[C2]`",
-        "line": 217
-      },
-      {
-        "text": "C6 — Python runtime unverified at boot `[C2]`",
-        "line": 226
-      },
-      {
-        "text": "C7 — Solver stderr discarded `[C2]`",
-        "line": 233
-      },
-      {
-        "text": "D. Frontend",
-        "line": 243
-      },
-      {
-        "text": "D1 — No error boundary `[C1]`",
-        "line": 245
-      },
-      {
-        "text": "D2 — Query client has no defaults `[C2]`",
-        "line": 257
-      },
-      {
-        "text": "D3 — Job polling has no terminal bound `[C2]`",
-        "line": 266
-      },
-      {
-        "text": "D4 — Map bounds already generalized `[no action]`",
-        "line": 273
-      },
-      {
-        "text": "E. Remediation plan",
-        "line": 282
-      },
-      {
-        "text": "Phase R0 — Security & safety (do first, ship alone)",
-        "line": 284
-      },
-      {
-        "text": "Phase R1 — Operational correctness",
-        "line": 297
-      },
-      {
-        "text": "Phase R2 — Hardening & hygiene",
-        "line": 309
-      },
-      {
-        "text": "Sequencing note",
-        "line": 324
-      },
-      {
-        "text": "F. Severity summary",
-        "line": 334
-      },
-      {
-        "text": "G. What this audit did not cover",
-        "line": 350
       }
     ],
-    "lastChange": "2026-07-24",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
       "chapter-10-two-echelon-gold-refinery-integration.md",
+      "docs/CHANGELOG-implementation.md",
       "model-integration-precheck.md"
     ],
     "references": {
       "paths": [],
       "scripts": [],
       "envVars": [],
-      "symbols": [
-        "Returns"
-      ],
+      "symbols": [],
       "routes": [],
       "services": [],
-      "files": [
-        "artifacts/api-server/src/app.ts"
-      ]
+      "files": []
     }
   },
   {
@@ -1735,7 +1530,7 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-10",
+    "lastChange": "2026-10-24",
     "inboundLinks": [
       ".claude/agents/frontend-engineer.md",
       "CLAUDE.md",
@@ -1783,6 +1578,7 @@
     "inboundLinks": [
       "CLAUDE.md",
       "docs/CHANGELOG-implementation.md",
+      "docs/superpowers/flake-registry.md",
       "docs/superpowers/gates/config_preflight.md"
     ],
     "references": {
@@ -2163,315 +1959,1055 @@
         "line": 1253
       },
       {
-        "text": "2026-09-30 — Postgres role investigation: Path A done, Path B closed won't-do",
+        "text": "2026-09-30 — Postgres role investigation",
         "line": 1269
       },
       {
         "text": "Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)",
-        "line": 1324
+        "line": 1273
       },
       {
         "text": "Chapter 5 delivery rework — warehouses/customers CSV export/import (`ch5-edit-11`) (2026-09-29)",
-        "line": 1441
+        "line": 1390
       },
       {
         "text": "Chapter 5 editable inputs — retro: ten assertions that could not fail (`ch5-editable`, 2026-09-30)",
-        "line": 1563
+        "line": 1512
       },
       {
         "text": "The single recurring defect: assertions that could not fail",
-        "line": 1575
+        "line": 1524
       },
       {
         "text": "Counting a shared symbol is harder than it looks",
-        "line": 1629
+        "line": 1578
       },
       {
         "text": "Controller errors worth keeping",
-        "line": 1641
+        "line": 1590
       },
       {
         "text": "Deliberately not done",
-        "line": 1653
+        "line": 1602
       },
       {
         "text": "Amendment to the `ch5-editable` retro — permissions audit closed out (2026-09-30)",
-        "line": 1674
+        "line": 1623
       },
       {
         "text": "ch9-unlock — Chapter 9 (JADE) reopened to students; no chapter is locked any more (2026-09-30)",
-        "line": 1716
+        "line": 1665
       },
       {
         "text": "Chapter 4 two-step — rollout/rollback ops doc (`OPS-1`)",
-        "line": 1829
+        "line": 1778
       },
       {
         "text": "Solve clock showed \"Solving 25200s\" — `timestamp` → `timestamptz` (`HND-B`)",
-        "line": 1919
+        "line": 1868
       },
       {
         "text": "The e2e specs were in no tsc program at all (`HND-D`)",
-        "line": 2048
+        "line": 1997
       },
       {
         "text": "e2e hygiene — `readSolvedAt` extracted from 7 copies, concurrent-solve hazard recorded (`HND-F`)",
-        "line": 2131
+        "line": 2080
       },
       {
         "text": "harness-retro steps 5–7 for CH4UX (`HND-G`)",
-        "line": 2229
+        "line": 2178
       },
       {
         "text": "2039 e2e test users purged from `nos_dev`, and the leak closed (`HND-A`)",
-        "line": 2290
+        "line": 2239
       },
       {
         "text": "`HND-A` whole-branch review — one Critical, folded before push",
-        "line": 2360
+        "line": 2309
       },
       {
         "text": "Chapter 9 (JADE) transportation costs became editable inputs (`ch9-tc-1`…`ch9-tc-10`)",
-        "line": 2430
+        "line": 2379
       },
       {
         "text": "Review findings worth keeping",
-        "line": 2482
+        "line": 2431
       },
       {
         "text": "Gates (measured this run, zero concurrent vitest confirmed first)",
-        "line": 2506
+        "line": 2455
       },
       {
         "text": "Open, for the merge decision",
-        "line": 2520
+        "line": 2469
       },
       {
         "text": "ch9-e2e-findings — what the ch9-unlock e2e follow-up learned (2026-09-30, recorded 2026-10-02)",
-        "line": 2548
+        "line": 2497
       },
       {
         "text": "bands-save — the Input Map's Layers-row Save now honours a lens-only change (2026-10-03)",
-        "line": 2628
+        "line": 2577
       },
       {
         "text": "2026-10-03 — Cosmetic UI bundle (`cosmetic-ui`, COSM-1…COSM-5)",
-        "line": 2676
+        "line": 2625
       },
       {
         "text": "2026-10-03/04 — Sidebar hamburger rail (`sidebar-hamburger-rail`, SBR-1…SBR-5)",
-        "line": 2792
+        "line": 2741
       },
       {
         "text": "claude-md-lazy-load — root CLAUDE.md slimmed via lazy-loaded subsystem files (2026-10-05)",
-        "line": 2865
+        "line": 2814
       },
       {
         "text": "agents-opus-ponytail — review model unpinned to latest Opus; ponytail + karpathy made compulsory for code-writing roles (2026-10-05)",
-        "line": 2869
+        "line": 2818
       },
       {
         "text": "2026-10-09 — Chapter 4 model interface overhaul (`ch4-model-upgrade`, CH4O-1…CH4O-13)",
-        "line": 2885
+        "line": 2834
       },
       {
         "text": "The five Codex review rounds, all before implementation",
-        "line": 2907
+        "line": 2856
       },
       {
         "text": "The branch's worst bug — caught in plan review, before any code",
-        "line": 2921
+        "line": 2870
       },
       {
         "text": "`objective` was stripped from the CREATE path only — every save would have 422'd",
-        "line": 2925
+        "line": 2874
       },
       {
         "text": "The km→mi conversion is lossless — established by evidence, not assumed",
-        "line": 2929
+        "line": 2878
       },
       {
         "text": "The pytest goldens were RE-RUN, not divided — and the proof is the unit-free ones",
-        "line": 2933
+        "line": 2882
       },
       {
         "text": "Deviations",
-        "line": 2953
+        "line": 2902
       },
       {
         "text": "Follow-ups this branch creates and does NOT close",
-        "line": 2962
+        "line": 2911
       },
       {
         "text": "Gates (CH4O-13, measured on a quiet machine)",
-        "line": 2978
+        "line": 2927
       },
       {
         "text": "Whole-branch review (P1) — 3 reviewers, 1 Critical, 4 Important",
-        "line": 2999
+        "line": 2948
       },
       {
         "text": "Not yet done, and each needs its own approval",
-        "line": 3019
+        "line": 2968
       },
       {
         "text": "cors-networkdesignbook-domain — allow the custom domain in nos-api CORS (2026-10-09)",
-        "line": 3023
+        "line": 2972
       },
       {
         "text": "2026-10-10 — Write-failure feedback (`write-feedback`, WF-1…WF-9)",
-        "line": 3031
+        "line": 2980
       },
       {
         "text": "Gate, measured at WF-9 on `9ccb628`",
-        "line": 3049
+        "line": 2998
       },
       {
         "text": "The design decisions",
-        "line": 3063
+        "line": 3012
       },
       {
         "text": "Seven findings of a test that could not fail — none caught by a gate",
-        "line": 3072
+        "line": 3021
       },
       {
         "text": "The project's headline deliverable shipped missed, and green",
-        "line": 3089
+        "line": 3038
       },
       {
         "text": "WF-8's band guard — the counter-example where the process worked",
-        "line": 3097
+        "line": 3046
       },
       {
         "text": "Deliberate decisions and their accepted costs",
-        "line": 3105
+        "line": 3054
       },
       {
         "text": "Verified negatives and other things worth not re-deriving",
-        "line": 3116
+        "line": 3065
       },
       {
         "text": "Not yet done, and each needs its own approval",
-        "line": 3124
+        "line": 3073
       },
       {
         "text": "Whole-branch review round 2 — the eighth weak test, and the last silent mutation",
-        "line": 3128
+        "line": 3077
       },
       {
         "text": "WF retro (`/harness-retro WF`, 2026-10-10, branch `wf-retro`)",
-        "line": 3190
+        "line": 3139
       },
       {
         "text": "Branch-discipline incident records (moved from CLAUDE.md, 2026-10-10)",
-        "line": 3223
+        "line": 3172
       },
       {
         "text": "PWR — self-serve password reset (2026-10-10)",
-        "line": 3239
+        "line": 3188
       },
       {
         "text": "What landed",
-        "line": 3249
+        "line": 3198
       },
       {
         "text": "Gate",
-        "line": 3265
+        "line": 3214
       },
       {
         "text": "Production pre-flight",
-        "line": 3282
+        "line": 3231
       },
       {
         "text": "Accepted risks",
-        "line": 3299
+        "line": 3248
       },
       {
         "text": "Review findings — 16 across four passes, all real",
-        "line": 3317
+        "line": 3266
       },
       {
         "text": "Lessons",
-        "line": 3346
+        "line": 3295
       },
       {
         "text": "Deferred",
-        "line": 3368
+        "line": 3317
       },
       {
         "text": "Production still needs",
-        "line": 3381
+        "line": 3330
       },
       {
         "text": "PWR-review — whole-branch review fixes (findings 1, 2, 3, 6)",
-        "line": 3392
+        "line": 3341
       },
       {
-        "text": "PWR-prod-schema — production login outage: missing `reset_*` columns (2026-10-10)",
-        "line": 3399
+        "text": "PWR-prod-schema",
+        "line": 3348
       },
       {
-        "text": "PWR-FU1 — two pre-existing user lookups stop leaking their params into error sinks",
-        "line": 3417
+        "text": "PWR-FU1",
+        "line": 3352
       },
       {
         "text": "PWR-FU3 / PWR-FU4 — register insert stops leaking; boot warns on missing email config",
-        "line": 3423
+        "line": 3356
       },
       {
         "text": "PWR-FU5b — `trust proxy: 2` from the measured hop count; login's limiter per-client; diagnostic removed",
-        "line": 3429
+        "line": 3362
       },
       {
         "text": "CH4OS — Chapter 4 objective selector and sequential solve (2026-10-10 spec)",
-        "line": 3437
+        "line": 3370
       },
       {
         "text": "CH4OS-1 — solver: one LP builder, run plan, sequential Model 1 → Model 2",
-        "line": 3441
+        "line": 3374
       },
       {
         "text": "CH4OS-2 — objective contract (one commit: units, write path, precheck, OpenAPI, studio)",
-        "line": 3453
+        "line": 3386
       },
       {
         "text": "CH4OS-3 — studio results: incumbent gating, max-coverable row, floor-exceeds-max alert",
-        "line": 3466
+        "line": 3399
       },
       {
         "text": "CH4OS-4 — migration: clear the derived objective on floor-0 rows (written, tested, NOT run in production)",
-        "line": 3474
+        "line": 3407
       },
       {
         "text": "CH4OS-5 — e2e: sibling specs rewritten + seeded objective journey",
-        "line": 3483
+        "line": 3416
       },
       {
         "text": "CH4OS-6 — real-browser QA of the five Chapter 4 objective behaviours (real solves, no seeding)",
-        "line": 3490
+        "line": 3423
       },
       {
         "text": "CH4OS-7 — branch gate, retro",
-        "line": 3503
+        "line": 3436
       },
       {
         "text": "CH4OS-R1 — whole-branch review fixes (step 5a, on the branch, re-merged)",
-        "line": 3510
+        "line": 3443
       },
       {
         "text": "CH4OS-ops — runbook: agent sessions may run the production migration with per-step user approval",
-        "line": 3517
+        "line": 3450
       },
       {
         "text": "CH4OS-ship — merge, whole-branch review, push, deploy, migration skipped, branch retirement (2026-10-11)",
-        "line": 3521
+        "line": 3454
       },
       {
         "text": "deploy_config gate — review note on check 1's gap (2026-10-11)",
-        "line": 3532
+        "line": 3465
+      },
+      {
+        "text": "DCG-1 — `pnpm deploy:preflight` (approved trimmed `deploy_config` gate, 2026-10-12)",
+        "line": 3469
+      },
+      {
+        "text": "jade-ledger-t17 — close the stale T17 row in the Ch9 JADE ledger (2026-10-16)",
+        "line": 3476
+      },
+      {
+        "text": "SCU-B1 — SCND upgrades Bundle 1 (2026-10-16 spec)",
+        "line": 3480
+      },
+      {
+        "text": "SCU-1.1 — exclusive band helpers",
+        "line": 3484
+      },
+      {
+        "text": "SCU-1.5 — inline Save for delivery-teaching-us and max-coverage-us",
+        "line": 3490
+      },
+      {
+        "text": "SCU-1.6 — sidebar expanded on load, collapses on Run Optimizer",
+        "line": 3496
+      },
+      {
+        "text": "SCU-1.7 — feedback launcher bottom-right",
+        "line": 3504
+      },
+      {
+        "text": "SCU-1.8 — opaque Output Map tooltips",
+        "line": 3510
+      },
+      {
+        "text": "SCU-1.2 — exclusive band rows in Service Stats and Compare",
+        "line": 3518
+      },
+      {
+        "text": "SCU-1.9 — Output Map narrative",
+        "line": 3527
+      },
+      {
+        "text": "SCU-1.3 — Solution Summary bar and compare CSV",
+        "line": 3537
+      },
+      {
+        "text": "SCU-1.4 — duplicate titles removed, Plant Capability Matrix",
+        "line": 3548
+      },
+      {
+        "text": "SCU-1.R — whole-branch review fold",
+        "line": 3557
+      },
+      {
+        "text": "SCU-1.10 — QA: real-browser pass + full e2e gate",
+        "line": 3570
+      },
+      {
+        "text": "SCU-B1 — bundle summary",
+        "line": 3600
+      },
+      {
+        "text": "SCU-1.RR — merged-state review fold",
+        "line": 3614
+      },
+      {
+        "text": "SCU-B2 — SCND upgrades Bundle 2 (2026-10-16 spec)",
+        "line": 3622
+      },
+      {
+        "text": "SCU-2.P1.1 — B2.10 migration matrix",
+        "line": 3626
+      },
+      {
+        "text": "SCU-2.P1.2 — DataTable contract types + filter auto-derivation",
+        "line": 3632
+      },
+      {
+        "text": "SCU-2.P1.3 — usePagedRows + TablePager",
+        "line": 3638
+      },
+      {
+        "text": "SCU-2.P1.6 — FormattedNumberInput",
+        "line": 3645
+      },
+      {
+        "text": "SCU-B2.P2 — SCND upgrades Bundle 2 Phase P2 (2026-10-16 spec)",
+        "line": 3651
+      },
+      {
+        "text": "SCU-2.P2.1 — `@workspace/import-schema` package + wiring (B2.5)",
+        "line": 3655
+      },
+      {
+        "text": "SCU-2.P2.2 — JSON import contract (B2.6)",
+        "line": 3663
+      },
+      {
+        "text": "SCU-2.P1.4 — DataTable shell",
+        "line": 3673
+      },
+      {
+        "text": "SCU-2.P2.3 — deliveryCosts entity (B2.7, D1)",
+        "line": 3679
+      },
+      {
+        "text": "SCU-2.P1.5 — DistancesTab replica harness",
+        "line": 3690
+      },
+      {
+        "text": "SCU-2.R2 — P1+P2 review fold (studio)",
+        "line": 3695
+      },
+      {
+        "text": "SCU-2.R1 — P1+P2 review fold (server)",
+        "line": 3699
+      },
+      {
+        "text": "SCU-2.P3.1 — OpenWarehouses on DataTable + Download ▾",
+        "line": 3710
+      },
+      {
+        "text": "SCU-2.P3.2 — Customer Assignments on DataTable",
+        "line": 3716
+      },
+      {
+        "text": "SCU-2.P3.3 — JADE Customer Assignments on DataTable",
+        "line": 3722
+      },
+      {
+        "text": "SCU-2.P3.4 — Flows on DataTable",
+        "line": 3729
+      },
+      {
+        "text": "SCU-2.P3.5 — JADE Flows Plant → Warehouse on DataTable + on-screen export",
+        "line": 3736
+      },
+      {
+        "text": "SCU-2.P3.6 — JADE Flows Warehouse → Customer on DataTable + on-screen export",
+        "line": 3742
+      },
+      {
+        "text": "SCU-2.P3.7 — Solution Summary (single) on DataTable",
+        "line": 3748
+      },
+      {
+        "text": "SCU-2.P3.8 — Solution Summary compare on DataTable + compare JSON",
+        "line": 3754
+      },
+      {
+        "text": "SCU-2.P3.9 — Plant Production on DataTable + Service Stats Download ▾ + km band labels",
+        "line": 3760
+      },
+      {
+        "text": "SCU-2.P3.10 — P3 real-browser QA + e2e gate",
+        "line": 3767
+      },
+      {
+        "text": "SCU-2.R3 — server output-export row fixes (P3 QA)",
+        "line": 3790
+      },
+      {
+        "text": "SCU-2.R4 — P3 review fold",
+        "line": 3798
+      },
+      {
+        "text": "SCU-2.P4.1 — Shared input-table toolbar, helpers, D2 guard, matrix refresh",
+        "line": 3809
+      },
+      {
+        "text": "SCU-2.P4.2 — CreateEntityDialog table mode",
+        "line": 3819
+      },
+      {
+        "text": "SCU-2.P4.3 — Distances on DataTable",
+        "line": 3827
+      },
+      {
+        "text": "SCU-2.P4.4 — Leg Distances on DataTable",
+        "line": 3836
+      },
+      {
+        "text": "SCU-2.P4.5 - JADE Distances on DataTable + real-browser focus check",
+        "line": 3843
+      },
+      {
+        "text": "SCU-2.P4.6 — Lane Costs on DataTable",
+        "line": 3851
+      },
+      {
+        "text": "SCU-2.P4.7 — Delivery Costs on DataTable + `deliveryCosts` Upload/Download",
+        "line": 3858
+      },
+      {
+        "text": "SCU-2.P4.8 — JADE Transport Costs on DataTable",
+        "line": 3865
+      },
+      {
+        "text": "SCU-2.P4.9 — Plant Capability Matrix on DataTable",
+        "line": 3872
+      },
+      {
+        "text": "SCU-2.P4.10 — Warehouses + Refineries on DataTable with the +Add modal",
+        "line": 3879
+      },
+      {
+        "text": "SCU-2.P4.11 — Customers",
+        "line": 3888
+      },
+      {
+        "text": "SCU-2.P4.12 — JADE Plants on DataTable",
+        "line": 3897
+      },
+      {
+        "text": "SCU-2.P4.13 — Mines on DataTable with the +Add modal",
+        "line": 3904
+      },
+      {
+        "text": "SCU-2.P4.14 — Stations on DataTable with the integer demand cell and the +Add modal",
+        "line": 3911
+      },
+      {
+        "text": "SCU-2.P4.15 — QA: input tables in a real browser + full e2e gate",
+        "line": 3919
+      },
+      {
+        "text": "SCU-2.R5b - fold Phase 4 review findings: tests, e2e specs, QA evidence",
+        "line": 3968
+      },
+      {
+        "text": "SCU-2.R5a — Phase 4 review findings (studio source)",
+        "line": 3980
+      },
+      {
+        "text": "SCU-2.R5a.1 — focus jump re-aims when late-loading rows move the target's page",
+        "line": 3995
+      },
+      {
+        "text": "SCU-B2 — bundle summary",
+        "line": 3999
+      },
+      {
+        "text": "NAR-1 — Output Map narrative rewrite (2026-10-17)",
+        "line": 4025
+      },
+      {
+        "text": "NAR-1.R — review + browser-QA fold",
+        "line": 4039
+      },
+      {
+        "text": "QF-B — feedback launcher floats above the homepage footer line (2026-10-17)",
+        "line": 4043
+      },
+      {
+        "text": "SCU-2.R6a",
+        "line": 4047
+      },
+      {
+        "text": "SCU-2.R6b",
+        "line": 4055
+      },
+      {
+        "text": "SCU-2.R6a.1",
+        "line": 4059
+      },
+      {
+        "text": "Error-tracking triage + fixes (`ERR-1`–`ERR-4`, 2026-10-18)",
+        "line": 4063
+      },
+      {
+        "text": "ERR-1 — pg pool idle-client error no longer crashes the API",
+        "line": 4067
+      },
+      {
+        "text": "ERR-2 — Output Map stops refitting (and undoing the user's zoom) on every re-render",
+        "line": 4071
+      },
+      {
+        "text": "ERR-3 — Leaflet zoom-animation timer no longer crashes a removed map (SCND_STUDIO-3)",
+        "line": 4075
+      },
+      {
+        "text": "ERR-4 — studio Sentry ignores the Microsoft link-scanner rejection (SCND_STUDIO-2)",
+        "line": 4079
+      },
+      {
+        "text": "ERR-5",
+        "line": 4083
+      },
+      {
+        "text": "ERR-R — whole-branch review fold (Opus reviewer, verdict SHIP-with-fixes)",
+        "line": 4087
+      },
+      {
+        "text": "ERR-D — production deploy + error-tracker cleanup (2026-10-18)",
+        "line": 4091
+      },
+      {
+        "text": "PERM-NT — permissions capture branch no longer tracks `origin/main` (2026-10-18)",
+        "line": 4097
+      },
+      {
+        "text": "REV-BOT — `claude-review` accepts the weekly bot PRs (2026-10-19)",
+        "line": 4103
+      },
+      {
+        "text": "PERM-RM — weekly permission-review loop removed (2026-10-19)",
+        "line": 4107
+      },
+      {
+        "text": "FAIL-PTR — `failures.csv` gate pointers backfilled (2026-10-19)",
+        "line": 4117
+      },
+      {
+        "text": "FLK-1 — two real-DB test bugs behind the \"dispatcherRecovery / scenarioSolveAtomicity flakes\" (2026-10-22)",
+        "line": 4121
+      },
+      {
+        "text": "FLK-2 — flaky_test gate enabled (2026-10-22)",
+        "line": 4130
+      },
+      {
+        "text": "CH4OV — Chapter 4 objective selector shown at every floor (2026-10-22)",
+        "line": 4142
+      },
+      {
+        "text": "CH4OV-D — production deploy + branch retirement (2026-10-23)",
+        "line": 4158
+      },
+      {
+        "text": "SM-1 — shared two-echelon core with plant cost term (2026-10-23)",
+        "line": 4164
+      },
+      {
+        "text": "SM-2 — `solve_super`, computed distances, Ch9-equivalent sample golden, timing run (2026-10-23)",
+        "line": 4177
+      },
+      {
+        "text": "SM-3 — register `super-model` across api, solver dispatch, openapi and studio (2026-10-23)",
+        "line": 4195
+      },
+      {
+        "text": "SM-4 — super-model cost-summary export columns, `COST_SUMMARY_TEMPLATE_VERSION` 4 -> 5 (2026-10-23)",
+        "line": 4205
+      },
+      {
+        "text": "SM-5 — super-model solve-readiness precheck (2026-10-23)",
+        "line": 4217
+      },
+      {
+        "text": "SM-7 — Super Model studio input tabs with cascade delete (2026-10-23)",
+        "line": 4227
+      },
+      {
+        "text": "SM-6 — super-model network import/export endpoints, replace and merge (2026-10-23)",
+        "line": 4238
+      },
+      {
+        "text": "SM-8 — Super Model studio outputs: summary, compare, output map, narrative (2026-10-23)",
+        "line": 4248
+      },
+      {
+        "text": "SM-9 — Super Model studio: network import/export dialog, readiness panel, downloads (2026-10-23)",
+        "line": 4259
+      },
+      {
+        "text": "SM-10 - Super Model real-browser QA (Playwright) and sibling-spec sweep (2026-10-23)",
+        "line": 4272
+      },
+      {
+        "text": "SM-13 - Super Model opens on the Products tab so the import prompt shows (2026-10-23)",
+        "line": 4285
+      },
+      {
+        "text": "SM-12 - accept import-sized scenario writes; 413 for oversized bodies (2026-10-23)",
+        "line": 4292
+      },
+      {
+        "text": "SM-14 - fold SM-10 review, add `super` e2e_journey section, re-gate super-model e2e (2026-10-23)",
+        "line": 4299
+      },
+      {
+        "text": "SM-15 - harden `journey_super` checks and record flake sightings (2026-10-23)",
+        "line": 4308
+      },
+      {
+        "text": "SM-11 — Super Model Phase 1 close-out (2026-10-23)",
+        "line": 4318
+      },
+      {
+        "text": "SM-16 - guard super network routes in lock scan; keep 413s out of exception capture (2026-10-23)",
+        "line": 4327
+      },
+      {
+        "text": "[SM-17] Super Model whole-branch-review follow-ups (studio)",
+        "line": 4337
+      },
+      {
+        "text": "SM-D — Super Model Phase 1 production deploy and branch retirement (2026-10-23)",
+        "line": 4340
+      },
+      {
+        "text": "SM2-SPEC - Super Model Phases 2–3 + Input Map folded into the design (2026-10-23)",
+        "line": 4350
+      },
+      {
+        "text": "SM2-PLAN - Super Model Phases 2–3 + Input Map implementation plan (2026-10-23)",
+        "line": 4356
+      },
+      {
+        "text": "SM2-6 - Phase-3 preflight: Render request timeout, ORS shape, `ORS_API_KEY` (2026-10-23)",
+        "line": 4363
+      },
+      {
+        "text": "SM2-1 - Super Input Map wiring, read-only map with fit and layers",
+        "line": 4371
+      },
+      {
+        "text": "SM2-3 - Structured 422 `issues`, in-file duplicate rejection, collision-free keys, max-size measurement (2026-10-23)",
+        "line": 4375
+      },
+      {
+        "text": "SM2-4 - browser CSV/XLSX parse and export module (`lib/superFiles.ts`)",
+        "line": 4385
+      },
+      {
+        "text": "SM2-2 - Input Map editing: SuperEntityDialog, add / edit / move / copy / delete",
+        "line": 4406
+      },
+      {
+        "text": "SM2-5 - Studio import dialog for CSV / XLSX / JSON, CSV-zip and XLSX export, CSV/XLSX templates and sample",
+        "line": 4410
+      },
+      {
+        "text": "SM2-7 - Road contract: `road` method and server-written `roadDistances` (2026-10-23)",
+        "line": 4420
+      },
+      {
+        "text": "SM2-8 - `validRoadPairs`, road readiness item, solve payload `roadPairs` (2026-10-23)",
+        "line": 4429
+      },
+      {
+        "text": "SM2-9 - ORS client, busy flag, error codes, `POST /network/road-distances` (2026-10-23)",
+        "line": 4440
+      },
+      {
+        "text": "SM2-10 - Studio road method, fetch dialog with privacy notice, readiness action (2026-10-23)",
+        "line": 4448
+      },
+      {
+        "text": "SM2-11 - real-browser QA for super-model CSV, XLSX and Input Map editing (qa-sdet)",
+        "line": 4458
+      },
+      {
+        "text": "SM2-12 - Super Model Phases 2–3 + Input Map close-out (2026-10-23)",
+        "line": 4465
+      },
+      {
+        "text": "SM2-13 - whole-branch review fixes (backend)",
+        "line": 4484
+      },
+      {
+        "text": "SM2-14 - whole-branch review fixes (studio)",
+        "line": 4488
+      },
+      {
+        "text": "SM2-D - Super Model Phases 2–3 + Input Map production deploy (2026-10-23)",
+        "line": 4495
+      },
+      {
+        "text": "CH5T - rename Chapter 5 delivery card",
+        "line": 4503
+      },
+      {
+        "text": "QFX-10 - Refined native `<select>`s",
+        "line": 4507
+      },
+      {
+        "text": "QFX-4 - sort by clicking a column header",
+        "line": 4513
+      },
+      {
+        "text": "QFX-7 - remove `name` from super-model plants, warehouses and customers",
+        "line": 4519
+      },
+      {
+        "text": "QFX-2a - XLSX in every chapter per-table menu",
+        "line": 4534
+      },
+      {
+        "text": "QFX-2b - super per-table Upload ▾ / Download ▾ with Replace/Merge",
+        "line": 4554
+      },
+      {
+        "text": "QFX-1 - super Import network + Export ▾ beside Save",
+        "line": 4578
+      },
+      {
+        "text": "QFX-6 - tab-specific \"Add …\" forms on super tables",
+        "line": 4592
+      },
+      {
+        "text": "QFX-3 - Solve button at the bottom of Optimization Parameters",
+        "line": 4622
+      },
+      {
+        "text": "QFX-5 - Chapter 5: % demand within each distance band",
+        "line": 4626
+      },
+      {
+        "text": "QFX-8 - Output map caption: open site labels",
+        "line": 4630
+      },
+      {
+        "text": "QFX-9 - Distance method: 3-way segmented control + factor Apply",
+        "line": 4642
+      },
+      {
+        "text": "QFX-QA - real-browser QA + sibling e2e rewrites",
+        "line": 4649
+      },
+      {
+        "text": "QFX-GATE - integrated bundle gate",
+        "line": 4666
+      },
+      {
+        "text": "QFX-R1 - whole-branch review fixes",
+        "line": 4681
+      },
+      {
+        "text": "QFX-R1-GATE - re-gate after whole-branch review fixes",
+        "line": 4699
+      },
+      {
+        "text": "DU-1.1 — remove dead Studio page and its styling (design upgrade, Phase 1)",
+        "line": 4710
+      },
+      {
+        "text": "DU-1.2 — meaning colours (design upgrade, Phase 1)",
+        "line": 4714
+      },
+      {
+        "text": "DU-1.3 — status tokens + raw-palette sweep (design upgrade, Phase 1)",
+        "line": 4717
+      },
+      {
+        "text": "DU-1.4 — contrast + 11px type floor (design upgrade, Phase 1)",
+        "line": 4721
+      },
+      {
+        "text": "DU-1.5 — Phase 1 real-browser QA (design upgrade, Phase 1)",
+        "line": 4725
+      },
+      {
+        "text": "DU-1.R1 — fold whole-branch review (design upgrade, Phase 1)",
+        "line": 4735
+      },
+      {
+        "text": "QFX-DEPLOY - push + deploy of the Quick Fixes bundle",
+        "line": 4747
+      },
+      {
+        "text": "A14b-FIX - over-deadline drain test clears its own result-cache key",
+        "line": 4751
+      },
+      {
+        "text": "WFX-RACE — wait for the Input Map seed before sidebar navigation in workspace-fixups specs",
+        "line": 4755
+      },
+      {
+        "text": "WFX-SEED — keep a sidebar choice made before the scenario loads instead of seeding over it",
+        "line": 4759
+      },
+      {
+        "text": "DU-1 deploy record + metrics fixes (2026-10-24)",
+        "line": 4763
+      },
+      {
+        "text": "DU-2.1 — one formatter set (design upgrade, Phase 2)",
+        "line": 4769
+      },
+      {
+        "text": "DU-2.2 — band range-label authority + BandLabel (design upgrade, Phase 2)",
+        "line": 4779
+      },
+      {
+        "text": "DU-2.3 — units in headers + Chapter.demandUnit (design upgrade, Phase 2)",
+        "line": 4790
+      },
+      {
+        "text": "DU-2.4 — copy pass (design upgrade, Phase 2)",
+        "line": 4798
+      },
+      {
+        "text": "DU-2.5 — header title, one primary action, lane-colour control (design upgrade, Phase 2)",
+        "line": 4806
+      },
+      {
+        "text": "DU-2.6 — DataTable affordances (design upgrade, Phase 2)",
+        "line": 4813
+      },
+      {
+        "text": "DU-2.7 — entity naming + tooltip typography (design upgrade, Phase 2)",
+        "line": 4823
+      },
+      {
+        "text": "DU-2.8 — P presets, parameter helper text, Landing footer (design upgrade, Phase 2)",
+        "line": 4833
+      },
+      {
+        "text": "DU-2.10 — sticky header/pager on every DataTable + remaining 24px targets (design upgrade, Phase 2; found by DU-2.9 QA)",
+        "line": 4840
+      },
+      {
+        "text": "DU-2.11 — one scroll area for sectioned DataTables (design upgrade, Phase 2; found by DU-2.9 review)",
+        "line": 4855
+      },
+      {
+        "text": "DU-2.9 — Phase 2 real-browser QA (design upgrade, Phase 2)",
+        "line": 4866
+      },
+      {
+        "text": "DU-2.R1 — fold Phase 2 whole-branch review (design upgrade, Phase 2)",
+        "line": 4876
+      },
+      {
+        "text": "WFX + DU-2 deploy records (2026-10-24 / 2026-10-25)",
+        "line": 4888
+      },
+      {
+        "text": "DU-3.1 — one entity action list; card action buttons; truthful hint; Super card (design upgrade, Phase 3)",
+        "line": 4894
+      },
+      {
+        "text": "DU-3.2 — Input Map selection ring; card close; marker-anchored placement (design upgrade, Phase 3)",
+        "line": 4904
+      },
+      {
+        "text": "DU-3.3 — both-leg output filter + filter-aware narrative (design upgrade, Phase 3)",
+        "line": 4914
+      },
+      {
+        "text": "DU-3.4 — popup hygiene, per-product routes, legend yields, reachable \"Unverified\" (design upgrade, Phase 3)",
+        "line": 4921
+      },
+      {
+        "text": "DU-3.F1 — fix QA defects found by DU-3.5 (design upgrade, Phase 3)",
+        "line": 4929
+      },
+      {
+        "text": "DU-3.5 — Phase 3 real-browser QA incl. touch viewport + sibling sweep (design upgrade, Phase 3)",
+        "line": 4938
+      },
+      {
+        "text": "DU-3.F2 — fix independent-review findings of Phase 3 (design upgrade)",
+        "line": 4946
+      },
+      {
+        "text": "DU-3 retro (2026-10-26, `design-upgrade-p3`)",
+        "line": 4954
+      },
+      {
+        "text": "DU-3.R1 — whole-branch review fold of Phase 3 (design upgrade)",
+        "line": 4959
+      },
+      {
+        "text": "DU-3 deploy (2026-10-26)",
+        "line": 4967
+      },
+      {
+        "text": "DU-4.1 — inbound distance bands (design upgrade, Phase 4)",
+        "line": 4970
+      },
+      {
+        "text": "DU-4.2 — export band labels + JADE v4 envelopes (design upgrade, Phase 4)",
+        "line": 4979
+      },
+      {
+        "text": "DU-4.3 — Service Stats inbound lanes (design upgrade, Phase 4)",
+        "line": 4990
+      },
+      {
+        "text": "DU-4.4 — product repetition collapse (design upgrade, Phase 4)",
+        "line": 4999
+      },
+      {
+        "text": "DU-4.5 — Phase 4 real-browser QA (design upgrade, Phase 4)",
+        "line": 5007
+      },
+      {
+        "text": "DU-4.F1 — whole-branch review fold (design upgrade, Phase 4)",
+        "line": 5016
+      },
+      {
+        "text": "DU-4-RETRO — harness retro for Design Upgrade Phase 4",
+        "line": 5026
+      },
+      {
+        "text": "DU-4.R1 — post-merge review fold (design upgrade, Phase 4)",
+        "line": 5034
+      },
+      {
+        "text": "SENTRY-4 — customer popup refit stack overflow (Sentry SCND_STUDIO-4/5)",
+        "line": 5046
+      },
+      {
+        "text": "SENTRY-4.R1 — post-merge review fold",
+        "line": 5055
+      },
+      {
+        "text": "DU-4 deploy (2026-10-29)",
+        "line": 5061
+      },
+      {
+        "text": "RENDER-OPS-IP — correct the hosted-MCP allowlist note (2026-10-29)",
+        "line": 5067
+      },
+      {
+        "text": "SEC-1 … SEC deploy — security audit fixes (2026-10-30)",
+        "line": 5070
+      },
+      {
+        "text": "API-DOMAIN — move nos-api to `api.networkdesignbook.com` (2026-11-02)",
+        "line": 5074
+      },
+      {
+        "text": "AUTH-NETERR — say \"couldn't reach the server\" instead of blaming the student's input (2026-11-02)",
+        "line": 5083
+      },
+      {
+        "text": "PRIV-1 — move incident and security records out of the public changelog (2026-11-02)",
+        "line": 5089
+      },
+      {
+        "text": "PRIV-2 — finish redacting the public repo; refuse to boot without SESSION_SECRET (2026-11-02)",
+        "line": 5094
+      },
+      {
+        "text": "PRIV-2 deploy — `nos-api` at `70fcb4a3` (2026-11-02)",
+        "line": 5100
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -2678,7 +3214,21 @@
         "POST /api/scenarios",
         "GET /api/scenarios/{scenarioId}/solve-jobs/{jobId}",
         "POST /login",
-        "POST /api/auth/login"
+        "GET /api/scenarios",
+        "GET /api/dataset",
+        "POST /api/scenarios/:id/network/import",
+        "GET /api/scenarios/:id/network/export",
+        "PATCH /api/scenarios/:id",
+        "POST /scenarios",
+        "POST /auth/login",
+        "POST /scenarios/:id/network/import",
+        "POST /network/road-distances",
+        "POST /api/scenarios/:id/network/road-distances",
+        "GET /api/scenarios/:id",
+        "PATCH /scenarios/:scenarioId/inbound-distance-bands",
+        "POST /api/auth/login",
+        "GET /api/solve-history",
+        "GET /api/landing-summary"
       ],
       "services": [
         "nos-api",
@@ -3531,8 +4081,10 @@
         "line": 662
       }
     ],
-    "lastChange": "2026-10-10",
-    "inboundLinks": [],
+    "lastChange": "2026-11-02",
+    "inboundLinks": [
+      "docs/CHANGELOG-implementation.md"
+    ],
     "references": {
       "paths": [
         "docs/ops/"
@@ -3867,53 +4419,6 @@
     }
   },
   {
-    "path": "docs/ops/permission-review-cron.md",
-    "origin": "repo",
-    "title": "Weekly permission-review capture (local cron)",
-    "headings": [
-      {
-        "text": "Weekly permission-review capture (local cron)",
-        "line": 1
-      },
-      {
-        "text": "Manual run / smoke check",
-        "line": 14
-      },
-      {
-        "text": "Dry-run (writes nothing, prints the week + candidate count):",
-        "line": 17
-      },
-      {
-        "text": "Real weekly capture + push to the permissions-capture branch:",
-        "line": 20
-      },
-      {
-        "text": "Schedule it (macOS launchd)",
-        "line": 24
-      },
-      {
-        "text": "Notes / caveats",
-        "line": 63
-      }
-    ],
-    "lastChange": "2026-09-19",
-    "inboundLinks": [
-      "docs/superpowers/HARNESS.md",
-      "docs/superpowers/metrics/README.md"
-    ],
-    "references": {
-      "paths": [
-        "scripts/harness/permissions-capture-weekly.sh"
-      ],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
     "path": "docs/ops/schema-push-before-deploy.md",
     "origin": "repo",
     "title": "Runbook — push the schema to production BEFORE the `nos-api` deploy",
@@ -3941,7 +4446,8 @@
     ],
     "lastChange": "2026-10-10",
     "inboundLinks": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
       "paths": [
@@ -4039,9 +4545,9 @@
         "line": 38
       }
     ],
-    "lastChange": "2026-10-05",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
-      "README.md",
+      "docs/CHANGELOG-implementation.md",
       "docs/superpowers/HARNESS.md"
     ],
     "references": {
@@ -4223,6 +4729,70 @@
     }
   },
   {
+    "path": "docs/product-insights/2026-10-12-17.md",
+    "origin": "repo",
+    "title": "Weekly Product Insights — week ending 2026-10-12",
+    "headings": [
+      {
+        "text": "Weekly Product Insights — week ending 2026-10-12",
+        "line": 1
+      },
+      {
+        "text": "Summary",
+        "line": 5
+      },
+      {
+        "text": "Data this week",
+        "line": 9
+      },
+      {
+        "text": "Prioritized recommendations",
+        "line": 21
+      },
+      {
+        "text": "1. Fix or verify runtime and cache instrumentation (high priority, low effort)",
+        "line": 23
+      },
+      {
+        "text": "2. Investigate the created → exported drop-off on `two-echelon-jade-us` (high priority)",
+        "line": 28
+      },
+      {
+        "text": "3. Understand the stale-without-resolve behavior (medium priority)",
+        "line": 33
+      },
+      {
+        "text": "4. Reconcile the funnel event counts (medium priority)",
+        "line": 37
+      },
+      {
+        "text": "5. Note the low adoption of `max-coverage-us` and `p-median-us` (low priority)",
+        "line": 44
+      },
+      {
+        "text": "6. Solve failures and rejections: no action",
+        "line": 47
+      },
+      {
+        "text": "Caveats",
+        "line": 50
+      }
+    ],
+    "lastChange": "2026-10-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/product-insights/aggregates.json"
+      ]
+    }
+  },
+  {
     "path": "docs/product-insights/POSTHOG-2-attribution-note.md",
     "origin": "repo",
     "title": "Commit-attribution note — POSTHOG-2 test",
@@ -4379,7 +4949,7 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-01",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/agents/backend-engineer.md",
       ".claude/agents/devops-engineer.md",
@@ -4396,8 +4966,6 @@
         "scripts/src/harness/",
         "scripts/src/deploy/",
         "scripts/harness/",
-        "docs/superpowers/metrics/permissions-review/<week>.{json,md}",
-        "scripts/harness/permissions-capture-weekly.sh",
         "artifacts/api-server/src/{routes,services,validation,registry}/**",
         "artifacts/studio/",
         "artifacts/api-server/src/",
@@ -4412,8 +4980,6 @@
       "scripts": [
         "harness:record",
         "harness:permissions",
-        "harness:permissions:capture",
-        "harness:permissions:apply",
         "harness:report",
         "smoke",
         "docs:audit",
@@ -4441,9 +5007,8 @@
         "docs/superpowers/metrics/README.md",
         "docs/superpowers/specs/harness-self-monitoring.md",
         "docs/superpowers/plans/harness-self-monitoring.md",
-        "docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md",
+        "docs/ops/{smoke,e2e-stale-specs}.md",
         "docs/superpowers/{specs,plans}/harness-self-monitoring.md",
-        "docs/ops/permission-review-cron.md",
         "docs/ops/smoke.md",
         "docs/superpowers/docs-audit/inventory.json",
         "docs/superpowers/specs/<date>-<feature>-design.md",
@@ -4466,16 +5031,22 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-11-02",
     "inboundLinks": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "docs/CHANGELOG-implementation.md"
     ],
     "references": {
-      "paths": [],
-      "scripts": [
-        "e2e:gate"
+      "paths": [
+        "lib/db"
       ],
-      "envVars": [],
+      "scripts": [
+        "e2e:gate",
+        "e2e:quarantine"
+      ],
+      "envVars": [
+        "ECONNRESET"
+      ],
       "symbols": [
         "DistancesTab",
         "JadeDistancesTab",
@@ -4483,15 +5054,29 @@
         "Studio",
         "Workspace",
         "CustomerTable",
-        "ImportDialog"
+        "ImportDialog",
+        "Register",
+        "AssignmentsTab",
+        "CapabilityMatrixTab",
+        "ECONNRESET"
       ],
       "routes": [
-        "GET /api/dataset"
+        "GET /api/dataset",
+        "GET /api/models",
+        "GET /api/scenarios/:id/export",
+        "POST /api/scenarios/:id/clone",
+        "POST /api/auth/register",
+        "GET /api/solve-history",
+        "GET /landing-summary",
+        "GET /api/scenarios",
+        "POST /api/auth/login",
+        "PATCH /scenarios/:id"
       ],
       "services": [],
       "files": [
         "e2e/report/results.json",
-        "e2e/max-coverage.spec.ts"
+        "e2e/max-coverage.spec.ts",
+        "e2e/CLAUDE.md"
       ]
     }
   },
@@ -4566,8 +5151,9 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-11",
+    "lastChange": "2026-10-12",
     "inboundLinks": [
+      "CLAUDE.md",
       "docs/CHANGELOG-implementation.md"
     ],
     "references": {
@@ -4587,6 +5173,7 @@
         "deploy:preflight"
       ],
       "envVars": [
+        "VITE_X",
         "PWR",
         "RESEND_API_KEY"
       ],
@@ -4604,7 +5191,8 @@
       "files": [
         "solvers/*/manifest.json",
         "artifacts/api-server/tsconfig.json",
-        "artifacts/studio/tsconfig.json"
+        "artifacts/studio/tsconfig.json",
+        "scripts/src/deploy/preflight.ts"
       ]
     }
   },
@@ -4651,7 +5239,7 @@
         "line": 1
       }
     ],
-    "lastChange": "2026-10-10",
+    "lastChange": "2026-10-22",
     "inboundLinks": [],
     "references": {
       "paths": [
@@ -4889,23 +5477,19 @@
         "line": 139
       },
       {
-        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
+        "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
         "line": 159
       },
       {
-        "text": "`benchmark-raw.csv` — one row per solver microbenchmark observation",
-        "line": 171
-      },
-      {
         "text": "`benchmark-aggregates.csv` — one row per usable/unusable cell",
-        "line": 196
+        "line": 184
       },
       {
         "text": "Finding states (docs pipeline)",
-        "line": 218
+        "line": 206
       }
     ],
-    "lastChange": "2026-10-01",
+    "lastChange": "2026-10-19",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "CLAUDE.md",
@@ -4920,9 +5504,7 @@
         "harness:permissions",
         "smoke",
         "harness:report",
-        "e2e:gate",
-        "harness:permissions:capture",
-        "harness:permissions:apply"
+        "e2e:gate"
       ],
       "envVars": [
         "RUSAGE_SELF",
@@ -4940,8 +5522,7 @@
       ],
       "files": [
         "docs/superpowers/gates/<cause>.md",
-        "scripts/src/harness/lib/permissions.ts",
-        "docs/ops/permission-review-cron.md"
+        "scripts/src/harness/lib/permissions.ts"
       ]
     }
   },
@@ -5035,7 +5616,7 @@
       ".claude/agents/solver-engineer.md",
       "AGENTS.md",
       "CLAUDE.md",
-      "README.md",
+      "application-audit-and-remediation-plan.md",
       "chapter-10-two-echelon-gold-refinery-integration.md",
       "docs/CHANGELOG-implementation.md"
     ],
