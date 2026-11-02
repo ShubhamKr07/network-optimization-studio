@@ -76,7 +76,7 @@ Tracked separately in `docs/superpowers/plans/2026-07-24-render-migration.md`, r
 - [x] R0.6 — `render.yaml` Blueprint. `062fa05`. New root `render.yaml` (three resources: `nos-api` Docker web service referencing R0.5's Dockerfile, `nos-studio` static site, `nos-postgres` managed Postgres) + `.node-version` (`24`, pins Node for `nos-studio`'s non-Docker static build). `staticPublishPath` independently confirmed against `vite.config.ts`'s real `outDir` (`artifacts/studio/dist/public`) by both the implementer and reviewer, not just copied from the source plan's assumption. Placeholder `*.onrender.com` hostnames in `CORS_ALLOWED_ORIGIN`/`VITE_API_BASE_URL` need a manual correction after first deploy (R0.8 — chicken-and-egg, the real URLs don't exist until the services are first created).
 - [x] R0.7 — README deploy section. `d7c880e`. Docs-only `## Deploying` section pointing at the migration plan doc and the one manual R0.8 step. **Phase 0 (R0.1-R0.7) is complete** — final whole-branch review confirmed R0.2+R0.3+R0.4 genuinely compose (CORS allowlist echoes back the specific allowed origin with credentials, the cookie is accepted cross-site, `customFetch` sends it) and R0.5/R0.6's Dockerfile/render.yaml cross-references line up. Gate green: typecheck, 204/204 api-server, 200/200 studio. Python untouched (only the new `requirements.txt`, no `solve.py` change) — pytest not re-run.
   - **Remaining, not subagent-dispatchable:** R0.8 (STOP AND ASK — a human must click through Render's dashboard: create the Blueprint, set the two real cross-referenced URLs after first deploy, confirm Starter not Free plans) and R0.9 (manual post-deploy checklist against the real deployed environment). See the plan doc for both in full.
-- [x] R0.8 (partial) — real deployment attempted via Render CLI + Render MCP (`render` MCP server, connected mid-session with a user-supplied API key). `a9c8eb4`, `ad9755a`, `95f34e2`. This surfaced that **75 commits — all of Phase 5, Phase 6, and R0.1-R0.7 — had never been pushed to `origin/main`**; pushing them (user-approved) triggered the first-ever real CI run and first-ever real Render build against this repo, which found 3 real bugs no local gate could catch: (1) `render.yaml`'s database `plan: starter` is a deprecated legacy Postgres plan name, caught by `render blueprints validate` against the live API — fixed to `basic-256mb`; (2) `package.json` had no `packageManager` field (CI's `pnpm/action-setup@v4` couldn't even install pnpm) and `pnpm-lock.yaml` carried an orphaned `overrides:` block (60+ entries) stripping every non-darwin-arm64 native binary for esbuild/rollup/lightningcss/`@tailwindcss/oxide` with zero corresponding config in any `package.json` — this wasn't just stale metadata, it broke `--frozen-lockfile` outright and meant the lockfile could never resolve correct Linux binaries on CI's `ubuntu-latest` or Render's Docker build even if the mismatch check were bypassed; pinned `packageManager: pnpm@9.15.9` (matching the Dockerfile's `corepack prepare pnpm@9`) and regenerated the lockfile clean; (3) `.github/workflows/ci.yml` ran the API test suite (which shells out to real `python3 solve.py` via `resultEnvelope.test.ts`, a G2.1 test) *before* installing Python/pulp — reordered. **CI now passes green end-to-end for the first time ever.** Created real Render resources via MCP: `nos-postgres` (`dpg-d9hg4bmpbkes73a0j6l0-a`, `basic_256mb`, Postgres 16) and `nos-studio` (`srv-d9hg4gvlk1mc73dtp67g`, static site) — **`nos-studio` is live** at `https://nos-studio.onrender.com`, matching `render.yaml`'s placeholder exactly. **`nos-api` could not be created via MCP** — `create_web_service`'s own tool description explicitly excludes Docker-runtime services; this genuinely remains a Dashboard-only step (not a skill/tool gap I could work around), so R0.8 is only partially resolved. Once a human creates `nos-api` via the Dashboard, if it's named exactly `nos-api` its URL will be `https://nos-api.onrender.com` — already the exact value both `render.yaml` and `nos-studio`'s live `VITE_API_BASE_URL` use, so no further cross-reference fix should be needed.
+- [x] R0.8 (partial) — real deployment attempted via Render CLI + Render MCP (`render` MCP server, connected mid-session with a user-supplied API key). `a9c8eb4`, `ad9755a`, `95f34e2`. This surfaced that **75 commits — all of Phase 5, Phase 6, and R0.1-R0.7 — had never been pushed to `origin/main`**; pushing them (user-approved) triggered the first-ever real CI run and first-ever real Render build against this repo, which found 3 real bugs no local gate could catch: (1) `render.yaml`'s database `plan: starter` is a deprecated legacy Postgres plan name, caught by `render blueprints validate` against the live API — fixed to `basic-256mb`; (2) `package.json` had no `packageManager` field (CI's `pnpm/action-setup@v4` couldn't even install pnpm) and `pnpm-lock.yaml` carried an orphaned `overrides:` block (60+ entries) stripping every non-darwin-arm64 native binary for esbuild/rollup/lightningcss/`@tailwindcss/oxide` with zero corresponding config in any `package.json` — this wasn't just stale metadata, it broke `--frozen-lockfile` outright and meant the lockfile could never resolve correct Linux binaries on CI's `ubuntu-latest` or Render's Docker build even if the mismatch check were bypassed; pinned `packageManager: pnpm@9.15.9` (matching the Dockerfile's `corepack prepare pnpm@9`) and regenerated the lockfile clean; (3) `.github/workflows/ci.yml` ran the API test suite (which shells out to real `python3 solve.py` via `resultEnvelope.test.ts`, a G2.1 test) *before* installing Python/pulp — reordered. **CI now passes green end-to-end for the first time ever.** Created real Render resources via MCP: `nos-postgres` (`<nos-postgres id>`, `basic_256mb`, Postgres 16) and `nos-studio` (`srv-d9hg4gvlk1mc73dtp67g`, static site) — **`nos-studio` is live** at `https://nos-studio.onrender.com`, matching `render.yaml`'s placeholder exactly. **`nos-api` could not be created via MCP** — `create_web_service`'s own tool description explicitly excludes Docker-runtime services; this genuinely remains a Dashboard-only step (not a skill/tool gap I could work around), so R0.8 is only partially resolved. Once a human creates `nos-api` via the Dashboard, if it's named exactly `nos-api` its URL will be `https://nos-api.onrender.com` — already the exact value both `render.yaml` and `nos-studio`'s live `VITE_API_BASE_URL` use, so no further cross-reference fix should be needed.
   - **Still remaining:** create `nos-api` via the Render Dashboard (Docker runtime, pointed at this repo's `Dockerfile`) — see the plan doc's R0.8 for the full manual checklist (Starter plan, not Free) — then R0.9's post-deploy verification.
 - [x] R0.8 (complete) + R0.9 — human created `nos-api` via the Dashboard; its real assigned URL is `https://nos-api-uwf8.onrender.com` (`nos-api` alone was already taken globally, Render appended a random suffix — the "no fix needed" assumption in the note above was wrong). Fixed `nos-studio`'s `VITE_API_BASE_URL` to the real URL and redeployed; re-asserted `nos-api`'s `CORS_ALLOWED_ORIGIN` too (no MCP/CLI tool can read back an existing env var to confirm it was typed correctly, so re-asserting — merge-safe, idempotent — is cheaper than trusting it blind). Ran R0.9's full checklist for real (glm agent for the curl-based checks, direct MCP/CLI work for log inspection and fixes) and found one more real bug: **`nos-postgres` was a brand-new empty database — nobody had ever pushed the schema to it**, so `POST /auth/register` 500'd on every request (`Failed query: select ... from "users"` — the table didn't exist). Fixed via `render jobs create <nos-api-service-id> --start-command "pnpm --filter @workspace/db push --force"` — a Render one-off job running inside `nos-api`'s own image, using its already-correct internal `DATABASE_URL`, no external IP allowlist changes needed (the DB's external access was closed by default; the user later opened it anyway via Dashboard Networking → IP Allow List for future ad hoc `psql` access, and provided the external connection string, but it wasn't actually needed for this fix). All 9 R0.9 checks now pass against the live environment: health check, CORS (echoes the specific origin + credentials), register (cookie shows `Secure; SameSite=None` in production), cookie auth round-trip, models list (3 models), create scenario, trigger solve (`202 {jobId}`), poll to completion (**a real CBC solve ran inside the deployed Docker container**: `status: optimal`, objective `29873735731`, `runTimeSec: 0.8`), frontend loads. **Render Migration Phase 0 is fully complete — first real deployment of this app off local-only/Replit, all three services live**: `nos-postgres`, `nos-studio` (`https://nos-studio.onrender.com`), `nos-api` (`https://nos-api-uwf8.onrender.com`).
 
@@ -1266,61 +1266,10 @@ Per the spec's §0, recorded here so the reversal is findable from either end:
 
 ---
 
-## 2026-09-30 — Postgres role investigation: Path A done, Path B closed won't-do
+## 2026-09-30 — Postgres role investigation
 
-Triggered by the CH4UX harness-retro permission audit, which fired its gate on 13 risky
-grants. Seven embedded a **live production Postgres password** for `nos_postgres_user`
-in `.claude/settings.local.json`. Verified never committed (`git log --all -S` empty; the
-file is gitignored and untracked) but confirmed still valid against production.
+Record moved to the private ops log (`nos-ops-private`, `CHANGELOG-private.md` § PG-ROLE-2026-09-30). The durable rule (the Render role pair is by design) lives in the `render-ops` skill.
 
-**Path A — executed, user-approved.** `ALTER ROLE nos_postgres_user WITH PASSWORD '<new
-random 40-char>'`, the new password deliberately not retained. Verified three ways: the
-leaked credential now fails auth, the new one succeeds, and `/api/healthz` stayed
-`{"status":"ok","db":"ok"}` throughout — no redeploy needed, because `nos-api`
-authenticates as `nos_postgres_user2`. The seven credential-bearing grants were then
-removed (backup taken first).
-
-**Path B — investigated, closed won't-do. The premise was wrong.** It was filed to migrate
-object ownership to `nos_postgres_user2` and retire the old role, on the reading that "old
-role owns everything, new role owns nothing" was leftover drift. It is not drift. Render
-provisions a **login-shim pair**:
-
-```
-pg_db_role_setting:  nos_postgres_user2 | ALL DBS | {role=nos_postgres_user}
-observed:            session_user=nos_postgres_user2   current_user=nos_postgres_user
-```
-
-`user2` is the credential Render hands out; it assumes the owner role on connect, so
-everything it creates is owned by `nos_postgres_user` **by design**. That single fact
-explains all three "symptoms": the old role owning all 21 public objects plus the `public`
-schema, the tables' `<no explicit ACL>`, and `user2`'s membership in the old role.
-
-Retiring the old role is therefore wrong rather than merely risky. `DROP ROLE` breaks every
-`user2` connection (its `role=` default points at the dropped role), and `REASSIGN OWNED`
-*creates* the ownership split it appears to fix, because new objects keep landing on the old
-role via that same default. The distilled rule is now in `CLAUDE.md`'s Gotchas.
-
-No structural change was made: Path A altered a password and nothing else. A pre-flight
-`pg_dump` snapshot was taken before any Path B attempt and no `REASSIGN`/`REVOKE`/`DROP`
-ever ran — a rolled-back dry run was prepared and then cancelled once the `role=` finding
-landed.
-
-**Process note.** An earlier turn in this investigation reported "Render's External URL
-connects as the old role" after reading only `current_user`. `session_user` had been
-selected in the same query and dropped from the output. The user corrected it; the two
-differ precisely because of the shim. Read both role identities before concluding anything
-about which principal a connection is using.
-
-**Left open, deliberately:** the `DEFAULT PRIVILEGES` granting future objects to
-`nos_postgres_user` are owned by the `postgres` superuser and changeable by neither role.
-Under the shim model that is correct, not a defect. Worth one confirming question to Render
-support rather than any action.
-
-**One loose end created:** rotating a Render-managed role's password out-of-band desyncs
-anything Render may store for it. Every signal says Render's canonical credential is `user2`
-(external URL, `databaseUser`, the `fromDatabase` `connectionString`, and a healthy
-`nos-api`), so nothing appears to depend on the old role's password — and a Dashboard reset
-recovers it if something does.
 ## Chapter 5 delivery rework, Rev 2.1 (`ch5-edit-0`–`ch5-edit-9`) — five input tabs, `fixedGeography` map, registry set-equality test (2026-09-29)
 
 The `ch5-del-1`–`ch5-del-13` entry above (and its whole-branch-review amendment) covers the FIRST
@@ -2363,7 +2312,7 @@ sole survivor; and re-ran with `DATABASE_URL` unset to confirm the skip path log
 It was a denylist, `/render\.com|amazonaws\.com|neon\.tech|supabase\.co/i`. `render.yaml:41-42`
 records that `nos-api`'s `DATABASE_URL` was set in the Dashboard to Render's **INTERNAL** connection
 string, whose host is the bare instance id with no domain suffix
-(`…@dpg-d9hg4bmpbkes73a0j6l0-a/nos_postgres`). Measured: the regex **refuses** the external URL and
+(`…@<nos-postgres id>/nos_postgres`). Measured: the regex **refuses** the external URL and
 **proceeds** on the internal one production actually uses. It also missed Supabase's
 `…pooler.supabase.com` (only `.co` was listed) and Neon's `.build` hosts. Exploitability was low —
 the internal host resolves only inside Render's private network, so neither a laptop nor GitHub
@@ -3289,12 +3238,12 @@ could only ever answer zero. The margin is structural, not luck: `/auth/register
 always writes an argon2 hash and no other path creates a user row.
 
 Getting that number cost two wrong turns worth recording. `query_render_postgres`
-failed, and the error's resolved address (`35.227.164.209`) was read as the MCP
+failed, and the error's resolved address (`<db external IP>`) was read as the MCP
 server's egress when it is in fact the **database's** own address — so the user
 was asked to allowlist the database's IP, which could never have helped. The
 `render-ops` skill makes the same claim about that address and is wrong; left
 unedited pending approval. The working route was `psql` from this machine after
-allowlisting its real IP (`49.36.168.217`).
+allowlisting its real IP (`<owner IP>`).
 
 ### Accepted risks
 
@@ -3376,7 +3325,7 @@ returned against the same file.
   `AuthShell`. A real accessibility defect, out of scope here.
 - `TEST_LOCAL_PREFIXES` still misses 10 test-domain accounts
   (`ov-*@test.com`, `bands*@example.com`). `pwr-` was added.
-- The `render-ops` skill's claim about `35.227.164.209` is wrong (see above).
+- The `render-ops` skill's claim about `<db external IP>` is wrong (see above).
 
 ### Production still needs
 
@@ -3396,29 +3345,13 @@ discipline rule 7.
 - **2:** route test for the per-address limiter (same address x4 -> 200,200,200,429); deleting the limiter clause fails exactly that one test.
 - **6:** the integration suite's `beforeEach` now also calls `resetLoginRateLimiterForTests()`.
 
-### PWR-prod-schema — production login outage: missing `reset_*` columns (2026-10-10)
+### PWR-prod-schema
 
-**Symptom:** after the PWR deploy (`nos-api` `dep-db51ivp42hec73fcsli0`, 10:54Z; env-var update 11:01Z) every login returned "Invalid email or password." for valid credentials, on every domain. Actually `POST /api/auth/login` answered **500** for any email: `column "reset_token_hash" does not exist`. Drizzle selects every `users` column, so login, register and forgot-password all failed. `Login.tsx` renders the same message for any `isError`, so a server crash read as a credential error — the second time that conflation has disguised an outage (see `cors-networkdesignbook-domain`).
+Record moved to the private ops log (§ PWR-prod-schema). Durable rule: `docs/ops/schema-push-before-deploy.md`.
 
-**Cause:** PWR-1 (`5a43bdf`) added two nullable columns to `users`; the "Production still needs" list above named the env vars and omitted the schema change. Production schema is never applied by a deploy here (`drizzle-kit push` is dev-only — see the Bundle A prod-deploy record).
+## PWR-FU1
 
-**Fix (user-approved, applied via `psql` from this machine; after the 11:08:47Z diagnostic probe, exact time not recorded):**
-```sql
-ALTER TABLE users
-  ADD COLUMN IF NOT EXISTS reset_token_hash varchar,
-  ADD COLUMN IF NOT EXISTS reset_token_expires_at timestamptz;
-```
-Pre-check: `nos_postgres`, 77 users, no `reset_*` columns. Post-check: both columns present and nullable, still 77 users; the unknown-email login probe returns `401` (was `500`). No redeploy.
-
-**Lesson:** a deploy checklist for a branch that touches `lib/db/src/schema/**` must list the production DDL alongside the env vars — diff the schema directory across the deploy range, not just the env-var list.
-
-**Follow-up:** the production DB password was pasted into a session transcript; rotate it via the Render Dashboard (not `ALTER ROLE`).
-
-## PWR-FU1 — two pre-existing user lookups stop leaking their params into error sinks
-
-`findUserByEmail` (leaked the submitted email; Sentry NOS-API-8, 5 events) and the `/auth/user` lookup (leaked the user id; NOS-API-5, 6 events) were unwrapped drizzle calls, so `DrizzleQueryError`'s message (`params: …`) reached Sentry, PostHog and the logger via `app.ts`'s error handler. Both now use a binding-less `catch`. `findUserByEmail` throws a bare `Error("user lookup failed")` instead of returning `undefined`, so an outage cannot read as "no such account": `/auth/login` answers `500` (not `401`), `/auth/forgot-password`'s existing `.catch` absorbs it (the bare error carries no params, so its `Sentry.captureException` is now harmless and makes a DB outage visible), `/auth/user` answers `500`. Tests: `__tests__/authLookupLeak.test.ts` (3); they render `Error`s via a replacer because `JSON.stringify(new Error(..))` is `"{}"` and would pass with the leak intact. Bite check: 3/3 red against the unwrapped original. Gate: api-server 1718/1718, typecheck 0.
-
-**Known follow-up, deliberately not fixed:** `/auth/register`'s `db.insert` has the same exposure (email + argon2 hash in params). Its existence check now throws a bare error via `findUserByEmail` but the insert itself is still unwrapped.
+Record moved to the private ops log (§ PWR-FU1). Durable rule: `artifacts/api-server/CLAUDE.md` (wrap drizzle calls that carry user input).
 
 ## PWR-FU3 / PWR-FU4 — register insert stops leaking; boot warns on missing email config
 
@@ -3428,7 +3361,7 @@ Pre-check: `nos_postgres`, 77 users, no `reset_*` columns. Post-check: both colu
 
 ## PWR-FU5b — `trust proxy: 2` from the measured hop count; login's limiter per-client; diagnostic removed
 
-Production probe (2026-10-10, via the PWR-FU5a diagnostic) from client `49.36.168.217`: `req.ip` was `::ffff:10.31.254.133` (Render's LB, shared by every caller), `X-Forwarded-For: "49.36.168.217, 172.71.202.122"` (client, Cloudflare), `req.ips: []`, `trustProxy: false`. So login's limiter (`req.ip`-keyed) was ONE bucket for the internet. `app.ts` now sets `trust proxy` to `2` (not `true`: that trusts the whole chain and makes XFF attacker-controlled; with `2` an injected leading entry stays in the untrusted part). Value is specific to Cloudflare-in-front-of-Render; re-measure if infra changes.
+Production probe (2026-10-10, via the PWR-FU5a diagnostic) from client `<owner IP>`: `req.ip` was `::ffff:10.31.254.133` (Render's LB, shared by every caller), `X-Forwarded-For: "<owner IP>, 172.71.202.122"` (client, Cloudflare), `req.ips: []`, `trustProxy: false`. So login's limiter (`req.ip`-keyed) was ONE bucket for the internet. `app.ts` now sets `trust proxy` to `2` (not `true`: that trusts the whole chain and makes XFF attacker-controlled; with `2` an injected leading entry stays in the untrusted part). Value is specific to Cloudflare-in-front-of-Render; re-measure if infra changes.
 
 Login's inline `Map` limiter is replaced by `makeRateLimiter(20, 60s)`: with real client IPs as keys the key space is unbounded and the old Map never evicted. Limit unchanged at 20/min/IP; `resetLoginRateLimiterForTests` kept, `loginLimiterSizeForTests` added for the eviction test. Stale comments in `routes/auth.ts` (login NAT reasoning, forgot-password "no trust proxy") and `lib/rateLimit.ts` rewritten. `routes/diag.ts`, its test, and its `routes/index.ts` mount deleted.
 
@@ -3525,7 +3458,7 @@ Whole-branch review of the merged `bdf29b9..b5d3792` (Opus): verdict ship, no bl
 - **Push** `bdf29b9..87ed8c5`. `list_deploys` afterwards: no build started on either service (commit webhook did not fire — fourth push observed).
 - **Deploy** (user-approved, API first): `nos-api` `dep-db5cff59fdbs73cclsb0` live 2026-10-10T23:19:30Z at `87ed8c5`; then `nos-studio` `dep-db5cg8rrjlhs73d6fdbg` live 23:20:30Z at `87ed8c5`. No schema change in range. Smoke: `/api/healthz` 200; `/api/models` 200 with `max-coverage-us` objective enum `[coverage, min_distance]`; studio bundle contains all six new UI strings; nested route `/chapter-4` 200. Zero skew window (studio triggered only after API live). Note: `nos-api`'s previous live build `bdf29b9` (trust proxy 2, per-client login limit) was the Forgot Password session's deploy, not this bundle.
 - **Runbook** `docs/ops/ch4-objective-clear-runbook.md` changed to allow agent-run production steps with per-step user approval (`f20d8ff`, pushed).
-- **Production migration `clearFloorZeroObjective`: SKIPPED by user decision.** Blocked first on missing preconditions — this machine's IP `49.36.169.38` not on the `nos-postgres` allowlist (`49.36.168.217/32` only), no backup, no connection string; Render's hosted read-only query tool also cannot reach the DB (allowlist). Production floor-0 Chapter 4 rows therefore keep a stored `objective: "coverage"` (selector pre-picked, solves as Model 1 — valid); new rows start unselected. Nothing was run against production.
+- **Production migration `clearFloorZeroObjective`: SKIPPED by user decision.** Blocked first on missing preconditions — this machine's IP `<owner IP>` not on the `nos-postgres` allowlist (`<owner IP>/32` only), no backup, no connection string; Render's hosted read-only query tool also cannot reach the DB (allowlist). Production floor-0 Chapter 4 rows therefore keep a stored `objective: "coverage"` (selector pre-picked, solves as Model 1 — valid); new rows start unselected. Nothing was run against production.
 - **Branch retirement** (user-approved): `ch4-upgrade-v2`, `ch4os-1/2/3/5/6-work`, `docs/ch4-runbook-agent-approval` — each ancestry-merged into `origin/main`, clean, unowned → `git worktree remove` + `git branch -d`. `ch4os-4-work` kept: its commit `2f30f06` landed as cherry-pick `b10f16b` (changelog conflict resolved), so it is not ancestry-merged (`git cherry` `+`); content verified identical in `origin/main`; deleting it needs `-D` and a second approval.
 - `/harness-retro CH4OS-ship`: `tasks.csv` row (first_gate_pass no, cherrypick_conflict yes; started/finished/merged_sha `unknown` — no `.superpowers/sdd/` ledger and the docs branch had no commits at record time); `permissions.csv` row — risky 0, broad 101, denials 0 (main checkout's `settings.local.json` copied in temporarily; `allow_new` 869 is the worktree no-baseline artifact); 4 `failures.csv` rows (review_caught, merge_conflict, flaky_test, deploy_config), each pointing at its existing gate proposal — `flaky_test`, `merge_conflict`, `deploy_config` still "proposed — awaiting human approval".
 
@@ -4147,9 +4080,9 @@ Sentry SCND_STUDIO-3 / PostHog `01a13671` (2026-10-13, `/chapter-4`, 1 user): `C
 
 Sentry SCND_STUDIO-2 / PostHog `01a120e4` (2026-10-09, `/login`, 0 real users; Boydton VA, a Microsoft Azure region): `Non-Error promise rejection captured with value: Object Not Found Matching Id:3, MethodName:update, ParamCount:4`, a known signature of Outlook Safe Links opening emailed links in a headless browser. `lib/errorTracking.ts` `Sentry.init` now passes `ignoreErrors: ["Object Not Found Matching Id:"]` (Sentry treats a string as a substring match). Test (`errorTracking.test.ts`): the real event message matches the list and the real `_leaflet_pos` error does not. It failed before the change. PostHog has no client-side SDK filter. Its equivalent is an error-tracking suppression rule set in the PostHog project (delivered through remote config), left as an ask-first settings change, not code.
 
-### ERR-5 — the 2026-09-30 `nos_postgres_user` auth outage, reconstructed (correction to the Path A entry)
+### ERR-5
 
-Read-only, from `nos-api`'s Render events and the Sentry/PostHog error timestamps (the hosted MCP's `query_render_postgres` could not connect: its address is not on the database allowlist, and adding it would be a production change, so `pg_stat_activity` was not read). Timeline, UTC: 2026-09-29 22:48 a manual `nos-api` deploy **failed** (`nonZeroExit: 1`, the fail-closed boot path); 23:54 to 09-30 02:24, 17 request errors `password authentication failed for user "nos_postgres_user"` across every main route, 3 users; 02:00 a second manual deploy **failed** (`nonZeroExit: 1`); 02:28:55 a deploy triggered by an **environment-variable update** (`envUpdated: true`) went live at 02:29:40; no auth failure since. Reading, inferred and consistent with every timestamp: until that env update `nos-api`'s `DATABASE_URL` used `nos_postgres_user`. The Path A rotation broke every **new** connection, while warm pooled connections kept `/api/healthz` green. Requests that needed a fresh connection failed, and so did any new instance at boot. The env update (to the `nos_postgres_user2` credential, which is what the Path A entry describes as current) ended it. **So the Path A entry's "no redeploy needed, because `nos-api` authenticates as `nos_postgres_user2`" and "`/api/healthz` stayed ok throughout" were true only after 02:29Z.** The outage was about 2.5 h of intermittent failures plus two failed deploys. Lesson: a pooled service's health check does not prove a credential change was harmless. It reuses warm connections, so check a fresh connection, or a fresh boot, before concluding. Also seen in passing, not acted on: `nos-postgres`'s IP allowlist still carries two entries labelled `tmp_bug` and `temp_dig` (`49.36.168.217/32`, `49.36.169.38/32`).
+Record moved to the private ops log (§ ERR-5).
 
 ### ERR-R — whole-branch review fold (Opus reviewer, verdict SHIP-with-fixes)
 
@@ -5132,50 +5065,11 @@ Production `RangeError: Maximum call stack size exceeded` on `/chapter-9/jade` (
 - Deploy note (Q7): gold-au generic flows export stays v3; once a scenario saves an inbound band set, the numeric `band` index on its `mine_to_refinery` rows refers to that inbound set. Scenarios without the key export byte-identically.
 
 ### RENDER-OPS-IP — correct the hosted-MCP allowlist note (2026-10-29)
-- `render-ops` claimed `35.227.164.209` was the hosted Render MCP's egress IP. `dig` shows it is `nos-postgres`'s own external address (the connect target in the error). The 2026-10-04 entry was an unmeasured inference recorded as "observed"; this session repeated it and the user allowlisted the database's own IP to no effect. Entry rewritten: hosted MCP cannot be allowlisted; use `render psql … --command "BEGIN READ ONLY; …"` from an allowlisted machine (no password in the transcript); never route a password-bearing `psql` URL through `!`.
+- `render-ops` claimed `<db external IP>` was the hosted Render MCP's egress IP. `dig` shows it is `nos-postgres`'s own external address (the connect target in the error). The 2026-10-04 entry was an unmeasured inference recorded as "observed"; this session repeated it and the user allowlisted the database's own IP to no effect. Entry rewritten: hosted MCP cannot be allowlisted; use `render psql … --command "BEGIN READ ONLY; …"` from an allowlisted machine (no password in the transcript); never route a password-bearing `psql` URL through `!`.
 
-### SEC-1 — reject cross-site state-changing requests (security audit C1, 2026-10-30)
-- **Finding.** Production session cookie is `SameSite=None; Secure` (Studio and API are different sites) and `cors()` only withholds responses, so a third-party page's form POST (form-encoded or text/plain, no preflight) carried the victim's cookie: audit run 1 changed a dummy victim's scenario via import/apply, created a clone, and did login CSRF.
-- **Fix.** `app.ts`: production-only middleware right after `cookieParser`, before any body parser or auth. Non-GET/HEAD/OPTIONS requests get 403 `{ error: "cross_site_request_rejected" }` when `Origin` is present and not in `CORS_ALLOWED_ORIGIN` (the same allowlist CORS uses, so the opaque `null` origin is rejected too), or when `Origin` is absent and `Sec-Fetch-Site: cross-site`. Header-less non-browser clients (curl, `e2e_journey.py`) carry no ambient cookie and pass. Removed the unused global `express.urlencoded` parser so only JSON bodies (which need a preflight cross-site) are parsed. 403, not 404: this is not an ownership check (hard rule 5 is about resource enumeration).
-- **Test.** `src/__tests__/csrf.test.ts`: foreign-Origin POST/PATCH/DELETE to login, logout, forgot-password, clone, solve, import/apply, scenario PATCH/DELETE as form, text/plain and no-body all 403; `null` Origin and `Sec-Fetch-Site: cross-site` 403; allowlisted Origin, no headers and `same-site` reach the route (logout 200); GET from a foreign Origin unaffected; dev mode a no-op. Non-vacuous: without the guard, foreign-Origin logout returns 200.
-- **Deploy note.** `pnpm smoke` already sends `Origin: <studioBase>` on its POST. If Studio is ever served from an origin missing from `CORS_ALLOWED_ORIGIN`, every write 403s (today CORS would already break its reads).
+### SEC-1 … SEC deploy — security audit fixes (2026-10-30)
 
-### SEC-2 — bind sessions to the password hash (security audit C2, 2026-10-30)
-- **Finding.** Registration is unverified and the session cookie was the signed bare user id, never revoked. A squatter who registered a student's address first kept a working cookie after the real owner was steered to "Forgot password" and reset it: audit run 1 (real Postgres) read and deleted the owner's later scenario with the squatter's original cookie.
-- **Fix (user's choice: no schema change).** `middlewares/auth.ts`: cookie value is `<userId>.<issuedAtMs>.<tag>` (still cookie-parser signed), tag = first 22 chars of base64url HMAC-SHA256(`SESSION_SECRET`, current `password_hash`). New `sessionUser(req)` rejects a missing/old-format value, an age over `SESSION_TTL_MS` (7 d, now enforced server-side), a deleted user, or a tag mismatch; it does one PK lookup via `lib/sessionUser.ts` `findUserById`. `requireAuth` (now async) and `GET /auth/user` both use it, so a reset (the conditional UPDATE already rewrites `password_hash`) revokes every older session. Lookup failure is 500 `"Could not verify your session."` with no error binding (DrizzleQueryError params). `SESSION_SECRET` moved from `app.ts` into the middleware; logout's analytics id takes the cookie's id prefix.
-- **Not done (by decision).** No email verification; logout still only clears the browser cookie (a copied cookie lives until reset or expiry).
-- **Tests.** `passwordResetIntegration.test.ts` (real DB): register, reset with a planted token, then the pre-reset cookie gets 401 on `/api/scenarios` and `user: null` on `/api/auth/user`, the reset's cookie works. Verified non-vacuous: against the pre-SEC-2 source it fails `expected 200 to be 401`. `auth.test.ts`: current session passes, changed hash / over-TTL / deleted user / bare-id cookie (no DB hit) 401, lookup failure 500, login cookie round-trips through `/auth/user` and goes `null` once the hash changes. Mocked-db suites (`routes`, `error-handling`, `importMultiModelRoundTrip`) stub `findUserById` with the hash `loginAs` used, so the real tag check still runs; `authLookupLeak` forges the new format.
-- **Deploy note.** Every existing session is invalid after deploy (old format): every user signs in once. Rotating `SESSION_SECRET` would do the same, nothing else needs it.
-
-### SEC-3 — bound solver time and one active job per user (security audit C3, 2026-10-30)
-- **Finding.** `timeLimitSec` is `int().min(1)` with no maximum in every model schema, CBC and the watchdog both use it, and the only active-job refusal was max-coverage-only and per-scenario. One self-registered account could hold every worker slot (3) and fill the queue (30) for as long as it liked; audit run 1 (real CBC, pool 1/1) got another account's solve 429'd while its own ran to the requested limit.
-- **Fix (user's choice: 300 s, 1 active job/user).**
-  - `jobRunner.ts` `clampTimeLimit` / `MAX_SOLVE_TIME_LIMIT_SEC = 300`, applied at the top of `runJob`, the one point every job passes (fresh enqueue, dispatcher recovery, cache lookup). Payload, watchdog (`timeLimitSec*1000 + grace`), cache key and published requested-limits all see the clamped value. Validation is unchanged, so stored scenarios above 300 still solve, bounded. The `solve_jobs.requested_time_limit_sec` row column still records what was requested.
-  - `enqueueScenarioSolve`: inside the locked transaction, `SELECT … FROM users WHERE id = $user FOR UPDATE` (serialises one user's enqueues across different scenarios, which the scenario lock does not), then refuse if the user has any queued/running job. Same scenario: the existing `conflict` (409 + `jobId`), now for every model. This replaces the max-coverage-only CH4-11 block and still turns `UQ_solve_jobs_active_per_scenario` into a 409 rather than a 500. Another scenario: new `user_busy` outcome, routed to 429 with `Retry-After` and "You already have a solve in progress. Wait for it to finish, then try again." (Studio shows the server message in its existing failure card/toast.)
-  - `openapi.yaml`: 409/429 descriptions on `POST /scenarios/{id}/solve` updated; Orval output unchanged (descriptions are not emitted).
-- **Tests.** `jobRunner.test.ts`: a 1 000 000 s request spawns with payload `timeLimitSec: 300` and a 300 050 ms watchdog (would fail unclamped). `scenarioSolveAtomicity.test.ts` new SEC-3 block (draining): second scenario `user_busy` while another user still queues; same-scenario p-median second enqueue is `conflict`; two concurrent enqueues on different scenarios leave exactly one active job; HTTP 202 then 429 with `Retry-After`. Existing tests that enqueued twice for one user now retire the first job in between (`retireActiveJobs`, plus a file-level `beforeEach`); `scenarioPublicationCas`'s inverted-order CAS test hides job 1 from the guard for the second enqueue and restores it to `running` (the CAS is now defence in depth).
-- **Behaviour change.** A second solve while one is active, on any scenario, is now refused. Compare-style "solve several at once" flows must solve sequentially.
-
-### SEC-4 — per-IP forgot-password limit and per-mailbox budget (security audit C4, 2026-10-30)
-- **Finding.** Forgot-password had only a process-global 120/min bucket and a per-literal-address 3/hour bucket. With unthrottled registration, plus-aliases (`a+1@x`, `a+2@x`, …) were distinct keys for one inbox: audit run 1 (mocked mailer) sent ~119 reset emails to one mailbox in a minute and then got an unrelated user's reset 429'd by the exhausted global bucket.
-- **Fix (user's choice: no register limit).** `routes/auth.ts`: new `forgotIpLimiter` (10/min per `req.ip`, real client address since `trust proxy: 2`) checked FIRST, then global, then per-address, all `||` short-circuited so an IP-refused request consumes neither the global ceiling nor any mailbox budget. The per-address limiter now keys on `mailboxKey(email)` (the `+tag` stripped from the local part); lookup and send still use the address as typed. Every limiter still answers 429 whether or not the account exists. `resetForgotPasswordLimitersForTests` resets the new limiter too.
-- **Not done (by decision).** No registration rate limit; no daily send budget; Gmail dot-aliasing is not collapsed.
-- **Tests.** `passwordReset.test.ts`: 11th request from one client IP across distinct addresses is 429 while a second IP still gets 200; `inbox+0..3@` from four IPs gives `[200,200,200,429]` and `other+1@` is unaffected. The existing 121st-request global-cap test now sends from distinct client IPs. Both new tests fail against the previous limiter set.
-
-### SEC.R1 — whole-branch review fold (security audit fixes)
-Post-merge review of SEC-1..SEC-4 on local `main` (not pushed). Fixed on the branch:
-- **(medium) Session lookup ran 6–7 times per request.** Six path-less sub-routers each `router.use(requireAuth)` (solveHistory, landingSummary, feedback, distanceBands, superNetwork, scenarios) and `app.ts` adds a seventh for scenario writes; before SEC-2 that cost nothing, after it each was a users select. `requireAuth` now returns `next()` when `req.userId` is already set (only `requireAuth` sets it). Test: six routers mounting `requireAuth`, one request, `db.select` called once (6 without the guard).
-- **(medium) DELETE bypassed one-active-job-per-user.** DELETE removes a running job's row at once, but the solver holds its worker slot until the heartbeat notices (up to ~10 s), so delete/clone/solve loops could hold every slot. `runJob` now counts executing jobs per user in-process (`executingJobsByUser`), and `enqueueScenarioSolve` answers `user_busy` while the count is non-zero. Per-process, matching the single `nos-api` instance (`ponytail:` note names the ceiling). Test (`jobRunner.test.ts`): with a job executing and no active DB row, enqueue is `user_busy`; once it settles, enqueue proceeds (fails without the check: `queued`). `scenarioSolveAtomicity.test.ts` now drains the pool file-wide, since none of its tests need a job to execute.
-- **(low) Studio treated the now-universal 409 as a failure.** `Workspace.tsx` solve `onError`: a 409 whose body has a numeric `jobId` attaches to that job (`setPollingJobId`) instead of showing "Solve failed to start". Test in `Workspace.test.tsx` (fails without the fix).
-- **(low) IPv6 rotation defeated the per-IP forgot limit.** `routes/auth.ts` `clientKey` keys IPv6 by its /64 prefix (handles `::` compression, case, leading zeros); IPv4 and `::ffff:` mapped addresses unchanged. Test: ten spellings/addresses in one /64 plus an eleventh → `[200×10, 429]`, another /64 gets 200.
-- **(nit) Lock strength.** The enqueue's users-row lock is `FOR NO KEY UPDATE`, so it no longer conflicts with the FK `KEY SHARE` a same-user scenario insert takes; it still serialises enqueues. Reviewer traced every users/scenarios lock order and found no deadlock cycle.
-- **Deferred.** (low) With `SOLVER_V2_WRITE_ENABLED` on, a clamped job would publish `requestedTimeLimitSec: 300` with source `request` while the job row keeps the requested value; marking it server-clamped needs a CHECK-constraint change (`CK_solve_jobs_requested_time_limit_source`), latent while the flag is off. (nit) The global CSRF 403 and `requireAuth`'s 500 are not in `openapi.yaml`; the 403 only reaches cross-site browser callers and documenting it means touching every write path.
-
-### SEC deploy (2026-10-30)
-- `main` pushed `1a0278be..ebf016a1` (SEC-1..SEC-4 merge `87cf3ea0` + SEC.R1 fold merge `ebf016a1`). The push started no build on either service (`list_deploys` still showed `64e1e560` on both).
-- `deploy:preflight 64e1e560..origin/main`: no schema, no migrations; env vars read by new code are `NODE_ENV` and `SESSION_SECRET`, both already read before (the secret's read moved from `app.ts` to `middlewares/auth.ts`); API first.
-- `nos-api` → `dep-dbi9ksdg1s2s73ecsakg`, live at `ebf016a1`. Checked: `POST /api/auth/logout` with `Origin: https://evil.example` 403, with the Studio origin 200, with no headers 200. Then `nos-studio` → `dep-dbi9lo8ae00c73bjppgg`, live at `ebf016a1`; `/compare` 200 with `id="root"`; `pnpm smoke --env production` 7/7.
-- Every pre-deploy session cookie is now invalid (old format), so every user signs in once. Smoke account `smoke+dercom-40381@example.com` left for manual removal.
+Record moved to the private ops log (§ SEC). Deployed to `nos-api` and `nos-studio` at `ebf016a1`.
 
 ### API-DOMAIN — move nos-api to `api.networkdesignbook.com` (2026-11-02)
 - **Trigger.** A failed signup by a user on a corporate network (2026-11-02). Render request logs show 6 `OPTIONS /api/auth/register` (all 204) from the user's address and **no POST**. A Google Cloud address re-fetched `/api/auth/register` as a GET 300 ms after the first click, and PostHog saw the user on a different egress IP than the API did. Both point to a corporate security gateway that inspected the cross-site credential POST to `*.onrender.com` and dropped it. Production `users`: 0 rows for the address. CORS was not the cause: every register page view in the last 10 days came from `app.networkdesignbook.com`, and signups from that origin succeed.
@@ -5184,10 +5078,15 @@ Post-merge review of SEC-1..SEC-4 on local `main` (not pushed). Fixed on the bra
 - **Verified live (2026-11-02).** `/api/healthz` returns 200. A preflight from the Studio origin echoes `access-control-allow-origin: https://app.networkdesignbook.com` with credentials; a foreign origin gets no ACAO header. A write-free POST to register (invalid body) returns 400 and to login (unknown account) returns 401, both carrying the ACAO header. The deployed bundle `index-CRdPAIfP.js` contains the new host and not the old one. Both hosts sit behind the same Cloudflare edge (`server: cloudflare`, `cf-ray`). Real browser login after a hard reload: `POST /api/auth/login` returned 200, then the auth-gated `GET /api/solve-history` and `GET /api/landing-summary` returned 200 on the new host (12:24:35 UTC), so the cookie is set and sent. A tab opened before the rebuild keeps calling the old host until it is reloaded, which is harmless while that host stays enabled. **Not verified:** `req.ip` behind the custom domain. The PWR-FU5a probe that measured `trust proxy: 2` is gone, so the same chain is inferred from matching headers, not measured.
 - **Repo.** `render.yaml` (`VITE_API_BASE_URL`, plus `CORS_ALLOWED_ORIGIN`, which had drifted from the live value by missing `https://app.networkdesignbook.com`), `smoke.ts` `DEFAULTS` (production and preview `apiBase`; production `studioBase` is now `https://app.networkdesignbook.com`, the origin users load), the `deploy:preflight` SPA-route check, README, `CLAUDE.md`, and `docs/ops/smoke.md` now point at the new host. **Bug fixed along the way:** `cookieAttributes` decided "production" with `apiBase.includes("onrender.com")`, so the new default would have silently dropped the `Secure` + `SameSite=None` assertion. It now keys on an `https://` scheme (case-insensitive). A regression test in `checks.test.ts` was red before the fix and is green after.
 - **Side effect.** The session cookie was host-only on `nos-api-uwf8.onrender.com`, so every user signs in once after the switch.
-- **Follow-ups (not done).** (1) Register/login show "Check your details" when the network drops the request; they should say the server could not be reached. (2) 11 `@mailchuwee.com` accounts were created in 20 s on 2026-10-09 14:00 UTC. SEC-4 decided against a registration rate limit, and this burst is evidence for revisiting that.
+- **Follow-ups (not done).** (1) Register/login show "Check your details" when the network drops the request; they should say the server could not be reached. (2) A signup-abuse follow-up is recorded in the private ops log (§ API-DOMAIN).
 
 ### AUTH-NETERR — say "couldn't reach the server" instead of blaming the student's input (2026-11-02)
 - **Bug.** When a request never reached the API (offline, DNS, or a corporate gateway dropping it, as in the API-DOMAIN trigger), `fetch` rejects with a `TypeError` whose text varies by browser. Register ignored the error and said "Check your details and try again.". Login said "Invalid email or password." for every failure, including 429 and 5xx. `describeWriteError` passed the raw "Failed to fetch" through to forgot-password, reset-password and every Workspace write toast.
 - **Fix (one place).** `lib/describeWriteError.ts` maps a non-ApiError `TypeError` to the exported `NETWORK_ERROR_MESSAGE`. Register (non-409) and Login now route through `describeWriteError`, so the server owns the sentence: 401 "Invalid email or password", 429 "Too many login attempts…", 400 the validation sentence. Login's hard-coded string is gone. Register keeps its explicit 409 branch.
 - **Tests.** `describeWriteError.test.ts`: the Chrome, Safari and Firefox fetch-failure strings all map to the network message and never echo the raw text. `Register.test.tsx`: a network failure shows the network message, not "check your details"; a 400 shows the server's sentence. `Login.test.tsx`: a network failure and a 429 do not read as a wrong password. All 7 were red before the fix. Gate: typecheck clean, studio 3154/3154, solver 369 passed. The api-server failure was the registered `jobRunnerDispatcher` flake (sighting in `flake-registry.md`). The only e2e reference (`bundle4-auth-landing.spec.ts:89`) asserts visibility only.
 - **AUTH-NETERR.R1 — whole-branch review fold.** (1, 2) The first fix inferred "network failure" from any non-ApiError `TypeError` in `describeWriteError`. That also relabelled real client-side bugs (a null dereference in an export's row builder) as "Couldn't reach the server". `custom-fetch.ts` now wraps only the `fetch()` rejection in an exported `NetworkError` (`cause` preserved; an `AbortError` passes through untouched), and the helper matches `name === "NetworkError"`, duck-typed like `isApiErrorShaped`. A client `TypeError` keeps its own text again. (3) Register's hard-coded 409 string was dropped: the server's 409 body is the one source, and `exportEntity.ts`'s comment that cited it now points at `isApiErrorShaped`. (4) New test: a login failure with no usable body (a 502 with an HTML body) shows "Could not log in. Please try again." and never "HTTP 502". Not changed: Login shows the server's sentence verbatim (no trailing period, and a 500 reads "Internal server error"), which matches the "server owns the sentence" rule, and aborts keep their browser text because they are cancellations, not something a student hits from a dropped request. Tests: api-client-react 11/11 (4 new), studio auth and helper suites 57/57, all red before the fold.
+
+### PRIV-1 — move incident and security records out of the public changelog (2026-11-02)
+- This repo is public. Incident write-ups, security-audit findings, and single identifying values (IP addresses, the production database id) were moved verbatim to the private repo `ShubhamKr07/nos-ops-private` (`CHANGELOG-private.md`). Each moved section here is now a stub that points to its § key there.
+- `supabase/.temp/` (an unrelated project's CLI cache, already listed in `.gitignore`) is no longer tracked.
+- Redaction applies from this commit forward. Earlier public commits still contain the moved text, and rewriting history was considered and declined.
