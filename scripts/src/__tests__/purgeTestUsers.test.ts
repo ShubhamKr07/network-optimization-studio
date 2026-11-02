@@ -40,7 +40,7 @@ describe("assertPurgeableDatabase — the guard that replaced a provider denylis
     // and render.yaml records that production's DATABASE_URL is exactly this
     // form. This assertion is the regression guard for that Critical.
     expect(() =>
-      assertPurgeableDatabase("postgresql://u:pw@dpg-d9hg4bmpbkes73a0j6l0-a/nos_postgres"),
+      assertPurgeableDatabase("postgresql://u:pw@dpg-xxxxxxxxxxxxxxxxxxxx-a/nos_postgres"),
     ).toThrow(/not in the allowlist/);
   });
 

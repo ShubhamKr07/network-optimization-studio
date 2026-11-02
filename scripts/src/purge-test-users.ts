@@ -61,7 +61,7 @@ export const PROTECTED_EMAILS = ["seed@local"];
  *
  * `render.yaml:41-42` records that `nos-api`'s `DATABASE_URL` was set in the
  * Dashboard to Render's **INTERNAL** connection string, whose host is the bare
- * instance id with no domain suffix (`…@dpg-d9hg4bmpbkes73a0j6l0-a/nos_postgres`).
+ * instance id with no domain suffix (`…@dpg-xxxxxxxxxxxxxxxxxxxx-a/nos_postgres`).
  * A `/render\.com|…/` denylist refuses the *external* URL and sails straight
  * past the internal one that production actually uses. The same denylist also
  * missed Supabase's `…pooler.supabase.com` (it only listed `.co`) and Neon's

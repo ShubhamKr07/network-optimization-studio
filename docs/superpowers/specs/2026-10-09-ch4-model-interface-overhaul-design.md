@@ -506,7 +506,7 @@ data.
 
 Local dev DB holds **5** `max-coverage-us` scenarios. The production count is
 **unknown and unmeasurable from this session** — `query_render_postgres` connects
-from `35.227.164.209`, which is not on `nos-postgres`'s IP allowlist. Measuring it
+from `<db external IP>`, which is not on `nos-postgres`'s IP allowlist. Measuring it
 needs `psql` from an allowlisted machine. Production is not touched by this branch;
 running the migration there is a separate, separately-approved step with its own
 dry-run read first.

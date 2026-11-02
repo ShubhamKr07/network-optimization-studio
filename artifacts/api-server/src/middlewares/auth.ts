@@ -5,6 +5,13 @@ import { logger } from "../lib/logger.js";
 
 export const SESSION_COOKIE = "nos_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// The fallback is published in this repo, so a production process signing
+// cookies with it would let anyone forge a session. Fail boot instead. Logged
+// through pino first because Render drops stderr (see index.ts).
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  logger.fatal("[boot] SESSION_SECRET is unset in production; refusing to start");
+  throw new Error("SESSION_SECRET is required in production");
+}
 export const SESSION_SECRET = process.env.SESSION_SECRET || "arcadia-dev-secret";
 
 declare global {

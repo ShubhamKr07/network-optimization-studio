@@ -254,7 +254,7 @@ judgment as any other pre-destructive-migration backup).
 ## Production Chapter 4 row count — unmeasurable from an agent session
 
 `query_render_postgres` (the hosted MCP tool) connects to `nos-postgres` from
-its own address, observed as `35.227.164.209` (Google Cloud) — not from this
+its own address, observed as `<db external IP>` (Google Cloud) — not from this
 machine — and that address is **not** on `nos-postgres`'s IP allowlist.
 Allowlisting a local developer IP does nothing for the hosted MCP tool,
 because it never originates traffic from that IP.
