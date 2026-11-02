@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AuthShell } from "@/components/auth/AuthShell";
+import { describeWriteError } from "@/lib/describeWriteError";
 
 export function Login() {
   const [, navigate] = useLocation();
@@ -41,7 +42,7 @@ export function Login() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
         {loginUser.isError && (
           <Alert variant="destructive" data-testid="alert-login-error">
-            <AlertDescription>Invalid email or password.</AlertDescription>
+            <AlertDescription>{describeWriteError(loginUser.error, "Could not log in. Please try again.")}</AlertDescription>
           </Alert>
         )}
         <div className="flex flex-col gap-2">

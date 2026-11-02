@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const mockLoginMutate = vi.fn();
-let loginState: { isPending: boolean; isError: boolean } = { isPending: false, isError: false };
+let loginState: { isPending: boolean; isError: boolean; error?: unknown } = { isPending: false, isError: false };
 vi.mock("@workspace/api-client-react", () => ({
   useLoginUser: () => ({ mutate: mockLoginMutate, ...loginState }),
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
@@ -70,9 +70,26 @@ describe("Login", () => {
   });
 
   it("shows an error message when login fails", () => {
-    loginState = { isPending: false, isError: true };
+    loginState = { isPending: false, isError: true, error: { status: 401, data: { error: "Invalid email or password" } } };
     render(<Login />);
     expect(screen.getByTestId("alert-login-error")).toHaveTextContent(/invalid email or password/i);
+  });
+
+  // A dropped request must not read as a wrong password.
+  it("says the server could not be reached when the request never arrived", () => {
+    loginState = { isPending: false, isError: true, error: new TypeError("Failed to fetch") };
+    render(<Login />);
+    const alert = screen.getByTestId("alert-login-error");
+    expect(alert).toHaveTextContent(/couldn't reach the server/i);
+    expect(alert.textContent).not.toMatch(/invalid email or password/i);
+  });
+
+  it("shows the rate-limit sentence on 429, not a wrong-password message", () => {
+    loginState = { isPending: false, isError: true, error: { status: 429, data: { error: "Too many login attempts, try again shortly" } } };
+    render(<Login />);
+    const alert = screen.getByTestId("alert-login-error");
+    expect(alert).toHaveTextContent("Too many login attempts, try again shortly");
+    expect(alert.textContent).not.toMatch(/invalid email or password/i);
   });
 
   it("disables the submit button while pending", () => {

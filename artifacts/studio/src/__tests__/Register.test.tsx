@@ -81,6 +81,26 @@ describe("Register", () => {
     expect(screen.getByTestId("alert-register-error")).toHaveTextContent(/could not create the account/i);
   });
 
+  // 2026-11-02: a corporate gateway dropped the signup POST and the student was
+  // told to "check your details" — which were fine.
+  it("says the server could not be reached when the request never arrived", () => {
+    registerState = { isPending: false, isError: true, error: new TypeError("Failed to fetch") };
+    render(<Register />);
+    const alert = screen.getByTestId("alert-register-error");
+    expect(alert).toHaveTextContent(/couldn't reach the server/i);
+    expect(alert.textContent).not.toMatch(/check your details/i);
+  });
+
+  it("shows the server's own sentence for a rejected request", () => {
+    registerState = {
+      isPending: false,
+      isError: true,
+      error: { status: 400, data: { error: "email and password (8-128 chars) are required" } },
+    };
+    render(<Register />);
+    expect(screen.getByTestId("alert-register-error")).toHaveTextContent("email and password (8-128 chars) are required");
+  });
+
   it("links to the login page", () => {
     render(<Register />);
     expect(screen.getByText("Log in")).toBeInTheDocument();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeWriteError } from "@/lib/describeWriteError";
+import { describeWriteError, NETWORK_ERROR_MESSAGE } from "@/lib/describeWriteError";
 
 /** Shaped like custom-fetch.ts's ApiError: an Error whose `message` carries
  *  the HTTP prefix and whose `data` holds the parsed body. */
@@ -88,4 +88,16 @@ describe("describeWriteError", () => {
     const err = apiError(422, { error: '[{"code":"too_small","path":["x"]}]' }, "HTTP 422 …");
     expect(describeWriteError(err)).toBe("Something went wrong. Please try again.");
   });
+
+  // A request the network never delivered (offline, DNS, or a corporate
+  // gateway dropping it) makes fetch reject with a TypeError whose text varies
+  // by browser. None of those strings is a sentence a student can act on.
+  it.each(["Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."])(
+    "names a network failure instead of passing %j through",
+    (message) => {
+      const out = describeWriteError(new TypeError(message), "fallback");
+      expect(out).toBe(NETWORK_ERROR_MESSAGE);
+      expect(out).not.toContain(message);
+    },
+  );
 });
