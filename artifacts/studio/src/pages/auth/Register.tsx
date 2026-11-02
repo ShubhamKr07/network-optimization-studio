@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AuthShell } from "@/components/auth/AuthShell";
+import { describeWriteError } from "@/lib/describeWriteError";
 
 export function Register() {
   const [, navigate] = useLocation();
@@ -37,7 +38,7 @@ export function Register() {
   const errorMessage = registerUser.isError
     ? (registerUser.error as { status?: number })?.status === 409
       ? "An account with this email already exists."
-      : "Could not create the account. Check your details and try again."
+      : describeWriteError(registerUser.error, "Could not create the account. Please try again.")
     : null;
 
   return (
