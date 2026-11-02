@@ -3,13 +3,14 @@ import { parseSmokeArgs, resolveEnv, rollupByService, formatResults } from "../s
 import { findBundleSrc } from "../checks/viteEnvBaked.js";
 import { cookiePair } from "../checks/types.js";
 import { postgresTls } from "../checks/postgresTls.js";
+import { cookieAttributes } from "../checks/cookieAttributes.js";
 import type { CheckResult, SmokeCtx } from "../checks/types.js";
 
 describe("smoke arg/env resolution", () => {
   it("defaults to production live URLs", () => {
     const env = resolveEnv(parseSmokeArgs([]), {});
-    expect(env.apiBase).toBe("https://nos-api-uwf8.onrender.com");
-    expect(env.studioBase).toBe("https://nos-studio.onrender.com");
+    expect(env.apiBase).toBe("https://api.networkdesignbook.com");
+    expect(env.studioBase).toBe("https://app.networkdesignbook.com");
   });
 
   it("flags beat env beat default, and trailing slashes are trimmed", () => {
@@ -75,5 +76,27 @@ describe("postgresTls check with injected fetch", () => {
     const r = await postgresTls(env, ctx(fakeFetch));
     expect(r.pass).toBe(false);
     expect(r.detail).toContain("db=down");
+  });
+});
+
+describe("cookieAttributes check with injected fetch", () => {
+  const ctx = (impl: typeof fetch): SmokeCtx => ({ fetch: impl, cookieJar: { value: null }, createdAccounts: [] });
+  const registerWith = (setCookie: string) =>
+    (async () => new Response("{}", { status: 201, headers: { "set-cookie": setCookie } })) as unknown as typeof fetch;
+
+  // Production is identified by https, not by an onrender.com host: the API moved to a custom domain
+  // (api.networkdesignbook.com) and a host-name test silently dropped the Secure/SameSite=None assertion.
+  it("requires Secure + SameSite=None on an https custom-domain API", async () => {
+    const env = { apiBase: "https://api.networkdesignbook.com", studioBase: "https://app.networkdesignbook.com" };
+    const bare = await cookieAttributes(env, ctx(registerWith("sid=abc; Path=/; HttpOnly")));
+    expect(bare.pass).toBe(false);
+    const full = await cookieAttributes(env, ctx(registerWith("sid=abc; Path=/; HttpOnly; Secure; SameSite=None")));
+    expect(full.pass).toBe(true);
+  });
+
+  it("does not require Secure on local http", async () => {
+    const env = { apiBase: "http://localhost:3001", studioBase: "http://localhost:5174" };
+    const r = await cookieAttributes(env, ctx(registerWith("sid=abc; Path=/; HttpOnly")));
+    expect(r.pass).toBe(true);
   });
 });

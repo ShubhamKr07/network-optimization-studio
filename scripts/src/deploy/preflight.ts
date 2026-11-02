@@ -152,7 +152,7 @@ export async function main(argv: string[]) {
   o.push("");
 
   o.push("### 4. Post-deploy (nos-studio): SPA route check",
-    "- run: pnpm deploy:preflight -- --verify-studio https://nos-studio.onrender.com/compare   (must be 200 with id=\"root\")");
+    "- run: pnpm deploy:preflight -- --verify-studio https://app.networkdesignbook.com/compare   (must be 200 with id=\"root\")");
   console.log(o.join("\n"));
   return 0;
 }
