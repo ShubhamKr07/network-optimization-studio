@@ -28,7 +28,7 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
 
 **Colour rules**
 - Every dark value below was approved by the user on 2026-11-04 from the side-by-side preview (a private claude.ai preview page, not linked here), under master constraint C3. An implementer may not change a value to get a gate green; a failing gate is a STOP-and-report.
-- The tile filter is exactly `invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)`; the gates' `DARK_TILE = "#1C1915"` is derived from it, and a test pins the string so the two cannot drift.
+- The tile filter is exactly `invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)`. The gates' `DARK_TILE = "#1C1915"` is **measured**, not computed: Chromium (Playwright, 2026-11-04) renders OSM land `#F2EFE9` under this filter, including Leaflet's `mix-blend-mode: plus-lighter` on tiles (`leaflet.css:63`), as exactly `#1C1915` (water `#AAD3DF` → `#1C3D47`). A unit test pins the filter string; DU-5.4 re-samples a real tile pixel, which is the source of truth.
 - Red stays for errors only. Overflow stays violet (light `#7C3AED`; dark `#A78BFA`, violet-400).
 - **Known exception (Q3, user decision 2026-11-04):** destructive red stays `#DC2626` with white text in dark, so `text-destructive` error lines measure 3.7:1 on the dark background and 3.1:1 on the dark card, below the 4.5:1 text target. A test pins them at ≥ 3:1 so the exception cannot quietly worsen.
 
@@ -44,7 +44,7 @@ The master plan's Global Constraints (`2026-10-24-design-upgrade.md:22-56`) bind
 
 ## Decisions
 
-Q1–Q3 are user decisions (2026-11-04). The rest are technical defaults the user kept.
+Q1–Q3 are user decisions (2026-11-04). Q4–Q9 are technical defaults the user kept; Q10 was added after Codex round 2 and is a default awaiting the user's plan approval.
 
 | ID | Decision | Task |
 |---|---|---|
@@ -57,6 +57,7 @@ Q1–Q3 are user decisions (2026-11-04). The rest are technical defaults the use
 | Q7 | **Default is `system`**, per spec. Students whose OS is dark see the dark theme on first load after deploy, with no action. | 5.3 |
 | Q8 | **The ink header band stays ink in both themes** (`.scnd-band`, `--surface-band #181A15`); in dark it meets an ink page and is separated by its existing 2px `--green-400` bottom border. Raw `--ink-*`/`--green-400` uses on the band (AppShell, AuthShell, Workspace header `:4593-4629`) are correct in both themes and are allow-listed per line in DU-5.2's guard. | 5.2 |
 | Q9 | **Eight dormant `dark:` utilities** (shadcn `input-group`, `field`, `alert`, `kbd`) become live. They are shadcn's own dark defaults; DU-5.4 checks them in the browser and no task edits them pre-emptively. | 5.4 |
+| Q10 | **Two non-token map colours stay as they are** (Codex round 2): the Move/Copy ghost tints `#2563eb` / `#059669` (`InputMapTab.tsx:813` etc., `SuperInputMap.tsx:113`) measure 3.4:1 / 4.7:1 on the dark tile, so they pass without change; the Gold fixed mine is Leaflet's default PNG pin (`InputMapTab.tsx:1816`), white-outlined, unchanged in light. Tokenising either would change light mode. DU-5.4 checks both on a dark map. | 5.4 |
 
 All paths below are relative to `artifacts/studio/` unless noted.
 
@@ -98,8 +99,9 @@ function darkToken(name: string): string {
 }
 const DARK_BG = darkToken("--background");
 const DARK_CARD = darkToken("--card"); // legend + BandLabel surface
-// OSM land #F2EFE9 through TILE_FILTER (phase-5 plan Q1; computed with the CSS
-// filter-function matrices). The pin below keeps the two in step.
+// OSM land #F2EFE9 through TILE_FILTER, as Chromium renders it (measured
+// 2026-11-04, phase-5 plan Q1); DU-5.4 re-samples a real tile. The pin below
+// keeps the filter and this constant in step.
 const TILE_FILTER = "invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)";
 const DARK_TILE = "#1C1915";
 
@@ -165,7 +167,9 @@ describe("dark theme (DU-5.1, spec §5.5)", () => {
 describe("dark token inventory (DU-5.1, Codex PR5-7)", () => {
   // Every semantic token declared in the light block has a dark value, except
   // families that are not theme-dependent or are derived from another token.
-  const EXEMPT = /^--(?:green-\d|ink-\d|accent-\d|demand|app-font|radius|tracking|spacing|.*-border$)/;
+  // Exact derived-border list (Codex PR5-R2-7): --card-border, --sidebar-border,
+  // --popover-border and the status borders are semantic and must have dark values.
+  const EXEMPT = /^--(?:green-\d|ink-\d|accent-\d|demand|app-font|radius|tracking|spacing|(?:sidebar-primary|sidebar-accent|primary|secondary|muted|accent|destructive)-border$)/;
   const declared = (block: string) => new Set([...block.matchAll(/(--[a-z0-9-]+):/g)].map(m => m[1]));
   it("covers every light semantic token", () => {
     const light = [...declared(ROOT)].filter(t => !EXEMPT.test(t));
@@ -176,7 +180,7 @@ describe("dark token inventory (DU-5.1, Codex PR5-7)", () => {
 });
 ```
 
-Add to the light tests: `expect(token("--text-primary").toUpperCase()).toBe("#48611E")` and `expect(token("--map-highlight").toUpperCase()).toBe("#48611E")`. The `-border` exemption covers the relative-colour `--*-border` derivations (`:254-276`); the status `--success-border` etc. are still declared in `.dark` below.
+Add to the light tests: `expect(token("--text-primary").toUpperCase()).toBe("#48611E")` and `expect(token("--map-highlight").toUpperCase()).toBe("#48611E")`. The border exemption names only the relative-colour derivations (`:254-276`), which re-derive from their base token under `.dark`.
 
 - [ ] **Step 2:** `pnpm --filter studio test -- designTokens` — expect the new cases to FAIL.
 
@@ -254,9 +258,17 @@ Then the Leaflet rules, after `.leaflet-tooltip.nos-map-tooltip` (`:24-30`):
 }
 .dark .leaflet-container .leaflet-control-attribution { background: hsl(var(--card) / 0.8); color: hsl(var(--muted-foreground)); }
 .dark .leaflet-container .leaflet-control-attribution a { color: var(--link); }
+.dark .leaflet-container a.leaflet-popup-close-button { color: hsl(var(--muted-foreground)); }
+.dark .leaflet-container a.leaflet-popup-close-button:hover,
+.dark .leaflet-container a.leaflet-popup-close-button:focus { color: hsl(var(--foreground)); }
+/* tooltip arrows (leaflet.css:620 ff.) follow the card surface */
+.dark .leaflet-tooltip-top:before { border-top-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-bottom:before { border-bottom-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-left:before { border-left-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-right:before { border-right-color: hsl(var(--card)); }
 ```
 
-(`leaflet.css` white defaults, measured: `.leaflet-bar a` `:289`, attribution `:414`, popup tip `:523`, `.leaflet-tooltip` `:580`. The app's `.nos-map-tooltip` already reads `--card`. rg the app for any other `leaflet-` class it styles, and for `.leaflet-div-icon` use — that default is white with a border — before committing.)
+(`leaflet.css` white defaults, measured: `.leaflet-bar a` `:289`, attribution `:414`, popup tip `:523`, close button `:527`, `.leaflet-tooltip` `:580`, tooltip arrows `:620` ff. The app's `.nos-map-tooltip` already reads `--card`. rg the app for any other `leaflet-` class it styles, and for `.leaflet-div-icon` use — that default is white with a border — before committing.)
 
 Add `--text-primary: #48611E;` to the light raw-text line and `--map-highlight: #48611E;` to the light map-entities line.
 
@@ -286,7 +298,7 @@ A site with no identical-value token is a STOP-and-report, not an invention.
 - `text-white` with `bg-primary`: the same toggle/segment sites above, and `components/workspace/super/superTables.tsx:98` (string returned by `activeClassOf`).
 - `--green-700` text: `components/workspace/SolveDialog.tsx:161`, `components/workspace/tabs/OptimizationParametersTab.tsx:375`, `components/workspace/tabs/InputMapTab.tsx:798,1291,1789,2375`, `pages/Workspace.tsx:4712`, `pages/Landing.tsx:141`, `components/ui/button.tsx:28`, `components/ui/field.tsx:148`, `components/ui/empty.tsx:76`, `components/ui/item.tsx:138`.
 - `--green-700` marker: `components/NetworkMap.tsx:72-73,130-131`.
-- `--green-600` icon colour: `components/DeveloperCredit.tsx:10,13` (renders in the AppShell/AuthShell footers on the page surface, not the band).
+- `--green-600` text/icon colour: `components/DeveloperCredit.tsx:10,13` (renders in the AppShell/AuthShell footers on the page surface, not the band) and `components/auth/AuthShell.tsx:42` (page title on `bg-background`).
 - Create `src/__tests__/themeSurfaceGuard.test.ts`.
 
 - [ ] **Step 1: Failing guard.** Walk `src/` (non-test `.ts`/`.tsx`), fail on any match not in the allow-list:
@@ -309,8 +321,10 @@ const PATTERNS: Array<[string, RegExp]> = [
 const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
 // [file, substring that identifies the allowed line(s), reason]. Each entry must still match.
 const ALLOWED: Array<[string, string, string]> = [
-  ["components/AppShell.tsx", "var(--", "ink header band: --ink-300 / --green-400 are correct in both themes (Q8)"],
-  ["components/auth/AuthShell.tsx", "var(--", "ink header panel (Q8)"],
+  ["components/AppShell.tsx", "var(--ink-300)", "ink header band (Q8)"],
+  ["components/AppShell.tsx", "var(--green-400)", "ink header band title (Q8)"],
+  ["components/auth/AuthShell.tsx", "var(--ink-300)", "ink header panel (Q8)"],
+  ["components/auth/AuthShell.tsx", "var(--green-400)", "ink header panel border + diamond (Q8)"],
   ["pages/Workspace.tsx", "var(--ink-", "ink header band :4593-4629 (Q8)"],
 ];
 function walk(dir: string): string[] {
@@ -348,7 +362,7 @@ describe("themed surfaces (DU-5.2)", () => {
 });
 ```
 
-Verify each `AuthShell.tsx` raw-palette use sits on its ink panel (`:26` `--surface-band`) before keeping that entry; narrow its needle if any use sits off the panel. `Workspace.tsx:4712` (`--green-700` on the Save button) is **not** allowed and migrates.
+Verify each allowed AppShell/AuthShell line sits on the ink band or panel; `AuthShell.tsx:42` (`--green-600` title on the `bg-background` page, Codex PR5-R2-4) is **not** on the panel and migrates to `--text-brand`. `Workspace.tsx:4712` (`--green-700` on the Save button) is **not** allowed and migrates.
 
 - [ ] **Step 2:** run it — expect FAIL listing the files above.
 - [ ] **Step 3:** apply the replacement table. Do not touch `hover:bg-white/10` on the band. Update any RTL test asserting the old class or colour (rg `bg-white\|text-white\|green-700\|green-600` in `src/__tests__`).
@@ -524,7 +538,8 @@ export function ThemeToggle() {
   - **Toggle:** Dark → reload keeps dark; Light overrides an OS-dark emulation; System follows a mid-session `emulateMedia` change.
   - **No storage:** a context whose `localStorage` throws (`addInitScript` overriding `Storage.prototype.getItem/setItem`) loads, renders, and still switches theme in-session.
   - **No flash:** with OS-dark emulation, `<html>` already has `dark` at `DOMContentLoaded` (an `addInitScript` listener records it), before the React bundle runs.
-  - **Dark maps (Q1):** on Output Map (p-median-us, JADE), Input Map and the Super Model input map, `.leaflet-tile-pane`'s computed `filter` equals the plan's string; a screenshot pixel sampled on open land (away from labels and lanes) is dark (relative luminance < 0.05); every lane's computed `stroke` equals its dark `--band-N` and its `stroke-dasharray` equals the light run's (patterns unchanged); legend swatches match; warehouse/customer/plant markers compute to the dark `--map-*`; a popup, the zoom buttons and the attribution compute to `--card` backgrounds with readable text.
+  - **Dark maps (Q1):** on Output Map (p-median-us, JADE), Input Map and the Super Model input map, `.leaflet-tile-pane`'s computed `filter` equals the plan's string; a screenshot pixel sampled on open land (away from labels and lanes) is dark (relative luminance < 0.05); every lane's computed `stroke` equals its dark `--band-N` and its `stroke-dasharray` equals the light run's (patterns unchanged); legend swatches match; warehouse/customer/plant markers compute to the dark `--map-*`; a popup (and its close button), a tooltip and its arrow, the zoom buttons and the attribution compute to `--card`-based colours with readable text; the sampled land pixel is used to re-check the band and marker contrast gates (≥ 3:1) against what was actually rendered. Q10: the Move/Copy ghost circle and the Gold fixed-mine pin are visible on the dark tile (screenshot in the report).
+  - **Copy map image (dark):** "Copy map" (`lib/copyMapToClipboard.ts`, `html-to-image`) in dark mode produces a PNG whose land pixel is dark and whose markers use the dark tokens; if the capture drops the filter, report it with the PNG — do not fix silently.
   - **All 8 chapters in dark:** Landing, each chapter's Workspace (Input Map, Output Map, one table tab, Optimization Parameters), Compare. For each: a `BandLabel` swatch computes to a dark-ramp value; status alerts, a destructive button, a disabled control, the focus ring and the four Q9 `dark:` shadcn pieces are legible. Attach a full-page screenshot per chapter per theme to the report for the user.
   - **Light unchanged:** the same pages in light compute `bg-card` surfaces to `rgb(255, 255, 255)`, primary text to `rgb(72, 97, 30)`, and `.leaflet-tile-pane` to `filter: none`.
 - [ ] **Step 3: gates.** `pnpm gate`; `E2E_BASE_URL=… pnpm e2e:gate`. Record the numbers in the changelog entry; never estimate a number that wasn't measured.
@@ -557,3 +572,14 @@ Folded (PR5-n = Codex finding n). Three findings targeted the light-map approach
 - **PR5-8** map band/pattern revalidation untested → DU-5.4 checks tile filter, a land pixel, lane stroke/dash, legend and markers.
 - **PR5-9** direct `window.matchMedia` assignment leaks → `vi.stubGlobal` / `unstubAllGlobals`.
 - **PR5-10** inventory missed `superTables.tsx:98` → added.
+
+## Review log — Codex round 2 (high effort, 2026-11-04)
+
+On the revised plan (dark tiles):
+- **PR5-R2-1** `DARK_TILE` claimed wrong (`#1C1315` sRGB) and `plus-lighter` blending unaccounted → **measured instead**: Chromium renders `#F2EFE9` under the filter, with a `plus-lighter` child, as exactly `#1C1915` (water `#1C3D47`). The constant stands; it is now documented as measured, and DU-5.4 re-samples a real tile and re-checks the gates against it.
+- **PR5-R2-2** Gold fixed mine is Leaflet's default PNG pin → kept (light unchanged, white-outlined pin), Q10; DU-5.4 checks it on a dark map.
+- **PR5-R2-3** Move/Copy ghost hex tints → measured 3.4:1 / 4.7:1 on the dark tile, kept (Q10); checked in DU-5.4.
+- **PR5-R2-4** AuthShell allow-list hid `AuthShell.tsx:42` (`--green-600` on the page) → AppShell/AuthShell needles narrowed to `--ink-300` / `--green-400`; line 42 migrates to `--text-brand`.
+- **PR5-R2-5** tooltip arrows and popup close button stayed light → dark rules added to DU-5.1 and checked in DU-5.4.
+- **PR5-R2-6** dark "Copy map" export unverified → DU-5.4 real-browser check of the PNG.
+- **PR5-R2-7** inventory exempted every `*-border` → exact list of derived borders only.
