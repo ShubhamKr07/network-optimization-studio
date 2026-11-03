@@ -30,7 +30,7 @@ export interface AddedWarehouse {
 const STATUSES = ["active", "forced_open", "inactive"] as const;
 type Status = (typeof STATUSES)[number];
 const statusActiveClass = (s: Status) =>
-  s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-foreground text-background" : "bg-secondary text-foreground";
+  s === "forced_open" ? "bg-primary text-primary-foreground" : s === "inactive" ? "bg-foreground text-background" : "bg-secondary text-foreground";
 
 interface WarehousesTabProps {
   warehouses: WarehouseCandidate[];

@@ -28,7 +28,7 @@ export function UnitToggle() {
           aria-pressed={pref === value}
           onClick={() => setPref(value)}
           className={`text-xs px-2 py-1 transition-colors ${
-            pref === value ? "bg-primary text-white" : "bg-white text-foreground hover:bg-muted"
+            pref === value ? "bg-primary text-primary-foreground" : "bg-card text-foreground hover:bg-muted"
           }`}
         >
           {label}

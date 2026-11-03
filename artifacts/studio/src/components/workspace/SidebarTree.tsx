@@ -118,7 +118,7 @@ function entryClass({
     : "w-full flex items-center text-left px-3 py-1.5 border-l-2";
   if (disabled) return `${base} border-transparent text-muted-foreground/40 cursor-not-allowed`;
   return active
-    ? `${base} bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--green-500)]`
+    ? `${base} bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--focus-ring)]`
     : `${base} border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground`;
 }
 
@@ -394,7 +394,7 @@ export function SidebarTree({
 function rowClass(active: boolean): string {
   return `w-full text-left px-3 py-1.5 truncate border-l-2 ${
     active
-      ? "bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--green-500)]"
+      ? "bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--focus-ring)]"
       : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
   }`;
 }

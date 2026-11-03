@@ -38,7 +38,7 @@ export function MapBulkEditToolbar({
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white border border-border rounded-lg shadow-lg px-4 py-2.5 flex items-center gap-2 z-20 text-xs"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg shadow-lg px-4 py-2.5 flex items-center gap-2 z-20 text-xs"
       data-testid="map-bulk-edit-toolbar"
     >
       {isMixed ? (

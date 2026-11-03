@@ -4709,7 +4709,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   onClick={handleSaveClick}
                   disabled={!saveEnabled || saveIsPending}
                   data-testid="button-save"
-                  className={saveEnabled ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
+                  className={saveEnabled ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
                 >
                   <Save className="w-3.5 h-3.5 mr-1" />
                   {saveIsPending ? "Saving…" : saveLabel}

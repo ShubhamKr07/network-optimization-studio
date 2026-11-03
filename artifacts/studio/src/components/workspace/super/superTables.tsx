@@ -95,7 +95,7 @@ export function superColumns(
     if (s.kind === "status") {
       return { ...base, kind: "enum", cell: it => (
         <StatusToggle options={s.values} value={String(it.r.status ?? "active")} disabled={readOnly}
-          labelOf={v => v.replace("_", " ")} activeClassOf={() => "bg-primary text-white"}
+          labelOf={v => v.replace("_", " ")} activeClassOf={() => "bg-primary text-primary-foreground"}
           onChange={v => edit(it.i, "status", v)} testIdOf={v => `${tid(it, "status")}-${v}`} />
       ) };
     }

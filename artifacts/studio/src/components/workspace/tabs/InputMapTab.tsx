@@ -795,7 +795,7 @@ function PMedianInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -1288,7 +1288,7 @@ function TransportInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -1786,7 +1786,7 @@ function TwoEchelonInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}
@@ -2372,7 +2372,7 @@ function JadeInputMap({
               onClick={onSave}
               disabled={!isDirty || saving}
               data-testid="button-save"
-              className={isDirty ? "border-primary text-[var(--green-700)] hover:bg-primary/10" : ""}
+              className={isDirty ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
             >
               <Save className="w-3.5 h-3.5 mr-1" />
               {saving ? "Saving…" : (saveLabel ?? "Save")}

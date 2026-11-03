@@ -185,7 +185,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                         className={`px-2 py-1 transition-colors whitespace-nowrap ${
                           status === s
                             ? s === "excluded" ? "bg-foreground text-background" : "bg-secondary text-foreground"
-                            : "bg-white text-muted-foreground hover:bg-muted"
+                            : "bg-card text-muted-foreground hover:bg-muted"
                         } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         {s === "active" ? "Active" : "Excluded"}

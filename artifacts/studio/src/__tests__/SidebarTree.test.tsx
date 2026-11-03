@@ -78,7 +78,7 @@ describe("SidebarTree", () => {
     const active = screen.getByTestId("sidebar-input-customers");
     expect(active.className).toContain("var(--surface-selected)");
     expect(active.className).toContain("var(--text-brand)");
-    expect(active.className).toContain("var(--green-500)");
+    expect(active.className).toContain("var(--focus-ring)");
     const inactive = screen.getByTestId("sidebar-input-warehouses");
     expect(inactive.className).not.toContain("var(--surface-selected)");
   });
