@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script>
+      try { var p = localStorage.getItem("nos:theme-pref"); } catch (e) {}
+      if (p === "dark" || ((p !== "light") && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark");
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>SCND Optimization Studio — By Prof. Michael Watson</title>

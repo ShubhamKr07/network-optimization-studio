@@ -5146,3 +5146,10 @@ Production `RangeError: Maximum call stack size exceeded` on `/chapter-9/jade` (
 - Found by the guard, not in the plan's list: `tabs/WarehousesTab.tsx:33` (`text-white`) and `workspace/SidebarTree.tsx:121,397` (`border-[color:var(--green-500)]` -> `var(--focus-ring)`, light `#7DA436` identical, dark `#93B747`; `SidebarTree.test.tsx:81` updated to match).
 - Untouched: `hover:bg-white/10` on the ink band; allow-list lines (AppShell, AuthShell:15,26,34, Workspace:4593-4629); `index.css`.
 - Gate (zero concurrent vitest): `pnpm run typecheck` clean; `pnpm --filter studio test` 189 files / 3180 tests passed (one earlier run failed only the SidebarTree assertion above, fixed); `typecheck:e2e` clean.
+
+### DU-5.3 — theme control
+- Added `artifacts/studio/src/lib/theme.ts` (master §A: `ThemePref`, `getThemePref`, `setThemePref`, `applyTheme`; key `nos:theme-pref`, default `system`, try/catch on every storage access), the inline no-flash script as first child of `<head>` in `artifacts/studio/index.html`, apply + OS-change listener in `src/main.tsx`, and `components/ThemeToggle.tsx` (testids `theme-toggle`, `theme-toggle-light|dark|system`) rendered only beside `<UnitToggle />` in the Workspace header (Q6; AppShell/AuthShell untouched).
+- Tests: `lib/__tests__/theme.test.ts` (7) and `__tests__/ThemeToggle.test.tsx` (3). `../../../index.html` resolves from `src/lib/__tests__` unchanged.
+- CSP check: `curl -sI https://nos-studio.onrender.com` returned HTTP/2 200 with no `Content-Security-Policy` header, so the inline script is allowed.
+- Sweep: no existing RTL test or e2e spec asserts the Workspace header's button set; none changed.
+- Gate (zero concurrent vitest): `pnpm run typecheck` clean; `pnpm --filter studio test` 191 files / 3190 tests passed (was 189 / 3180); `typecheck:e2e` clean. No deviations.
