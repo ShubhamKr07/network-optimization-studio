@@ -584,3 +584,9 @@ On the revised plan (dark tiles):
 - **PR5-R2-5** tooltip arrows and popup close button stayed light → dark rules added to DU-5.1 and checked in DU-5.4.
 - **PR5-R2-6** dark "Copy map" export unverified → DU-5.4 real-browser check of the PNG.
 - **PR5-R2-7** inventory exempted every `*-border` → exact list of derived borders only.
+
+## Execution notes (2026-11-04)
+
+- The plan names a standalone **Compare** page in Q6 and DU-5.4. That page was removed earlier (`c045548e`, Phase 3.2); DU-5.4 covered comparison through the Cost Summary tab's "Compare Scenario" bar in every chapter instead.
+- Q9: of the four shadcn pieces with `dark:` utilities, only `alert` is rendered by the app; `input-group`, `field` and `kbd` have no consumer, so their dark styling cannot be observed (DU-5.4).
+- Q10 observation, open for the user: the Move ghost tint `#2563eb` is 2.25:1 over the dark water colour (`#1C3D47`), against 3.39:1 over land; the Copy ghost is 3.08:1 over water.
