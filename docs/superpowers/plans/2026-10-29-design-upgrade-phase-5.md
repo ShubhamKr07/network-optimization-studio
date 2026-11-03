@@ -12,7 +12,7 @@
 - **Tokens:** the dead blue `.dark` block (`artifacts/studio/src/index.css:318-367`, never applied today) is replaced by a complete brand-derived block, including dark `--map-*` values. Tailwind's `@custom-variant dark (&:is(.dark *))` (`index.css:34`) already keys off a `.dark` class on an ancestor, so the theme is one class on `<html>`.
 - **Dark maps (Q1, user decision 2026-11-04):** same OpenStreetMap tiles (no new provider, spec §5.5), darkened by one CSS filter on `.leaflet-tile-pane`. Only the tile pane is filtered; lanes, markers and overlays draw in the dark map tokens on top. OSM land `#F2EFE9` filters to `#1C1915`, and every on-map gate is measured against that. Leaflet's own white chrome (zoom buttons, popups, attribution) gets dark overrides from the tokens.
 - **One dark band ramp** serves lanes, the map legend and `BandLabel` in tables, gated against both the dark tile and the dark card.
-- **Theme state:** `lib/theme.ts` (master §A interface) owns the preference, `localStorage` under `nos:theme-pref` with try/catch on every access, and the `<html>` class. A three-line inline script in `index.html` applies the class before first paint. A `ThemeToggle` segmented control sits in the AppShell and Workspace headers.
+- **Theme state:** `lib/theme.ts` (master §A interface) owns the preference, `localStorage` under `nos:theme-pref` with try/catch on every access, and the `<html>` class. A three-line inline script in `index.html` applies the class before first paint. A `ThemeToggle` segmented control sits in the Workspace header only (Q6); the choice applies on every page.
 - **Unchanged:** API, solver, DB, exports, and the light theme. Every light-mode value a task touches is replaced by a token with the identical light value (DU-5.2 asserts this), so light mode renders the same.
 
 **Tech stack:** React 18 + Vite + Tailwind v4 (`@theme inline`, `@custom-variant`), Leaflet via react-leaflet, vitest + RTL (jsdom), Playwright.
@@ -53,7 +53,7 @@ Q1–Q3 are user decisions (2026-11-04). Q4–Q9 are technical defaults the user
 | Q3 | **Destructive keeps white text on `#DC2626` in dark** (user decision; the recommended light-red fill was declined). `--destructive 0 72% 51%`, `--destructive-foreground 0 0% 100%` (4.8:1). Error text stays `text-destructive` (user kept the default on the follow-up): 3.7:1 on the dark bg, 3.1:1 on the dark card, recorded as a known exception (Global Constraints). Switching error text to `--danger` (6.5:1) remains available as a later change. | 5.1 |
 | Q4 | **Four tasks, not master's three.** Master DU-5.1 (tokens) and DU-5.2 (control) leave out the surfaces that hard-code light: 16 `bg-white`, 10 `bg-primary text-white`, ~14 raw `--green-*` text/marker colours. They get their own task (DU-5.2) with a source guard. The control becomes DU-5.3 and QA DU-5.4. The §A `lib/theme.ts` interface is unchanged. | all |
 | Q5 | **Hand-rolled `lib/theme.ts`, not the installed `next-themes`.** Overkill check: `next-themes` is in `package.json` (only an unused `components/ui/sonner.tsx` imports it), but it needs a provider, its no-flash script only helps SSR, and §A fixes a plain-function interface. The hand-rolled module is ~25 lines on the `UnitContext.tsx` precedent, and the inline script is needed in a Vite SPA either way. | 5.3 |
-| Q6 | **Toggle placement:** AppShell header (both the hero and compact variants, before Log out) and the Workspace header (beside `UnitToggle`, `Workspace.tsx:4636`). Not on the login/register pages (`AuthShell`); they follow the stored or system preference. | 5.3 |
+| Q6 | **Toggle placement (user decision 2026-11-04): the Workspace header only**, beside `UnitToggle` (`Workspace.tsx:4636`). The choice works across all pages in that browser: Landing, Compare and the login/register pages have no switch but apply the stored preference (or the OS setting) through `index.html`'s script and `main.tsx`. Stored per browser in `localStorage`, not per account (user confirmed; no API or DB change). | 5.3 |
 | Q7 | **Default is `system`**, per spec. Students whose OS is dark see the dark theme on first load after deploy, with no action. | 5.3 |
 | Q8 | **The ink header band stays ink in both themes** (`.scnd-band`, `--surface-band #181A15`); in dark it meets an ink page and is separated by its existing 2px `--green-400` bottom border. Raw `--ink-*`/`--green-400` uses on the band (AppShell, AuthShell, Workspace header `:4593-4629`) are correct in both themes and are allow-listed per line in DU-5.2's guard. | 5.2 |
 | Q9 | **Eight dormant `dark:` utilities** (shadcn `input-group`, `field`, `alert`, `kbd`) become live. They are shadcn's own dark defaults; DU-5.4 checks them in the browser and no task edits them pre-emptively. | 5.4 |
@@ -377,7 +377,7 @@ Verify each allowed AppShell/AuthShell line sits on the ink band or panel; `Auth
 
 **Files:**
 - Create `src/lib/theme.ts`, `src/lib/__tests__/theme.test.ts`, `src/components/ThemeToggle.tsx`, `src/__tests__/ThemeToggle.test.tsx`.
-- Modify `index.html` (inline script in `<head>`), `src/main.tsx` (apply + OS listener), `src/components/AppShell.tsx` (both header variants, before Log out), `src/pages/Workspace.tsx` (beside `<UnitToggle />`, `:4636`).
+- Modify `index.html` (inline script in `<head>`), `src/main.tsx` (apply + OS listener), `src/pages/Workspace.tsx` (beside `<UnitToggle />`, `:4636`). `AppShell.tsx` is not touched (Q6).
 
 **Interfaces:**
 - Produces (master §A): `ThemePref`, `getThemePref`, `setThemePref`, `applyTheme`. `ThemeToggle` with testids `theme-toggle`, `theme-toggle-light|dark|system`.
@@ -521,7 +521,7 @@ export function ThemeToggle() {
 
 `ThemeToggle.test.tsx` (same `vi.stubGlobal` pattern): renders three buttons with `aria-pressed` reflecting the stored pref; clicking Dark sets `aria-pressed`, persists `nos:theme-pref=dark`, adds `.dark` to `<html>`; clicking System with `matchMedia` mocked light removes it.
 
-- [ ] **Step 7:** render `<ThemeToggle />` in `AppShell.tsx` (both header variants, before the Log out button) and in `Workspace.tsx` beside `<UnitToggle />`. Sweep RTL tests that snapshot those headers.
+- [ ] **Step 7:** render `<ThemeToggle />` in `Workspace.tsx` beside `<UnitToggle />` only. Sweep RTL tests that snapshot the Workspace header.
 - [ ] **Step 8:** tests PASS; gate; `ponytail-review`; changelog; commit `[DU-5.3] theme control: light/dark/system, no-flash script, header toggle`.
 
 ---
@@ -535,7 +535,8 @@ export function ThemeToggle() {
 - [ ] **Step 1: sibling sweep.** rg `e2e/` for `bg-white`, `text-white`, `green-700`, `green-600`, header testids next to which the toggle now renders, and any `toHaveCSS` colour assertion. Rewrite hits and run each changed spec green.
 - [ ] **Step 2: new spec** against local servers (`E2E_BASE_URL` set; recipe in `e2e/CLAUDE.md`), seeded results (`seedSolvedResult`, as in `design-upgrade-p1/p3.spec.ts`):
   - **System default:** `page.emulateMedia({ colorScheme: "dark" })` with no stored pref → `<html>` has `dark`, and `body`'s background equals a probe element styled `background: hsl(var(--background))` (never a hard-coded rgb: the triple renders `#171914`); `colorScheme: "light"` → no `dark`.
-  - **Toggle:** Dark → reload keeps dark; Light overrides an OS-dark emulation; System follows a mid-session `emulateMedia` change.
+  - **Toggle (Workspace header only, Q6):** Dark → reload keeps dark; Light overrides an OS-dark emulation; System follows a mid-session `emulateMedia` change. The switch is absent from Landing, Compare and login/register.
+  - **Works across pages:** choose Dark in a Workspace, then go back to Landing, open Compare, log out to the login page, and log in again: every page renders dark with no flash; choose Light in a Workspace with OS-dark emulation and the same pages render light.
   - **No storage:** a context whose `localStorage` throws (`addInitScript` overriding `Storage.prototype.getItem/setItem`) loads, renders, and still switches theme in-session.
   - **No flash:** with OS-dark emulation, `<html>` already has `dark` at `DOMContentLoaded` (an `addInitScript` listener records it), before the React bundle runs.
   - **Dark maps (Q1):** on Output Map (p-median-us, JADE), Input Map and the Super Model input map, `.leaflet-tile-pane`'s computed `filter` equals the plan's string; a screenshot pixel sampled on open land (away from labels and lanes) is dark (relative luminance < 0.05); every lane's computed `stroke` equals its dark `--band-N` and its `stroke-dasharray` equals the light run's (patterns unchanged); legend swatches match; warehouse/customer/plant markers compute to the dark `--map-*`; a popup (and its close button), a tooltip and its arrow, the zoom buttons and the attribution compute to `--card`-based colours with readable text; the sampled land pixel is used to re-check the band and marker contrast gates (≥ 3:1) against what was actually rendered. Q10: the Move/Copy ghost circle and the Gold fixed-mine pin are visible on the dark tile (screenshot in the report).
