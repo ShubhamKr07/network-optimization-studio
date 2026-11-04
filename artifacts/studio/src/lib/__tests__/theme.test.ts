@@ -1,14 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getThemePref, setThemePref, applyTheme } from "@/lib/theme";
+
+// theme.ts keeps the in-session pref in module state: re-import fresh per test.
+let getThemePref: typeof import("@/lib/theme").getThemePref;
+let setThemePref: typeof import("@/lib/theme").setThemePref;
+let applyTheme: typeof import("@/lib/theme").applyTheme;
 
 // vi.stubGlobal + unstubAllGlobals, the NetworkBackground.test.tsx:8-15,39
 // pattern; a direct window.matchMedia assignment would leak across tests.
 function mockSystemDark(dark: boolean) {
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: dark, addEventListener: vi.fn() }));
 }
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  ({ getThemePref, setThemePref, applyTheme } = await import("@/lib/theme"));
   localStorage.clear();
   document.documentElement.classList.remove("dark");
   vi.restoreAllMocks();
@@ -39,3 +45,29 @@ describe("theme preference (DU-5.3)", () => {
     expect(readFileSync(resolve(__dirname, "../../../index.html"), "utf8")).toContain("nos:theme-pref");
   });
 });
+
+describe("storage-blocked session (DU-5.R1)", () => {
+  // `current` is module state: re-import fresh per case so tests stay independent.
+  async function blocked() {
+    vi.resetModules();
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    return await import("@/lib/theme");
+  }
+  it("getThemePref returns the in-session choice", async () => {
+    mockSystemDark(false);
+    const t = await blocked();
+    expect(t.getThemePref()).toBe("system");
+    t.setThemePref("dark");
+    expect(t.getThemePref()).toBe("dark");
+  });
+  it("an OS theme change (main.tsx's guard) does not undo it", async () => {
+    mockSystemDark(false);
+    const t = await blocked();
+    t.setThemePref("dark");
+    mockSystemDark(false); // OS flips; listener body: if (getThemePref() === "system") applyTheme("system")
+    if (t.getThemePref() === "system") t.applyTheme("system");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+});
+

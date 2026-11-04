@@ -5166,5 +5166,18 @@ Production `RangeError: Maximum call stack size exceeded` on `/chapter-9/jade` (
 - **Q9 / Q3 / controls:** of the four shadcn pieces with dormant `dark:` utilities only `alert` is rendered by the app (asserted live: `dark:border-destructive`); `input-group`, `field`, `kbd` are not imported outside `components/ui/`, so their rules cannot be exercised in a browser. `text-destructive` on the dark background measures 3.69:1 (Q3). The focus ring is asserted by colour (dark `--ring` must appear in `box-shadow` or `outline-color`). The app has no live shadcn `<Button variant="destructive">`; the real destructive affordance is the sidebar delete-scenario confirm (`--danger` on `--danger-bg`, message and Delete action both >= 4.5:1, cancelled so nothing is deleted), covered as the in-chapter danger status. Disabled controls: the disabled Outputs sidebar entry (real) plus a utility probe. Tooltips: every Leaflet `<Tooltip>` in the app carries `nos-map-tooltip` (rg of `src/`), so the `.dark .leaflet-tooltip:not(.nos-map-tooltip)` rule has no consumer to hover; the only other tooltip is Radix's `ui/tooltip`, not Leaflet.
 - "Compare": there is no standalone Compare page (removed in `c045548e`, Phase3.2); scenario comparison is the Cost Summary tab's "Compare Scenario" bar, covered in dark for every chapter.
 - Sibling sweep (`bg-white`, `text-white`, `green-700`, `green-600`, `toHaveCSS`, header testids, computed-colour assertions across `e2e/`): the only hit, `bundle5-homepage-distances.spec.ts:123` (`hover:bg-white/10` on the ink band), is deliberately untouched by DU-5.2, so no sibling spec needed a rewrite. Confirmed by the full e2e gate.
-- Screenshots are not committed (`E2E_SHOTS_DIR`); they were written under `/Users/shubhamkr/nos-du-5.4/qa-shots/du-5.4/`.
+- Screenshots are not committed (`E2E_SHOTS_DIR`); they were written under `qa-shots/du-5.4/`.
 - Gate (zero concurrent vitest; api-server dev server stopped during `pnpm gate`): `pnpm gate` GREEN: typecheck clean; api-server 94 files / 2231 tests; studio 191 files / 3190 tests; pytest 369 passed. Two earlier `pnpm gate` runs hit registered load flakes (`jobRunnerDispatcher`, `passwordReset`; then `routes.test.ts` import cases at load avg 56), each green in isolated re-runs and recorded in the flake registry; the third run was green. `E2E_BASE_URL=http://localhost:5194 pnpm e2e:gate`: 177 passed, 0 failed, 0 flaky (9.9 min). `typecheck:e2e` clean. No product code changed.
+
+### DU-5.R1 — whole-branch review fold
+
+Fixed (Design Upgrade Phase 5 review findings):
+- Dark zoom buttons: `.dark .leaflet-bar a` outranked leaflet.css hover/focus (`:305`) and disabled (`:318`); added `.dark` hover/focus (`--muted`) and disabled (`--muted-foreground` on `--card`) rules in `index.css`. Covered by a CSS-string assertion in `designTokens.test.ts` (jsdom cannot render the cascade).
+- Storage-blocked session: `theme.ts` now keeps a module-level `current` that `setThemePref` sets and `getThemePref` returns first, so an OS theme flip (main.tsx listener) no longer undoes the choice and a remounted toggle shows it. `theme.test.ts` re-imports the module per test (`vi.resetModules`) and gained two storage-throws cases.
+- `e2e/CLAUDE.md`: gotcha that `design-upgrade-p5.spec.ts` needs `tile.openstreetmap.org` (hard fail unless `E2E_ALLOW_NO_TILES=1`).
+- `NetworkBackground.tsx`: stale "no theme switcher" comment replaced (hero band is ink in both themes by design).
+- DU-5.4 entry: absolute screenshot path made worktree-relative.
+
+Deliberately not taken: cross-tab storage sync; Safari < 14 `addListener` fallback; permissions-row baseline note.
+
+Gate: `pnpm run typecheck` clean; `pnpm --filter studio run typecheck:e2e` clean; `pnpm --filter studio test` 191/191 files, 3193/3193 tests (first run had 1 failure caused by the new module state leaking between theme tests, fixed by the per-test re-import).

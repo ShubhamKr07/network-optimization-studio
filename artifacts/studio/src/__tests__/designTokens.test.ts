@@ -180,3 +180,12 @@ describe("dark token inventory (DU-5.1, Codex PR5-7)", () => {
     expect(light.filter(t => !dark.has(t))).toEqual([]);
   });
 });
+
+describe("dark leaflet zoom-button states (DU-5.R1)", () => {
+  // jsdom cannot render the cascade; pin that the hover/focus/disabled rules exist
+  // alongside `.dark .leaflet-bar a`, which would otherwise outrank leaflet.css.
+  it("restyles hover, focus and disabled under .dark", () => {
+    expect(CSS).toMatch(/\.dark \.leaflet-bar a:hover,\s*\.dark \.leaflet-bar a:focus\s*\{[^}]*hsl\(var\(--muted\)\)/);
+    expect(CSS).toMatch(/\.dark \.leaflet-bar a\.leaflet-disabled\s*\{[^}]*muted-foreground[^}]*hsl\(var\(--card\)\)/);
+  });
+});

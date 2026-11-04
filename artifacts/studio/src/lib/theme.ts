@@ -5,7 +5,12 @@
 export type ThemePref = "light" | "dark" | "system";
 const STORAGE_KEY = "nos:theme-pref";
 
+// Last pref set this session: wins over storage so a blocked-storage session
+// keeps the user's choice (an OS theme flip must not undo it).
+let current: ThemePref | null = null;
+
 export function getThemePref(): ThemePref {
+  if (current) return current;
   try {
     const v = window.localStorage.getItem(STORAGE_KEY);
     return v === "light" || v === "dark" || v === "system" ? v : "system";
@@ -15,6 +20,7 @@ export function getThemePref(): ThemePref {
 }
 
 export function setThemePref(p: ThemePref): void {
+  current = p;
   try {
     window.localStorage.setItem(STORAGE_KEY, p);
   } catch {

@@ -42,6 +42,9 @@
   color: hsl(var(--card-foreground));
   border-color: hsl(var(--border));
 }
+.dark .leaflet-bar a:hover,
+.dark .leaflet-bar a:focus { background: hsl(var(--muted)); } /* leaflet.css:305, outranked by the rule above */
+.dark .leaflet-bar a.leaflet-disabled { color: hsl(var(--muted-foreground)); background: hsl(var(--card)); } /* leaflet.css:318 */
 .dark .leaflet-container .leaflet-control-attribution { background: hsl(var(--card) / 0.8); color: hsl(var(--muted-foreground)); }
 .dark .leaflet-container .leaflet-control-attribution a { color: var(--link); }
 .dark .leaflet-container a.leaflet-popup-close-button { color: hsl(var(--muted-foreground)); }
