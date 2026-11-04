@@ -5150,3 +5150,9 @@ Fixed (Design Upgrade Phase 5 review findings):
 Deliberately not taken: cross-tab storage sync; Safari < 14 `addListener` fallback; permissions-row baseline note.
 
 Gate: `pnpm run typecheck` clean; `pnpm --filter studio run typecheck:e2e` clean; `pnpm --filter studio test` 191/191 files, 3193/3193 tests (first run had 1 failure caused by the new module state leaking between theme tests, fixed by the per-test re-import).
+
+### DU-5 deploy — `nos-studio` at `211fe0cb` (2026-11-04)
+- `main` pushed `7655b20c..211fe0cb` (Phase 5 merge, redone once: the first local merge resurrected a line PRIV-1 had redacted from this changelog; it was discarded before any push and every conflict re-resolved as main's side plus only the lines the branch added — 0 of PRIV-1/PRIV-2's 269 deleted lines reappear). The push started no build.
+- Gate on merged `main`: first full run failed 3 api-server tests already in the flake registry (`importJsonRoundTrip` non-owner oversized body, `jobRunnerDispatcher` markSucceeded, `routes.test.ts` DELETE 204) at load avg ~24 from other sessions; the three files passed 370/370 twice in isolation, and a full re-run was green (api-server 2267, studio 3201, pytest 369). The merge touched no api-server code.
+- Preflight `fd9f0c48..211fe0cb`: studio-only change (Phase 5); `nos-api` unchanged since `70fcb4a3`, so not redeployed; no schema, no migrations. `origin/main` re-fetched immediately before the trigger (still `211fe0cb`).
+- `nos-studio` deploy `dep-dbl7t4p42hec739sijt0` (trigger api) live. `/compare` 200 with `id="root"`; `/` and `/chapter-9/jade` 200; the served page carries the no-flash theme script. `pnpm smoke --env production` 7/7. One smoke account left for manual removal.
