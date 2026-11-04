@@ -133,7 +133,7 @@ export function ToggleChip({
       data-testid={testId}
       onClick={onClick}
       className={`px-2 py-1 rounded text-2xs border transition-colors whitespace-nowrap ${
-        active ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border hover:bg-muted"
+        active ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:bg-muted"
       }`}
     >
       {children}

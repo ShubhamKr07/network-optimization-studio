@@ -66,7 +66,7 @@ function Chip({ children, onClick, testid }: { children: React.ReactNode; onClic
       type="button"
       onClick={onClick}
       data-testid={testid}
-      className="text-2xs font-mono px-1.5 py-0.5 rounded border border-[color:var(--line)] bg-white text-muted-foreground hover:border-[color:var(--primary)] hover:text-foreground transition-colors"
+      className="text-2xs font-mono px-1.5 py-0.5 rounded border border-[color:var(--line)] bg-card text-muted-foreground hover:border-[color:var(--primary)] hover:text-foreground transition-colors"
     >
       {children}
     </button>

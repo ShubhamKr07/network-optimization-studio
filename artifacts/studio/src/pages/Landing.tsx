@@ -138,7 +138,7 @@ export function Landing() {
                     <span className="flex items-center gap-2 min-w-0">
                       <span
                         className="scnd-display font-bold flex-shrink-0"
-                        style={{ fontSize: "15px", color: locked ? "var(--text-faint)" : "var(--green-700)" }}
+                        style={{ fontSize: "15px", color: locked ? "var(--text-faint)" : "var(--text-primary)" }}
                       >
                         {chapterNumber(c.chapter)}
                       </span>
@@ -179,7 +179,7 @@ export function Landing() {
         <div className="mt-10">
           <h2 className="scnd-display text-sm font-semibold text-foreground mb-1">Recent solves</h2>
           <p className="text-xs text-muted-foreground mb-3">Most recent solve per scenario — click to open one.</p>
-          <div className="border rounded-lg divide-y bg-white">
+          <div className="border rounded-lg divide-y bg-card">
             {visibleHistory.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);
               // A9 (SCND correctness, §2.7.1) — `h.status` is the job-

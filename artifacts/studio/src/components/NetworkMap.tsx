@@ -69,8 +69,8 @@ const createTriangleIcon = memoIcon((
   let extraCircle = "";
 
   if (status === "open" || status === "forced_open") {
-    fill = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
-    stroke = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
+    fill = highlighted ? "var(--map-highlight)" : "var(--map-warehouse-open)";
+    stroke = highlighted ? "var(--map-highlight)" : "var(--map-warehouse-open)";
   } else if (status === "inactive") {
     stroke = "var(--danger)";
     dash = 'stroke-dasharray="4"';
@@ -127,8 +127,8 @@ const createStarIcon = memoIcon((
   let extraCircle = "";
 
   if (status === "open" || status === "forced_open") {
-    fill = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
-    stroke = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
+    fill = highlighted ? "var(--map-highlight)" : "var(--map-warehouse-open)";
+    stroke = highlighted ? "var(--map-highlight)" : "var(--map-warehouse-open)";
   } else if (status === "inactive") {
     stroke = "var(--danger)";
     dash = 'stroke-dasharray="4"';
@@ -737,7 +737,7 @@ export function NetworkMap({
   })();
 
   return (
-    <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
+    <div className="relative w-full h-full flex flex-col min-h-0 bg-card border rounded-lg overflow-hidden shadow-sm">
       <MapContainer
         key={mapKey}
         center={effectiveCenter}

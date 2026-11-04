@@ -444,7 +444,7 @@ export function JadeFlowsTab({
         aria-pressed={innerTab === "plant-warehouse"}
         onClick={() => setInnerTab("plant-warehouse")}
         className={`text-xs px-3 py-1 transition-colors ${
-          innerTab === "plant-warehouse" ? "bg-primary text-white" : "bg-white text-foreground hover:bg-muted"
+          innerTab === "plant-warehouse" ? "bg-primary text-primary-foreground" : "bg-card text-foreground hover:bg-muted"
         }`}
       >
         Plant → Warehouse
@@ -455,7 +455,7 @@ export function JadeFlowsTab({
         aria-pressed={innerTab === "warehouse-customer"}
         onClick={() => setInnerTab("warehouse-customer")}
         className={`text-xs px-3 py-1 transition-colors ${
-          innerTab === "warehouse-customer" ? "bg-primary text-white" : "bg-white text-foreground hover:bg-muted"
+          innerTab === "warehouse-customer" ? "bg-primary text-primary-foreground" : "bg-card text-foreground hover:bg-muted"
         }`}
       >
         Warehouse → Customer

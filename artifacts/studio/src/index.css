@@ -29,6 +29,33 @@
   opacity: 1;
 }
 
+/* DU-5.1 (Q1) — dark maps: the same OSM tiles, darkened. Only the tile pane is
+   filtered; lanes and markers draw in the dark --map-* tokens on top. The
+   gates' DARK_TILE (#1C1915) is OSM land through exactly this filter. */
+.dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
+.dark .leaflet-container { background: #1C1915; } /* before tiles load (leaflet.css default #ddd) */
+.dark .leaflet-bar a,
+.dark .leaflet-popup-content-wrapper,
+.dark .leaflet-popup-tip,
+.dark .leaflet-tooltip:not(.nos-map-tooltip) {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-color: hsl(var(--border));
+}
+.dark .leaflet-bar a:hover,
+.dark .leaflet-bar a:focus { background: hsl(var(--muted)); } /* leaflet.css:305, outranked by the rule above */
+.dark .leaflet-bar a.leaflet-disabled { color: hsl(var(--muted-foreground)); background: hsl(var(--card)); } /* leaflet.css:318 */
+.dark .leaflet-container .leaflet-control-attribution { background: hsl(var(--card) / 0.8); color: hsl(var(--muted-foreground)); }
+.dark .leaflet-container .leaflet-control-attribution a { color: var(--link); }
+.dark .leaflet-container a.leaflet-popup-close-button { color: hsl(var(--muted-foreground)); }
+.dark .leaflet-container a.leaflet-popup-close-button:hover,
+.dark .leaflet-container a.leaflet-popup-close-button:focus { color: hsl(var(--foreground)); }
+/* tooltip arrows (leaflet.css:620 ff.) follow the card surface */
+.dark .leaflet-tooltip-top:before { border-top-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-bottom:before { border-bottom-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-left:before { border-left-color: hsl(var(--card)); }
+.dark .leaflet-tooltip-right:before { border-right-color: hsl(var(--card)); }
+
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -230,7 +257,7 @@
   --ink-900: #181A15; --ink-800: #23261F; --ink-700: #33362E; --ink-500: #5B5F54; --ink-400: #83887A; --ink-300: #ADB1A4;
 
   /* raw text (avoid hsl() wrap in utilities/inline styles) */
-  --text-body: #181A15; --text-muted: #5B5F54; --text-faint: #83887A; --text-brand: #5F7F28;
+  --text-body: #181A15; --text-muted: #5B5F54; --text-faint: #83887A; --text-brand: #5F7F28; --text-primary: #48611E;
 
   /* band motif + surfaces + structural */
   --surface-band: #181A15; --surface-band-fg: #FCFCFA; --surface-selected: #F4F7EB; --surface-sunken: #F5F6F1;
@@ -241,7 +268,7 @@
   --map-warehouse: #181A15; --map-warehouse-open: #181A15; --map-customer: #93B747;
   --map-customer-stroke: #48611E; --map-flow: #7DA436; --map-inactive: #ADB1A4;
   --map-ring-forced-open: #2D6CDF; --map-ring-select: #FCD34D; --map-ring-multiselect: #7C3AED;
-  --map-default-stroke: #83887A; --map-plant: #2E7D32;
+  --map-default-stroke: #83887A; --map-plant: #2E7D32; --map-highlight: #48611E;
 
   /* fonts (all three serif vars → Source Serif 4) */
   --app-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
@@ -316,54 +343,55 @@
 }
 
 .dark {
+  color-scheme: dark;
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
-
-  --opaque-button-border-intensity: 9;  /* In terms of percentages */
-
-  /* Backgrounds applied on top of other backgrounds when hovered/active */
+  --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 222 84% 12%;
-  --foreground: 0 0% 100%;
+  /* DU-5.1 — brand-derived dark: ink surfaces, paper text, olive accents.
+     Values approved 2026-11-04 (phase-5 plan Q2); gated by designTokens.test.ts. */
+  --background: 84 11% 9%;  --foreground: 60 25% 98%;
+  --border: 80 8% 22%;
+  --card: 86 10% 14%;       --card-foreground: 60 25% 98%;  --card-border: 80 8% 22%;
+  --popover: 86 10% 14%;    --popover-foreground: 60 25% 98%; --popover-border: 80 8% 22%;
+  --sidebar: 86 10% 14%;    --sidebar-foreground: 60 25% 98%; --sidebar-border: 80 8% 22%;
+  --sidebar-primary: 81 50% 43%; --sidebar-primary-foreground: 84 11% 9%;
+  --sidebar-accent: 79 44% 50%;  --sidebar-accent-foreground: 84 11% 9%;
+  --sidebar-ring: 79 44% 50%;
+  --primary: 81 50% 43%;    --primary-foreground: 84 11% 9%;
+  --secondary: 83 10% 16%;  --secondary-foreground: 60 25% 98%;
+  --muted: 82 8% 20%;       --muted-foreground: 78 8% 67%;
+  --accent: 79 44% 50%;     --accent-foreground: 84 11% 9%;
+  --destructive: 0 72% 51%; --destructive-foreground: 0 0% 100%; /* Q3: unchanged white-on-red, known exception */
+  --input: 82 6% 35%;
+  --ring: 79 44% 50%;
 
-  --border: 215 16% 47%;
+  --success: #4ADE80; --success-bg: #052E16; --success-border: #166534;
+  --warning: #FBBF24; --warning-bg: #2A1E05; --warning-border: #92400E;
+  --danger: #F87171;  --danger-bg: #2C0B0B;  --danger-border: #991B1B;
+  --info: #38BDF8;    --info-bg: #082030;    --info-border: #075985;
+  --utilization: #93B747;
 
-  --card: 222 84% 12%;
-  --card-foreground: 0 0% 100%;
-  --card-border: 215 16% 47%;
+  /* one band ramp for lanes, legend and BandLabel: gated on the dark tile AND the dark card */
+  --band-0: #E5EFD4; --band-1: #B5D185; --band-2: #8BB444; --band-3: #749639; --band-4: #5F7B2F;
+  --band-overflow: #A78BFA;
 
-  --sidebar: 222 84% 12%;
-  --sidebar-foreground: 0 0% 100%;
-  --sidebar-border: 215 16% 47%;
-  --sidebar-primary: 218 70% 52%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 215 16% 47%;
-  --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 218 70% 52%;
+  --chart-1: 79 44% 50%; --chart-2: 78 8% 67%; --chart-3: 79 40% 72%;
+  --chart-4: 26 87% 55%; --chart-5: 81 5% 58%;
+  --chart-grid: #33362E; --chart-axis-label: #ADB1A4;
 
-  --popover: 222 84% 12%;
-  --popover-foreground: 0 0% 100%;
-  --popover-border: 215 16% 47%;
+  --text-body: #FCFCFA; --text-muted: #ADB1A4; --text-faint: #83887A; --text-brand: #93B747; --text-primary: #AFC975;
+  --surface-band: #181A15; --surface-band-fg: #FCFCFA; --surface-selected: #2A3318; --surface-sunken: #1E201A;
+  --line: #3A3D34; --line-strong: #5B5F54;
+  --primary-hover: #93B747; --primary-active: #AFC975; --link: #AFC975; --link-hover: #CDDCA6; --focus-ring: #93B747;
 
-  --primary: 218 70% 52%;
-  --primary-foreground: 0 0% 100%;
-
-  --secondary: 215 16% 47%;
-  --secondary-foreground: 0 0% 100%;
-
-  --muted: 215 16% 47%;
-  --muted-foreground: 210 40% 98%;
-
-  --accent: 215 16% 47%;
-  --accent-foreground: 0 0% 100%;
-
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
-
-  --input: 215 16% 47%;
-  --ring: 218 70% 52%;
+  /* map entities on the filtered dark tile (land #1C1915) */
+  --map-warehouse: #E7EED4; --map-warehouse-open: #E7EED4; --map-customer: #93B747;
+  --map-customer-stroke: #CDDCA6; --map-flow: #AFC975; --map-inactive: #83887A;
+  --map-ring-forced-open: #5B9BFF; --map-ring-select: #FCD34D; --map-ring-multiselect: #A78BFA;
+  --map-default-stroke: #ADB1A4; --map-plant: #2E7D32; --map-highlight: #7EA437;
 }
 
 @layer base {

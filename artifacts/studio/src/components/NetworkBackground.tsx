@@ -10,9 +10,8 @@ const FALLBACK_RGB = "128,132,122";
 
 function readInkRgb(el: HTMLElement): string {
   // --ink-400 (#83887A) is the token this animation was authored against.
-  // Read ONCE at mount: the app has no runtime theme switcher (index.css
-  // defines .dark but nothing in src/ ever applies it), so there is nothing
-  // to react to. If a toggle is ever added, this is the one place to change.
+  // Read ONCE at mount. The hero band is ink in both themes by design (the
+  // ink scale has no .dark override), so this needs no theme handling.
   const hex = getComputedStyle(el).getPropertyValue("--ink-400").trim();
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!m) return FALLBACK_RGB;

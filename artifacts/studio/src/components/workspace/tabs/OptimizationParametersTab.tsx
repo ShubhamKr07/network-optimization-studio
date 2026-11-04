@@ -372,7 +372,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-            <span className="text-sm font-bold text-[var(--green-700)] font-mono" data-testid={tid("text-p-value")}>{p}</span>
+            <span className="text-sm font-bold text-[var(--text-primary)] font-mono" data-testid={tid("text-p-value")}>{p}</span>
           </div>
           <Slider
             min={1}
@@ -391,7 +391,7 @@ export function OptimizationParametersTab({
                 data-testid={tid(`button-p-quick-${n}`)}
                 onClick={() => onChange("p", n)}
                 className={`text-xs font-mono px-2 py-0.5 min-h-6 min-w-6 rounded border transition-colors ${
-                  p === n ? "bg-primary text-white border-primary" : "bg-white text-foreground border-border hover:border-primary"
+                  p === n ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border hover:border-primary"
                 }`}
               >
                 {n}

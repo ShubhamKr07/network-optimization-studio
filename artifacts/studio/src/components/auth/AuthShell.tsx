@@ -39,7 +39,7 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
         <div className="flex-1 flex items-center justify-center px-6 py-10">
           <div className="w-full max-w-[360px]">
             <div className="uppercase" style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.14em", color: "var(--text-muted)" }}>By Prof. Michael Watson</div>
-            <div className="mt-2 mb-1.5" style={{ fontFamily: "var(--app-font-display)", fontWeight: 700, fontSize: "32px", lineHeight: 1.1, color: "var(--green-600)" }}>Optimization Studio</div>
+            <div className="mt-2 mb-1.5" style={{ fontFamily: "var(--app-font-display)", fontWeight: 700, fontSize: "32px", lineHeight: 1.1, color: "var(--text-brand)" }}>Optimization Studio</div>
             <div className="mb-5" style={{ fontSize: "13px", lineHeight: 1.5, color: "var(--text-muted)" }}>{tagline}</div>
             {children}
             <div className="mt-4 pt-3 text-center border-t" style={{ borderColor: "var(--line)" }} data-testid="auth-credit">
