@@ -52,3 +52,4 @@ DU-4,design-upgrade-p4,2026-10-27T18:03:30+05:30,2026-10-27T23:54:27+05:30,unkno
 SENTRY-4,fix/popup-refit-recursion,2026-10-29T14:08:25+05:30,2026-10-29T14:20:05+05:30,1,no,no,unknown,12,unknown,3163b339efb3d3258764534bbcd0d5928e4b956e,no,unknown
 SEC,sec-medium-fixes,2026-10-30T17:09:32+05:30,2026-10-30T17:29:29+05:30,unknown,yes,no,unknown,20,unknown,8d810ab7bc1aa9b3dfbdb37712d487e058634318,unknown,unknown
 DU-5,design-upgrade-p5,2026-11-04T03:42:48+05:30,2026-11-04T05:11:31+05:30,unknown,no,no,1,89,unknown,unknown,unknown,unknown
+CH10-UNHIDE,ch10-unhide,2026-11-09T17:35:41+05:30,2026-11-09T17:35:41+05:30,unknown,yes,no,1,0,unknown,491e5f677fdab6127269cc63531c5273ac98ebcc,no,unknown
