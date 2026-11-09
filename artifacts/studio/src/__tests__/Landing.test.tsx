@@ -33,15 +33,15 @@ beforeEach(() => {
 });
 
 describe("Landing", () => {
-  it("lists Chapter 3 and Chapter 9 — Ch5 and Ch10 are hidden from the grid", () => {
+  it("lists Chapter 3, Chapter 9 and Chapter 10 — the retired Ch5 labs are hidden from the grid", () => {
     renderLanding();
     // QF-1 — Chapter 4 is now "AL's Athletics — Max Coverage", so Chapter 3's
     // bare "AL's Athletics" is a strict PREFIX of it and a substring regex
     // matches both cards. Exact-string match pins this to the Ch3 card.
     expect(screen.getByText("AL's Athletics")).toBeInTheDocument();
-    // two-echelon-gold-au (Chapter 10) is hiddenFromLanding — not in the grid,
-    // still registered as a route.
-    expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
+    // two-echelon-gold-au (Chapter 10) is unhidden (ch10-unhide) — it
+    // appears in the Landing grid.
+    expect(screen.getByText(/Gold Refinery Siting/)).toBeInTheDocument();
     // transport-coal and p-median-brazil (both Chapter 5) are still hidden
     // from the Landing grid but remain registered as routes.
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
@@ -73,8 +73,10 @@ describe("Landing", () => {
     expect(screen.getByTestId("link-/chapter-9/jade")).toHaveAttribute("href", "/chapter-9/jade");
     expect(screen.queryByTestId("locked-/chapter-9/jade")).not.toBeInTheDocument();
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
-    // Chapter 10 is now hidden — not rendered in the grid.
-    expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
+    // ch10-unhide — Chapter 10 is visible again and a real link, pinned
+    // positively so a half-applied unhide fails.
+    expect(screen.getByTestId("link-/chapter-10/gold-refinery")).toHaveAttribute("href", "/chapter-10/gold-refinery");
+    expect(screen.queryByTestId("locked-/chapter-10/gold-refinery")).not.toBeInTheDocument();
     // Chapter 5 stays hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
@@ -403,13 +405,13 @@ describe("Landing — live summary (T4)", () => {
     renderLanding();
 
     // stats line — labs counts every visible chapter (Ch3 + Ch4 + Ch5 delivery
-    // + Ch9 + Super Model = 5; C4.11 registered max-coverage-us as a visible Chapter 4, and
+    // + Ch9 + Ch10 + Super Model = 6; C4.11 registered max-coverage-us as a visible Chapter 4, and
     // ch5-del-8 registered delivery-teaching-us as a visible Chapter 5 — like
-    // Ch9 here, it has no summary row so contributes 0 scenarios/solved; Ch10
-    // now hidden); scenarios/solved come from visiblePerChapter only
+    // Ch9 and Ch10 here, it has no summary row so contributes 0 scenarios/solved;
+    // Ch10 unhidden by ch10-unhide); scenarios/solved come from visiblePerChapter only
     // (p-median-us), not summary.totals, which would incorrectly include the
     // hidden transport-coal row.
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("5 labs · 3 scenarios · 1 solved");
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("6 labs · 3 scenarios · 1 solved");
 
     // p-median-us: solved + active (the only visible chapter, so it's the
     // most-recently-solved-among-visible even though transport-coal's own

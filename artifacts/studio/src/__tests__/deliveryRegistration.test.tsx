@@ -26,8 +26,8 @@ describe("delivery-teaching-us — chapter registration", () => {
     expect(chapterForModelId("p-median-brazil")!.hiddenFromLanding).toBe(true);
   });
 
-  it("takes Landing from three visible labs to four (five once super-model registers, SM-3)", () => {
-    expect(CHAPTERS.filter(c => !c.hiddenFromLanding)).toHaveLength(5);
+  it("takes Landing from three visible labs to four (five once super-model registers, SM-3; six once Chapter 10 is unhidden)", () => {
+    expect(CHAPTERS.filter(c => !c.hiddenFromLanding)).toHaveLength(6);
   });
 });
 
