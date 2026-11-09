@@ -20,8 +20,8 @@
  *         `max-w` box; see bundle6.1-legend-distances.spec.ts for the
  *         full legend-ramp/Output-states coverage).
  *       - T1+T5 item 8: Landing hides the transport-coal/p-median-brazil
- *         (Chapter 5, retired) and two-echelon-gold-au (Chapter 10) cards
- *         and excludes them from Recent Solves and the stats line.
+ *         (Chapter 5, retired) cards (Chapter 10 was unhidden by
+ *         ch10-unhide) and excludes them from Recent Solves and the stats line.
  *         delivery-teaching-us (also Chapter 5, Ch.5 modified) is a
  *         DIFFERENT model and is visible — see the "Chapter 5 ·" presence
  *         check below.
@@ -300,22 +300,23 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
       // card; Chapter 3, Chapter 4, and delivery-teaching-us (Chapter 5,
       // Ch.5 modified) are visible links. Chapter 9 (JADE) is a visible link
       // too as of ch9-unlock (2026-09-30), which reopened the last chapter
-      // ch4-lock had withheld. Chapter 10 stays hiddenFromLanding entirely (a
-      // different thing from locked) — see bundle4-auth-landing.spec.ts's
-      // matching baseline assertions.
+      // ch4-lock had withheld. Chapter 10 (gold refinery) is a visible link as of
+      // ch10-unhide — see bundle4-auth-landing.spec.ts's matching baseline
+      // assertions.
       await expect(page.getByTestId("link-/chapter-3")).toBeVisible();
       await expect(page.getByTestId("link-/chapter-4")).toBeVisible();
       await expect(page.getByTestId("link-/chapter-5/delivery")).toBeVisible();
       await expect(page.getByTestId("link-/chapter-9/jade")).toBeVisible();
       await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(0);
-      for (const path of ["/chapter-10/gold-refinery", "/chapter-5/transport", "/chapter-5/brazil"]) {
+      await expect(page.getByTestId("link-/chapter-10/gold-refinery")).toBeVisible();
+      for (const path of ["/chapter-5/transport", "/chapter-5/brazil"]) {
         await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);
       }
 
       // T1+T5 item 8 — stats line counts visible-only (the transport-coal
-      // solve is excluded; Chapter 9 is visible but has no scenarios here).
+      // solve is excluded; Chapters 9 and 10 are visible but have no scenarios here).
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "5 labs · 2 scenarios · 2 solved",
+        "6 labs · 2 scenarios · 2 solved",
         { timeout: HEADER_TIMEOUT },
       );
 
@@ -363,10 +364,10 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
 
     // The labs strip shows the visible (non-hiddenFromLanding) chapters —
     // Chapter 3, Chapter 4, Chapter 5 (delivery-teaching-us), Chapter 9
-    // (JADE, visible though ch4-lock makes it inert on Landing), then Super Model. Chapter 10,
-    // transport-coal, and p-median-brazil stay hiddenFromLanding, so none of
-    // them appear here regardless of lock state — see
+    // (JADE, visible though ch4-lock makes it inert on Landing), Chapter 10
+    // (ch10-unhide), then Super Model. transport-coal and p-median-brazil stay
+    // hiddenFromLanding, so neither appears here regardless of lock state — see
     // bundle4-auth-landing.spec.ts's matching assertion.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Super Model");
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Chapter 10Super Model");
   });
 });

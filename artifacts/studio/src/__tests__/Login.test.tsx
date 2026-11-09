@@ -135,17 +135,17 @@ describe("Login", () => {
   it("shows only non-hidden chapter labels in the footer labs strip", () => {
     render(<Login />);
     const strip = screen.getByTestId("auth-labs-strip");
-    // Chapter 3 (p-median-us), Chapter 5 (delivery-teaching-us, ch5-del-8) and
-    // Chapter 9 (JADE, unhidden jade-T17) are visible.
+    // Chapter 3 (p-median-us), Chapter 5 (delivery-teaching-us, ch5-del-8),
+    // Chapter 9 (JADE, unhidden jade-T17) and Chapter 10 (gold refinery,
+    // unhidden ch10-unhide) are visible.
     expect(strip).toHaveTextContent("Chapter 3");
     expect(strip).toHaveTextContent("Chapter 5");
     expect(strip).toHaveTextContent("Chapter 9");
-    // The OTHER two Ch5 labs (transport-coal, p-median-brazil) and Ch10
-    // (two-echelon-gold-au) stay hiddenFromLanding — "Ch 5" (the short form,
-    // never used for the deduped "Chapter 5" label) and "Chapter 10" must
-    // still be absent.
+    expect(strip).toHaveTextContent("Chapter 10");
+    // The OTHER two Ch5 labs (transport-coal, p-median-brazil) stay
+    // hiddenFromLanding — "Ch 5" (the short form, never used for the deduped
+    // "Chapter 5" label) must still be absent.
     expect(strip).not.toHaveTextContent("Ch 5");
-    expect(strip).not.toHaveTextContent("Chapter 10");
   });
 
   it("uses a stacked-on-narrow / side-by-side-on-wide split layout", () => {
