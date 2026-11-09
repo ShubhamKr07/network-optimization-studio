@@ -5162,3 +5162,9 @@ Gate: `pnpm run typecheck` clean; `pnpm --filter studio run typecheck:e2e` clean
 - Effects: Landing shows the card, the stats line counts 6 labs, Recent Solves stops filtering gold rows, and the auth strip gains "Chapter 10".
 - Tests flipped: `Landing.test.tsx`, `Login.test.tsx`, `deliveryRegistration.test.tsx` (5 tests, each confirmed failing against the old `chapters.ts`), and the sibling e2e specs `bundle4-auth-landing.spec.ts` + `bundle6-ui-tweaks.spec.ts` (12/12 locally against local servers, `E2E_BASE_URL` set).
 - Gate: typecheck clean; studio 191 files / 3201 tests passed. Studio-only change; `nos-api` needs no redeploy.
+
+### CH10-UNHIDE deploy — `nos-studio` at `16d0f035` (2026-11-09)
+- `main` pushed `0a5f37c9..16d0f035`; the push started no build on either service. Merged tree is identical to the gated branch tip (`2cd2e9b9`), so the branch gate stands for the merge.
+- Preflight `211fe0cb..16d0f035`: studio-only, no schema, no migrations, no new env vars. `nos-api` unchanged since `70fcb4a3` (no `artifacts/api-server`, `solvers`, `lib`, Dockerfile or lockfile paths in `70fcb4a3..16d0f035`), so not redeployed.
+- `nos-studio` → `dep-dbori43l550s73ame2r0` (trigger api), live. `/compare` 200 with `id="root"`; `/` and `/chapter-10/gold-refinery` 200; the served bundle carries the gold entry with no `hiddenFromLanding`, after Chapter 9. `pnpm smoke --env production` 7/7.
+- Smoke account `smoke+ookcom-96476@example.com` left for manual removal. Note the smoke prefix now derives from the custom domain (`ookcom`), not `dercom`.
