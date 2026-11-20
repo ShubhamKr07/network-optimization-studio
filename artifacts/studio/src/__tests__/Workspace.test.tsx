@@ -104,6 +104,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   // T9 (B2.2-T7 mock gap) — DistancesTab now calls useGetReferenceDistances
   // unconditionally (Rules of Hooks); every test file that can render it
   // (any test opening the Distances tab) needs this mock, even though most

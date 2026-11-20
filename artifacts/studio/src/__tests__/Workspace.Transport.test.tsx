@@ -102,6 +102,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   useListModels: vi.fn(() => ({
     data: [
       {

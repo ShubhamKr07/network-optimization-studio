@@ -125,6 +125,8 @@ vi.mock("@workspace/api-client-react", () => ({
   // advertises "mi" like the other three. The band-editor label
   // fallback every other fixture file already covers.
   useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi", capabilities: { supportsFacilityStatus: true } }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),

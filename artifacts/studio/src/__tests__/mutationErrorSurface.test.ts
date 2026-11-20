@@ -39,6 +39,8 @@ const rel = (f: string) => relative(SRC_ROOT, f).split(sep).join("/");
 // asserted: add an entry (with its reason) rather than loosening the regex.
 const ALLOWED_NO_ONERROR: { file: string; call: string; reason: string }[] = [
   { file: "components/FeedbackWidget.tsx", call: "submit.mutateAsync(", reason: "awaited in try/catch; the catch sets status=error and renders feedback-error" },
+  { file: "components/workspace/watbot/useWatBotConversation.ts", call: "createConv.mutateAsync(", reason: "awaited in try/catch; the catch sets status=watbot_failed and Workspace renders watbot-error" },
+  { file: "components/workspace/watbot/WatBotReportForm.tsx", call: "submit.mutateAsync(", reason: "awaited in try/catch; the catch calls setError and renders the role=alert line" },
   { file: "components/ImportDialog.tsx", call: "previewMutation.mutate(", reason: "renders describeImportError(previewMutation.error) when isError" },
   { file: "components/ImportDialog.tsx", call: "applyMutation.mutate(", reason: "renders describeImportError(applyMutation.error) when isError" },
   { file: "components/workspace/super/SuperNetworkImportDialog.tsx", call: "importMutation.mutate(", reason: "renders issues / describeImportError(importMutation.error) when isError" },

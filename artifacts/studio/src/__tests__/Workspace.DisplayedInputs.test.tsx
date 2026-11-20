@@ -123,6 +123,8 @@ vi.mock("@workspace/api-client-react", () => ({
   // entry (never exercised before, since Input Map was never rendered by
   // default) crashes.
   useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   useListModels: vi.fn(() => ({
     data: [
       {

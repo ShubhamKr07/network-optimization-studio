@@ -29,6 +29,7 @@ import {
   type Plant,
   type Dataset,
   type SolveJob,
+  getWatBotConversation,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,9 @@ import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { SolveDialog } from "@/components/workspace/SolveDialog";
 import { WatBotPanel } from "@/components/workspace/watbot/WatBotPanel";
+import { useWatBotConversation } from "@/components/workspace/watbot/useWatBotConversation";
+import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
+import { WatBotHistory } from "@/components/workspace/watbot/WatBotHistory";
 import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
@@ -1464,6 +1468,13 @@ interface ResultHistoryEntry {
   // (decision 1g), never a silently-wrong export.
   runId?: number;
 }
+
+// Limit/unavailable codes are shown by the panel's own notices once the status refetches.
+const WATBOT_ERROR_COPY: Record<string, string> = {
+  watbot_refused: "I can't help with that one.",
+  watbot_failed: "Something went wrong. Try again.",
+  watbot_busy: "WatBot is still answering your last question.",
+};
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const search = useSearch();
@@ -3015,6 +3026,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // opens the solve dialog. Not persisted.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [watbotOpen, setWatBotOpen] = useState(false);
+  const [watbotHistoryOpen, setWatBotHistoryOpen] = useState(false);
+  const watbot = useWatBotConversation(modelId);
   const { data: watbotStatus } = useGetWatBotStatus({ query: { refetchInterval: 60_000 } } as never);
   // WatBot D11 — below 1280px the panel takes the sidebar's room: collapse it to the icon rail.
   const openWatBot = () => {
@@ -4803,7 +4816,25 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <WatBotPanel modelId={modelId} chapter={chapterForModelId(modelId)?.chapter ?? ""}
             tutor={activeModelManifest?.tutor} view={activeView}
             scenario={currentScenario ? { name: currentScenario.name, inputs: currentScenario.inputs } : null}
-            onAsk={() => {}} onClose={() => setWatBotOpen(false)} />
+            busy={watbot.busy} hasMessages={watbot.items.length > 0}
+            onAsk={(q, o) => { setWatBotHistoryOpen(false); void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
+            onOpenHistory={() => setWatBotHistoryOpen((h) => !h)} onClose={() => setWatBotOpen(false)}>
+            {watbotHistoryOpen ? (
+              <WatBotHistory modelId={modelId} onNew={() => { watbot.startNew(); setWatBotHistoryOpen(false); }}
+                onPick={async (id) => {
+                  const conv = await getWatBotConversation(id);
+                  watbot.load(id, conv.messages.map((m) => ({ kind: m.role, id: m.role === "tutor" ? m.id : undefined, blocks: m.blocks })));
+                  setWatBotHistoryOpen(false);
+                }} />
+            ) : (
+              <>
+                <WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop} />
+                {watbot.status && WATBOT_ERROR_COPY[watbot.status] && (
+                  <p role="alert" data-testid="watbot-error" className="text-sm text-destructive">{WATBOT_ERROR_COPY[watbot.status]}</p>
+                )}
+              </>
+            )}
+          </WatBotPanel>
         )}
       </div>
 
