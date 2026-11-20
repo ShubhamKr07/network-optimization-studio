@@ -1,10 +1,10 @@
 # WatBot panel and Q&A (Spec 1) — design
 
-Date: 2026-11-20 · Status: draft for review · Task prefix: `WATBOT`
+Date: 2026-11-20 · Status: draft for review, updated to PRD rev 183 · Task prefix: `WATBOT`
 
 WatBot is a Socratic tutor that lives in a docked panel inside each chapter model. It answers from the course book and notebooks, cites every factual claim to a printed page or notebook cell, and knows which tab, scenario and parameter the student is looking at. This spec covers the panel and open Q&A. The formulation check is Spec 2.
 
-Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, FR-1…FR-36) and the "WatBot Journey Screens" design canvas (artboards A1–E2). FR and artboard IDs below refer to those two documents.
+Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, rev 183, FR-1…FR-45) and the "WatBot Journey Screens" design canvas (artboards A1–E2). FR and artboard IDs below refer to those two documents.
 
 ## 1. Scope
 
@@ -13,14 +13,18 @@ Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, FR-
 | Toolbar entry, docked panel, header, history | FR-1–4 | A1, A2 |
 | Context chip that follows the student | FR-5–7 | A2, B2 |
 | Fixed chapter questions + free-text box | FR-8, 9, 11 | A2 |
-| Silent triage: fact → cited one-liner, concept → one guiding question first | FR-12–14 | B1, B2, A3 |
+| Silent triage: fact → one cited sentence, concept → cited explanation then one question | FR-12–14 | B1, B2, A3 |
 | Citations, source popover, uncited-claim removal, Report this answer | FR-15–18 | A3, B1, D3, E2 |
 | Not covered / off-topic, service down, streaming, stop | FR-27, 28, 31 | D1, D3, E1 |
 | Course materials + Haiku 5.5 on one server key, typed-only input, limits, concurrency | FR-32–36 | D3, D4 (waiting pill only) |
+| Five message types, per-type replies, answer rules (no-leak as a prompt rule, D14) | FR-37–41 | All |
+| Message logging with type, sessions view | FR-42 | — |
+| Test set + simulated students + leak rate, run before any instruction change ships | FR-44 (minus the automatic block) | — |
+| Success measures: engagement and session duration | FR-45 (minus the correct-formulation share) | — |
 
-**Spec 2 (formulation check), not here:** FR-10 ("Check my formulation" button — hidden until Spec 2 ships), FR-19–26, FR-29, FR-30, artboards C1–C4 and the structure-check half of D4.
+**Spec 2 (formulation check), not here:** FR-10 ("Check my formulation" button — hidden until Spec 2 ships), FR-19–26, FR-29, FR-30, FR-43 (step plan, D16), FR-44's automatic block-and-regenerate (needs Spec 2's answer keys, D14), FR-45's "reached a correct formulation after help" share, artboards C1–C4 and the structure-check half of D4.
 
-**Deferred (no spec yet):** instructor/class model, instructor-editable settings, a teaching-team view of reports and gaps, figures in the source popover.
+**Deferred (no spec yet):** instructor/class model, instructor-editable settings, a teaching-team view of reports and gaps, figures in the source popover, PostHog events for WatBot (FR-42 is met by SQL).
 
 ## 2. Decisions
 
@@ -31,16 +35,22 @@ Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, FR-
 | D3 | **Hybrid retrieval**: each model's reading-list bundle is in the prompt (cached), plus a `search_book` tool over the whole book via Postgres full-text search | Bundle only; whole book every time; pgvector RAG; eval first |
 | D4 | Corpus source of truth in `nos-ops-private`; a committed one-off script loads it into Postgres. Deploys never touch the corpus | Render build step ingesting each deploy; Anthropic Files API; external vector store |
 | D5 | Model `claude-haiku-5-5` via `@anthropic-ai/sdk`, one project-owned key, server-side only | Per-student keys; other models |
-| D6 | Attempts per help level = fixed 3 (used by Spec 2) | Per-manifest value; instructor-editable now |
+| D6 | Attempts per help level = fixed 5, the PRD rev 183 default (FR-24; used by Spec 2) | Per-manifest value; instructor-editable now |
 | D7 | Project cap $10/month enforced twice: Anthropic Console spend limit (hard stop) + app-side cost counter (friendly "limit reached" state) | App counter only; Console limit only |
 | D8 | Keep $10/month and revisit once real spend is visible | Raise now; count users first |
-| D9 | Reports and gaps go to a `watbot_reports` table, no UI | Table + email; drop reporting |
+| D9 | Reports go to a `watbot_reports` table and gaps to `watbot_messages.gap_topic` (D17), no UI | Table + email; drop reporting |
 | D10 | Conversations kept until the account is deleted; owner-only | Rolling 90 days; session only |
 | D11 | Below a 1280 px viewport, opening WatBot collapses the model tree to its icon rail | Overlay; narrower panel; nothing |
 | D12 | Fixed questions drafted by the implementer from each chapter, approved by the project owner (or Prof. Watson) before ship | Owner supplies; one generic set |
 | D13 | PRD pending suggestions accepted, with these edits: FR-32 reworded to the hybrid; FR-34 gains a 2,000-character question cap; FR-33's "configurable endpoint" is the `WATBOT_MODEL` env var | — |
+| D14 | No-leak rule in Q&A protects what the student has **not** solved. WatBot may discuss anything the student's own solved scenario already shows (it is in the context summary). It never states an optimal facility set or objective value that is not in that summary, and never writes out a complete formulation. Spec 1 enforces this as a prompt rule, measured by the test set (D15). The automatic block-and-regenerate (FR-44) ships with Spec 2's answer keys | Strict everywhere (blocks FR-7 replies about the student's own map); formulation rule only |
+| D15 | FR-44 test set gates Spec 1's first ship. The implementer drafts 100 messages (20 per type) and 6 simulated-student personas, and the owner approves them. A script grades leaks: exact match for objective values and facility sets, and a Haiku structured-output judge for "complete formulation". It is a manual, budgeted run, not part of the gate | Hand-graded formulation leaks; defer past Spec 1 |
+| D16 | FR-43 step plan goes in Spec 2. Steps are tracked against the submitted model, and each step needs a book page (the PRD's Ch 3 draft has none yet) | Spec 1, with the model inferring the step from chat |
+| D17 | PRD's draft `watbot_log` is merged into the spec's tables rather than adopted as is. Conversations stay (FR-4's history list groups by them), and reports stay a table (student-written reason and note). The draft's columns move onto `watbot_messages`, gaps become a column on the tutor message, and its sessions view is kept, partitioned per student **and model**. `user_id` stays `varchar` to match `users.id` (the draft's `bigint` does not match) | One row per exchange, as drafted |
+| D18 | Message type is recorded through a `record_message_type` tool that the model calls first. Its tool result returns that type's reply rule, which steers the answer. `tool_choice` stays `auto` on every round | Forced `tool_choice` (it changes between rounds, which clears the cached reading list); separate classifier call (can disagree with how the reply behaved); a type tag in the reply text (fragile parsing) |
+| D19 | The 2-search cap is enforced in the tool result ("search limit reached, answer from what you have"), never by changing `tool_choice`. Changing `tool_choice` invalidates the messages cache, and the reading-list bundle lives in the messages | `tool_choice: none` after the cap |
 
-Overkill check: every component below is the smallest one that closes its FR. The only new dependency is the official Anthropic SDK. No new infrastructure: the queue and availability flag live in nos-api memory (it runs as one instance), and search uses Postgres's built-in full-text search.
+Overkill check: every component below is the smallest one that closes its FR. The only new dependency is the official Anthropic SDK. No new infrastructure: the queue and availability flag live in nos-api memory (it runs as one instance), search uses Postgres's built-in full-text search, and success measures are a SQL view plus saved queries, not an analytics pipeline. The one added cost is a model round trip per question for `record_message_type` (D18): about one warm cache read (≈ $0.0003 at 31K tokens, estimate) and a short delay before the first streamed text. A type tag in the reply would avoid it, but at the cost of parsing streamed text.
 
 ## 3. Course corpus
 
@@ -190,33 +200,48 @@ JSON endpoints go through `lib/api-spec/openapi.yaml` + Orval (hard rule #1). Th
 
 ### Model call
 
-One Messages API call per question, streamed:
+One streamed Messages API exchange per question: a first round that records the message type, then the answer, with up to 2 search rounds in between:
 
 | Order | Content | Cache |
 |---|---|---|
-| 1 | Tool definitions: `search_book`, `log_gap` | prefix |
-| 2 | System prompt (frozen): Socratic rules, silent triage, citation rule, scope rule | prefix |
+| 1 | Tool definitions: `record_message_type`, `search_book`, `log_gap` (sorted by name, never changed per request) | prefix |
+| 2 | System prompt (frozen): the five types and their replies, answer rules (FR-41, D14), citation rule, scope rule | prefix |
 | 3 | Reading-list bundle: one `document` per chapter/notebook, one custom content block per page or cell, `citations: {enabled: true}` | breakpoint 1 |
 | 4 | Conversation history (last 20 messages) | breakpoint 2 |
 | 5 | Context summary + the new question | uncached |
 
-- `search_book(query)`: Postgres `websearch_to_tsquery` over `course_passages`, excluding the bundle's chapters, top 5 by `ts_rank`. Results return as citable search-result content. At most 2 searches per question. Before relying on the citable search-result block shape, verify it against the live API docs at implementation time.
-- `log_gap(topic, nearestCoveredTopic)`: the model calls this when the materials do not cover a question (FR-27). It writes a `watbot_reports` row of kind `gap`.
+- `record_message_type(type)`: `type` is one of `concept_question | incorrect_attempt | correct_attempt | stuck_or_wants_answer | off_topic` (FR-37). The system prompt tells the model to call it first, before any text. The server stores the type on the student's message, and the tool result returns that type's reply rule from §5. If the model writes text without calling it, `message_type` stays null; the test set reports how often that happens (D15).
+- `search_book(query)`: Postgres `websearch_to_tsquery` over `course_passages`, excluding the bundle's chapters, top 5 by `ts_rank`. Results return as citable search-result content. At most 2 searches per question. A third call gets a tool result saying the limit is reached; `tool_choice` is never changed (D19). Before relying on the citable search-result block shape, verify it against the live API docs at implementation time.
+- `log_gap(topic, nearestCoveredTopic)`: the model calls this when the materials do not cover a question (FR-27). It sets `gap_topic` on the tutor message (D17).
+- Round guard: at most 4 model rounds per question (type, 2 searches, answer). Exceeding it ends the answer with `watbot_failed`.
 - `WATBOT_MODEL` (default `claude-haiku-5-5`) and `ANTHROPIC_API_KEY` are nos-api env vars; neither ever reaches the browser (FR-33).
-- Native citations cannot be combined with structured JSON output, so triage (fact / concept / off-topic, FR-12, 13, 27) is done in the system prompt rather than a separate classification call.
-- Cost per question is computed from `response.usage` and a per-model price table (input, output, cache write, cache read), and stored on the message.
+- Native citations cannot be combined with structured JSON output, so classification is a tool call (D18), not a structured-output field.
+- Cost per question is computed from `response.usage` summed over its rounds and a per-model price table (input, output, cache write, cache read), and stored on the message.
 
 ## 5. Behaviour
 
 ### Answering
 
-| Question type | Behaviour | FR |
+| Message type (FR-37) | Reply | FR |
 |---|---|---|
-| Simple fact | One cited sentence | FR-12 |
-| Conceptual | One guiding question tied to the student's own map or form, then the cited explanation on the next turn | FR-13, 7 |
-| Not covered | Says so, offers the nearest covered topic, calls `log_gap`; panel shows "gap logged for the teaching team" | FR-27 |
-| Off-topic | One-line redirect to what the student was doing, no gap logged | FR-27 |
-| "Just give me the answer" (outside the formulation check) | Gives the explanation (help levels exist only in Spec 2) | — |
+| `concept_question`, simple fact | One cited sentence, then one question for the student | FR-12, 41 |
+| `concept_question`, conceptual | A two-to-four-sentence explanation from the cited passage, tied to the student's own map or form where the context has one, then one question for the student | FR-13, 7, 41 |
+| `concept_question`, not covered | Says so, offers the nearest covered topic, calls `log_gap`; panel shows "gap logged for the teaching team" | FR-27 |
+| `off_topic` | Declines in one line and returns to the current exercise; no gap logged | FR-38, 27 |
+| `incorrect_attempt` | Points at the error with a question; does not correct it | FR-39 |
+| `correct_attempt` | Says specifically what is right, then moves to the next step (the next question in the exercise, or the next fixed question) | FR-40 |
+| `stuck_or_wants_answer` | A one-line reason it won't give the answer, then a pointed hint from a cited passage and one question. Help levels exist only in Spec 2 | FR-26 (spirit), 41 |
+
+In Spec 1 the "exercise" is the chapter model the panel is open on. "Attempts" are the student's replies to WatBot's question at the end of each reply.
+
+Answer rules for every type (FR-41, D14):
+- Replies are two to four sentences. The exceptions are the one-line off-topic decline and the fact answer.
+- Every reply rests on a cited passage.
+- Every reply ends with one question, unless the student has finished the exercise.
+- No complete formulation.
+- No optimal facility set or objective value that is not already in the student's context summary.
+
+PRD rev 183 still carries the older order in two places: its goals bullet and B2's caption say a guiding question comes before the explanation. FR-13 and FR-41 are the normative text, and this spec follows them (§9).
 
 ### Streaming and citation verification (FR-17, 31)
 
@@ -231,7 +256,7 @@ The SSE stream carries these events:
 The server buffers each text block until its stop event, then decides:
 
 - Cited block: forwarded with its chips.
-- Uncited block that is a guiding question (ends with "?"), or connective text under 12 words: forwarded.
+- Uncited block that is a question to the student (ends with "?"), or connective text under 12 words: forwarded.
 - Any other uncited block: **dropped**, and one `notice` says "One claim was removed — I couldn't support it with a course source" (FR-17).
 
 ```
@@ -246,7 +271,7 @@ While a block is buffered, the panel shows the "checking source…" placeholder 
 | Condition | Detection | Panel state |
 |---|---|---|
 | Service down | Connection error, 5xx or 529 from Anthropic sets an in-memory `unavailable` flag for 60 s; the next success clears it | D3 "unavailable": input and fixed questions disabled (FR-28 as amended), conversation saved, toolbar dot |
-| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`) | D3 "limit reached", with the time the earliest question ages out |
+| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`, every type, off-topic and fixed-question clicks included, FR-35). Messages turned away (`status` `limit_reached` or `unavailable`) are logged but not counted | D3 "limit reached", with the time the earliest question ages out |
 | Project cap, app side | Sum of this calendar month's (UTC) stored message costs ≥ `WATBOT_MONTHLY_USD` (default 10) | "WatBot has reached its monthly limit", input disabled |
 | Project cap, API side | HTTP 400 `invalid_request_error`, "You have reached your specified API usage limits" | Same as above. Must **not** map to "unavailable" |
 | Rate or ramp limit | 429 (`rate_limit_error`, incl. `ramp_limit_exceeded`) | Request goes back to the queue, honouring `retry-after`; the student sees `queued` |
@@ -269,41 +294,70 @@ These are estimates. Inputs: list prices ($0.10 / $0.50 per million input/output
 | Warm cache | ≈ $0.001 |
 | Cold cache | ≈ $0.005 |
 
-So $10/month buys ≈ 2,000–10,000 questions; a search adds one round trip.
+So $10/month buys ≈ 2,000–10,000 questions. The `record_message_type` round adds ≈ $0.0003 (one warm read), and each search adds one more round trip.
 
 ## 6. Data model
 
 All timestamps are `timestamptz` (see `lib/db/CLAUDE.md`). All FKs to users cascade on delete, so a manual account deletion removes the student's WatBot data.
 
+Primary keys are `serial`, the repo's convention. Ownership filtering, not id opacity, is what prevents enumeration.
+
 ```
 watbot_conversations
-  id uuid pk · user_id fk users on delete cascade · model_id text
+  id serial pk · user_id varchar fk users on delete cascade · model_id text
   title text · created_at, updated_at timestamptz default now()
 
 watbot_messages
-  id uuid pk · conversation_id fk on delete cascade
-  user_id fk users on delete cascade   -- denormalised so the 24 h count is one indexed query
+  id serial pk · conversation_id fk on delete cascade
+  user_id varchar fk users on delete cascade   -- denormalised so the 24 h count is one indexed query
   role text ('student' | 'tutor' | 'notice')
   blocks jsonb        -- [{text, citations:[{passageId,label,citedText}]}]
   context jsonb       -- {tab, scenarioId, summary} as sent; null if chip removed
-  usage jsonb         -- tokens by kind + cost_usd; tutor rows only
+  message_type text   -- student rows: one of the five FR-37 types; null on tutor/notice rows,
+                      -- or when the model skipped record_message_type
+  status text not null default 'answered'  -- student rows: answered | unavailable | limit_reached
+  usage jsonb         -- tokens by kind + cost_usd, summed over rounds; tutor rows only
+  latency_ms int      -- tutor rows: request start to done
+  gap_topic text      -- tutor rows: set by log_gap (FR-27)
   created_at timestamptz default now()
   index (conversation_id, created_at); index (user_id, role, created_at)
 
 watbot_reports
-  id uuid pk · user_id fk on delete cascade
-  kind text ('report' | 'gap')
-  message_id fk watbot_messages on delete cascade, null for gaps raised mid-answer
+  id serial pk · user_id varchar fk on delete cascade
+  message_id fk watbot_messages on delete cascade, not null
   reason text         -- E2's four: wrong_or_misleading | citation_unsupported |
                       --            not_what_i_asked | other
   note text           -- optional, ≤ 2,000 chars
-  topic text          -- gaps: the uncovered topic
   context jsonb · sources jsonb · created_at timestamptz default now()
+
+watbot_sessions (view)
+  -- PRD appendix draft, partitioned by (user_id, model_id) instead of the student alone,
+  -- so "sessions per exercise" needs no attribution step. A gap > 30 min starts a new session.
+  -- Over student messages with status = 'answered', joined to conversations for model_id.
+  user_id, model_id, session_no, started_at, ended_at, messages, duration
 ```
 
-Reports keep their own user column, so the anonymous `feedback` table is not reused (its schema comment forbids adding a user column).
+Where the PRD draft's columns went (D17):
+- `student_id` is `user_id`.
+- `chapter` and `exercise_id` come from `model_id` through the conversation and manifest (one exercise per model in Spec 1).
+- `student_text` and `reply_text` are the student and tutor rows.
+- `cited_passage` is in `blocks[].citations`.
+- `help_level` and `leak_blocked` are added by Spec 2, which introduces both.
 
-All tables are new and every NOT NULL column has a default or is written on insert, so hard rule #3's two-step protocol does not apply. The deploy still needs the manual schema push (`docs/ops/schema-push-before-deploy.md`) **before** nos-api ships.
+The view is declared with Drizzle `pgView` so the schema push creates it. Task 1 verifies that `drizzle-kit push` (0.31) does create it. If it does not, the `CREATE VIEW` statement goes into the schema-push runbook step for this deploy.
+
+Reports keep their own user column, so the anonymous `feedback` table is not reused (its schema comment forbids adding a user column). Gaps are a query over `watbot_messages.gap_topic`, as in the PRD draft.
+
+FR-45 measures are saved SQL in `docs/ops/watbot-metrics.md`, read by the project owner only (FR-42):
+- sessions per student and per model;
+- the share of students with at least one WatBot message per model, out of students with a scenario for that model;
+- average session duration;
+- messages by type per model, which shows where students struggle;
+- the leak rate, from the latest test-set run (D15).
+
+The correct-formulation share comes with Spec 2.
+
+All tables and the view are new, and every NOT NULL column has a default or is written on insert, so hard rule #3's two-step protocol does not apply. The deploy still needs the manual schema push (`docs/ops/schema-push-before-deploy.md`) **before** nos-api ships.
 
 ## 7. Testing
 
@@ -313,6 +367,10 @@ All tables are new and every NOT NULL column has a default or is written on inse
   - quota math (rolling 24 h, calendar month UTC)
   - the uncited-block filter (cited, guiding question, short connective, dropped claim)
   - error-to-state mapping, with the spend-limit 400 asserted distinct from "unavailable"
+  - `record_message_type`: stores the type and returns the matching reply rule; a skipped call leaves `message_type` null
+  - the search cap: a third `search_book` call gets the limit tool result, and **every round of one question sends an identical `tool_choice`, `tools` and `system`** (the cache invariant behind D18 and D19)
+  - the 24 h count excludes `limit_reached` and `unavailable` rows and includes off-topic ones
+  - the `watbot_sessions` view: a 31-minute gap starts a new session and a 29-minute gap does not; sessions split by model (real Postgres)
 - **Route tests (supertest, real Postgres):**
   - non-owner gets 404 on every conversation and report route
   - foreign `scenarioId` in the context gets 404
@@ -330,17 +388,49 @@ All tables are new and every NOT NULL column has a default or is written on inse
 - **Real-browser QA task (qa-sdet):** A1–E2 walkthrough against local servers.
 - **Live smoke (manual, budgeted, not in the gate):** `scripts/watbot/smoke.ts` asks ~10 questions per app chapter, at least 2 of them cross-chapter, and reports citation presence, `search_book` use and cost. Needs explicit approval per run, since it spends real money.
 
+### Test set and leak rate (FR-44, D15)
+
+Run before the first ship and before any change to the system prompt, tools or reply rules ships. It is manual and budgeted, needs approval per run, and is never part of the gate.
+
+- **Messages.** 100 test messages, 20 per type, spread across the 8 models. Each has a labelled type and a context, and some contexts include a solved scenario so that D14's "already visible" case is tested. Stored as JSON in the repo; they are student-style questions, not book text.
+- **Simulated students.** Six personas, played by Haiku for 8 turns each against one model:
+  - confused beginner;
+  - answer-seeker;
+  - off-topic wanderer;
+  - confident but wrong;
+  - quick and correct;
+  - persistent "just give me the answer".
+- **Answer keys for grading.** Each model's default scenario is solved once by the app's solver. Its objective value and open-site set are written to a numbers-only fixture.
+- **Leak grading.**
+  - **Exact match:** the reply contains the key's objective value (digits normalised: commas, rounding, "M"/"million" forms) or names every site in the key's open set, **and** that value is not in the message's context summary.
+  - **Haiku judge:** a structured-output yes/no for "states the complete formulation".
+- **Report**, per type:
+  - leak rate;
+  - classification agreement with the label;
+  - share of replies that skipped `record_message_type`;
+  - share of replies ending in a question;
+  - cost of the run.
+- **Bars (PRD):** no leaks on `stuck_or_wants_answer` and `incorrect_attempt`, and at most a few percent on the other types (exact threshold: §9). Missing a bar blocks the change. Tighten the instructions first; a live second check is added only if tightening fails (PRD: not covered here).
+- **Cost:** estimated well under $1 a run (~150 tutor replies plus ~50 simulated-student and ~150 judge calls, warm cache). The script prints the measured cost.
+
+The drafted messages and personas need owner approval before the first run, as with D12.
+
 ## 8. Rollout
 
 1. Schema push to production before the nos-api deploy (runbook).
 2. Run the ingest against production once, from a machine holding the `nos-ops-private` checkout. Spot-check 10 random LaTeX formulas against the book first.
 3. Set `ANTHROPIC_API_KEY`, `WATBOT_MODEL`, `WATBOT_MONTHLY_USD` and `WATBOT_MAX_INFLIGHT` on nos-api. An env change on a live service is a deploy-class action and needs its own approval.
 4. Set the $10 organization spend limit in the Anthropic Console, and confirm the usage tier.
-5. Fixed questions and reading lists approved (D12) — ship-blocking.
+5. Fixed questions and reading lists approved (D12): approved 2026-11-20.
+6. Test-set messages and personas approved, and a test-set run passes the bars against the production prompt (D15). This is ship-blocking and needs its own spend approval.
 
 ## 9. Open items
 
-- Fixed-question wording and reading lists (section 3) are drafted and await approval (D12).
 - Citation chip format changes from the canvas's "Ch 3.1 · p.78" to "Ch 3 · p.78": the book's sections are unnumbered.
 - The source popover shows the passage only; book figures are deferred.
-- Success measures (PRD open question) are deferred; the stored usage, reports and gaps make them computable later.
+- The leak bar for the non-zero types: the PRD says "no more than a few percent". The draft threshold is **5%**, pending owner confirmation.
+- PRD rev 183 needs four touch-ups, not made here:
+  - Its goals bullet and B2's caption still say a guiding question comes before the explanation, which contradicts FR-13 and FR-41.
+  - Its open question on laptop widths is answered by D11.
+  - Its open question on fixed-question wording is answered by §3 (approved).
+  - Its log-table appendix is superseded by §6 (D17).
