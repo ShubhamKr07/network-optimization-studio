@@ -27,9 +27,11 @@ export function WatBotPanel(props: {
   const inputDisabled = blocked || !!props.busy;
   const inputRef = useRef<HTMLInputElement>(null);
   const wasBusy = useRef(false);
-  // A11y: the input is disabled while answering (focus drops to body); give it back when the answer ends.
+  // A11y: the input is disabled while answering (focus drops to body); give it back when the answer
+  // ends — but only if focus was actually lost, never steal it from another control.
   useEffect(() => {
-    if (wasBusy.current && !props.busy) inputRef.current?.focus();
+    const a = document.activeElement;
+    if (wasBusy.current && !props.busy && (!a || a === document.body)) inputRef.current?.focus();
     wasBusy.current = !!props.busy;
   }, [props.busy]);
   const asideRef = useRef<HTMLElement>(null);

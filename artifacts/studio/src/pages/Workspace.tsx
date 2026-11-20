@@ -1470,7 +1470,8 @@ interface ResultHistoryEntry {
   runId?: number;
 }
 
-// Limit/unavailable codes are shown by the panel's own notices once the status refetches.
+// Limit/unavailable codes also have a panel Notice once the status refetches; the alert is then
+// suppressed (watbotNoticeCovers) so the student sees one message, never two, and never none.
 const WATBOT_ERROR_COPY: Record<string, string> = {
   watbot_refused: "I can't help with that one.",
   watbot_failed: "Something went wrong. Try again.",
@@ -1479,6 +1480,12 @@ const WATBOT_ERROR_COPY: Record<string, string> = {
   watbot_student_limit: "You've reached your question limit for now. Try again later.",
   watbot_unavailable: "WatBot is unavailable right now. Your conversation is saved.",
 };
+
+function watbotNoticeCovers(code: string | null, st: { available: boolean; studentRemaining: number; projectCapReached: boolean } | undefined) {
+  if (!code || !st) return false;
+  return (code === "watbot_unavailable" && !st.available) || (code === "watbot_student_limit" && st.studentRemaining === 0)
+    || (code === "watbot_project_limit" && st.projectCapReached);
+}
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const search = useSearch();
@@ -3033,6 +3040,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [watbotHistoryOpen, setWatBotHistoryOpen] = useState(false);
   const watbot = useWatBotConversation(modelId);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // Bumped by every pick/new/ask: a slow history fetch that resolves after one of them must not load over it.
+  const pickGen = useRef(0);
   const { data: watbotStatus } = useGetWatBotStatus({ query: { queryKey: getGetWatBotStatusQueryKey(), refetchInterval: 60_000 } });
   // WatBot D11 — below 1280px the panel takes the sidebar's room: collapse it to the icon rail.
   const watbotButtonRef = useRef<HTMLButtonElement>(null);
@@ -4824,16 +4833,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             tutor={activeModelManifest?.tutor} view={activeView}
             scenario={currentScenario ? { name: currentScenario.name, inputs: currentScenario.inputs } : null}
             busy={watbot.busy} hasMessages={watbot.items.length > 0}
-            onAsk={(q, o) => { setWatBotHistoryOpen(false); setHistoryError(null); void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
+            onAsk={(q, o) => { setWatBotHistoryOpen(false); setHistoryError(null); pickGen.current++; void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
             onOpenHistory={() => setWatBotHistoryOpen((h) => !h)} onClose={closeWatBot}>
             {watbotHistoryOpen ? (
-              <WatBotHistory modelId={modelId} onNew={() => { watbot.startNew(); setHistoryError(null); setWatBotHistoryOpen(false); }}
+              <WatBotHistory modelId={modelId} onNew={() => { pickGen.current++; watbot.startNew(); setHistoryError(null); setWatBotHistoryOpen(false); }}
                 onPick={async (id) => {
+                  const g = ++pickGen.current;
                   try {
                     const conv = await getWatBotConversation(id);
+                    if (g !== pickGen.current) return;
                     watbot.load(id, conv.messages.map((m) => ({ kind: m.role, id: m.role === "tutor" ? m.id : undefined, blocks: m.blocks })));
                     setHistoryError(null);
                   } catch {
+                    if (g !== pickGen.current) return;
                     setHistoryError("Could not open that conversation. Try again.");
                   }
                   setWatBotHistoryOpen(false);
@@ -4841,7 +4853,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             ) : (
               <>
                 <WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop} />
-                {(watbot.status ?? historyError) && (
+                {(historyError || (watbot.status && !watbotNoticeCovers(watbot.status, watbotStatus))) && (
                   <p role="alert" data-testid="watbot-error" className="text-sm text-danger">{historyError ?? WATBOT_ERROR_COPY[watbot.status!] ?? WATBOT_ERROR_COPY.watbot_failed}</p>
                 )}
               </>

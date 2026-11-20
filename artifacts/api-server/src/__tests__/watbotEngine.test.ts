@@ -170,9 +170,10 @@ describe("facilityNames", () => {
 });
 
 describe("costUsd and the D21 reservation", () => {
-  it("prices an unknown model at the most expensive known price rather than a cheaper default", () => {
+  it("fails closed: an unknown model is priced strictly above Haiku, and its reservation exceeds the default $10 cap", () => {
     const u = { input_tokens: 1000, output_tokens: 1000 } as Anthropic.Usage;
-    expect(costUsd("not-a-real-model", u)).toBeGreaterThanOrEqual(costUsd("claude-haiku-5-5", u));
+    expect(costUsd("not-a-real-model", u)).toBeGreaterThan(costUsd("claude-haiku-5-5", u));
+    expect(reservationUsd("not-a-real-model", 63_800)).toBeGreaterThan(10);
   });
   it("drops empty history turns and keeps cache_control on the last non-empty one", () => {
     const req = buildRequest({ model: "m", bundle: [], fixedQuestions: [], contextSummary: "", question: "q",

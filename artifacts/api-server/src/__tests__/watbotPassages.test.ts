@@ -2,7 +2,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { gte } from "drizzle-orm";
 import { db, coursePassagesTable } from "@workspace/db";
-import { loadBundle, searchBook, getPassage } from "../watbot/passages.js";
+import { loadBundle, searchBook, getPassage, maxBundleTokens, resetMaxBundleTokensForTests } from "../watbot/passages.js";
+import { bundleTokens, reservationUsd } from "../watbot/cost.js";
 
 // Fixture chapters 901-903 cannot collide with the real corpus (book has 15 chapters).
 beforeAll(async () => {
@@ -46,5 +47,21 @@ describe("searchBook", () => {
 describe("getPassage", () => {
   it("returns undefined for an unknown id", async () => {
     expect(await getPassage(-1)).toBeUndefined();
+  });
+});
+
+describe("maxBundleTokens (cap-status worst case)", () => {
+  it("equals the admission reservation for the largest bundle, memoised per process", async () => {
+    resetMaxBundleTokensForTests();
+    // Largest list deliberately last and not the only non-empty one.
+    const lists = [[{ kind: "book" as const, chapter: 902 }], [{ kind: "book" as const, chapter: 903 }],
+      [{ kind: "book" as const, chapter: 901 }, { kind: "notebook" as const, chapter: 901 }]];
+    const perList = await Promise.all(lists.map(async (rl) => bundleTokens(await loadBundle(rl))));
+    expect(Math.max(...perList)).toBeGreaterThan(perList[0]!); // the fixture really has a unique largest
+    const status = reservationUsd("claude-haiku-5-5", await maxBundleTokens(lists));
+    const admission = Math.max(...perList.map((t) => reservationUsd("claude-haiku-5-5", t)));
+    expect(status).toBe(admission);
+    expect(await maxBundleTokens([])).toBe(await maxBundleTokens(lists)); // memoised: a later call reuses the first value
+    resetMaxBundleTokensForTests();
   });
 });

@@ -20,7 +20,7 @@ import {
 import type { WatBotErrorCode } from "../watbot/errors.js";
 import { bundleTokens, reservationUsd } from "../watbot/cost.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { getPassage, loadBundle, readingListTokens } from "../watbot/passages.js";
+import { getPassage, loadBundle, maxBundleTokens } from "../watbot/passages.js";
 import {
   admitSpend, inflight, isAvailable, markAvailable, markProjectCapReached, markUnavailable,
   monthlyCapUsd, monthlySpendUsd, projectCapFlagged, reservedUsd, studentUsage, tryLockUser,
@@ -47,8 +47,7 @@ async function ownedConversation(id: number, userId: string) {
 // reservation (largest bundle across models), so "available" never precedes a 429 (D21).
 async function projectCapReached() {
   const model = watbotModel();
-  const tokens = await Promise.all(listModels().map((m) => readingListTokens(getManifest(m.id)?.tutor?.readingList ?? [])));
-  const worst = reservationUsd(model, Math.max(0, ...tokens));
+  const worst = reservationUsd(model, await maxBundleTokens(listModels().map((m) => getManifest(m.id)?.tutor?.readingList ?? [])));
   return projectCapFlagged() || (await monthlySpendUsd()) + reservedUsd() + worst >= monthlyCapUsd();
 }
 

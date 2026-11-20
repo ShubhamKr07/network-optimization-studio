@@ -1,6 +1,7 @@
 import { and, asc, eq, not, or, sql, type SQL } from "drizzle-orm";
 import { db as defaultDb, coursePassagesTable } from "@workspace/db";
 import type { Tutor } from "@workspace/dataset-schema";
+import { bundleTokens } from "./cost.js";
 
 type Db = typeof defaultDb;
 type ReadingList = Tutor["readingList"];
@@ -35,10 +36,14 @@ export async function getPassage(id: number, database: Db = defaultDb) {
   return row;
 }
 
-// Same chars/4 estimate as cost.ts bundleTokens, without loading the passage text.
-export async function readingListTokens(readingList: ReadingList, database: Db = defaultDb): Promise<number> {
-  if (!readingList.length) return 0;
-  const [row] = await database.select({ chars: sql<string>`coalesce(sum(length(${coursePassagesTable.body})), 0)` })
-    .from(coursePassagesTable).where(or(...readingList.map(isEntry)));
-  return Math.round(Number(row?.chars ?? 0) / 4);
+// Largest reading-list bundle, for the cap status' worst-case reservation. Memoised per
+// process: passages are ingested offline and a deploy restarts the process. Uses the same
+// bundleTokens() as admission, so status and admission share one chars/4 estimate.
+let maxTokens: Promise<number> | null = null;
+export function maxBundleTokens(readingLists: ReadingList[]): Promise<number> {
+  maxTokens ??= Promise.all(readingLists.map(async (rl) => bundleTokens(await loadBundle(rl))))
+    .then((t) => Math.max(0, ...t))
+    .catch((e) => { maxTokens = null; throw e; });
+  return maxTokens;
 }
+export const resetMaxBundleTokensForTests = () => { maxTokens = null; };

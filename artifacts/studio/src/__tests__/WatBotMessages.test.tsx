@@ -1,14 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 const mutateAsync = vi.fn().mockResolvedValue(undefined);
-const passageState = { isError: false };
+const passageState = { isError: false, isLoading: false, retry: undefined as boolean | undefined };
 vi.mock("@workspace/api-client-react", () => ({
   getGetWatBotPassageQueryKey: (id: number) => ["passage", id],
   useGetWatBotPassage: (id: number, o: { query: { enabled: boolean; retry: boolean } }) => ({
-    data: o.query.enabled && !passageState.isError ? { id, label: "Ch 3 · p.38", body: "Full page text." } : undefined,
-    isError: o.query.enabled && passageState.isError, isLoading: o.query.enabled && !passageState.isError && false,
-    retryOpt: o.query.retry,
+    data: o.query.enabled && !passageState.isError && !passageState.isLoading ? { id, label: "Ch 3 · p.38", body: "Full page text." } : undefined,
+    isError: o.query.enabled && passageState.isError, isLoading: o.query.enabled && passageState.isLoading,
+    ...(passageState.retry = o.query.retry, {}),
   }),
   useSubmitWatBotReport: () => ({ mutateAsync, isPending: false }),
 }));
@@ -21,6 +21,7 @@ const items = [
 ];
 
 describe("WatBotMessages", () => {
+  afterEach(() => { passageState.isError = false; passageState.isLoading = false; passageState.retry = undefined; });
   it("renders student, tutor and notice messages distinctly", () => {
     render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     expect(screen.getByText("Why?").closest("[data-role]")).toHaveAttribute("data-role", "student");
@@ -66,7 +67,15 @@ describe("WatBotMessages", () => {
     fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
     fireEvent.click(screen.getByRole("button", { name: "Open full source" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Source unavailable");
-    passageState.isError = false;
+    expect(passageState.retry).toBe(false);
+  });
+
+  it("shows 'Loading…' while the passage loads", () => {
+    passageState.isLoading = true;
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open full source" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 
   it("hides 'Open full source' until the message has a server id (D23)", () => {

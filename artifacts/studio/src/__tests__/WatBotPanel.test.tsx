@@ -89,8 +89,18 @@ describe("WatBotPanel", () => {
   it("refocuses the question input when the answer finishes", () => {
     const { rerender } = render(panel(vi.fn(), vi.fn(), { busy: true }));
     expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toBeDisabled();
+    (document.activeElement as HTMLElement).blur(); // a browser drops focus to body when the focused input disables
     rerender(panel(vi.fn(), vi.fn(), { busy: false }));
     expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toHaveFocus();
+  });
+
+  it("does not steal focus from another control when the answer finishes", () => {
+    const other = document.createElement("button"); document.body.appendChild(other);
+    const { rerender } = render(panel(vi.fn(), vi.fn(), { busy: true }));
+    other.focus();
+    rerender(panel(vi.fn(), vi.fn(), { busy: false }));
+    expect(other).toHaveFocus();
+    other.remove();
   });
 
   it("disables the history button while an answer streams", () => {
