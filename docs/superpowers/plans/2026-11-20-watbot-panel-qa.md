@@ -29,7 +29,8 @@
   - Project: `WATBOT_MONTHLY_USD` (default `10`) per UTC calendar month. A question is admitted only if stored month cost + in-memory reservations of admitted, unfinished questions + its own reservation < the cap (D21). Reservation = `MAX_ROUNDS` (4) × (bundle tokens + 10K history allowance) × cache-write price + 4 × `MAX_TOKENS` (4,000) × output price, released on completion, stop or failure.
   - Admission (D21): a per-user in-process lock allows one question in flight. The 24 h count, the spend reservation and the student-row insert all happen while it is held. A second concurrent question from the same user gets `409 watbot_busy`.
   - In flight: `WATBOT_MAX_INFLIGHT` (default `10`) concurrent model calls, FIFO.
-  - 429 from Anthropic (D24): the SDK client is built with `maxRetries: 0`, so the SDK never retries (it cannot exclude 429 alone). The engine releases the in-flight slot, re-enqueues at the **front**, waits `retry-after` (seconds, clamped 1–60; 5 if missing or invalid), emits `queued {position}`, and resends only the failed round. At most 3 re-queues per question; the 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue. 5xx, 529 and connection errors are not retried: they set the 60 s unavailable flag (spec §5).
+  - 429 from Anthropic (D24): the SDK client is built with `maxRetries: 0`, so the SDK never retries (it cannot exclude 429 alone). The engine releases the in-flight slot, re-enqueues at the **front**, waits `retry-after` (seconds, clamped 1–60; 5 if missing or invalid), emits `queued {position}`, and resends only the failed round. At most 3 re-queues per question; the 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue.
+  - Transient errors (D24, spec §5): with the SDK's retries off, the engine itself retries a round that hit a 5xx, 529 or connection error. It retries at most 2 times per round, after 0.5 s and then 1.5 s (`TRANSIENT_BACKOFF_MS`, injectable), and only if none of that round's blocks were forwarded. The wait happens inside the round, holding the in-flight slot; it is not a re-queue, which stays 429-only. A Stop during the wait ends through the stopped path. Retries exhausted, or a block already forwarded, means the failure path (`failure: "unavailable"`). Only that final failure makes the route set the 60 s unavailable flag, so a single blip never disables WatBot for everyone.
 - **Message types (FR-37, D18).** `WATBOT_MESSAGE_TYPES = concept_question | incorrect_attempt | correct_attempt | stuck_or_wants_answer | off_topic`, recorded on the student row through the `record_message_type` tool. A skipped call leaves `message_type` null. The type is never shown to the student and is not part of the API contract.
 - **Model rounds and cache invariant (D18, D19).** At most 4 rounds per question (type, 2 searches, answer); a 5th would-be round ends the answer with `watbot_failed`. At most 2 `search_book` calls per question, top 5 passages each; a third call gets the tool result `Search limit reached. Answer from the passages you already have.` Every round sends `tool_choice: {type: "auto"}` and byte-identical `tools` and `system`. Never switch `tool_choice` (e.g. to `none`): it invalidates the messages cache that holds the reading-list bundle.
 - **History.** History sent to the model = the last 20 messages, as plain text with no citations.
@@ -1018,7 +1019,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - The `citations_delta` delta
 - The rule that **user-side** `text` blocks must not carry non-empty `citations` (API `2026-10-21`)
 - `message_start.message.usage` and `message_delta.usage.output_tokens` on the raw stream (D22)
-- Retry options (D24): the plan assumes the SDK's `maxRetries` applies to every retryable status (408, 409, 429, 5xx, connection) with no per-status switch, so `client.ts` sets `maxRetries: 0`. If the installed SDK does offer a 429-only switch, still use `maxRetries: 0`: 5xx, 529 and connection errors must reach the unavailable rule (spec §5) immediately rather than hold an in-flight slot while retrying.
+- Retry options (D24): the plan assumes the SDK's `maxRetries` applies to every retryable status (408, 409, 429, 5xx, connection) with no per-status switch, so `client.ts` sets `maxRetries: 0`. If the installed SDK does offer a 429-only switch, still use `maxRetries: 0`: the engine owns both the 429 re-queue and the 2 in-round transient retries (`TRANSIENT_BACKOFF_MS`), which must not forward-duplicate text and must decide when the unavailable flag trips (spec §5).
 - `APIError.headers` type (a `Headers` with `.get()` in current SDKs) for `retry-after`
 - That aborting the request's `signal` makes stream iteration throw (`APIUserAbortError`)
 
@@ -1035,6 +1036,7 @@ The shapes below were checked against the live docs on 2026-11-20.
   - `costUsd(model, u)`, `bundleTokens(bundle)`, `reservationUsd(model, bundleTokens)`, `HISTORY_ALLOWANCE_TOKENS = 10_000`, in `cost.ts`
   - `SYSTEM_PROMPT`, `REPLY_RULES: Record<WatBotMessageType, string>`, `TOOLS` (sorted by name: `log_gap`, `record_message_type`, `search_book`), `SEARCH_LIMIT_RESULT`, `MAX_ROUNDS = 4`, `MAX_TOKENS = 4000`, in `prompt.ts`
   - `buildRequest({ model, bundle, fixedQuestions, history, contextSummary, question })`, which always sets `tool_choice: { type: "auto" }`
+  - `TRANSIENT_BACKOFF_MS = [500, 1500]` (D24: up to 2 in-round retries of a 5xx/529/connection error); `AnswerInput.deps.transientBackoffMs` overrides it per call (unit tests), and `setTransientBackoffForTests(ms | null)` overrides the default for route tests
   - `MAX_SEARCHES = 2`, `MAX_REQUEUES = 3`, `STOPPED_NOTICE = "Answer stopped"`, `FAILED_NOTICE = "WatBot couldn't finish this answer."`, `REFUSED_NOTICE = "I can't help with that one."`; `MAX_ROUNDS` is re-exported from `engine.ts`
   - `zeroUsage(model)`, `emptyAnswerResult(model, extra?)`: the result the route finalises when the question never reached the engine
   - `type RoundGate = { requeue(retryAfterMs: number): Promise<void> }`. Task 6 implements it on the in-flight queue; the default gate just waits `retryAfterMs` (smoke and eval CLIs).
@@ -1066,7 +1068,7 @@ import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { buildRequest, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
-import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
+import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
 
@@ -1142,9 +1144,11 @@ const toolRound = (id: string, name: string, input: object) => ({
 });
 const answerRound = (text: string) => ({ events: textBlock(0, text, []), final: { stop_reason: "end_turn" as const } });
 
+// Transient-retry backoff is zeroed by default here; tests that need real delays pass their own.
 const baseInput = (client: WatBotClient, extra: Partial<AnswerInput> = {}): AnswerInput => ({
   client, model: "claude-haiku-5-5", bundle, readingList: [], fixedQuestions: [], facilityNames: [], history: [], contextSummary: "",
   question: "q", emit: () => {}, signal: new AbortController().signal, ...extra,
+  deps: { transientBackoffMs: [0, 0], ...extra.deps },
 });
 
 // Last user turn of a captured request = the tool results the engine sent back.
@@ -1471,18 +1475,87 @@ describe("answerQuestion", () => {
   });
 
   // D22 — provider failures return a result with what was forwarded and billed; they never throw.
-  it("returns a 529 before any usage as an unavailable failure that did not reach the model, without re-queueing", async () => {
+  // D24 — transient 5xx/529/connection errors: up to 2 in-round retries, never a re-queue.
+  it("waits 0.5 s then 1.5 s by default", () => {
+    expect([...TRANSIENT_BACKOFF_MS]).toEqual([500, 1500]);
+  });
+
+  it("answers normally after one 529 (one in-round retry, no re-queue)", async () => {
     const { gate, waits } = recordingGate();
-    const result = await answerQuestion(baseInput(fakeClient([{ error: apiErr(529, "overloaded") }]), { gate }));
+    const client = fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("Which constraint binds here?")]);
+    const result = await answerQuestion(baseInput(client, { gate }));
+    expect(client.calls).toHaveLength(2);
+    expect(waits).toEqual([]);
+    expect(result).toMatchObject({ failed: false, failure: null, stopped: false });
+    expect(result.blocks.map((b) => b.text)).toEqual(["Which constraint binds here?"]);
+  });
+
+  it("retries a connection error the same way", async () => {
+    const client = fakeClient([{ error: new Anthropic.APIConnectionError({ message: "socket hang up" }) }, answerRound("Which constraint binds here?")]);
+    const result = await answerQuestion(baseInput(client));
+    expect(client.calls).toHaveLength(2);
+    expect(result.failed).toBe(false);
+  });
+
+  it("waits the injected backoff between attempts", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient([{ error: apiErr(529, "overloaded") }, { error: apiErr(529, "overloaded") }, answerRound("Done?")]);
+      const p = answerQuestion(baseInput(client, { deps: { transientBackoffMs: [500, 1500] } }));
+      await vi.advanceTimersByTimeAsync(499);
+      expect(client.calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(client.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(client.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await p).failed).toBe(false);
+      expect(client.calls).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends through the failure path as unavailable after three consecutive 529s, without re-queueing", async () => {
+    const { gate, waits } = recordingGate();
+    const err = () => ({ error: apiErr(529, "overloaded") });
+    const client = fakeClient([err(), err(), err(), answerRound("never sent")]);
+    const result = await answerQuestion(baseInput(client, { gate }));
+    expect(client.calls).toHaveLength(3); // 1 attempt + 2 retries
     expect(waits).toEqual([]);
     expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: false, blocks: [] });
     expect(result.usage.costUsd).toBe(0);
   });
 
-  it("keeps the usage of a round that failed after message_start", async () => {
-    const result = await answerQuestion(baseInput(fakeClient([{ events: [messageStart(100)], error: apiErr(529, "overloaded") }])));
+  it("does not retry a 529 that follows a forwarded block", async () => {
+    const events: EngineEvent[] = [];
+    const client = fakeClient([
+      { events: [messageStart(100), ...textBlock(0, "What do you notice?", [])], error: apiErr(529, "overloaded") },
+      answerRound("never sent"),
+    ]);
+    const result = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
+    expect(client.calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "block")).toHaveLength(1);
+    expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: true });
+  });
+
+  it("ends through the stopped path when the student stops during the backoff", async () => {
+    const ac = new AbortController();
+    const client = fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("never sent")]);
+    const p = answerQuestion(baseInput(client, { signal: ac.signal, deps: { transientBackoffMs: [10_000, 10_000] } }));
+    await new Promise((r) => setTimeout(r, 10));
+    ac.abort();
+    const result = await p;
+    expect(client.calls).toHaveLength(1);
+    expect(result).toMatchObject({ stopped: true, failed: false, reachedModel: false });
+  });
+
+  // D22 — provider failures return a result with what was forwarded and billed; they never throw.
+  it("keeps the usage of every attempt that got message_start before the final 529", async () => {
+    const failedAfterStart = () => ({ events: [messageStart(100)], error: apiErr(529, "overloaded") });
+    const result = await answerQuestion(baseInput(fakeClient([failedAfterStart(), failedAfterStart(), failedAfterStart()])));
     expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: true, blocks: [] });
-    expect(result.usage).toMatchObject({ inputTokens: 100, outputTokens: 0, estimated: true });
+    expect(result.usage).toMatchObject({ inputTokens: 300, outputTokens: 0, estimated: true }); // 3 billed attempts
     expect(result.usage.costUsd).toBeGreaterThan(0);
   });
 
@@ -1539,8 +1612,9 @@ export function setWatBotClientForTests(c: WatBotClient | null): void { override
 export function getWatBotClient(): WatBotClient {
   if (override) return override;
   // Reads ANTHROPIC_API_KEY; server-side only (FR-33). maxRetries 0 (D24): the SDK
-  // would otherwise retry 429s while holding an in-flight slot, and 5xx/529 must
-  // reach the unavailable rule (spec §5) at once. The engine owns the 429 re-queue.
+  // would otherwise retry 429s while holding an in-flight slot, and could resend a
+  // round whose text was already forwarded. The engine owns the 429 re-queue and the
+  // 2 in-round retries of transient 5xx/529/connection errors (TRANSIENT_BACKOFF_MS).
   real ??= new Anthropic({ maxRetries: 0 });
   return real as unknown as WatBotClient;
 }
@@ -1891,6 +1965,11 @@ import { searchBook as defaultSearchBook, type BundleDoc } from "./passages.js";
 export { MAX_ROUNDS };
 export const MAX_SEARCHES = 2;
 export const MAX_REQUEUES = 3;                  // D24: the 4th 429 on one question → failed
+// D24 — in-round retries of a transient 5xx/529/connection error, replacing the
+// SDK's quiet retries (maxRetries: 0). One entry per retry: at most 2 per round.
+export const TRANSIENT_BACKOFF_MS: readonly number[] = [500, 1500];
+let transientBackoffDefault: readonly number[] = TRANSIENT_BACKOFF_MS;
+export function setTransientBackoffForTests(ms: readonly number[] | null): void { transientBackoffDefault = ms ?? TRANSIENT_BACKOFF_MS; }
 export const STOPPED_NOTICE = "Answer stopped"; // D22: notice row after a stopped answer
 export const FAILED_NOTICE = "WatBot couldn't finish this answer."; // D22: notice row after a provider failure
 export const REFUSED_NOTICE = "I can't help with that one.";
@@ -1915,7 +1994,7 @@ export type AnswerInput = {
   history: HistoryTurn[]; contextSummary: string; question: string;
   emit: (e: EngineEvent) => void; signal: AbortSignal;
   gate?: RoundGate;                        // default: just wait retry-after (CLIs with no queue)
-  deps?: { searchBook?: typeof defaultSearchBook };
+  deps?: { searchBook?: typeof defaultSearchBook; transientBackoffMs?: readonly number[] };
 };
 
 // Every ending is a result, never a throw (D22): done, refused, stopped, failed.
@@ -1954,6 +2033,7 @@ const waitFor = (ms: number, signal: AbortSignal) => new Promise<void>((resolve,
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
   const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
+  const transientBackoff = input.deps?.transientBackoffMs ?? transientBackoffDefault;
   // Built once: model, system, tools and tool_choice stay byte-identical across
   // rounds; only `messages` grows (spec D18, D19 — never switch tool_choice).
   const params = buildRequest(input);
@@ -2024,13 +2104,22 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
     for (let round = 1; ; round++) {
       if (round > MAX_ROUNDS) return finish({ failure: "round_limit" });
       let final!: Anthropic.Message;
+      let transientRetries = 0; // per round
       for (;;) {
         try { final = await streamRound(); break; }
         catch (err) {
           if (input.signal.aborted) return finish({ stopped: true });
-          // D24: only a round that forwarded nothing may be re-queued; otherwise the
-          // resent round would show the student the same text twice → failure path.
-          if (classifyAnthropicError(err) !== "rate_limited" || roundForwardedChars > 0) throw err;
+          const kind = classifyAnthropicError(err);
+          // D24: a round may be retried or re-queued only if it forwarded nothing;
+          // otherwise the resent round would show the student the same text twice → failure path.
+          if (kind === "unavailable" && roundForwardedChars === 0 && transientRetries < transientBackoff.length) {
+            // Transient 5xx/529/connection error: wait in-round, holding the slot (not a re-queue).
+            flushPartialRound(); // an attempt that got message_start was billed
+            const delay = transientBackoff[transientRetries++]!;
+            try { await waitFor(delay, input.signal); } catch { return finish({ stopped: true }); } // only rejects on abort
+            continue;
+          }
+          if (kind !== "rate_limited" || roundForwardedChars > 0) throw err;
           if (requeues >= MAX_REQUEUES) return finish({ failure: "rate_limited" });
           requeues++;
           flushPartialRound(); // a 429 rarely follows message_start, but billed tokens are kept if it does
@@ -2648,15 +2737,17 @@ import {
   inflight, isAvailable, monthlySpendUsd,
 } from "../watbot/limits.js";
 import { WATBOT_ERROR_CODES } from "../watbot/errors.js";
-import { FAILED_NOTICE, STOPPED_NOTICE } from "../watbot/engine.js";
+import { FAILED_NOTICE, STOPPED_NOTICE, setTransientBackoffForTests } from "../watbot/engine.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
 
 const userIds: string[] = [];
 afterAll(async () => {
   setWatBotClientForTests(null);
+  setTransientBackoffForTests(null);
   for (const id of userIds) await db.delete(usersTable).where(eq(usersTable.id, id));
 });
-beforeEach(() => { resetWatBotLimitsForTests(); resetLoginRateLimiterForTests(); });
+// Zero transient-retry backoff (D24) so 5xx/529 tests don't sleep 2 s each.
+beforeEach(() => { resetWatBotLimitsForTests(); resetLoginRateLimiterForTests(); setTransientBackoffForTests([0, 0]); });
 
 async function registerAndGetCookie(): Promise<string> {
   const email = `watbot-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
@@ -2909,8 +3000,38 @@ describe("watbot routes", () => {
     expect(isUserLocked(lastUserId())).toBe(false);
   });
 
+  // D24 — the route sets the unavailable flag only on the engine's FINAL failure.
+  it("one 529 followed by success answers normally and does not set the unavailable flag", async () => {
+    const answer = scriptedClient("What would change with p = 1?");
+    let call = 0;
+    setWatBotClientForTests({ messages: { stream: (params, opts) => call++ === 0
+      ? failing(Anthropic.APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers()))
+      : answer.messages.stream(params, opts) } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    expect(res.text).toContain("event: done");
+    expect(res.text).not.toContain("event: queued"); // an in-round retry, not a re-queue
+    expect(call).toBe(2);
+    expect(isAvailable()).toBe(true);
+    expect((await rows(id)).map((r) => [r.role, r.status])).toEqual([["student", "answered"], ["tutor", "answered"]]);
+  });
+
+  it("three consecutive 529s before any usage set the unavailable flag and leave the question uncounted", async () => {
+    let calls = 0;
+    setWatBotClientForTests({ messages: { stream: () => { calls++; return failing(Anthropic.APIError.generate(529,
+      { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers())); } } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    expect(calls).toBe(3);
+    expect(res.text).toContain('"code":"watbot_unavailable"');
+    expect(isAvailable()).toBe(false);
+    expect((await rows(id)).map((r) => [r.role, r.status])).toEqual([["student", "unavailable"]]);
+  });
+
   // D22 — provider failure after the model was reached: usage and blocks are kept, and the question counts.
-  it("a 529 after message_start saves the usage, keeps the student row answered and adds the cost to the month", async () => {
+  it("a 529 after message_start (on every attempt) saves the usage, keeps the student row answered and adds the cost to the month", async () => {
     setWatBotClientForTests({ messages: { stream: () => scriptedStream([messageStartEvent],
       Anthropic.APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers())) } });
     const cookie = await registerAndGetCookie();
@@ -2921,11 +3042,11 @@ describe("watbot routes", () => {
     const saved = await rows(id);
     expect(saved.map((r) => [r.role, r.status])).toEqual([["student", "answered"], ["tutor", "answered"], ["notice", "answered"]]);
     expect(saved[1]!.blocks).toEqual([]);
-    expect(saved[1]!.usage).toMatchObject({ inputTokens: 100, estimated: true });
+    expect(saved[1]!.usage).toMatchObject({ inputTokens: 300, estimated: true }); // 3 billed attempts (1 + 2 retries)
     expect(saved[2]!.blocks[0]!.text).toBe(FAILED_NOTICE);
     expect((await monthlySpendUsd()) - before).toBeCloseTo(saved[1]!.usage!.costUsd, 9);
     expect((await studentUsage(lastUserId())).used).toBe(1);
-    expect(isAvailable()).toBe(false); // the 529 still sets the unavailable flag
+    expect(isAvailable()).toBe(false); // retries exhausted → the final failure sets the flag
     expect(reservedUsd()).toBe(0);
   });
 
