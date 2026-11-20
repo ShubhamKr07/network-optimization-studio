@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "migrate-ch4-to-miles": "tsx ./src/migrations/ch4ToMiles.ts",
     "round-override-precision": "tsx ./src/migrations/roundOverridePrecision.ts",
-    "clear-floor-zero-objective": "tsx ./src/migrations/clearFloorZeroObjective.ts"
+    "clear-floor-zero-objective": "tsx ./src/migrations/clearFloorZeroObjective.ts",
+    "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts"
   },
   "dependencies": {
     "@sentry/node": "^10.74.0",
