@@ -3,3 +3,4 @@ export * from "./auth.js";
 export * from "./solve_jobs.js";
 export * from "./result_cache.js";
 export * from "./feedback.js";
+export * from "./watbot.js";
