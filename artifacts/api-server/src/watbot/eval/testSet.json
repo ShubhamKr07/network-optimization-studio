@@ -1,8 +1,8 @@
 {
  "version": 1,
- "status": "draft",
- "approvedBy": null,
- "approvedOn": null,
+ "status": "approved",
+ "approvedBy": "project owner",
+ "approvedOn": "2026-11-20",
  "messages": [
   {
    "id": "pmus-concept-01",

@@ -1,8 +1,8 @@
 {
  "version": 1,
- "status": "draft",
- "approvedBy": null,
- "approvedOn": null,
+ "status": "approved",
+ "approvedBy": "project owner",
+ "approvedOn": "2026-11-20",
  "turns": 8,
  "personas": [
   {
