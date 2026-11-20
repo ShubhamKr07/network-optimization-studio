@@ -1,0 +1,28 @@
+// artifacts/api-server/src/watbot/errors.ts
+import Anthropic from "@anthropic-ai/sdk";
+
+// Closed union, in this order, mirrored by the OpenAPI WatBotError enum (Task 6).
+export const WATBOT_ERROR_CODES = [
+  "watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed", "watbot_busy",
+] as const;
+export type WatBotErrorCode = (typeof WATBOT_ERROR_CODES)[number];
+
+export function classifyAnthropicError(err: unknown): "unavailable" | "project_limit" | "rate_limited" | "failed" {
+  if (err instanceof Anthropic.APIConnectionError) return "unavailable";
+  if (!(err instanceof Anthropic.APIError)) return "failed";
+  const body = err.error as { error?: { message?: string; details?: { error_code?: string } } } | undefined;
+  const code = body?.error?.details?.error_code;
+  const message = body?.error?.message ?? err.message;
+  if (err.status === 400 && /You have reached your specified (workspace )?API usage limits/.test(message)) return "project_limit";
+  if (err.status === 429) return code === "enforced_spend_limit_reached" ? "project_limit" : "rate_limited";
+  if (err.status !== undefined && err.status >= 500) return "unavailable";
+  return "failed";
+}
+
+// D24 — `retry-after` in seconds, clamped to 1–60; 5 when missing or invalid.
+export function retryAfterMs(err: unknown): number {
+  const raw = err instanceof Anthropic.APIError ? err.headers?.get("retry-after") : null;
+  const seconds = raw == null || raw.trim() === "" ? NaN : Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return 5000;
+  return Math.min(60, Math.max(1, seconds)) * 1000;
+}

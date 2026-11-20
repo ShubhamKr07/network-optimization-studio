@@ -18,6 +18,7 @@
     "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
     "@sentry/node": "^10.74.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/dataset-schema": "workspace:*",
