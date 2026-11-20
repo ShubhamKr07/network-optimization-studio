@@ -80,7 +80,6 @@ const waitFor = (ms: number, signal: AbortSignal) => new Promise<void>((resolve,
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
   const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
-  const transientBackoff = transientBackoffDefault;
   // Built once: model, system, tools and tool_choice stay byte-identical across
   // rounds; only `messages` grows (spec D18, D19 — never switch tool_choice).
   const params = buildRequest(input);
@@ -159,10 +158,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           const kind = classifyAnthropicError(err);
           // D24: a round may be retried or re-queued only if it forwarded nothing;
           // otherwise the resent round would show the student the same text twice → failure path.
-          if (kind === "unavailable" && roundForwardedChars === 0 && transientRetries < transientBackoff.length) {
+          if (kind === "unavailable" && roundForwardedChars === 0 && transientRetries < transientBackoffDefault.length) {
             // Transient 5xx/529/connection error: wait in-round, holding the slot (not a re-queue).
             flushPartialRound(); // an attempt that got message_start was billed
-            const delay = transientBackoff[transientRetries++]!;
+            const delay = transientBackoffDefault[transientRetries++]!;
             try { await waitFor(delay, input.signal); } catch { return finish({ stopped: true }); } // only rejects on abort
             continue;
           }

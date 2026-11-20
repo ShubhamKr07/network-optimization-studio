@@ -9,14 +9,16 @@ import { logger } from "../lib/logger.js";
 const PRICES: Record<string, { input: number; output: number }> = {
   "claude-haiku-5-5": { input: 0.10, output: 0.50 },
 };
-// An unknown WATBOT_MODEL is priced at the dearest known model, so the app cap stays conservative.
-const DEAREST = Object.values(PRICES).reduce((a, b) => (b.input + b.output > a.input + a.output ? b : a));
+// Fail closed: an unknown WATBOT_MODEL is priced at a ceiling ($25 in / $125 out per MTok,
+// ~250x Haiku and above any Anthropic list price), not guessed cheap. At the default $10 cap
+// its reservation (~$11) refuses admission, so a mistyped model id stops spend instead of hiding it.
+const UNKNOWN_MODEL_PRICE = { input: 25, output: 125 };
 let warned = false;
 const priceFor = (model: string) => {
   const known = PRICES[model];
   if (known) return known;
-  if (!warned) { warned = true; logger.warn({ model }, "WatBot: no price for model; pricing at the most expensive known model"); }
-  return DEAREST;
+  if (!warned) { warned = true; logger.warn({ model }, "WatBot: no price for model; pricing at the ceiling"); }
+  return UNKNOWN_MODEL_PRICE;
 };
 const CACHE_READ = 0.1;
 const CACHE_WRITE = 1.25;
