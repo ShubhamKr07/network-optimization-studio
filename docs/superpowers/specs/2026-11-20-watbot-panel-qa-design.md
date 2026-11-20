@@ -1,6 +1,6 @@
 # WatBot panel and Q&A (Spec 1) — design
 
-Date: 2026-11-20 · Status: draft for review, updated to PRD rev 183 · Task prefix: `WATBOT`
+Date: 2026-11-20 · Status: draft for review, updated to PRD rev 183 and the adversarial review (D20–D24) · Task prefix: `WATBOT`
 
 WatBot is a Socratic tutor that lives in a docked panel inside each chapter model. It answers from the course book and notebooks, cites every factual claim to a printed page or notebook cell, and knows which tab, scenario and parameter the student is looking at. This spec covers the panel and open Q&A. The formulation check is Spec 2.
 
@@ -49,6 +49,11 @@ Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, rev
 | D17 | PRD's draft `watbot_log` is merged into the spec's tables rather than adopted as is. Conversations stay (FR-4's history list groups by them), and reports stay a table (student-written reason and note). The draft's columns move onto `watbot_messages`, gaps become a column on the tutor message, and its sessions view is kept, partitioned per student **and model**. `user_id` stays `varchar` to match `users.id` (the draft's `bigint` does not match) | One row per exchange, as drafted |
 | D18 | Message type is recorded through a `record_message_type` tool that the model calls first. Its tool result returns that type's reply rule, which steers the answer. `tool_choice` stays `auto` on every round | Forced `tool_choice` (it changes between rounds, which clears the cached reading list); separate classifier call (can disagree with how the reply behaved); a type tag in the reply text (fragile parsing) |
 | D19 | The 2-search cap is enforced in the tool result ("search limit reached, answer from what you have"), never by changing `tool_choice`. Changing `tool_choice` invalidates the messages cache, and the reading-list bundle lives in the messages | `tool_choice: none` after the cap |
+| D20 | Uncited text gets a deterministic value check before it is forwarded (§5). Cited blocks rely on the prompt rule plus the test set until Spec 2's answer-key block (D14). A citation does not make a leaked value safe, so "cite everything" alone would not close the gap | Require citations on every block; runtime answer-key block in Spec 1 |
+| D21 | Quota admission is atomic. Each user may have one question in flight, and the student-limit count and student-row insert happen under that per-user lock. Project spend is checked against stored cost **plus** a worst-case reservation for every admitted, unfinished question | Check-then-insert; overshoot bounded only by the Console limit |
+| D22 | Stop or disconnect saves the blocks already forwarded and the usage known so far, and the question counts toward the limits | Discard the partial answer |
+| D23 | `GET /watbot/passages/:id` returns a passage only if it is cited in a tutor message the requester owns. The risk is bulk download of the licensed book by enumerating ids. Reading-list scope is not a boundary, because `search_book` covers the whole book by design (D3) | Open by id; check against the reading list |
+| D24 | A 429 from Anthropic re-queues the request rather than failing it. The SDK's automatic retries are off for 429; this path is required, not optional | SDK retries holding a slot; terminal `watbot_failed` |
 
 Overkill check: every component below is the smallest one that closes its FR. The only new dependency is the official Anthropic SDK. No new infrastructure: the queue and availability flag live in nos-api memory (it runs as one instance), search uses Postgres's built-in full-text search, and success measures are a SQL view plus saved queries, not an analytics pipeline. The one added cost is a model round trip per question for `record_message_type` (D18): about one warm cache read (≈ $0.0003 at 31K tokens, estimate) and a short delay before the first streamed text. A type tag in the reply would avoid it, but at the cost of parsing streamed text.
 
@@ -190,13 +195,13 @@ A model with no `tutor` block shows the panel without fixed questions and answer
 | `GET /watbot/conversations?modelId=` | History list (FR-4) |
 | `GET /watbot/conversations/:id` | Full conversation |
 | `DELETE /watbot/conversations/:id` | Student deletes a conversation |
-| `GET /watbot/passages/:id` | Full passage for "Open full source" (FR-16) |
+| `GET /watbot/passages/:id` | Full passage for "Open full source" (FR-16). Returned only when a tutor message owned by the requester cites that passage id; any other id gets 404 (D23) |
 | `POST /watbot/reports` | Report this answer (FR-18) |
 | `GET /watbot/status` | `{available, studentRemaining, studentResetAt, projectCapReached}` |
 
 Every conversation query filters by the authenticated `user_id`; non-owned ids return 404 (hard rule #5). A `scenarioId` in the context is re-read from the DB with the same ownership filter. The server builds the context summary itself (tab, scenario name, key parameter, and for solved scenarios the objective, open sites and stale flag). The DB row is the source of truth, as in the solve path, and the client never supplies the summary text.
 
-JSON endpoints go through `lib/api-spec/openapi.yaml` + Orval (hard rule #1). The SSE endpoint is declared there too, but the studio reads it with `fetch` and a stream reader, because Orval does not generate streaming clients. Error codes are a closed union in TS, OpenAPI and the regenerated client, all in one task.
+JSON endpoints go through `lib/api-spec/openapi.yaml` + Orval (hard rule #1). The SSE endpoint is declared there too, but the studio reads it with `fetch` and a stream reader, because Orval does not generate streaming clients. Error codes are a closed union in TS, OpenAPI and the regenerated client, all in one task: `watbot_unavailable | watbot_student_limit | watbot_project_limit | watbot_refused | watbot_failed | watbot_busy`.
 
 ### Model call
 
@@ -256,7 +261,11 @@ The SSE stream carries these events:
 The server buffers each text block until its stop event, then decides:
 
 - Cited block: forwarded with its chips.
-- Uncited block that is a question to the student (ends with "?"), or connective text under 12 words: forwarded.
+- Uncited block that is a question to the student (ends with "?"), or connective text under 12 words: forwarded **only if it passes the value check**. The check fails when the text contains:
+  - a number of four or more digits, after removing commas and reading "M"/"million"/"k" forms;
+  - or the name of a candidate facility from the model's dataset (warehouse, plant, refinery or mine).
+
+  Either one is allowed if it also appears in the context summary, i.e. the student's own solved scenario (D14). A block that fails is dropped with the same notice as an uncited claim (D20).
 - Any other uncited block: **dropped**, and one `notice` says "One claim was removed — I couldn't support it with a course source" (FR-17).
 
 ```
@@ -264,22 +273,25 @@ ponytail: word-count/question-mark heuristic decides what counts as a claim;
 upgrade to a second-pass check only if reports show it misclassifying.
 ```
 
-While a block is buffered, the panel shows the "checking source…" placeholder from E1. **Stop** aborts the upstream request (`AbortController`) and saves whatever blocks were already forwarded.
+While a block is buffered, the panel shows the "checking source…" placeholder from E1. **Stop**, or the student's connection dropping, aborts the upstream request (`AbortController`). The engine then returns a partial result, never throws it away (D22):
+- Blocks already forwarded are saved as the tutor message, followed by a `notice` row "Answer stopped". A buffered block that was never forwarded is not saved.
+- Usage: input and cache tokens come from `message_start`. Output tokens come from the last `message_delta` if one arrived; otherwise they are estimated as forwarded characters ÷ 4 and marked `estimated: true` in `usage`.
+- The student row stays `answered`, so the question counts toward the 50 (the model was used), and its cost counts toward the project cap.
 
 ### Failure and limit states
 
 | Condition | Detection | Panel state |
 |---|---|---|
 | Service down | Connection error, 5xx or 529 from Anthropic sets an in-memory `unavailable` flag for 60 s; the next success clears it | D3 "unavailable": input and fixed questions disabled (FR-28 as amended), conversation saved, toolbar dot |
-| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`, every type, off-topic and fixed-question clicks included, FR-35). Messages turned away (`status` `limit_reached` or `unavailable`) are logged but not counted | D3 "limit reached", with the time the earliest question ages out |
-| Project cap, app side | Sum of this calendar month's (UTC) stored message costs ≥ `WATBOT_MONTHLY_USD` (default 10) | "WatBot has reached its monthly limit", input disabled |
+| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`, every type, off-topic and fixed-question clicks included, FR-35). Messages turned away (`status` `limit_reached` or `unavailable`) are logged but not counted. Admission is atomic (D21): a per-user in-process lock allows one question in flight, and the count and the student-row insert happen while it is held. A second concurrent question from the same user gets 409 `watbot_busy` | D3 "limit reached", with the time the earliest question ages out. `watbot_busy` is not shown in normal use, because the input is already disabled while answering |
+| Project cap, app side | This calendar month's (UTC) stored message costs **plus** the in-memory reservations of admitted, unfinished questions + one new reservation ≥ `WATBOT_MONTHLY_USD` (default 10). Reservation per question = 4 rounds × (that model's bundle tokens + 20 history messages, taken as a 10K-token allowance, at the cache-write price) + 4 × `max_tokens` at the output price. A conservative estimate, released and replaced by actual cost on completion, stop or failure (D21). For `super-model` (63.8K bundle) it is ≈ $0.045, so 10 in-flight questions hold ≈ $0.45 (estimate, ÷4 tokens) | "WatBot has reached its monthly limit", input disabled |
 | Project cap, API side | HTTP 400 `invalid_request_error`, "You have reached your specified API usage limits" | Same as above. Must **not** map to "unavailable" |
-| Rate or ramp limit | 429 (`rate_limit_error`, incl. `ramp_limit_exceeded`) | Request goes back to the queue, honouring `retry-after`; the student sees `queued` |
+| Rate or ramp limit | 429 (`rate_limit_error`, incl. `ramp_limit_exceeded`), on any round. The SDK's automatic retry is off for 429 (D24) | The request releases its in-flight slot and goes back to the **front** of the queue, keeping its FIFO place. It is not re-admitted before `retry-after` (seconds, clamped to 1–60; 5 if absent or invalid), and the student sees `queued {position}`. At most 3 re-queues per question; a 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue. Completed rounds are kept, so the retry resends only the failed round |
 | Busy | More than `WATBOT_MAX_INFLIGHT` (default 10) calls in flight | `queued {position}` pill (D4 styling); answered in order (FR-36) |
 | Refusal | `stop_reason: "refusal"` | "I can't help with that one," with nothing saved as an answer |
 
 ```
-ponytail: in-process queue and flags assume a single nos-api instance;
+ponytail: in-process queue, flags, per-user locks and spend reservations assume a single nos-api instance;
 move to Postgres advisory locks if the API is ever scaled out.
 ```
 
@@ -365,7 +377,9 @@ All tables and the view are new, and every NOT NULL column has a default or is w
   - bundle assembly from a manifest's `readingList`
   - the bundle-under-100K bound for every manifest (from stored passage lengths)
   - quota math (rolling 24 h, calendar month UTC)
-  - the uncited-block filter (cited, guiding question, short connective, dropped claim)
+  - the uncited-block filter (cited, guiding question, short connective, dropped claim), plus short leaks: an under-12-word uncited block or a question carrying a 4+-digit objective or a facility name not in the context is dropped, and the same text is kept when the context summary contains it
+  - the project-cap reservation: two admitted questions reserve two worst-case amounts, and the reservation is released on completion, stop and failure
+  - the 429 path: a scripted 429 with `retry-after: 2` emits `queued`, releases the slot, keeps FIFO order ahead of later arrivals, retries only the failed round, and the 4th 429 gives `watbot_failed`; an invalid `retry-after` is clamped
   - error-to-state mapping, with the spend-limit 400 asserted distinct from "unavailable"
   - `record_message_type`: stores the type and returns the matching reply rule; a skipped call leaves `message_type` null
   - the search cap: a third `search_book` call gets the limit tool result, and **every round of one question sends an identical `tool_choice`, `tools` and `system`** (the cache invariant behind D18 and D19)
@@ -373,6 +387,9 @@ All tables and the view are new, and every NOT NULL column has a default or is w
   - the `watbot_sessions` view: a 31-minute gap starts a new session and a 29-minute gap does not; sessions split by model (real Postgres)
 - **Route tests (supertest, real Postgres):**
   - non-owner gets 404 on every conversation and report route
+  - passages: an id cited in the requester's own tutor message returns 200; an uncited id and an id cited only in another user's message both return 404 (D23)
+  - concurrent admission: with 49 counted messages, two simultaneous questions from one user admit exactly one, and the other gets 409 `watbot_busy`; the count never exceeds 50 (D21)
+  - Stop mid-answer: forwarded blocks, the "Answer stopped" notice and the usage are saved; the student row stays `answered`; a block still buffered at stop is not saved (D22)
   - foreign `scenarioId` in the context gets 404
   - the SSE stream with an injected fake Anthropic client emitting a scripted event sequence; no live API in the gate
 - **Search (real Postgres):** `search_book` against fixture passages. Includes a non-vacuity check that a query known to match does return rows (CLAUDE.md: prove the probe can return non-zero).
@@ -426,6 +443,7 @@ The drafted messages and personas need owner approval before the first run, as w
 
 ## 9. Open items
 
+- The implementation plan (`docs/superpowers/plans/2026-11-20-watbot-panel-qa.md`) predates D20–D24, which came from the Codex adversarial review of 2026-11-20. It must be rewritten against this spec and re-reviewed before execution.
 - Citation chip format changes from the canvas's "Ch 3.1 · p.78" to "Ch 3 · p.78": the book's sections are unnumbered.
 - The source popover shows the passage only; book figures are deferred.
 - The leak bar for the non-zero types: the PRD says "no more than a few percent". The draft threshold is **5%**, pending owner confirmation.
