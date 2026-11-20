@@ -9,12 +9,15 @@ export type WatBotErrorCode = (typeof WATBOT_ERROR_CODES)[number];
 
 export function classifyAnthropicError(err: unknown): "unavailable" | "project_limit" | "rate_limited" | "failed" {
   if (err instanceof Anthropic.APIConnectionError) return "unavailable";
+  // SDK throws a plain Error when no key is configured; match its message only, not every unknown error.
+  if (err instanceof Error && err.message.startsWith("Could not resolve authentication method")) return "unavailable";
   if (!(err instanceof Anthropic.APIError)) return "failed";
   const body = err.error as { error?: { message?: string; details?: { error_code?: string } } } | undefined;
   const code = body?.error?.details?.error_code;
   const message = body?.error?.message ?? err.message;
   if (err.status === 400 && /You have reached your specified (workspace )?API usage limits/.test(message)) return "project_limit";
   if (err.status === 429) return code === "enforced_spend_limit_reached" ? "project_limit" : "rate_limited";
+  if (err.status === 401 || err.status === 403) return "unavailable"; // missing/rejected key is a deploy problem, not the student's
   if (err.status !== undefined && err.status >= 500) return "unavailable";
   return "failed";
 }

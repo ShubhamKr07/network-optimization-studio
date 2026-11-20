@@ -204,6 +204,14 @@ describe("classifyAnthropicError", () => {
     expect(classifyAnthropicError(apiErr(529, "overloaded"))).toBe("unavailable");
     expect(classifyAnthropicError(new Anthropic.APIConnectionError({ message: "down" }))).toBe("unavailable");
   });
+  it("maps 401 and 403 (invalid key / permission) to unavailable", () => {
+    expect(classifyAnthropicError(apiErr(401, "invalid x-api-key"))).toBe("unavailable");
+    expect(classifyAnthropicError(apiErr(403, "forbidden"))).toBe("unavailable");
+  });
+  it("maps the SDK missing-credentials error to unavailable, but other unknown errors stay failed", () => {
+    expect(classifyAnthropicError(new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.'))).toBe("unavailable");
+    expect(classifyAnthropicError(new Error("boom"))).toBe("failed");
+  });
 });
 
 describe("buildRequest", () => {

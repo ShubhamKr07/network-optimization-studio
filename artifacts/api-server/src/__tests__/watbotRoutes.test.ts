@@ -306,6 +306,15 @@ describe("watbot routes", () => {
     expect((await rows(id)).map((r) => [r.role, r.status])).toEqual([["student", "unavailable"]]);
   });
 
+  it("a missing-API-key error sets the unavailable flag", async () => {
+    setWatBotClientForTests({ messages: { stream: () => failing(new Error("Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.")) } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    expect(res.text).toContain('"code":"watbot_unavailable"');
+    expect(isAvailable()).toBe(false);
+  });
+
   // D22 — provider failure after the model was reached: usage and blocks are kept, and the question counts.
   it("a 529 after message_start (on every attempt) saves the usage, keeps the student row answered and adds the cost to the month", async () => {
     setWatBotClientForTests({ messages: { stream: () => scriptedStream([messageStartEvent],
