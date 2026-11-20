@@ -105,6 +105,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
   useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  useListWatBotConversations: vi.fn(() => ({ isLoading: false, data: [{ id: 3, modelId: "p-median-us", title: "Old chat", updatedAt: "2026-11-20T10:00:00Z" }] })),
+  getWatBotConversation: vi.fn(),
   getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   // T9 (B2.2-T7 mock gap) — DistancesTab now calls useGetReferenceDistances
   // unconditionally (Rules of Hooks); every test file that can render it
@@ -238,7 +240,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
-import { useGetSolveJob, useCreateWatBotConversation, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
+import { useGetSolveJob, useCreateWatBotConversation, useGetWatBotStatus, getWatBotConversation, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
@@ -335,25 +337,57 @@ describe("Workspace — WatBot context and error copy", () => {
     expect((await askBody(true)).context).toBeNull();
   });
 
-  it.each(["watbot_project_limit", "watbot_student_limit", "watbot_unavailable", "watbot_refused", "watbot_failed", "watbot_busy"])("shows copy for %s", async (code) => {
-    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: code }), { status: 429 }));
+  const askAndFail = async (error: string, status = 429, onFetch?: () => void) => {
+    global.fetch = vi.fn(async () => { onFetch?.(); return new Response(JSON.stringify({ error }), { status }); });
     vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn().mockResolvedValue({ id: 7 }) } as never);
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-watbot"));
     fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Why?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send question" }));
-    const el = await screen.findByTestId("watbot-error");
-    expect(el.textContent!.length).toBeGreaterThan(10);
+  };
+
+  it.each([
+    ["watbot_project_limit", "WatBot has reached its monthly limit. It will be back next month."],
+    ["watbot_student_limit", "You've reached your question limit for now. Try again later."],
+    ["watbot_unavailable", "WatBot is unavailable right now. Your conversation is saved."],
+    ["watbot_refused", "I can't help with that one."],
+    ["watbot_failed", "Something went wrong. Try again."],
+    ["watbot_busy", "WatBot is still answering your last question."],
+    ["Not found", "Something went wrong. Try again."],
+  ])("error %s shows its own copy", async (code, copy) => {
+    await askAndFail(code, code === "Not found" ? 404 : 429);
+    expect(await screen.findByTestId("watbot-error")).toHaveTextContent(copy);
   });
 
-  it("an unknown or plain-sentence error body falls back to the generic failure copy", async () => {
-    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Not found" }), { status: 404 }));
+  it("suppresses the alert when the panel Notice already covers the state", async () => {
+    // Status is healthy when the student asks, and has refetched to "limit reached" by the time the error lands.
+    let flipped = false;
+    const ok = { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false };
+    vi.mocked(useGetWatBotStatus).mockImplementation((() => ({ data: flipped ? { ...ok, studentRemaining: 0 } : ok })) as never);
+    try {
+      await askAndFail("watbot_student_limit", 429, () => { flipped = true; });
+      expect(await screen.findByText(/You've asked 50 questions/)).toBeInTheDocument();
+      expect(screen.queryByTestId("watbot-error")).toBeNull();
+    } finally {
+      vi.mocked(useGetWatBotStatus).mockImplementation((() => ({ data: ok })) as never);
+    }
+  });
+
+  it("a slow history pick that resolves after a new ask does not load over it", async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: done\ndata: {"messageId":1}\n\n')); c.close(); } }), { status: 200 }));
     vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn().mockResolvedValue({ id: 7 }) } as never);
+    let resolve!: (v: unknown) => void;
+    vi.mocked(getWatBotConversation).mockReturnValue(new Promise((r) => { resolve = r; }) as never);
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-watbot"));
-    fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Why?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Conversation history" }));
+    fireEvent.click(screen.getByRole("button", { name: /Old chat/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Fresh question" } });
     fireEvent.click(screen.getByRole("button", { name: "Send question" }));
-    expect(await screen.findByTestId("watbot-error")).toHaveTextContent("Something went wrong. Try again.");
+    expect(await screen.findByText("Fresh question")).toBeInTheDocument();
+    await act(async () => { resolve({ messages: [{ role: "tutor", id: 5, blocks: [{ text: "Stale loaded answer", citations: [] }] }] }); });
+    expect(screen.queryByText("Stale loaded answer")).toBeNull();
+    expect(screen.getByText("Fresh question")).toBeInTheDocument();
   });
 });
 
