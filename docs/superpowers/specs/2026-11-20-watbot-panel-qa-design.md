@@ -51,7 +51,7 @@ Sources: the PRD "WatBot in the Studio — Design Requirements" (Claude Doc, rev
 | D19 | The 2-search cap is enforced in the tool result ("search limit reached, answer from what you have"), never by changing `tool_choice`. Changing `tool_choice` invalidates the messages cache, and the reading-list bundle lives in the messages | `tool_choice: none` after the cap |
 | D20 | Uncited text gets a deterministic value check before it is forwarded (§5). Cited blocks rely on the prompt rule plus the test set until Spec 2's answer-key block (D14). A citation does not make a leaked value safe, so "cite everything" alone would not close the gap | Require citations on every block; runtime answer-key block in Spec 1 |
 | D21 | Quota admission is atomic. Each user may have one question in flight, and the student-limit count and student-row insert happen under that per-user lock. Project spend is checked against stored cost **plus** a worst-case reservation for every admitted, unfinished question | Check-then-insert; overshoot bounded only by the Console limit |
-| D22 | Stop or disconnect saves the blocks already forwarded and the usage known so far, and the question counts toward the limits | Discard the partial answer |
+| D22 | One finalisation path covers every way an answer can end: done, stopped, disconnected, provider failure, or the round guard. Each one saves whatever was forwarded and whatever usage was observed. A question counts toward the limits exactly when it reached the model (any round got `message_start`). One that never reached the model (stopped while queued, or failed before any usage) is logged as `cancelled`, `unavailable` or `limit_reached` and does not count. The spend reservation is released only after the actual usage row is written | Discard the partial answer; count every admitted question |
 | D23 | `GET /watbot/passages/:id` returns a passage only if it is cited in a tutor message the requester owns. The risk is bulk download of the licensed book by enumerating ids. Reading-list scope is not a boundary, because `search_book` covers the whole book by design (D3) | Open by id; check against the reading list |
 | D24 | A 429 from Anthropic re-queues the request rather than failing it. The SDK's automatic retries are off for 429; this path is required, not optional | SDK retries holding a slot; terminal `watbot_failed` |
 
@@ -263,7 +263,7 @@ The server buffers each text block until its stop event, then decides:
 - Cited block: forwarded with its chips.
 - Uncited block that is a question to the student (ends with "?"), or connective text under 12 words: forwarded **only if it passes the value check**. The check fails when the text contains:
   - a number of four or more digits, after removing commas and reading "M"/"million"/"k" forms;
-  - or the name of a candidate facility from the model's dataset (warehouse, plant, refinery or mine).
+  - or the name of a candidate facility: from the model's dataset (warehouse, plant, refinery or mine), plus, for a scenario in the context, the facilities in that scenario's own inputs (this is how `super-model`'s imported networks are covered). Names are matched as whole words with Unicode case folding.
 
   Either one is allowed if it also appears in the context summary, i.e. the student's own solved scenario (D14). A block that fails is dropped with the same notice as an uncited claim (D20).
 - Any other uncited block: **dropped**, and one `notice` says "One claim was removed — I couldn't support it with a course source" (FR-17).
@@ -277,16 +277,18 @@ While a block is buffered, the panel shows the "checking source…" placeholder 
 - Blocks already forwarded are saved as the tutor message, followed by a `notice` row "Answer stopped". A buffered block that was never forwarded is not saved.
 - Usage: input and cache tokens come from `message_start`. Output tokens come from the last `message_delta` if one arrived; otherwise they are estimated as forwarded characters ÷ 4 and marked `estimated: true` in `usage`.
 - The student row stays `answered`, so the question counts toward the 50 (the model was used), and its cost counts toward the project cap.
+- If the student stops while the question is still queued (initially or after a 429 re-queue) before any round reached the model, the student row becomes `cancelled`, which does not count, and the "Answer stopped" notice is still saved.
+- Provider failure mid-answer (5xx, 529, connection error, spend-limit 400) after any `message_start`: the forwarded blocks and the observed usage are saved as the tutor row with a failure notice, and the student row stays `answered`. If the failure happened before any usage, the student row becomes `unavailable` or `limit_reached` (not counted), as before.
 
 ### Failure and limit states
 
 | Condition | Detection | Panel state |
 |---|---|---|
 | Service down | Connection error, 5xx or 529 from Anthropic sets an in-memory `unavailable` flag for 60 s; the next success clears it | D3 "unavailable": input and fixed questions disabled (FR-28 as amended), conversation saved, toolbar dot |
-| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`, every type, off-topic and fixed-question clicks included, FR-35). Messages turned away (`status` `limit_reached` or `unavailable`) are logged but not counted. Admission is atomic (D21): a per-user in-process lock allows one question in flight, and the count and the student-row insert happen while it is held. A second concurrent question from the same user gets 409 `watbot_busy` | D3 "limit reached", with the time the earliest question ages out. `watbot_busy` is not shown in normal use, because the input is already disabled while answering |
+| Student limit | ≥ 50 student messages in a rolling 24 h (DB count by `user_id`, every type, off-topic and fixed-question clicks included, FR-35). Only `answered` rows count; `cancelled`, `unavailable` and `limit_reached` rows are logged but not counted (D22). Admission is atomic (D21): a per-user in-process lock allows one question in flight, and the count and the student-row insert happen while it is held. A second concurrent question from the same user gets 409 `watbot_busy` | D3 "limit reached", with the time the earliest question ages out. `watbot_busy` is not shown in normal use, because the input is already disabled while answering |
 | Project cap, app side | This calendar month's (UTC) stored message costs **plus** the in-memory reservations of admitted, unfinished questions + one new reservation ≥ `WATBOT_MONTHLY_USD` (default 10). Reservation per question = 4 rounds × (that model's bundle tokens + 20 history messages, taken as a 10K-token allowance, at the cache-write price) + 4 × `max_tokens` at the output price. A conservative estimate, released and replaced by actual cost on completion, stop or failure (D21). For `super-model` (63.8K bundle) it is ≈ $0.045, so 10 in-flight questions hold ≈ $0.45 (estimate, ÷4 tokens) | "WatBot has reached its monthly limit", input disabled |
 | Project cap, API side | HTTP 400 `invalid_request_error`, "You have reached your specified API usage limits" | Same as above. Must **not** map to "unavailable" |
-| Rate or ramp limit | 429 (`rate_limit_error`, incl. `ramp_limit_exceeded`), on any round. The SDK's automatic retry is off for 429 (D24) | The request releases its in-flight slot and goes back to the **front** of the queue, keeping its FIFO place. It is not re-admitted before `retry-after` (seconds, clamped to 1–60; 5 if absent or invalid), and the student sees `queued {position}`. At most 3 re-queues per question; a 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue. Completed rounds are kept, so the retry resends only the failed round |
+| Rate or ramp limit | 429 (`rate_limit_error`, incl. `ramp_limit_exceeded`), on any round. The SDK's automatic retry is off for 429 (D24) | The request releases its in-flight slot and goes back to the **front** of the queue, keeping its FIFO place. It is not re-admitted before `retry-after` (seconds, clamped to 1–60; 5 if absent or invalid), and the student sees `queued {position}`. At most 3 re-queues per question; a 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue. Completed rounds are kept, so the retry resends only the failed round. A round is re-queued only if none of its blocks had been forwarded. A 429 that arrives after a block of that round was forwarded is treated as a provider failure, using the partial-save path (D22), so the student never sees duplicated text |
 | Busy | More than `WATBOT_MAX_INFLIGHT` (default 10) calls in flight | `queued {position}` pill (D4 styling); answered in order (FR-36) |
 | Refusal | `stop_reason: "refusal"` | "I can't help with that one," with nothing saved as an answer |
 
@@ -327,7 +329,8 @@ watbot_messages
   context jsonb       -- {tab, scenarioId, summary} as sent; null if chip removed
   message_type text   -- student rows: one of the five FR-37 types; null on tutor/notice rows,
                       -- or when the model skipped record_message_type
-  status text not null default 'answered'  -- student rows: answered | unavailable | limit_reached
+  status text not null default 'answered'  -- student rows: answered | cancelled | unavailable | limit_reached;
+                                           -- only 'answered' counts toward the 24 h limit
   usage jsonb         -- tokens by kind + cost_usd, summed over rounds; tutor rows only
   latency_ms int      -- tutor rows: request start to done
   gap_topic text      -- tutor rows: set by log_gap (FR-27)
@@ -390,6 +393,10 @@ All tables and the view are new, and every NOT NULL column has a default or is w
   - passages: an id cited in the requester's own tutor message returns 200; an uncited id and an id cited only in another user's message both return 404 (D23)
   - concurrent admission: with 49 counted messages, two simultaneous questions from one user admit exactly one, and the other gets 409 `watbot_busy`; the count never exceeds 50 (D21)
   - Stop mid-answer: forwarded blocks, the "Answer stopped" notice and the usage are saved; the student row stays `answered`; a block still buffered at stop is not saved (D22)
+  - Stop while queued, initially and after a 429 re-queue: the student row becomes `cancelled` and does not count, the notice is saved, and the lock and reservation are released (D22)
+  - provider failure after `message_start`, and after a forwarded block: the usage and blocks are saved, the student row stays `answered`, and the month's spend includes the cost; failure before any usage leaves the row uncounted (D22)
+  - a 429 after a block of that round was forwarded is not re-queued: the stream shows the block exactly once and ends through the failure path (D24)
+  - value check: a mixed-case facility name is dropped; a `super-model` facility imported in the context scenario's inputs but absent from the summary is dropped (D20)
   - foreign `scenarioId` in the context gets 404
   - the SSE stream with an injected fake Anthropic client emitting a scripted event sequence; no live API in the gate
 - **Search (real Postgres):** `search_book` against fixture passages. Includes a non-vacuity check that a query known to match does return rows (CLAUDE.md: prove the probe can return non-zero).
