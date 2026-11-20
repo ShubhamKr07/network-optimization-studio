@@ -81,6 +81,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
   useGetReferenceCosts: vi.fn(() => ({ data: undefined })),
   getGetReferenceCostsQueryKey: vi.fn((id: string) => ["reference-costs", id]),
+  useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
   useListModels: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),

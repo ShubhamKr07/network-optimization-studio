@@ -122,6 +122,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // `.capabilities` off this mock; a bare id/countryBounds/distanceUnit
   // entry (never exercised before, since Input Map was never rendered by
   // default) crashes.
+  useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
   useListModels: vi.fn(() => ({
     data: [
       {

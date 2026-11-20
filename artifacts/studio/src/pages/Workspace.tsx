@@ -15,6 +15,7 @@ import {
   useDeleteScenario,
   useGetSolveJob,
   useListModels,
+  useGetWatBotStatus,
   usePrecheckScenario,
   exportScenarioNetwork,
   precheckScenario,
@@ -44,6 +45,7 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { SolveDialog } from "@/components/workspace/SolveDialog";
+import { WatBotPanel } from "@/components/workspace/watbot/WatBotPanel";
 import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
@@ -3012,6 +3014,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // remounts Workspace and resets this) and collapses when Run Optimizer
   // opens the solve dialog. Not persisted.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [watbotOpen, setWatBotOpen] = useState(false);
+  const { data: watbotStatus } = useGetWatBotStatus({ query: { refetchInterval: 60_000 } } as never);
+  // WatBot D11 — below 1280px the panel takes the sidebar's room: collapse it to the icon rail.
+  const openWatBot = () => {
+    setWatBotOpen((o) => !o);
+    if (!watbotOpen && window.matchMedia?.("(max-width: 1279px)")?.matches) setSidebarCollapsed(true);
+  };
   const [solvePhase, setSolvePhase] = useState<SolvePhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
@@ -4654,6 +4663,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             {/* CH4UX-6 — also disabled while a solve is in flight: the
                 overlay is modal, but this header button is the one control
                 a keyboard user could still reach mid-run. */}
+            <Button type="button" size="sm" variant={watbotOpen ? "secondary" : "outline"} aria-pressed={watbotOpen}
+              disabled={watbotStatus ? !watbotStatus.available && !watbotOpen : false}
+              onClick={openWatBot} data-testid="button-watbot">
+              WatBot{watbotStatus && !watbotStatus.available && <span aria-label="unavailable" className="ml-1.5 inline-block size-2 rounded-full bg-warning" />}
+            </Button>
             <Button
               size="sm"
               disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
@@ -4785,6 +4799,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             </ExportProvider>
           </div>
         </div>
+        {watbotOpen && (
+          <WatBotPanel modelId={modelId} chapter={chapterForModelId(modelId)?.chapter ?? ""}
+            tutor={activeModelManifest?.tutor} view={activeView}
+            scenario={currentScenario ? { name: currentScenario.name, inputs: currentScenario.inputs } : null}
+            onAsk={() => {}} onClose={() => setWatBotOpen(false)} />
+        )}
       </div>
 
       <SolveDialog

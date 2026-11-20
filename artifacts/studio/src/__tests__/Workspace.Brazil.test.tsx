@@ -110,6 +110,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // same mock addition.
   useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
   getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
+  useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
   useListModels: vi.fn(() => ({
     data: [
       {
