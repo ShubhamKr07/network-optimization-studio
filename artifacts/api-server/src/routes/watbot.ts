@@ -1,14 +1,14 @@
 // artifacts/api-server/src/routes/watbot.ts
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import {
   db, scenariosTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable,
-  type WatBotBlock, type WatBotContext, type WatBotMessageStatus,
+  type WatBotContext, type WatBotMessageStatus,
 } from "@workspace/db";
 import { AskWatBotBody, CreateWatBotConversationBody, SubmitWatBotReportBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth.js";
 import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
-import { getManifest } from "../registry/modelRegistry.js";
+import { getManifest, listModels } from "../registry/modelRegistry.js";
 import { toApiScenario } from "./scenarios.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import { buildEffectiveFacilityCityLookup, buildOpenWarehouseRows } from "../services/templates.js";
@@ -20,7 +20,7 @@ import {
 import type { WatBotErrorCode } from "../watbot/errors.js";
 import { bundleTokens, reservationUsd } from "../watbot/cost.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { getPassage, loadBundle } from "../watbot/passages.js";
+import { getPassage, loadBundle, readingListTokens } from "../watbot/passages.js";
 import {
   admitSpend, inflight, isAvailable, markAvailable, markProjectCapReached, markUnavailable,
   monthlyCapUsd, monthlySpendUsd, projectCapFlagged, reservedUsd, studentUsage, tryLockUser,
@@ -33,20 +33,26 @@ const HISTORY_MESSAGES = 20;
 const notFound = (res: Response) => res.status(404).json({ error: "Not found" });
 const watbotError = (res: Response, status: number, error: WatBotErrorCode, extra: object = {}) => res.status(status).json({ error, ...extra });
 
+const INT4_MAX = 2147483647; // ids past int4 make Postgres throw → 500; treat them as "not found"
+const isId = (n: number) => Number.isInteger(n) && n > 0 && n <= INT4_MAX;
+
 async function ownedConversation(id: number, userId: string) {
-  if (!Number.isInteger(id)) return undefined;
+  if (!isId(id)) return undefined;
   const [row] = await db.select().from(watbotConversationsTable)
     .where(and(eq(watbotConversationsTable.id, id), eq(watbotConversationsTable.userId, userId)));
   return row;
 }
 
-// Status view of the cap: stored cost plus in-flight reservations (D21).
+// Status view of the cap: the same expression admitSpend uses, with the worst-case
+// reservation (largest bundle across models), so "available" never precedes a 429 (D21).
 async function projectCapReached() {
-  return projectCapFlagged() || (await monthlySpendUsd()) + reservedUsd() >= monthlyCapUsd();
+  const model = watbotModel();
+  const tokens = await Promise.all(listModels().map((m) => readingListTokens(getManifest(m.id)?.tutor?.readingList ?? [])));
+  const worst = reservationUsd(model, Math.max(0, ...tokens));
+  return projectCapFlagged() || (await monthlySpendUsd()) + reservedUsd() + worst >= monthlyCapUsd();
 }
 
 const CLAIM_REMOVED_NOTICE = "One claim was removed — I couldn't support it with a course source.";
-const noticeBlocks = (text: string): WatBotBlock[] => [{ text, citations: [] }];
 
 router.get("/watbot/status", async (req, res) => {
   const usage = await studentUsage(req.userId!);
@@ -90,7 +96,7 @@ router.delete("/watbot/conversations/:conversationId", async (req, res) => {
 // so passage ids cannot be enumerated to download the licensed book.
 router.get("/watbot/passages/:passageId", async (req, res) => {
   const id = Number(req.params.passageId);
-  if (!Number.isInteger(id)) { notFound(res); return; }
+  if (!isId(id)) { notFound(res); return; }
   const citedBy = JSON.stringify([{ citations: [{ passageId: id }] }]);
   const [cited] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
     .where(and(
@@ -110,7 +116,7 @@ router.post("/watbot/reports", async (req, res) => {
     .where(and(eq(watbotMessagesTable.id, parsed.data.messageId), eq(watbotMessagesTable.userId, req.userId!)));
   if (!msg || msg.role !== "tutor") { notFound(res); return; }
   const [prev] = await db.select({ context: watbotMessagesTable.context }).from(watbotMessagesTable)
-    .where(and(eq(watbotMessagesTable.conversationId, msg.conversationId), eq(watbotMessagesTable.role, "student")))
+    .where(and(eq(watbotMessagesTable.conversationId, msg.conversationId), eq(watbotMessagesTable.role, "student"), lt(watbotMessagesTable.id, msg.id)))
     .orderBy(desc(watbotMessagesTable.id)).limit(1);
   try {
     await db.insert(watbotReportsTable).values({
@@ -130,6 +136,7 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
   if (isModelLocked(conv.modelId)) { respondLocked(res); return; }
 
   let context: WatBotContext | null = null;
+  let shownFacts = ""; // D20: server-derived facts only; the student-controlled tab and scenario name stay out of the value check
   let contextScenarioInputs: unknown = undefined; // D20: the owned scenario's facilities join the value check
   if (parsed.data.context) {
     const { tab, scenarioId } = parsed.data.context;
@@ -138,7 +145,9 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
       const [row] = await db.select().from(scenariosTable)
         .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, req.userId!)));
       if (!row || row.modelId !== conv.modelId) { notFound(res); return; }
-      summary += ` · ${summarizeScenario(row)}`;
+      const s = summarizeScenario(row);
+      summary += ` · ${s.summary}`;
+      shownFacts = s.facts;
       contextScenarioInputs = row.inputs;
     }
     context = { tab: tab ?? null, scenarioId: scenarioId ?? null, summary };
@@ -148,6 +157,9 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
   // the spend reservation and the student-row insert included, runs under this lock.
   const unlock = tryLockUser(req.userId!);
   if (!unlock) { watbotError(res, 409, "watbot_busy"); return; }
+  // Attached before the first await so a disconnect during admission aborts too.
+  const controller = new AbortController();
+  res.on("close", () => controller.abort()); // Stop button or a dropped connection (D22)
   let releaseSpend: (() => void) | null = null;
   try {
     const startedAt = Date.now();
@@ -184,14 +196,14 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
     try { studentMessageId = await logStudent("answered"); }
     catch { res.status(500).json({ error: "Could not save your question." }); return; }
     if (conv.title === "New conversation") {
-      await db.update(watbotConversationsTable).set({ title: question.slice(0, 80) }).where(eq(watbotConversationsTable.id, conv.id));
+      // No error binding: the Drizzle error carries the question text (api-server CLAUDE.md).
+      try { await db.update(watbotConversationsTable).set({ title: question.slice(0, 80) }).where(eq(watbotConversationsTable.id, conv.id)); }
+      catch { /* cosmetic */ }
     }
 
     res.status(200).set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     res.flushHeaders();
     const send = (event: string, data: unknown) => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
-    const controller = new AbortController();
-    res.on("close", () => controller.abort()); // Stop button or a dropped connection (D22)
     const onQueued = (position: number) => send("queued", { position });
 
     // D22 — the ONE place an answer ends, whatever the ending. Writes the usage row
@@ -222,16 +234,16 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
         ...(r.claimsRemoved ? [CLAIM_REMOVED_NOTICE] : []),
         ...(r.refused ? [REFUSED_NOTICE] : []),
         ...(r.stopped ? [STOPPED_NOTICE] : []),
-        ...(r.failed && !r.stopped && r.reachedModel ? [FAILED_NOTICE] : []),
+        ...(r.failure && !r.stopped && r.reachedModel ? [FAILED_NOTICE] : []),
       ];
       for (const text of notices) {
-        await db.insert(watbotMessagesTable).values({ conversationId: conv.id, userId: req.userId!, role: "notice", blocks: noticeBlocks(text) });
+        await db.insert(watbotMessagesTable).values({ conversationId: conv.id, userId: req.userId!, role: "notice", blocks: [{ text, citations: [] }] });
       }
       await db.update(watbotConversationsTable).set({ updatedAt: new Date() }).where(eq(watbotConversationsTable.id, conv.id));
 
       if (r.stopped) return; // the client is gone
       if (r.refused) { send("error", { code: "watbot_refused" }); return; }
-      if (r.failed) {
+      if (r.failure) {
         const code: WatBotErrorCode = r.failure === "unavailable" ? "watbot_unavailable" : r.failure === "project_limit" ? "watbot_project_limit" : "watbot_failed";
         send("error", { code });
         return;
@@ -262,7 +274,7 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
           // Questions that never reached the model stay out of its history.
           history: history.reverse().filter((m) => m.role !== "notice" && m.status === "answered")
             .map((m) => ({ role: m.role as "student" | "tutor", text: m.blocks.map((b) => b.text).join("\n\n") })),
-          contextSummary: context?.summary ?? "", question, signal: controller.signal, gate,
+          contextSummary: context?.summary ?? "", shownFacts, question, signal: controller.signal, gate,
           emit: (e) => send(e.type, e.type === "block" ? e.block : e.type === "searching" ? { query: e.query } : { kind: e.kind }),
         });
       }
@@ -284,11 +296,11 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
 // Context summary is built server-side from the owned DB row — never client text.
 // It carries what the student's own screen already shows (objective, open sites),
 // which D14 lets WatBot discuss; anything not in it stays protected.
-function summarizeScenario(row: typeof scenariosTable.$inferSelect): string {
+function summarizeScenario(row: typeof scenariosTable.$inferSelect): { summary: string; facts: string } {
   const s = toApiScenario(row);
-  const parts = [`Scenario: ${s.name}`];
   const inputs = s.inputs as { p?: unknown } | null;
-  if (typeof inputs?.p === "number") parts.push(`p = ${inputs.p}`);
+  const head = [`Scenario: ${s.name}`, ...(typeof inputs?.p === "number" ? [`p = ${inputs.p}`] : [])];
+  const parts: string[] = [];
   const result = s.result as { objective?: unknown; avgDistance?: unknown } | null;
   if (!result) parts.push("not solved yet");
   else {
@@ -305,7 +317,7 @@ function summarizeScenario(row: typeof scenariosTable.$inferSelect): string {
     }
     if (s.stale) parts.push("result is stale (inputs changed since solve)");
   }
-  return parts.join(" · ");
+  return { summary: [...head, ...parts].join(" · "), facts: parts.join(" · ") };
 }
 
 export default router;

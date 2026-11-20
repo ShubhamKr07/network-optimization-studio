@@ -39,9 +39,10 @@ export type AnswerInput = {
   fixedQuestions: string[];
   facilityNames: string[];                 // D20: dataset + context-scenario facility names
   history: HistoryTurn[]; contextSummary: string; question: string;
+  shownFacts?: string;                     // D20: server-derived context facts only (not name/tab); "" fails closed
   emit: (e: EngineEvent) => void; signal: AbortSignal;
   gate?: RoundGate;                        // default: just wait retry-after (CLIs with no queue)
-  deps?: { searchBook?: typeof defaultSearchBook; transientBackoffMs?: readonly number[] };
+  deps?: { searchBook?: typeof defaultSearchBook };
 };
 
 // Every ending is a result, never a throw (D22): done, refused, stopped, failed.
@@ -50,7 +51,6 @@ export type AnswerResult = {
   claimsRemoved: number; usage: WatBotUsage;
   refused: boolean;                        // stop_reason "refusal"
   stopped: boolean;                        // aborted (Stop, disconnect, or Stop while re-queued)
-  failed: boolean;                         // failure !== null
   failure: AnswerFailure | null;
   reachedModel: boolean;                   // D22: some round got message_start → the question counts
   messageType: WatBotMessageType | null;   // null when the model skipped record_message_type
@@ -63,7 +63,7 @@ export const zeroUsage = (model: string): WatBotUsage =>
 // The shape the route finalises when the question never reached the engine
 // (stopped while still waiting for its first in-flight slot).
 export const emptyAnswerResult = (model: string, extra: Partial<AnswerResult> = {}): AnswerResult => ({
-  blocks: [], claimsRemoved: 0, usage: zeroUsage(model), refused: false, stopped: false, failed: false,
+  blocks: [], claimsRemoved: 0, usage: zeroUsage(model), refused: false, stopped: false,
   failure: null, reachedModel: false, messageType: null, gapTopic: null, ...extra,
 });
 
@@ -80,7 +80,7 @@ const waitFor = (ms: number, signal: AbortSignal) => new Promise<void>((resolve,
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
   const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
-  const transientBackoff = input.deps?.transientBackoffMs ?? transientBackoffDefault;
+  const transientBackoff = transientBackoffDefault;
   // Built once: model, system, tools and tool_choice stay byte-identical across
   // rounds; only `messages` grows (spec D18, D19 — never switch tool_choice).
   const params = buildRequest(input);
@@ -110,7 +110,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   };
   const finish = (extra: Partial<AnswerResult> = {}): AnswerResult => {
     flushPartialRound();
-    return { ...out, ...extra, failed: (extra.failure ?? null) !== null };
+    return { ...out, ...extra };
   };
 
   const streamRound = async (): Promise<Anthropic.Message> => {
@@ -136,7 +136,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         // Cited → forward. Uncited → forward only if it is a question or short
         // connective (FR-17) AND carries no unseen value or site (D20).
         const keep = b.citations.length > 0
-          || (keepUncitedBlock(b.text) && passesValueCheck(b.text, input.facilityNames, input.contextSummary));
+          || (keepUncitedBlock(b.text) && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? ""));
         if (keep) { out.blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
         else if (out.claimsRemoved++ === 0) input.emit({ type: "notice", kind: "claim_removed" });
       }

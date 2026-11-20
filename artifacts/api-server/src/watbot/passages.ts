@@ -34,3 +34,11 @@ export async function getPassage(id: number, database: Db = defaultDb) {
   const [row] = await database.select(cols).from(coursePassagesTable).where(eq(coursePassagesTable.id, id));
   return row;
 }
+
+// Same chars/4 estimate as cost.ts bundleTokens, without loading the passage text.
+export async function readingListTokens(readingList: ReadingList, database: Db = defaultDb): Promise<number> {
+  if (!readingList.length) return 0;
+  const [row] = await database.select({ chars: sql<string>`coalesce(sum(length(${coursePassagesTable.body})), 0)` })
+    .from(coursePassagesTable).where(or(...readingList.map(isEntry)));
+  return Math.round(Number(row?.chars ?? 0) / 4);
+}

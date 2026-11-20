@@ -51,9 +51,36 @@ export interface CreateWatBotConversationRequest {
   modelId: string;
 }
 
+export type AskWatBotRequestContextTab = typeof AskWatBotRequestContextTab[keyof typeof AskWatBotRequestContextTab] | null;
+
+
+export const AskWatBotRequestContextTab = {
+  'input-map': 'input-map',
+  products: 'products',
+  plants: 'plants',
+  warehouses: 'warehouses',
+  customers: 'customers',
+  demand: 'demand',
+  distances: 'distances',
+  'optimization-parameters': 'optimization-parameters',
+  mines: 'mines',
+  stations: 'stations',
+  refineries: 'refineries',
+  'capability-matrix': 'capability-matrix',
+  'output-map': 'output-map',
+  'cost-summary': 'cost-summary',
+  'open-warehouses': 'open-warehouses',
+  'customer-assignments': 'customer-assignments',
+  flows: 'flows',
+  'service-stats': 'service-stats',
+} as const;
+
 export type AskWatBotRequestContext = {
-  /** @maxLength 64 */
-  tab: string | null;
+  tab: AskWatBotRequestContextTab;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
   scenarioId: number | null;
 } | null;
 
@@ -83,6 +110,10 @@ export const WatBotReportRequestReason = {
 } as const;
 
 export interface WatBotReportRequest {
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
   messageId: number;
   reason: WatBotReportRequestReason;
   /** @maxLength 2000 */

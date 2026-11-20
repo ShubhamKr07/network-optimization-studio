@@ -1,5 +1,5 @@
 // artifacts/api-server/src/__tests__/watbotEngine.test.ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
 import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
 import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
@@ -7,7 +7,7 @@ import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { buildRequest, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
-import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
+import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
 
@@ -83,11 +83,12 @@ const toolRound = (id: string, name: string, input: object) => ({
 });
 const answerRound = (text: string) => ({ events: textBlock(0, text, []), final: { stop_reason: "end_turn" as const } });
 
-// Transient-retry backoff is zeroed by default here; tests that need real delays pass their own.
+// Transient-retry backoff is zeroed by default here; tests that need real delays call setTransientBackoffForTests.
+beforeEach(() => setTransientBackoffForTests([0, 0]));
+afterEach(() => setTransientBackoffForTests(null));
 const baseInput = (client: WatBotClient, extra: Partial<AnswerInput> = {}): AnswerInput => ({
   client, model: "claude-haiku-5-5", bundle, readingList: [], fixedQuestions: [], facilityNames: [], history: [], contextSummary: "",
   question: "q", emit: () => {}, signal: new AbortController().signal, ...extra,
-  deps: { transientBackoffMs: [0, 0], ...extra.deps },
 });
 
 // Last user turn of a captured request = the tool results the engine sent back.
@@ -121,6 +122,9 @@ describe("extractNumbers / matchesValue", () => {
 
 // D20 — short uncited blocks that pass keepUncitedBlock still may not carry a value or site the student hasn't seen.
 describe("passesValueCheck", () => {
+  it("does not unlock a precise value from a coarser shown number (no reverse match)", () => {
+    expect(passesValueCheck("The total is 1,234,567.", [], "objective 1200000")).toBe(false);
+  });
   const names = ["Allentown", "Chicago"];
   it("drops a short leak: a 4+-digit value not in the context", () => {
     expect(keepUncitedBlock("The best total is 1,234,567.")).toBe(true); // short enough to pass the word rule…
@@ -166,6 +170,18 @@ describe("facilityNames", () => {
 });
 
 describe("costUsd and the D21 reservation", () => {
+  it("prices an unknown model at the most expensive known price rather than a cheaper default", () => {
+    const u = { input_tokens: 1000, output_tokens: 1000 } as Anthropic.Usage;
+    expect(costUsd("not-a-real-model", u)).toBeGreaterThanOrEqual(costUsd("claude-haiku-5-5", u));
+  });
+  it("drops empty history turns and keeps cache_control on the last non-empty one", () => {
+    const req = buildRequest({ model: "m", bundle: [], fixedQuestions: [], contextSummary: "", question: "q",
+      history: [{ role: "student", text: "a" }, { role: "tutor", text: "   " }, { role: "student", text: "b" }, { role: "tutor", text: "" }] });
+    const texts = req.messages.slice(1, -1).map((m) => (m.content as Anthropic.TextBlockParam[])[0]!);
+    expect(texts.map((t) => t.text)).toEqual(["a", "b"]);
+    expect(texts[0]!.cache_control).toBeUndefined();
+    expect(texts[1]!.cache_control).toEqual({ type: "ephemeral" });
+  });
   it("prices Haiku 5.5 input, output, cache read and cache write", () => {
     const usd = costUsd("claude-haiku-5-5", { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000 } as Anthropic.Usage);
     expect(usd).toBeCloseTo(0.10 + 0.50 + 0.01 + 0.125, 6);
@@ -259,7 +275,7 @@ describe("answerQuestion", () => {
     expect(result.usage.costUsd).toBeGreaterThan(0);
     expect(result.messageType).toBeNull();
     expect(result.gapTopic).toBeNull();
-    expect(result).toMatchObject({ failed: false, failure: null, stopped: false, reachedModel: true });
+    expect(result).toMatchObject({ failure: null, stopped: false, reachedModel: true });
   });
 
   it("record_message_type stores the type and returns that type's reply rule", async () => {
@@ -331,7 +347,7 @@ describe("answerQuestion", () => {
     ]);
     const result = await answerQuestion(baseInput(client, { deps: { searchBook: vi.fn().mockResolvedValue([]) } }));
     expect(client.calls).toHaveLength(MAX_ROUNDS);
-    expect(result).toMatchObject({ failed: true, failure: "round_limit", reachedModel: true });
+    expect(result).toMatchObject({ failure: "round_limit", reachedModel: true });
     expect(result.messageType).toBe("concept_question");
     expect(result.usage.costUsd).toBeGreaterThan(0); // spend is still reported so the project cap counts it
   });
@@ -345,16 +361,16 @@ describe("answerQuestion", () => {
   // D20 — engine wiring of the value check, with the same notice as an uncited claim.
   it("drops a short uncited block carrying an unseen value, and keeps it when the context shows that value", async () => {
     const leak = "The best total is 1,234,567.";
-    const run = async (contextSummary: string) => {
+    const run = async (shownFacts: string) => {
       const events: EngineEvent[] = [];
-      const result = await answerQuestion(baseInput(fakeClient([answerRound(leak)]), { contextSummary, facilityNames: ["Allentown"], emit: (e) => events.push(e) }));
+      const result = await answerQuestion(baseInput(fakeClient([answerRound(leak)]), { shownFacts, facilityNames: ["Allentown"], emit: (e) => events.push(e) }));
       return { result, events };
     };
     const hidden = await run("");
     expect(hidden.result.blocks).toEqual([]);
     expect(hidden.result.claimsRemoved).toBe(1);
     expect(hidden.events).toEqual([{ type: "notice", kind: "claim_removed" }]);
-    const shown = await run("Tab: output-map · Scenario: Baseline · objective 1234567");
+    const shown = await run("objective 1234567");
     expect(shown.result.blocks.map((b) => b.text)).toEqual([leak]);
   });
 
@@ -400,7 +416,7 @@ describe("answerQuestion", () => {
     expect(client.calls).toHaveLength(3);
     expect(JSON.stringify(client.calls[2]!.messages)).toBe(JSON.stringify(client.calls[1]!.messages)); // same round resent
     expect(lastToolResults(client.calls[2]!)[0]!.content).toBe(REPLY_RULES.concept_question);        // round 1 kept, not re-run
-    expect(result).toMatchObject({ failed: false, messageType: "concept_question" });
+    expect(result).toMatchObject({ failure: null, messageType: "concept_question" });
     expect(result.blocks.map((b) => b.text)).toEqual(["Which constraint binds here?"]);
   });
 
@@ -410,7 +426,7 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client, { gate }));
     expect(waits).toEqual([5000, 5000, 2000]);
     expect(client.calls).toHaveLength(MAX_REQUEUES + 1);
-    expect(result).toMatchObject({ failed: true, failure: "rate_limited", reachedModel: false });
+    expect(result).toMatchObject({ failure: "rate_limited", reachedModel: false });
   });
 
   it("returns stopped when the student stops while re-queued", async () => {
@@ -433,7 +449,7 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client, { gate }));
     expect(client.calls).toHaveLength(2);
     expect(waits).toEqual([]);
-    expect(result).toMatchObject({ failed: false, failure: null, stopped: false });
+    expect(result).toMatchObject({ failure: null, stopped: false });
     expect(result.blocks.map((b) => b.text)).toEqual(["Which constraint binds here?"]);
   });
 
@@ -441,14 +457,15 @@ describe("answerQuestion", () => {
     const client = fakeClient([{ error: new Anthropic.APIConnectionError({ message: "socket hang up" }) }, answerRound("Which constraint binds here?")]);
     const result = await answerQuestion(baseInput(client));
     expect(client.calls).toHaveLength(2);
-    expect(result.failed).toBe(false);
+    expect(result.failure).toBeNull();
   });
 
   it("waits the injected backoff between attempts", async () => {
     vi.useFakeTimers();
     try {
       const client = fakeClient([{ error: apiErr(529, "overloaded") }, { error: apiErr(529, "overloaded") }, answerRound("Done?")]);
-      const p = answerQuestion(baseInput(client, { deps: { transientBackoffMs: [500, 1500] } }));
+      setTransientBackoffForTests([500, 1500]);
+      const p = answerQuestion(baseInput(client));
       await vi.advanceTimersByTimeAsync(499);
       expect(client.calls).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
@@ -456,7 +473,7 @@ describe("answerQuestion", () => {
       await vi.advanceTimersByTimeAsync(1499);
       expect(client.calls).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
-      expect((await p).failed).toBe(false);
+      expect((await p).failure).toBeNull();
       expect(client.calls).toHaveLength(3);
     } finally {
       vi.useRealTimers();
@@ -470,7 +487,7 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client, { gate }));
     expect(client.calls).toHaveLength(3); // 1 attempt + 2 retries
     expect(waits).toEqual([]);
-    expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: false, blocks: [] });
+    expect(result).toMatchObject({ failure: "unavailable", reachedModel: false, blocks: [] });
     expect(result.usage.costUsd).toBe(0);
   });
 
@@ -483,25 +500,26 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
     expect(client.calls).toHaveLength(1);
     expect(events.filter((e) => e.type === "block")).toHaveLength(1);
-    expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: true });
+    expect(result).toMatchObject({ failure: "unavailable", reachedModel: true });
   });
 
   it("ends through the stopped path when the student stops during the backoff", async () => {
     const ac = new AbortController();
     const client = fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("never sent")]);
-    const p = answerQuestion(baseInput(client, { signal: ac.signal, deps: { transientBackoffMs: [10_000, 10_000] } }));
+    setTransientBackoffForTests([10_000, 10_000]);
+    const p = answerQuestion(baseInput(client, { signal: ac.signal }));
     await new Promise((r) => setTimeout(r, 10));
     ac.abort();
     const result = await p;
     expect(client.calls).toHaveLength(1);
-    expect(result).toMatchObject({ stopped: true, failed: false, reachedModel: false });
+    expect(result).toMatchObject({ stopped: true, failure: null, reachedModel: false });
   });
 
   // D22 — provider failures return a result with what was forwarded and billed; they never throw.
   it("keeps the usage of every attempt that got message_start before the final 529", async () => {
     const failedAfterStart = () => ({ events: [messageStart(100)], error: apiErr(529, "overloaded") });
     const result = await answerQuestion(baseInput(fakeClient([failedAfterStart(), failedAfterStart(), failedAfterStart()])));
-    expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: true, blocks: [] });
+    expect(result).toMatchObject({ failure: "unavailable", reachedModel: true, blocks: [] });
     expect(result.usage).toMatchObject({ inputTokens: 300, outputTokens: 0, estimated: true }); // 3 billed attempts
     expect(result.usage.costUsd).toBeGreaterThan(0);
   });
@@ -511,7 +529,7 @@ describe("answerQuestion", () => {
       events: [messageStart(100), ...textBlock(0, "What do you notice?", [])],
       error: new Anthropic.APIConnectionError({ message: "socket hang up" }),
     }])));
-    expect(result).toMatchObject({ failed: true, failure: "unavailable", reachedModel: true });
+    expect(result).toMatchObject({ failure: "unavailable", reachedModel: true });
     expect(result.blocks.map((b) => b.text)).toEqual(["What do you notice?"]);
     expect(result.usage).toMatchObject({ inputTokens: 100, outputTokens: Math.ceil("What do you notice?".length / 4), estimated: true });
   });
@@ -533,7 +551,7 @@ describe("answerQuestion", () => {
     expect(waits).toEqual([]);
     expect(client.calls).toHaveLength(1);
     expect(events.filter((e) => e.type === "block")).toHaveLength(1);
-    expect(result).toMatchObject({ failed: true, failure: "error", reachedModel: true });
+    expect(result).toMatchObject({ failure: "error", reachedModel: true });
     expect(result.blocks.map((b) => b.text)).toEqual(["What do you notice?"]);
   });
 });

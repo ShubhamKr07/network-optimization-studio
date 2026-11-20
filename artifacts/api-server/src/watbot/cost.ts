@@ -2,13 +2,22 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { MAX_ROUNDS, MAX_TOKENS } from "./prompt.js";
 import type { BundleDoc } from "./passages.js";
+import { logger } from "../lib/logger.js";
 
 // USD per million tokens. Source: claude-api skill model table (cached 2026-10-06);
 // cache read = 0.1x input, cache write (5-min TTL) = 1.25x input.
 const PRICES: Record<string, { input: number; output: number }> = {
   "claude-haiku-5-5": { input: 0.10, output: 0.50 },
 };
-const priceFor = (model: string) => PRICES[model] ?? PRICES["claude-haiku-5-5"]!;
+// An unknown WATBOT_MODEL is priced at the dearest known model, so the app cap stays conservative.
+const DEAREST = Object.values(PRICES).reduce((a, b) => (b.input + b.output > a.input + a.output ? b : a));
+let warned = false;
+const priceFor = (model: string) => {
+  const known = PRICES[model];
+  if (known) return known;
+  if (!warned) { warned = true; logger.warn({ model }, "WatBot: no price for model; pricing at the most expensive known model"); }
+  return DEAREST;
+};
 const CACHE_READ = 0.1;
 const CACHE_WRITE = 1.25;
 
