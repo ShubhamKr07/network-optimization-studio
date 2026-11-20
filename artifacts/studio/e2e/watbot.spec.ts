@@ -30,11 +30,16 @@ const ANSWER_SSE = [
   sseEvent("done", { messageId: 901 }),
 ].join("");
 
+const CONVERSATIONS_LIST = /\/api\/watbot\/conversations(\?.*)?$/;
+
+const FIXED_Q = "What decision is this model making, and what is it trying to minimize?";
+
 const STATUS_OK = { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false };
 
 async function stubWatBot(page: Page, opts: { messagesBody?: string } = {}) {
   await page.route("**/api/watbot/status", (r) => r.fulfill({ json: STATUS_OK }));
-  await page.route("**/api/watbot/conversations**", (r) =>
+  // List/create path only (plus its query string); sub-paths get their own exact routes.
+  await page.route(CONVERSATIONS_LIST, (r) =>
     r.request().method() === "POST"
       ? r.fulfill({ status: 201, json: { id: 77, modelId: "p-median-us", title: "New conversation", updatedAt: new Date().toISOString() } })
       : r.fulfill({ json: [] }),
@@ -45,7 +50,6 @@ async function stubWatBot(page: Page, opts: { messagesBody?: string } = {}) {
   await page.route("**/api/watbot/passages/11", (r) =>
     r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "Full page text for p.38." } }),
   );
-  await page.route("**/api/watbot/reports", (r) => r.fulfill({ status: 201, body: "" }));
 }
 
 async function openPanel(page: Page) {
@@ -60,6 +64,11 @@ test("WatBot: open from toolbar, ask a fixed question, read a citation, report",
   test.setTimeout(90_000);
   await registerFreshAccount(page, "journey");
   await stubWatBot(page);
+  const askRequests: unknown[] = [];
+  await page.route("**/api/watbot/conversations/77/messages", async (r) => {
+    askRequests.push(r.request().postDataJSON());
+    await r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: ANSWER_SSE });
+  });
   const reportRequests: unknown[] = [];
   await page.route("**/api/watbot/reports", async (r) => {
     reportRequests.push(r.request().postDataJSON());
@@ -74,6 +83,8 @@ test("WatBot: open from toolbar, ask a fixed question, read a citation, report",
   const messages = panel.getByTestId("watbot-messages");
   await expect(messages.locator('[data-role="student"]')).toContainText("What decision is this model making", { timeout: T });
   await expect(messages.locator('[data-role="tutor"]')).toContainText("The objective weights each distance by demand", { timeout: T });
+  // Fresh account, no scenario: no context chip, so the client sends context: null.
+  expect(askRequests).toEqual([{ question: FIXED_Q, context: null }]);
 
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
   await expect(page.getByRole("dialog", { name: "Source Ch 3 · p.38" })).toContainText("Minimize demand-weighted distance.", { timeout: T });
@@ -106,6 +117,7 @@ test("WatBot: unavailable state shows the toolbar dot", async ({ page }) => {
   await page.route("**/api/watbot/status", (r) => r.fulfill({ json: unavailable }));
   await page.goto("/chapter-3");
   await expect(page.getByTestId("button-watbot").getByLabel("unavailable")).toBeVisible({ timeout: T });
+  await expect(page.getByTestId("button-watbot")).toBeDisabled();
 });
 
 test("WatBot: Stop ends an in-flight answer with an 'Answer stopped' notice", async ({ page }) => {
@@ -134,18 +146,45 @@ test("WatBot: a server error event surfaces the watbot-error alert", async ({ pa
   await expect(panel.getByTestId("watbot-error")).toHaveText("Something went wrong. Try again.", { timeout: T });
 });
 
-test("WatBot: history lists past conversations for the chapter", async ({ page }) => {
+test("WatBot: history lists past conversations for the chapter and loads one", async ({ page }) => {
   test.setTimeout(90_000);
   await registerFreshAccount(page, "hist");
   await stubWatBot(page);
-  await page.route("**/api/watbot/conversations**", (r) =>
-    r.request().method() === "POST"
-      ? r.fulfill({ status: 201, json: { id: 77, modelId: "p-median-us", title: "New conversation", updatedAt: new Date().toISOString() } })
-      : r.fulfill({ json: [{ id: 5, modelId: "p-median-us", title: "Earlier question about p", updatedAt: new Date().toISOString() }] }),
+  const listModelIds: (string | null)[] = [];
+  const now = new Date().toISOString();
+  await page.route(CONVERSATIONS_LIST, (r) => {
+    if (r.request().method() === "POST") {
+      return r.fulfill({ status: 201, json: { id: 77, modelId: "p-median-us", title: "New conversation", updatedAt: now } });
+    }
+    listModelIds.push(new URL(r.request().url()).searchParams.get("modelId"));
+    return r.fulfill({ json: [{ id: 5, modelId: "p-median-us", title: "Earlier question about p", updatedAt: now }] });
+  });
+  await page.route("**/api/watbot/conversations/5", (r) =>
+    r.fulfill({
+      json: {
+        id: 5, modelId: "p-median-us", title: "Earlier question about p", updatedAt: now,
+        messages: [
+          { id: 41, role: "student", blocks: [{ text: "Why is p fixed?", citations: [] }], createdAt: now },
+          {
+            id: 42, role: "tutor", createdAt: now,
+            blocks: [{ text: "Because p is the number of warehouses you open", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "Minimize demand-weighted distance." }] }],
+          },
+        ],
+      },
+    }),
   );
   const panel = await openPanel(page);
   await panel.getByRole("button", { name: "Conversation history" }).click({ timeout: T });
   await expect(panel.getByTestId("watbot-history")).toContainText("Earlier question about p", { timeout: T });
+  expect(listModelIds.length).toBeGreaterThan(0);
+  expect(listModelIds.every((m) => m === "p-median-us")).toBe(true);
+
+  await panel.getByTestId("watbot-history").getByRole("button", { name: /Earlier question about p/ }).click({ timeout: T });
+  const messages = panel.getByTestId("watbot-messages");
+  await expect(messages.locator('[data-role="student"]')).toHaveText("Why is p fixed?", { timeout: T });
+  await expect(messages.locator('[data-role="tutor"]')).toContainText("Because p is the number of warehouses you open", { timeout: T });
+  // The report affordance needs the tutor row id, so it proves the id survived the load mapping.
+  await expect(panel.getByRole("button", { name: "Report this answer" })).toBeVisible({ timeout: T });
 });
 
 test("WatBot: narrow viewport collapses the model tree when the panel opens", async ({ page }) => {
