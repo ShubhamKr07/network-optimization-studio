@@ -65,7 +65,16 @@ Two facts from the EPUB shape the ingest:
 1. **Printed page anchors survive** (`id="page_37"` …), so citations can name the printed page.
 2. **Formulas are images.** The EPUB has no MathML; formulations are JPEGs. Extracted text silently drops them. The ingest therefore transcribes every formula image to LaTeX once (a vision-model pass), and the transcriptions are **hand-checked** before load. A transcription error would be cited back to students as the book's own words.
 
-Notebook sizes (`attached_assets/*.ipynb`) are not yet measured; measure them before fixing reading lists.
+Notebooks enter the corpus as their markdown cells plus code cells under 5,000 characters. That drops the embedded data blobs: one Ch 3 code cell is 82,548 characters of data. Measured on 2026-11-20:
+
+| Notebook | Cells kept | Characters | ≈ Tokens |
+|---|---|---|---|
+| NB 3 (`Chapter_3_Network_Design_Book`) | 30 / 32 | 50,390 | 12.6K |
+| NB 5 (`Notebook_LP_Transportation_Problem_Chapter_5`) | 28 / 29 | 49,803 | 12.5K |
+| NB 9 (`JADE_case_Chapter_9`) | 28 / 31 | 11,844 | 3.0K |
+| NB 10 (`Notebook_Mining_Problem_Chapter_10`) | 29 / 30 | 52,087 | 13.0K |
+
+The Chen's Cosmetics and COG notebooks are left out: they are almost all code and data, with under 300 characters of prose.
 
 ### Storage
 
@@ -100,19 +109,53 @@ Each `solvers/<model>/manifest.json` gains an optional `tutor` block. It is opti
 }
 ```
 
-Draft reading lists, to be approved together with the fixed questions (D12):
+Draft reading lists, to be approved together with the fixed questions (D12). Anything outside a model's list is still reachable through `search_book`.
 
-| Model | Reading list (book chapters) | ≈ Book tokens |
-|---|---|---|
-| `p-median-us` | 3, 2 | 19K |
-| `max-coverage-us` | 4, 3 | 24K |
-| `p-median-brazil`, `delivery-teaching-us` | 5, 3 | 23K |
-| `transport-coal` | 5, 6 | 24K |
-| `two-echelon-jade-us` | 9, 6, 7 | 31K |
-| `two-echelon-gold-au` | 10, 9, 6 | 39K |
-| `super-model` | 3, 4, 5, 6, 7, 9, 10 | 79K |
+| Model | Reading list | Why | ≈ Bundle tokens |
+|---|---|---|---|
+| `p-median-us` | Ch 3, Ch 2, NB 3 | Ch 3 is the model; Ch 2 (center of gravity) is the intuition it builds on; NB 3 is its notebook | 31.9K |
+| `max-coverage-us` | Ch 4, Ch 3 | Ch 4 is the service-level formulation (p.71–77); Ch 3 is the p-median it is contrasted with | 23.8K |
+| `p-median-brazil` | Ch 5, Ch 3 | The Brazil case is Ch 5 p.93 ("How Capacity Constraints Can Change a Model"); Ch 3 is the uncapacitated base | 22.6K |
+| `delivery-teaching-us` | Ch 5, Ch 3, Ch 6 | Ch 5 modified per the changelog; lane delivery costs are Ch 6's outbound-transportation material | 37.2K |
+| `transport-coal` | Ch 5, NB 5 | Ch 5's classic transportation problem and coal mini case (p.98); NB 5 is its notebook | 22.1K |
+| `two-echelon-jade-us` | Ch 9, Ch 6, Ch 7, NB 9 | Ch 9 is JADE; transport costs are taught in Ch 6 and fixed/variable costs in Ch 7 | 34.1K |
+| `two-echelon-gold-au` | Ch 10, Ch 9, NB 10 | Gold mini case is Ch 10 p.203 (BOM, product sourcing p.193–196); Ch 9 links echelons; NB 10 is its notebook | 37.4K |
+| `super-model` | Ch 6, 7, 8, 9, 10, 13 | Import-driven multi-product two-echelon: costs (6, 7), baselines for imported networks (8), echelons and products (9, 10), aggregating imported customers (13) | 63.8K |
 
-Each model also gets its chapter notebook where one exists. Every bundle must stay under 100K tokens, where Haiku 5.5's input price rises 5×. `super-model` is the closest; a test asserts the bound using the stored passage lengths.
+Every bundle must stay under 100K tokens, where Haiku 5.5's input price rises 5×. `super-model` is the closest; a test asserts the bound using the stored passage lengths.
+
+### Fixed questions (manifest data)
+
+Three per model, following A2's pattern: what decision the model makes, how inputs become the model, how to read the output. `tab` marks the question as "For this tab" (FR-9), and `null` means no tab-specific marking. Pages are where WatBot's answer is grounded. The wording is a draft for approval (D12).
+
+| Model | Id | Question | Tab | Grounded in |
+|---|---|---|---|---|
+| `p-median-us` | q1 | What decision is this model making, and what is it trying to minimize? | `optimization-parameters` | Ch 3 p.38 |
+| | q2 | Why does each customer's demand multiply its distance in the objective? | `input-map` | Ch 3 p.43 |
+| | q3 | How do I read this Output Map — why did the optimizer open these warehouses? | `output-map` | Ch 3 p.56 |
+| `max-coverage-us` | q1 | How is maximizing coverage different from minimizing weighted distance in Chapter 3? | `null` | Ch 4 p.64, p.71 |
+| | q2 | What does the service distance I set actually control in the model? | `optimization-parameters` | Ch 4 p.75 |
+| | q3 | How do I read Service Stats — what did I trade to cover more demand? | `service-stats` | Ch 4 p.77 |
+| `p-median-brazil` | q1 | What changes when each warehouse has a capacity limit? | `optimization-parameters` | Ch 5 p.86 |
+| | q2 | Why can a customer be assigned to a warehouse that isn't its closest? | `customer-assignments` | Ch 5 p.93 |
+| | q3 | Why did capacity limits change which warehouses open on this map? | `output-map` | Ch 5 p.93 |
+| `delivery-teaching-us` | q1 | How does minimizing delivery cost differ from minimizing distance? | `null` | Ch 6 p.101 |
+| | q2 | Where do the lane delivery costs come from, and how do they enter the model? | `null` | Ch 6 p.101 |
+| | q3 | How do I read the Solution Summary — what is driving total cost? | `cost-summary` | Ch 5 p.86, Ch 6 |
+| `transport-coal` | q1 | What does a transportation model decide — and what does it not decide? | `null` | Ch 5, p.98 |
+| | q2 | How do mine capacities and station demands constrain the flows? | `mines` | Ch 5 p.98, NB 5 |
+| | q3 | How do I read the Flows — which mine serves which station, and why? | `flows` | Ch 5 p.98, NB 5 |
+| `two-echelon-jade-us` | q1 | What does a three-echelon model add over the warehouse-only models of earlier chapters? | `null` | Ch 9 p.160 |
+| | q2 | How do plant capabilities and the costs on each leg shape where products flow? | `capability-matrix` | Ch 9 p.164, Ch 6–7 |
+| | q3 | How do I read the Flows — why do products take these plant → warehouse → customer paths? | `flows` | Ch 9 p.166 |
+| `two-echelon-gold-au` | q1 | Should the refinery sit closer to the mine or to the customers — what decides it? | `null` | Ch 10 p.203 |
+| | q2 | What does the BOM ratio do to the volumes on each leg? | `optimization-parameters` | Ch 10 p.196, p.203 |
+| | q3 | How do I read the Flows — why did this refinery win? | `flows` | Ch 10 p.203, NB 10 |
+| `super-model` | q1 | What does this model decide once I import my own network? | `null` | Ch 9–10 |
+| | q2 | How should I check my imported data before trusting the solution? | `null` | Ch 8 p.139, Ch 13 p.242 |
+| | q3 | How do I compare this Solution Summary with my current network's baseline? | `cost-summary` | Ch 8 p.154 |
+
+Tab ids are the workspace sidebar entry ids (`Workspace.tsx`). Where a model's relevant tab has no id in that list (delivery lane costs, the super model's import tabs), the question is untagged rather than guessed. A test asserts that every tagged `tab` is a real sidebar id for that model.
 
 A model with no `tutor` block shows the panel without fixed questions and answers from search alone.
 
@@ -297,8 +340,7 @@ All tables are new and every NOT NULL column has a default or is written on inse
 
 ## 9. Open items
 
-- Notebook sizes are unmeasured; measure before finalising reading lists.
-- Fixed-question wording (D12) and reading lists (section 3) await approval.
+- Fixed-question wording and reading lists (section 3) are drafted and await approval (D12).
 - Citation chip format changes from the canvas's "Ch 3.1 · p.78" to "Ch 3 · p.78": the book's sections are unnumbered.
 - The source popover shows the passage only; book figures are deferred.
 - Success measures (PRD open question) are deferred; the stored usage, reports and gaps make them computable later.
