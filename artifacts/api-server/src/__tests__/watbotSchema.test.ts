@@ -89,9 +89,10 @@ describe("watbot schema", () => {
   });
 
   it("generates a searchable tsvector for course passages", async () => {
+    // Chapter 852: not shared with watbotPassages (901-903, cleans up >= 900) or watbotRoutes (851).
     const [p] = await db.insert(coursePassagesTable).values({
-      sourceKind: "book", chapter: 901, locator: "1", ordinal: 0,
-      label: "Ch 901 · p.1", body: "Capacitated warehouses change assignments",
+      sourceKind: "book", chapter: 852, locator: "1", ordinal: 0,
+      label: "Ch 852 · p.1", body: "Capacitated warehouses change assignments",
     }).returning();
     try {
       const rows = await db.execute(
