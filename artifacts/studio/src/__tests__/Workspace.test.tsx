@@ -103,6 +103,9 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   // T9 (B2.2-T7 mock gap) — DistancesTab now calls useGetReferenceDistances
   // unconditionally (Rules of Hooks); every test file that can render it
   // (any test opening the Distances tab) needs this mock, even though most
@@ -295,6 +298,32 @@ beforeEach(() => {
   mockUsePrecheckScenario.mockReturnValue({ data: { ok: true, errors: [] } } as unknown as ReturnType<typeof usePrecheckScenario>);
   mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
   mockUseSearch.mockReturnValue("?scenario=1");
+});
+
+describe("Workspace — WatBot panel toggle", () => {
+  it("button-watbot opens and closes the docked panel", () => {
+    renderWorkspace();
+    const btn = screen.getByTestId("button-watbot");
+    expect(screen.queryByTestId("watbot-panel")).toBeNull();
+    fireEvent.click(btn);
+    expect(screen.getByTestId("watbot-panel")).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(btn);
+    expect(screen.queryByTestId("watbot-panel")).toBeNull();
+  });
+});
+
+describe("Workspace — WatBot focus", () => {
+  it("opening moves focus into the panel; closing returns it to button-watbot", () => {
+    renderWorkspace();
+    const btn = screen.getByTestId("button-watbot");
+    fireEvent.click(btn);
+    expect(screen.getByTestId("watbot-panel")).toContainElement(document.activeElement as HTMLElement);
+    expect(btn).not.toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Close WatBot panel" }));
+    expect(screen.queryByTestId("watbot-panel")).toBeNull();
+    expect(btn).toHaveFocus();
+  });
 });
 
 describe("Workspace — Added Entities removed (workspace-fixups-2 item 1, review Minor-2)", () => {

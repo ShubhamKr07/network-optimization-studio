@@ -6,6 +6,14 @@
   "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
   "capabilities": { "supportsP": true, "capacityModes": ["none", "uniform", "per_wh"], "demandEditable": true, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true, "supportsReferenceDistances": true, "supportsAddedCustomerExclusion": true },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 3 }, { "kind": "book", "chapter": 2 }, { "kind": "notebook", "chapter": 3 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "What decision is this model making, and what is it trying to minimize?", "tab": "optimization-parameters" },
+    { "id": "q2", "text": "Why does each customer's demand multiply its distance in the objective?", "tab": "input-map" },
+    { "id": "q3", "text": "How do I read this Output Map — why did the optimizer open these warehouses?", "tab": "output-map" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "properties": {

@@ -6,6 +6,7 @@ import { logger } from "../lib/logger.js";
 const mockDb = vi.hoisted(() => ({ select: vi.fn(), insert: vi.fn() }));
 vi.mock("@workspace/db", () => ({
   db: mockDb,
+  WATBOT_MESSAGE_TYPES: [], coursePassagesTable: {}, // routes/index.ts now loads the WatBot router, which reads these at import
   usersTable: { id: "id", email: "email" },
 }));
 vi.mock("drizzle-orm", () => ({

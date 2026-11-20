@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "modelId": "delivery-teaching-us",
+      "objective": 88240913478.1,
+      "openSites": [
+        "Los Angeles",
+        "New York City",
+        "Louisville"
+      ],
+      "note": null
+    },
+    {
+      "modelId": "max-coverage-us",
+      "objective": 70.42,
+      "openSites": [
+        "Dallas",
+        "Los Angeles",
+        "Pittsburgh"
+      ],
+      "note": null
+    },
+    {
+      "modelId": "p-median-brazil",
+      "objective": null,
+      "openSites": [],
+      "note": "status infeasible"
+    },
+    {
+      "modelId": "p-median-us",
+      "objective": 29873735731,
+      "openSites": [
+        "Baltimore",
+        "Dallas",
+        "Los Angeles"
+      ],
+      "note": null
+    },
+    {
+      "modelId": "super-model",
+      "objective": null,
+      "openSites": [],
+      "note": "solve HTTP 422: Network-edit precheck failed [{\"code\":\"completeness\",\"message\":\"Add at least one row to products.\"},{\"code\":\"completeness\",\"message\":\"Add at least one row to plants.\"},{\"code\":\"completeness\",\"message\":\"Add at least one row to warehouses.\"},{\"code\":\"completeness\",\"message\":\"Add at least one active customer.\"},{\"code\":\"zero_deman"
+    },
+    {
+      "modelId": "transport-coal",
+      "objective": 39355300000,
+      "openSites": [],
+      "note": null
+    },
+    {
+      "modelId": "two-echelon-gold-au",
+      "objective": 386576.99,
+      "openSites": [
+        "Cunnamulla"
+      ],
+      "note": null
+    },
+    {
+      "modelId": "two-echelon-jade-us",
+      "objective": 181994572.1744,
+      "openSites": [
+        "Las Vegas",
+        "Baltimore",
+        "Louisville"
+      ],
+      "note": null
+    }
+  ]
+}

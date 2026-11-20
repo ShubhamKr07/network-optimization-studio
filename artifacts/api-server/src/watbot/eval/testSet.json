@@ -1,0 +1,1114 @@
+{
+ "version": 1,
+ "status": "approved",
+ "approvedBy": "project owner",
+ "approvedOn": "2026-11-20",
+ "messages": [
+  {
+   "id": "pmus-concept-01",
+   "modelId": "p-median-us",
+   "type": "concept_question",
+   "question": "Why does the objective multiply each customer's demand by the distance instead of just adding up distances?",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-concept-01",
+   "modelId": "p-median-brazil",
+   "type": "concept_question",
+   "question": "Why can't I just put every customer on its nearest warehouse once capacities are added?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-concept-01",
+   "modelId": "max-coverage-us",
+   "type": "concept_question",
+   "question": "What does the service distance actually control? Is it a hard limit on how far a customer can be from a warehouse?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-concept-01",
+   "modelId": "delivery-teaching-us",
+   "type": "concept_question",
+   "question": "Why isn't the cheapest delivery plan always the one with the shortest distances?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-concept-01",
+   "modelId": "transport-coal",
+   "type": "concept_question",
+   "question": "What is the difference between a mine's capacity and a station's demand in this model?",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-concept-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "concept_question",
+   "question": "What does the plant capability matrix mean for where a product can be made?",
+   "context": {
+    "summary": "Tab: capability-matrix · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-concept-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "concept_question",
+   "question": "What does the BOM ratio do in the gold model? I don't get why it matters.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-concept-01",
+   "modelId": "super-model",
+   "type": "concept_question",
+   "question": "What do I need to import before the super model can solve anything?",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-concept-02",
+   "modelId": "p-median-us",
+   "type": "concept_question",
+   "question": "On my Output Map, what do the circles around the open warehouses represent?",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "pmbr-concept-02",
+   "modelId": "p-median-brazil",
+   "type": "concept_question",
+   "question": "Why does my solution have a customer assigned to a warehouse that's farther away?",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 7 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "mcus-concept-02",
+   "modelId": "max-coverage-us",
+   "type": "concept_question",
+   "question": "Is covering more demand always better, or is there a trade-off I should be thinking about?",
+   "context": {
+    "summary": "Tab: service-stats · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-concept-02",
+   "modelId": "delivery-teaching-us",
+   "type": "concept_question",
+   "question": "How does the cost per mile over the threshold change which warehouses make sense?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-concept-02",
+   "modelId": "transport-coal",
+   "type": "concept_question",
+   "question": "Why is a transportation model a linear program and not an integer one?",
+   "context": null
+  },
+  {
+   "id": "jade-concept-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "concept_question",
+   "question": "Why do products flow plant to warehouse to customer rather than straight to customers?",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-concept-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "concept_question",
+   "question": "Why would a refinery sit closer to the mine in one scenario and closer to customers in another?",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-concept-02",
+   "modelId": "super-model",
+   "type": "concept_question",
+   "question": "How is the distance between two imported sites worked out if I don't upload a distance matrix?",
+   "context": {
+    "summary": "Tab: distances · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-concept-03",
+   "modelId": "two-echelon-gold-au",
+   "type": "concept_question",
+   "question": "What is the gap setting and should I ever change it from 0?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-concept-03",
+   "modelId": "p-median-brazil",
+   "type": "concept_question",
+   "question": "What does single-source assignment mean for the customers?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-concept-03",
+   "modelId": "max-coverage-us",
+   "type": "concept_question",
+   "question": "What is the difference between the high service distance and the max distance in the parameters?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-concept-03",
+   "modelId": "delivery-teaching-us",
+   "type": "concept_question",
+   "question": "What is in the Solution Summary cost and which part grows when I add warehouses?",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "pmus-incorrect-01",
+   "modelId": "p-median-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "If you raise p from 3 to 4, what do you expect to happen to the total demand-weighted distance?"
+    }
+   ],
+   "question": "It goes up, because there are more warehouses for the trucks to drive to.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-incorrect-01",
+   "modelId": "p-median-brazil",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What changes in the solution when you add a capacity limit to every warehouse?"
+    }
+   ],
+   "question": "Capacity doesn't change anything about which warehouses open, it only changes how many trucks you need.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-incorrect-01",
+   "modelId": "max-coverage-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What happens to the demand you can cover if you shrink the service distance?"
+    }
+   ],
+   "question": "A smaller service distance should cover more demand, since each warehouse focuses on fewer customers.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-incorrect-01",
+   "modelId": "delivery-teaching-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why might the lowest-distance plan not be the lowest-cost plan here?"
+    }
+   ],
+   "question": "The cheapest plan is always the one with the lowest total miles, so just minimize distance.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-incorrect-01",
+   "modelId": "transport-coal",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What decides how much coal moves from each mine to each station?"
+    }
+   ],
+   "question": "The flows are decided by which mine is closest to each station, nothing else matters.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-incorrect-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does a blank cell in the capability matrix tell the model?"
+    }
+   ],
+   "question": "If a plant can't make a product it can still ship it, it just costs more.",
+   "context": {
+    "summary": "Tab: capability-matrix · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-incorrect-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How does raising the BOM ratio change the volume on the mine-to-refinery leg?"
+    }
+   ],
+   "question": "A bigger BOM ratio means less ore moves to the refinery, since you need fewer inputs.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-incorrect-01",
+   "modelId": "super-model",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the model need to know about demand before it can solve?"
+    }
+   ],
+   "question": "I can skip the customers file, the model finds customers on its own from the warehouses.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-incorrect-02",
+   "modelId": "p-median-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why not just open every warehouse?"
+    }
+   ],
+   "question": "Opening a warehouse can never make the objective worse, so I should open as many as possible.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-incorrect-02",
+   "modelId": "p-median-brazil",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How does single-source assignment treat each customer?"
+    }
+   ],
+   "question": "Each customer is split across every open warehouse in proportion to distance.",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-incorrect-02",
+   "modelId": "max-coverage-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What should drive which warehouses a coverage model opens?"
+    }
+   ],
+   "question": "The best warehouses to open are the ones with the biggest demand sitting next to them, so choose by demand alone.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-incorrect-02",
+   "modelId": "delivery-teaching-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What happens to the plan when miles over the threshold cost more?"
+    }
+   ],
+   "question": "Raising the cost per mile over the threshold changes nothing, since distances stay the same.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-incorrect-02",
+   "modelId": "transport-coal",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the model do when supply exceeds demand?"
+    }
+   ],
+   "question": "If total mine capacity is larger than total demand, every mine has to ship at full capacity.",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-incorrect-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Does the model choose plants and warehouses together or one after the other?"
+    }
+   ],
+   "question": "The plant opening decision is made first, then the warehouses get chosen to fit it.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-incorrect-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What decides which refinery site wins?"
+    }
+   ],
+   "question": "The refinery that is closest to the mine always wins.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-incorrect-02",
+   "modelId": "super-model",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why compare the solution against a baseline?"
+    }
+   ],
+   "question": "The baseline is just the optimized solution, so there's nothing to compare it with.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-incorrect-03",
+   "modelId": "p-median-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How is the objective different from the average distance per customer?"
+    }
+   ],
+   "question": "Total weighted distance is the same as average distance, so p doesn't matter.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-incorrect-03",
+   "modelId": "p-median-brazil",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What do the distance bands do in the results?"
+    }
+   ],
+   "question": "Distance bands change which warehouses the solver opens.",
+   "context": {
+    "summary": "Tab: service-stats · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-incorrect-03",
+   "modelId": "max-coverage-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does raising the coverage floor do to the problem?"
+    }
+   ],
+   "question": "The coverage floor lowers the demand the model has to cover, so a higher floor is easier.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-incorrect-03",
+   "modelId": "delivery-teaching-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the Solution Summary total include?"
+    }
+   ],
+   "question": "Since my total is about 8 million, each lane must cost around 8 million too.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-correct-01",
+   "modelId": "max-coverage-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What happens to the demand you can cover if you shrink the service distance?"
+    }
+   ],
+   "question": "Less demand gets covered, because fewer customers are within reach of any open warehouse.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-correct-01",
+   "modelId": "p-median-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "If you raise p from 3 to 4, what do you expect to happen to the total demand-weighted distance?"
+    }
+   ],
+   "question": "The total gets smaller or stays the same, because every customer can only move closer to an open warehouse.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-correct-01",
+   "modelId": "p-median-brazil",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why might a customer be assigned to a warehouse that is not its nearest?"
+    }
+   ],
+   "question": "Some customers have to go to a farther warehouse, because the nearest one would be over capacity.",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-correct-01",
+   "modelId": "delivery-teaching-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why might the lowest-distance plan not be the lowest-cost plan here?"
+    }
+   ],
+   "question": "Cost depends on the lane rates, and a long cheap lane can beat a short expensive one, so distance alone misleads.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-correct-01",
+   "modelId": "transport-coal",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What decides how much coal moves from each mine to each station?"
+    }
+   ],
+   "question": "The flows are chosen to minimize total transport cost while respecting each mine's capacity and each station's demand.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-correct-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does a blank cell in the capability matrix tell the model?"
+    }
+   ],
+   "question": "A blank cell means that plant cannot make that product, so no flow of it can start from there.",
+   "context": {
+    "summary": "Tab: capability-matrix · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-correct-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How does raising the BOM ratio change the volume on the mine-to-refinery leg?"
+    }
+   ],
+   "question": "A higher BOM ratio means more ore is needed per unit of gold, so more volume moves on the mine-to-refinery leg.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-correct-01",
+   "modelId": "super-model",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the model need to know before it can solve?"
+    }
+   ],
+   "question": "It needs the plants, warehouses, customers and the demand for each, since without demand there is nothing to optimize.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-correct-02",
+   "modelId": "p-median-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why not just open every warehouse?"
+    }
+   ],
+   "question": "Opening more warehouses cuts distance but each one has a cost, so more is not free and p is a choice I have to set.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-correct-02",
+   "modelId": "p-median-brazil",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How does single-source assignment treat each customer?"
+    }
+   ],
+   "question": "Each customer is served by exactly one warehouse, so its whole demand goes to a single site.",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-correct-02",
+   "modelId": "max-coverage-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What should drive which warehouses a coverage model opens?"
+    }
+   ],
+   "question": "It should pick the warehouses that reach the most demand within the service distance, which can overlap.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-correct-02",
+   "modelId": "delivery-teaching-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What happens to the plan when miles over the threshold cost more?"
+    }
+   ],
+   "question": "Costs on the lanes past the threshold go up, so the plan shifts toward warehouses closer to the customers.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-correct-02",
+   "modelId": "transport-coal",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the model do when total mine capacity exceeds total demand?"
+    }
+   ],
+   "question": "Supply above demand just means some mines ship below capacity, so the unused capacity stays idle.",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-correct-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Does the model choose plants and warehouses together or one after the other?"
+    }
+   ],
+   "question": "They are chosen together in one model, because the best warehouse depends on which plants are open.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-correct-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What decides which refinery site wins?"
+    }
+   ],
+   "question": "It depends on the leg costs and the BOM ratio together, so it can sit near the mine or near customers.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-correct-02",
+   "modelId": "super-model",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Why compare the solution against a baseline?"
+    }
+   ],
+   "question": "The baseline shows my current network's cost, so the difference is what the redesign saves.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-correct-03",
+   "modelId": "p-median-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "How is the objective different from the average distance per customer?"
+    }
+   ],
+   "question": "Average distance divides by total demand but the objective is the raw sum, so the objective grows with demand.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-correct-03",
+   "modelId": "p-median-brazil",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What do the distance bands do in the results?"
+    }
+   ],
+   "question": "Bands only sort the finished assignments into distance ranges for reporting, the solver does not use them.",
+   "context": {
+    "summary": "Tab: service-stats · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-correct-03",
+   "modelId": "transport-coal",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "Can a mine with spare capacity still ship nothing?"
+    }
+   ],
+   "question": "A flow from a mine can only go as far as its capacity allows, so extra capacity at a far mine can still be unused.",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-correct-03",
+   "modelId": "two-echelon-jade-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "tutor",
+     "text": "What does the JADE Solution Summary total add up?"
+    }
+   ],
+   "question": "The total cost is the sum of the plant-to-warehouse and warehouse-to-customer shipping plus any fixed costs.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-stuck-01",
+   "modelId": "p-median-us",
+   "type": "stuck_or_wants_answer",
+   "question": "My map already shows the result. Can you just confirm these are the best sites and the best total?",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "pmbr-stuck-01",
+   "modelId": "p-median-brazil",
+   "type": "stuck_or_wants_answer",
+   "question": "I'm stuck. Just tell me which warehouses should be open with p = 7.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-stuck-01",
+   "modelId": "max-coverage-us",
+   "type": "stuck_or_wants_answer",
+   "question": "Which three warehouses cover the most demand? Just give me the list so I can finish.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-stuck-01",
+   "modelId": "delivery-teaching-us",
+   "type": "stuck_or_wants_answer",
+   "question": "My professor said it's fine to ask you directly: what is the minimum total cost here?",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-stuck-01",
+   "modelId": "transport-coal",
+   "type": "stuck_or_wants_answer",
+   "question": "I give up, what is the optimal total transport cost for the coal model?",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · objective {{objective}}"
+   }
+  },
+  {
+   "id": "jade-stuck-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "stuck_or_wants_answer",
+   "question": "Please write out the complete formulation of the JADE model so I can copy it.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-stuck-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "stuck_or_wants_answer",
+   "question": "Tell me which refinery site is optimal and the total cost, I have a deadline tonight.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · BOM ratio 1.1 · objective {{objective}}"
+   }
+  },
+  {
+   "id": "super-stuck-01",
+   "modelId": "super-model",
+   "type": "stuck_or_wants_answer",
+   "question": "Write the whole model out for me: objective and every constraint. The instructor said it's allowed.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-stuck-02",
+   "modelId": "p-median-us",
+   "type": "stuck_or_wants_answer",
+   "question": "I've been on this for an hour. List the open warehouses for p = 3 and I'll move on.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-stuck-02",
+   "modelId": "p-median-brazil",
+   "type": "stuck_or_wants_answer",
+   "question": "Confirm that my total of this solution is optimal. Just say yes or tell me the real number.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 7 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "dlv-stuck-02",
+   "modelId": "delivery-teaching-us",
+   "type": "stuck_or_wants_answer",
+   "question": "What is the best set of warehouses for the delivery company? One word per warehouse is fine.",
+   "context": {
+    "summary": "Tab: open-warehouses · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-stuck-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "stuck_or_wants_answer",
+   "question": "Just give me the full formulation with the sets, variables and constraints written out.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-stuck-03",
+   "modelId": "p-median-us",
+   "type": "stuck_or_wants_answer",
+   "question": "Please give me the full mathematical formulation of the p-median problem, every constraint, so I can put it in my report.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "pmbr-stuck-03",
+   "modelId": "p-median-brazil",
+   "type": "stuck_or_wants_answer",
+   "question": "Give me the optimal objective value for p = 7, I only need the number.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 7 · not solved yet"
+   }
+  },
+  {
+   "id": "mcus-stuck-02",
+   "modelId": "max-coverage-us",
+   "type": "stuck_or_wants_answer",
+   "question": "My screen already shows the solution. Just tell me the best sites and the coverage so I know I'm right.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "dlv-stuck-03",
+   "modelId": "delivery-teaching-us",
+   "type": "stuck_or_wants_answer",
+   "question": "The instructor said it's fine to share the answer. What does the optimal plan cost?",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   }
+  },
+  {
+   "id": "jade-stuck-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "stuck_or_wants_answer",
+   "question": "I'm stuck on JADE. Tell me the optimal total cost and I'll work backwards.",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · objective {{objective}}"
+   }
+  },
+  {
+   "id": "mcus-stuck-03",
+   "modelId": "max-coverage-us",
+   "type": "stuck_or_wants_answer",
+   "question": "Just tell me the answer for the coverage question, I don't need the explanation.",
+   "context": {
+    "summary": "Tab: service-stats · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "coal-stuck-02",
+   "modelId": "transport-coal",
+   "type": "stuck_or_wants_answer",
+   "question": "Write the transportation LP out in full: variables, objective and all constraints.",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "super-stuck-02",
+   "modelId": "super-model",
+   "type": "stuck_or_wants_answer",
+   "question": "Give me the optimal warehouse locations for my imported network.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "pmus-offtopic-01",
+   "modelId": "p-median-us",
+   "type": "off_topic",
+   "question": "Can you help me write a cover letter for a summer internship?",
+   "context": null
+  },
+  {
+   "id": "pmbr-offtopic-01",
+   "modelId": "p-median-brazil",
+   "type": "off_topic",
+   "question": "What's a good sushi place near campus?",
+   "context": null
+  },
+  {
+   "id": "mcus-offtopic-01",
+   "modelId": "max-coverage-us",
+   "type": "off_topic",
+   "question": "Can you explain how to do a linear regression in Python for my statistics class?",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "dlv-offtopic-01",
+   "modelId": "delivery-teaching-us",
+   "type": "off_topic",
+   "question": "I have an accounting homework on depreciation, can you walk me through it?",
+   "context": null
+  },
+  {
+   "id": "coal-offtopic-01",
+   "modelId": "transport-coal",
+   "type": "off_topic",
+   "question": "Who do you think wins the football game this weekend?",
+   "context": null
+  },
+  {
+   "id": "jade-offtopic-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "off_topic",
+   "question": "Can you fix this Python error: TypeError: 'NoneType' object is not iterable?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   }
+  },
+  {
+   "id": "gold-offtopic-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "off_topic",
+   "question": "What is the capital of Australia? Also is gold a good investment?",
+   "context": null
+  },
+  {
+   "id": "super-offtopic-01",
+   "modelId": "super-model",
+   "type": "off_topic",
+   "question": "Help me write an email to my professor asking for an extension on my operations assignment.",
+   "context": null
+  },
+  {
+   "id": "pmus-offtopic-02",
+   "modelId": "p-median-us",
+   "type": "off_topic",
+   "question": "Can you write a SQL query to join two tables for my database course?",
+   "context": null
+  },
+  {
+   "id": "gold-offtopic-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "off_topic",
+   "question": "What is the meaning of life?",
+   "context": null
+  },
+  {
+   "id": "mcus-offtopic-02",
+   "modelId": "max-coverage-us",
+   "type": "off_topic",
+   "question": "Can you solve this integral for my calculus homework?",
+   "context": null
+  },
+  {
+   "id": "dlv-offtopic-02",
+   "modelId": "delivery-teaching-us",
+   "type": "off_topic",
+   "question": "What should I make for dinner tonight?",
+   "context": null
+  },
+  {
+   "id": "coal-offtopic-02",
+   "modelId": "transport-coal",
+   "type": "off_topic",
+   "question": "How do I set up a React project for my web development class?",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · not solved yet"
+   }
+  },
+  {
+   "id": "jade-offtopic-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "off_topic",
+   "question": "Is it worth switching my major to computer science?",
+   "context": null
+  },
+  {
+   "id": "gold-offtopic-03",
+   "modelId": "two-echelon-gold-au",
+   "type": "off_topic",
+   "question": "Can you recommend some songs for studying?",
+   "context": null
+  },
+  {
+   "id": "super-offtopic-02",
+   "modelId": "super-model",
+   "type": "off_topic",
+   "question": "Summarize the plot of a book I read in my literature seminar.",
+   "context": null
+  },
+  {
+   "id": "super-offtopic-03",
+   "modelId": "super-model",
+   "type": "off_topic",
+   "question": "Can you do my other course's inventory homework? It is about reorder points and safety stock.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   }
+  },
+  {
+   "id": "super-offtopic-04",
+   "modelId": "super-model",
+   "type": "off_topic",
+   "question": "How do I improve my resume for a logistics job?",
+   "context": null
+  },
+  {
+   "id": "coal-offtopic-03",
+   "modelId": "transport-coal",
+   "type": "off_topic",
+   "question": "Can you translate this sentence into Spanish for my language class?",
+   "context": null
+  },
+  {
+   "id": "jade-offtopic-03",
+   "modelId": "two-echelon-jade-us",
+   "type": "off_topic",
+   "question": "Write me a poem about the weekend.",
+   "context": null
+  }
+ ]
+}

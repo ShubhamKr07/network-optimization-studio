@@ -6,6 +6,14 @@
   "countryBounds": { "sw": [-30.04, -67.82], "ne": [0.04, -34.86] },
   "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true, "supportsAddedCustomerExclusion": false },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 5 }, { "kind": "book", "chapter": 3 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "What changes when each warehouse has a capacity limit?", "tab": "optimization-parameters" },
+    { "id": "q2", "text": "Why can a customer be assigned to a warehouse that isn't its closest?", "tab": "customer-assignments" },
+    { "id": "q3", "text": "Why did capacity limits change which warehouses open on this map?", "tab": "output-map" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "properties": {

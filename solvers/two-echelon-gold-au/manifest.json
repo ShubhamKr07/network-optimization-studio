@@ -6,6 +6,14 @@
   "countryBounds": { "sw": [-38.5, 113.0], "ne": [-16.0, 154.5] },
   "capabilities": { "supportsP": false, "capacityModes": [], "demandEditable": true, "outputGrids": ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true, "supportsAddedCustomerExclusion": true },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 10 }, { "kind": "book", "chapter": 9 }, { "kind": "notebook", "chapter": 10 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "Should the refinery sit closer to the mine or to the customers — what decides it?", "tab": null },
+    { "id": "q2", "text": "What does the BOM ratio do to the volumes on each leg?", "tab": "optimization-parameters" },
+    { "id": "q3", "text": "How do I read the Flows — why did this refinery win?", "tab": "flows" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "properties": {

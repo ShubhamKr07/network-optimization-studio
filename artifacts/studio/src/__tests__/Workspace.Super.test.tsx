@@ -71,6 +71,9 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
   getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
+  useGetWatBotStatus: vi.fn(() => ({ data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } })),
+  useCreateWatBotConversation: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  getGetWatBotStatusQueryKey: vi.fn(() => ["watbot-status"]),
   useListModels: vi.fn(() => ({
     data: [
       {

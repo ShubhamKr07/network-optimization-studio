@@ -6,6 +6,14 @@
   "countryBounds": { "sw": [29.76, -122.42], "ne": [47.61, -73.61] },
   "capabilities": { "supportsP": false, "capacityModes": ["per_mine"], "demandEditable": true, "outputGrids": ["flows", "costSummary", "serviceStats"], "supportsFacilityStatus": false },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 5 }, { "kind": "notebook", "chapter": 5 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "What does a transportation model decide — and what does it not decide?", "tab": null },
+    { "id": "q2", "text": "How do mine capacities and station demands constrain the flows?", "tab": "mines" },
+    { "id": "q3", "text": "How do I read the Flows — which mine serves which station, and why?", "tab": "flows" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "properties": {

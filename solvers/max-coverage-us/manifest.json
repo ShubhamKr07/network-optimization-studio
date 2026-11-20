@@ -4,6 +4,14 @@
   "chapter": "Chapter 4",
   "datasetDir": "solvers/max-coverage-us/dataset",
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 4 }, { "kind": "book", "chapter": 3 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "How is maximizing coverage different from minimizing weighted distance in Chapter 3?", "tab": null },
+    { "id": "q2", "text": "What does the service distance I set actually control in the model?", "tab": "optimization-parameters" },
+    { "id": "q3", "text": "How do I read Service Stats — what did I trade to cover more demand?", "tab": "service-stats" }
+    ]
+  },
   "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
   "capabilities": {
     "supportsP": true,

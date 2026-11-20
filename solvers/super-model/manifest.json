@@ -10,6 +10,14 @@
     "supportsFacilityStatus": true
   },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 6 }, { "kind": "book", "chapter": 7 }, { "kind": "book", "chapter": 8 }, { "kind": "book", "chapter": 9 }, { "kind": "book", "chapter": 10 }, { "kind": "book", "chapter": 13 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "What does this model decide once I import my own network?", "tab": null },
+    { "id": "q2", "text": "How should I check my imported data before trusting the solution?", "tab": null },
+    { "id": "q3", "text": "How do I compare this Solution Summary with my current network's baseline?", "tab": "cost-summary" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "required": ["p", "gap", "timeLimitSec", "transportCosts", "distanceMethod", "circuityFactor",

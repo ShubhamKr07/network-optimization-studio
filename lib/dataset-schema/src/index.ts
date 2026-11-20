@@ -222,6 +222,28 @@ export function readVersion(modelId: string): z.infer<typeof VersionFile> {
 // job is to describe the model's inputs shape to *other* consumers (e.g. a
 // future generic form renderer), not to be re-validated by this schema —
 // that would just be re-deriving D0.3's Zod validators a second time.
+// WATBOT — sidebar entry ids from artifacts/studio/src/pages/Workspace.tsx.
+// Drift-guarded by api-server watbotTutorManifest.test.ts.
+export const WORKSPACE_TAB_IDS = [
+  "input-map", "products", "plants", "warehouses", "customers", "demand", "distances",
+  "optimization-parameters", "mines", "stations", "refineries", "capability-matrix",
+  "output-map", "cost-summary", "open-warehouses", "customer-assignments", "flows", "service-stats",
+] as const;
+export type WorkspaceTabId = (typeof WORKSPACE_TAB_IDS)[number];
+
+export const TutorSchema = z.object({
+  readingList: z.array(z.object({
+    kind: z.enum(["book", "notebook"]),
+    chapter: z.number().int().positive(),
+  })).min(1),
+  fixedQuestions: z.array(z.object({
+    id: z.string().regex(/^q\d+$/),
+    text: z.string().min(1).max(200),
+    tab: z.enum(WORKSPACE_TAB_IDS).nullable(),
+  })).max(5),
+});
+export type Tutor = z.infer<typeof TutorSchema>;
+
 export const ManifestSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -287,6 +309,9 @@ export const ManifestSchema = z.object({
   // and absent on manifests written before this field existed; consumers
   // default absent -> "mi" at the public boundary (registry/modelRegistry.ts).
   distanceUnit: z.enum(["mi", "km"]).optional(),
+  // WATBOT — optional on purpose: never add to any required list (CLAUDE.md
+  // gotcha on required[] being a data-compatibility decision).
+  tutor: TutorSchema.optional(),
 });
 
 export type Manifest = z.infer<typeof ManifestSchema>;

@@ -40,3 +40,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-10-30T12:02:27.781Z,SEC,870,1,0,0,,101,0,"corrected: run from the sec-medium-fixes worktree with the shared checkout's settings.local.json symlinked in; the worktree has no .harness allow-baseline, so the tool counted all 870 grants as new. Prior row allow_total 869, so +1"
 2026-11-03T23:43:05.490Z,DU-5,870,3,0,0,,101,0,
 2026-11-09T12:06:03.779Z,CH10-UNHIDE,870,0,0,0,,101,0,
+2026-11-20T12:57:42.105Z,WATBOT,870,0,0,0,,101,0,

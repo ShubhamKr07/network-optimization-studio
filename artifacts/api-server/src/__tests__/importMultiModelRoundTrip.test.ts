@@ -32,6 +32,7 @@ const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
+  WATBOT_MESSAGE_TYPES: [], coursePassagesTable: {}, // routes/index.ts now loads the WatBot router, which reads these at import
   scenariosTable: { id: "id", name: "name", userId: "user_id", modelId: "model_id", createdAt: "created_at", updatedAt: "updated_at" },
   solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
   usersTable: { id: "id", email: "email" },
@@ -57,6 +58,7 @@ vi.mock("../solver/jobRunner.js", () => ({
   enqueueScenarioSolve: vi.fn(),
   getQueueDepth: mockGetQueueDepth,
   QUEUE_DEPTH_LIMIT: 30,
+  parsePositiveIntEnv: (_raw: string | undefined, fallback: number) => fallback, // watbot/limits.ts reads it at import
 }));
 
 // SEC-2 — requireAuth's per-request users lookup. Returning the hash loginAs logged

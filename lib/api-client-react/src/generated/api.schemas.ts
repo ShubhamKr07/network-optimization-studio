@@ -5,6 +5,114 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+export interface WatBotCitation {
+  passageId: number;
+  label: string;
+  citedText: string;
+}
+
+export interface WatBotBlock {
+  text: string;
+  citations: WatBotCitation[];
+}
+
+export type WatBotMessageRole = typeof WatBotMessageRole[keyof typeof WatBotMessageRole];
+
+
+export const WatBotMessageRole = {
+  student: 'student',
+  tutor: 'tutor',
+  notice: 'notice',
+} as const;
+
+export interface WatBotMessage {
+  id: number;
+  role: WatBotMessageRole;
+  blocks: WatBotBlock[];
+  createdAt: string;
+}
+
+export interface WatBotConversationSummary {
+  id: number;
+  modelId: string;
+  title: string;
+  updatedAt: string;
+}
+
+export type WatBotConversation = WatBotConversationSummary & {
+  messages: WatBotMessage[];
+};
+
+export interface CreateWatBotConversationRequest {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  modelId: string;
+}
+
+export type AskWatBotRequestContext = {
+  /** @maxLength 64 */
+  tab: string | null;
+  scenarioId: number | null;
+} | null;
+
+export interface AskWatBotRequest {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  question: string;
+  context: AskWatBotRequestContext;
+}
+
+export interface WatBotPassage {
+  id: number;
+  label: string;
+  body: string;
+}
+
+export type WatBotReportRequestReason = typeof WatBotReportRequestReason[keyof typeof WatBotReportRequestReason];
+
+
+export const WatBotReportRequestReason = {
+  wrong_or_misleading: 'wrong_or_misleading',
+  citation_unsupported: 'citation_unsupported',
+  not_what_i_asked: 'not_what_i_asked',
+  other: 'other',
+} as const;
+
+export interface WatBotReportRequest {
+  messageId: number;
+  reason: WatBotReportRequestReason;
+  /** @maxLength 2000 */
+  note?: string;
+}
+
+export interface WatBotStatus {
+  available: boolean;
+  studentRemaining: number;
+  studentResetAt: string | null;
+  projectCapReached: boolean;
+}
+
+export type WatBotErrorError = typeof WatBotErrorError[keyof typeof WatBotErrorError];
+
+
+export const WatBotErrorError = {
+  watbot_unavailable: 'watbot_unavailable',
+  watbot_student_limit: 'watbot_student_limit',
+  watbot_project_limit: 'watbot_project_limit',
+  watbot_refused: 'watbot_refused',
+  watbot_failed: 'watbot_failed',
+  watbot_busy: 'watbot_busy',
+} as const;
+
+export interface WatBotError {
+  error: WatBotErrorError;
+  resetAt?: string | null;
+}
+
 export type AuthUserRole = typeof AuthUserRole[keyof typeof AuthUserRole];
 
 
@@ -286,6 +394,35 @@ export const ModelInfoDistanceUnit = {
   km: 'km',
 } as const;
 
+export type ModelTutorReadingListItemKind = typeof ModelTutorReadingListItemKind[keyof typeof ModelTutorReadingListItemKind];
+
+
+export const ModelTutorReadingListItemKind = {
+  book: 'book',
+  notebook: 'notebook',
+} as const;
+
+export type ModelTutorReadingListItem = {
+  kind: ModelTutorReadingListItemKind;
+  /** @minimum 1 */
+  chapter: number;
+};
+
+export type ModelTutorFixedQuestionsItem = {
+  id: string;
+  text: string;
+  tab: string | null;
+};
+
+/**
+ * WatBot reading list and fixed chapter questions (WATBOT spec §3).
+ */
+export interface ModelTutor {
+  readingList: ModelTutorReadingListItem[];
+  /** @maxItems 5 */
+  fixedQuestions: ModelTutorFixedQuestionsItem[];
+}
+
 /**
  * Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
  */
@@ -299,6 +436,7 @@ export interface ModelInfo {
   inputsSchema: ModelInfoInputsSchema;
   /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
   distanceUnit: ModelInfoDistanceUnit;
+  tutor?: ModelTutor;
 }
 
 /**
@@ -1657,5 +1795,9 @@ export type UpdateInboundDistanceBandsBody = {
      * @nullable
      */
   inboundDistanceBands: number[] | null;
+};
+
+export type ListWatBotConversationsParams = {
+modelId?: string;
 };
 

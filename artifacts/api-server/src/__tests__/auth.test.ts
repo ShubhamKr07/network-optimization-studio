@@ -9,6 +9,7 @@ const mockDb = vi.hoisted(() => ({
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
+  WATBOT_MESSAGE_TYPES: [], coursePassagesTable: {}, // routes/index.ts now loads the WatBot router, which reads these at import
   usersTable: { id: "id", email: "email" },
 }));
 

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { ZodType } from "zod";
-import { SOLVERS_ROOT, ManifestSchema, type Manifest } from "@workspace/dataset-schema";
+import { SOLVERS_ROOT, ManifestSchema, type Manifest, type Tutor } from "@workspace/dataset-schema";
 import { pMedianInputsSchema } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
@@ -95,6 +95,7 @@ export interface PublicModelInfo {
   // reported in. Optional on the manifest (older manifests predate it), so
   // it's defaulted here at the public boundary rather than left absent.
   distanceUnit: "mi" | "km";
+  tutor?: Tutor;
 }
 
 function toPublic(manifest: Manifest): PublicModelInfo {
@@ -116,6 +117,7 @@ function toPublic(manifest: Manifest): PublicModelInfo {
     },
     inputsSchema: manifest.inputsSchema,
     distanceUnit: manifest.distanceUnit ?? "mi",
+    ...(manifest.tutor ? { tutor: manifest.tutor } : {}),
   };
 }
 

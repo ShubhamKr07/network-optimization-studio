@@ -9,6 +9,7 @@ import type { ModelInfoCapabilities } from './modelInfoCapabilities';
 import type { ModelInfoCountryBounds } from './modelInfoCountryBounds';
 import type { ModelInfoDistanceUnit } from './modelInfoDistanceUnit';
 import type { ModelInfoInputsSchema } from './modelInfoInputsSchema';
+import type { ModelTutor } from './modelTutor';
 
 /**
  * Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
@@ -23,4 +24,5 @@ export interface ModelInfo {
   inputsSchema: ModelInfoInputsSchema;
   /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
   distanceUnit: ModelInfoDistanceUnit;
+  tutor?: ModelTutor;
 }

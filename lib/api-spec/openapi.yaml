@@ -1086,8 +1086,349 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /watbot/status:
+    get:
+      tags: [WatBot]
+      operationId: getWatBotStatus
+      summary: WatBot availability and the caller's remaining quota
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotStatus'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /watbot/conversations:
+    post:
+      tags: [WatBot]
+      operationId: createWatBotConversation
+      summary: Start a WatBot conversation for a model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWatBotConversationRequest'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotConversationSummary'
+        '400':
+          description: Unknown model.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Model is locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    get:
+      tags: [WatBot]
+      operationId: listWatBotConversations
+      summary: List the caller's WatBot conversations
+      parameters:
+        - name: modelId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatBotConversationSummary'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /watbot/conversations/{conversationId}:
+    get:
+      tags: [WatBot]
+      operationId: getWatBotConversation
+      summary: Get one WatBot conversation with its messages
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotConversation'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [WatBot]
+      operationId: deleteWatBotConversation
+      summary: Delete a WatBot conversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /watbot/conversations/{conversationId}/messages:
+    post:
+      tags: [WatBot]
+      operationId: askWatBot
+      summary: Ask WatBot a question; the answer streams as server-sent events
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskWatBotRequest'
+      responses:
+        '200':
+          description: >-
+            Server-sent events: queued, searching, block, notice, done, error.
+            The studio reads this stream by hand.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Question missing or over 2000 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Model is locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found, or a context scenario the caller does not own.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A question from this user is already in flight.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotError'
+        '429':
+          description: Student or project limit reached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotError'
+        '503':
+          description: WatBot is temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotError'
+  /watbot/passages/{passageId}:
+    get:
+      tags: [WatBot]
+      operationId: getWatBotPassage
+      summary: Read a cited course passage
+      parameters:
+        - name: passageId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotPassage'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found, or not cited in one of your WatBot answers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /watbot/reports:
+    post:
+      tags: [WatBot]
+      operationId: submitWatBotReport
+      summary: Report a WatBot answer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatBotReportRequest'
+      responses:
+        '201':
+          description: Report stored.
+        '400':
+          description: Invalid report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
 components:
   schemas:
+    WatBotCitation:
+      type: object
+      required: [passageId, label, citedText]
+      properties:
+        passageId: { type: integer }
+        label: { type: string }
+        citedText: { type: string }
+    WatBotBlock:
+      type: object
+      required: [text, citations]
+      properties:
+        text: { type: string }
+        citations: { type: array, items: { $ref: '#/components/schemas/WatBotCitation' } }
+    WatBotMessage:
+      type: object
+      required: [id, role, blocks, createdAt]
+      properties:
+        id: { type: integer }
+        role: { type: string, enum: [student, tutor, notice] }
+        blocks: { type: array, items: { $ref: '#/components/schemas/WatBotBlock' } }
+        createdAt: { type: string, format: date-time }
+    WatBotConversationSummary:
+      type: object
+      required: [id, modelId, title, updatedAt]
+      properties:
+        id: { type: integer }
+        modelId: { type: string }
+        title: { type: string }
+        updatedAt: { type: string, format: date-time }
+    WatBotConversation:
+      allOf:
+        - $ref: '#/components/schemas/WatBotConversationSummary'
+        - type: object
+          required: [messages]
+          properties:
+            messages: { type: array, items: { $ref: '#/components/schemas/WatBotMessage' } }
+    CreateWatBotConversationRequest:
+      type: object
+      required: [modelId]
+      properties:
+        modelId: { type: string, minLength: 1, maxLength: 64 }
+    AskWatBotRequest:
+      type: object
+      required: [question, context]
+      properties:
+        question: { type: string, minLength: 1, maxLength: 2000 }
+        context:
+          type: object
+          nullable: true
+          required: [tab, scenarioId]
+          properties:
+            tab: { type: string, nullable: true, maxLength: 64 }
+            scenarioId: { type: integer, nullable: true }
+    WatBotPassage:
+      type: object
+      required: [id, label, body]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        body: { type: string }
+    WatBotReportRequest:
+      type: object
+      required: [messageId, reason]
+      properties:
+        messageId: { type: integer }
+        reason: { type: string, enum: [wrong_or_misleading, citation_unsupported, not_what_i_asked, other] }
+        note: { type: string, maxLength: 2000 }
+    WatBotStatus:
+      type: object
+      required: [available, studentRemaining, studentResetAt, projectCapReached]
+      properties:
+        available: { type: boolean }
+        studentRemaining: { type: integer }
+        studentResetAt: { type: string, format: date-time, nullable: true }
+        projectCapReached: { type: boolean }
+    WatBotError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, enum: [watbot_unavailable, watbot_student_limit, watbot_project_limit, watbot_refused, watbot_failed, watbot_busy] }
+        resetAt: { type: string, format: date-time, nullable: true }
     AuthUser:
       type: object
       required: [id, email, role]
@@ -1465,7 +1806,33 @@ components:
           type: string
           description: Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field.
           enum: [mi, km]
+        tutor:
+          $ref: '#/components/schemas/ModelTutor'
       required: [id, name, chapter, countryBounds, capabilities, inputsSchema, distanceUnit]
+
+    ModelTutor:
+      type: object
+      description: WatBot reading list and fixed chapter questions (WATBOT spec §3).
+      required: [readingList, fixedQuestions]
+      properties:
+        readingList:
+          type: array
+          items:
+            type: object
+            required: [kind, chapter]
+            properties:
+              kind: { type: string, enum: [book, notebook] }
+              chapter: { type: integer, minimum: 1 }
+        fixedQuestions:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [id, text, tab]
+            properties:
+              id: { type: string }
+              text: { type: string }
+              tab: { type: string, nullable: true }
 
     ReferenceDistancePair:
       type: object
