@@ -65,4 +65,58 @@ describe("useWatBotConversation", () => {
     expect(result.current.items[2]!.blocks[0]!.text).toBe("Answer stopped");
     expect(result.current.status).toBeNull();
   });
+
+  function hangingStream(extra = "") {
+    const signals: AbortSignal[] = [];
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((_u: string, init: RequestInit) => {
+      signals.push(init.signal!);
+      return Promise.resolve(new Response(new ReadableStream({
+        start(c) {
+          if (extra) c.enqueue(new TextEncoder().encode(extra));
+          init.signal!.addEventListener("abort", () => c.error(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        },
+      }), { status: 200 }));
+    });
+    return signals;
+  }
+
+  it("aborts the in-flight fetch on unmount", async () => {
+    const signals = hangingStream();
+    const { result, unmount } = renderHook(() => useWatBotConversation("p-median-us"));
+    act(() => { void result.current.ask("Why?", null); });
+    await waitFor(() => expect(signals).toHaveLength(1));
+    unmount();
+    expect(signals[0]!.aborted).toBe(true);
+  });
+
+  it("startNew aborts the stream and the late answer does not leak into the new conversation", async () => {
+    const signals = hangingStream('event: block\ndata: {"text":"old","citations":[]}\n\n');
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    let p!: Promise<void>;
+    act(() => { p = result.current.ask("Why?", null); });
+    await waitFor(() => expect(result.current.items.some((i) => i.kind === "tutor")).toBe(true));
+    act(() => { result.current.startNew(); });
+    await act(async () => { await p; });
+    expect(signals[0]!.aborted).toBe(true);
+    expect(result.current.items).toEqual([]);
+    expect(result.current.busy).toBe(false);
+    expect(result.current.status).toBeNull();
+  });
+
+  it("clears the queued pill and searching state on the first block", async () => {
+    const signals = hangingStream('event: queued\ndata: {"position":2}\n\nevent: searching\ndata: {"query":"Ch 3"}\n\nevent: queued\ndata: {"position":2}\n\nevent: block\ndata: {"text":"Hi","citations":[]}\n\n');
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    act(() => { void result.current.ask("Why?", null); });
+    await waitFor(() => expect(result.current.items.some((i) => i.kind === "tutor")).toBe(true));
+    expect(result.current.pending).toEqual({ searching: null });
+    act(() => { result.current.stop(); });
+    await waitFor(() => expect(signals[0]!.aborted).toBe(true));
+  });
+
+  it("a stream that ends after a block with no done/error is a failure", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse('event: block\ndata: {"text":"Half","citations":[]}\n\n'));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    await act(async () => { await result.current.ask("Why?", null); });
+    expect(result.current.status).toBe("watbot_failed");
+  });
 });

@@ -2,8 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 const mutateAsync = vi.fn().mockResolvedValue(undefined);
+const passageState = { isError: false };
 vi.mock("@workspace/api-client-react", () => ({
-  useGetWatBotPassage: (id: number) => ({ data: id ? { id, label: "Ch 3 · p.38", body: "Full page text." } : undefined }),
+  getGetWatBotPassageQueryKey: (id: number) => ["passage", id],
+  useGetWatBotPassage: (id: number, o: { query: { enabled: boolean; retry: boolean } }) => ({
+    data: o.query.enabled && !passageState.isError ? { id, label: "Ch 3 · p.38", body: "Full page text." } : undefined,
+    isError: o.query.enabled && passageState.isError, isLoading: o.query.enabled && !passageState.isError && false,
+    retryOpt: o.query.retry,
+  }),
   useSubmitWatBotReport: () => ({ mutateAsync, isPending: false }),
 }));
 import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
@@ -16,14 +22,14 @@ const items = [
 
 describe("WatBotMessages", () => {
   it("renders student, tutor and notice messages distinctly", () => {
-    render(<WatBotMessages items={items} pending={null} />);
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     expect(screen.getByText("Why?").closest("[data-role]")).toHaveAttribute("data-role", "student");
     expect(screen.getByText(/Demand weights distance/).closest("[data-role]")).toHaveAttribute("data-role", "tutor");
     expect(screen.getByText(/One claim was removed/).closest("[data-role]")).toHaveAttribute("data-role", "notice");
   });
 
   it("citation chip opens a popover with the cited passage and the full source", () => {
-    render(<WatBotMessages items={items} pending={null} />);
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
     expect(screen.getByText("P-median minimizes demand-weighted distance.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open full source" }));
@@ -31,7 +37,7 @@ describe("WatBotMessages", () => {
   });
 
   it("reports a cited answer with a reason and note", async () => {
-    render(<WatBotMessages items={items} pending={null} />);
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Report this answer" }));
     fireEvent.click(screen.getByRole("radio", { name: "The citation doesn't support the answer" }));
     fireEvent.change(screen.getByRole("textbox", { name: /Anything else/ }), { target: { value: "wrong page" } });
@@ -42,7 +48,7 @@ describe("WatBotMessages", () => {
 
   it("shows checking source and a Stop control while a block is pending", () => {
     const onStop = vi.fn();
-    render(<WatBotMessages items={[]} pending={{ searching: "Chapter 6", streaming: true }} onStop={onStop} />);
+    render(<WatBotMessages items={[]} pending={{ searching: "Chapter 6" }} onStop={onStop} />);
     expect(screen.getByText(/Searching Chapter 6/)).toBeInTheDocument();
     expect(screen.getByText("checking source…")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Stop generating" }));
@@ -50,7 +56,23 @@ describe("WatBotMessages", () => {
   });
 
   it("shows queue position as text", () => {
-    render(<WatBotMessages items={[]} pending={{ searching: null, queued: 2, streaming: true }} />);
+    render(<WatBotMessages items={[]} pending={{ searching: null, queued: 2 }} onStop={vi.fn()} />);
     expect(screen.getByText(/number 2 in line/)).toBeInTheDocument();
+  });
+
+  it("shows 'Source unavailable' when the passage fails to load", () => {
+    passageState.isError = true;
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open full source" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Source unavailable");
+    passageState.isError = false;
+  });
+
+  it("hides 'Open full source' until the message has a server id (D23)", () => {
+    const unsaved = [{ ...items[1]!, id: undefined }];
+    render(<WatBotMessages items={unsaved} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    expect(screen.queryByRole("button", { name: "Open full source" })).toBeNull();
   });
 });
