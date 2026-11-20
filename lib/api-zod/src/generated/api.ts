@@ -1320,8 +1320,12 @@ export const ListWatBotConversationsResponse = zod.array(ListWatBotConversations
 /**
  * @summary Get one WatBot conversation with its messages
  */
+export const getWatBotConversationPathConversationIdMax = 2147483647;
+
+
+
 export const GetWatBotConversationParams = zod.object({
-  "conversationId": zod.coerce.number()
+  "conversationId": zod.coerce.number().min(1).max(getWatBotConversationPathConversationIdMax)
 })
 
 export const GetWatBotConversationResponse = zod.object({
@@ -1349,29 +1353,37 @@ export const GetWatBotConversationResponse = zod.object({
 /**
  * @summary Delete a WatBot conversation
  */
+export const deleteWatBotConversationPathConversationIdMax = 2147483647;
+
+
+
 export const DeleteWatBotConversationParams = zod.object({
-  "conversationId": zod.coerce.number()
+  "conversationId": zod.coerce.number().min(1).max(deleteWatBotConversationPathConversationIdMax)
 })
 
 
 /**
  * @summary Ask WatBot a question; the answer streams as server-sent events
  */
+export const askWatBotPathConversationIdMax = 2147483647;
+
+
+
 export const AskWatBotParams = zod.object({
-  "conversationId": zod.coerce.number()
+  "conversationId": zod.coerce.number().min(1).max(askWatBotPathConversationIdMax)
 })
 
 export const askWatBotBodyQuestionMax = 2000;
 
-export const askWatBotBodyContextTabMax = 64;
+export const askWatBotBodyContextScenarioIdMax = 2147483647;
 
 
 
 export const AskWatBotBody = zod.object({
   "question": zod.string().min(1).max(askWatBotBodyQuestionMax),
   "context": zod.object({
-  "tab": zod.string().max(askWatBotBodyContextTabMax).nullable(),
-  "scenarioId": zod.number().nullable()
+  "tab": zod.union([zod.literal('input-map'),zod.literal('products'),zod.literal('plants'),zod.literal('warehouses'),zod.literal('customers'),zod.literal('demand'),zod.literal('distances'),zod.literal('optimization-parameters'),zod.literal('mines'),zod.literal('stations'),zod.literal('refineries'),zod.literal('capability-matrix'),zod.literal('output-map'),zod.literal('cost-summary'),zod.literal('open-warehouses'),zod.literal('customer-assignments'),zod.literal('flows'),zod.literal('service-stats'),zod.literal('plantProducts'),zod.literal('transportCosts'),zod.literal('deliveryCosts'),zod.literal('laneCosts'),zod.literal(null)]).nullable(),
+  "scenarioId": zod.number().min(1).max(askWatBotBodyContextScenarioIdMax).nullable()
 }).nullable()
 })
 
@@ -1379,8 +1391,12 @@ export const AskWatBotBody = zod.object({
 /**
  * @summary Read a cited course passage
  */
+export const getWatBotPassagePathPassageIdMax = 2147483647;
+
+
+
 export const GetWatBotPassageParams = zod.object({
-  "passageId": zod.coerce.number()
+  "passageId": zod.coerce.number().min(1).max(getWatBotPassagePathPassageIdMax)
 })
 
 export const GetWatBotPassageResponse = zod.object({
@@ -1393,12 +1409,14 @@ export const GetWatBotPassageResponse = zod.object({
 /**
  * @summary Report a WatBot answer
  */
+export const submitWatBotReportBodyMessageIdMax = 2147483647;
+
 export const submitWatBotReportBodyNoteMax = 2000;
 
 
 
 export const SubmitWatBotReportBody = zod.object({
-  "messageId": zod.number(),
+  "messageId": zod.number().min(1).max(submitWatBotReportBodyMessageIdMax),
   "reason": zod.enum(['wrong_or_misleading', 'citation_unsupported', 'not_what_i_asked', 'other']),
   "note": zod.string().max(submitWatBotReportBodyNoteMax).optional()
 })

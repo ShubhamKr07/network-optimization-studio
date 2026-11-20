@@ -22,13 +22,8 @@ const BY_MODEL: Record<string, Array<{ city: string }>> = {
   // super-model: no base dataset; its facilities are imported per scenario.
 };
 
-const cache = new Map<string, string[]>();
-const datasetNames = (modelId: string) => {
-  if (!cache.has(modelId)) {
-    cache.set(modelId, [...new Set((BY_MODEL[modelId] ?? []).map((f) => f.city.trim()).filter(Boolean))]);
-  }
-  return cache.get(modelId)!;
-};
+const datasetNames = (modelId: string) =>
+  [...new Set((BY_MODEL[modelId] ?? []).map((f) => f.city.trim()).filter(Boolean))];
 
 // Facility lists across the models' input schemas: super-model's imported
 // `warehouses`/`plants` (city optional, QFX-7) and every model's added-facility arrays.

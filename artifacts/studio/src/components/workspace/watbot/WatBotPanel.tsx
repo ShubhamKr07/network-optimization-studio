@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { History, X } from "lucide-react";
-import { useGetWatBotStatus, type ModelTutor } from "@workspace/api-client-react";
+import type { ModelTutor, WatBotStatus } from "@workspace/api-client-react";
 import type { WorkspaceView } from "@/lib/workspaceView";
 import { buildContextChip } from "./contextChip";
 import { WatBotStarters } from "./WatBotStarters";
@@ -9,21 +9,29 @@ export type AskOptions = { tab: string | null; includeContext: boolean };
 const MAX_QUESTION_CHARS = 2000;
 
 export function WatBotPanel(props: {
-  modelId: string; chapter: string; tutor: ModelTutor | undefined; view: WorkspaceView | null;
+  status: WatBotStatus | undefined; modelId: string; chapter: string; tutor: ModelTutor | undefined; view: WorkspaceView | null;
   scenario: { name: string; inputs?: unknown } | null; busy?: boolean; hasMessages?: boolean;
-  onAsk: (question: string, opts: AskOptions) => void; onClose: () => void; onOpenHistory?: () => void;
+  onAsk: (question: string, opts: AskOptions) => void; onClose: () => void; onOpenHistory: () => void;
   children?: ReactNode;
 }) {
-  const { data: status } = useGetWatBotStatus({ query: { refetchInterval: 60_000 } } as never);
+  const { status } = props;
   const [contextOn, setContextOn] = useState(true);
   const [draft, setDraft] = useState("");
   const chip = buildContextChip(props.view, props.scenario);
+  // Spec §4: the chip "updates on tab or scenario change" — a removed chip comes back when its label changes.
+  useEffect(() => setContextOn(true), [chip?.label]);
   const unavailable = status ? !status.available : false;
   const studentLimited = status ? status.studentRemaining === 0 : false;
   const projectLimited = status?.projectCapReached ?? false;
   const blocked = unavailable || studentLimited || projectLimited;
   const inputDisabled = blocked || !!props.busy;
   const inputRef = useRef<HTMLInputElement>(null);
+  const wasBusy = useRef(false);
+  // A11y: the input is disabled while answering (focus drops to body); give it back when the answer ends.
+  useEffect(() => {
+    if (wasBusy.current && !props.busy) inputRef.current?.focus();
+    wasBusy.current = !!props.busy;
+  }, [props.busy]);
   const asideRef = useRef<HTMLElement>(null);
   // A11y: the panel mounts after the map in DOM order; move focus in on open (input, else the region).
   useEffect(() => { (inputRef.current && !inputRef.current.disabled ? inputRef.current : asideRef.current)?.focus(); }, []);
@@ -37,7 +45,7 @@ export function WatBotPanel(props: {
         {unavailable && <span className="rounded border border-warning-border bg-warning-bg px-2 text-[11px] font-semibold text-warning">Unavailable</span>}
         {(studentLimited || projectLimited) && <span className="rounded border border-warning-border bg-warning-bg px-2 text-[11px] font-semibold text-warning">Limit reached</span>}
         <span className="flex-1" />
-        <button type="button" aria-label="Conversation history" onClick={props.onOpenHistory} className="grid size-8 place-items-center rounded hover:bg-muted"><History className="size-4" aria-hidden="true" /></button>
+        <button type="button" aria-label="Conversation history" disabled={!!props.busy} onClick={props.onOpenHistory} className="grid size-8 place-items-center rounded hover:bg-muted"><History className="size-4" aria-hidden="true" /></button>
         <button type="button" aria-label="Close WatBot panel" onClick={props.onClose} className="grid size-8 place-items-center rounded hover:bg-muted"><X className="size-4" aria-hidden="true" /></button>
       </header>
       {chip && contextOn && (
@@ -45,7 +53,7 @@ export function WatBotPanel(props: {
           <span className="font-mono text-[11px] tracking-widest text-muted-foreground">LOOKING AT</span>
           <span className="inline-flex h-6 items-center gap-1 rounded-full border px-2 font-mono text-[11px]">
             {chip.label}
-            <button type="button" aria-label="Remove context" onClick={() => setContextOn(false)} className="ml-1"><X className="size-3" aria-hidden="true" /></button>
+            <button type="button" aria-label="Remove context" onClick={() => setContextOn(false)} className="ml-1 grid size-6 place-items-center"><X className="size-3" aria-hidden="true" /></button>
           </span>
         </div>
       )}

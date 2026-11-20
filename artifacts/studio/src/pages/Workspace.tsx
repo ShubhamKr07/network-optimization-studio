@@ -16,6 +16,7 @@ import {
   useGetSolveJob,
   useListModels,
   useGetWatBotStatus,
+  getGetWatBotStatusQueryKey,
   usePrecheckScenario,
   exportScenarioNetwork,
   precheckScenario,
@@ -1474,6 +1475,9 @@ const WATBOT_ERROR_COPY: Record<string, string> = {
   watbot_refused: "I can't help with that one.",
   watbot_failed: "Something went wrong. Try again.",
   watbot_busy: "WatBot is still answering your last question.",
+  watbot_project_limit: "WatBot has reached its monthly limit. It will be back next month.",
+  watbot_student_limit: "You've reached your question limit for now. Try again later.",
+  watbot_unavailable: "WatBot is unavailable right now. Your conversation is saved.",
 };
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
@@ -3028,7 +3032,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [watbotOpen, setWatBotOpen] = useState(false);
   const [watbotHistoryOpen, setWatBotHistoryOpen] = useState(false);
   const watbot = useWatBotConversation(modelId);
-  const { data: watbotStatus } = useGetWatBotStatus({ query: { refetchInterval: 60_000 } } as never);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const { data: watbotStatus } = useGetWatBotStatus({ query: { queryKey: getGetWatBotStatusQueryKey(), refetchInterval: 60_000 } });
   // WatBot D11 — below 1280px the panel takes the sidebar's room: collapse it to the icon rail.
   const watbotButtonRef = useRef<HTMLButtonElement>(null);
   const closeWatBot = () => { setWatBotOpen(false); watbotButtonRef.current?.focus(); };
@@ -4669,6 +4674,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 UnitToggle (AppShell owns the Landing-header mount, T10). */}
             <UnitToggle />
             <ThemeToggle />
+            <Button type="button" size="sm" variant={watbotOpen ? "secondary" : "outline"} aria-pressed={watbotOpen}
+              disabled={watbotStatus ? !watbotStatus.available && !watbotOpen : false}
+              ref={watbotButtonRef} onClick={openWatBot} data-testid="button-watbot">
+              WatBot{watbotStatus && !watbotStatus.available && <span aria-label="unavailable" className="ml-1.5 inline-block size-2 rounded-full bg-warning" />}
+            </Button>
             {/* chen-bands-units, Part A (eighth-review #3) — disabled while
                 browsing an older history entry: POST /solve carries no
                 body and solves whatever is ALREADY PERSISTED, not the
@@ -4678,11 +4688,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             {/* CH4UX-6 — also disabled while a solve is in flight: the
                 overlay is modal, but this header button is the one control
                 a keyboard user could still reach mid-run. */}
-            <Button type="button" size="sm" variant={watbotOpen ? "secondary" : "outline"} aria-pressed={watbotOpen}
-              disabled={watbotStatus ? !watbotStatus.available && !watbotOpen : false}
-              ref={watbotButtonRef} onClick={openWatBot} data-testid="button-watbot">
-              WatBot{watbotStatus && !watbotStatus.available && <span aria-label="unavailable" className="ml-1.5 inline-block size-2 rounded-full bg-warning" />}
-            </Button>
             <Button
               size="sm"
               disabled={!currentScenario || isBrowsingHistoryNow || solvePhase !== "idle" || objectiveRequired}
@@ -4815,24 +4820,29 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           </div>
         </div>
         {watbotOpen && (
-          <WatBotPanel modelId={modelId} chapter={chapterForModelId(modelId)?.chapter ?? ""}
+          <WatBotPanel status={watbotStatus} modelId={modelId} chapter={chapterForModelId(modelId)?.chapter ?? ""}
             tutor={activeModelManifest?.tutor} view={activeView}
             scenario={currentScenario ? { name: currentScenario.name, inputs: currentScenario.inputs } : null}
             busy={watbot.busy} hasMessages={watbot.items.length > 0}
-            onAsk={(q, o) => { setWatBotHistoryOpen(false); void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
+            onAsk={(q, o) => { setWatBotHistoryOpen(false); setHistoryError(null); void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
             onOpenHistory={() => setWatBotHistoryOpen((h) => !h)} onClose={closeWatBot}>
             {watbotHistoryOpen ? (
-              <WatBotHistory modelId={modelId} onNew={() => { watbot.startNew(); setWatBotHistoryOpen(false); }}
+              <WatBotHistory modelId={modelId} onNew={() => { watbot.startNew(); setHistoryError(null); setWatBotHistoryOpen(false); }}
                 onPick={async (id) => {
-                  const conv = await getWatBotConversation(id);
-                  watbot.load(id, conv.messages.map((m) => ({ kind: m.role, id: m.role === "tutor" ? m.id : undefined, blocks: m.blocks })));
+                  try {
+                    const conv = await getWatBotConversation(id);
+                    watbot.load(id, conv.messages.map((m) => ({ kind: m.role, id: m.role === "tutor" ? m.id : undefined, blocks: m.blocks })));
+                    setHistoryError(null);
+                  } catch {
+                    setHistoryError("Could not open that conversation. Try again.");
+                  }
                   setWatBotHistoryOpen(false);
                 }} />
             ) : (
               <>
                 <WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop} />
-                {watbot.status && WATBOT_ERROR_COPY[watbot.status] && (
-                  <p role="alert" data-testid="watbot-error" className="text-sm text-destructive">{WATBOT_ERROR_COPY[watbot.status]}</p>
+                {(watbot.status ?? historyError) && (
+                  <p role="alert" data-testid="watbot-error" className="text-sm text-danger">{historyError ?? WATBOT_ERROR_COPY[watbot.status!] ?? WATBOT_ERROR_COPY.watbot_failed}</p>
                 )}
               </>
             )}

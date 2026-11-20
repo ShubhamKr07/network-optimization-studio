@@ -33,6 +33,17 @@ async function registerAndGetCookie(): Promise<string> {
   return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
 }
 
+// Like the real API, rejects any empty text block in the request (a 400 there), so an
+// empty replayed history turn can never pass silently here.
+function useClient(c: WatBotClient | null) {
+  if (!c) { setWatBotClientForTests(null); return; }
+  setWatBotClientForTests({ messages: { stream(params, opts) {
+    const blocks = params.messages.flatMap((m): Anthropic.ContentBlockParam[] => (typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content));
+    if (blocks.some((b) => b.type === "text" && !b.text.trim())) throw new Error("400 messages: text content blocks must be non-empty");
+    return c.messages.stream(params, opts);
+  } } });
+}
+
 const USAGE = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
 
 const failing = (err: unknown): WatBotStream => ({ async *[Symbol.asyncIterator]() { throw err; }, finalMessage: async () => { throw err; } });
@@ -141,7 +152,7 @@ describe("watbot routes", () => {
   });
 
   it("streams an answer as SSE and persists student + tutor messages with type, status, latency and usage", async () => {
-    setWatBotClientForTests(scriptedClient("What would change with p = 1?", { type: "concept_question" }));
+    useClient(scriptedClient("What would change with p = 1?", { type: "concept_question" }));
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
     const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie)
@@ -163,7 +174,7 @@ describe("watbot routes", () => {
   });
 
   it("leaves message_type null when the model skips record_message_type, and stores a logged gap on the tutor row", async () => {
-    setWatBotClientForTests(scriptedClient("The materials don't cover that; want to look at outbound costs?", { gap: { topic: "rail rates", nearestCoveredTopic: "outbound costs" } }));
+    useClient(scriptedClient("The materials don't cover that; want to look at outbound costs?", { gap: { topic: "rail rates", nearestCoveredTopic: "outbound costs" } }));
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
     const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "Rail rates?", context: null });
@@ -226,7 +237,7 @@ describe("watbot routes", () => {
   });
 
   it("stores a report only against the reporter's own message", async () => {
-    setWatBotClientForTests(scriptedClient("Short."));
+    useClient(scriptedClient("Short."));
     const owner = await registerAndGetCookie();
     const id = await newConversation(owner);
     await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", owner).send({ question: "q", context: null });
@@ -246,7 +257,7 @@ describe("watbot routes", () => {
 
   // D21 — atomic admission.
   it("admits exactly one of two simultaneous questions at 49 counted messages; the other gets 409 watbot_busy", async () => {
-    setWatBotClientForTests(scriptedClient("What would change with p = 1?", { delayMs: 300 }));
+    useClient(scriptedClient("What would change with p = 1?", { delayMs: 300 }));
     const cookie = await registerAndGetCookie();
     const userId = lastUserId();
     const id = await newConversation(cookie);
@@ -265,7 +276,7 @@ describe("watbot routes", () => {
   });
 
   it("a failure before any usage leaves the question uncounted, with no tutor row, and releases the lock and reservation", async () => {
-    setWatBotClientForTests({ messages: { stream: () => failing(new Error("boom")) } });
+    useClient({ messages: { stream: () => failing(new Error("boom")) } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
     const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
@@ -280,7 +291,7 @@ describe("watbot routes", () => {
   it("one 529 followed by success answers normally and does not set the unavailable flag", async () => {
     const answer = scriptedClient("What would change with p = 1?");
     let call = 0;
-    setWatBotClientForTests({ messages: { stream: (params, opts) => call++ === 0
+    useClient({ messages: { stream: (params, opts) => call++ === 0
       ? failing(Anthropic.APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers()))
       : answer.messages.stream(params, opts) } });
     const cookie = await registerAndGetCookie();
@@ -295,7 +306,7 @@ describe("watbot routes", () => {
 
   it("three consecutive 529s before any usage set the unavailable flag and leave the question uncounted", async () => {
     let calls = 0;
-    setWatBotClientForTests({ messages: { stream: () => { calls++; return failing(Anthropic.APIError.generate(529,
+    useClient({ messages: { stream: () => { calls++; return failing(Anthropic.APIError.generate(529,
       { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers())); } } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
@@ -307,7 +318,7 @@ describe("watbot routes", () => {
   });
 
   it("a missing-API-key error sets the unavailable flag", async () => {
-    setWatBotClientForTests({ messages: { stream: () => failing(new Error("Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.")) } });
+    useClient({ messages: { stream: () => failing(new Error("Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.")) } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
     const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
@@ -317,7 +328,7 @@ describe("watbot routes", () => {
 
   // D22 — provider failure after the model was reached: usage and blocks are kept, and the question counts.
   it("a 529 after message_start (on every attempt) saves the usage, keeps the student row answered and adds the cost to the month", async () => {
-    setWatBotClientForTests({ messages: { stream: () => scriptedStream([messageStartEvent],
+    useClient({ messages: { stream: () => scriptedStream([messageStartEvent],
       Anthropic.APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }, "overloaded", new Headers())) } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
@@ -336,7 +347,7 @@ describe("watbot routes", () => {
   });
 
   it("a dropped connection after a forwarded block saves that block and its usage", async () => {
-    setWatBotClientForTests({ messages: { stream: () => scriptedStream([messageStartEvent, ...textEvents(0, "What would change with p = 1?")],
+    useClient({ messages: { stream: () => scriptedStream([messageStartEvent, ...textEvents(0, "What would change with p = 1?")],
       new Anthropic.APIConnectionError({ message: "socket hang up" })) } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
@@ -352,7 +363,7 @@ describe("watbot routes", () => {
   // D24 — a 429 after a forwarded block is not re-queued.
   it("a 429 after a forwarded block shows the block once and ends through the failure path", async () => {
     let calls = 0;
-    setWatBotClientForTests({ messages: { stream: () => { calls++; return scriptedStream([messageStartEvent, ...textEvents(0, "What would change with p = 1?")],
+    useClient({ messages: { stream: () => { calls++; return scriptedStream([messageStartEvent, ...textEvents(0, "What would change with p = 1?")],
       Anthropic.APIError.generate(429, { type: "error", error: { type: "rate_limit_error", message: "slow down" } }, "slow down", new Headers({ "retry-after": "1" }))); } } });
     const cookie = await registerAndGetCookie();
     const id = await newConversation(cookie);
@@ -370,7 +381,7 @@ describe("watbot routes", () => {
   it("re-queues a 429, tells the student they are queued, then answers", async () => {
     const answer = scriptedClient("What would change with p = 1?");
     let call = 0;
-    setWatBotClientForTests({ messages: { stream: (params, opts) => call++ === 0
+    useClient({ messages: { stream: (params, opts) => call++ === 0
       ? failing(Anthropic.APIError.generate(429, { type: "error", error: { type: "rate_limit_error", message: "slow down" } }, "slow down", new Headers({ "retry-after": "1" })))
       : answer.messages.stream(params, opts) } });
     const cookie = await registerAndGetCookie();
@@ -384,7 +395,7 @@ describe("watbot routes", () => {
 
   // D22 — Stop saves the forwarded part; the buffered block is not saved.
   it("Stop mid-answer saves forwarded blocks, usage and an 'Answer stopped' notice; the student row stays answered", async () => {
-    setWatBotClientForTests({ messages: { stream: (_params, opts) => scriptedStream([
+    useClient({ messages: { stream: (_params, opts) => scriptedStream([
       messageStartEvent,
       ...textEvents(0, "What would change with p = 1?"),
       { type: "content_block_start", index: 1, content_block: { type: "text", text: "", citations: null } } as never,
@@ -407,7 +418,7 @@ describe("watbot routes", () => {
   });
 
   it("Stop while waiting for the first slot logs the question as cancelled, uncounted, with the notice", async () => {
-    setWatBotClientForTests(scriptedClient("never reached"));
+    useClient(scriptedClient("never reached"));
     const releaseAll = await fillInflight();
     try {
       const cookie = await registerAndGetCookie();
@@ -425,7 +436,7 @@ describe("watbot routes", () => {
   });
 
   it("Stop while re-queued after a 429 logs the question as cancelled, uncounted, with the notice", async () => {
-    setWatBotClientForTests({ messages: { stream: () => failing(Anthropic.APIError.generate(429,
+    useClient({ messages: { stream: () => failing(Anthropic.APIError.generate(429,
       { type: "error", error: { type: "rate_limit_error", message: "slow down" } }, "slow down", new Headers({ "retry-after": "30" }))) } });
     const cookie = await registerAndGetCookie();
     const userId = lastUserId();
@@ -439,7 +450,7 @@ describe("watbot routes", () => {
 
   // D20 — facilities imported into the context scenario join the value check (super-model has no dataset).
   it("drops a short uncited block naming a facility imported in the context scenario but absent from the summary", async () => {
-    setWatBotClientForTests(scriptedClient("Should fresno stay open?"));
+    useClient(scriptedClient("Should fresno stay open?"));
     const cookie = await registerAndGetCookie();
     const userId = lastUserId();
     const [scenario] = await db.insert(scenariosTable).values({
@@ -481,6 +492,96 @@ describe("watbot routes", () => {
     } finally {
       await db.delete(coursePassagesTable).where(eq(coursePassagesTable.chapter, 851));
     }
+  });
+
+  it("a stopped or fully filtered answer leaves no empty text block in the next question's request", async () => {
+    const seen: Anthropic.MessageStreamParams[] = [];
+    const longClaim = "The optimal solution always opens the three largest cities because they have the most demand overall.";
+    const first = scriptedClient(longClaim);
+    const second = scriptedClient("What would change with p = 1?");
+    let call = 0;
+    useClient({ messages: { stream: (params, opts) => { seen.push(params); return (call++ === 0 ? first : second).messages.stream(params, opts); } } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const ask = () => request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    const a = await ask();
+    expect(a.text).not.toContain("event: block"); // claim filtered → tutor row with no blocks
+    expect((await rows(id)).find((r) => r.role === "tutor")!.blocks).toEqual([]);
+    const b = await ask();
+    expect(b.text).toContain("event: done");
+    const texts = seen[1]!.messages.flatMap((m) => (m.content as Anthropic.ContentBlockParam[]).filter((x) => x.type === "text")) as Anthropic.TextBlockParam[];
+    expect(texts.filter((t) => !t.text.trim())).toEqual([]);
+  });
+
+  it("D20: a scenario named like a hidden facility or value does not unlock it in an uncited block", async () => {
+    const cookie = await registerAndGetCookie();
+    const userId = lastUserId();
+    const made: number[] = [];
+    try {
+      for (const [name, text] of [["Allentown", "Should Allentown be open?"], ["1234567", "Is the total 1,234,567?"]] as const) {
+        const [sc] = await db.insert(scenariosTable).values({ name, userId, modelId: "p-median-us", inputs: {} }).returning();
+        made.push(sc!.id);
+        useClient(scriptedClient(text));
+        const id = await newConversation(cookie);
+        const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie)
+          .send({ question: "Which?", context: { tab: "output-map", scenarioId: sc!.id } });
+        expect(res.text, name).not.toContain("event: block");
+        expect(res.text, name).toContain('"kind":"claim_removed"');
+      }
+    } finally {
+      for (const sid of made) await db.delete(scenariosTable).where(eq(scenariosTable.id, sid));
+    }
+  });
+
+  it("a report stores the context of the question that produced the reported answer, not the newest one", async () => {
+    useClient(scriptedClient("Short."));
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const ask = (tab: string) => request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: { tab, scenarioId: null } });
+    await ask("output-map");
+    await ask("flows");
+    const [first] = (await rows(id)).filter((r) => r.role === "tutor");
+    expect((await request(app).post("/api/watbot/reports").set("Cookie", cookie).send({ messageId: first!.id, reason: "other" })).status).toBe(201);
+    const [report] = await db.select().from(watbotReportsTable).where(eq(watbotReportsTable.messageId, first!.id));
+    expect(report!.context?.tab).toBe("output-map");
+  });
+
+  it("rejects an unknown context tab and ids past int4 without a 500", async () => {
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const post = (body: object) => request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send(body);
+    expect((await post({ question: "q", context: { tab: "Allentown", scenarioId: null } })).status).toBe(400);
+    expect((await post({ question: "q", context: { tab: null, scenarioId: 2147483648 } })).status).toBe(400);
+    expect((await request(app).post("/api/watbot/reports").set("Cookie", cookie).send({ messageId: 2147483648, reason: "other" })).status).toBe(400);
+    expect((await request(app).get("/api/watbot/conversations/2147483648").set("Cookie", cookie)).status).toBe(404);
+    expect((await request(app).get("/api/watbot/passages/2147483648").set("Cookie", cookie)).status).toBe(404);
+  });
+
+  it("status reports the cap as reached when the next question would be refused (same expression as admission)", async () => {
+    const cookie = await registerAndGetCookie();
+    const prev = process.env.WATBOT_MONTHLY_USD;
+    try {
+      // Stored spend is under the cap, but stored + the worst-case reservation is not.
+      process.env.WATBOT_MONTHLY_USD = String((await monthlySpendUsd()) + 0.001);
+      expect((await request(app).get("/api/watbot/status").set("Cookie", cookie)).body.projectCapReached).toBe(true);
+      useClient(scriptedClient("Short."));
+      const id = await newConversation(cookie);
+      const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+      expect(res.status).toBe(429);
+      process.env.WATBOT_MONTHLY_USD = String((await monthlySpendUsd()) + 100);
+      expect((await request(app).get("/api/watbot/status").set("Cookie", cookie)).body.projectCapReached).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.WATBOT_MONTHLY_USD; else process.env.WATBOT_MONTHLY_USD = prev;
+    }
+  });
+
+  it("OpenAPI context.tab enum equals WORKSPACE_TAB_IDS", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { WORKSPACE_TAB_IDS } = await import("@workspace/dataset-schema");
+    const yaml = readFileSync(new URL("../../../../lib/api-spec/openapi.yaml", import.meta.url), "utf8");
+    const block = yaml.slice(yaml.indexOf("    AskWatBotRequest:"));
+    const list = block.match(/enum: \[([^\]]+)\]/)![1]!.split(",").map((x) => x.trim()).filter((x) => x !== "null");
+    expect(list).toEqual([...WORKSPACE_TAB_IDS]);
   });
 
   it("OpenAPI WatBotError enum equals the TS union (pinned to the constant)", async () => {

@@ -1,11 +1,10 @@
 // artifacts/api-server/src/watbot/limits.ts
-import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, min, sql } from "drizzle-orm";
 import { db as defaultDb, watbotMessagesTable } from "@workspace/db";
 import { parsePositiveIntEnv } from "../solver/jobRunner.js";
 
 type Db = typeof defaultDb;
 export const STUDENT_DAILY_LIMIT = 50;
-export const MAX_QUESTION_CHARS = 2000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UNAVAILABLE_MS = 60_000;
 // FR-35 / D22: a question counts only when it reached the model. Positive match on
@@ -14,17 +13,18 @@ export const COUNTED_STATUS = "answered" as const;
 
 export async function studentUsage(userId: string, now = new Date(), database: Db = defaultDb) {
   const since = new Date(now.getTime() - DAY_MS);
-  const rows = await database.select({ createdAt: watbotMessagesTable.createdAt }).from(watbotMessagesTable)
+  const [row] = await database.select({ used: sql<number>`count(*)::int`, first: min(watbotMessagesTable.createdAt) })
+    .from(watbotMessagesTable)
     .where(and(
       eq(watbotMessagesTable.userId, userId), eq(watbotMessagesTable.role, "student"),
       eq(watbotMessagesTable.status, COUNTED_STATUS), gte(watbotMessagesTable.createdAt, since),
-    ))
-    .orderBy(asc(watbotMessagesTable.createdAt));
-  const used = rows.length;
+    ));
+  const used = row?.used ?? 0;
+  const first = row?.first ?? null;
   return {
     used,
     remaining: Math.max(0, STUDENT_DAILY_LIMIT - used),
-    resetAt: used ? new Date(rows[0]!.createdAt.getTime() + DAY_MS) : null,
+    resetAt: used && first ? new Date(first.getTime() + DAY_MS) : null,
   };
 }
 

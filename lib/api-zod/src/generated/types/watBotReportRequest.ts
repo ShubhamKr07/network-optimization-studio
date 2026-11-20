@@ -8,6 +8,10 @@
 import type { WatBotReportRequestReason } from './watBotReportRequestReason';
 
 export interface WatBotReportRequest {
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
   messageId: number;
   reason: WatBotReportRequestReason;
   /** @maxLength 2000 */

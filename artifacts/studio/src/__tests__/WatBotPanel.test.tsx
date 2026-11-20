@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-const status = { data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } };
-vi.mock("@workspace/api-client-react", () => ({ useGetWatBotStatus: () => status }));
+const status: { data: import("@workspace/api-client-react").WatBotStatus } = { data: { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false } as never };
 import { WatBotPanel } from "@/components/workspace/watbot/WatBotPanel";
 
 const tutor = { readingList: [{ kind: "book", chapter: 3 }], fixedQuestions: [
@@ -11,8 +10,11 @@ const tutor = { readingList: [{ kind: "book", chapter: 3 }], fixedQuestions: [
 ] };
 const view = { id: "o", kind: "output", entity: "output-map", label: "Output Map" } as never;
 
+function panel(onAsk = vi.fn(), onClose = vi.fn(), extra: { busy?: boolean; view?: never; name?: string } = {}) {
+  return <WatBotPanel status={status.data} busy={extra.busy} onOpenHistory={vi.fn()} modelId="p-median-us" chapter="Chapter 3" tutor={tutor as never} view={extra.view ?? view} scenario={{ name: extra.name ?? "Baseline", inputs: { p: 4 } }} onAsk={onAsk} onClose={onClose} />;
+}
 function renderPanel(onAsk = vi.fn(), onClose = vi.fn()) {
-  render(<WatBotPanel modelId="p-median-us" chapter="Chapter 3" tutor={tutor as never} view={view} scenario={{ name: "Baseline", inputs: { p: 4 } }} onAsk={onAsk} onClose={onClose} />);
+  render(panel(onAsk, onClose));
   return { onAsk, onClose };
 }
 
@@ -41,7 +43,7 @@ describe("WatBotPanel", () => {
   });
 
   it("disables input and fixed questions when unavailable", () => {
-    status.data = { ...status.data, available: false };
+    status.data = { ...status.data, available: false } as never;
     renderPanel();
     expect(screen.getByText("WatBot is unavailable right now")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toBeDisabled();
@@ -49,7 +51,7 @@ describe("WatBotPanel", () => {
   });
 
   it("shows the student limit with its reset time", () => {
-    status.data = { ...status.data, studentRemaining: 0, studentResetAt: "2026-11-21T09:00:00Z" as never };
+    status.data = { ...status.data, studentRemaining: 0, studentResetAt: "2026-11-21T09:00:00Z" } as never;
     renderPanel();
     expect(screen.getByText(/You've asked 50 questions in the last 24 hours/)).toBeInTheDocument();
   });
@@ -60,7 +62,7 @@ describe("WatBotPanel", () => {
   });
 
   it("focuses the panel region when the input is disabled", () => {
-    status.data = { ...status.data, available: false };
+    status.data = { ...status.data, available: false } as never;
     renderPanel();
     expect(screen.getByRole("complementary", { name: "WatBot" })).toHaveFocus();
   });
@@ -74,5 +76,25 @@ describe("WatBotPanel", () => {
     const { onClose } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Close WatBot panel" }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("brings a removed context chip back when the scenario (chip label) changes", () => {
+    const { rerender } = render(panel());
+    fireEvent.click(screen.getByRole("button", { name: "Remove context" }));
+    expect(screen.queryByText("Output Map · Baseline · p = 4")).toBeNull();
+    rerender(panel(vi.fn(), vi.fn(), { name: "Other" }));
+    expect(screen.getByText("Output Map · Other · p = 4")).toBeInTheDocument();
+  });
+
+  it("refocuses the question input when the answer finishes", () => {
+    const { rerender } = render(panel(vi.fn(), vi.fn(), { busy: true }));
+    expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toBeDisabled();
+    rerender(panel(vi.fn(), vi.fn(), { busy: false }));
+    expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toHaveFocus();
+  });
+
+  it("disables the history button while an answer streams", () => {
+    render(panel(vi.fn(), vi.fn(), { busy: true }));
+    expect(screen.getByRole("button", { name: "Conversation history" })).toBeDisabled();
   });
 });

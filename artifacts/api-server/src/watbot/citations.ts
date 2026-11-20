@@ -24,11 +24,12 @@ const mentions = (foldedText: string, foldedName: string) =>
 
 // D20 — an uncited block that passed keepUncitedBlock still fails when it carries
 // a 4+-digit value or a candidate-facility name the student's context does not show.
+// `contextSummary` must hold server-derived facts only (never scenario name or tab text).
 export function passesValueCheck(text: string, facilityNames: string[], contextSummary: string): boolean {
   const shown = extractNumbers(contextSummary);
   for (const n of extractNumbers(text)) {
     if (Math.abs(n) < 1000) continue; // fewer than four digits
-    if (!shown.some((v) => matchesValue(n, v) || matchesValue(v, n))) return false;
+    if (!shown.some((v) => matchesValue(n, v))) return false;
   }
   const t = fold(text);
   const ctx = fold(contextSummary);

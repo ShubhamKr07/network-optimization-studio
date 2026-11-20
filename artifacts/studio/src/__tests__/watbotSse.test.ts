@@ -7,4 +7,9 @@ describe("parseSseChunk", () => {
     expect(events).toEqual([{ event: "queued", data: { position: 2 } }, { event: "block", data: { text: "Hi", citations: [] } }]);
     expect(rest).toBe("event: do");
   });
+
+  it("joins multi-line data with newlines and accepts data: without a space", () => {
+    const { events } = parseSseChunk('event:block\ndata:{"a":\ndata:1}\n\n');
+    expect(events).toEqual([{ event: "block", data: { a: 1 } }]);
+  });
 });

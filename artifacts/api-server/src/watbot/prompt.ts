@@ -88,8 +88,10 @@ export function buildRequest(input: {
   const intro: Anthropic.TextBlockParam = { type: "text", text: `Course materials for this chapter model.${fixed}`, cache_control: { type: "ephemeral" } };
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: [...docs, intro] }];
   // History replays as plain text: user-side text blocks must never carry citations (API 2026-10-21).
-  input.history.forEach((h, i) => {
-    const last = i === input.history.length - 1;
+  // Empty turns (stopped, refused or fully filtered answers) are dropped: the API 400s an empty text block.
+  const turns = input.history.filter((h) => h.text.trim());
+  turns.forEach((h, i) => {
+    const last = i === turns.length - 1;
     messages.push({
       role: h.role === "student" ? "user" : "assistant",
       content: [{ type: "text", text: h.text, ...(last ? { cache_control: { type: "ephemeral" as const } } : {}) }],

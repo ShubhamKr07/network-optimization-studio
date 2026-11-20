@@ -228,6 +228,7 @@ export const WORKSPACE_TAB_IDS = [
   "input-map", "products", "plants", "warehouses", "customers", "demand", "distances",
   "optimization-parameters", "mines", "stations", "refineries", "capability-matrix",
   "output-map", "cost-summary", "open-warehouses", "customer-assignments", "flows", "service-stats",
+  "plantProducts", "transportCosts", "deliveryCosts", "laneCosts",
 ] as const;
 export type WorkspaceTabId = (typeof WORKSPACE_TAB_IDS)[number];
 

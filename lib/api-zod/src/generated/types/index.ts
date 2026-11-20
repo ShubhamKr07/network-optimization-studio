@@ -8,6 +8,7 @@
 
 export * from './askWatBotRequest';
 export * from './askWatBotRequestContext';
+export * from './askWatBotRequestContextTab';
 export * from './assignment';
 export * from './assignmentExportRow';
 export * from './assignmentsExportEnvelope';

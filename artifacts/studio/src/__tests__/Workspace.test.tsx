@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render as rtlRender, screen, fireEvent, act, waitFor, within, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -238,7 +238,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
-import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
+import { useGetSolveJob, useCreateWatBotConversation, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
@@ -310,6 +310,50 @@ describe("Workspace — WatBot panel toggle", () => {
     expect(btn).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(btn);
     expect(screen.queryByTestId("watbot-panel")).toBeNull();
+  });
+});
+
+describe("Workspace — WatBot context and error copy", () => {
+  const askBody = async (removeChip: boolean) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('event: done\ndata: {"messageId":1}\n\n')); c.close(); } }), { status: 200 }));
+    global.fetch = fetchMock;
+    vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn().mockResolvedValue({ id: 7 }) } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-watbot"));
+    if (removeChip) fireEvent.click(screen.getByRole("button", { name: "Remove context" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Why?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send question" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    return JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+  };
+  afterEach(() => { vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn() } as never); });
+
+  it("sends {tab, scenarioId} with the chip on, and context:null once the chip is removed", async () => {
+    const on = await askBody(false);
+    expect(on.context).toEqual({ tab: expect.any(String), scenarioId: scenario.id });
+    cleanup();
+    expect((await askBody(true)).context).toBeNull();
+  });
+
+  it.each(["watbot_project_limit", "watbot_student_limit", "watbot_unavailable", "watbot_refused", "watbot_failed", "watbot_busy"])("shows copy for %s", async (code) => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: code }), { status: 429 }));
+    vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn().mockResolvedValue({ id: 7 }) } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-watbot"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Why?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send question" }));
+    const el = await screen.findByTestId("watbot-error");
+    expect(el.textContent!.length).toBeGreaterThan(10);
+  });
+
+  it("an unknown or plain-sentence error body falls back to the generic failure copy", async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Not found" }), { status: 404 }));
+    vi.mocked(useCreateWatBotConversation).mockReturnValue({ mutateAsync: vi.fn().mockResolvedValue({ id: 7 }) } as never);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-watbot"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Ask WatBot" }), { target: { value: "Why?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send question" }));
+    expect(await screen.findByTestId("watbot-error")).toHaveTextContent("Something went wrong. Try again.");
   });
 });
 

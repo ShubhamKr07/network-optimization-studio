@@ -1173,7 +1173,7 @@ paths:
         - name: conversationId
           in: path
           required: true
-          schema: { type: integer }
+          schema: { type: integer, minimum: 1, maximum: 2147483647 }
       responses:
         '200':
           description: OK
@@ -1201,7 +1201,7 @@ paths:
         - name: conversationId
           in: path
           required: true
-          schema: { type: integer }
+          schema: { type: integer, minimum: 1, maximum: 2147483647 }
       responses:
         '204':
           description: Deleted.
@@ -1226,7 +1226,7 @@ paths:
         - name: conversationId
           in: path
           required: true
-          schema: { type: integer }
+          schema: { type: integer, minimum: 1, maximum: 2147483647 }
       requestBody:
         required: true
         content:
@@ -1293,7 +1293,7 @@ paths:
         - name: passageId
           in: path
           required: true
-          schema: { type: integer }
+          schema: { type: integer, minimum: 1, maximum: 2147483647 }
       responses:
         '200':
           description: OK
@@ -1399,8 +1399,11 @@ components:
           nullable: true
           required: [tab, scenarioId]
           properties:
-            tab: { type: string, nullable: true, maxLength: 64 }
-            scenarioId: { type: integer, nullable: true }
+            tab:
+              type: string
+              nullable: true
+              enum: [input-map, products, plants, warehouses, customers, demand, distances, optimization-parameters, mines, stations, refineries, capability-matrix, output-map, cost-summary, open-warehouses, customer-assignments, flows, service-stats, plantProducts, transportCosts, deliveryCosts, laneCosts, null]
+            scenarioId: { type: integer, nullable: true, minimum: 1, maximum: 2147483647 }
     WatBotPassage:
       type: object
       required: [id, label, body]
@@ -1412,7 +1415,7 @@ components:
       type: object
       required: [messageId, reason]
       properties:
-        messageId: { type: integer }
+        messageId: { type: integer, minimum: 1, maximum: 2147483647 }
         reason: { type: string, enum: [wrong_or_misleading, citation_unsupported, not_what_i_asked, other] }
         note: { type: string, maxLength: 2000 }
     WatBotStatus:

@@ -5,9 +5,13 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { AskWatBotRequestContextTab } from './askWatBotRequestContextTab';
 
 export type AskWatBotRequestContext = {
-  /** @maxLength 64 */
-  tab: string | null;
+  tab: AskWatBotRequestContextTab;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
   scenarioId: number | null;
 } | null;

@@ -28,11 +28,26 @@ describe("tutor manifest block", () => {
     ]);
   });
 
-  // Drift guard: the tab-id enum is copied from Workspace.tsx's sidebar entries.
-  // If a sidebar id is renamed, this fails instead of a starter silently losing "For this tab".
-  it("every WORKSPACE_TAB_IDS entry is a real Workspace sidebar id", () => {
+  // Drift guard, both directions. Every sidebar entry id in Workspace.tsx must be in
+  // WORKSPACE_TAB_IDS (else asking WatBot on that tab 400s), and every list entry must be real.
+  const sidebarIds = () => {
     const src = readFileSync(path.resolve(process.cwd(), "../studio/src/pages/Workspace.tsx"), "utf8");
-    const ids = new Set([...src.matchAll(/\{ id: "([a-z-]+)", label: "/g)].map((m) => m[1]));
+    return new Set([...src.matchAll(/\{ id: "([A-Za-z0-9_-]+)", label: "/g)].map((m) => m[1]!));
+  };
+  const missingFrom = (list: readonly string[], ids: Set<string>) => [...ids].filter((id) => !list.includes(id));
+
+  it("every WORKSPACE_TAB_IDS entry is a real Workspace sidebar id", () => {
+    const ids = sidebarIds();
     for (const tab of WORKSPACE_TAB_IDS) expect(ids.has(tab), tab).toBe(true);
+  });
+
+  it("every Workspace sidebar id is in WORKSPACE_TAB_IDS", () => {
+    const ids = sidebarIds();
+    expect(ids.size).toBeGreaterThan(20); // the scan must find the sidebar, not match nothing
+    expect(missingFrom(WORKSPACE_TAB_IDS, ids)).toEqual([]);
+  });
+
+  it("the reverse check can fail: a list missing one id is reported", () => {
+    expect(missingFrom(WORKSPACE_TAB_IDS.filter((t) => t !== "laneCosts"), sidebarIds())).toEqual(["laneCosts"]);
   });
 });

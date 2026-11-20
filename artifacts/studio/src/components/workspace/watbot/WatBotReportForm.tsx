@@ -32,7 +32,7 @@ export function WatBotReportForm({ messageId, onDone, onCancel }: { messageId: n
       <label className="text-xs font-medium">Anything else the teaching team should know? (optional)
         <textarea rows={3} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} className="mt-1.5 block w-full rounded-md border px-3 py-2 text-sm" />
       </label>
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+      {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       <div className="flex gap-2">
         <button type="submit" disabled={submit.isPending} className="h-8 rounded bg-primary px-3.5 text-xs font-semibold text-primary-foreground">Send report</button>
         <button type="button" onClick={onCancel} className="h-8 rounded border px-3.5 text-xs">Cancel</button>
