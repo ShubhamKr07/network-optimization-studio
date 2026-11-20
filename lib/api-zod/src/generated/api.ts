@@ -1382,7 +1382,7 @@ export const askWatBotBodyContextScenarioIdMax = 2147483647;
 export const AskWatBotBody = zod.object({
   "question": zod.string().min(1).max(askWatBotBodyQuestionMax),
   "context": zod.object({
-  "tab": zod.union([zod.literal('input-map'),zod.literal('products'),zod.literal('plants'),zod.literal('warehouses'),zod.literal('customers'),zod.literal('demand'),zod.literal('distances'),zod.literal('optimization-parameters'),zod.literal('mines'),zod.literal('stations'),zod.literal('refineries'),zod.literal('capability-matrix'),zod.literal('output-map'),zod.literal('cost-summary'),zod.literal('open-warehouses'),zod.literal('customer-assignments'),zod.literal('flows'),zod.literal('service-stats'),zod.literal(null)]).nullable(),
+  "tab": zod.union([zod.literal('input-map'),zod.literal('products'),zod.literal('plants'),zod.literal('warehouses'),zod.literal('customers'),zod.literal('demand'),zod.literal('distances'),zod.literal('optimization-parameters'),zod.literal('mines'),zod.literal('stations'),zod.literal('refineries'),zod.literal('capability-matrix'),zod.literal('output-map'),zod.literal('cost-summary'),zod.literal('open-warehouses'),zod.literal('customer-assignments'),zod.literal('flows'),zod.literal('service-stats'),zod.literal('plantProducts'),zod.literal('transportCosts'),zod.literal('deliveryCosts'),zod.literal('laneCosts'),zod.literal(null)]).nullable(),
   "scenarioId": zod.number().min(1).max(askWatBotBodyContextScenarioIdMax).nullable()
 }).nullable()
 })

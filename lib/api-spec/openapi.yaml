@@ -1402,7 +1402,7 @@ components:
             tab:
               type: string
               nullable: true
-              enum: [input-map, products, plants, warehouses, customers, demand, distances, optimization-parameters, mines, stations, refineries, capability-matrix, output-map, cost-summary, open-warehouses, customer-assignments, flows, service-stats, null]
+              enum: [input-map, products, plants, warehouses, customers, demand, distances, optimization-parameters, mines, stations, refineries, capability-matrix, output-map, cost-summary, open-warehouses, customer-assignments, flows, service-stats, plantProducts, transportCosts, deliveryCosts, laneCosts, null]
             scenarioId: { type: integer, nullable: true, minimum: 1, maximum: 2147483647 }
     WatBotPassage:
       type: object

@@ -73,6 +73,10 @@ export const AskWatBotRequestContextTab = {
   'customer-assignments': 'customer-assignments',
   flows: 'flows',
   'service-stats': 'service-stats',
+  plantProducts: 'plantProducts',
+  transportCosts: 'transportCosts',
+  deliveryCosts: 'deliveryCosts',
+  laneCosts: 'laneCosts',
 } as const;
 
 export type AskWatBotRequestContext = {
