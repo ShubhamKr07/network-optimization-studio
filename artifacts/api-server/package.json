@@ -15,7 +15,8 @@
     "migrate-ch4-to-miles": "tsx ./src/migrations/ch4ToMiles.ts",
     "round-override-precision": "tsx ./src/migrations/roundOverridePrecision.ts",
     "clear-floor-zero-objective": "tsx ./src/migrations/clearFloorZeroObjective.ts",
-    "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts"
+    "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts",
+    "watbot-smoke": "tsx ./src/migrations/watbotSmoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0",

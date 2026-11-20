@@ -5168,3 +5168,11 @@ Gate: `pnpm run typecheck` clean; `pnpm --filter studio run typecheck:e2e` clean
 - Preflight `211fe0cb..16d0f035`: studio-only, no schema, no migrations, no new env vars. `nos-api` unchanged since `70fcb4a3` (no `artifacts/api-server`, `solvers`, `lib`, Dockerfile or lockfile paths in `70fcb4a3..16d0f035`), so not redeployed.
 - `nos-studio` → `dep-dbori43l550s73ame2r0` (trigger api), live. `/compare` 200 with `id="root"`; `/` and `/chapter-10/gold-refinery` 200; the served bundle carries the gold entry with no `hiddenFromLanding`, after Chapter 9. `pnpm smoke --env production` 7/7.
 - Smoke account `smoke+ookcom-96476@example.com` left for manual removal. Note the smoke prefix now derives from the custom domain (`ookcom`), not `dercom`.
+
+### WATBOT-10 — ops, runbook, metrics SQL, smoke script (2026-11-20)
+- `render.yaml`: declared `ANTHROPIC_API_KEY` (`sync: false`), `WATBOT_MODEL`, `WATBOT_MONTHLY_USD`, `WATBOT_MAX_INFLIGHT` on `nos-api`. Declaration only; nothing deployed, no live service touched.
+- `docs/ops/watbot-corpus.md`: schema push (with the verbatim `CREATE OR REPLACE VIEW watbot_sessions` fallback), corpus prep/dry run/load, prod load, spot check, Console limit, env vars, smoke, and the ship-blocking test-set run.
+- `docs/ops/watbot-metrics.md`: six read-only queries (sessions, engagement, duration, message types, gap topics, non-counted questions). Column names verified against `lib/db/src/schema/{auth,scenarios,watbot}.ts`; every query executed against local `nos_dev`; queries 1, 3, 4, 5, 6 (and 2) shown to return rows on a temporary fixture, which was then deleted.
+- `artifacts/api-server/src/migrations/watbotSmoke.ts` + `watbot-smoke` script: live smoke calling `answerQuestion` directly (no routes). Typechecked only, not run (spends money).
+- Deviation: the smoke script also refuses to run without `--confirm-spend` (the plan's listing had no such flag).
+- Pending prod steps (all need separate approval): schema push and view check, corpus load, Console spend limit, `ANTHROPIC_API_KEY` on `nos-api`, smoke run, the ship-blocking test-set run.
