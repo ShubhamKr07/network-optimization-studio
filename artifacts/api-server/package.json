@@ -16,7 +16,8 @@
     "round-override-precision": "tsx ./src/migrations/roundOverridePrecision.ts",
     "clear-floor-zero-objective": "tsx ./src/migrations/clearFloorZeroObjective.ts",
     "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts",
-    "watbot-smoke": "tsx ./src/migrations/watbotSmoke.ts"
+    "watbot-smoke": "tsx ./src/migrations/watbotSmoke.ts",
+    "watbot-test-set": "tsx ./src/migrations/watbotTestSet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0",

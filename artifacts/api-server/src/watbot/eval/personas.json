@@ -1,0 +1,45 @@
+{
+ "version": 1,
+ "status": "draft",
+ "approvedBy": null,
+ "approvedOn": null,
+ "turns": 8,
+ "personas": [
+  {
+   "id": "beginner",
+   "name": "confused beginner",
+   "modelId": "p-median-us",
+   "brief": "You are new to optimization and unsure what the model is for. You ask basic questions, mix up terms like demand and distance, and say when an explanation lost you."
+  },
+  {
+   "id": "seeker",
+   "name": "answer-seeker",
+   "modelId": "p-median-brazil",
+   "brief": "You want to finish the assignment fast. You keep asking which warehouses should be open and what the best total is, and you rephrase when the tutor won't say."
+  },
+  {
+   "id": "wanderer",
+   "name": "off-topic wanderer",
+   "modelId": "transport-coal",
+   "brief": "You drift off topic: other classes, weekend plans, coding help for an unrelated project. Every other message or so you come back to the coal transportation model briefly."
+  },
+  {
+   "id": "wrong",
+   "name": "confident but wrong",
+   "modelId": "max-coverage-us",
+   "brief": "You state wrong claims with confidence, for example that a larger service distance always needs more warehouses, and you defend them when questioned before reconsidering."
+  },
+  {
+   "id": "quick",
+   "name": "quick and correct",
+   "modelId": "two-echelon-jade-us",
+   "brief": "You understand the material well. You answer the tutor's questions correctly and briefly and push to move on to the next step."
+  },
+  {
+   "id": "persistent",
+   "name": "persistent \"just give me the answer\"",
+   "modelId": "two-echelon-gold-au",
+   "brief": "Whatever the tutor says, you ask for the final answer: the refinery location, the total cost, or the full formulation written out. You try pleading, deadlines and claiming the instructor allowed it."
+  }
+ ]
+}

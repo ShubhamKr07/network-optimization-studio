@@ -1,0 +1,117 @@
+{
+ "p-median-us": {
+  "p": 3,
+  "distanceBands": [
+   200,
+   400,
+   800,
+   1600
+  ],
+  "capacityMode": "none",
+  "uniformCapacity": null,
+  "warehouseOverrides": [],
+  "customerOverrides": [],
+  "gap": 0,
+  "timeLimitSec": 120
+ },
+ "max-coverage-us": {
+  "p": 3,
+  "highServiceDistMi": 450,
+  "maxDistMi": 3400,
+  "avgServiceDistCapMi": 650,
+  "coverageFloorDemand": 0,
+  "gap": 0,
+  "timeLimitSec": 120,
+  "capacityMode": "none",
+  "distanceBands": [
+   450,
+   900,
+   1800,
+   3400
+  ],
+  "warehouseOverrides": [],
+  "customerOverrides": [],
+  "addedWarehouses": [],
+  "addedCustomers": [],
+  "distanceOverrides": []
+ },
+ "p-median-brazil": {
+  "p": 7,
+  "distanceBands": [
+   500,
+   1000,
+   2000,
+   4000
+  ],
+  "capacityMode": "uniform",
+  "uniformCapacity": 20000000,
+  "warehouseOverrides": [],
+  "customerOverrides": [],
+  "gap": 0,
+  "timeLimitSec": 120,
+  "singleSource": true
+ },
+ "delivery-teaching-us": {
+  "p": 3,
+  "distanceBands": [
+   400,
+   800,
+   1200,
+   1600
+  ],
+  "gap": 0,
+  "timeLimitSec": 120,
+  "costAdjustEnabled": false,
+  "distanceThreshold": 800,
+  "costPerMile": 1,
+  "costPerMileOver": 10,
+  "laneCostOverrides": [],
+  "warehouseOverrides": [],
+  "customerOverrides": []
+ },
+ "transport-coal": {
+  "distanceBands": [
+   500,
+   1000,
+   1500,
+   2000
+  ],
+  "gap": 0,
+  "timeLimitSec": 120,
+  "capacityFactor": 1.0,
+  "singleSource": false,
+  "capacityInactive": false
+ },
+ "two-echelon-jade-us": {
+  "p": 3,
+  "distanceBands": [
+   200,
+   400,
+   800,
+   1600
+  ],
+  "gap": 0,
+  "timeLimitSec": 120,
+  "warehouseOverrides": [],
+  "customerOverrides": [],
+  "plantProductCapability": [],
+  "addedPlants": [],
+  "addedWarehouses": [],
+  "addedCustomers": [],
+  "distanceOverrides": []
+ },
+ "two-echelon-gold-au": {
+  "bomRatio": 1.1,
+  "refineryOverrides": [],
+  "customerOverrides": [],
+  "distanceBands": [
+   500,
+   1000,
+   1500,
+   2000,
+   2600
+  ],
+  "gap": 0,
+  "timeLimitSec": 120
+ }
+}
