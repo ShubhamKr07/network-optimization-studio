@@ -54,6 +54,17 @@ describe("WatBotPanel", () => {
     expect(screen.getByText(/You've asked 50 questions in the last 24 hours/)).toBeInTheDocument();
   });
 
+  it("moves focus to the question input on open", () => {
+    renderPanel();
+    expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toHaveFocus();
+  });
+
+  it("focuses the panel region when the input is disabled", () => {
+    status.data = { ...status.data, available: false };
+    renderPanel();
+    expect(screen.getByRole("complementary", { name: "WatBot" })).toHaveFocus();
+  });
+
   it("enforces the 2,000-character cap in the input", () => {
     renderPanel();
     expect(screen.getByRole("textbox", { name: "Ask WatBot" })).toHaveAttribute("maxLength", "2000");

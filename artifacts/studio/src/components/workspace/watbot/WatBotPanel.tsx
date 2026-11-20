@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { History, X } from "lucide-react";
 import { useGetWatBotStatus, type ModelTutor } from "@workspace/api-client-react";
 import type { WorkspaceView } from "@/lib/workspaceView";
@@ -23,10 +23,14 @@ export function WatBotPanel(props: {
   const projectLimited = status?.projectCapReached ?? false;
   const blocked = unavailable || studentLimited || projectLimited;
   const inputDisabled = blocked || !!props.busy;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  // A11y: the panel mounts after the map in DOM order; move focus in on open (input, else the region).
+  useEffect(() => { (inputRef.current && !inputRef.current.disabled ? inputRef.current : asideRef.current)?.focus(); }, []);
   const ask = (q: string) => { if (q.trim()) props.onAsk(q.trim(), { tab: chip?.tab ?? null, includeContext: contextOn && !!chip }); };
 
   return (
-    <aside aria-label="WatBot" className="flex w-[400px] flex-shrink-0 flex-col border-l bg-background" data-testid="watbot-panel">
+    <aside ref={asideRef} tabIndex={-1} aria-label="WatBot" className="flex w-[400px] outline-none flex-shrink-0 flex-col border-l bg-background" data-testid="watbot-panel">
       <header className="flex h-11 items-center gap-2 border-b pl-3.5 pr-2">
         <span aria-hidden="true" className="size-3.5 rounded-sm bg-primary" />
         <b className="font-serif text-sm">WatBot</b>
@@ -57,7 +61,7 @@ export function WatBotPanel(props: {
       </div>
       <form className="border-t px-3.5 py-2.5" onSubmit={(e) => { e.preventDefault(); ask(draft); setDraft(""); }}>
         <div className="flex gap-2">
-          <input type="text" aria-label="Ask WatBot" maxLength={MAX_QUESTION_CHARS} disabled={inputDisabled}
+          <input ref={inputRef} type="text" aria-label="Ask WatBot" maxLength={MAX_QUESTION_CHARS} disabled={inputDisabled}
             placeholder={unavailable ? "WatBot is unavailable" : blocked ? "Question limit reached" : props.busy ? "WatBot is answering…" : "Ask a follow-up…"}
             value={draft} onChange={(e) => setDraft(e.target.value)} className="h-9 min-w-0 flex-1 rounded-md border px-3 text-sm disabled:bg-muted" />
           <button type="submit" aria-label="Send question" disabled={inputDisabled} className="size-9 rounded-md bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground">↵</button>

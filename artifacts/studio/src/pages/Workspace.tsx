@@ -3030,6 +3030,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const watbot = useWatBotConversation(modelId);
   const { data: watbotStatus } = useGetWatBotStatus({ query: { refetchInterval: 60_000 } } as never);
   // WatBot D11 — below 1280px the panel takes the sidebar's room: collapse it to the icon rail.
+  const watbotButtonRef = useRef<HTMLButtonElement>(null);
+  const closeWatBot = () => { setWatBotOpen(false); watbotButtonRef.current?.focus(); };
   const openWatBot = () => {
     setWatBotOpen((o) => !o);
     if (!watbotOpen && window.matchMedia?.("(max-width: 1279px)")?.matches) setSidebarCollapsed(true);
@@ -4678,7 +4680,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 a keyboard user could still reach mid-run. */}
             <Button type="button" size="sm" variant={watbotOpen ? "secondary" : "outline"} aria-pressed={watbotOpen}
               disabled={watbotStatus ? !watbotStatus.available && !watbotOpen : false}
-              onClick={openWatBot} data-testid="button-watbot">
+              ref={watbotButtonRef} onClick={openWatBot} data-testid="button-watbot">
               WatBot{watbotStatus && !watbotStatus.available && <span aria-label="unavailable" className="ml-1.5 inline-block size-2 rounded-full bg-warning" />}
             </Button>
             <Button
@@ -4818,7 +4820,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             scenario={currentScenario ? { name: currentScenario.name, inputs: currentScenario.inputs } : null}
             busy={watbot.busy} hasMessages={watbot.items.length > 0}
             onAsk={(q, o) => { setWatBotHistoryOpen(false); void watbot.ask(q, o.includeContext ? { tab: o.tab, scenarioId: currentScenario?.id ?? null } : null); }}
-            onOpenHistory={() => setWatBotHistoryOpen((h) => !h)} onClose={() => setWatBotOpen(false)}>
+            onOpenHistory={() => setWatBotHistoryOpen((h) => !h)} onClose={closeWatBot}>
             {watbotHistoryOpen ? (
               <WatBotHistory modelId={modelId} onNew={() => { watbot.startNew(); setWatBotHistoryOpen(false); }}
                 onPick={async (id) => {

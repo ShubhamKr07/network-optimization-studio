@@ -313,6 +313,19 @@ describe("Workspace — WatBot panel toggle", () => {
   });
 });
 
+describe("Workspace — WatBot focus", () => {
+  it("opening moves focus into the panel; closing returns it to button-watbot", () => {
+    renderWorkspace();
+    const btn = screen.getByTestId("button-watbot");
+    fireEvent.click(btn);
+    expect(screen.getByTestId("watbot-panel")).toContainElement(document.activeElement as HTMLElement);
+    expect(btn).not.toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Close WatBot panel" }));
+    expect(screen.queryByTestId("watbot-panel")).toBeNull();
+    expect(btn).toHaveFocus();
+  });
+});
+
 describe("Workspace — Added Entities removed (workspace-fixups-2 item 1, review Minor-2)", () => {
   it("no model exposes an 'Added Entities' sidebar entry (the tab was removed; add is inline in each base tab)", () => {
     renderWorkspace();
