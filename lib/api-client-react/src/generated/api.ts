@@ -20,7 +20,9 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AskWatBotRequest,
   AuthUserEnvelope,
+  CreateWatBotConversationRequest,
   Dataset,
   ErrorEnvelope,
   ExportEnvelope,
@@ -46,6 +48,7 @@ import type {
   LandingSummary,
   LegacyResultExportRejection,
   ListScenariosParams,
+  ListWatBotConversationsParams,
   LoginRequest,
   LogoutSuccess,
   ModelInfo,
@@ -65,7 +68,13 @@ import type {
   SolveJob,
   SolveJobQueued,
   UpdateDistanceBandsBody,
-  UpdateInboundDistanceBandsBody
+  UpdateInboundDistanceBandsBody,
+  WatBotConversation,
+  WatBotConversationSummary,
+  WatBotError,
+  WatBotPassage,
+  WatBotReportRequest,
+  WatBotStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -2435,5 +2444,604 @@ export const useSubmitFeedback = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSubmitFeedbackMutationOptions(options));
+    }
+
+export const getGetWatBotStatusUrl = () => {
+
+
+
+
+  return `/api/watbot/status`
+}
+
+/**
+ * @summary WatBot availability and the caller's remaining quota
+ */
+export const getWatBotStatus = async ( options?: RequestInit): Promise<WatBotStatus> => {
+
+  return customFetch<WatBotStatus>(getGetWatBotStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWatBotStatusQueryKey = () => {
+    return [
+    `/api/watbot/status`
+    ] as const;
+    }
+
+
+export const getGetWatBotStatusQueryOptions = <TData = Awaited<ReturnType<typeof getWatBotStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWatBotStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWatBotStatus>>> = ({ signal }) => getWatBotStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWatBotStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWatBotStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getWatBotStatus>>>
+export type GetWatBotStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary WatBot availability and the caller's remaining quota
+ */
+
+export function useGetWatBotStatus<TData = Awaited<ReturnType<typeof getWatBotStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWatBotStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateWatBotConversationUrl = () => {
+
+
+
+
+  return `/api/watbot/conversations`
+}
+
+/**
+ * @summary Start a WatBot conversation for a model
+ */
+export const createWatBotConversation = async (createWatBotConversationRequest: CreateWatBotConversationRequest, options?: RequestInit): Promise<WatBotConversationSummary> => {
+
+  return customFetch<WatBotConversationSummary>(getCreateWatBotConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createWatBotConversationRequest,)
+  }
+);}
+
+
+
+
+export const getCreateWatBotConversationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWatBotConversation>>, TError,{data: BodyType<CreateWatBotConversationRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWatBotConversation>>, TError,{data: BodyType<CreateWatBotConversationRequest>}, TContext> => {
+
+const mutationKey = ['createWatBotConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWatBotConversation>>, {data: BodyType<CreateWatBotConversationRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createWatBotConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWatBotConversationMutationResult = NonNullable<Awaited<ReturnType<typeof createWatBotConversation>>>
+    export type CreateWatBotConversationMutationBody = BodyType<CreateWatBotConversationRequest>
+    export type CreateWatBotConversationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a WatBot conversation for a model
+ */
+export const useCreateWatBotConversation = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWatBotConversation>>, TError,{data: BodyType<CreateWatBotConversationRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createWatBotConversation>>,
+        TError,
+        {data: BodyType<CreateWatBotConversationRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateWatBotConversationMutationOptions(options));
+    }
+
+export const getListWatBotConversationsUrl = (params?: ListWatBotConversationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/watbot/conversations?${stringifiedParams}` : `/api/watbot/conversations`
+}
+
+/**
+ * @summary List the caller's WatBot conversations
+ */
+export const listWatBotConversations = async (params?: ListWatBotConversationsParams, options?: RequestInit): Promise<WatBotConversationSummary[]> => {
+
+  return customFetch<WatBotConversationSummary[]>(getListWatBotConversationsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWatBotConversationsQueryKey = (params?: ListWatBotConversationsParams,) => {
+    return [
+    `/api/watbot/conversations`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListWatBotConversationsQueryOptions = <TData = Awaited<ReturnType<typeof listWatBotConversations>>, TError = ErrorType<ErrorEnvelope>>(params?: ListWatBotConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWatBotConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWatBotConversationsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWatBotConversations>>> = ({ signal }) => listWatBotConversations(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWatBotConversations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWatBotConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof listWatBotConversations>>>
+export type ListWatBotConversationsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the caller's WatBot conversations
+ */
+
+export function useListWatBotConversations<TData = Awaited<ReturnType<typeof listWatBotConversations>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListWatBotConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWatBotConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWatBotConversationsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetWatBotConversationUrl = (conversationId: number,) => {
+
+
+
+
+  return `/api/watbot/conversations/${conversationId}`
+}
+
+/**
+ * @summary Get one WatBot conversation with its messages
+ */
+export const getWatBotConversation = async (conversationId: number, options?: RequestInit): Promise<WatBotConversation> => {
+
+  return customFetch<WatBotConversation>(getGetWatBotConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWatBotConversationQueryKey = (conversationId: number,) => {
+    return [
+    `/api/watbot/conversations/${conversationId}`
+    ] as const;
+    }
+
+
+export const getGetWatBotConversationQueryOptions = <TData = Awaited<ReturnType<typeof getWatBotConversation>>, TError = ErrorType<ErrorEnvelope>>(conversationId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWatBotConversationQueryKey(conversationId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWatBotConversation>>> = ({ signal }) => getWatBotConversation(conversationId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(conversationId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWatBotConversation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWatBotConversationQueryResult = NonNullable<Awaited<ReturnType<typeof getWatBotConversation>>>
+export type GetWatBotConversationQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get one WatBot conversation with its messages
+ */
+
+export function useGetWatBotConversation<TData = Awaited<ReturnType<typeof getWatBotConversation>>, TError = ErrorType<ErrorEnvelope>>(
+ conversationId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWatBotConversationQueryOptions(conversationId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getDeleteWatBotConversationUrl = (conversationId: number,) => {
+
+
+
+
+  return `/api/watbot/conversations/${conversationId}`
+}
+
+/**
+ * @summary Delete a WatBot conversation
+ */
+export const deleteWatBotConversation = async (conversationId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteWatBotConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteWatBotConversationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWatBotConversation>>, TError,{conversationId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWatBotConversation>>, TError,{conversationId: number}, TContext> => {
+
+const mutationKey = ['deleteWatBotConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWatBotConversation>>, {conversationId: number}> = (props) => {
+          const {conversationId} = props ?? {};
+
+          return  deleteWatBotConversation(conversationId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteWatBotConversationMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWatBotConversation>>>
+
+    export type DeleteWatBotConversationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a WatBot conversation
+ */
+export const useDeleteWatBotConversation = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWatBotConversation>>, TError,{conversationId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteWatBotConversation>>,
+        TError,
+        {conversationId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteWatBotConversationMutationOptions(options));
+    }
+
+export const getAskWatBotUrl = (conversationId: number,) => {
+
+
+
+
+  return `/api/watbot/conversations/${conversationId}/messages`
+}
+
+/**
+ * @summary Ask WatBot a question; the answer streams as server-sent events
+ */
+export const askWatBot = async (conversationId: number,
+    askWatBotRequest: AskWatBotRequest, options?: RequestInit): Promise<string> => {
+
+  return customFetch<string>(getAskWatBotUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      askWatBotRequest,)
+  }
+);}
+
+
+
+
+export const getAskWatBotMutationOptions = <TError = ErrorType<ErrorEnvelope | WatBotError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askWatBot>>, TError,{conversationId: number;data: BodyType<AskWatBotRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof askWatBot>>, TError,{conversationId: number;data: BodyType<AskWatBotRequest>}, TContext> => {
+
+const mutationKey = ['askWatBot'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askWatBot>>, {conversationId: number;data: BodyType<AskWatBotRequest>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  askWatBot(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AskWatBotMutationResult = NonNullable<Awaited<ReturnType<typeof askWatBot>>>
+    export type AskWatBotMutationBody = BodyType<AskWatBotRequest>
+    export type AskWatBotMutationError = ErrorType<ErrorEnvelope | WatBotError>
+
+    /**
+ * @summary Ask WatBot a question; the answer streams as server-sent events
+ */
+export const useAskWatBot = <TError = ErrorType<ErrorEnvelope | WatBotError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askWatBot>>, TError,{conversationId: number;data: BodyType<AskWatBotRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof askWatBot>>,
+        TError,
+        {conversationId: number;data: BodyType<AskWatBotRequest>},
+        TContext
+      > => {
+      return useMutation(getAskWatBotMutationOptions(options));
+    }
+
+export const getGetWatBotPassageUrl = (passageId: number,) => {
+
+
+
+
+  return `/api/watbot/passages/${passageId}`
+}
+
+/**
+ * @summary Read a cited course passage
+ */
+export const getWatBotPassage = async (passageId: number, options?: RequestInit): Promise<WatBotPassage> => {
+
+  return customFetch<WatBotPassage>(getGetWatBotPassageUrl(passageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWatBotPassageQueryKey = (passageId: number,) => {
+    return [
+    `/api/watbot/passages/${passageId}`
+    ] as const;
+    }
+
+
+export const getGetWatBotPassageQueryOptions = <TData = Awaited<ReturnType<typeof getWatBotPassage>>, TError = ErrorType<ErrorEnvelope>>(passageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotPassage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWatBotPassageQueryKey(passageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWatBotPassage>>> = ({ signal }) => getWatBotPassage(passageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(passageId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWatBotPassage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWatBotPassageQueryResult = NonNullable<Awaited<ReturnType<typeof getWatBotPassage>>>
+export type GetWatBotPassageQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Read a cited course passage
+ */
+
+export function useGetWatBotPassage<TData = Awaited<ReturnType<typeof getWatBotPassage>>, TError = ErrorType<ErrorEnvelope>>(
+ passageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatBotPassage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWatBotPassageQueryOptions(passageId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getSubmitWatBotReportUrl = () => {
+
+
+
+
+  return `/api/watbot/reports`
+}
+
+/**
+ * @summary Report a WatBot answer
+ */
+export const submitWatBotReport = async (watBotReportRequest: WatBotReportRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getSubmitWatBotReportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      watBotReportRequest,)
+  }
+);}
+
+
+
+
+export const getSubmitWatBotReportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitWatBotReport>>, TError,{data: BodyType<WatBotReportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitWatBotReport>>, TError,{data: BodyType<WatBotReportRequest>}, TContext> => {
+
+const mutationKey = ['submitWatBotReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitWatBotReport>>, {data: BodyType<WatBotReportRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  submitWatBotReport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitWatBotReportMutationResult = NonNullable<Awaited<ReturnType<typeof submitWatBotReport>>>
+    export type SubmitWatBotReportMutationBody = BodyType<WatBotReportRequest>
+    export type SubmitWatBotReportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Report a WatBot answer
+ */
+export const useSubmitWatBotReport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitWatBotReport>>, TError,{data: BodyType<WatBotReportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitWatBotReport>>,
+        TError,
+        {data: BodyType<WatBotReportRequest>},
+        TContext
+      > => {
+      return useMutation(getSubmitWatBotReportMutationOptions(options));
     }
 

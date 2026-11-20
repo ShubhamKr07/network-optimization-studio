@@ -1278,3 +1278,129 @@ export const SubmitFeedbackBody = zod.object({
 })
 
 
+/**
+ * @summary WatBot availability and the caller's remaining quota
+ */
+export const GetWatBotStatusResponse = zod.object({
+  "available": zod.boolean(),
+  "studentRemaining": zod.number(),
+  "studentResetAt": zod.coerce.date().nullable(),
+  "projectCapReached": zod.boolean()
+})
+
+
+/**
+ * @summary Start a WatBot conversation for a model
+ */
+export const createWatBotConversationBodyModelIdMax = 64;
+
+
+
+export const CreateWatBotConversationBody = zod.object({
+  "modelId": zod.string().min(1).max(createWatBotConversationBodyModelIdMax)
+})
+
+
+/**
+ * @summary List the caller's WatBot conversations
+ */
+export const ListWatBotConversationsQueryParams = zod.object({
+  "modelId": zod.coerce.string().optional()
+})
+
+export const ListWatBotConversationsResponseItem = zod.object({
+  "id": zod.number(),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListWatBotConversationsResponse = zod.array(ListWatBotConversationsResponseItem)
+
+
+/**
+ * @summary Get one WatBot conversation with its messages
+ */
+export const GetWatBotConversationParams = zod.object({
+  "conversationId": zod.coerce.number()
+})
+
+export const GetWatBotConversationResponse = zod.object({
+  "id": zod.number(),
+  "modelId": zod.string(),
+  "title": zod.string(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "messages": zod.array(zod.object({
+  "id": zod.number(),
+  "role": zod.enum(['student', 'tutor', 'notice']),
+  "blocks": zod.array(zod.object({
+  "text": zod.string(),
+  "citations": zod.array(zod.object({
+  "passageId": zod.number(),
+  "label": zod.string(),
+  "citedText": zod.string()
+}))
+})),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Delete a WatBot conversation
+ */
+export const DeleteWatBotConversationParams = zod.object({
+  "conversationId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Ask WatBot a question; the answer streams as server-sent events
+ */
+export const AskWatBotParams = zod.object({
+  "conversationId": zod.coerce.number()
+})
+
+export const askWatBotBodyQuestionMax = 2000;
+
+export const askWatBotBodyContextTabMax = 64;
+
+
+
+export const AskWatBotBody = zod.object({
+  "question": zod.string().min(1).max(askWatBotBodyQuestionMax),
+  "context": zod.object({
+  "tab": zod.string().max(askWatBotBodyContextTabMax).nullable(),
+  "scenarioId": zod.number().nullable()
+}).nullable()
+})
+
+
+/**
+ * @summary Read a cited course passage
+ */
+export const GetWatBotPassageParams = zod.object({
+  "passageId": zod.coerce.number()
+})
+
+export const GetWatBotPassageResponse = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "body": zod.string()
+})
+
+
+/**
+ * @summary Report a WatBot answer
+ */
+export const submitWatBotReportBodyNoteMax = 2000;
+
+
+
+export const SubmitWatBotReportBody = zod.object({
+  "messageId": zod.number(),
+  "reason": zod.enum(['wrong_or_misleading', 'citation_unsupported', 'not_what_i_asked', 'other']),
+  "note": zod.string().max(submitWatBotReportBodyNoteMax).optional()
+})
+
+

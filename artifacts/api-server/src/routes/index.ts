@@ -21,6 +21,7 @@ import distanceBandsRouter from "./distanceBands.js";
 // exactly like its neighbours, so any router placed after it must already
 // require auth — which, from solveHistory onward, they all do.
 import feedbackRouter from "./feedback.js";
+import watbotRouter from "./watbot.js";
 
 const router: IRouter = Router();
 
@@ -33,6 +34,7 @@ router.use(referenceCostsRouter);
 router.use(solveHistoryRouter);
 router.use(landingSummaryRouter);
 router.use(feedbackRouter);
+router.use(watbotRouter);
 router.use(distanceBandsRouter);
 router.use(superNetworkRouter);
 router.use(scenariosRouter);

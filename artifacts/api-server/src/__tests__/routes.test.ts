@@ -44,6 +44,7 @@ vi.mock("../lib/posthog.js", () => ({
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
+  WATBOT_MESSAGE_TYPES: [], coursePassagesTable: {}, // routes/index.ts now loads the WatBot router, which reads these at import
   pool: mockPool,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
   solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary", result: "solve_jobs.result", errorCode: "solve_jobs.error_code", failureReason: "solve_jobs.failure_reason", failureStage: "solve_jobs.failure_stage" },
@@ -77,6 +78,7 @@ vi.mock("../solver/jobRunner.js", async () => {
     getQueueDepth: mockGetQueueDepth,
     QUEUE_DEPTH_LIMIT: 30,
     derivePublicFailure: actual.derivePublicFailure,
+    parsePositiveIntEnv: actual.parsePositiveIntEnv, // watbot/limits.ts reads it at import
   };
 });
 
