@@ -10,7 +10,7 @@
 
 **Goal:** Ship WatBot's docked panel inside every chapter model. Students ask questions and get Socratic, cited answers from the course book and notebooks, within per-student and project spend limits.
 
-**Architecture:** Each model's manifest names a reading list. The server loads those passages from a new `course_passages` table and sends them to Claude Haiku 5.5 as cached, citation-enabled documents. One streamed Messages API exchange answers each question in at most 4 rounds: the model first calls `record_message_type` (one of five FR-37 types; the tool result returns that type's reply rule), may call `search_book` (Postgres full-text search over the rest of the book) up to twice, then answers. `tool_choice` is `auto` on every round and `tools`/`system` never change between rounds, so the cached reading list survives (D18, D19). The server buffers each text block until its citations arrive, drops uncited claims, and relays blocks to the studio over SSE. Conversations, messages (with type, status, usage cost, latency and gap topic) and reports persist in three new tables next to `course_passages`, and a `watbot_sessions` view groups student messages into sessions for the FR-45 measures. A manual, budgeted test-set run (FR-44) grades leak rate per message type before the first ship.
+**Architecture:** Each model's manifest names a reading list. The server loads those passages from a new `course_passages` table and sends them to Claude Haiku 5.5 as cached, citation-enabled documents. One streamed Messages API exchange answers each question in at most 4 rounds: the model first calls `record_message_type` (one of five FR-37 types; the tool result returns that type's reply rule), may call `search_book` (Postgres full-text search over the rest of the book) up to twice, then answers. `tool_choice` is `auto` on every round and `tools`/`system` never change between rounds, so the cached reading list survives (D18, D19). The server buffers each text block until its citations arrive, drops uncited claims and short uncited blocks that carry a value or facility name the student hasn't seen (D20), and relays blocks to the studio over SSE. Admission is atomic per user (one question in flight, D21) and reserves a worst-case cost against the monthly cap. Stop or disconnect saves the forwarded part of the answer (D22). A 429 from Anthropic re-queues the request at the front of the in-flight queue (D24). Passages are served only to a student whose own tutor message cites them (D23). Conversations, messages (with type, status, usage cost, latency and gap topic) and reports persist in three new tables next to `course_passages`, and a `watbot_sessions` view groups student messages into sessions for the FR-45 measures. A manual, budgeted test-set run (FR-44) grades leak rate per message type before the first ship.
 
 **Tech Stack:**
 - API: Express 5, Drizzle (Postgres 18), `@anthropic-ai/sdk` (new)
@@ -26,17 +26,21 @@
 - **Limits.**
   - Student: 50 student messages per rolling 24 h, counted by `user_id`. Every `role = 'student'` row counts (every type, off-topic and fixed-question clicks included, FR-35) **except** rows with `status` `unavailable` or `limit_reached`: messages turned away are logged but not counted.
   - Question length: 2,000 characters.
-  - Project: `WATBOT_MONTHLY_USD` (default `10`) per UTC calendar month.
-  - In flight: `WATBOT_MAX_INFLIGHT` (default `10`) concurrent model calls.
+  - Project: `WATBOT_MONTHLY_USD` (default `10`) per UTC calendar month. A question is admitted only if stored month cost + in-memory reservations of admitted, unfinished questions + its own reservation < the cap (D21). Reservation = `MAX_ROUNDS` (4) × (bundle tokens + 10K history allowance) × cache-write price + 4 × `MAX_TOKENS` (4,000) × output price, released on completion, stop or failure.
+  - Admission (D21): a per-user in-process lock allows one question in flight. The 24 h count, the spend reservation and the student-row insert all happen while it is held. A second concurrent question from the same user gets `409 watbot_busy`.
+  - In flight: `WATBOT_MAX_INFLIGHT` (default `10`) concurrent model calls, FIFO.
+  - 429 from Anthropic (D24): the SDK client is built with `maxRetries: 0`, so the SDK never retries (it cannot exclude 429 alone). The engine releases the in-flight slot, re-enqueues at the **front**, waits `retry-after` (seconds, clamped 1–60; 5 if missing or invalid), emits `queued {position}`, and resends only the failed round. At most 3 re-queues per question; the 4th 429 gives `watbot_failed`. Stop while re-queued removes it from the queue. 5xx, 529 and connection errors are not retried: they set the 60 s unavailable flag (spec §5).
 - **Message types (FR-37, D18).** `WATBOT_MESSAGE_TYPES = concept_question | incorrect_attempt | correct_attempt | stuck_or_wants_answer | off_topic`, recorded on the student row through the `record_message_type` tool. A skipped call leaves `message_type` null. The type is never shown to the student and is not part of the API contract.
 - **Model rounds and cache invariant (D18, D19).** At most 4 rounds per question (type, 2 searches, answer); a 5th would-be round ends the answer with `watbot_failed`. At most 2 `search_book` calls per question, top 5 passages each; a third call gets the tool result `Search limit reached. Answer from the passages you already have.` Every round sends `tool_choice: {type: "auto"}` and byte-identical `tools` and `system`. Never switch `tool_choice` (e.g. to `none`): it invalidates the messages cache that holds the reading-list bundle.
 - **History.** History sent to the model = the last 20 messages, as plain text with no citations.
 - **No-leak rule (D14).** Q&A protects only what the student has not solved. WatBot may discuss values in the student's context summary; it never states an optimal facility set or objective value that is not in it, and never writes out a complete formulation. Spec 1 enforces this as a prompt rule, measured by the Task 11 test set.
 - **Test set (FR-44, D15).** Manual, budgeted, approval per run, never part of `pnpm gate`. Its unit tests (grader, bars, file validation) are part of the gate; the live run is not.
-- **Uncited-claim rule.** An uncited text block is kept only if it ends with `?` or has fewer than 12 words. Otherwise it is dropped and one notice is shown.
+- **Uncited-claim rule.** An uncited text block is kept only if it ends with `?` or has fewer than 12 words, **and** it passes the value check (D20): no number of 4+ digits (after removing commas and reading `M`/`million`/`k`) and no candidate-facility name from the model's dataset, unless that value or name also appears in the context summary. Any other uncited block is dropped, and one notice is shown.
+- **Stop or disconnect (D22).** The engine returns a partial result on abort and never throws it away. The route saves the forwarded blocks as the tutor row, then a `notice` row `Answer stopped`. Usage: input and cache tokens from `message_start`; output from the last `message_delta`, else forwarded characters ÷ 4 with `usage.estimated = true`. A buffered, unforwarded block is never saved. The student row stays `answered`.
+- **Passages (D23).** `GET /watbot/passages/:id` returns 200 only when a `tutor` row owned by the requester cites that passage id (jsonb containment on `blocks`); anything else is 404.
 - **Ownership (hard rule #5).** Every conversation, message and report query filters by `req.userId!`. A non-owned id returns `404 {error: "Not found"}`.
 - **Locked models.** Any route that takes a model or scenario checks `isModelLocked()` and calls `respondLocked(res)`.
-- **Error shape.** `{ error: string }`. WatBot error codes form a closed union in three places in one task: `WatBotErrorCode` in TS, the OpenAPI enum, and the regenerated client.
+- **Error shape.** `{ error: string }`. WatBot error codes form a closed union in three places, in this order, in one task: `watbot_unavailable | watbot_student_limit | watbot_project_limit | watbot_refused | watbot_failed | watbot_busy`. The places are `WATBOT_ERROR_CODES` in TS (Task 4), the OpenAPI `WatBotError` enum and the regenerated client (Task 6). A contract test pins the enum to the TS constant.
 - **Schema conventions.**
   - Primary keys are `serial`.
   - User foreign keys are `varchar("user_id").references(() => usersTable.id, { onDelete: "cascade" })`.
@@ -64,13 +68,15 @@
 | `artifacts/api-server/src/migrations/watbotIngestCorpus.ts` | ingest CLI | 3 |
 | `artifacts/api-server/src/watbot/passages.ts` | `loadBundle`, `searchBook`, `getPassage` | 3 |
 | `artifacts/api-server/src/watbot/prompt.ts` | system prompt, `REPLY_RULES`, tools, request builder | 4 |
-| `artifacts/api-server/src/watbot/citations.ts` | citation mapping, keep/drop rule | 4 |
-| `artifacts/api-server/src/watbot/cost.ts` | price table, `costUsd` | 4 |
-| `artifacts/api-server/src/watbot/errors.ts` | `WatBotErrorCode`, Anthropic error classification | 4 |
-| `artifacts/api-server/src/watbot/engine.ts` | streamed answer loop: message type, search cap, round guard, gap topic | 4 |
-| `artifacts/api-server/src/watbot/client.ts` | Anthropic client seam | 4 |
-| `artifacts/api-server/src/watbot/limits.ts` | quotas, availability flag, in-flight queue | 5 |
-| `artifacts/api-server/src/routes/watbot.ts` | HTTP + SSE routes | 6 |
+| `artifacts/api-server/src/watbot/numbers.ts` | `extractNumbers`, `matchesValue` (shared by the D20 check and the Task 11 grader) | 4 |
+| `artifacts/api-server/src/watbot/facilities.ts` | `facilityNames(modelId)` from the dataset loaders (D20) | 4 |
+| `artifacts/api-server/src/watbot/citations.ts` | citation mapping, keep/drop rule, `passesValueCheck` (D20) | 4 |
+| `artifacts/api-server/src/watbot/cost.ts` | price table, `costUsd`, `bundleTokens`, `reservationUsd` (D21) | 4 |
+| `artifacts/api-server/src/watbot/errors.ts` | `WATBOT_ERROR_CODES` (incl. `watbot_busy`), Anthropic error classification, `retryAfterMs` | 4 |
+| `artifacts/api-server/src/watbot/engine.ts` | streamed answer loop: message type, search cap, round guard, value check, partial result on abort, 429 re-queue | 4 |
+| `artifacts/api-server/src/watbot/client.ts` | Anthropic client seam (`maxRetries: 0`) | 4 |
+| `artifacts/api-server/src/watbot/limits.ts` | quotas, per-user lock, spend reservations, availability flag, in-flight queue with front re-queue | 5 |
+| `artifacts/api-server/src/routes/watbot.ts` | HTTP + SSE routes; atomic admission, partial save, citation-scoped passages | 6 |
 | `lib/api-spec/openapi.yaml` (+ generated) | WatBot contract; `ModelTutor` | 2, 6 |
 | `artifacts/studio/src/components/workspace/watbot/*` | panel UI | 7, 8 |
 | `artifacts/studio/src/pages/Workspace.tsx` | button, panel mount, sidebar collapse | 7 |
@@ -112,7 +118,7 @@ git rev-parse --abbrev-ref HEAD                              # expect: watbot-pa
   - Tables: `coursePassagesTable`, `watbotConversationsTable`, `watbotMessagesTable`, `watbotReportsTable`
   - View: `watbotSessionsView` (`watbot_sessions`: `userId, modelId, sessionNo, startedAt, endedAt, messages, duration`)
   - Constants: `WATBOT_MESSAGE_TYPES` (`concept_question | incorrect_attempt | correct_attempt | stuck_or_wants_answer | off_topic`), `WATBOT_MESSAGE_STATUSES` (`answered | unavailable | limit_reached`)
-  - Types: `WatBotMessageType`, `WatBotMessageStatus`, `WatBotCitation`, `WatBotBlock`, `WatBotUsage`, `WatBotContext`, `CoursePassage`, `WatBotMessage`
+  - Types: `WatBotMessageType`, `WatBotMessageStatus`, `WatBotCitation`, `WatBotBlock`, `WatBotUsage` (with optional `estimated`, D22), `WatBotContext`, `CoursePassage`, `WatBotMessage`
   - All exported from `@workspace/db`
 - `watbot_messages` columns added for FR-42/D17: `message_type` (student rows, nullable), `status` (not null, default `'answered'`), `latency_ms` (tutor rows), `gap_topic` (tutor rows). `watbot_reports` has no `kind`/`topic` (gaps live on `watbot_messages.gap_topic`), and its `message_id` is NOT NULL.
 
@@ -266,6 +272,9 @@ export type WatBotBlock = { text: string; citations: WatBotCitation[] };
 export type WatBotUsage = {
   model: string; inputTokens: number; outputTokens: number;
   cacheReadTokens: number; cacheWriteTokens: number; costUsd: number;
+  // D22: true when a stopped answer's output tokens were estimated (forwarded chars ÷ 4)
+  // because no message_delta usage had arrived yet.
+  estimated?: boolean;
 };
 export type WatBotContext = { tab: string | null; scenarioId: number | null; summary: string };
 
@@ -993,7 +1002,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `artifacts/api-server/package.json` (dependency `@anthropic-ai/sdk`)
-- Create: `artifacts/api-server/src/watbot/{client,prompt,citations,cost,errors,engine}.ts`
+- Create: `artifacts/api-server/src/watbot/{client,prompt,numbers,facilities,citations,cost,errors,engine}.ts`
 - Test: `artifacts/api-server/src/__tests__/watbotEngine.test.ts`
 
 **Before coding:** load the `claude-api` skill and read its `typescript/claude-api/streaming.md` and `tool-use.md`. Verify each of these against the installed SDK types:
@@ -1002,21 +1011,29 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - The `content_block_location` and `search_result_location` citation shapes
 - The `citations_delta` delta
 - The rule that **user-side** `text` blocks must not carry non-empty `citations` (API `2026-10-21`)
+- `message_start.message.usage` and `message_delta.usage.output_tokens` on the raw stream (D22)
+- Retry options (D24): the plan assumes the SDK's `maxRetries` applies to every retryable status (408, 409, 429, 5xx, connection) with no per-status switch, so `client.ts` sets `maxRetries: 0`. If the installed SDK does offer a 429-only switch, still use `maxRetries: 0`: 5xx, 529 and connection errors must reach the unavailable rule (spec §5) immediately rather than hold an in-flight slot while retrying.
+- `APIError.headers` type (a `Headers` with `.get()` in current SDKs) for `retry-after`
+- That aborting the request's `signal` makes stream iteration throw (`APIUserAbortError`)
 
 The shapes below were checked against the live docs on 2026-11-20.
 
 **Interfaces:**
-- Consumes: `BundleDoc`, `searchBook` (Task 3); `WATBOT_MESSAGE_TYPES`, `WatBotMessageType`, `WatBotBlock`, `WatBotUsage` (Task 1). The engine no longer writes to the database: `log_gap` returns a `gapTopic` that Task 6 stores on the tutor row.
+- Consumes: `BundleDoc`, `searchBook` (Task 3); `WATBOT_MESSAGE_TYPES`, `WatBotMessageType`, `WatBotBlock`, `WatBotUsage` (Task 1); the dataset loaders `WAREHOUSES` (`data/dataset.ts`), `BRAZIL_DATASET_WAREHOUSES` (`data/brazilDataset.ts`), `MAX_COVERAGE_WAREHOUSES` (`data/maxCoverageDataset.ts`), `DELIVERY_WAREHOUSES` (`data/deliveryDataset.ts`), `TRANSPORT_COAL_WAREHOUSES` (the coal mines, `data/transportCoalDataset.ts`), `JADE_PLANTS` + `JADE_WAREHOUSES` (`data/jadeDataset.ts`) and `GOLD_WAREHOUSES` (mines + refineries, `data/twoEchelonDataset.ts`). Each row carries `city`; these were checked on 2026-11-20. The engine never writes to the database: `log_gap` returns a `gapTopic` that Task 6 stores on the tutor row.
 - Produces:
-  - `type WatBotErrorCode = "watbot_unavailable" | "watbot_student_limit" | "watbot_project_limit" | "watbot_refused" | "watbot_failed"`
-  - `classifyAnthropicError(err: unknown): "unavailable" | "project_limit" | "rate_limited" | "failed"`
-  - `costUsd(model: string, u: Anthropic.Usage): number`
-  - `SYSTEM_PROMPT`, `REPLY_RULES: Record<WatBotMessageType, string>`, `TOOLS` (sorted by name: `log_gap`, `record_message_type`, `search_book`), `SEARCH_LIMIT_RESULT`
+  - `WATBOT_ERROR_CODES = ["watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed", "watbot_busy"] as const`, `type WatBotErrorCode`
+  - `classifyAnthropicError(err: unknown): "unavailable" | "project_limit" | "rate_limited" | "failed"`; `retryAfterMs(err: unknown): number` (seconds header clamped to 1–60, 5 if missing or invalid, returned in ms)
+  - `extractNumbers(text): number[]` (commas, `M`/`million`/`k`), `matchesValue(candidate, value): boolean` (equal at 2+ significant figures), in `numbers.ts`
+  - `facilityNames(modelId: string): string[]`, in `facilities.ts` (`[]` for `super-model`, which has no base dataset)
+  - `keepUncitedBlock(text)`, `passesValueCheck(text, facilityNames, contextSummary)`, in `citations.ts`
+  - `costUsd(model, u)`, `bundleTokens(bundle)`, `reservationUsd(model, bundleTokens)`, `HISTORY_ALLOWANCE_TOKENS = 10_000`, in `cost.ts`
+  - `SYSTEM_PROMPT`, `REPLY_RULES: Record<WatBotMessageType, string>`, `TOOLS` (sorted by name: `log_gap`, `record_message_type`, `search_book`), `SEARCH_LIMIT_RESULT`, `MAX_ROUNDS = 4`, `MAX_TOKENS = 4000`, in `prompt.ts`
   - `buildRequest({ model, bundle, fixedQuestions, history, contextSummary, question })`, which always sets `tool_choice: { type: "auto" }`
-  - `MAX_SEARCHES = 2`, `MAX_ROUNDS = 4`
+  - `MAX_SEARCHES = 2`, `MAX_REQUEUES = 3`, `STOPPED_NOTICE = "Answer stopped"`; `MAX_ROUNDS` is re-exported from `engine.ts`
+  - `type RoundGate = { requeue(retryAfterMs: number): Promise<void> }`. Task 6 implements it on the in-flight queue; the default gate just waits `retryAfterMs` (smoke and eval CLIs).
   - `type EngineEvent = { type: "searching"; query: string } | { type: "block"; block: WatBotBlock } | { type: "notice"; kind: "claim_removed" | "gap_logged" }`
-  - `type AnswerInput = { client; model; bundle; readingList; fixedQuestions: string[]; history; contextSummary; question; emit; signal; deps? }`
-  - `type AnswerResult = { blocks; claimsRemoved; usage; refused: boolean; failed: boolean; messageType: WatBotMessageType | null; gapTopic: string | null }`. The message type reaches the caller **only** through `AnswerResult.messageType` (no callback); Task 6 writes it to the student row.
+  - `type AnswerInput = { client; model; bundle; readingList; fixedQuestions: string[]; facilityNames: string[]; history; contextSummary; question; emit; signal; gate?: RoundGate; deps? }`
+  - `type AnswerResult = { blocks; claimsRemoved; usage; refused: boolean; failed: boolean; stopped: boolean; messageType: WatBotMessageType | null; gapTopic: string | null }`. The message type reaches the caller **only** through `AnswerResult.messageType` (no callback). On abort the engine **returns** a partial result with `stopped: true` rather than throwing (D22).
   - `answerQuestion(input: AnswerInput): Promise<AnswerResult>`
   - `setWatBotClientForTests(c: WatBotClient | null)`, `getWatBotClient()`
 
@@ -1031,11 +1048,13 @@ Expected: it is added to `dependencies`. Commit the lockfile with this task.
 // artifacts/api-server/src/__tests__/watbotEngine.test.ts
 import { describe, it, expect, vi } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
-import { keepUncitedBlock } from "../watbot/citations.js";
-import { costUsd } from "../watbot/cost.js";
-import { classifyAnthropicError } from "../watbot/errors.js";
+import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
+import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
+import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
+import { extractNumbers, matchesValue } from "../watbot/numbers.js";
+import { facilityNames } from "../watbot/facilities.js";
 import { buildRequest, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
-import { answerQuestion, MAX_ROUNDS, type AnswerInput, type EngineEvent } from "../watbot/engine.js";
+import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
 
@@ -1045,18 +1064,39 @@ const bundle = [{ title: "Chapter 3", passages: [
 ] }];
 
 type Call = Anthropic.MessageStreamParams;
+type Round =
+  | { events: Anthropic.RawMessageStreamEvent[]; final: Partial<Anthropic.Message> }
+  | { error: unknown }                                          // the round's request fails (e.g. a 429)
+  | { events: Anthropic.RawMessageStreamEvent[]; hang: true };  // streams, then waits until aborted (Stop)
 
-// Scripted fake: each round is a list of raw stream events + the final message.
-// Each request is deep-cloned on capture, so later rounds cannot mutate earlier captures.
-function fakeClient(rounds: { events: Anthropic.RawMessageStreamEvent[]; final: Partial<Anthropic.Message> }[]): WatBotClient & { calls: Call[] } {
+const abortError = () => Object.assign(new Error("Request was aborted."), { name: "AbortError" });
+
+// Scripted fake: one entry per round. Each request is deep-cloned on capture,
+// so later rounds cannot mutate earlier captures.
+function fakeClient(rounds: Round[]): WatBotClient & { calls: Call[] } {
   const calls: Call[] = [];
   let i = 0;
   return {
     calls,
     messages: {
-      stream(params: Call) {
+      stream(params: Call, opts?: { signal?: AbortSignal }) {
         calls.push(structuredClone(params));
         const r = rounds[i++]!;
+        if ("error" in r) {
+          return { async *[Symbol.asyncIterator]() { throw r.error; }, finalMessage: async () => { throw r.error; } };
+        }
+        if ("hang" in r) {
+          return {
+            async *[Symbol.asyncIterator]() {
+              for (const e of r.events) yield e;
+              await new Promise((_, reject) => {
+                if (opts?.signal?.aborted) reject(abortError());
+                opts?.signal?.addEventListener("abort", () => reject(abortError()));
+              });
+            },
+            finalMessage: async () => { throw abortError(); },
+          };
+        }
         return {
           async *[Symbol.asyncIterator]() { for (const e of r.events) yield e; },
           finalMessage: async () => ({ usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, content: [], stop_reason: "end_turn", ...r.final }) as Anthropic.Message,
@@ -1065,6 +1105,12 @@ function fakeClient(rounds: { events: Anthropic.RawMessageStreamEvent[]; final: 
     },
   } as unknown as WatBotClient & { calls: Call[] };
 }
+
+const apiErr = (status: number, message: string, error?: object, headers: Record<string, string> = {}) =>
+  Anthropic.APIError.generate(status, { type: "error", error: { type: "x", message, ...error } }, message, new Headers(headers));
+const rateLimited = (retryAfter?: string) =>
+  ({ error: apiErr(429, "rate limited", { type: "rate_limit_error" }, retryAfter === undefined ? {} : { "retry-after": retryAfter }) });
+const recordingGate = () => { const waits: number[] = []; const gate: RoundGate = { requeue: async (ms) => { waits.push(ms); } }; return { gate, waits }; };
 
 const textBlock = (index: number, text: string, citations: unknown[]): Anthropic.RawMessageStreamEvent[] => [
   { type: "content_block_start", index, content_block: { type: "text", text: "", citations: null } } as never,
@@ -1080,7 +1126,7 @@ const toolRound = (id: string, name: string, input: object) => ({
 const answerRound = (text: string) => ({ events: textBlock(0, text, []), final: { stop_reason: "end_turn" as const } });
 
 const baseInput = (client: WatBotClient, extra: Partial<AnswerInput> = {}): AnswerInput => ({
-  client, model: "claude-haiku-5-5", bundle, readingList: [], fixedQuestions: [], history: [], contextSummary: "",
+  client, model: "claude-haiku-5-5", bundle, readingList: [], fixedQuestions: [], facilityNames: [], history: [], contextSummary: "",
   question: "q", emit: () => {}, signal: new AbortController().signal, ...extra,
 });
 
@@ -1096,16 +1142,85 @@ describe("keepUncitedBlock", () => {
   ])("%s → %s", (text, keep) => expect(keepUncitedBlock(text)).toBe(keep));
 });
 
-describe("costUsd", () => {
+describe("extractNumbers / matchesValue", () => {
+  it.each([
+    ["Total cost 1,234,567.89 and 12 sites", [1234567.89, 12]],
+    ["about $1.23M overall", [1230000]],
+    ["roughly 1.2 million", [1200000]],
+    ["4.5 M ton-miles", [4500000]],
+    ["about 45k tons", [45000]],
+    ["450 m from the plant", [450]], // lowercase m is a distance unit, never "million"
+    ["a 5 km radius", [5]],          // "km" is not the k multiplier
+  ])("extracts %s", (text, expected) => expect(extractNumbers(text)).toEqual(expected));
+  it.each([
+    [1234567, true], [1234570, true], [1235000, true], [1200000, true],
+    [1000000, false], // 1 significant figure is too coarse to count as the value
+    [1300000, false], [7, false],
+  ])("%d matches 1234567 → %s", (candidate, expected) => expect(matchesValue(candidate, 1234567)).toBe(expected));
+});
+
+// D20 — short uncited blocks that pass keepUncitedBlock still may not carry a value or site the student hasn't seen.
+describe("passesValueCheck", () => {
+  const names = ["Allentown", "Chicago"];
+  it("drops a short leak: a 4+-digit value not in the context", () => {
+    expect(keepUncitedBlock("The best total is 1,234,567.")).toBe(true); // short enough to pass the word rule…
+    expect(passesValueCheck("The best total is 1,234,567.", names, "")).toBe(false); // …so the value check must catch it
+  });
+  it("drops a question carrying an objective value or a facility name", () => {
+    expect(passesValueCheck("Is it about 1.23 million?", names, "")).toBe(false);
+    expect(passesValueCheck("Should Allentown be open?", names, "")).toBe(false);
+  });
+  it("keeps the same text when the context summary already shows the value or name (D14)", () => {
+    const ctx = "Tab: output-map · Scenario: Baseline · p = 3 · objective 1234567 · open sites: Allentown, Chicago";
+    expect(passesValueCheck("The best total is 1,234,567.", names, ctx)).toBe(true);
+    expect(passesValueCheck("Is it about 1.23 million?", names, ctx)).toBe(true);
+    expect(passesValueCheck("Should Allentown be open?", names, ctx)).toBe(true);
+  });
+  it("ignores numbers under four digits and names only as whole words", () => {
+    expect(passesValueCheck("What happens with p = 3 and 450 miles?", names, "")).toBe(true);
+    expect(passesValueCheck("What would Chicagoland customers see?", names, "")).toBe(true);
+  });
+});
+
+describe("facilityNames", () => {
+  it("reads candidate-facility cities from the model's dataset (non-vacuous)", () => {
+    expect(facilityNames("p-median-us")).toContain("Allentown");
+    expect(facilityNames("p-median-us").length).toBeGreaterThan(10);
+    for (const id of ["p-median-brazil", "max-coverage-us", "delivery-teaching-us", "transport-coal", "two-echelon-jade-us", "two-echelon-gold-au"]) {
+      expect(facilityNames(id).length, id).toBeGreaterThan(0);
+    }
+  });
+  it("is empty for super-model (no base dataset; facilities are imported)", () => {
+    expect(facilityNames("super-model")).toEqual([]);
+  });
+});
+
+describe("costUsd and the D21 reservation", () => {
   it("prices Haiku 5.5 input, output, cache read and cache write", () => {
     const usd = costUsd("claude-haiku-5-5", { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000 } as Anthropic.Usage);
     expect(usd).toBeCloseTo(0.10 + 0.50 + 0.01 + 0.125, 6);
   });
+  it("reserves 4 × (bundle + 10K) at the cache-write price + 4 × max_tokens at the output price", () => {
+    // spec §5: super-model's 63.8K bundle reserves ≈ $0.045
+    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(4 * 73_800 * 0.125 / 1e6 + 4 * 4000 * 0.5 / 1e6, 9);
+    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(0.045, 3);
+  });
+  it("estimates bundle tokens as characters ÷ 4", () => {
+    expect(bundleTokens(bundle)).toBe(Math.round((bundle[0]!.passages[0]!.body.length + bundle[0]!.passages[1]!.body.length) / 4));
+  });
+});
+
+describe("retryAfterMs (D24)", () => {
+  it.each([
+    [{ "retry-after": "2" }, 2000],
+    [{ "retry-after": "120" }, 60_000],  // clamped to 60 s
+    [{ "retry-after": "0" }, 1000],      // clamped to 1 s
+    [{ "retry-after": "soon" }, 5000],   // invalid → 5 s
+    [{}, 5000],                          // missing → 5 s
+  ])("%j → %d ms", (headers, ms) => expect(retryAfterMs(apiErr(429, "slow", {}, headers as Record<string, string>))).toBe(ms));
 });
 
 describe("classifyAnthropicError", () => {
-  const apiErr = (status: number, message: string, error?: object) =>
-    Anthropic.APIError.generate(status, { type: "error", error: { type: "x", message, ...error } }, message, new Headers());
   it("maps the user-set spend limit 400 to project_limit (not unavailable)", () => {
     expect(classifyAnthropicError(apiErr(400, "You have reached your specified API usage limits. You will regain access on 2026-12-01"))).toBe("project_limit");
   });
@@ -1248,6 +1363,91 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client));
     expect(result.refused).toBe(true);
   });
+
+  // D20 — engine wiring of the value check, with the same notice as an uncited claim.
+  it("drops a short uncited block carrying an unseen value, and keeps it when the context shows that value", async () => {
+    const leak = "The best total is 1,234,567.";
+    const run = async (contextSummary: string) => {
+      const events: EngineEvent[] = [];
+      const result = await answerQuestion(baseInput(fakeClient([answerRound(leak)]), { contextSummary, facilityNames: ["Allentown"], emit: (e) => events.push(e) }));
+      return { result, events };
+    };
+    const hidden = await run("");
+    expect(hidden.result.blocks).toEqual([]);
+    expect(hidden.result.claimsRemoved).toBe(1);
+    expect(hidden.events).toEqual([{ type: "notice", kind: "claim_removed" }]);
+    const shown = await run("Tab: output-map · Scenario: Baseline · objective 1234567");
+    expect(shown.result.blocks.map((b) => b.text)).toEqual([leak]);
+  });
+
+  // D22 — Stop/disconnect returns the forwarded part; the buffered block is not kept.
+  it("returns a partial result on abort with message_start usage and estimated output", async () => {
+    const ac = new AbortController();
+    const client = fakeClient([{ hang: true, events: [
+      { type: "message_start", message: { usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 } } } as never,
+      ...textBlock(0, "What do you notice?", []),
+      { type: "content_block_start", index: 1, content_block: { type: "text", text: "", citations: null } } as never,
+      { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Buffered and never forwarded" } } as never,
+    ] }]);
+    const result = await answerQuestion(baseInput(client, { signal: ac.signal, emit: (e) => { if (e.type === "block") ac.abort(); } }));
+    expect(result.stopped).toBe(true);
+    expect(result.blocks.map((b) => b.text)).toEqual(["What do you notice?"]);
+    expect(result.usage).toMatchObject({ inputTokens: 100, cacheReadTokens: 50, outputTokens: Math.ceil("What do you notice?".length / 4), estimated: true });
+    expect(result.usage.costUsd).toBeGreaterThan(0);
+  });
+
+  it("uses the last message_delta's output tokens when one arrived before the abort", async () => {
+    const ac = new AbortController();
+    const client = fakeClient([{ hang: true, events: [
+      { type: "message_start", message: { usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } } as never,
+      { type: "message_delta", delta: { stop_reason: null, stop_sequence: null }, usage: { output_tokens: 7 } } as never,
+      ...textBlock(0, "What do you notice?", []),
+    ] }]);
+    const result = await answerQuestion(baseInput(client, { signal: ac.signal, emit: (e) => { if (e.type === "block") ac.abort(); } }));
+    expect(result.stopped).toBe(true);
+    expect(result.usage.outputTokens).toBe(7);
+    expect(result.usage.estimated).toBeUndefined();
+  });
+
+  // D24 — 429 re-queue, resending only the failed round.
+  it("re-queues a 429 through the gate with retry-after and resends only the failed round", async () => {
+    const { gate, waits } = recordingGate();
+    const client = fakeClient([
+      toolRound("t1", "record_message_type", { type: "concept_question" }),
+      rateLimited("2"),
+      answerRound("Which constraint binds here?"),
+    ]);
+    const result = await answerQuestion(baseInput(client, { gate }));
+    expect(waits).toEqual([2000]);
+    expect(client.calls).toHaveLength(3);
+    expect(JSON.stringify(client.calls[2]!.messages)).toBe(JSON.stringify(client.calls[1]!.messages)); // same round resent
+    expect(lastToolResults(client.calls[2]!)[0]!.content).toBe(REPLY_RULES.concept_question);        // round 1 kept, not re-run
+    expect(result).toMatchObject({ failed: false, messageType: "concept_question" });
+    expect(result.blocks.map((b) => b.text)).toEqual(["Which constraint binds here?"]);
+  });
+
+  it(`fails after ${MAX_REQUEUES} re-queues (the 4th 429), clamping an invalid retry-after to 5 s`, async () => {
+    const { gate, waits } = recordingGate();
+    const client = fakeClient([rateLimited("soon"), rateLimited(), rateLimited("2"), rateLimited("2")]);
+    const result = await answerQuestion(baseInput(client, { gate }));
+    expect(waits).toEqual([5000, 5000, 2000]);
+    expect(client.calls).toHaveLength(MAX_REQUEUES + 1);
+    expect(result.failed).toBe(true);
+  });
+
+  it("returns stopped when the student stops while re-queued", async () => {
+    const ac = new AbortController();
+    const gate: RoundGate = { requeue: async () => { ac.abort(); throw new Error("aborted"); } };
+    const result = await answerQuestion(baseInput(fakeClient([rateLimited("2")]), { gate, signal: ac.signal }));
+    expect(result.stopped).toBe(true);
+    expect(result.blocks).toEqual([]);
+  });
+
+  it("does not re-queue non-429 errors: they propagate for the route's unavailable/failed mapping", async () => {
+    const { gate, waits } = recordingGate();
+    await expect(answerQuestion(baseInput(fakeClient([{ error: apiErr(529, "overloaded") }]), { gate }))).rejects.toThrow();
+    expect(waits).toEqual([]);
+  });
 });
 ```
 
@@ -1270,27 +1470,110 @@ let real: Anthropic | null = null;
 export function setWatBotClientForTests(c: WatBotClient | null): void { override = c; }
 export function getWatBotClient(): WatBotClient {
   if (override) return override;
-  real ??= new Anthropic(); // reads ANTHROPIC_API_KEY; server-side only (FR-33)
+  // Reads ANTHROPIC_API_KEY; server-side only (FR-33). maxRetries 0 (D24): the SDK
+  // would otherwise retry 429s while holding an in-flight slot, and 5xx/529 must
+  // reach the unavailable rule (spec §5) at once. The engine owns the 429 re-queue.
+  real ??= new Anthropic({ maxRetries: 0 });
   return real as unknown as WatBotClient;
 }
 export function watbotModel(): string { return process.env.WATBOT_MODEL || "claude-haiku-5-5"; }
 ```
 
 ```ts
+// artifacts/api-server/src/watbot/numbers.ts
+// Number reading shared by the D20 value check and the FR-44 grader (Task 11).
+
+// "1,234,567.8" · "$1.23M" · "1.2 million" · "45k" → numbers. Lowercase "m" is a
+// distance unit (metres/miles) and "km" is not the k multiplier.
+const NUMBER_RE = /(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(million\b|M\b|[kK]\b)?/g;
+
+export function extractNumbers(text: string): number[] {
+  return [...text.matchAll(NUMBER_RE)].map((m) => {
+    const n = Number(m[1]!.replace(/,/g, "") + (m[2] ?? ""));
+    const unit = m[3];
+    return unit === "million" || unit === "M" ? n * 1_000_000 : unit ? n * 1_000 : n;
+  });
+}
+
+// A candidate "is" the value when it equals the value rounded to 2+ significant
+// figures. One significant figure ("about 1 million") is too coarse to count.
+export function matchesValue(candidate: number, value: number): boolean {
+  for (let k = 2; k <= 15; k++) {
+    if (Math.abs(candidate - Number(value.toPrecision(k))) <= Math.abs(value) * 1e-9) return true;
+  }
+  return false;
+}
+```
+
+```ts
+// artifacts/api-server/src/watbot/facilities.ts
+// D20 — candidate-facility names per model, from the same dataset loaders the
+// solver routes use (warehouses, plants, refineries, mines). `city` is what the
+// Output Map and the context summary's "open sites" show.
+import { WAREHOUSES } from "../data/dataset.js";
+import { BRAZIL_DATASET_WAREHOUSES } from "../data/brazilDataset.js";
+import { MAX_COVERAGE_WAREHOUSES } from "../data/maxCoverageDataset.js";
+import { DELIVERY_WAREHOUSES } from "../data/deliveryDataset.js";
+import { TRANSPORT_COAL_WAREHOUSES } from "../data/transportCoalDataset.js";
+import { JADE_PLANTS, JADE_WAREHOUSES } from "../data/jadeDataset.js";
+import { GOLD_WAREHOUSES } from "../data/twoEchelonDataset.js";
+
+const BY_MODEL: Record<string, Array<{ city: string }>> = {
+  "p-median-us": WAREHOUSES,
+  "p-median-brazil": BRAZIL_DATASET_WAREHOUSES,
+  "max-coverage-us": MAX_COVERAGE_WAREHOUSES,
+  "delivery-teaching-us": DELIVERY_WAREHOUSES,
+  "transport-coal": TRANSPORT_COAL_WAREHOUSES,           // the coal mines
+  "two-echelon-jade-us": [...JADE_PLANTS, ...JADE_WAREHOUSES],
+  "two-echelon-gold-au": GOLD_WAREHOUSES,                // mines + refineries
+  // super-model: no base dataset; its facilities are imported per scenario.
+};
+
+const cache = new Map<string, string[]>();
+export function facilityNames(modelId: string): string[] {
+  if (!cache.has(modelId)) {
+    cache.set(modelId, [...new Set((BY_MODEL[modelId] ?? []).map((f) => f.city.trim()).filter(Boolean))]);
+  }
+  return cache.get(modelId)!;
+}
+```
+
+```ts
 // artifacts/api-server/src/watbot/cost.ts
 import type Anthropic from "@anthropic-ai/sdk";
+import { MAX_ROUNDS, MAX_TOKENS } from "./prompt.js";
+import type { BundleDoc } from "./passages.js";
 
 // USD per million tokens. Source: claude-api skill model table (cached 2026-10-06);
 // cache read = 0.1x input, cache write (5-min TTL) = 1.25x input.
 const PRICES: Record<string, { input: number; output: number }> = {
   "claude-haiku-5-5": { input: 0.10, output: 0.50 },
 };
+const priceFor = (model: string) => PRICES[model] ?? PRICES["claude-haiku-5-5"]!;
+const CACHE_READ = 0.1;
+const CACHE_WRITE = 1.25;
 
 export function costUsd(model: string, u: Anthropic.Usage): number {
-  const p = PRICES[model] ?? PRICES["claude-haiku-5-5"]!;
+  const p = priceFor(model);
   return ((u.input_tokens ?? 0) * p.input + (u.output_tokens ?? 0) * p.output
-    + (u.cache_read_input_tokens ?? 0) * p.input * 0.1
-    + (u.cache_creation_input_tokens ?? 0) * p.input * 1.25) / 1_000_000;
+    + (u.cache_read_input_tokens ?? 0) * p.input * CACHE_READ
+    + (u.cache_creation_input_tokens ?? 0) * p.input * CACHE_WRITE) / 1_000_000;
+}
+
+// ponytail: chars/4 token estimate, the same one the ingest's bundle report uses.
+export const bundleTokens = (bundle: BundleDoc[]) =>
+  Math.round(bundle.reduce((sum, d) => sum + d.passages.reduce((s, p) => s + p.body.length, 0), 0) / 4);
+
+// D21 — 20 history messages are taken as a 10K-token allowance.
+export const HISTORY_ALLOWANCE_TOKENS = 10_000;
+
+// D21 — worst-case cost of one question: every round re-writes the whole prompt
+// to cache and emits max_tokens. Deliberately conservative (super-model ≈ $0.045);
+// replaced by the actual stored cost when the question finishes, stops or fails.
+export function reservationUsd(model: string, bundleTokenCount: number): number {
+  const p = priceFor(model);
+  return (MAX_ROUNDS * (bundleTokenCount + HISTORY_ALLOWANCE_TOKENS) * p.input * CACHE_WRITE
+    + MAX_ROUNDS * MAX_TOKENS * p.output) / 1_000_000;
 }
 ```
 
@@ -1298,7 +1581,10 @@ export function costUsd(model: string, u: Anthropic.Usage): number {
 // artifacts/api-server/src/watbot/errors.ts
 import Anthropic from "@anthropic-ai/sdk";
 
-export const WATBOT_ERROR_CODES = ["watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed"] as const;
+// Closed union, in this order, mirrored by the OpenAPI WatBotError enum (Task 6).
+export const WATBOT_ERROR_CODES = [
+  "watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed", "watbot_busy",
+] as const;
 export type WatBotErrorCode = (typeof WATBOT_ERROR_CODES)[number];
 
 export function classifyAnthropicError(err: unknown): "unavailable" | "project_limit" | "rate_limited" | "failed" {
@@ -1312,12 +1598,21 @@ export function classifyAnthropicError(err: unknown): "unavailable" | "project_l
   if (err.status !== undefined && err.status >= 500) return "unavailable";
   return "failed";
 }
+
+// D24 — `retry-after` in seconds, clamped to 1–60; 5 when missing or invalid.
+export function retryAfterMs(err: unknown): number {
+  const raw = err instanceof Anthropic.APIError ? err.headers?.get("retry-after") : null;
+  const seconds = raw == null || raw.trim() === "" ? NaN : Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return 5000;
+  return Math.min(60, Math.max(1, seconds)) * 1000;
+}
 ```
 
 ```ts
 // artifacts/api-server/src/watbot/citations.ts
 import type { WatBotCitation } from "@workspace/db";
 import type { BundleDoc } from "./passages.js";
+import { extractNumbers, matchesValue } from "./numbers.js";
 
 export const MIN_CLAIM_WORDS = 12;
 
@@ -1326,6 +1621,23 @@ export const MIN_CLAIM_WORDS = 12;
 export function keepUncitedBlock(text: string): boolean {
   const t = text.trim();
   return t.endsWith("?") || t.split(/\s+/).filter(Boolean).length < MIN_CLAIM_WORDS;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Whole-name, case-sensitive match ("Chicago" but not "Chicagoland" or the word
+// "reading" for a city named Reading); Unicode-aware for names like "Belém".
+const mentions = (text: string, name: string) =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, "u").test(text);
+
+// D20 — an uncited block that passed keepUncitedBlock still fails when it carries
+// a 4+-digit value or a candidate-facility name the student's context does not show.
+export function passesValueCheck(text: string, facilityNames: string[], contextSummary: string): boolean {
+  const shown = extractNumbers(contextSummary);
+  for (const n of extractNumbers(text)) {
+    if (Math.abs(n) < 1000) continue; // fewer than four digits
+    if (!shown.some((v) => matchesValue(n, v) || matchesValue(v, n))) return false;
+  }
+  return !facilityNames.some((name) => mentions(text, name) && !mentions(contextSummary, name));
 }
 
 type RawCitation =
@@ -1345,6 +1657,8 @@ export function mapCitation(c: RawCitation, bundle: BundleDoc[]): WatBotCitation
   return null;
 }
 ```
+
+`facilities.ts` imports the dataset modules, which load their JSON at import time; `routes/scenarios.ts` already does the same through `services/templates.ts`, so this adds no new startup cost on the server.
 
 - [ ] **Step 5: Implement `prompt.ts`**
 
@@ -1392,6 +1706,10 @@ export const REPLY_RULES: Record<WatBotMessageType, string> = {
 };
 
 export const SEARCH_LIMIT_RESULT = "Search limit reached. Answer from the passages you already have.";
+
+// Request-shape bounds, shared by the engine (round guard) and cost.ts (D21 reservation).
+export const MAX_ROUNDS = 4;    // type, 2 searches, answer (spec §4 round guard)
+export const MAX_TOKENS = 4000; // per round
 
 // Sorted by name and never changed per request (spec §4 "Model call", order 1).
 export const TOOLS: Anthropic.Tool[] = [
@@ -1446,7 +1764,7 @@ export function buildRequest(input: {
   messages.push({ role: "user", content: [{ type: "text", text: `${ctx}Question: ${input.question}` }] });
   return {
     model: input.model,
-    max_tokens: 4000,
+    max_tokens: MAX_TOKENS,
     system: [{ type: "text", text: SYSTEM_PROMPT }],
     tools: TOOLS,
     tool_choice: { type: "auto" }, // never changed between rounds (D18, D19)
@@ -1466,29 +1784,40 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { WATBOT_MESSAGE_TYPES, type WatBotBlock, type WatBotCitation, type WatBotMessageType, type WatBotUsage } from "@workspace/db";
 import type { Tutor } from "@workspace/dataset-schema";
 import type { WatBotClient } from "./client.js";
-import { buildRequest, REPLY_RULES, SEARCH_LIMIT_RESULT, type HistoryTurn } from "./prompt.js";
-import { keepUncitedBlock, mapCitation } from "./citations.js";
+import { buildRequest, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, type HistoryTurn } from "./prompt.js";
+import { keepUncitedBlock, mapCitation, passesValueCheck } from "./citations.js";
 import { costUsd } from "./cost.js";
+import { classifyAnthropicError, retryAfterMs } from "./errors.js";
 import { searchBook as defaultSearchBook, type BundleDoc } from "./passages.js";
 
+export { MAX_ROUNDS };
 export const MAX_SEARCHES = 2;
-export const MAX_ROUNDS = 4; // type, 2 searches, answer (spec §4 round guard)
+export const MAX_REQUEUES = 3;              // D24: the 4th 429 on one question → failed
+export const STOPPED_NOTICE = "Answer stopped"; // D22: notice row text after a stopped answer
 
 export type EngineEvent =
   | { type: "searching"; query: string }
   | { type: "block"; block: WatBotBlock }
   | { type: "notice"; kind: "claim_removed" | "gap_logged" };
 
+// D24 — how a 429'd round waits for its turn again. Task 6 implements it on the
+// in-flight queue (release slot, front re-queue, wait retry-after, emit queued).
+export type RoundGate = { requeue(retryAfterMs: number): Promise<void> };
+
 export type AnswerInput = {
   client: WatBotClient; model: string; bundle: BundleDoc[]; readingList: Tutor["readingList"];
-  fixedQuestions: string[]; history: HistoryTurn[]; contextSummary: string; question: string;
+  fixedQuestions: string[];
+  facilityNames: string[];                 // D20: candidate-facility names for the value check
+  history: HistoryTurn[]; contextSummary: string; question: string;
   emit: (e: EngineEvent) => void; signal: AbortSignal;
+  gate?: RoundGate;                        // default: just wait retry-after (CLIs with no queue)
   deps?: { searchBook?: typeof defaultSearchBook };
 };
 export type AnswerResult = {
   blocks: WatBotBlock[]; claimsRemoved: number; usage: WatBotUsage;
   refused: boolean;                        // stop_reason "refusal"
-  failed: boolean;                         // round guard hit → caller sends watbot_failed
+  failed: boolean;                         // round guard or 4th 429 → caller sends watbot_failed
+  stopped: boolean;                        // D22: aborted; blocks/usage are what was forwarded/known
   messageType: WatBotMessageType | null;   // null when the model skipped record_message_type
   gapTopic: string | null;                 // set by log_gap; stored on the tutor row
 };
@@ -1496,8 +1825,16 @@ export type AnswerResult = {
 const isMessageType = (v: unknown): v is WatBotMessageType =>
   typeof v === "string" && (WATBOT_MESSAGE_TYPES as readonly string[]).includes(v);
 
+const waitFor = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal.aborted) { reject(new Error("aborted")); return; }
+  const t = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+  const onAbort = () => { clearTimeout(t); reject(new Error("aborted")); };
+  signal.addEventListener("abort", onAbort, { once: true });
+});
+
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
+  const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
   // Built once: model, system, tools and tool_choice stay byte-identical across
   // rounds; only `messages` grows (spec D18, D19 — never switch tool_choice).
   const params = buildRequest(input);
@@ -1506,17 +1843,40 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   const usage: WatBotUsage = { model: input.model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 };
   let claimsRemoved = 0;
   let searches = 0;
+  let requeues = 0;
   let messageType: WatBotMessageType | null = null;
   let gapTopic: string | null = null;
-  const result = (extra: { refused?: boolean; failed?: boolean } = {}): AnswerResult =>
-    ({ blocks, claimsRemoved, usage, refused: false, failed: false, messageType, gapTopic, ...extra });
+  const result = (extra: { refused?: boolean; failed?: boolean; stopped?: boolean } = {}): AnswerResult =>
+    ({ blocks, claimsRemoved, usage, refused: false, failed: false, stopped: false, messageType, gapTopic, ...extra });
+  const addUsage = (u: Anthropic.Usage) => {
+    usage.inputTokens += u.input_tokens ?? 0;
+    usage.outputTokens += u.output_tokens ?? 0;
+    usage.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+    usage.cacheWriteTokens += u.cache_creation_input_tokens ?? 0;
+    usage.costUsd += costUsd(input.model, u);
+  };
 
-  for (let round = 1; ; round++) {
-    if (round > MAX_ROUNDS) return result({ failed: true });
+  // Per-round usage seen on the stream, kept so an aborted round can still be billed (D22).
+  let roundStart: Anthropic.Usage | null = null;
+  let roundOutput: number | null = null;
+  let roundForwardedChars = 0;
+  const stopped = (): AnswerResult => {
+    if (roundStart) {
+      const estimated = roundOutput === null;
+      addUsage({ ...roundStart, output_tokens: roundOutput ?? Math.ceil(roundForwardedChars / 4) });
+      if (estimated) usage.estimated = true;
+    }
+    return result({ stopped: true });
+  };
+
+  const streamRound = async (): Promise<Anthropic.Message> => {
+    roundStart = null; roundOutput = null; roundForwardedChars = 0;
     const stream = input.client.messages.stream({ ...params, messages }, { signal: input.signal });
     const open = new Map<number, { text: string; citations: WatBotCitation[] }>();
     for await (const ev of stream) {
-      if (ev.type === "content_block_start" && ev.content_block.type === "text") open.set(ev.index, { text: "", citations: [] });
+      if (ev.type === "message_start") roundStart = ev.message.usage;
+      else if (ev.type === "message_delta") roundOutput = ev.usage.output_tokens;
+      else if (ev.type === "content_block_start" && ev.content_block.type === "text") open.set(ev.index, { text: "", citations: [] });
       else if (ev.type === "content_block_delta") {
         const b = open.get(ev.index);
         if (!b) continue;
@@ -1529,16 +1889,33 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         const b = open.get(ev.index);
         if (!b || !b.text.trim()) continue;
         open.delete(ev.index);
-        if (b.citations.length || keepUncitedBlock(b.text)) { blocks.push(b); input.emit({ type: "block", block: b }); }
+        // Cited → forward. Uncited → forward only if it is a question or short
+        // connective (FR-17) AND carries no unseen value or site (D20).
+        const keep = b.citations.length > 0
+          || (keepUncitedBlock(b.text) && passesValueCheck(b.text, input.facilityNames, input.contextSummary));
+        if (keep) { blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
         else if (claimsRemoved++ === 0) input.emit({ type: "notice", kind: "claim_removed" });
       }
     }
-    const final = await stream.finalMessage();
-    usage.inputTokens += final.usage.input_tokens ?? 0;
-    usage.outputTokens += final.usage.output_tokens ?? 0;
-    usage.cacheReadTokens += final.usage.cache_read_input_tokens ?? 0;
-    usage.cacheWriteTokens += final.usage.cache_creation_input_tokens ?? 0;
-    usage.costUsd += costUsd(input.model, final.usage);
+    return stream.finalMessage();
+  };
+
+  for (let round = 1; ; round++) {
+    if (round > MAX_ROUNDS) return result({ failed: true });
+    let final!: Anthropic.Message;
+    for (;;) {
+      try { final = await streamRound(); break; }
+      catch (err) {
+        if (input.signal.aborted) return stopped();           // D22: keep what was forwarded
+        if (classifyAnthropicError(err) !== "rate_limited") throw err;
+        if (requeues >= MAX_REQUEUES) return result({ failed: true });
+        requeues++;
+        // D24: back to the front of the queue; the same round (same messages) is resent.
+        try { await gate.requeue(retryAfterMs(err)); }
+        catch (gateErr) { if (input.signal.aborted) return stopped(); throw gateErr; }
+      }
+    }
+    addUsage(final.usage);
 
     if (final.stop_reason === "refusal") return result({ refused: true });
     if (final.stop_reason !== "tool_use") return result();
@@ -1590,17 +1967,18 @@ Expected: all pass. If `Anthropic.APIError.generate`'s signature differs in the 
 ```bash
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1
 git add artifacts/api-server/package.json pnpm-lock.yaml artifacts/api-server/src/watbot/client.ts artifacts/api-server/src/watbot/prompt.ts \
+  artifacts/api-server/src/watbot/numbers.ts artifacts/api-server/src/watbot/facilities.ts \
   artifacts/api-server/src/watbot/citations.ts artifacts/api-server/src/watbot/cost.ts artifacts/api-server/src/watbot/errors.ts \
   artifacts/api-server/src/watbot/engine.ts artifacts/api-server/src/__tests__/watbotEngine.test.ts
 git commit artifacts/api-server/package.json pnpm-lock.yaml artifacts/api-server/src/watbot artifacts/api-server/src/__tests__/watbotEngine.test.ts \
-  -m "[WATBOT-4] add WatBot answer engine: message types, cached bundle, capped search, citation filter, cost
+  -m "[WATBOT-4] add WatBot answer engine: message types, capped search, value check, partial stop, 429 re-queue, cost
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: Limits, availability and in-flight queue (role: backend-engineer)
+### Task 5: Limits, admission lock, spend reservations, availability and in-flight queue (role: backend-engineer)
 
 **Files:**
 - Create: `artifacts/api-server/src/watbot/limits.ts`
@@ -1616,19 +1994,25 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `monthlyCapUsd(): number`
   - `markUnavailable(now?)`, `markAvailable()`, `isAvailable(now?): boolean`
   - `markProjectCapReached(now?)`, `projectCapFlagged(now?): boolean`
-  - `inflight: { acquire(onQueued: (position: number) => void, signal: AbortSignal): Promise<() => void> }`
-  - `resetWatBotLimitsForTests()`
+  - D21 per-user lock: `tryLockUser(userId): (() => void) | null` (null = that user already has a question in flight), `isUserLocked(userId): boolean`
+  - D21 spend reservations: `admitSpend(storedUsd, reservationUsd, cap?): (() => void) | null`. It is synchronous on purpose: no `await` separates reading the reservations from adding one. It returns an idempotent release, or null when stored + reserved + new ≥ cap or the API spend-limit flag is set. Also `reservedUsd(): number`.
+  - In-flight queue, strict FIFO: `createInflightQueue(max)` and the shared `inflight`, each with
+    - `acquire(onQueued, signal): Promise<release>`: a new arrival joins the back.
+    - `requeue(retryAfterMs, onQueued, signal): Promise<release>` (D24): joins the **front** and is not admitted before `retryAfterMs` has passed. While it waits at the head, later arrivals wait behind it (FIFO kept).
+    - Abort on either call removes the entry and rejects with `aborted`. `release` is idempotent.
+  - `resetWatBotLimitsForTests()` (also clears locks and reservations)
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
 // artifacts/api-server/src/__tests__/watbotLimits.test.ts
-import { describe, it, expect, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, usersTable, watbotConversationsTable, watbotMessagesTable } from "@workspace/db";
 import {
   studentUsage, monthlySpendUsd, isAvailable, markUnavailable, markAvailable,
   markProjectCapReached, projectCapFlagged, createInflightQueue, resetWatBotLimitsForTests, STUDENT_DAILY_LIMIT,
+  tryLockUser, isUserLocked, admitSpend, reservedUsd,
 } from "../watbot/limits.js";
 
 const userIds: string[] = [];
@@ -1722,6 +2106,80 @@ describe("inflight queue", () => {
     r1();
   });
 });
+
+// D24 — the 429 path at the queue level.
+describe("inflight queue: 429 re-queue", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const live = new AbortController().signal;
+
+  it("releases the slot, re-enters at the front, is not re-admitted before retry-after, and stays ahead of later arrivals", async () => {
+    const q = createInflightQueue(1);
+    const releaseB = await q.acquire(() => {}, live);   // B is answering
+    const pC = q.acquire(() => {}, live);               // C waits
+    releaseB();                                         // B gets a 429: its slot goes to C
+    const releaseC = await pC;
+    const positions: number[] = [];
+    const admitted: string[] = [];
+    const pB = q.requeue(2000, (pos) => positions.push(pos), live).then((r) => { admitted.push("B"); return r; });
+    const pD = q.acquire((pos) => positions.push(pos), live).then((r) => { admitted.push("D"); return r; }); // a later arrival
+    expect(positions).toEqual([1, 2]);                  // B at the front, D behind it
+
+    releaseC();                                         // a slot frees before B's retry-after…
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(admitted).toEqual([]);                       // …B is not re-admitted early, and D does not jump it
+    await vi.advanceTimersByTimeAsync(1);
+    expect(admitted).toEqual(["B"]);
+    (await pB)();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(admitted).toEqual(["B", "D"]);
+    (await pD)();
+  });
+
+  it("Stop while re-queued removes the request from the queue", async () => {
+    const q = createInflightQueue(1);
+    const releaseA = await q.acquire(() => {}, live);
+    const ac = new AbortController();
+    const pB = q.requeue(5000, () => {}, ac.signal);
+    const pD = q.acquire(() => {}, live);
+    ac.abort();
+    await expect(pB).rejects.toThrow(/aborted/);
+    releaseA();
+    const releaseD = await pD;                          // admitted at once: B no longer holds the head
+    releaseD();
+  });
+});
+
+// D21 — one question in flight per user.
+describe("per-user lock", () => {
+  it("lets one question in per user, and the release is idempotent", () => {
+    const release = tryLockUser("u1")!;
+    expect(release).toBeTypeOf("function");
+    expect(tryLockUser("u1")).toBeNull();                // second concurrent question → watbot_busy
+    expect(tryLockUser("u2")).not.toBeNull();            // other users are unaffected
+    release(); release();
+    expect(isUserLocked("u1")).toBe(false);
+    expect(tryLockUser("u1")).not.toBeNull();
+  });
+});
+
+// D21 — spend reservations against the monthly cap.
+describe("spend reservations", () => {
+  it("two admitted questions reserve two amounts; over-cap admission is refused; release is idempotent", () => {
+    const a = admitSpend(0.2, 0.3, 1)!;
+    const b = admitSpend(0.2, 0.3, 1)!;
+    expect(reservedUsd()).toBeCloseTo(0.6, 9);
+    expect(admitSpend(0.2, 0.5, 1)).toBeNull();          // 0.2 stored + 0.6 reserved + 0.5 ≥ 1
+    a(); a();
+    expect(reservedUsd()).toBeCloseTo(0.3, 9);
+    b();
+    expect(reservedUsd()).toBe(0);
+  });
+  it("refuses while the API spend-limit flag is set", () => {
+    markProjectCapReached();
+    expect(admitSpend(0, 0.01, 10)).toBeNull();
+  });
+});
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -1775,7 +2233,8 @@ export function monthlyCapUsd(): number {
   return Number.isFinite(v) && v > 0 ? v : 10;
 }
 
-// ponytail: in-process flags + queue assume a single nos-api instance; move to Postgres advisory locks if scaled out.
+// ponytail: in-process flags, queue, per-user locks and spend reservations assume a
+// single nos-api instance; move to Postgres advisory locks if the API is scaled out.
 let unavailableUntil = 0;
 let capMonth: string | null = null;
 const monthKey = (d: Date) => `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
@@ -1785,21 +2244,79 @@ export function isAvailable(now = new Date()) { return now.getTime() >= unavaila
 export function markProjectCapReached(now = new Date()) { capMonth = monthKey(now); }
 export function projectCapFlagged(now = new Date()) { return capMonth === monthKey(now); }
 
+// D21 — one question in flight per user. The route holds this across the 24 h
+// count, the spend reservation, the student-row insert and the whole answer.
+const busyUsers = new Set<string>();
+export function tryLockUser(userId: string): (() => void) | null {
+  if (busyUsers.has(userId)) return null;
+  busyUsers.add(userId);
+  let held = true;
+  return () => { if (held) { held = false; busyUsers.delete(userId); } };
+}
+export const isUserLocked = (userId: string) => busyUsers.has(userId);
+
+// D21 — worst-case reservations for admitted, unfinished questions.
+const reservations = new Map<number, number>();
+let nextReservation = 1;
+export function reservedUsd(): number {
+  let total = 0;
+  for (const usd of reservations.values()) total += usd;
+  return total;
+}
+// Synchronous on purpose: nothing can interleave between reading the
+// reservations and adding this one, so two admissions cannot both fit the gap.
+export function admitSpend(storedUsd: number, reservationUsd: number, cap = monthlyCapUsd()): (() => void) | null {
+  if (projectCapFlagged() || storedUsd + reservedUsd() + reservationUsd >= cap) return null;
+  const id = nextReservation++;
+  reservations.set(id, reservationUsd);
+  return () => { reservations.delete(id); };
+}
+
+type Waiter = { readyAt: number; admit: () => void };
+
+// Strict FIFO in-flight queue. `requeue` (D24) puts a 429'd request back at the
+// head with a not-before time; the head holds its place until then, so later
+// arrivals never overtake it (a 429 means the API wants less traffic anyway).
 export function createInflightQueue(max: number) {
   let active = 0;
-  const waiting: { admit: () => void }[] = [];
-  const release = () => { active--; const next = waiting.shift(); if (next) next.admit(); };
+  const waiting: Waiter[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const pump = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    while (active < max && waiting.length) {
+      const wait = waiting[0]!.readyAt - Date.now();
+      if (wait > 0) { timer = setTimeout(pump, wait); return; }
+      const head = waiting.shift()!;
+      active++;
+      head.admit();
+    }
+  };
+  const makeRelease = () => {
+    let held = true;
+    return () => { if (held) { held = false; active--; pump(); } };
+  };
+  const enqueue = (front: boolean, readyAt: number, onQueued: (position: number) => void, signal: AbortSignal) =>
+    new Promise<() => void>((resolve, reject) => {
+      if (signal.aborted) { reject(new Error("aborted")); return; }
+      const entry: Waiter = { readyAt, admit: () => { signal.removeEventListener("abort", onAbort); resolve(makeRelease()); } };
+      const onAbort = () => {
+        const i = waiting.indexOf(entry);
+        if (i >= 0) waiting.splice(i, 1);
+        reject(new Error("aborted"));
+        pump(); // the head may have changed
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (front) waiting.unshift(entry); else waiting.push(entry);
+      pump();
+      const i = waiting.indexOf(entry);
+      if (i >= 0) onQueued(i + 1);
+    });
+
   return {
-    acquire(onQueued: (position: number) => void, signal: AbortSignal): Promise<() => void> {
-      if (active < max) { active++; return Promise.resolve(release); }
-      return new Promise((resolve, reject) => {
-        const entry = { admit: () => { signal.removeEventListener("abort", onAbort); active++; resolve(release); } };
-        const onAbort = () => { const i = waiting.indexOf(entry); if (i >= 0) waiting.splice(i, 1); reject(new Error("aborted")); };
-        signal.addEventListener("abort", onAbort, { once: true });
-        waiting.push(entry);
-        onQueued(waiting.length);
-      });
-    },
+    acquire: (onQueued: (position: number) => void, signal: AbortSignal) => enqueue(false, 0, onQueued, signal),
+    requeue: (retryAfterMs: number, onQueued: (position: number) => void, signal: AbortSignal) =>
+      enqueue(true, Date.now() + retryAfterMs, onQueued, signal),
   };
 }
 
@@ -1807,6 +2324,7 @@ export let inflight = createInflightQueue(parsePositiveIntEnv(process.env.WATBOT
 
 export function resetWatBotLimitsForTests() {
   unavailableUntil = 0; capMonth = null;
+  busyUsers.clear(); reservations.clear();
   inflight = createInflightQueue(parsePositiveIntEnv(process.env.WATBOT_MAX_INFLIGHT, 10));
 }
 ```
@@ -1824,7 +2342,7 @@ Expected: all pass.
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || exit 1
 git add artifacts/api-server/src/watbot/limits.ts artifacts/api-server/src/__tests__/watbotLimits.test.ts
 git commit artifacts/api-server/src/watbot/limits.ts artifacts/api-server/src/__tests__/watbotLimits.test.ts \
-  -m "[WATBOT-5] add student/project limits (turned-away messages not counted), availability flag and in-flight queue
+  -m "[WATBOT-5] add limits: per-user admission lock, spend reservations, availability flag, FIFO queue with 429 front re-queue
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1840,11 +2358,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test: `artifacts/api-server/src/__tests__/watbotRoutes.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 1, 3, 4 and 5 (`AnswerResult.messageType`, `.gapTopic`, `.failed`; `watbotMessagesTable.status/messageType/latencyMs/gapTopic`).
+- Consumes: Tasks 1, 3, 4 and 5 (`AnswerResult.messageType/.gapTopic/.failed/.stopped`, `RoundGate`, `STOPPED_NOTICE`, `facilityNames`, `bundleTokens`, `reservationUsd`, `WATBOT_ERROR_CODES`; `tryLockUser`, `admitSpend`, `reservedUsd`, `inflight.acquire/requeue`; `watbotMessagesTable.status/messageType/latencyMs/gapTopic`).
+- Admission order for `askWatBot` (D21), all under the per-user lock taken right after the ownership and context checks:
+  1. A second question from the same user while one is in flight gets `409 watbot_busy` (not logged: no question was taken).
+  2. Then the availability flag, the 24 h student count, and the synchronous spend admission (`admitSpend(stored, reservationUsd(model, bundleTokens(bundle)))`).
+  3. Then the student-row insert.
+  The lock and the reservation are released in a `finally` that covers completion, stop, failure and every early return.
 - Persistence rules (FR-35, FR-42, D17):
   - Every question writes one `student` row. `status` is `answered` when it goes to the model; `limit_reached` when turned away by the student or project limit; `unavailable` when turned away by the service flag, or when the model call fails as unavailable mid-answer. Turned-away rows are logged, never counted.
   - After the answer, the student row's `message_type` is set from `AnswerResult.messageType` (stays null when the model skipped the tool).
   - The `tutor` row carries `usage` (summed over rounds), `latency_ms` (request start to done) and `gap_topic`.
+  - Stop or disconnect (D22): the engine's partial result is saved as the tutor row (forwarded blocks only, possibly empty, with its usage so the cap counts the cost), followed by a `notice` row `Answer stopped`. The student row stays `answered`. Nothing is sent, because the client is gone.
+  - A 429 (D24) never reaches the route: the engine re-queues through the route's `RoundGate` (release the slot, `inflight.requeue`, `queued {position}` events) and returns `failed: true` after the 4th.
   - Reports carry no `kind`; gaps are only `watbot_messages.gap_topic`.
   - The message type is internal: no OpenAPI schema exposes it (the student is never told the type, spec §5). The OpenAPI report schema never had a `kind`, so no contract change is needed for it.
 - Produces (operationIds become the generated hooks that Tasks 7–8 use):
@@ -1856,7 +2381,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 | `GET /watbot/conversations/{conversationId}` | `getWatBotConversation` | — | `200 WatBotConversation` |
 | `DELETE /watbot/conversations/{conversationId}` | `deleteWatBotConversation` | — | `204` |
 | `POST /watbot/conversations/{conversationId}/messages` | `askWatBot` | `AskWatBotRequest` | `200 text/event-stream` |
-| `GET /watbot/passages/{passageId}` | `getWatBotPassage` | — | `200 WatBotPassage` |
+| `GET /watbot/passages/{passageId}` | `getWatBotPassage` | — | `200 WatBotPassage` only if a tutor message owned by the requester cites it; otherwise `404` (D23) |
 | `POST /watbot/reports` | `submitWatBotReport` | `WatBotReportRequest` | `201` |
 | `GET /watbot/status` | `getWatBotStatus` | — | `200 WatBotStatus` |
 
@@ -1864,6 +2389,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `400` bad body
   - `404` not owned or unknown
   - `403` locked model
+  - `409 WatBotError{ error: "watbot_busy" }` (a question from this user is already in flight, D21)
   - `429 WatBotError{ error: "watbot_student_limit", resetAt }`
   - `429 WatBotError{ error: "watbot_project_limit" }`
   - `503 WatBotError{ error: "watbot_unavailable" }`
@@ -1878,7 +2404,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Add the contract** to `lib/api-spec/openapi.yaml`.
 
-Under `paths:`, with tag `WatBot`, add all 8 operations from the table. Each has the `ErrorEnvelope` 400/401/404 responses where applicable, plus `WatBotError` for 429/503 on `askWatBot`. `askWatBot`'s 200 is `content: text/event-stream: schema: { type: string }`. The studio reads this stream by hand; the generated function goes unused.
+Under `paths:`, with tag `WatBot`, add all 8 operations from the table. Each has the `ErrorEnvelope` 400/401/404 responses where applicable, plus `WatBotError` for 409/429/503 on `askWatBot`. `getWatBotPassage`'s 404 description says "Not found, or not cited in one of your WatBot answers". `askWatBot`'s 200 is `content: text/event-stream: schema: { type: string }`. The studio reads this stream by hand; the generated function goes unused.
 
 Under `components.schemas`:
 
@@ -1962,7 +2488,7 @@ Under `components.schemas`:
       type: object
       required: [error]
       properties:
-        error: { type: string, enum: [watbot_unavailable, watbot_student_limit, watbot_project_limit, watbot_refused, watbot_failed] }
+        error: { type: string, enum: [watbot_unavailable, watbot_student_limit, watbot_project_limit, watbot_refused, watbot_failed, watbot_busy] }
         resetAt: { type: string, format: date-time, nullable: true }
 ```
 
@@ -1975,14 +2501,18 @@ Expected: codegen and typecheck pass. The generated names include `useGetWatBotS
 // artifacts/api-server/src/__tests__/watbotRoutes.test.ts
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import request from "supertest";
-import { and, desc, eq } from "drizzle-orm";
-import type Anthropic from "@anthropic-ai/sdk";
-import { db, usersTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable } from "@workspace/db";
+import type { AddressInfo } from "node:net";
+import { and, asc, desc, eq } from "drizzle-orm";
+import Anthropic from "@anthropic-ai/sdk";
+import { db, usersTable, coursePassagesTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable } from "@workspace/db";
 import app from "../app.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
-import { setWatBotClientForTests, type WatBotClient } from "../watbot/client.js";
-import { resetWatBotLimitsForTests, markUnavailable, studentUsage, STUDENT_DAILY_LIMIT } from "../watbot/limits.js";
+import { setWatBotClientForTests, type WatBotClient, type WatBotStream } from "../watbot/client.js";
+import {
+  resetWatBotLimitsForTests, markUnavailable, studentUsage, STUDENT_DAILY_LIMIT, reservedUsd, isUserLocked,
+} from "../watbot/limits.js";
 import { WATBOT_ERROR_CODES } from "../watbot/errors.js";
+import { STOPPED_NOTICE } from "../watbot/engine.js";
 
 const userIds: string[] = [];
 afterAll(async () => {
@@ -2001,9 +2531,17 @@ async function registerAndGetCookie(): Promise<string> {
 
 const USAGE = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
 
+const failing = (err: unknown): WatBotStream => ({ async *[Symbol.asyncIterator]() { throw err; }, finalMessage: async () => { throw err; } });
+const textEvents = (index: number, text: string) => [
+  { type: "content_block_start", index, content_block: { type: "text", text: "", citations: null } },
+  { type: "content_block_delta", index, delta: { type: "text_delta", text } },
+  { type: "content_block_stop", index },
+] as Anthropic.RawMessageStreamEvent[];
+
 // Plays the answer as one text block. With `type`, round 1 first calls
 // record_message_type (as the system prompt requires), round 2 answers.
-function scriptedClient(text: string, opts: { type?: string; gap?: { topic: string; nearestCoveredTopic: string } } = {}): WatBotClient {
+// `delayMs` holds each round open so concurrent requests overlap.
+function scriptedClient(text: string, opts: { type?: string; gap?: { topic: string; nearestCoveredTopic: string }; delayMs?: number } = {}): WatBotClient {
   const tools = [
     ...(opts.type ? [{ type: "tool_use", id: "rt", name: "record_message_type", input: { type: opts.type } }] : []),
     ...(opts.gap ? [{ type: "tool_use", id: "lg", name: "log_gap", input: opts.gap }] : []),
@@ -2019,7 +2557,10 @@ function scriptedClient(text: string, opts: { type?: string; gap?: { topic: stri
           { type: "content_block_stop", index: 0 },
         ]) as Anthropic.RawMessageStreamEvent[];
         return {
-          async *[Symbol.asyncIterator]() { yield* events; },
+          async *[Symbol.asyncIterator]() {
+            if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
+            yield* events;
+          },
           finalMessage: async () => (toolRound
             ? { stop_reason: "tool_use", content: tools, usage: USAGE }
             : { stop_reason: "end_turn", content: [], usage: USAGE }) as unknown as Anthropic.Message,
@@ -2060,6 +2601,8 @@ describe("watbot routes", () => {
     expect(rows[1]!.usage?.inputTokens).toBe(20); // summed over both rounds
     expect(rows[1]!.latencyMs).toBeGreaterThanOrEqual(0);
     expect(rows[1]!.gapTopic).toBeNull();
+    expect(reservedUsd()).toBe(0);                 // D21: released on completion
+    expect(isUserLocked(lastUserId())).toBe(false);
   });
 
   it("leaves message_type null when the model skips record_message_type, and stores a logged gap on the tutor row", async () => {
@@ -2144,6 +2687,129 @@ describe("watbot routes", () => {
     expect(res.body).toMatchObject({ available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false });
   });
 
+  // D21 — atomic admission.
+  it("admits exactly one of two simultaneous questions at 49 counted messages; the other gets 409 watbot_busy", async () => {
+    setWatBotClientForTests(scriptedClient("What would change with p = 1?", { delayMs: 300 }));
+    const cookie = await registerAndGetCookie();
+    const userId = lastUserId();
+    const id = await newConversation(cookie);
+    await db.insert(watbotMessagesTable).values(Array.from({ length: STUDENT_DAILY_LIMIT - 1 }, () =>
+      ({ conversationId: id, userId, role: "student", blocks: [] })));
+    const ask = () => request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    const [a, b] = await Promise.all([ask(), ask()]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    expect([a, b].find((r) => r.status === 409)!.body.error).toBe("watbot_busy");
+    expect((await studentUsage(userId)).used).toBe(STUDENT_DAILY_LIMIT); // never 51
+    // The lock was released: a third question now meets the limit, not the lock.
+    const c = await ask();
+    expect(c.status).toBe(429);
+    expect(c.body.error).toBe("watbot_student_limit");
+    expect(reservedUsd()).toBe(0);
+  });
+
+  it("a failed answer releases the lock and the reservation", async () => {
+    setWatBotClientForTests({ messages: { stream: () => failing(new Error("boom")) } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    expect(res.text).toContain('"code":"watbot_failed"');
+    expect(reservedUsd()).toBe(0);
+    expect(isUserLocked(lastUserId())).toBe(false);
+  });
+
+  // D24 — a 429 goes back to the queue instead of failing.
+  it("re-queues a 429, tells the student they are queued, then answers", async () => {
+    const answer = scriptedClient("What would change with p = 1?");
+    let call = 0;
+    setWatBotClientForTests({ messages: { stream: (params, opts) => call++ === 0
+      ? failing(Anthropic.APIError.generate(429, { type: "error", error: { type: "rate_limit_error", message: "slow down" } }, "slow down", new Headers({ "retry-after": "1" })))
+      : answer.messages.stream(params, opts) } });
+    const cookie = await registerAndGetCookie();
+    const id = await newConversation(cookie);
+    const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context: null });
+    expect(res.text).toContain('event: queued\ndata: {"position":1}');
+    expect(res.text).toContain("event: done");
+    expect(call).toBe(2);
+    expect(reservedUsd()).toBe(0);
+  });
+
+  // D22 — Stop saves the forwarded part; the buffered block is not saved.
+  it("Stop mid-answer saves forwarded blocks, usage and an 'Answer stopped' notice; the student row stays answered", async () => {
+    const abortError = Object.assign(new Error("Request was aborted."), { name: "AbortError" });
+    setWatBotClientForTests({ messages: { stream: (_params, opts) => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: "message_start", message: { usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } } as never;
+        yield* textEvents(0, "What would change with p = 1?");
+        yield { type: "content_block_start", index: 1, content_block: { type: "text", text: "", citations: null } } as never;
+        yield { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Buffered and never sent" } } as never;
+        await new Promise((_, reject) => {
+          if (opts?.signal?.aborted) reject(abortError);
+          opts?.signal?.addEventListener("abort", () => reject(abortError));
+        });
+      },
+      finalMessage: async () => { throw abortError; },
+    }) } });
+    const cookie = await registerAndGetCookie();
+    const userId = lastUserId();
+    const id = await newConversation(cookie);
+    // A real socket, so the client-side abort closes the connection like the studio's Stop does.
+    const server = app.listen(0);
+    const port = (server.address() as AddressInfo).port;
+    const ac = new AbortController();
+    let rows: (typeof watbotMessagesTable.$inferSelect)[] = [];
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/watbot/conversations/${id}/messages`, {
+        method: "POST", signal: ac.signal, headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ question: "Why?", context: null }),
+      });
+      const reader = res.body!.getReader();
+      let seen = "";
+      while (!seen.includes("event: block")) seen += new TextDecoder().decode((await reader.read()).value);
+      ac.abort(); // the student presses Stop
+      for (let i = 0; i < 50 && !rows.some((r) => r.role === "notice"); i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        rows = await db.select().from(watbotMessagesTable).where(eq(watbotMessagesTable.conversationId, id)).orderBy(asc(watbotMessagesTable.id));
+      }
+    } finally {
+      server.close();
+    }
+    expect(rows.map((r) => r.role)).toEqual(["student", "tutor", "notice"]);
+    expect(rows[0]!.status).toBe("answered");
+    expect(rows[1]!.blocks.map((b) => b.text)).toEqual(["What would change with p = 1?"]);
+    expect(rows[1]!.usage).toMatchObject({ inputTokens: 100, estimated: true });
+    expect(rows[1]!.usage!.costUsd).toBeGreaterThan(0);
+    expect(rows[2]!.blocks[0]!.text).toBe(STOPPED_NOTICE);
+    expect(JSON.stringify(rows)).not.toContain("Buffered and never sent");
+    expect((await studentUsage(userId)).used).toBe(1);
+    expect(reservedUsd()).toBe(0);
+    expect(isUserLocked(userId)).toBe(false);
+  });
+
+  // D23 — no bulk download of the book by enumerating passage ids.
+  it("serves a passage only when the requester's own tutor message cites it", async () => {
+    // Chapter 851: outside watbotPassages.test.ts's >= 900 cleanup range, so parallel files cannot delete it.
+    const [cited, uncited] = await db.insert(coursePassagesTable).values([
+      { sourceKind: "book", chapter: 851, locator: "1", ordinal: 1, label: "Ch 851 · p.1", body: "cited page" },
+      { sourceKind: "book", chapter: 851, locator: "2", ordinal: 2, label: "Ch 851 · p.2", body: "never cited" },
+    ]).returning();
+    try {
+      const owner = await registerAndGetCookie();
+      const ownerId = lastUserId();
+      const other = await registerAndGetCookie();
+      const id = await newConversation(owner);
+      await db.insert(watbotMessagesTable).values({ conversationId: id, userId: ownerId, role: "tutor",
+        blocks: [{ text: "See the page.", citations: [{ passageId: cited!.id, label: cited!.label, citedText: "cited page" }] }] });
+      const ok = await request(app).get(`/api/watbot/passages/${cited!.id}`).set("Cookie", owner);
+      expect(ok.status).toBe(200);
+      expect(ok.body).toEqual({ id: cited!.id, label: "Ch 851 · p.1", body: "cited page" });
+      expect((await request(app).get(`/api/watbot/passages/${uncited!.id}`).set("Cookie", owner)).status).toBe(404);
+      expect((await request(app).get(`/api/watbot/passages/${cited!.id}`).set("Cookie", other)).status).toBe(404);
+      expect((await request(app).get("/api/watbot/passages/not-a-number").set("Cookie", owner)).status).toBe(404);
+    } finally {
+      await db.delete(coursePassagesTable).where(eq(coursePassagesTable.chapter, 851));
+    }
+  });
+
   it("OpenAPI WatBotError enum equals the TS union (pinned to the constant)", async () => {
     const { readFileSync } = await import("node:fs");
     const yaml = readFileSync(new URL("../../../../lib/api-spec/openapi.yaml", import.meta.url), "utf8");
@@ -2164,10 +2830,10 @@ Expected: FAIL — every route returns 404.
 ```ts
 // artifacts/api-server/src/routes/watbot.ts
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   db, scenariosTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable,
-  type WatBotContext, type WatBotMessageStatus,
+  type WatBotBlock, type WatBotContext, type WatBotMessageStatus,
 } from "@workspace/db";
 import { AskWatBotBody, CreateWatBotConversationBody, SubmitWatBotReportBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth.js";
@@ -2177,12 +2843,14 @@ import { toApiScenario } from "./scenarios.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import { buildEffectiveFacilityCityLookup, buildOpenWarehouseRows } from "../services/templates.js";
 import { getWatBotClient, watbotModel } from "../watbot/client.js";
-import { answerQuestion } from "../watbot/engine.js";
+import { answerQuestion, STOPPED_NOTICE, type RoundGate } from "../watbot/engine.js";
 import { classifyAnthropicError, type WatBotErrorCode } from "../watbot/errors.js";
+import { bundleTokens, reservationUsd } from "../watbot/cost.js";
+import { facilityNames } from "../watbot/facilities.js";
 import { getPassage, loadBundle } from "../watbot/passages.js";
 import {
-  inflight, isAvailable, markAvailable, markProjectCapReached, markUnavailable,
-  monthlyCapUsd, monthlySpendUsd, projectCapFlagged, studentUsage,
+  admitSpend, inflight, isAvailable, markAvailable, markProjectCapReached, markUnavailable,
+  monthlyCapUsd, monthlySpendUsd, projectCapFlagged, reservedUsd, studentUsage, tryLockUser,
 } from "../watbot/limits.js";
 
 const router: IRouter = Router();
@@ -2199,9 +2867,13 @@ async function ownedConversation(id: number, userId: string) {
   return row;
 }
 
+// Status view of the cap: stored cost plus in-flight reservations (D21).
 async function projectCapReached() {
-  return projectCapFlagged() || (await monthlySpendUsd()) >= monthlyCapUsd();
+  return projectCapFlagged() || (await monthlySpendUsd()) + reservedUsd() >= monthlyCapUsd();
 }
+
+const CLAIM_REMOVED_NOTICE = "One claim was removed — I couldn't support it with a course source.";
+const noticeBlocks = (text: string): WatBotBlock[] => [{ text, citations: [] }];
 
 router.get("/watbot/status", async (req, res) => {
   const usage = await studentUsage(req.userId!);
@@ -2241,8 +2913,19 @@ router.delete("/watbot/conversations/:conversationId", async (req, res) => {
   res.status(204).end();
 });
 
+// D23 — a passage is served only to a student whose own tutor message cites it,
+// so passage ids cannot be enumerated to download the licensed book.
 router.get("/watbot/passages/:passageId", async (req, res) => {
-  const p = await getPassage(Number(req.params.passageId));
+  const id = Number(req.params.passageId);
+  if (!Number.isInteger(id)) { notFound(res); return; }
+  const citedBy = JSON.stringify([{ citations: [{ passageId: id }] }]);
+  const [cited] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+    .where(and(
+      eq(watbotMessagesTable.userId, req.userId!), eq(watbotMessagesTable.role, "tutor"),
+      sql`${watbotMessagesTable.blocks} @> ${citedBy}::jsonb`,
+    )).limit(1);
+  if (!cited) { notFound(res); return; }
+  const p = await getPassage(id);
   if (!p) { notFound(res); return; }
   res.json(p);
 });
@@ -2286,86 +2969,118 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
     context = { tab: tab ?? null, scenarioId: scenarioId ?? null, summary };
   }
 
-  const startedAt = Date.now();
-  const question = parsed.data.question.trim();
-  const history = await db.select().from(watbotMessagesTable)
-    .where(eq(watbotMessagesTable.conversationId, conv.id)).orderBy(desc(watbotMessagesTable.id)).limit(HISTORY_MESSAGES);
-  // Every question is logged (FR-42). Turned-away ones carry a status that the
-  // 24 h count skips (FR-35), so they are recorded without spending the quota.
-  const logStudent = async (status: WatBotMessageStatus) => {
-    const [row] = await db.insert(watbotMessagesTable)
-      .values({ conversationId: conv.id, userId: req.userId!, role: "student", blocks: [{ text: question, citations: [] }], context, status })
-      .returning({ id: watbotMessagesTable.id });
-    return row!.id;
-  };
-  const turnAway = async (status: WatBotMessageStatus, httpStatus: number, code: WatBotErrorCode, extra: object = {}) => {
-    try { await logStudent(status); } catch { /* the log is best-effort; the student still gets the limit state */ }
-    watbotError(res, httpStatus, code, extra);
-  };
-
-  if (!isAvailable()) { await turnAway("unavailable", 503, "watbot_unavailable"); return; }
-  if (await projectCapReached()) { await turnAway("limit_reached", 429, "watbot_project_limit"); return; }
-  const usage = await studentUsage(req.userId!);
-  if (usage.remaining === 0) { await turnAway("limit_reached", 429, "watbot_student_limit", { resetAt: usage.resetAt?.toISOString() ?? null }); return; }
-
-  let studentMessageId: number;
-  try { studentMessageId = await logStudent("answered"); }
-  catch { res.status(500).json({ error: "Could not save your question." }); return; }
-  if (conv.title === "New conversation") {
-    await db.update(watbotConversationsTable).set({ title: question.slice(0, 80) }).where(eq(watbotConversationsTable.id, conv.id));
-  }
-
-  res.status(200).set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-  res.flushHeaders();
-  const send = (event: string, data: unknown) => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
-  const controller = new AbortController();
-  res.on("close", () => controller.abort());
-
-  let release: (() => void) | undefined;
+  // D21 — one question in flight per user. Everything below, the 24 h count,
+  // the spend reservation and the student-row insert included, runs under this lock.
+  const unlock = tryLockUser(req.userId!);
+  if (!unlock) { watbotError(res, 409, "watbot_busy"); return; }
+  let releaseSpend: (() => void) | null = null;
   try {
-    release = await inflight.acquire((position) => send("queued", { position }), controller.signal);
+    const startedAt = Date.now();
+    const question = parsed.data.question.trim();
+    const history = await db.select().from(watbotMessagesTable)
+      .where(eq(watbotMessagesTable.conversationId, conv.id)).orderBy(desc(watbotMessagesTable.id)).limit(HISTORY_MESSAGES);
+    // Every question is logged (FR-42). Turned-away ones carry a status that the
+    // 24 h count skips (FR-35), so they are recorded without spending the quota.
+    const logStudent = async (status: WatBotMessageStatus) => {
+      const [row] = await db.insert(watbotMessagesTable)
+        .values({ conversationId: conv.id, userId: req.userId!, role: "student", blocks: [{ text: question, citations: [] }], context, status })
+        .returning({ id: watbotMessagesTable.id });
+      return row!.id;
+    };
+    const turnAway = async (status: WatBotMessageStatus, httpStatus: number, code: WatBotErrorCode, extra: object = {}) => {
+      try { await logStudent(status); } catch { /* the log is best-effort; the student still gets the limit state */ }
+      watbotError(res, httpStatus, code, extra);
+    };
+
+    if (!isAvailable()) { await turnAway("unavailable", 503, "watbot_unavailable"); return; }
+    const usage = await studentUsage(req.userId!);
+    if (usage.remaining === 0) { await turnAway("limit_reached", 429, "watbot_student_limit", { resetAt: usage.resetAt?.toISOString() ?? null }); return; }
     const manifest = getManifest(conv.modelId)!;
     const readingList = manifest.tutor?.readingList ?? [];
-    const result = await answerQuestion({
-      client: getWatBotClient(), model: watbotModel(), bundle: await loadBundle(readingList), readingList,
-      fixedQuestions: manifest.tutor?.fixedQuestions.map((q) => q.text) ?? [],
-      // Turned-away questions never reached the model, so they stay out of its history.
-      history: history.reverse().filter((m) => m.role !== "notice" && m.status === "answered")
-        .map((m) => ({ role: m.role as "student" | "tutor", text: m.blocks.map((b) => b.text).join("\n\n") })),
-      contextSummary: context?.summary ?? "", question, signal: controller.signal,
-      emit: (e) => send(e.type, e.type === "block" ? e.block : e.type === "searching" ? { query: e.query } : { kind: e.kind }),
-    });
-    markAvailable();
-    if (result.messageType) {
-      await db.update(watbotMessagesTable).set({ messageType: result.messageType }).where(eq(watbotMessagesTable.id, studentMessageId));
+    const bundle = await loadBundle(readingList);
+    const model = watbotModel();
+    // D21 — stored cost is read first; the check against in-memory reservations and
+    // the new reservation then happen synchronously inside admitSpend.
+    const storedUsd = await monthlySpendUsd();
+    releaseSpend = admitSpend(storedUsd, reservationUsd(model, bundleTokens(bundle)));
+    if (!releaseSpend) { await turnAway("limit_reached", 429, "watbot_project_limit"); return; }
+
+    let studentMessageId: number;
+    try { studentMessageId = await logStudent("answered"); }
+    catch { res.status(500).json({ error: "Could not save your question." }); return; }
+    if (conv.title === "New conversation") {
+      await db.update(watbotConversationsTable).set({ title: question.slice(0, 80) }).where(eq(watbotConversationsTable.id, conv.id));
     }
-    if (result.refused) { send("error", { code: "watbot_refused" }); return; }
-    // A round-guard stop still saves what was forwarded plus its usage, so the project cap counts the spend.
-    const [saved] = await db.insert(watbotMessagesTable).values({
-      conversationId: conv.id, userId: req.userId!, role: "tutor", blocks: result.blocks, usage: result.usage,
-      latencyMs: Date.now() - startedAt, gapTopic: result.gapTopic,
-    }).returning();
-    if (result.failed) { send("error", { code: "watbot_failed" }); return; }
-    if (result.claimsRemoved) {
-      await db.insert(watbotMessagesTable).values({ conversationId: conv.id, userId: req.userId!, role: "notice", blocks: [{ text: "One claim was removed — I couldn't support it with a course source.", citations: [] }] });
+
+    res.status(200).set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    res.flushHeaders();
+    const send = (event: string, data: unknown) => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    const controller = new AbortController();
+    res.on("close", () => controller.abort()); // Stop button or a dropped connection (D22)
+    const onQueued = (position: number) => send("queued", { position });
+
+    let releaseSlot: (() => void) | undefined;
+    try {
+      releaseSlot = await inflight.acquire(onQueued, controller.signal);
+      // D24 — a 429'd round gives its slot back and waits at the front of the queue.
+      const gate: RoundGate = {
+        requeue: async (retryAfterMs) => {
+          releaseSlot?.();
+          releaseSlot = undefined;
+          releaseSlot = await inflight.requeue(retryAfterMs, onQueued, controller.signal);
+        },
+      };
+      const result = await answerQuestion({
+        client: getWatBotClient(), model, bundle, readingList,
+        fixedQuestions: manifest.tutor?.fixedQuestions.map((q) => q.text) ?? [],
+        facilityNames: facilityNames(conv.modelId),
+        // Turned-away questions never reached the model, so they stay out of its history.
+        history: history.reverse().filter((m) => m.role !== "notice" && m.status === "answered")
+          .map((m) => ({ role: m.role as "student" | "tutor", text: m.blocks.map((b) => b.text).join("\n\n") })),
+        contextSummary: context?.summary ?? "", question, signal: controller.signal, gate,
+        emit: (e) => send(e.type, e.type === "block" ? e.block : e.type === "searching" ? { query: e.query } : { kind: e.kind }),
+      });
+      if (!result.stopped) markAvailable();
+      if (result.messageType) {
+        await db.update(watbotMessagesTable).set({ messageType: result.messageType }).where(eq(watbotMessagesTable.id, studentMessageId));
+      }
+      if (result.refused) { send("error", { code: "watbot_refused" }); return; }
+      // Saved for answered, stopped (D22: forwarded blocks only) and failed answers alike,
+      // so the stored month cost always includes what the model was paid for.
+      const [saved] = await db.insert(watbotMessagesTable).values({
+        conversationId: conv.id, userId: req.userId!, role: "tutor", blocks: result.blocks, usage: result.usage,
+        latencyMs: Date.now() - startedAt, gapTopic: result.gapTopic,
+      }).returning();
+      const notices = [
+        ...(result.claimsRemoved ? [CLAIM_REMOVED_NOTICE] : []),
+        ...(result.stopped ? [STOPPED_NOTICE] : []),
+      ];
+      for (const text of notices) {
+        await db.insert(watbotMessagesTable).values({ conversationId: conv.id, userId: req.userId!, role: "notice", blocks: noticeBlocks(text) });
+      }
+      await db.update(watbotConversationsTable).set({ updatedAt: new Date() }).where(eq(watbotConversationsTable.id, conv.id));
+      if (result.stopped) return; // the client is gone; the student row stays "answered" (D22)
+      if (result.failed) { send("error", { code: "watbot_failed" }); return; }
+      send("done", { messageId: saved!.id });
+    } catch (err) {
+      if (controller.signal.aborted) return; // stopped while still queued: the model was never called
+      const kind = classifyAnthropicError(err);
+      if (kind === "unavailable") markUnavailable();
+      if (kind === "project_limit") markProjectCapReached();
+      // The question was turned away after all: re-mark it so the 24 h count skips it (FR-35).
+      if (kind === "unavailable" || kind === "project_limit") {
+        await db.update(watbotMessagesTable).set({ status: kind === "unavailable" ? "unavailable" : "limit_reached" })
+          .where(eq(watbotMessagesTable.id, studentMessageId)).catch(() => undefined);
+      }
+      const code: WatBotErrorCode = kind === "unavailable" ? "watbot_unavailable" : kind === "project_limit" ? "watbot_project_limit" : "watbot_failed";
+      send("error", { code });
+    } finally {
+      releaseSlot?.();
+      res.end();
     }
-    await db.update(watbotConversationsTable).set({ updatedAt: new Date() }).where(eq(watbotConversationsTable.id, conv.id));
-    send("done", { messageId: saved!.id });
-  } catch (err) {
-    if (controller.signal.aborted) return; // student pressed Stop or closed the panel
-    const kind = classifyAnthropicError(err);
-    if (kind === "unavailable") markUnavailable();
-    if (kind === "project_limit") markProjectCapReached();
-    // The question was turned away after all: re-mark it so the 24 h count skips it (FR-35).
-    if (kind === "unavailable" || kind === "project_limit") {
-      await db.update(watbotMessagesTable).set({ status: kind === "unavailable" ? "unavailable" : "limit_reached" })
-        .where(eq(watbotMessagesTable.id, studentMessageId)).catch(() => undefined);
-    }
-    const code: WatBotErrorCode = kind === "unavailable" ? "watbot_unavailable" : kind === "project_limit" ? "watbot_project_limit" : "watbot_failed";
-    send("error", { code });
   } finally {
-    release?.();
-    res.end();
+    releaseSpend?.(); // D21: the stored tutor row now carries the actual cost
+    unlock();
   }
 });
 
@@ -2401,7 +3116,9 @@ export default router;
 
 `summarizeScenario` now lists open sites (spec §4: "for solved scenarios the objective, open sites and stale flag"). `capabilities.outputGrids` (`lib/dataset-schema/src/index.ts:238`) and `buildEffectiveFacilityCityLookup(modelId, inputs)` (`services/templates.ts:1518`) were checked on 2026-11-20. The open-site wording is exercised end to end by the Task 12 QA walkthrough on a solved scenario and by the Task 11 test set's solved contexts.
 
-Rate-limited (`429` from Anthropic) answers become `watbot_failed`. The SDK's default 2 retries already honour `retry-after`. The re-queue mentioned in spec §5 is covered by SDK retries plus the in-flight cap; note this deviation in the commit body.
+A 429 from Anthropic is never `watbot_failed` on its first three occurrences: the engine calls the route's `RoundGate`, which releases the in-flight slot and re-enters the queue at the front with `inflight.requeue` (D24). The student sees `queued {position}`, and only the failed round is resent. The SDK client has `maxRetries: 0` (Task 4), so nothing retries behind the queue's back.
+
+The passages query relies on jsonb containment: `blocks @> '[{"citations":[{"passageId":N}]}]'` matches any block whose citations include that id. It is scoped by the `IDX_watbot_messages_user_role` index on `(user_id, role, …)`, so it scans only the requester's tutor rows.
 
 In `routes/index.ts`, add `import watbotRouter from "./watbot.js";` and `router.use(watbotRouter);` directly after the `feedback` mount.
 
@@ -2418,10 +3135,7 @@ git add lib/api-spec/openapi.yaml lib/api-client-react/src/generated lib/api-zod
   artifacts/api-server/src/routes/watbot.ts artifacts/api-server/src/routes/index.ts artifacts/api-server/src/__tests__/watbotRoutes.test.ts
 git commit lib/api-spec/openapi.yaml lib/api-client-react/src/generated lib/api-zod/src/generated \
   artifacts/api-server/src/routes/watbot.ts artifacts/api-server/src/routes/index.ts artifacts/api-server/src/__tests__/watbotRoutes.test.ts \
-  -m "[WATBOT-6] add /watbot routes with SSE answers, message logging, history, reports and status
-
-Deviation from spec §5: Anthropic 429s rely on SDK retries + the in-flight
-cap rather than an explicit re-queue.
+  -m "[WATBOT-6] add /watbot routes: atomic admission, SSE answers, partial stop, 429 re-queue, scoped passages
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2841,6 +3555,24 @@ describe("useWatBotConversation", () => {
     await act(async () => { await result.current.ask("q", null); });
     expect(result.current.status).toBe("watbot_student_limit");
   });
+
+  it("Stop keeps the streamed part and adds the 'Answer stopped' notice (D22)", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((_url: string, init: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('event: block\ndata: {"text":"First part?","citations":[]}\n\n'));
+        init.signal!.addEventListener("abort", () => c.error(Object.assign(new Error("aborted"), { name: "AbortError" })));
+      },
+    }), { status: 200, headers: { "Content-Type": "text/event-stream" } })));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.ask("Why?", null); });
+    await waitFor(() => expect(result.current.items.some((i) => i.kind === "tutor")).toBe(true));
+    act(() => { result.current.stop(); });
+    await act(async () => { await pending; });
+    expect(result.current.items.map((i) => i.kind)).toEqual(["student", "tutor", "notice"]);
+    expect(result.current.items[2]!.blocks[0]!.text).toBe("Answer stopped");
+    expect(result.current.status).toBeNull();
+  });
 });
 ```
 
@@ -2882,6 +3614,8 @@ const NOTICE_TEXT = {
   claim_removed: "One claim was removed — I couldn't support it with a course source.",
   gap_logged: "gap logged for the teaching team",
 } as const;
+// D22 — same text as the server's notice row (engine.ts STOPPED_NOTICE), shown at once on Stop.
+const STOPPED_TEXT = "Answer stopped";
 
 export function useWatBotConversation(modelId: string) {
   const qc = useQueryClient();
@@ -2933,7 +3667,9 @@ export function useWatBotConversation(modelId: string) {
         }
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setStatus("watbot_failed");
+      // Stop: the server saves the forwarded blocks and an "Answer stopped" notice (D22); mirror it locally.
+      if ((e as Error).name === "AbortError") setItems((xs) => [...xs, { kind: "notice", blocks: [{ text: STOPPED_TEXT, citations: [] }] }]);
+      else setStatus("watbot_failed");
     } finally {
       setPending(null);
       abortRef.current = null;
@@ -3112,6 +3848,7 @@ export function WatBotHistory({ modelId, onPick, onNew }: { modelId: string; onP
 4. Children: render `<WatBotHistory …/>` when the history view is open, otherwise `<WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop} />`. Also render a `role="alert"` line for `watbot.status`, mapping each `WatBotErrorCode` to copy:
    - `watbot_refused` → "I can't help with that one."
    - `watbot_failed` → "Something went wrong. Try again."
+   - `watbot_busy` → "WatBot is still answering your last question." (D21; normally unreachable, since the input is disabled while answering)
    - `watbot_student_limit` / `watbot_project_limit` / `watbot_unavailable` → the panel's own notices (refetch status).
 
 - [ ] **Step 6: Run the tests**
@@ -3361,12 +4098,14 @@ Re-run the file and confirm queries 1, 3 and 4 each return a `p-median-us` row. 
 // artifacts/api-server/src/migrations/watbotSmoke.ts
 // WATBOT — live smoke: ~10 questions per model against the real model and the loaded corpus.
 // Spends real money; run only with explicit approval. Prints message type, citation
-// presence, search use, gap topic and cost. Writes nothing to the database.
+// presence, search use, gap topic and cost. Writes nothing to the database. 429s
+// wait retry-after through the engine's default gate (no queue in a CLI).
 import { fileURLToPath } from "node:url";
 import { pool } from "@workspace/db";
 import { listModels } from "../registry/modelRegistry.js";
 import { getWatBotClient, watbotModel } from "../watbot/client.js";
 import { answerQuestion } from "../watbot/engine.js";
+import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle } from "../watbot/passages.js";
 
 const CROSS_CHAPTER = ["How should I aggregate customers before running this model?", "What is an optimized baseline and why compare against it?"];
@@ -3379,7 +4118,7 @@ async function main() {
     for (const q of [...fixedQuestions, ...CROSS_CHAPTER]) {
       let searched = 0;
       const r = await answerQuestion({ client: getWatBotClient(), model: watbotModel(), bundle, readingList: m.tutor!.readingList,
-        fixedQuestions, history: [], contextSummary: "", question: q, signal: new AbortController().signal,
+        fixedQuestions, facilityNames: facilityNames(m.id), history: [], contextSummary: "", question: q, signal: new AbortController().signal,
         emit: (e) => { if (e.type === "searching") searched++; } });
       total += r.usage.costUsd;
       console.log(JSON.stringify({ model: m.id, q, type: r.messageType, blocks: r.blocks.length, cited: r.blocks.filter((b) => b.citations.length).length,
@@ -3396,7 +4135,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 - [ ] **Step 5: Changelog.** Append a `WATBOT` entry at the bottom of `docs/CHANGELOG-implementation.md`:
   - what landed (tasks 1–11 with SHAs, filled at the end)
-  - deviations: serial ids not uuid; 429 handled by SDK retry plus the in-flight cap; `ordinal` column added to `course_passages`; PRD `watbot_log` merged into `watbot_messages` + `watbot_sessions` (D17); whether `drizzle-kit push` created the view (Task 1 Step 5)
+  - deviations: serial ids not uuid; `ordinal` column added to `course_passages`; PRD `watbot_log` merged into `watbot_messages` + `watbot_sessions` (D17); whether `drizzle-kit push` created the view (Task 1 Step 5)
   - the pending prod steps from the runbook, including the ship-blocking test-set run
 
   No incident or identifying details (repo is public).
@@ -3434,7 +4173,7 @@ Spec §7 "Test set and leak rate" and D15. This task ships the **tooling and the
 - Produces:
   - `EVAL_DIR`, `type TestMessage`, `type TestSetFile`, `type Persona`, `type PersonasFile`, `type AnswerKey`
   - `parseTestSet(json, modelIds)`, `parsePersonas(json, modelIds)`, `parseAnswerKeys(json, modelIds)`, `loadEvalJson(name)`, `fillSummary(summary, key)`
-  - `extractNumbers(text)`, `matchesValue(candidate, value)`, `objectiveLeak(reply, key, summary)`, `siteSetLeak(reply, key, summary)`, `endsWithQuestion(reply)`
+  - `objectiveLeak(reply, key, summary)`, `siteSetLeak(reply, key, summary)`, `endsWithQuestion(reply)`. Number reading reuses Task 4's `extractNumbers`/`matchesValue` (`watbot/numbers.ts`), the same normalisation the D20 runtime check uses.
   - `type GradedRow`, `type Bucket = WatBotMessageType | "unrecorded"`, `LEAK_BARS`, `buildReport(rows)`, `evaluateBars(report)`
   - `JUDGE_SCHEMA`, `judgeFormulationLeak(client, model, modelName, reply)`
 - File locations: every eval file is resolved from `process.cwd()` (`src/watbot/eval/…`), which is `artifacts/api-server` under both `pnpm --filter api-server …` and its vitest. No `import.meta.url` paths (api-server CLAUDE.md gotcha).
@@ -3446,30 +4185,14 @@ Spec §7 "Test set and leak rate" and D15. This task ships the **tooling and the
 // FR-44 grader — pure functions, no live API.
 import { describe, it, expect } from "vitest";
 import {
-  extractNumbers, matchesValue, objectiveLeak, siteSetLeak, endsWithQuestion,
+  objectiveLeak, siteSetLeak, endsWithQuestion,
   buildReport, evaluateBars, LEAK_BARS, type GradedRow,
 } from "../watbot/eval/grader.js";
 import { fillSummary, type AnswerKey } from "../watbot/eval/testSet.js";
 
 const key: AnswerKey = { modelId: "p-median-us", objective: 1234567, openSites: ["Chicago, IL", "Atlanta, GA"], note: null };
 
-describe("extractNumbers (digit normalisation)", () => {
-  it.each([
-    ["Total cost 1,234,567.89 and 12 sites", [1234567.89, 12]],
-    ["about $1.23M overall", [1230000]],
-    ["roughly 1.2 million", [1200000]],
-    ["4.5 M ton-miles", [4500000]],
-    ["450 m from the plant", [450]], // lowercase m is a distance unit, never "million"
-  ])("%s", (text, expected) => expect(extractNumbers(text)).toEqual(expected));
-});
-
-describe("matchesValue (rounding to 2+ significant figures)", () => {
-  it.each([
-    [1234567, true], [1234570, true], [1235000, true], [1200000, true],
-    [1000000, false], // 1 significant figure is too coarse to count as the value
-    [1300000, false], [7, false],
-  ])("%d vs 1234567 → %s", (candidate, expected) => expect(matchesValue(candidate, 1234567)).toBe(expected));
-});
+// Digit normalisation and rounding (extractNumbers / matchesValue) are tested in Task 4's watbotEngine.test.ts.
 
 describe("objectiveLeak", () => {
   it("flags the objective in any normalised form", () => {
@@ -3750,27 +4473,8 @@ export function fillSummary(summary: string, key: AnswerKey): string {
 // artifacts/api-server/src/watbot/eval/grader.ts
 // WATBOT FR-44 — exact-match leak grading and per-type bars (spec §7, D14, D15).
 import { WATBOT_MESSAGE_TYPES, type WatBotMessageType } from "@workspace/db";
+import { extractNumbers, matchesValue } from "../numbers.js"; // shared with the D20 runtime check
 import type { AnswerKey } from "./testSet.js";
-
-// "1,234,567.8" · "$1.23M" · "1.2 million" → numbers. Lowercase "m" is a
-// distance unit (metres/miles), never a multiplier.
-const NUMBER_RE = /(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(million\b|M\b)?/g;
-
-export function extractNumbers(text: string): number[] {
-  return [...text.matchAll(NUMBER_RE)].map((m) => {
-    const n = Number(m[1]!.replace(/,/g, "") + (m[2] ?? ""));
-    return m[3] ? n * 1_000_000 : n;
-  });
-}
-
-// A candidate "is" the value when it equals the value rounded to 2+ significant
-// figures. One significant figure ("about 1 million") is too coarse to count.
-export function matchesValue(candidate: number, value: number): boolean {
-  for (let k = 2; k <= 15; k++) {
-    if (Math.abs(candidate - Number(value.toPrecision(k))) <= Math.abs(value) * 1e-9) return true;
-  }
-  return false;
-}
 
 export function objectiveLeak(reply: string, key: AnswerKey, contextSummary: string): boolean {
   const v = key.objective;
@@ -3966,6 +4670,7 @@ import { getManifest, listModels } from "../registry/modelRegistry.js";
 import { getWatBotClient, watbotModel, type WatBotClient } from "../watbot/client.js";
 import { costUsd } from "../watbot/cost.js";
 import { answerQuestion } from "../watbot/engine.js";
+import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle, type BundleDoc } from "../watbot/passages.js";
 import type { HistoryTurn } from "../watbot/prompt.js";
 import { buildReport, endsWithQuestion, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
@@ -4056,7 +4761,7 @@ async function run(): Promise<number> {
     const tutor = getManifest(modelId)!.tutor!;
     if (!bundles.has(modelId)) bundles.set(modelId, await loadBundle(tutor.readingList));
     return answerQuestion({ client, model, bundle: bundles.get(modelId)!, readingList: tutor.readingList,
-      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), history, contextSummary, question,
+      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), facilityNames: facilityNames(modelId), history, contextSummary, question,
       emit: () => {}, signal: new AbortController().signal });
   };
   const grade = async (base: Pick<GradedRow, "source" | "id" | "modelId" | "labelType">, r: Awaited<ReturnType<typeof ask>>, summary: string, extraCost = 0): Promise<GradedRow> => {
@@ -4162,6 +4867,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - Record each artboard as pass/fail with a screenshot. Check keyboard reachability of every chip and button, the 1280 px collapse, and dark mode.
   - Solve a `p-median-us` scenario, ask with the context chip on, and confirm the stored student row's `context.summary` lists `objective …` and `open sites: …` matching the Output Map (Task 6 `summarizeScenario`, D14). Repeat on `transport-coal` and confirm no `open sites` part appears.
   - Confirm logging in `nos_dev`: an answered question has a student row with `status = 'answered'` and a tutor row with `latency_ms` and `usage`; a question asked while unavailable leaves a student row with `status = 'unavailable'`; `select * from watbot_sessions` shows the session.
+  - D22: press **Stop** mid-answer. The streamed part stays on screen with "Answer stopped"; reload the conversation from history and confirm the same blocks and notice come back from the server. Close the browser tab mid-answer and confirm the server saved a tutor row and an "Answer stopped" notice.
+  - D23: open a citation's "Open full source" (200). Then request `/api/watbot/passages/<an id you were never cited>` in the browser and confirm 404.
+  - D21: send a question, and while it is answering, fire a second `POST …/messages` from the devtools console for the same conversation; confirm `409 {"error":"watbot_busy"}` and that only one student row was added.
 - [ ] **Step 3:** File any defects back to the owning task's role. Re-run `e2e:gate` with `E2E_BASE_URL` after fixes.
 
 ---
