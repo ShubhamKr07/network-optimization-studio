@@ -5,6 +5,14 @@
   "datasetDir": "solvers/delivery-teaching-us/dataset",
   "countryBounds": { "sw": [24, -125], "ne": [50, -66] },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 5 }, { "kind": "book", "chapter": 3 }, { "kind": "book", "chapter": 6 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "How does minimizing delivery cost differ from minimizing distance?", "tab": null },
+    { "id": "q2", "text": "Where do the lane delivery costs come from, and how do they enter the model?", "tab": null },
+    { "id": "q3", "text": "How do I read the Solution Summary — what is driving total cost?", "tab": "cost-summary" }
+    ]
+  },
   "capabilities": {
     "supportsP": true,
     "capacityModes": [],

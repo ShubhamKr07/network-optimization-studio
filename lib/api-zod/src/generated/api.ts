@@ -84,6 +84,9 @@ export const listModelsResponseCountryBoundsNeMin = 2;
 export const listModelsResponseCountryBoundsNeMax = 2;
 
 export const listModelsResponseCapabilitiesSupportsPlantProductCapabilityDefault = false;
+export const listModelsResponseTutorFixedQuestionsMax = 5;
+
+
 
 export const ListModelsResponseItem = zod.object({
   "id": zod.string(),
@@ -107,7 +110,18 @@ export const ListModelsResponseItem = zod.object({
   "inputsSchema": zod.object({
 
 }).passthrough().describe('JSON Schema describing this model\'s inputs shape. Opaque to this contract.'),
-  "distanceUnit": zod.enum(['mi', 'km']).describe('Unit this model\'s distances\/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to \"mi\" if the manifest predates this field.')
+  "distanceUnit": zod.enum(['mi', 'km']).describe('Unit this model\'s distances\/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to \"mi\" if the manifest predates this field.'),
+  "tutor": zod.object({
+  "readingList": zod.array(zod.object({
+  "kind": zod.enum(['book', 'notebook']),
+  "chapter": zod.number().min(1)
+})),
+  "fixedQuestions": zod.array(zod.object({
+  "id": zod.string(),
+  "text": zod.string(),
+  "tab": zod.string().nullable()
+})).max(listModelsResponseTutorFixedQuestionsMax)
+}).optional().describe('WatBot reading list and fixed chapter questions (WATBOT spec §3).')
 }).describe('Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers\/<model-id>\/manifest.json, datasetDir omitted (server-internal filesystem path).')
 export const ListModelsResponse = zod.array(ListModelsResponseItem)
 

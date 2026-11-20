@@ -15,6 +15,14 @@
     "supportsPlantProductCapability": true
   },
   "distanceUnit": "mi",
+  "tutor": {
+    "readingList": [{ "kind": "book", "chapter": 9 }, { "kind": "book", "chapter": 6 }, { "kind": "book", "chapter": 7 }, { "kind": "notebook", "chapter": 9 }],
+    "fixedQuestions": [
+    { "id": "q1", "text": "What does a three-echelon model add over the warehouse-only models of earlier chapters?", "tab": null },
+    { "id": "q2", "text": "How do plant capabilities and the costs on each leg shape where products flow?", "tab": "capability-matrix" },
+    { "id": "q3", "text": "How do I read the Flows — why do products take these plant → warehouse → customer paths?", "tab": "flows" }
+    ]
+  },
   "inputsSchema": {
     "type": "object",
     "properties": {

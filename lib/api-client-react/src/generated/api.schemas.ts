@@ -286,6 +286,35 @@ export const ModelInfoDistanceUnit = {
   km: 'km',
 } as const;
 
+export type ModelTutorReadingListItemKind = typeof ModelTutorReadingListItemKind[keyof typeof ModelTutorReadingListItemKind];
+
+
+export const ModelTutorReadingListItemKind = {
+  book: 'book',
+  notebook: 'notebook',
+} as const;
+
+export type ModelTutorReadingListItem = {
+  kind: ModelTutorReadingListItemKind;
+  /** @minimum 1 */
+  chapter: number;
+};
+
+export type ModelTutorFixedQuestionsItem = {
+  id: string;
+  text: string;
+  tab: string | null;
+};
+
+/**
+ * WatBot reading list and fixed chapter questions (WATBOT spec §3).
+ */
+export interface ModelTutor {
+  readingList: ModelTutorReadingListItem[];
+  /** @maxItems 5 */
+  fixedQuestions: ModelTutorFixedQuestionsItem[];
+}
+
 /**
  * Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
  */
@@ -299,6 +328,7 @@ export interface ModelInfo {
   inputsSchema: ModelInfoInputsSchema;
   /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
   distanceUnit: ModelInfoDistanceUnit;
+  tutor?: ModelTutor;
 }
 
 /**

@@ -1465,7 +1465,33 @@ components:
           type: string
           description: Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field.
           enum: [mi, km]
+        tutor:
+          $ref: '#/components/schemas/ModelTutor'
       required: [id, name, chapter, countryBounds, capabilities, inputsSchema, distanceUnit]
+
+    ModelTutor:
+      type: object
+      description: WatBot reading list and fixed chapter questions (WATBOT spec §3).
+      required: [readingList, fixedQuestions]
+      properties:
+        readingList:
+          type: array
+          items:
+            type: object
+            required: [kind, chapter]
+            properties:
+              kind: { type: string, enum: [book, notebook] }
+              chapter: { type: integer, minimum: 1 }
+        fixedQuestions:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [id, text, tab]
+            properties:
+              id: { type: string }
+              text: { type: string }
+              tab: { type: string, nullable: true }
 
     ReferenceDistancePair:
       type: object
