@@ -4297,7 +4297,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 9. **Test-set run (ship-blocking, spec §8 step 6, D15).** Needs its own spend approval; estimated well under $1 a run, and the script prints the measured cost.
    - Preconditions: the project owner has approved `artifacts/api-server/src/watbot/eval/testSet.json` and `personas.json` (their `status` is `"approved"`, with `approvedBy` and `approvedOn` filled); a database with the **real** corpus loaded (local `nos_dev` after step 3); `answerKeys.json` regenerated if any solver or default input changed (`pnpm --filter api-server watbot-test-set keys --base-url http://localhost:<api-port>` against a local API).
    - Run: `DATABASE_URL=<db with corpus> ANTHROPIC_API_KEY=<key> pnpm --filter api-server watbot-test-set run --confirm-spend`.
-   - Pass: exit 0, meaning 0 leaks on `stuck_or_wants_answer`, `incorrect_attempt` and replies with no recorded type, and at most 5% (draft bar, pending owner confirmation) on the other types. Exit 1 blocks the ship: tighten the instructions and re-run. Paste the printed per-type table into the deploy record.
+   - Pass: exit 0, meaning 0 leaks on `stuck_or_wants_answer`, `incorrect_attempt` and replies with no recorded type, and at most 5% (owner-confirmed) on the other types. Exit 1 blocks the ship: tighten the instructions and re-run. Paste the printed per-type table into the deploy record.
    - Re-run before any change to `SYSTEM_PROMPT`, `REPLY_RULES` or `TOOLS` ships, not only before the first ship.
 
 - [ ] **Step 3: Write `docs/ops/watbot-metrics.md`** (FR-42, FR-45; read by the project owner only). Open with: "Run read-only against production, with explicit approval. Never paste `user_id`s or other identifying values from the results into this public repo." Then these saved queries, each with a one-line note on how to read it. Column names were checked against `lib/db/src/schema/{auth,scenarios}.ts` on 2026-11-20: `users(id, role)`, `scenarios(user_id, model_id)`.
@@ -4806,7 +4806,7 @@ export type BucketReport = {
 };
 
 // PRD bars (spec §7): zero leaks where the student is stuck or wrong; "a few
-// percent" elsewhere — 5% is the DRAFT threshold pending owner confirmation (spec §9).
+// percent" elsewhere — 5%, confirmed by the owner 2026-11-20.
 // A reply with no recorded type is held to zero: a skipped classification must not hide a leak.
 export const LEAK_BARS: Record<Bucket, number> = {
   concept_question: 0.05, incorrect_attempt: 0, correct_attempt: 0.05,
@@ -5101,7 +5101,7 @@ async function run(): Promise<number> {
   })));
   for (const r of rows.filter((x) => x.leak)) console.log(`LEAK ${r.id} (${r.modelId}): ${r.reasons.join("; ")}`);
   console.log(`TOTAL costUsd ${rows.reduce((s, r) => s + r.costUsd, 0).toFixed(4)} (measured)`);
-  console.log("Bars: 0% on stuck_or_wants_answer, incorrect_attempt and unrecorded; 5% elsewhere (draft, pending owner confirmation).");
+  console.log("Bars: 0% on stuck_or_wants_answer, incorrect_attempt and unrecorded; 5% elsewhere.");
   const failures = evaluateBars(report);
   for (const f of failures) console.error(`BAR MISSED ${f}`);
   return failures.length ? 1 : 0;
@@ -5148,7 +5148,7 @@ git commit artifacts/api-server/src/watbot/eval artifacts/api-server/src/migrati
 
 DRAFTS: testSet.json (100 messages) and personas.json (6 personas) are
 status \"draft\" and need owner approval before the first run (spec D15).
-The 5% bar for non-zero types is a draft pending owner confirmation (§9).
+The 5% bar for non-zero types is owner-confirmed (2026-11-20).
 The live run is a manual, spend-approved rollout step, never part of the gate.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

@@ -434,7 +434,7 @@ Run before the first ship and before any change to the system prompt, tools or r
   - share of replies that skipped `record_message_type`;
   - share of replies ending in a question;
   - cost of the run.
-- **Bars (PRD):** no leaks on `stuck_or_wants_answer` and `incorrect_attempt`, and at most a few percent on the other types (exact threshold: §9). Missing a bar blocks the change. Tighten the instructions first; a live second check is added only if tightening fails (PRD: not covered here).
+- **Bars (PRD):** no leaks on `stuck_or_wants_answer` and `incorrect_attempt`, and at most a few percent on the other types (5%, confirmed by the owner 2026-11-20). Missing a bar blocks the change. Tighten the instructions first; a live second check is added only if tightening fails (PRD: not covered here).
 - **Cost:** estimated well under $1 a run (~150 tutor replies plus ~50 simulated-student and ~150 judge calls, warm cache). The script prints the measured cost.
 
 The drafted messages and personas need owner approval before the first run, as with D12.
@@ -453,7 +453,6 @@ The drafted messages and personas need owner approval before the first run, as w
 - The implementation plan (`docs/superpowers/plans/2026-11-20-watbot-panel-qa.md`) predates D20–D24, which came from the Codex adversarial review of 2026-11-20. It must be rewritten against this spec and re-reviewed before execution.
 - Citation chip format changes from the canvas's "Ch 3.1 · p.78" to "Ch 3 · p.78": the book's sections are unnumbered.
 - The source popover shows the passage only; book figures are deferred.
-- The leak bar for the non-zero types: the PRD says "no more than a few percent". The draft threshold is **5%**, pending owner confirmation.
 - PRD rev 183 needs four touch-ups, not made here:
   - Its goals bullet and B2's caption still say a guiding question comes before the explanation, which contradicts FR-13 and FR-41.
   - Its open question on laptop widths is answered by D11.
