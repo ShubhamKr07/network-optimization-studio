@@ -76,7 +76,7 @@ test("WatBot: open from toolbar, ask a fixed question, read a citation, report",
   await expect(messages.locator('[data-role="tutor"]')).toContainText("The objective weights each distance by demand", { timeout: T });
 
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
-  await expect(panel.getByRole("dialog", { name: "Source Ch 3 · p.38" })).toContainText("Minimize demand-weighted distance.", { timeout: T });
+  await expect(page.getByRole("dialog", { name: "Source Ch 3 · p.38" })).toContainText("Minimize demand-weighted distance.", { timeout: T });
 
   await panel.getByRole("button", { name: "Report this answer" }).click({ timeout: T });
   await expect(panel.getByTestId("watbot-report-form")).toBeVisible({ timeout: T });
@@ -86,23 +86,17 @@ test("WatBot: open from toolbar, ask a fixed question, read a citation, report",
   expect(reportRequests[0]).toMatchObject({ messageId: 901, reason: "wrong_or_misleading" });
 });
 
-// KNOWN UI DEFECT (found by this spec, WATBOT-9). The citation popover in
-// WatBotMessages.tsx is `absolute right-0 w-72` inside the panel's
-// `overflow-y-auto` scroll area, so when the chip sits near the left edge the
-// popover's left part is clipped and "Open full source" is covered by the
-// workspace content to the left (click intercepted). test.fail() keeps the
-// defect visible: this test PASSES while the bug exists and goes RED when it
-// is fixed, at which point delete the test.fail line.
+// Regression (WATBOT-8b): the popover must stay clickable near the panel's left edge.
 test("WatBot: 'Open full source' is reachable from the citation popover", async ({ page }) => {
-  test.fail(true, "citation popover is clipped by the panel scroll container; click is intercepted");
   test.setTimeout(60_000);
   await registerFreshAccount(page, "fullsrc");
   await stubWatBot(page);
   const panel = await openPanel(page);
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
-  await panel.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
-  await expect(panel.getByText("Full page text for p.38.")).toBeVisible({ timeout: 5_000 });
+  // The popover is portaled out of the panel, so query the page.
+  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
+  await expect(page.getByText("Full page text for p.38.")).toBeVisible({ timeout: 5_000 });
 });
 
 test("WatBot: unavailable state shows the toolbar dot", async ({ page }) => {

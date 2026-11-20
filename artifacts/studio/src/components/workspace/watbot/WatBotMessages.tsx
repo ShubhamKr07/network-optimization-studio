@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BookOpen, Flag } from "lucide-react";
 import { useGetWatBotPassage, type WatBotCitation } from "@workspace/api-client-react";
 import type { ChatItem, Pending } from "./useWatBotConversation";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WatBotReportForm } from "./WatBotReportForm";
 
 export function WatBotMessages({ items, pending, onStop }: { items: ChatItem[]; pending: Pending | null; onStop?: () => void }) {
@@ -61,18 +62,19 @@ function CitationChip({ c }: { c: WatBotCitation }) {
   const [full, setFull] = useState(false);
   const { data: passage } = useGetWatBotPassage(full ? c.passageId : 0, { query: { enabled: full } } as never);
   return (
-    <span className="relative inline-block align-middle">
-      <button type="button" aria-label={`Source: ${c.label}`} aria-expanded={open} data-testid="watbot-citation-chip" onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-6 items-center gap-1 rounded-full border bg-background px-2 font-mono text-[11px]">
-        <BookOpen className="size-2.5" aria-hidden="true" />{c.label}
-      </button>
-      {open && (
-        <span role="dialog" aria-label={`Source ${c.label}`} className="absolute right-0 z-20 mt-1 block w-72 rounded-md border bg-background p-3 text-xs shadow-lg">
-          <mark className="block bg-warning-bg p-1">{c.citedText}</mark>
-          {full && passage ? <span className="mt-2 block max-h-48 overflow-y-auto whitespace-pre-wrap">{passage.body}</span>
-            : <button type="button" onClick={() => setFull(true)} className="mt-2 inline-flex h-6 items-center underline">Open full source</button>}
-        </span>
-      )}
-    </span>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label={`Source: ${c.label}`} data-testid="watbot-citation-chip"
+          className="inline-flex h-6 items-center gap-1 rounded-full border bg-background px-2 align-middle font-mono text-[11px]">
+          <BookOpen className="size-2.5" aria-hidden="true" />{c.label}
+        </button>
+      </PopoverTrigger>
+      {/* Portaled + collision-aware (Radix), so the panel's overflow-y-auto can't clip it. */}
+      <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-w-[calc(100vw-16px)] p-3 text-xs">
+        <mark className="block bg-warning-bg p-1">{c.citedText}</mark>
+        {full && passage ? <span className="mt-2 block max-h-48 overflow-y-auto whitespace-pre-wrap">{passage.body}</span>
+          : <button type="button" onClick={() => setFull(true)} className="mt-2 inline-flex h-6 items-center underline">Open full source</button>}
+      </PopoverContent>
+    </Popover>
   );
 }
