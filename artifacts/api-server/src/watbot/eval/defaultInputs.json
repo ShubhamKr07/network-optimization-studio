@@ -49,7 +49,7 @@
   "customerOverrides": [],
   "gap": 0,
   "timeLimitSec": 120,
-  "singleSource": true
+  "singleSource": false
  },
  "delivery-teaching-us": {
   "p": 3,

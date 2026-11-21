@@ -23,9 +23,17 @@
     },
     {
       "modelId": "p-median-brazil",
-      "objective": null,
-      "openSites": [],
-      "note": "status infeasible"
+      "objective": 18148214291,
+      "openSites": [
+        "Juiz de Fora",
+        "Ponta Grossa",
+        "Santos",
+        "Betim",
+        "Salvador",
+        "Recife",
+        "Belém"
+      ],
+      "note": null
     },
     {
       "modelId": "p-median-us",
