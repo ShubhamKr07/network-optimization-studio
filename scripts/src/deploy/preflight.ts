@@ -125,7 +125,9 @@ export async function main(argv: string[]) {
   o.push(`- ${noDeploy} docs/tooling paths map to no deploy.`, "");
 
   o.push("### 1a. Schema");
-  const schemaDiff = git("diff", "-U0", range, "--", "lib/db/src/schema/");
+  // `:(top)` anchors the pathspec at the repo root; pnpm runs this from scripts/, where a bare
+  // "lib/db/src/schema/" matched nothing and every range reported "schema unchanged".
+  const schemaDiff = git("diff", "-U0", range, "--", ":(top)lib/db/src/schema/");
   if (!schemaDiff) o.push("- lib/db/src/schema unchanged: no drizzle-kit push needed.");
   else {
     o.push(isCommentOnlyDiff(schemaDiff)

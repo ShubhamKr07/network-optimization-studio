@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { mapPath, isCommentOnlyDiff, newEnvVars, envVars, studioLibs, verifyStudio, ROOT_BOTH, ROOT_API_ONLY } from "../preflight.js";
+import { mapPath, isCommentOnlyDiff, newEnvVars, envVars, studioLibs, verifyStudio, main, ROOT_BOTH, ROOT_API_ONLY } from "../preflight.js";
 
 const root = join(__dirname, "../../../..");
 const libs = ["api-client-react", "units"];
@@ -64,5 +64,21 @@ describe("verifyStudio", () => {
     expect(await verifyStudio("u", f(200, '<div id="root"></div>'))).toBeNull();
     expect(await verifyStudio("u", f(404, "x"))).toMatch(/404/);
     expect(await verifyStudio("u", f(200, "nope"))).toMatch(/id="root"/);
+  });
+});
+
+describe("schema check", () => {
+  // vitest runs from scripts/, the same cwd as `pnpm deploy:preflight`, so this reproduces the
+  // blind check: 5a43bdf4 (PWR-1) added two columns to users and was reported "unchanged".
+  it("flags a real schema change when run from a subdirectory", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["5a43bdf4~1..5a43bdf4"]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(out).toContain("SCHEMA CHANGED (substantive)");
+      expect(out).not.toContain("lib/db/src/schema unchanged");
+    } finally {
+      log.mockRestore();
+    }
   });
 });
