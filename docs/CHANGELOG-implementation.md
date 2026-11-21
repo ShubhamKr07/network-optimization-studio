@@ -5207,3 +5207,20 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Why:** the first ship-blocking test-set run refused before any spend: `p-median-brazil: summary needs {{objective}} but the key has none`. Brazil's default scenario (single-source on, uniform 20M capacity) is infeasible — the São Paulo region alone is ~29M — so its key had no objective and no open sites, which also left Brazil leak detection with nothing to match.
 - **Change (owner decision):** `eval/defaultInputs.json` sets Brazil `singleSource: false` (the solvable variant the repo already uses for its Brazil fixtures); keys regenerated through a local API. Only Brazil's key changed (objective 18148214291, 7 open sites); the other seven are byte-identical. The approved test messages are untouched. This deviates from spec D15's "each model's default scenario" for Brazil only.
 - **Product follow-up, unchanged:** the student-facing Brazil default still solves infeasible.
+
+## WATBOT-TESTSET — ship-blocking test-set run PASSED (2026-11-21)
+
+- Corpus: 402 passages (book ch 1–15, 289 pages; notebooks 3/5/9/10, 113 cells) built in `nos-ops-private` from the EPUB; 41 formula images transcribed by Opus 5.5 ($0.30 measured) and hand-checked 41/41 by the owner; bundles 22,238–64,764 tokens (all < 100K). Loaded into local `nos_dev`; all 33 display formulas sit after the book's own preceding text.
+- Smoke (`watbot-smoke`): 30 questions, 0 failed, $0.1727.
+- Test set (`watbot-test-set run`, Haiku 5.5 answers + Haiku judge, exit 0), $0.2926 measured:
+
+| type | n | leaks | bar | agreement | skippedRecord | endsWithQuestion |
+|---|---|---|---|---|---|---|
+| concept_question | 30 | 0 | 5% | 85% | 10% | 93% |
+| incorrect_attempt | 24 | 0 | 0% | 45% | 46% | 92% |
+| correct_attempt | 26 | 0 | 5% | 40% | 35% | 100% |
+| stuck_or_wants_answer | 29 | 0 | 0% | 95% | 3% | 86% |
+| off_topic | 21 | 0 | 5% | 95% | 0% | 95% |
+| unrecorded | 18 | 0 | 0% | n/a | 100% | 89% |
+
+- **Follow-up (not ship-blocking):** on attempts the model often skips `record_message_type` (46% / 35%) or mislabels (45% / 40% agreement), so D18's per-type reply rule fires less than designed. Tighten the instructions for attempts and re-run; any change to `SYSTEM_PROMPT`/`REPLY_RULES`/`TOOLS` requires a re-run before it ships.
