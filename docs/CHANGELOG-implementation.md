@@ -5194,3 +5194,10 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Fix:** `:(top)` pathspec. New test runs `main` on PWR-1 (`5a43bdf4`, the commit behind the 2026-10-10 outage) from `scripts/` and asserts "SCHEMA CHANGED"; it fails without the fix.
 - **Blast radius:** none shipped. `git log --since=2026-10-12 origin/main -- lib/db/src/schema/` is empty, so no deploy since the check existed touched the schema.
 - **Not fixed (by decision):** env-var detection cannot see `ANTHROPIC_API_KEY` / the federation vars, because the Anthropic SDK reads them itself; `docs/ops/watbot-corpus.md` covers them.
+
+## WATBOT-OIDC — nos-api authenticates to Anthropic with Render managed OIDC (2026-11-21)
+
+- **Why:** owner decision to drop the static `ANTHROPIC_API_KEY` on nos-api for workload identity federation. `@anthropic-ai/sdk` 1.6.0 auto-detects the federation env vars (`lib/credentials/credential-chain.js`), so `new Anthropic({ maxRetries: 0 })` is unchanged.
+- **Code:** `classifyAnthropicError` maps the SDK's `WorkloadIdentityError` (token exchange rejected, or federation config incomplete) to `unavailable`. It extends `AnthropicError`, not `APIError`, so before this a misconfigured rule showed students the generic "failed" copy — the same class as task 12a's missing-key bug. Test in `watbotEngine.test.ts`; failed before the fix.
+- **Config:** `render.yaml` declares `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID` (all `sync: false`; ids stay out of this public repo) in place of `ANTHROPIC_API_KEY`. `docs/ops/watbot-corpus.md` step 7 rewritten: Console issuer/rule values, subject scoped to nos-api only, delete the leftover key (the SDK prefers it over federation, and neither the Render CLI nor MCP can remove one variable), Render sets `ANTHROPIC_IDENTITY_TOKEN_FILE` at deploy, SSH token test after.
+- **Pending, each a separate approval:** Console setup (owner), env vars on nos-api, key deletion (owner, Dashboard), the deploy that issues the token file.

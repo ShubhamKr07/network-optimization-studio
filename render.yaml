@@ -66,9 +66,18 @@ services:
       # route returns 503 road_distances_unavailable. Adding it is a deploy-checklist item.
       - key: ORS_API_KEY
         sync: false
-      # WATBOT — tutor panel. Declaring these deploys nothing; the secret is
-      # Dashboard-managed (docs/ops/watbot-corpus.md step 7).
-      - key: ANTHROPIC_API_KEY
+      # WATBOT — tutor panel. Declaring these deploys nothing. Auth is Render managed
+      # OIDC (workload identity federation), no static key: values are Dashboard-
+      # managed (docs/ops/watbot-corpus.md step 7). Render sets
+      # ANTHROPIC_IDENTITY_TOKEN_FILE itself — never declare it. ANTHROPIC_API_KEY
+      # must NOT be set on nos-api: the SDK prefers it over federation.
+      - key: ANTHROPIC_FEDERATION_RULE_ID
+        sync: false
+      - key: ANTHROPIC_ORGANIZATION_ID
+        sync: false
+      - key: ANTHROPIC_SERVICE_ACCOUNT_ID
+        sync: false
+      - key: ANTHROPIC_WORKSPACE_ID
         sync: false
       - key: WATBOT_MODEL
         value: claude-haiku-5-5

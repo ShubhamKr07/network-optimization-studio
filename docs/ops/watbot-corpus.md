@@ -87,8 +87,35 @@ and 400,000 output tokens/min.
 
 ## 7. Env vars
 
-Set `ANTHROPIC_API_KEY` on nos-api (declared in `render.yaml` with `sync: false`;
-the other three have defaults there). This is an env change on a live service: ask first.
+nos-api authenticates with Render managed OIDC (workload identity federation), not a
+static key. Render docs: <https://render.com/docs/oidc> (needs a Pro workspace).
+
+1. **Claude Console (org admin)**, Workload identity federation:
+   - Service account with the *Developer* role, added to the WatBot workspace.
+   - Issuers tab, *Custom OIDC provider*: issuer `https://oidc.render.com/<render workspace id>`
+     (starts `tea-`), JWKS source *OIDC Discovery*.
+   - Rules tab: subject pattern
+     `workspace:<render workspace id>:environment:default:service:<nos-api service id>`
+     (nos-api only — no `service:*` wildcard), audience `api.anthropic.com`, token lifetime
+     at least 30 minutes, service account from above.
+2. **nos-api env vars** (live service, ask first): `ANTHROPIC_FEDERATION_RULE_ID`,
+   `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID`
+   (all `sync: false` in `render.yaml`; the three `WATBOT_*` vars have the same defaults in
+   code). Render MCP `update_environment_variables` with the default merge mode adds them;
+   never pass `replace: true`, which deletes every other variable.
+3. **Delete `ANTHROPIC_API_KEY` from nos-api** in the Dashboard if it is set. The SDK
+   prefers an API key over federation, so a leftover key silently bypasses OIDC. Neither the
+   Render CLI (v2.21 has no env-var command) nor the MCP (merge or replace-all) can remove a
+   single variable.
+4. Never set `ANTHROPIC_IDENTITY_TOKEN_FILE`; Render sets it at deploy once it sees
+   `ANTHROPIC_FEDERATION_RULE_ID`. The token file exists only after the next deploy.
+5. **Verify after the deploy:** `render ssh <nos-api service id>`, then run the rule's
+   *Test connection* script with `JWT=$(cat $ANTHROPIC_IDENTITY_TOKEN_FILE)`; then ask one
+   question as a student. A misconfigured rule surfaces as WatBot "unavailable" (the SDK's
+   `WorkloadIdentityError`), and the Console's Workload identity page logs the rejected exchange.
+
+Local runs (steps 8 and 9) have no Render token: they use a separate dev key exported in the
+operator's own shell.
 
 ## 8. Smoke test
 

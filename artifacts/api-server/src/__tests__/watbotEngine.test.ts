@@ -1,6 +1,7 @@
 // artifacts/api-server/src/__tests__/watbotEngine.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
+import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
 import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
 import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
 import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
@@ -228,6 +229,9 @@ describe("classifyAnthropicError", () => {
   it("maps the SDK missing-credentials error to unavailable, but other unknown errors stay failed", () => {
     expect(classifyAnthropicError(new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set.'))).toBe("unavailable");
     expect(classifyAnthropicError(new Error("boom"))).toBe("failed");
+  });  it("maps a failed OIDC token exchange (Render workload identity) to unavailable", () => {
+    expect(classifyAnthropicError(new WorkloadIdentityError("Token exchange failed with status 401: rule mismatch", 401))).toBe("unavailable");
+    expect(classifyAnthropicError(new WorkloadIdentityError("oidc_federation config requires organization_id"))).toBe("unavailable");
   });
 });
 

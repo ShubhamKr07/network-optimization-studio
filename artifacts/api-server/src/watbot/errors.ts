@@ -1,5 +1,6 @@
 // artifacts/api-server/src/watbot/errors.ts
 import Anthropic from "@anthropic-ai/sdk";
+import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
 
 // Closed union, in this order, mirrored by the OpenAPI WatBotError enum (Task 6).
 export const WATBOT_ERROR_CODES = [
@@ -11,6 +12,8 @@ export function classifyAnthropicError(err: unknown): "unavailable" | "project_l
   if (err instanceof Anthropic.APIConnectionError) return "unavailable";
   // SDK throws a plain Error when no key is configured; match its message only, not every unknown error.
   if (err instanceof Error && err.message.startsWith("Could not resolve authentication method")) return "unavailable";
+  // OIDC (Render workload identity) exchange or config failure: a deploy problem, like a missing key.
+  if (err instanceof WorkloadIdentityError) return "unavailable";
   if (!(err instanceof Anthropic.APIError)) return "failed";
   const body = err.error as { error?: { message?: string; details?: { error_code?: string } } } | undefined;
   const code = body?.error?.details?.error_code;

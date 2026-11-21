@@ -9,7 +9,8 @@ let real: Anthropic | null = null;
 export function setWatBotClientForTests(c: WatBotClient | null): void { override = c; }
 export function getWatBotClient(): WatBotClient {
   if (override) return override;
-  // Reads ANTHROPIC_API_KEY; server-side only (FR-33). maxRetries 0 (D24): the SDK
+  // Reads ANTHROPIC_API_KEY, or the Render OIDC federation vars when no key is set;
+  // server-side only (FR-33). maxRetries 0 (D24): the SDK
   // would otherwise retry 429s while holding an in-flight slot, and could resend a
   // round whose text was already forwarded. The engine owns the 429 re-queue and the
   // 2 in-round retries of transient 5xx/529/connection errors (TRANSIENT_BACKOFF_MS).
