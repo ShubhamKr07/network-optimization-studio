@@ -35,7 +35,7 @@
 The spec is the single normative body. It already carries the plan-time refinements: the `watbot_feedback_locked` name, the `{ id, repairLabel }` response, the re-answer note, root-question chains, and ratings not returned by `GET`. It also carries decisions **F7–F10** from the Codex adversarial review (2026-11-22):
 - **F7:** the claim happens at admission, under the per-user lock, with a compare-and-set.
 - **F8:** a stale claim can be reclaimed.
-- **F9:** re-answers run the value check on cited blocks too.
+- **F9:** every answer, ordinary or re-answer, runs the value check on cited blocks too. This revises Spec 1's D20, already edited in its spec.
 - **F10:** the re-answer's context is rebuilt server-side from the source row.
 
 Where this plan and the spec differ, the spec wins. Fix the plan.
@@ -155,18 +155,20 @@ export const watbotFeedbackTable = pgTable("watbot_feedback", {
     expect(result.messageType).toBe("stuck_or_wants_answer");
   });
 
-  // F9: a re-answer's cited blocks get the value check too; an ordinary answer's do not (Spec 1 D14/D20).
-  it("in a re-answer, drops a cited block that carries an unseen value; without repair the same block is forwarded", async () => {
+  // F9 / Spec 1 D20 (revised): a citation does not make a leaked value safe, in any answer.
+  it("drops a cited block that carries an unseen value, and keeps it when the context shows the value", async () => {
     const cited = { type: "content_block_location", cited_text: "x", document_index: 0, document_title: bundle[0]!.title, start_block_index: 0, end_block_index: 1 };
     const round = () => [toolRound("t1", "record_message_type", { type: "stuck_or_wants_answer" }),
       { events: textBlock(0, "The total cost is 1,234,567 in this solution.", [cited]), final: { stop_reason: "end_turn" as const } }];
-    const plain = await answerQuestion(baseInput(fakeClient(round())));
-    expect(plain.blocks).toHaveLength(1);
     const events: EngineEvent[] = [];
-    const repaired = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e), repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
-    expect(repaired.blocks).toHaveLength(0);
-    expect(repaired.claimsRemoved).toBe(1);
+    const hidden = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e) }));
+    expect(hidden.blocks).toHaveLength(0);
+    expect(hidden.claimsRemoved).toBe(1);
     expect(events).toContainEqual({ type: "notice", kind: "claim_removed" });
+    const shown = await answerQuestion(baseInput(fakeClient(round()), { shownFacts: "objective 1234567" }));
+    expect(shown.blocks).toHaveLength(1); // non-vacuity: the citation itself is accepted, only the value decides
+    const repaired = await answerQuestion(baseInput(fakeClient(round()), { repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(repaired.blocks).toHaveLength(0);
   });
 
   it("repairQuestion puts the re-answer note after the original question; REPAIR_RULES has no rule for R3", () => {
@@ -177,7 +179,7 @@ export const watbotFeedbackTable = pgTable("watbot_feedback", {
 
 The existing test "record_message_type stores the type and returns that type's reply rule" already pins the no-repair result byte for byte. Keep it unchanged.
 
-- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotEngine.test.ts`. Expected: 4 FAIL, on missing exports and a missing `repair` field. Before relying on it, check that the citation literal in the F9 test matches what `mapCitation` accepts: read `citations.ts`, and make sure the "without repair" half really forwards one block. A test whose plain case already drops the block proves nothing.
+- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotEngine.test.ts`. Expected: 4 FAIL, on missing exports and a missing `repair` field. Before relying on it, check that the citation literal in the F9 test matches what `mapCitation` accepts: read `citations.ts`, and make sure the "context shows the value" half really forwards one block. A test where every case drops the block proves nothing. Then run the whole api-server suite: any existing test that forwards a cited block with a 4+-digit number or a facility name not in its context now fails. Fix that test's context, never the rule, and list each one in the changelog entry. A grep at plan time (2026-11-22) found only two cited-block tests, `watbotEngine.test.ts:271` and `:320`, and neither carries such a value, so none is expected to fail.
 
 - [ ] **Step 3: Implement `prompt.ts`.** Add after `REPLY_RULES`, and add `type WatBotFeedbackReason` to the `@workspace/db` import:
 
@@ -224,19 +226,22 @@ export const excludedTypeResult = (type: WatBotMessageType) =>
               }
     ```
   - Keep the existing `else` (the unknown-type error) as it is.
-  - **F9:** in `streamRound`'s `content_block_stop` branch, replace the `keep` expression with:
+  - **F9 / Spec 1 D20 (revised):** in `streamRound`'s `content_block_stop` branch, replace the comment and the `keep` expression with:
     ```ts
-            // Cited → forward (a re-answer also needs the value check, F9). Uncited → forward only
-            // if it is a question or short connective (FR-17) AND carries no unseen value or site (D20).
-            const valuesOk = () => passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
-            const keep = b.citations.length > 0
-              ? !input.repair || valuesOk()
-              : keepUncitedBlock(b.text) && valuesOk();
+            // Cited, or an uncited question / short connective (FR-17): forward only if it also
+            // carries no unseen value or site (D20, revised 2026-11-22: cited blocks too).
+            const keep = (b.citations.length > 0 || keepUncitedBlock(b.text))
+              && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
     ```
 
 - [ ] **Step 5: Run the tests.** Same command as Step 2, then `pnpm run typecheck`. Expected: all pass.
 
-- [ ] **Step 6: Commit.** Add a changelog entry `WATBOT-FB-2` noting that `REPAIR_RULES` is new prompt text and Task 6's paid run gates the ship. Commit the three files and the changelog.
+- [ ] **Step 6: Commit.** Add a changelog entry `WATBOT-FB-2`. It notes:
+  - `REPAIR_RULES` is new prompt text.
+  - Spec 1 D20 was revised: cited blocks now get the value check.
+  - Task 6's paid run gates the ship.
+
+  Commit the three files, any existing tests whose context had to change, and the changelog.
 
 ---
 
@@ -897,8 +902,8 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
 ### Task 5 (WATBOT-FB-5): test-set support for re-answer cases
 
 **Files:**
-- Modify: `artifacts/api-server/src/watbot/eval/testSet.ts` (type and validation) and `artifacts/api-server/src/migrations/watbotTestSet.ts` (runner).
-- Test: `artifacts/api-server/src/__tests__/watbotEvalFiles.test.ts`.
+- Modify: `artifacts/api-server/src/watbot/eval/testSet.ts` (type and validation), `artifacts/api-server/src/watbot/eval/grader.ts` (two new rates) and `artifacts/api-server/src/migrations/watbotTestSet.ts` (runner).
+- Test: `artifacts/api-server/src/__tests__/watbotEvalFiles.test.ts` and `artifacts/api-server/src/__tests__/watbotEvalGrader.test.ts`.
 - Modify: `docs/CHANGELOG-implementation.md`.
 
 **Interfaces:**
@@ -927,9 +932,23 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
     ```
     `m.type` stays the expected type, so agreement is graded on it: for R1 and R2 that's the original type, and for R3 the corrected type.
 
-- [ ] **Step 4: Run them.** Run the Step 2 command, then `pnpm run typecheck`. Expected: PASS.
+- [ ] **Step 4: Report the two F9 rates.**
+  - **In `grader.ts`:**
+    - Add `claimsRemoved: number; forwardedBlocks: number;` to `GradedRow`.
+    - Add `claimRemovedRate: number; emptyReplyRate: number;` to `BucketReport`.
+    - In `buildReport`, compute:
+      ```ts
+            claimRemovedRate: share(rs.filter((r) => r.claimsRemoved > 0).length),
+            emptyReplyRate: share(rs.filter((r) => r.forwardedBlocks === 0).length),
+      ```
+  - **In the runner:**
+    - `grade` sets `claimsRemoved: r.claimsRemoved, forwardedBlocks: r.blocks.length`.
+    - `console.table` gains `claimRemoved` and `emptyReply` columns, formatted like `skippedRecord`.
+  - **In `watbotEvalGrader.test.ts`:** add a `buildReport` case. Two rows in one bucket, one with `claimsRemoved: 1, forwardedBlocks: 0` and one with `0, 2`, give `claimRemovedRate` 0.5 and `emptyReplyRate` 0.5.
 
-- [ ] **Step 5: Commit** the two source files, the test and the changelog entry `WATBOT-FB-5`.
+- [ ] **Step 5: Run them.** Run the Step 2 command, plus `watbotEvalGrader.test.ts`, then `pnpm run typecheck`. Expected: PASS.
+
+- [ ] **Step 6: Commit** the three source files, the two tests and the changelog entry `WATBOT-FB-5`.
 
 ---
 
@@ -948,6 +967,7 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
 - [ ] **Step 2: STOP. Get the owner's approval of the 15 cases** on the Lavish page. Then add them to `testSet.json` with ids `<model>-repair-NN`, and set `approvedOn` to the approval date.
 - [ ] **Step 3: STOP. Get the owner's yes for the paid run.** Quote the last measured full-run cost ($0.2524), plus the 15 cases.
 - [ ] **Step 4: Run it.** Follow the "Test set and leak rate" runbook in Spec 1 §7, with the key read only through `/usr/bin/security find-generic-password -s nos-dev-anthropic -w` inside the command. Expected: every bucket is at or under its leak bar, and the runner exits 0.
+- [ ] **Step 4b: STOP. Show the owner the `claimRemoved` and `emptyReply` columns** on a Lavish page. These are the cost of the revised D20, and no earlier run measured them, so there is no automatic bar. The owner decides whether they are acceptable before ship. Never call a high empty-reply rate a pass on your own.
 - [ ] **Step 5: Commit** `testSet.json` and a changelog entry with the measured table and the total cost, quoted from the run's own output.
 
 ---

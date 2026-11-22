@@ -11,12 +11,12 @@ The student rates WatBot's latest answer with ✓ or ✗. A ✗ asks for a reaso
 | F1 | The rating line sits at the foot of the conversation, under the **latest** tutor answer, from the first answer on. A new answer resets it, so every rating belongs to one tutor message | Prompt on leaving the panel (easy to dismiss); a rating under every reply (rates replies, not understanding) |
 | F2 | ✗ shows five preset reasons, one choice. "Other" opens an optional note (≤ 500 characters) | ✗ alone (no reason); a free-text box only |
 | F3 | Reasons 1–3 re-answer the student's latest question; reasons 4 and Other show a fixed "rephrase" notice and make no model call (§3) | No repair, tracking only |
-| F4 | Reason 1 re-answers under an "explain first" rule that still never gives, confirms or corrects the answer. The re-answer gets a runtime value check on **every** block, cited ones included (F9), so Spec 1's leak rules hold by enforcement as well as by prompt | Allowing the answer on request; reason 1 on concept questions only |
+| F4 | Reason 1 re-answers under an "explain first" rule that still never gives, confirms or corrects the answer. Like every answer, the re-answer gets the runtime value check on **every** block, cited ones included (F9), so Spec 1's leak rules hold by enforcement as well as by prompt | Allowing the answer on request; reason 1 on concept questions only |
 | F5 | A re-answer counts as one of the student's 50 questions per 24 h and goes through the monthly cap and the per-user lock, like any question | Free re-answers, once or unlimited |
 | F6 | One path for the re-answer: `POST …/feedback` stores the rating, then the client calls the existing `POST …/messages` with `repairOf` | The feedback endpoint streams its own answer (duplicates admission, SSE, finalize); the client sends the reason as student text (cannot enforce the rule or the type exclusion) |
 | F7 | **Claim at admission.** Under the per-user lock, the re-answer claims its rating with a compare-and-set on `repair_message_id` before any model call. A claimed rating can't be changed, and its reason is the one the rule used. Both feedback writes and re-answers take the per-user lock | Linking the rating after the model call: a delayed second request can pass stale checks and pay for a second repair, and a reason change mid-stream desyncs the stored reason from the rule used |
 | F8 | **A stale claim is reclaimable.** Under the per-user lock nothing else of that student's is in flight, so a claim with no tutor row after its student row means the re-answer died (crash, a failure before any model call, or a stop). Such a claim may be taken again. No separate in-progress state is needed | An explicit in-progress status with a recovery job; releasing the claim in `finalize()` (a crash skips it and strands the rating) |
-| F9 | Re-answers apply `passesValueCheck` to cited blocks too. A failing block is dropped like an uncited claim (`claim_removed` notice). Complete-formulation leaks have no runtime check, as in Spec 1; the test set's judge covers them (§7) | Prompt-only protection (Codex review: the cited path bypasses the value check) |
+| F9 | **Every answer**, re-answers and ordinary answers alike, applies `passesValueCheck` to cited blocks too (Spec 1 D20, revised by the owner 2026-11-22). A failing block is dropped like an uncited claim (`claim_removed` notice). Complete-formulation leaks have no runtime check, as in Spec 1; the test set's judge covers them (§7) | Prompt-only protection (Codex review: the cited path bypasses the value check); the check on re-answers only (leaves the same gap in every ordinary answer) |
 | F10 | **The context comes from the server.** A re-answer rebuilds its context from the source student row's stored `context` (`tab`, `scenarioId`), re-deriving the summary and facts from the owned scenario row as for any question. The client sends no context for a re-answer, so a reload or a conversation picked from history repairs correctly | A client-held "last context" (lost on reload or history pick) |
 
 ## 2. What the student sees
@@ -49,7 +49,7 @@ The server adds a fixed note to the last user turn, after `Student message: <ori
 
 `(Re-answer: the student asked "<↻ label without the arrow>" about your previous reply.)`
 
-Round 1 still forces `record_message_type`. The engine takes `repair?: { rule, excludeType }`. That input changes the tool results, and turns on the cited-block value check (F9):
+Round 1 still forces `record_message_type`. The engine takes `repair?: { rule, excludeType }`. That input changes only the tool results. The cited-block value check applies to every answer (F9):
 
 - **R1 · `too_many_questions`:** the tool result is the recorded type's `REPLY_RULES` entry followed by `REPAIR_RULES.too_many_questions`:
   > Re-answer rule: the student said your previous reply asked too many questions. Explain the idea behind their message from a cited passage first, in two to four sentences, then ask at most one question. Still never give, confirm or correct the answer, and never state an optimal facility set, an objective value or a complete formulation that the Student context does not show.
@@ -127,7 +127,7 @@ New queries in `docs/ops/watbot-metrics.md`, by model and by the rated answer's 
 - **Engine (`watbotEngine.test.ts`):**
   - R1 and R2 append the repair rule after the type's rule.
   - R3 rejects the excluded type, stores the next valid one, and returns that type's rule.
-  - In a re-answer, a **cited** block with an unseen 4+-digit value or facility name is dropped with `claim_removed`. The same block is forwarded when no repair is set, which is Spec 1's behaviour.
+  - In every answer, a **cited** block with an unseen 4+-digit value or facility name is dropped with `claim_removed`, and the same block is kept when the context summary shows that value (D14).
   - With no repair, the tool results are byte-identical to today's.
 - **Routes:**
   - 404 for another user's conversation or message, and for a non-tutor `messageId`.
@@ -152,6 +152,11 @@ New queries in `docs/ops/watbot-metrics.md`, by model and by the rated answer's 
 - **Test set:** the owner approves about 15 repair cases added to `eval/testSet.json`, mostly R1 on wrong attempts and "give me the answer" messages, where a leak is most likely.
   - Each case carries the history to the answer being repaired, and the runner passes `repair`.
   - The grader applies the same leak bar to the **streamed output**: the objective and site-set match on the forwarded blocks, plus the formulation judge.
+  - The report adds two rates per bucket, because F9 drops more cited text than before:
+    - the share of replies with at least one removed claim;
+    - the share of replies that forwarded nothing at all.
+
+    The owner reviews both before ship.
   - A passing paid run is needed before ship (the last full run cost $0.2524). It needs explicit approval, like every paid run.
 
 ## 8. Out of scope
@@ -160,4 +165,3 @@ New queries in `docs/ops/watbot-metrics.md`, by model and by the rated answer's 
 - PostHog events.
 - Rating older answers.
 - More than one reason per ✗.
-- **Ordinary answers keep Spec 1's rule:** a cited block is forwarded without the value check (D14/D20). F9 enforces the check on re-answers only. Whether to extend it to every answer is a separate Spec 1 decision, recorded as an open item for the owner.
