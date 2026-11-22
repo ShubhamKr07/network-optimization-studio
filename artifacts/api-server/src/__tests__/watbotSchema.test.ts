@@ -4,7 +4,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { asc, eq, sql } from "drizzle-orm";
 import {
   db, usersTable, coursePassagesTable, watbotConversationsTable,
-  watbotMessagesTable, watbotReportsTable, watbotSessionsView,
+  watbotMessagesTable, watbotReportsTable, watbotFeedbackTable, WATBOT_FEEDBACK_REASONS, watbotSessionsView,
 } from "@workspace/db";
 
 const createdUserIds: string[] = [];
@@ -102,5 +102,22 @@ describe("watbot schema", () => {
     } finally {
       await db.delete(coursePassagesTable).where(eq(coursePassagesTable.id, p!.id));
     }
+  });
+  it("feedback: one row per tutor message, cascades with the user, and a deleted repair row nulls the link", async () => {
+    expect(WATBOT_FEEDBACK_REASONS).toEqual(["too_many_questions", "hard_to_follow", "not_what_i_asked", "still_stuck", "other"]);
+    for (const c of getTableConfig(watbotFeedbackTable).columns) {
+      if (c.columnType === "PgTimestamp") expect((c as unknown as { withTimezone: boolean }).withTimezone).toBe(true);
+    }
+    const userId = await newUser();
+    const [conv] = await db.insert(watbotConversationsTable).values({ userId, modelId: "p-median-us", title: "t" }).returning();
+    const [tutor] = await db.insert(watbotMessagesTable).values({ conversationId: conv!.id, userId, role: "tutor", blocks: [{ text: "x", citations: [] }] }).returning();
+    const [repairRow] = await db.insert(watbotMessagesTable).values({ conversationId: conv!.id, userId, role: "student", blocks: [{ text: "↻ Explain it step by step", citations: [] }] }).returning();
+    await db.insert(watbotFeedbackTable).values({ userId, conversationId: conv!.id, messageId: tutor!.id, helped: false, reason: "hard_to_follow", repairMessageId: repairRow!.id });
+    await expect(db.insert(watbotFeedbackTable).values({ userId, conversationId: conv!.id, messageId: tutor!.id, helped: true })).rejects.toThrow();
+    await db.delete(watbotMessagesTable).where(eq(watbotMessagesTable.id, repairRow!.id));
+    const [fb] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.messageId, tutor!.id));
+    expect(fb!.repairMessageId).toBeNull();
+    await db.delete(usersTable).where(eq(usersTable.id, userId));
+    expect(await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.conversationId, conv!.id))).toHaveLength(0);
   });
 });

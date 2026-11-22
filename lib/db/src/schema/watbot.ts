@@ -1,7 +1,7 @@
 // lib/db/src/schema/watbot.ts
 import { sql } from "drizzle-orm";
 import {
-  customType, index, integer, interval, jsonb, pgTable, pgView, serial, text, timestamp, uniqueIndex, varchar,
+  boolean, customType, index, integer, interval, jsonb, pgTable, pgView, serial, text, timestamp, uniqueIndex, varchar,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth.js";
 
@@ -23,6 +23,10 @@ export type WatBotMessageType = (typeof WATBOT_MESSAGE_TYPES)[number];
 // "unavailable" / "limit_reached" = turned away. All are logged.
 export const WATBOT_MESSAGE_STATUSES = ["answered", "cancelled", "unavailable", "limit_reached"] as const;
 export type WatBotMessageStatus = (typeof WATBOT_MESSAGE_STATUSES)[number];
+
+// WATBOT-FB — reasons a student gives for a ✗ rating. The first three re-answer.
+export const WATBOT_FEEDBACK_REASONS = ["too_many_questions", "hard_to_follow", "not_what_i_asked", "still_stuck", "other"] as const;
+export type WatBotFeedbackReason = (typeof WATBOT_FEEDBACK_REASONS)[number];
 
 export type WatBotCitation = { passageId: number; label: string; citedText: string };
 export type WatBotBlock = { text: string; citations: WatBotCitation[] };
@@ -133,3 +137,19 @@ export type CoursePassage = typeof coursePassagesTable.$inferSelect;
 export type WatBotConversation = typeof watbotConversationsTable.$inferSelect;
 export type WatBotMessage = typeof watbotMessagesTable.$inferSelect;
 export type WatBotReport = typeof watbotReportsTable.$inferSelect;
+
+// WATBOT-FB — one ✓/✗ per tutor answer (upserted). repair_message_id is the claiming
+// re-answer's student row (F7); a claim with no tutor row after it is stale and reclaimable (F8).
+export const watbotFeedbackTable = pgTable("watbot_feedback", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  conversationId: integer("conversation_id").notNull()
+    .references(() => watbotConversationsTable.id, { onDelete: "cascade" }),
+  messageId: integer("message_id").notNull().references(() => watbotMessagesTable.id, { onDelete: "cascade" }),
+  helped: boolean("helped").notNull(),
+  reason: varchar("reason", { length: 32 }).$type<WatBotFeedbackReason>(), // null when helped
+  note: text("note"),                                                       // reason "other" only
+  repairMessageId: integer("repair_message_id").references(() => watbotMessagesTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("UQ_watbot_feedback_message").on(t.messageId)]);
