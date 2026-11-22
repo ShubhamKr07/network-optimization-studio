@@ -5,6 +5,7 @@ const createConv = vi.fn().mockResolvedValue({ id: 5, modelId: "p-median-us", ti
 vi.mock("@workspace/api-client-react", () => ({
   useCreateWatBotConversation: () => ({ mutateAsync: createConv }),
   getGetWatBotStatusQueryKey: () => ["status"],
+  useSubmitWatBotFeedback: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
@@ -144,5 +145,14 @@ describe("useWatBotConversation", () => {
     const prior = { kind: "tutor" as const, id: 9, blocks: [{ text: "Earlier", citations: [] }] };
     render(<WatBotMessages items={[prior, ...result.current.items]} pending={null} onStop={vi.fn()} feedback={{ conversationId: 5, onRepair: vi.fn() }} />);
     expect(screen.queryByTestId("watbot-feedback")).toBeNull();
+  });
+
+  it("positive control: an answer with a block and a done id renders the rating line", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse('event: block\ndata: {"text":"Hi?","citations":[]}\n\nevent: done\ndata: {"messageId":21}\n\n'));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    await act(async () => { await result.current.ask("Why?", null); });
+    expect(result.current.items.at(-1)).toMatchObject({ kind: "tutor", id: 21 });
+    render(<WatBotMessages items={result.current.items} pending={null} onStop={vi.fn()} feedback={{ conversationId: 5, onRepair: vi.fn() }} />);
+    expect(screen.getByTestId("watbot-feedback")).toBeTruthy();
   });
 });

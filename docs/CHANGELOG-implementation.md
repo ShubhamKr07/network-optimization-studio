@@ -5358,3 +5358,7 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Follow-ups, deferred by that decision:**
   1. **Attribute dropped blocks.** The engine would count cited-check (F9) drops separately from uncited drops, so the R-C rollback trigger can be judged on a measured F9 share.
   2. **Off-topic declines.** 5 of 20 replies were empty, probably because Spec 1's uncited-claim rule drops a decline sentence the prompt says not to cite. The prompt or the filter needs fixing, and either change needs its own test-set run.
+
+### WATBOT-FB-R4 — hook test: mock the feedback hook and add a positive control
+- `useWatBotConversation.test.tsx`: the "no block events leaves no tutor item" test rendered `WatBotMessages` with `feedback` but the file's `@workspace/api-client-react` mock lacked `useSubmitWatBotFeedback`, so a regression would have thrown a mock error instead of failing the assertion, and nothing proved the line could render in this harness. Added the hook to the mock and a positive control (block + `done {messageId: 21}` renders `watbot-feedback`).
+- Verified red: with `latestTutor` reverted to the old `.find(kind === "tutor")`, the negative test fails on `expected <div> to be null`; the product file was restored. Tests only.
