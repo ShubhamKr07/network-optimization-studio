@@ -5,9 +5,9 @@ steps 4, 7, 8 and 9 touch production or spend money.
 
 ## 0. Schema push (before the nos-api deploy)
 
-Follow [`schema-push-before-deploy.md`](schema-push-before-deploy.md) for the four
+Follow [`schema-push-before-deploy.md`](schema-push-before-deploy.md) for the five
 tables `course_passages`, `watbot_conversations`, `watbot_messages`,
-`watbot_reports` and the `watbot_sessions` view. Then confirm the view exists:
+`watbot_reports` and `watbot_feedback` (answer feedback, WATBOT-FB), and the `watbot_sessions` view. Then confirm the view exists:
 
 ```bash
 psql "$PROD_DATABASE_URL" -c "\dv watbot_sessions"
