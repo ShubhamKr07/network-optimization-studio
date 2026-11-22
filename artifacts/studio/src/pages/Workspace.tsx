@@ -4853,7 +4853,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 }} />
             ) : (
               <>
-                <WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop} />
+                <WatBotMessages items={watbot.items} pending={watbot.pending} onStop={watbot.stop}
+                  feedback={watbot.conversationId ? { conversationId: watbot.conversationId, onRepair: (id, label) => { void watbot.repair(id, label); } } : undefined} />
                 {(historyError || (watbot.status && !watbotNoticeCovers(watbot.status, watbotStatus))) && (
                   <p role="alert" data-testid="watbot-error" className="text-sm text-danger">{historyError ?? WATBOT_ERROR_COPY[watbot.status!] ?? WATBOT_ERROR_COPY.watbot_failed}</p>
                 )}

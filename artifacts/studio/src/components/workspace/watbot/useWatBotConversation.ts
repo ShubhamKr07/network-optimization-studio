@@ -25,7 +25,7 @@ export function useWatBotConversation(modelId: string) {
   const gen = useRef(0);
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const ask = useCallback(async (question: string, context: { tab: string | null; scenarioId: number | null } | null) => {
+  const ask = useCallback(async (question: string, context: { tab: string | null; scenarioId: number | null } | null, repairOf?: number) => {
     setStatus(null);
     setPending({ searching: null });
     const ac = new AbortController(); abortRef.current = ac;
@@ -45,7 +45,7 @@ export function useWatBotConversation(modelId: string) {
       setItems((xs) => [...xs, { kind: "student", blocks: [{ text: question, citations: [] }] }]);
       const res = await fetch(`${API}/watbot/conversations/${id}/messages`, {
         method: "POST", credentials: "include", signal: ac.signal,
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, context }),
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, context, ...(repairOf ? { repairOf } : {}) }),
       });
       if (stale()) return;
       if (!res.ok || !res.body) {
@@ -84,6 +84,8 @@ export function useWatBotConversation(modelId: string) {
     }
   }, [conversationId, createConv, modelId, qc]);
 
+  // F10: the server rebuilds a re-answer's context from the source row, so none is sent.
+  const repair = useCallback((feedbackId: number, label: string) => ask(label, null, feedbackId), [ask]);
   const stop = useCallback(() => abortRef.current?.abort(), []);
   const reset = (id: number | null, messages: ChatItem[]) => {
     gen.current++; abortRef.current?.abort(); abortRef.current = null;
@@ -91,5 +93,5 @@ export function useWatBotConversation(modelId: string) {
   };
   const startNew = useCallback(() => reset(null, []), []);
   const load = useCallback((id: number, messages: ChatItem[]) => reset(id, messages), []);
-  return { items, pending, busy: pending !== null, status, ask, stop, startNew, load, conversationId };
+  return { items, pending, busy: pending !== null, status, ask, repair, stop, startNew, load, conversationId };
 }

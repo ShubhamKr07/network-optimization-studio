@@ -119,4 +119,18 @@ describe("useWatBotConversation", () => {
     await act(async () => { await result.current.ask("Why?", null); });
     expect(result.current.status).toBe("watbot_failed");
   });
+
+  it("repair sends the label with context null and repairOf, and shows the label as a student item", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse('event: done\ndata: {"messageId":50}\n\n'));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    act(() => result.current.load(5, [
+      { kind: "student", blocks: [{ text: "Why?", citations: [] }] },
+      { kind: "tutor", id: 9, blocks: [{ text: "Hmm?", citations: [] }] },
+    ]));
+    await act(async () => { await result.current.repair(7, "↻ Explain it step by step"); });
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toMatch(/\/api\/watbot\/conversations\/5\/messages$/);
+    expect(JSON.parse(init.body)).toEqual({ question: "↻ Explain it step by step", context: null, repairOf: 7 });
+    expect(result.current.items.some((i) => i.kind === "student" && i.blocks[0]!.text === "↻ Explain it step by step")).toBe(true);
+  });
 });

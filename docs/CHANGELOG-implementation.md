@@ -5275,3 +5275,11 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - `watbotEvalFiles.test.ts` now pins 100 base messages (20 per type) and the repair mix separately.
 - Known probe effect: `pmus-repair-01` and `mcus-repair-01` name wrong guess sites, which F9 may drop as unseen facility names, so they raise the claim-removed rate.
 - The paid run is pending its own approval.
+
+## WATBOT-FB-4 — studio rating line and re-answer (2026-11-22)
+
+- **Change:** new `WatBotFeedback.tsx` (✓/✗ buttons, reason radio group in a `fieldset`/`legend`, optional note on Other, `role="status"` thanks/rephrase text, `role="alert"` error). `WatBotMessages` takes an optional `feedback` prop and renders the line once, under the latest saved tutor answer with blocks, only when idle (`key` = answer id so state resets per answer, F1). `useWatBotConversation` gains `repair(feedbackId, label)`, which calls `ask(label, null, feedbackId)`: body `{ question, context: null, repairOf }`, no client context (F10). `Workspace.tsx` wires it when a conversation exists.
+- **Tests:** `WatBotFeedback.test.tsx` (4 new), one placement case in `WatBotMessages.test.tsx`, one `repair` case in `useWatBotConversation.test.tsx`. Red before, green after.
+- **Deviations from the plan's code:** (1) the plan's `beforeEach(() => mutateAsync.mockReset())` returns the mock, which vitest then calls as a teardown hook (throws the rejection set by the error-path test), so the test uses a braced body. (2) `mutationErrorSurface.test.ts` gains a named `ALLOWED_NO_ONERROR` entry for `WatBotFeedback.tsx` (awaited in try/catch), the guard's intended mechanism.
+- **e2e:** `e2e/watbot.spec.ts` only uses `watbot-panel`, `watbot-messages`, `watbot-stop`, `watbot-error`, `watbot-history`, "Report this answer" and `[data-role]` locators, none changed. The rating line appears only with a conversation id, and the specs that stub the stream give it one, so new `watbot-feedback` content is additive. Not run (lead runs `e2e:gate`).
+

@@ -11,6 +11,7 @@ vi.mock("@workspace/api-client-react", () => ({
     ...(passageState.retry = o.query.retry, {}),
   }),
   useSubmitWatBotReport: () => ({ mutateAsync, isPending: false }),
+  useSubmitWatBotFeedback: () => ({ mutateAsync, isPending: false }),
 }));
 import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
 
@@ -83,5 +84,19 @@ describe("WatBotMessages", () => {
     render(<WatBotMessages items={unsaved} pending={null} onStop={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
     expect(screen.queryByRole("button", { name: "Open full source" })).toBeNull();
+  });
+
+  it("shows the rating line once, under the latest saved tutor answer, and only when idle", () => {
+    const two = [...items, { kind: "student" as const, blocks: [{ text: "And now?", citations: [] }] },
+      { kind: "tutor" as const, id: 12, blocks: [{ text: "Look at the zones.", citations: [] }] }];
+    const fb = { conversationId: 5, onRepair: vi.fn() };
+    const { rerender } = render(<WatBotMessages items={two} pending={null} onStop={vi.fn()} feedback={fb} />);
+    expect(screen.getAllByTestId("watbot-feedback")).toHaveLength(1);
+    rerender(<WatBotMessages items={two} pending={{ searching: null }} onStop={vi.fn()} feedback={fb} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull();
+    rerender(<WatBotMessages items={[...two.slice(0, 4), { kind: "tutor" as const, id: 13, blocks: [] }]} pending={null} onStop={vi.fn()} feedback={fb} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull(); // the latest answer was stopped/failed with no blocks
+    rerender(<WatBotMessages items={two} pending={null} onStop={vi.fn()} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull(); // no conversation yet
   });
 });

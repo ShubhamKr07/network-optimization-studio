@@ -4,11 +4,19 @@ import { useGetWatBotPassage, getGetWatBotPassageQueryKey, type WatBotCitation }
 import type { ChatItem, Pending } from "./useWatBotConversation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WatBotReportForm } from "./WatBotReportForm";
+import { WatBotFeedback } from "./WatBotFeedback";
 
-export function WatBotMessages({ items, pending, onStop }: { items: ChatItem[]; pending: Pending | null; onStop: () => void }) {
+export function WatBotMessages({ items, pending, onStop, feedback }: {
+  items: ChatItem[]; pending: Pending | null; onStop: () => void;
+  feedback?: { conversationId: number; onRepair: (feedbackId: number, label: string) => void };
+}) {
+  const latestTutor = [...items].reverse().find((x) => x.kind === "tutor");
   return (
     <div className="flex flex-col gap-2.5" aria-live="polite" data-testid="watbot-messages">
       {items.map((item, i) => <Message key={item.id ?? item.key ?? `i${i}`} item={item} />)}
+      {feedback && !pending && latestTutor?.id && latestTutor.blocks.length > 0 && (
+        <WatBotFeedback key={latestTutor.id} conversationId={feedback.conversationId} messageId={latestTutor.id} onRepair={feedback.onRepair} />
+      )}
       {pending?.queued && <Pill>WatBot is busy — you're number {pending.queued} in line</Pill>}
       {pending?.searching && <Pill>Searching {pending.searching}…</Pill>}
       {pending && (
