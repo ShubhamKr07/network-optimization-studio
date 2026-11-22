@@ -1,6 +1,6 @@
 // artifacts/api-server/src/watbot/prompt.ts
 import type Anthropic from "@anthropic-ai/sdk";
-import { WATBOT_MESSAGE_TYPES, type WatBotMessageType } from "@workspace/db";
+import { WATBOT_MESSAGE_TYPES, type WatBotFeedbackReason, type WatBotMessageType } from "@workspace/db";
 import type { BundleDoc } from "./passages.js";
 
 // Frozen per deploy: system and tools must be identical on every round of a
@@ -41,6 +41,30 @@ export const REPLY_RULES: Record<WatBotMessageType, string> = {
   stuck_or_wants_answer: "Reply rule for stuck_or_wants_answer: give a one-line reason you won't give the answer, then a pointed hint from a cited passage, then one question. Never state an optimal facility set, an objective value or a complete formulation that the Student context does not already show.",
   off_topic: "Reply rule for off_topic: decline in one line and steer back to the current exercise. Do not call log_gap and do not cite.",
 };
+
+// WATBOT-FB §3 — re-answers after a ✗. Returned in the tool result after the
+// type's rule, so SYSTEM_PROMPT and TOOLS (the cached prefix) never change.
+export const REPAIR_REASONS = ["too_many_questions", "hard_to_follow", "not_what_i_asked"] as const satisfies readonly WatBotFeedbackReason[];
+export type WatBotRepairReason = (typeof REPAIR_REASONS)[number];
+export const isRepairReason = (r: unknown): r is WatBotRepairReason => (REPAIR_REASONS as readonly unknown[]).includes(r);
+
+export const REPAIR_LABELS: Record<WatBotRepairReason, string> = {
+  too_many_questions: "↻ Explain with fewer questions",
+  hard_to_follow: "↻ Explain it step by step",
+  not_what_i_asked: "↻ That's not what I asked",
+};
+
+export const REPAIR_RULES: Record<WatBotRepairReason, string | null> = {
+  too_many_questions: "Re-answer rule: the student said your previous reply asked too many questions. Explain the idea behind their message from a cited passage first, in two to four sentences, then ask at most one question. Still never give, confirm or correct the answer, and never state an optimal facility set, an objective value or a complete formulation that the Student context does not show.",
+  hard_to_follow: "Re-answer rule: the student found your previous reply hard to follow. Keep to the reply rule above, but break the cited passage into small, plain steps, one idea per sentence, and explain every term you use.",
+  not_what_i_asked: null, // R3 re-types the message instead (excludedTypeResult)
+};
+
+export const repairQuestion = (question: string, reason: WatBotRepairReason) =>
+  `${question}\n\n(Re-answer: the student asked "${REPAIR_LABELS[reason].replace(/^↻ /, "")}" about your previous reply.)`;
+
+export const excludedTypeResult = (type: WatBotMessageType) =>
+  `The student said your previous reply did not answer what they asked, so ${type} is ruled out. Record a different type.`;
 
 export const FORCE_RECORD_TYPE = { type: "tool", name: "record_message_type" } as const; // engine, round 1 only
 // Models known to accept forced tool use with thinking on; others 400 on it (Opus/Sonnet 5.5), so they keep auto.

@@ -5237,3 +5237,11 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Change:** new table `watbot_feedback` (one ✓/✗ row per tutor message, unique on `message_id`; `helped`, `reason`, `note`, `repair_message_id` set-null FK, timestamptz timestamps; user and conversation FKs cascade) plus `WATBOT_FEEDBACK_REASONS` / `WatBotFeedbackReason` in `lib/db/src/schema/watbot.ts`. Spec: `2026-11-22-watbot-answer-feedback-design.md` §3.
 - **Schema:** a new table only, no column added to an existing table, no backfill. **Production needs `drizzle-kit push` before deploy** (`docs/ops/schema-push-before-deploy.md`). Pushed to local `nos_dev` only.
 - **Test:** `watbotSchema.test.ts` feedback case (unique per message, repair link nulls on delete, cascade with the user). Red before the table existed, green after.
+
+## WATBOT-FB-2 — repair rules and engine input (2026-11-22)
+
+- **Change:** `prompt.ts` gains `REPAIR_REASONS`, `isRepairReason`, `REPAIR_LABELS`, `REPAIR_RULES`, `repairQuestion`, `excludedTypeResult`. `engine.ts` gains optional `AnswerInput.repair: { rule, excludeType }`: the repair rule is appended to the `record_message_type` tool result after the type's own rule (R1/R2), and an excluded type is rejected with `is_error` and not stored (R3). `SYSTEM_PROMPT` and `TOOLS` are untouched, so the cached prefix is unchanged.
+- **`REPAIR_RULES` is new prompt text.** Spec 1 §7 applies: the Task 6 paid test-set run must pass before it ships.
+- **Spec 1 D20 revised (F9):** cited blocks now also pass `passesValueCheck` (a 4+-digit value or facility name not in the shown context drops the block, `claim_removed`). Applies to every answer, not only re-answers.
+- **Existing tests changed:** none. The two cited-block tests (`watbotEngine.test.ts`) carry no such value and stayed green.
+- **Gate:** typecheck clean; api-server 2430/2431. The one failure was `jobRunnerDispatcher` "unhandled exception between claim and spawn", a registered load flake, green 11/11 twice in isolation.

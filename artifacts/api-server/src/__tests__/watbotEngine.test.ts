@@ -7,7 +7,7 @@ import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
 import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { buildRequest, FORCE_RECORD_MODELS, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
+import { buildRequest, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
 import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
@@ -303,6 +303,52 @@ describe("answerQuestion", () => {
     const result = await answerQuestion(baseInput(client));
     expect(result.messageType).toBe("incorrect_attempt");
     expect(lastToolResults(client.calls[2]!)).toEqual([{ type: "tool_result", tool_use_id: "t2", content: REPLY_RULES.incorrect_attempt }]);
+  });
+
+  // WATBOT-FB R1/R2: the repair rule follows the type's own rule.
+  it("appends the repair rule to the recorded type's reply rule", async () => {
+    const client = fakeClient([
+      toolRound("t1", "record_message_type", { type: "incorrect_attempt" }),
+      answerRound("Which constraint does that choice break?"),
+    ]);
+    await answerQuestion(baseInput(client, { repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(lastToolResults(client.calls[1]!)).toEqual([
+      { type: "tool_result", tool_use_id: "t1", content: `${REPLY_RULES.incorrect_attempt}\n\n${REPAIR_RULES.too_many_questions}` },
+    ]);
+  });
+
+  // WATBOT-FB R3: the ruled-out type is rejected and not stored; the next valid one is.
+  it("rejects the excluded type, then stores the next type with its normal rule", async () => {
+    const client = fakeClient([
+      toolRound("t1", "record_message_type", { type: "concept_question" }),
+      toolRound("t2", "record_message_type", { type: "stuck_or_wants_answer" }),
+      answerRound("What does the passage say about it?"),
+    ]);
+    const result = await answerQuestion(baseInput(client, { repair: { rule: null, excludeType: "concept_question" } }));
+    expect(lastToolResults(client.calls[1]!)).toEqual([{ type: "tool_result", tool_use_id: "t1", is_error: true, content: excludedTypeResult("concept_question") }]);
+    expect(lastToolResults(client.calls[2]!)).toEqual([{ type: "tool_result", tool_use_id: "t2", content: REPLY_RULES.stuck_or_wants_answer }]);
+    expect(result.messageType).toBe("stuck_or_wants_answer");
+  });
+
+  // F9 / Spec 1 D20 (revised): a citation does not make a leaked value safe, in any answer.
+  it("drops a cited block that carries an unseen value, and keeps it when the context shows the value", async () => {
+    const cited = { type: "content_block_location", cited_text: "x", document_index: 0, document_title: bundle[0]!.title, start_block_index: 0, end_block_index: 1 };
+    const round = () => [toolRound("t1", "record_message_type", { type: "stuck_or_wants_answer" }),
+      { events: textBlock(0, "The total cost is 1,234,567 in this solution.", [cited]), final: { stop_reason: "end_turn" as const } }];
+    const events: EngineEvent[] = [];
+    const hidden = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e) }));
+    expect(hidden.blocks).toHaveLength(0);
+    expect(hidden.claimsRemoved).toBe(1);
+    expect(events).toContainEqual({ type: "notice", kind: "claim_removed" });
+    const shown = await answerQuestion(baseInput(fakeClient(round()), { shownFacts: "objective 1234567" }));
+    expect(shown.blocks).toHaveLength(1); // non-vacuity: the citation itself is accepted, only the value decides
+    const repaired = await answerQuestion(baseInput(fakeClient(round()), { repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(repaired.blocks).toHaveLength(0);
+  });
+
+  it("repairQuestion puts the re-answer note after the original question; REPAIR_RULES has no rule for R3", () => {
+    expect(repairQuestion("Why p = 3?", "hard_to_follow")).toBe('Why p = 3?\n\n(Re-answer: the student asked "Explain it step by step" about your previous reply.)');
+    expect(REPAIR_RULES.not_what_i_asked).toBeNull();
   });
 
   // M2: forced tool use 400s on models that reject it with thinking on; those keep auto.

@@ -3,7 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { WATBOT_MESSAGE_TYPES, type WatBotBlock, type WatBotCitation, type WatBotMessageType, type WatBotUsage } from "@workspace/db";
 import type { Tutor } from "@workspace/dataset-schema";
 import type { WatBotClient } from "./client.js";
-import { buildRequest, FORCE_RECORD_MODELS, FORCE_RECORD_TYPE, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, type HistoryTurn } from "./prompt.js";
+import { buildRequest, FORCE_RECORD_MODELS, FORCE_RECORD_TYPE, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, excludedTypeResult, type HistoryTurn } from "./prompt.js";
 import { keepUncitedBlock, mapCitation, passesValueCheck } from "./citations.js";
 import { costUsd } from "./cost.js";
 import { classifyAnthropicError, retryAfterMs } from "./errors.js";
@@ -42,6 +42,7 @@ export type AnswerInput = {
   shownFacts?: string;                     // D20: server-derived context facts only (not name/tab); "" fails closed
   emit: (e: EngineEvent) => void; signal: AbortSignal;
   gate?: RoundGate;                        // default: just wait retry-after (CLIs with no queue)
+  repair?: { rule: string | null; excludeType: WatBotMessageType | null }; // WATBOT-FB: re-answer after a ✗
   deps?: { searchBook?: typeof defaultSearchBook };
 };
 
@@ -136,10 +137,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         const b = open.get(ev.index);
         if (!b || !b.text.trim()) continue;
         open.delete(ev.index);
-        // Cited → forward. Uncited → forward only if it is a question or short
-        // connective (FR-17) AND carries no unseen value or site (D20).
-        const keep = b.citations.length > 0
-          || (keepUncitedBlock(b.text) && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? ""));
+        // Cited, or an uncited question / short connective (FR-17): forward only if it also
+        // carries no unseen value or site (D20, revised 2026-11-22: cited blocks too).
+        const keep = (b.citations.length > 0 || keepUncitedBlock(b.text))
+          && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
         if (keep) { out.blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
         else if (out.claimsRemoved++ === 0) input.emit({ type: "notice", kind: "claim_removed" });
       }
@@ -186,9 +187,12 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
       for (const tu of final.content.filter((c): c is Anthropic.ToolUseBlock => c.type === "tool_use")) {
         if (tu.name === "record_message_type") {
           const type = (tu.input as { type?: unknown }).type;
-          if (isMessageType(type)) {
+          if (isMessageType(type) && out.messageType === null && type === input.repair?.excludeType) {
+            results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: excludedTypeResult(type) });
+          } else if (isMessageType(type)) {
             out.messageType ??= type; // first call wins; a second call cannot relabel the message
-            results.push({ type: "tool_result", tool_use_id: tu.id, content: REPLY_RULES[out.messageType] }); // ...nor switch its rule
+            const rule = REPLY_RULES[out.messageType]; // ...nor switch its rule
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: input.repair?.rule ? `${rule}\n\n${input.repair.rule}` : rule });
           } else {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Unknown type. Use one of: ${WATBOT_MESSAGE_TYPES.join(", ")}.` });
           }
