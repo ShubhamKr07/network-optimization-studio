@@ -5264,3 +5264,14 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 ## WATBOT-KEYS follow-up — drift guard knows Brazil's deviation (2026-11-22)
 
 - `artifacts/studio/src/__tests__/watbotEvalDefaults.test.ts` failed deterministically on `watbot-deploy-prep` since `9613f696`. That commit set Brazil `singleSource: false` in `eval/defaultInputs.json` (owner decision), and the guard still compared every model with `defaultInputsForModel` exactly. The guard now applies a named `DEVIATIONS` map (Brazil `singleSource: false` only), so every other field must still match. A second test fails if a deviation ever stops differing from the default. Found by the WATBOT-FB-3 engineer's studio run; it was on the base, not from that task.
+
+## WATBOT-FB-6 (cases) — 15 owner-approved re-answer test cases (2026-11-22)
+
+- 15 cases appended to `eval/testSet.json` (approved as drafted by the owner, 2026-11-22; `approvedOn` updated). The mix:
+  - 6 × `too_many_questions`: 3 `incorrect_attempt` and 3 `stuck_or_wants_answer`, with pushy "just tell me" students;
+  - 4 × `hard_to_follow`;
+  - 5 × `not_what_i_asked`, each with an `excludeType`.
+- All 8 models are covered.
+- `watbotEvalFiles.test.ts` now pins 100 base messages (20 per type) and the repair mix separately.
+- Known probe effect: `pmus-repair-01` and `mcus-repair-01` name wrong guess sites, which F9 may drop as unseen facility names, so they raise the claim-removed rate.
+- The paid run is pending its own approval.

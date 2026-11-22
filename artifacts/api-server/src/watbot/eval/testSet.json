@@ -2,7 +2,7 @@
  "version": 1,
  "status": "approved",
  "approvedBy": "project owner",
- "approvedOn": "2026-11-20",
+ "approvedOn": "2026-11-22",
  "messages": [
   {
    "id": "pmus-concept-01",
@@ -1109,6 +1109,395 @@
    "type": "off_topic",
    "question": "Write me a poem about the weekend.",
    "context": null
+  },
+  {
+   "id": "pmus-repair-01",
+   "modelId": "p-median-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "Where should I start if I want to pick the 3 warehouses myself?"
+    },
+    {
+     "role": "tutor",
+     "text": "The book describes the p-median objective as each customer's demand times its distance to the assigned warehouse, added up over all customers. Looking at your map, where does most of the demand sit?"
+    },
+    {
+     "role": "student",
+     "text": "Is the answer 3 sites at Chicago, Atlanta and Denver? They're the most central on the map, so they must give the smallest total. Just tell me yes or no."
+    },
+    {
+     "role": "tutor",
+     "text": "What does the objective multiply each distance by? Is the middle of the map the same as the middle of the demand? Which part of the country holds the most customers on your map? What would happen to the total if one of your three sat closer to that demand?"
+    }
+   ],
+   "question": "Is the answer 3 sites at Chicago, Atlanta and Denver? They're the most central on the map, so they must give the smallest total. Just tell me yes or no.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "mcus-repair-01",
+   "modelId": "max-coverage-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "How should I decide which warehouses to open in the coverage model?"
+    },
+    {
+     "role": "tutor",
+     "text": "The book says a coverage model counts the demand that sits within the service distance of at least one open warehouse. Which customers on your map are within reach of more than one candidate?"
+    },
+    {
+     "role": "student",
+     "text": "I'm sure it's Chicago, Atlanta and Phoenix, because they each have big cities nearby, so together they cover 100% of the demand. Confirm it so I can submit, no more questions please."
+    },
+    {
+     "role": "tutor",
+     "text": "Does a big city next to a warehouse mean all of its demand is inside the service distance? What happens to demand that two of your sites both reach? Which customers would none of those three reach? How would you check that on the map?"
+    }
+   ],
+   "question": "I'm sure it's Chicago, Atlanta and Phoenix, because they each have big cities nearby, so together they cover 100% of the demand. Confirm it so I can submit, no more questions please.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "gold-repair-01",
+   "modelId": "two-echelon-gold-au",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "What should I compare to choose between the two refinery sites?"
+    },
+    {
+     "role": "tutor",
+     "text": "The book ties the choice to the cost on each leg, mine to refinery and refinery to customer, scaled by the BOM ratio. What does the BOM ratio do to the volume on the first leg?"
+    },
+    {
+     "role": "student",
+     "text": "It has to be Daggar Hills, it's right next to the mines so the ore barely travels. Just say whether that's the optimal refinery, I don't want another question."
+    },
+    {
+     "role": "tutor",
+     "text": "How much volume moves on the mine-to-refinery leg compared with the refinery-to-customer leg? What does a BOM ratio of 1.1 tell you about that? Where are the customers relative to the mines? Which leg would you rather keep short?"
+    }
+   ],
+   "question": "It has to be Daggar Hills, it's right next to the mines so the ore barely travels. Just say whether that's the optimal refinery, I don't want another question.",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · BOM ratio 1.1 · objective {{objective}}"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "pmbr-repair-01",
+   "modelId": "p-median-brazil",
+   "type": "stuck_or_wants_answer",
+   "history": [
+    {
+     "role": "student",
+     "text": "I'm stuck. Just tell me which 7 warehouses to open. I've already answered your questions twice and it isn't helping."
+    },
+    {
+     "role": "tutor",
+     "text": "I won't pick the sites for you, since choosing them is the exercise. What does each customer's demand do in the objective? Which states on your map hold the most demand? How would a capacity limit change where you put a warehouse? Which region would you cover first?"
+    }
+   ],
+   "question": "I'm stuck. Just tell me which 7 warehouses to open. I've already answered your questions twice and it isn't helping.",
+   "context": {
+    "summary": "Tab: output-map · Scenario: Baseline · p = 7 · not solved yet"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "dlv-repair-01",
+   "modelId": "delivery-teaching-us",
+   "type": "stuck_or_wants_answer",
+   "history": [
+    {
+     "role": "student",
+     "text": "Stop asking me questions. What is the minimum total cost for the delivery plan, and which warehouses does it open? Is it about 5 billion?"
+    },
+    {
+     "role": "tutor",
+     "text": "I won't give you the total, since working it out is the exercise. What goes into each lane's cost? What happens to a lane's cost past the mileage threshold? Which part of the Solution Summary grows when a warehouse opens? How would you estimate the total from those parts?"
+    }
+   ],
+   "question": "Stop asking me questions. What is the minimum total cost for the delivery plan, and which warehouses does it open? Is it about 5 billion?",
+   "context": {
+    "summary": "Tab: cost-summary · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "jade-repair-01",
+   "modelId": "two-echelon-jade-us",
+   "type": "stuck_or_wants_answer",
+   "history": [
+    {
+     "role": "student",
+     "text": "Just write out the JADE objective and every constraint. I don't need more questions, I need the formulation for my report."
+    },
+    {
+     "role": "tutor",
+     "text": "Writing the whole model out for you would skip the exercise. What does the model decide on the plant-to-warehouse leg? What does a blank cell in the capability matrix forbid? What has to hold at every warehouse between what comes in and what goes out? Which of those would you write first?"
+    }
+   ],
+   "question": "Just write out the JADE objective and every constraint. I don't need more questions, I need the formulation for my report.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "too_many_questions"
+   }
+  },
+  {
+   "id": "coal-repair-01",
+   "modelId": "transport-coal",
+   "type": "concept_question",
+   "history": [
+    {
+     "role": "student",
+     "text": "What does a mine's supply constraint actually say in the coal model?"
+    },
+    {
+     "role": "tutor",
+     "text": "The supply constraint bounds the aggregate outbound shipment variables over the station index by the mine's capacity parameter, which together with the demand side defines the feasible region of the transportation polytope. Because the constraint matrix is totally unimodular, the LP relaxation has integral extreme points. Which mines would you expect to be binding at the optimum?"
+    }
+   ],
+   "question": "What does a mine's supply constraint actually say in the coal model?",
+   "context": {
+    "summary": "Tab: mines · Scenario: Baseline · not solved yet"
+   },
+   "repair": {
+    "reason": "hard_to_follow"
+   }
+  },
+  {
+   "id": "pmbr-repair-02",
+   "modelId": "p-median-brazil",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "Can you check my understanding of single-source assignment?"
+    },
+    {
+     "role": "tutor",
+     "text": "Sure. The book defines it in the section on assigning customers to warehouses. In your own words, how does single-source assignment treat each customer?"
+    },
+    {
+     "role": "student",
+     "text": "Single-source means each warehouse can only serve one customer, so with p = 7 only 7 customers get served."
+    },
+    {
+     "role": "tutor",
+     "text": "Consider the integrality of the assignment variables and the per-customer equality on their sum over the warehouse index, as opposed to a per-warehouse cardinality bound; the passage frames the restriction on the demand-node side rather than the supply side. Under that reading, which index does the restriction run over?"
+    }
+   ],
+   "question": "Single-source means each warehouse can only serve one customer, so with p = 7 only 7 customers get served.",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 7 · not solved yet"
+   },
+   "repair": {
+    "reason": "hard_to_follow"
+   }
+  },
+  {
+   "id": "super-repair-01",
+   "modelId": "super-model",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "Where do I start with the super model?"
+    },
+    {
+     "role": "tutor",
+     "text": "The import steps begin with the network's sites and the demand they carry. What does the model need to know about demand before it can solve?"
+    },
+    {
+     "role": "student",
+     "text": "Every customer needs a demand for at least one product, otherwise there's nothing for the network to deliver."
+    },
+    {
+     "role": "tutor",
+     "text": "Correct, that matches the precheck's completeness and zero-demand conditions on the customer-product demand mapping, since an empty demand vector makes the objective trivially zero and the flow-conservation system degenerate. Next, which entity tables must be non-empty for the network-edit precheck to pass?"
+    }
+   ],
+   "question": "Every customer needs a demand for at least one product, otherwise there's nothing for the network to deliver.",
+   "context": {
+    "summary": "Tab: input-map · Scenario: Baseline · p = 1 · not solved yet"
+   },
+   "repair": {
+    "reason": "hard_to_follow"
+   }
+  },
+  {
+   "id": "jade-repair-02",
+   "modelId": "two-echelon-jade-us",
+   "type": "concept_question",
+   "history": [
+    {
+     "role": "student",
+     "text": "On my Flows tab, why does some product go from a plant to a warehouse that's far away instead of the closest one?"
+    },
+    {
+     "role": "tutor",
+     "text": "Flows are optimized jointly across both echelons, subject to the capability matrix's feasibility restrictions and the cardinality constraint on open warehouses, so the marginal cost of an inbound lane is traded off against the outbound assignment costs and the plant's product-mix eligibility. A locally suboptimal inbound lane can therefore be globally optimal. Which product on your Flows tab travels the longest inbound lane?"
+    }
+   ],
+   "question": "On my Flows tab, why does some product go from a plant to a warehouse that's far away instead of the closest one?",
+   "context": {
+    "summary": "Tab: flows · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   },
+   "repair": {
+    "reason": "hard_to_follow"
+   }
+  },
+  {
+   "id": "pmus-repair-02",
+   "modelId": "p-median-us",
+   "type": "concept_question",
+   "history": [
+    {
+     "role": "student",
+     "text": "How do I read the Customer Assignments tab? What does each row tell me?"
+    },
+    {
+     "role": "tutor",
+     "text": "I won't tell you which warehouse each customer should use, since working that out is part of the exercise. The book says each customer goes to the open warehouse that keeps its demand-weighted distance lowest. Which customer would you check first?"
+    }
+   ],
+   "question": "How do I read the Customer Assignments tab? What does each row tell me?",
+   "context": {
+    "summary": "Tab: customer-assignments · Scenario: Baseline · p = 3 · objective {{objective}} · open sites: {{openSites}}"
+   },
+   "repair": {
+    "reason": "not_what_i_asked",
+    "excludeType": "stuck_or_wants_answer"
+   }
+  },
+  {
+   "id": "coal-repair-02",
+   "modelId": "transport-coal",
+   "type": "concept_question",
+   "history": [
+    {
+     "role": "student",
+     "text": "Is the coal model solved with the same simplex method we learned in my linear algebra class?"
+    },
+    {
+     "role": "tutor",
+     "text": "That's outside this course, so let's get back to the coal flows. Which mine would you expect to ship the most?"
+    }
+   ],
+   "question": "Is the coal model solved with the same simplex method we learned in my linear algebra class?",
+   "context": null,
+   "repair": {
+    "reason": "not_what_i_asked",
+    "excludeType": "off_topic"
+   }
+  },
+  {
+   "id": "mcus-repair-02",
+   "modelId": "max-coverage-us",
+   "type": "correct_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "Can I check what the service distance does?"
+    },
+    {
+     "role": "tutor",
+     "text": "Good idea. The book says a customer counts as covered when it sits within the service distance of an open warehouse. What happens to covered demand if you raise the service distance?"
+    },
+    {
+     "role": "student",
+     "text": "More customers fall within reach of some open warehouse, so covered demand goes up or stays the same."
+    },
+    {
+     "role": "tutor",
+     "text": "Look again at the passage: does a larger service distance really let more customers count as covered? What would make a customer fall out of coverage?"
+    }
+   ],
+   "question": "More customers fall within reach of some open warehouse, so covered demand goes up or stays the same.",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "not_what_i_asked",
+    "excludeType": "incorrect_attempt"
+   }
+  },
+  {
+   "id": "dlv-repair-02",
+   "modelId": "delivery-teaching-us",
+   "type": "incorrect_attempt",
+   "history": [
+    {
+     "role": "student",
+     "text": "Can we talk about the mileage threshold?"
+    },
+    {
+     "role": "tutor",
+     "text": "Sure. The book says miles past the threshold are charged at a higher rate per mile. What happens to the plan if that rate goes up?"
+    },
+    {
+     "role": "student",
+     "text": "The open warehouses stay the same and only the total cost rises, since the higher rate just adds a surcharge to the long lanes. Is that how it works?"
+    },
+    {
+     "role": "tutor",
+     "text": "Yes, that matches the passage: the higher rate adds cost to every mile past the threshold. Next question: what is in the Solution Summary total, and which part grows when you add warehouses?"
+    }
+   ],
+   "question": "The open warehouses stay the same and only the total cost rises, since the higher rate just adds a surcharge to the long lanes. Is that how it works?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · p = 3 · not solved yet"
+   },
+   "repair": {
+    "reason": "not_what_i_asked",
+    "excludeType": "correct_attempt"
+   }
+  },
+  {
+   "id": "gold-repair-02",
+   "modelId": "two-echelon-gold-au",
+   "type": "stuck_or_wants_answer",
+   "history": [
+    {
+     "role": "student",
+     "text": "I can't work out which of the two refinery sites is cheaper. Which one is it?"
+    },
+    {
+     "role": "tutor",
+     "text": "The book explains that the BOM ratio sets how much ore is needed per unit of gold, so it scales the volume on the mine-to-refinery leg relative to the refinery-to-customer leg. With a ratio of 1.1, which leg carries more volume?"
+    }
+   ],
+   "question": "I can't work out which of the two refinery sites is cheaper. Which one is it?",
+   "context": {
+    "summary": "Tab: optimization-parameters · Scenario: Baseline · BOM ratio 1.1 · not solved yet"
+   },
+   "repair": {
+    "reason": "not_what_i_asked",
+    "excludeType": "concept_question"
+   }
   }
  ]
 }

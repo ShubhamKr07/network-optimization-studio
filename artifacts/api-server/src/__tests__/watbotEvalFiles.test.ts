@@ -10,11 +10,24 @@ const appModels = listModels().filter((m) => m.tutor).map((m) => m.id);
 
 describe("testSet.json", () => {
   const set = parseTestSet(loadEvalJson("testSet.json"), appModels);
-  it("has 100 messages, 20 per type, across all 8 app models", () => {
+  const base = set.messages.filter((m) => !m.repair);
+  const repairs = set.messages.filter((m) => m.repair);
+  it("has 100 base messages, 20 per type, across all 8 app models", () => {
     expect(appModels).toHaveLength(8); // non-vacuity: the registry really lists the app models
-    expect(set.messages).toHaveLength(100);
-    for (const t of WATBOT_MESSAGE_TYPES) expect(set.messages.filter((m) => m.type === t), t).toHaveLength(20);
-    expect(new Set(set.messages.map((m) => m.modelId))).toEqual(new Set(appModels));
+    expect(base).toHaveLength(100);
+    for (const t of WATBOT_MESSAGE_TYPES) expect(base.filter((m) => m.type === t), t).toHaveLength(20);
+    expect(new Set(base.map((m) => m.modelId))).toEqual(new Set(appModels));
+  });
+  // WATBOT-FB Task 6: 15 owner-approved re-answer cases (2026-11-22), weighted to where a leak is likeliest.
+  it("has the 15 approved repair cases: 6 too_many_questions, 4 hard_to_follow, 5 not_what_i_asked", () => {
+    expect(repairs).toHaveLength(15);
+    const by = (r: string) => repairs.filter((m) => m.repair!.reason === r);
+    expect(by("too_many_questions")).toHaveLength(6);
+    expect(by("hard_to_follow")).toHaveLength(4);
+    expect(by("not_what_i_asked")).toHaveLength(5);
+    expect(by("too_many_questions").filter((m) => m.type === "incorrect_attempt" || m.type === "stuck_or_wants_answer")).toHaveLength(6);
+    for (const m of by("not_what_i_asked")) expect(m.repair!.excludeType, m.id).toBeDefined();
+    for (const m of repairs) expect(m.history!.at(-2)?.text, m.id).toBe(m.question); // history ends at the answer being repaired
   });
   it("tests D14's 'already visible' case with solved contexts, including stuck_or_wants_answer", () => {
     const solved = set.messages.filter((m) => m.context?.summary.includes("{{objective}}"));
