@@ -197,3 +197,172 @@ test("WatBot: narrow viewport collapses the model tree when the panel opens", as
   await page.getByTestId("button-watbot").click({ timeout: T });
   await expect(page.getByTestId("sidebar-tree")).toHaveAttribute("data-collapsed", "true", { timeout: T });
 });
+
+// ---- WATBOT-FB-7: answer feedback and re-answer (still fully stubbed, no spend) ----
+
+const REPAIR_SSE = [
+  sseEvent("block", { text: "Here is a plainer explanation of the objective", citations: [] }),
+  sseEvent("done", { messageId: 902 }),
+].join("");
+const REPAIR_LABEL = "↻ Explain it directly, without asking me questions first";
+const RATING_Q = "Did this help you understand the topic?";
+
+/** Stubs the messages route with a per-call body list and records each POST body. */
+async function stubMessagesSequence(page: Page, bodies: string[]) {
+  const posts: unknown[] = [];
+  await page.route("**/api/watbot/conversations/77/messages", async (r) => {
+    posts.push(r.request().postDataJSON());
+    const body = bodies[Math.min(posts.length - 1, bodies.length - 1)]!;
+    await r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body });
+  });
+  return posts;
+}
+
+async function stubFeedback(page: Page, reply: { id: number; repairLabel: string | null }) {
+  const posts: unknown[] = [];
+  await page.route("**/api/watbot/conversations/77/feedback", async (r) => {
+    posts.push(r.request().postDataJSON());
+    await r.fulfill({ status: 200, json: reply });
+  });
+  return posts;
+}
+
+async function askFixed(panel: ReturnType<Page["getByTestId"]>) {
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-messages").locator('[data-role="tutor"]')).toContainText("The objective weights", { timeout: T });
+  await expect(panel.getByTestId("watbot-feedback")).toBeVisible({ timeout: T });
+}
+
+test("WatBot feedback: ✓ stores helped and thanks the student", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-yes");
+  await stubWatBot(page);
+  const fbPosts = await stubFeedback(page, { id: 1, repairLabel: null });
+  const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await expect(panel.getByText(RATING_Q)).toBeVisible({ timeout: T });
+  await panel.getByRole("button", { name: "Yes, this helped" }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-messages").getByText("Thanks for the feedback.")).toBeVisible({ timeout: T });
+  expect(fbPosts).toEqual([{ messageId: 901, helped: true }]);
+  expect(msgPosts).toHaveLength(1);
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
+});
+
+test("WatBot feedback: ✗ + reason 1 posts feedback, then a repairOf re-answer with a fresh rating line", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-repair");
+  await stubWatBot(page);
+  const fbPosts = await stubFeedback(page, { id: 31, repairLabel: REPAIR_LABEL });
+  const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE, REPAIR_SSE]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
+  await panel.getByRole("radio", { name: "It kept asking me questions instead of explaining" }).check({ timeout: T });
+  await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
+
+  const messages = panel.getByTestId("watbot-messages");
+  await expect(messages.locator('[data-role="student"]').last()).toHaveText(REPAIR_LABEL, { timeout: T });
+  await expect(messages.locator('[data-role="tutor"]').last()).toContainText("plainer explanation", { timeout: T });
+  expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "too_many_questions" }]);
+  expect(msgPosts).toHaveLength(2);
+  expect(msgPosts[1]).toEqual({ question: REPAIR_LABEL, context: null, repairOf: 31 });
+  // A fresh rating line sits under the NEW answer (exactly one, and it is after the last tutor row).
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(1, { timeout: T });
+  const order = await messages.evaluate((el) => {
+    const kids = Array.from(el.children);
+    const fb = kids.findIndex((k) => k.getAttribute("data-testid") === "watbot-feedback");
+    const lastTutor = kids.map((k) => k.getAttribute("data-role")).lastIndexOf("tutor");
+    return { fb, lastTutor };
+  });
+  expect(order.fb).toBe(order.lastTutor + 1);
+});
+
+test("WatBot feedback: Other with a note shows the rephrase notice and runs no re-answer", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-other");
+  await stubWatBot(page);
+  const fbPosts = await stubFeedback(page, { id: 32, repairLabel: null });
+  const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
+  await panel.getByRole("radio", { name: "Other" }).check({ timeout: T });
+  await panel.getByRole("textbox", { name: /What's still unclear/ }).fill("I don't get step 2");
+  await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-messages").getByText("Try asking again in your own words, and say which step you're stuck on.")).toBeVisible({ timeout: T });
+  expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "other", note: "I don't get step 2" }]);
+  expect(msgPosts).toHaveLength(1);
+});
+
+test("WatBot feedback: reason 4 (still stuck) shows the rephrase notice and runs no re-answer", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-stuck");
+  await stubWatBot(page);
+  const fbPosts = await stubFeedback(page, { id: 33, repairLabel: null });
+  const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
+  await panel.getByRole("radio", { name: "I still don't know how to do the exercise" }).check({ timeout: T });
+  await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
+  await expect(panel.getByText("Try asking again in your own words")).toBeVisible({ timeout: T });
+  expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "still_stuck" }]);
+  expect(msgPosts).toHaveLength(1);
+});
+
+test("WatBot feedback: usable by keyboard alone (arrow keys through the radios, Enter on Send)", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-kbd");
+  await stubWatBot(page);
+  const fbPosts = await stubFeedback(page, { id: 34, repairLabel: null });
+  await stubMessagesSequence(page, [ANSWER_SSE]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  // Reach the ✗ button with the keyboard, not a click.
+  const no = panel.getByRole("button", { name: "No, this didn't help" });
+  await no.focus();
+  await expect(no).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(no).toHaveAttribute("aria-expanded", "true", { timeout: T });
+  // Tab into the radio group (checked radio is the tab stop), then arrow to reason 2 then 3.
+  await page.keyboard.press("Tab");
+  await expect(panel.getByRole("radio", { name: "It kept asking me questions instead of explaining" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(panel.getByRole("radio", { name: "The explanation was hard to follow" })).toBeChecked();
+  // Skip to reason 4 (still stuck): its rephrase path needs no re-answer stub.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(panel.getByRole("radio", { name: "I still don't know how to do the exercise" })).toBeChecked();
+  await page.keyboard.press("Tab");
+  await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel.getByText("Try asking again in your own words")).toBeVisible({ timeout: T });
+  expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "still_stuck" }]);
+});
+
+test("WatBot feedback: no rating line while an answer is streaming", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-stream");
+  await stubWatBot(page);
+  await stubFeedback(page, { id: 35, repairLabel: null });
+  // First ask completes; the second never finishes until released.
+  let release!: () => void;
+  const gate = new Promise<void>((res) => { release = res; });
+  let n = 0;
+  await page.route("**/api/watbot/conversations/77/messages", async (r) => {
+    n++;
+    if (n === 1) { await r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: ANSWER_SSE }); return; }
+    await gate;
+    await r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: REPAIR_SSE });
+  });
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("textbox", { name: "Ask WatBot" }).fill("Another question?");
+  await panel.getByRole("button", { name: "Send question" }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-stop")).toBeVisible({ timeout: T });
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
+  release();
+  await expect(panel.getByTestId("watbot-stop")).toHaveCount(0, { timeout: T });
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(1, { timeout: T });
+});
