@@ -5245,3 +5245,10 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Spec 1 D20 revised (F9):** cited blocks now also pass `passesValueCheck` (a 4+-digit value or facility name not in the shown context drops the block, `claim_removed`). Applies to every answer, not only re-answers.
 - **Existing tests changed:** none. The two cited-block tests (`watbotEngine.test.ts`) carry no such value and stayed green.
 - **Gate:** typecheck clean; api-server 2430/2431. The one failure was `jobRunnerDispatcher` "unhandled exception between claim and spawn", a registered load flake, green 11/11 twice in isolation.
+
+## WATBOT-FB-5 — test-set support for re-answer cases (2026-11-22)
+
+- **Change:** `TestMessage.repair?: { reason, excludeType? }`, validated in `parseTestSet` (reason must be a `REPAIR_REASONS` member; a repair case needs `history`). The runner sends `repairQuestion(...)` and passes `{ rule: REPAIR_RULES[reason], excludeType }` to the engine; `m.type` stays the expected type. Persona turns are unchanged (no `repair`).
+- **Report:** `GradedRow` gains `claimsRemoved`/`forwardedBlocks`; `BucketReport` gains `claimRemovedRate` and `emptyReplyRate`; `console.table` prints `claimRemoved` and `emptyReply`. No bar on either (Task 6 Step 4b: owner decides).
+- **No cases added** to `testSet.json` (Task 6, owner approval) and no paid run.
+- **Test:** 2 parse-error cases plus one accept case (`watbotEvalFiles`), one `buildReport` rates case (`watbotEvalGrader`). Red (3 failed) before, green (23/23) after.

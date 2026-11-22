@@ -9,14 +9,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type Anthropic from "@anthropic-ai/sdk";
-import { pool } from "@workspace/db";
+import { pool, type WatBotMessageType } from "@workspace/db";
 import { getManifest, listModels } from "../registry/modelRegistry.js";
 import { getWatBotClient, watbotModel, type WatBotClient } from "../watbot/client.js";
 import { costUsd } from "../watbot/cost.js";
 import { answerQuestion } from "../watbot/engine.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle, type BundleDoc } from "../watbot/passages.js";
-import type { HistoryTurn } from "../watbot/prompt.js";
+import { REPAIR_RULES, repairQuestion, type HistoryTurn } from "../watbot/prompt.js";
 import { buildReport, endsWithQuestion, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
 import { judgeFormulationLeak } from "../watbot/eval/judge.js";
 import {
@@ -105,11 +105,12 @@ async function run(): Promise<number> {
   const bundles = new Map<string, BundleDoc[]>();
   const rows: GradedRow[] = [];
 
-  const ask = async (modelId: string, question: string, history: HistoryTurn[], contextSummary: string) => {
+  const ask = async (modelId: string, question: string, history: HistoryTurn[], contextSummary: string,
+    repair?: { rule: string | null; excludeType: WatBotMessageType | null }) => {
     const tutor = getManifest(modelId)!.tutor!;
     if (!bundles.has(modelId)) bundles.set(modelId, await loadBundle(tutor.readingList));
     return answerQuestion({ client, model, bundle: bundles.get(modelId)!, readingList: tutor.readingList,
-      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), facilityNames: facilityNames(modelId), history, contextSummary, question,
+      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), facilityNames: facilityNames(modelId), history, contextSummary, question, repair,
       emit: () => {}, signal: new AbortController().signal });
   };
   const grade = async (base: Pick<GradedRow, "source" | "id" | "modelId" | "labelType">, r: Awaited<ReturnType<typeof ask>>, summary: string, extraCost = 0): Promise<GradedRow> => {
@@ -124,12 +125,14 @@ async function run(): Promise<number> {
       cost += costUsd(model, j.usage);
       if (j.leak) reasons.push(`complete formulation: ${j.reason}`);
     }
-    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost };
+    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost, claimsRemoved: r.claimsRemoved, forwardedBlocks: r.blocks.length };
   };
 
   for (const m of set.messages) {
     const summary = m.context ? fillSummary(m.context.summary, answerKeys[m.modelId]!) : "";
-    const r = await ask(m.modelId, m.question, m.history ?? [], summary);
+    const question = m.repair ? repairQuestion(m.question, m.repair.reason) : m.question;
+    const repair = m.repair ? { rule: REPAIR_RULES[m.repair.reason], excludeType: m.repair.excludeType ?? null } : undefined;
+    const r = await ask(m.modelId, question, m.history ?? [], summary, repair);
     rows.push(await grade({ source: "message", id: m.id, modelId: m.modelId, labelType: m.type }, r, summary));
   }
   for (const p of personas.personas) {
@@ -147,6 +150,7 @@ async function run(): Promise<number> {
     type: b.bucket, n: b.n, leaks: b.leaks, leakRate: `${(b.leakRate * 100).toFixed(1)}%`, bar: `${(LEAK_BARS[b.bucket] * 100).toFixed(0)}%`,
     agreement: b.agreement === null ? "n/a" : `${(b.agreement * 100).toFixed(0)}%`,
     skippedRecord: `${(b.skippedRecordRate * 100).toFixed(0)}%`, endsWithQuestion: `${(b.endsWithQuestionRate * 100).toFixed(0)}%`,
+    claimRemoved: `${(b.claimRemovedRate * 100).toFixed(0)}%`, emptyReply: `${(b.emptyReplyRate * 100).toFixed(0)}%`,
     costUsd: b.costUsd.toFixed(4),
   })));
   for (const r of rows.filter((x) => x.leak)) console.log(`LEAK ${r.id} (${r.modelId}): ${r.reasons.join("; ")}`);

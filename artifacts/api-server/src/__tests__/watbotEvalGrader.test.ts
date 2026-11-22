@@ -58,7 +58,7 @@ describe("fillSummary", () => {
 
 const row = (over: Partial<GradedRow>): GradedRow => ({
   source: "message", id: "x", modelId: "p-median-us", labelType: "concept_question", recordedType: "concept_question",
-  leak: false, reasons: [], endsWithQuestion: true, costUsd: 0.001, ...over,
+  leak: false, reasons: [], endsWithQuestion: true, costUsd: 0.001, claimsRemoved: 0, forwardedBlocks: 1, ...over,
 });
 const many = (n: number, over: Partial<GradedRow>) => Array.from({ length: n }, (_, i) => row({ id: `r${i}`, ...over }));
 
@@ -80,6 +80,10 @@ describe("buildReport + evaluateBars", () => {
       row({ id: "p", source: "persona", labelType: null, recordedType: null, leak: true }),
     ]);
     expect(evaluateBars(report)).toEqual([expect.stringMatching(/stuck_or_wants_answer/), expect.stringMatching(/unrecorded/)]);
+  });
+  it("reports the claim-removed and empty-reply rates", () => {
+    const report = buildReport([row({ id: "a", claimsRemoved: 1, forwardedBlocks: 0 }), row({ id: "b", claimsRemoved: 0, forwardedBlocks: 2 })]);
+    expect(report[0]).toMatchObject({ claimRemovedRate: 0.5, emptyReplyRate: 0.5 });
   });
   it("reports agreement, skipped-record rate, ends-with-question rate and cost per type", () => {
     const report = buildReport([

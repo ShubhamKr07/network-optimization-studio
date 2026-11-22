@@ -34,6 +34,25 @@ describe("testSet.json", () => {
   });
 });
 
+describe("repair cases", () => {
+  const withRepair = (repair: unknown, history?: unknown) => ({
+    version: 1, status: "draft",
+    messages: [{ id: "r1", modelId: appModels[0], type: "concept_question", question: "q", context: null, repair, ...(history ? { history } : {}) }],
+  });
+  const hist = [{ role: "student", text: "q" }, { role: "tutor", text: "a" }];
+  it("rejects an unknown repair reason", () => {
+    expect(() => parseTestSet(withRepair({ reason: "still_stuck" }, hist), appModels))
+      .toThrow("repair.reason must be one of too_many_questions, hard_to_follow, not_what_i_asked");
+  });
+  it("rejects a repair case with no history", () => {
+    expect(() => parseTestSet(withRepair({ reason: "hard_to_follow" }), appModels))
+      .toThrow("a repair case needs the history up to the answer being repaired");
+  });
+  it("accepts a valid repair case", () => {
+    expect(parseTestSet(withRepair({ reason: "hard_to_follow" }, hist), appModels).messages[0]!.repair).toEqual({ reason: "hard_to_follow" });
+  });
+});
+
 describe("personas.json", () => {
   it("has the six spec personas, 8 turns each, on app models", () => {
     const p = parsePersonas(loadEvalJson("personas.json"), appModels);

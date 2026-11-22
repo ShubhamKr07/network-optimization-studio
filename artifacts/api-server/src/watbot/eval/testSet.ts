@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { WATBOT_MESSAGE_TYPES, type WatBotMessageType } from "@workspace/db";
-import type { HistoryTurn } from "../prompt.js";
+import { isRepairReason, REPAIR_REASONS, type HistoryTurn, type WatBotRepairReason } from "../prompt.js";
 
 // Resolved from the package root: `pnpm --filter api-server …` and vitest both run there.
 export const EVAL_DIR = path.resolve(process.cwd(), "src/watbot/eval");
@@ -13,6 +13,7 @@ type Approval = { status: "draft" | "approved"; approvedBy: string | null; appro
 export type TestMessage = {
   id: string; modelId: string; type: WatBotMessageType; question: string;
   history?: HistoryTurn[];                 // e.g. the tutor question an attempt answers
+  repair?: { reason: WatBotRepairReason; excludeType?: WatBotMessageType }; // re-answer case; `type` stays the expected type
   context: { summary: string } | null;     // route-format summary; {{objective}} / {{openSites}} filled from the answer key
 };
 export type TestSetFile = Approval & { version: 1; messages: TestMessage[] };
@@ -50,6 +51,10 @@ export function parseTestSet(json: unknown, modelIds: string[]): TestSetFile {
     if (typeof m.question !== "string" || !m.question.trim() || m.question.length > 2000) fail(`${at}: question must be 1-2000 chars`);
     if (m.history !== undefined && (!Array.isArray(m.history) || m.history.some((h) => (h.role !== "student" && h.role !== "tutor") || typeof h.text !== "string"))) {
       fail(`${at}: history must be [{role: "student"|"tutor", text}]`);
+    }
+    if (m.repair !== undefined) {
+      if (!isRepairReason(m.repair?.reason)) fail(`${at}: repair.reason must be one of ${REPAIR_REASONS.join(", ")}`);
+      if (!m.history?.length) fail(`${at}: a repair case needs the history up to the answer being repaired`);
     }
     if (m.context !== null && typeof m.context?.summary !== "string") fail(`${at}: context must be null or {summary}`);
   }
