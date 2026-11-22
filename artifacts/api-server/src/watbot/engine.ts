@@ -3,7 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { WATBOT_MESSAGE_TYPES, type WatBotBlock, type WatBotCitation, type WatBotMessageType, type WatBotUsage } from "@workspace/db";
 import type { Tutor } from "@workspace/dataset-schema";
 import type { WatBotClient } from "./client.js";
-import { buildRequest, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, type HistoryTurn } from "./prompt.js";
+import { buildRequest, FORCE_RECORD_MODELS, FORCE_RECORD_TYPE, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, type HistoryTurn } from "./prompt.js";
 import { keepUncitedBlock, mapCitation, passesValueCheck } from "./citations.js";
 import { costUsd } from "./cost.js";
 import { classifyAnthropicError, retryAfterMs } from "./errors.js";
@@ -80,8 +80,11 @@ const waitFor = (ms: number, signal: AbortSignal) => new Promise<void>((resolve,
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
   const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
-  // Built once: model, system, tools and tool_choice stay byte-identical across
-  // rounds; only `messages` grows (spec D18, D19 — never switch tool_choice).
+  // Built once: model, system and tools stay byte-identical across rounds; only
+  // `messages` grows. tool_choice is forced to record_message_type on round 1 only:
+  // left to `auto`, Haiku skipped the call on 12-16 of 40 attempt statements and
+  // answered them directly. Measured: round 2 under `auto` still reads the bundle
+  // cache after a forced round 1. The search cap stays in the tool result (D19).
   const params = buildRequest(input);
   let messages = params.messages;
   const out = emptyAnswerResult(input.model);
@@ -112,9 +115,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
     return { ...out, ...extra };
   };
 
-  const streamRound = async (): Promise<Anthropic.Message> => {
+  const streamRound = async (first: boolean): Promise<Anthropic.Message> => {
     roundStart = null; roundOutput = null; roundForwardedChars = 0;
-    const stream = input.client.messages.stream({ ...params, messages }, { signal: input.signal });
+    const toolChoice = first && FORCE_RECORD_MODELS.has(params.model) ? FORCE_RECORD_TYPE : params.tool_choice;
+    const stream = input.client.messages.stream({ ...params, tool_choice: toolChoice, messages }, { signal: input.signal });
     const open = new Map<number, { text: string; citations: WatBotCitation[] }>();
     for await (const ev of stream) {
       if (ev.type === "message_start") { roundStart = ev.message.usage; out.reachedModel = true; }
@@ -152,7 +156,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
       let final!: Anthropic.Message;
       let transientRetries = 0; // per round
       for (;;) {
-        try { final = await streamRound(); break; }
+        try { final = await streamRound(round === 1); break; }
         catch (err) {
           if (input.signal.aborted) return finish({ stopped: true });
           const kind = classifyAnthropicError(err);
@@ -184,7 +188,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           const type = (tu.input as { type?: unknown }).type;
           if (isMessageType(type)) {
             out.messageType ??= type; // first call wins; a second call cannot relabel the message
-            results.push({ type: "tool_result", tool_use_id: tu.id, content: REPLY_RULES[type] });
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: REPLY_RULES[out.messageType] }); // ...nor switch its rule
           } else {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Unknown type. Use one of: ${WATBOT_MESSAGE_TYPES.join(", ")}.` });
           }

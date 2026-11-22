@@ -7,7 +7,7 @@ import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
 import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { buildRequest, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
+import { buildRequest, FORCE_RECORD_MODELS, REPLY_RULES, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
 import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
@@ -293,6 +293,26 @@ describe("answerQuestion", () => {
     expect(lastToolResults(client.calls[1]!)).toEqual([{ type: "tool_result", tool_use_id: "t1", content: REPLY_RULES.incorrect_attempt }]);
   });
 
+  // M1: the stored type and the rule the model follows must never disagree.
+  it("a second record_message_type call gets the first type's reply rule, and the stored type stays the first", async () => {
+    const client = fakeClient([
+      toolRound("t1", "record_message_type", { type: "incorrect_attempt" }),
+      toolRound("t2", "record_message_type", { type: "correct_attempt" }),
+      answerRound("Which constraint does that choice break?"),
+    ]);
+    const result = await answerQuestion(baseInput(client));
+    expect(result.messageType).toBe("incorrect_attempt");
+    expect(lastToolResults(client.calls[2]!)).toEqual([{ type: "tool_result", tool_use_id: "t2", content: REPLY_RULES.incorrect_attempt }]);
+  });
+
+  // M2: forced tool use 400s on models that reject it with thinking on; those keep auto.
+  it("forces record_message_type on round 1 only for models in FORCE_RECORD_MODELS", async () => {
+    const client = fakeClient([answerRound("What does the passage say?")]);
+    await answerQuestion(baseInput(client, { model: "claude-sonnet-5-5" }));
+    expect(FORCE_RECORD_MODELS.has("claude-sonnet-5-5")).toBe(false);
+    expect(client.calls[0]!.tool_choice).toEqual({ type: "auto" });
+  });
+
   it("runs search_book, sends search_result blocks back, and maps their citations", async () => {
     const searchBook = vi.fn().mockResolvedValue([{ id: 77, label: "Ch 13 · p.242", body: "Validate the aggregation." }]);
     const client = fakeClient([
@@ -309,7 +329,7 @@ describe("answerQuestion", () => {
   });
 
   // Spec §7: the search cap, and the cache invariant behind D18/D19.
-  it("answers a third search with the limit result and keeps tool_choice, tools and system identical on every round", async () => {
+  it("answers a third search with the limit result; forces record_message_type on round 1 only; keeps tools and system identical", async () => {
     const searchBook = vi.fn().mockResolvedValue([]);
     const events: EngineEvent[] = [];
     const client = fakeClient([
@@ -324,8 +344,9 @@ describe("answerQuestion", () => {
     expect(events.filter((e) => e.type === "searching")).toHaveLength(2);
     expect(lastToolResults(client.calls[3]!)).toEqual([{ type: "tool_result", tool_use_id: "s3", content: SEARCH_LIMIT_RESULT }]);
     expect(SEARCH_LIMIT_RESULT).toBe("Search limit reached. Answer from the passages you already have.");
+    expect(client.calls[0]!.tool_choice).toEqual({ type: "tool", name: "record_message_type" });
+    for (const call of client.calls.slice(1)) expect(call.tool_choice).toEqual({ type: "auto" });
     for (const call of client.calls) {
-      expect(call.tool_choice).toEqual({ type: "auto" });
       expect(JSON.stringify(call.tools)).toBe(JSON.stringify(client.calls[0]!.tools));
       expect(JSON.stringify(call.system)).toBe(JSON.stringify(client.calls[0]!.system));
     }
@@ -456,6 +477,8 @@ describe("answerQuestion", () => {
     expect(waits).toEqual([]);
     expect(result).toMatchObject({ failure: null, stopped: false });
     expect(result.blocks.map((b) => b.text)).toEqual(["Which constraint binds here?"]);
+    // The retry is still round 1, so it still forces record_message_type.
+    for (const call of client.calls) expect(call.tool_choice).toEqual({ type: "tool", name: "record_message_type" });
   });
 
   it("retries a connection error the same way", async () => {

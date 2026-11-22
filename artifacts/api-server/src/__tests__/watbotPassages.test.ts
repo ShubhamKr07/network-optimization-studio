@@ -11,7 +11,7 @@ beforeAll(async () => {
   await db.insert(coursePassagesTable).values([
     { sourceKind: "book", chapter: 901, locator: "2", ordinal: 2, label: "Ch 901 · p.2", body: "second page about capacity" },
     { sourceKind: "book", chapter: 901, locator: "1", ordinal: 1, label: "Ch 901 · p.1", body: "first page about warehouses" },
-    { sourceKind: "book", chapter: 902, locator: "1", ordinal: 1, label: "Ch 902 · p.1", body: "aggregation of customers into zones" },
+    { sourceKind: "book", chapter: 902, locator: "1", ordinal: 1, label: "Ch 902 · p.1", body: "aggregation of customers into zones (quokkafixture)" },
     { sourceKind: "notebook", chapter: 901, locator: "4", ordinal: 4, label: "NB 901 · cell 4", body: "solver code cell" },
   ]);
 });
@@ -32,11 +32,12 @@ describe("loadBundle", () => {
 
 describe("searchBook", () => {
   it("finds a matching passage (non-vacuity: the probe can return rows)", async () => {
-    const hits = await searchBook("customer aggregation", []);
+    // A fixture-only word: a shared nos_dev may hold the real corpus, whose pages would outrank the fixture.
+    const hits = await searchBook("customer aggregation quokkafixture", []);
     expect(hits.map((h) => h.label)).toContain("Ch 902 · p.1");
   });
   it("excludes passages already in the bundle", async () => {
-    const hits = await searchBook("customer aggregation", [{ kind: "book", chapter: 902 }]);
+    const hits = await searchBook("customer aggregation quokkafixture", [{ kind: "book", chapter: 902 }]);
     expect(hits.map((h) => h.label)).not.toContain("Ch 902 · p.1");
   });
   it("returns [] for a query with no lexemes instead of throwing", async () => {

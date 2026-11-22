@@ -3,19 +3,21 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { WATBOT_MESSAGE_TYPES, type WatBotMessageType } from "@workspace/db";
 import type { BundleDoc } from "./passages.js";
 
-// Frozen per deploy: system, tools and tool_choice must be identical on every
-// round of a question, or the messages cache holding the reading-list bundle is
-// invalidated (spec D18, D19). Any edit to SYSTEM_PROMPT, REPLY_RULES or TOOLS
+// Frozen per deploy: system and tools must be identical on every round of a
+// question, or the cache holding the reading-list bundle is invalidated (spec D18,
+// D19). tool_choice is the one per-round difference: the engine forces
+// record_message_type on round 1 (FORCE_RECORD_TYPE) for FORCE_RECORD_MODELS, `auto` after. Any edit to SYSTEM_PROMPT, REPLY_RULES or TOOLS
 // needs a passing test-set run before it ships (spec §7, FR-44).
 export const SYSTEM_PROMPT = `You are WatBot, the Socratic tutor for Network Optimization Studio, a course on supply chain network design built on the book "Supply Chain Network Design" by Watson et al. The course materials for the student's chapter model are provided as documents; you may also call search_book to find passages elsewhere in the book.
 
 Every turn:
-1. Before writing any text, call record_message_type once with the type of the student's latest message:
+1. Before writing any text, call record_message_type once with the type of the student's latest message. Do this on every turn, including when the student makes a statement instead of asking a question:
    - concept_question: asks about a concept, a fact, or how to read the model, its inputs or its output.
    - incorrect_attempt: offers an answer, a piece of reasoning or a formulation step that is wrong.
    - correct_attempt: offers an answer, a piece of reasoning or a formulation step that is right.
    - stuck_or_wants_answer: says they are stuck, or asks you for the answer, the optimal solution or the formulation.
    - off_topic: not about this course.
+   A message that states a claim, an answer or a piece of reasoning, rather than asking something, is an attempt: incorrect_attempt or correct_attempt, never concept_question. Judge it against the cited passages before you reply.
    The tool result tells you how to reply to that type. Follow it. Never tell the student which type you chose.
 2. Call search_book only when the provided documents do not cover the question. You get at most two searches.
 3. If the course materials do not cover a concept question, say so plainly, name the nearest covered topic, and call log_gap. Do not answer from general knowledge.
@@ -39,6 +41,10 @@ export const REPLY_RULES: Record<WatBotMessageType, string> = {
   stuck_or_wants_answer: "Reply rule for stuck_or_wants_answer: give a one-line reason you won't give the answer, then a pointed hint from a cited passage, then one question. Never state an optimal facility set, an objective value or a complete formulation that the Student context does not already show.",
   off_topic: "Reply rule for off_topic: decline in one line and steer back to the current exercise. Do not call log_gap and do not cite.",
 };
+
+export const FORCE_RECORD_TYPE = { type: "tool", name: "record_message_type" } as const; // engine, round 1 only
+// Models known to accept forced tool use with thinking on; others 400 on it (Opus/Sonnet 5.5), so they keep auto.
+export const FORCE_RECORD_MODELS: ReadonlySet<string> = new Set(["claude-haiku-5-5"]);
 
 export const SEARCH_LIMIT_RESULT = "Search limit reached. Answer from the passages you already have.";
 
@@ -98,13 +104,13 @@ export function buildRequest(input: {
     });
   });
   const ctx = input.contextSummary ? `Student context: ${input.contextSummary}\n\n` : "";
-  messages.push({ role: "user", content: [{ type: "text", text: `${ctx}Question: ${input.question}` }] });
+  messages.push({ role: "user", content: [{ type: "text", text: `${ctx}Student message: ${input.question}` }] });
   return {
     model: input.model,
     max_tokens: MAX_TOKENS,
     system: [{ type: "text", text: SYSTEM_PROMPT }],
     tools: TOOLS,
-    tool_choice: { type: "auto" }, // never changed between rounds (D18, D19)
+    tool_choice: { type: "auto" }, // rounds 2+; the engine forces round 1 (FORCE_RECORD_TYPE)
     output_config: { effort: "low" },
     messages,
   } as Anthropic.MessageStreamParams;
