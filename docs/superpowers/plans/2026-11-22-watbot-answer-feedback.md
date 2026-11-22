@@ -30,14 +30,15 @@
   - Rephrase notice: `Try asking again in your own words, and say which step you're stuck on.`
 - Local DB: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"`, passed inline. Before trusting a full suite, require 0 concurrent vitest processes. Load flakes are listed in `docs/superpowers/flake-registry.md`.
 
-### Plan-time refinements to the spec (folded into it in Task 3's commit)
+### Spec revisions this plan implements
 
-1. **Error code naming:** the code is `watbot_feedback_locked`, using the existing `watbot_` prefix.
-2. **Re-answer context:** the re-answer uses the context the client sends, and the studio resends the context of the question being repaired. The server re-derives the summary and facts as it does for any question, so the value check stays server-side.
-3. **Response and re-answer note:** `POST …/feedback` returns `{ id, repairLabel }` (null for ✓ and for reasons 4/Other), so the ↻ labels have one source (the server). The re-answer note reads `(Re-answer: the student asked "<↻ label without the arrow>" about your previous reply.)`.
-4. **When a rating locks:** `repair_message_id` is set in `finalize()` only when the re-answer reached the model. A re-answer that was stopped before any round started doesn't use up the rating.
-5. **Chained repairs:** a re-answer of a re-answer resends the **root** original question, found by following `watbot_feedback.repair_message_id` back. R3 excludes the type of the latest answered student row.
-6. **Rating state after a reload:** `GET …/conversations/:id` does not return ratings. After a reload the line shows again, and a second rating updates the same row (upsert).
+The spec is the single normative body. It already carries the plan-time refinements: the `watbot_feedback_locked` name, the `{ id, repairLabel }` response, the re-answer note, root-question chains, and ratings not returned by `GET`. It also carries decisions **F7–F10** from the Codex adversarial review (2026-11-22):
+- **F7:** the claim happens at admission, under the per-user lock, with a compare-and-set.
+- **F8:** a stale claim can be reclaimed.
+- **F9:** re-answers run the value check on cited blocks too.
+- **F10:** the re-answer's context is rebuilt server-side from the source row.
+
+Where this plan and the spec differ, the spec wins. Fix the plan.
 
 ---
 
@@ -154,6 +155,20 @@ export const watbotFeedbackTable = pgTable("watbot_feedback", {
     expect(result.messageType).toBe("stuck_or_wants_answer");
   });
 
+  // F9: a re-answer's cited blocks get the value check too; an ordinary answer's do not (Spec 1 D14/D20).
+  it("in a re-answer, drops a cited block that carries an unseen value; without repair the same block is forwarded", async () => {
+    const cited = { type: "content_block_location", cited_text: "x", document_index: 0, document_title: bundle[0]!.title, start_block_index: 0, end_block_index: 1 };
+    const round = () => [toolRound("t1", "record_message_type", { type: "stuck_or_wants_answer" }),
+      { events: textBlock(0, "The total cost is 1,234,567 in this solution.", [cited]), final: { stop_reason: "end_turn" as const } }];
+    const plain = await answerQuestion(baseInput(fakeClient(round())));
+    expect(plain.blocks).toHaveLength(1);
+    const events: EngineEvent[] = [];
+    const repaired = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e), repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(repaired.blocks).toHaveLength(0);
+    expect(repaired.claimsRemoved).toBe(1);
+    expect(events).toContainEqual({ type: "notice", kind: "claim_removed" });
+  });
+
   it("repairQuestion puts the re-answer note after the original question; REPAIR_RULES has no rule for R3", () => {
     expect(repairQuestion("Why p = 3?", "hard_to_follow")).toBe('Why p = 3?\n\n(Re-answer: the student asked "Explain it step by step" about your previous reply.)');
     expect(REPAIR_RULES.not_what_i_asked).toBeNull();
@@ -162,7 +177,7 @@ export const watbotFeedbackTable = pgTable("watbot_feedback", {
 
 The existing test "record_message_type stores the type and returns that type's reply rule" already pins the no-repair result byte for byte. Keep it unchanged.
 
-- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotEngine.test.ts`. Expected: 3 FAIL, on missing exports and a missing `repair` field.
+- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotEngine.test.ts`. Expected: 4 FAIL, on missing exports and a missing `repair` field. Before relying on it, check that the citation literal in the F9 test matches what `mapCitation` accepts: read `citations.ts`, and make sure the "without repair" half really forwards one block. A test whose plain case already drops the block proves nothing.
 
 - [ ] **Step 3: Implement `prompt.ts`.** Add after `REPLY_RULES`, and add `type WatBotFeedbackReason` to the `@workspace/db` import:
 
@@ -209,6 +224,15 @@ export const excludedTypeResult = (type: WatBotMessageType) =>
               }
     ```
   - Keep the existing `else` (the unknown-type error) as it is.
+  - **F9:** in `streamRound`'s `content_block_stop` branch, replace the `keep` expression with:
+    ```ts
+            // Cited → forward (a re-answer also needs the value check, F9). Uncited → forward only
+            // if it is a question or short connective (FR-17) AND carries no unseen value or site (D20).
+            const valuesOk = () => passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
+            const keep = b.citations.length > 0
+              ? !input.repair || valuesOk()
+              : keepUncitedBlock(b.text) && valuesOk();
+    ```
 
 - [ ] **Step 5: Run the tests.** Same command as Step 2, then `pnpm run typecheck`. Expected: all pass.
 
@@ -331,11 +355,68 @@ export const excludedTypeResult = (type: WatBotMessageType) =>
     expect((await ask(cookie, id, { question: "x", repairOf: fb2.body.id })).status).toBe(200);
     expect(results[0]).toContain("Is p = 5 optimal?"); // the root question, not the ↻ label of the first re-answer
   });
+
+  // F7: the claim is taken under the per-user lock, before the model call.
+  it("claims the rating before the model call; a feedback write during the re-answer is busy", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", delayMs: 300 }));
+    const inFlight = ask(cookie, id, { question: "x", repairOf: fb.body.id }).then((r) => r); // .then starts the request
+    await sleep(100);
+    const [mid] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect(mid!.repairMessageId).not.toBeNull();
+    const during = await feedback(cookie, id, { messageId: tutorId, helped: true });
+    expect(during.status).toBe(409);
+    expect(during.body.error).toBe("watbot_busy");
+    expect((await inFlight).status).toBe(200);
+  });
+
+  // F8: a claim whose student row has no tutor row after it died (crash, failure, stop) and can be taken again.
+  it("re-claims a stale claim, and accepts a feedback write over it", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    const [orphan] = await db.insert(watbotMessagesTable).values({ conversationId: id, userId: lastUserId(), role: "student",
+      blocks: [{ text: REPAIR_LABELS.hard_to_follow, citations: [] }] }).returning();
+    await db.update(watbotFeedbackTable).set({ repairMessageId: orphan!.id }).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" })).status).toBe(201);
+    await db.update(watbotFeedbackTable).set({ repairMessageId: orphan!.id }).where(eq(watbotFeedbackTable.id, fb.body.id));
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt" }));
+    expect((await ask(cookie, id, { question: "x", repairOf: fb.body.id })).status).toBe(200);
+    const [after] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect(after!.repairMessageId).not.toBe(orphan!.id);
+  });
+
+  // F10: the server rebuilds the re-answer's context from the source row; the client's is ignored.
+  it("a re-answer sent with context null still carries the source question's scenario summary", async () => {
+    const cookie = await registerAndGetCookie();
+    const [sc] = await db.insert(scenariosTable).values({ name: "Coastal", userId: lastUserId(), modelId: "p-median-us", inputs: { p: 4 } }).returning();
+    try {
+      useClient(scriptedClient("Which constraint does that break?", { type: "incorrect_attempt" }));
+      const id = await newConversation(cookie);
+      expect((await ask(cookie, id, { question: "Is p = 5 optimal?", context: { tab: "output-map", scenarioId: sc!.id } })).status).toBe(200);
+      const tutorId = (await rows(id)).filter((r) => r.role === "tutor").at(-1)!.id;
+      const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "too_many_questions" });
+      let sent = "";
+      const inner = scriptedClient("The passage says…", { type: "incorrect_attempt" });
+      useClient({ messages: { stream(params, opts) { sent ||= JSON.stringify(params.messages.at(-1)); return inner.messages.stream(params, opts); } } });
+      expect((await ask(cookie, id, { question: "x", context: null, repairOf: fb.body.id })).status).toBe(200);
+      expect(sent).toContain("Scenario: Coastal");
+      expect(sent).toContain("p = 4");
+      const repairRow = (await rows(id)).filter((r) => r.role === "student").at(-1)!;
+      expect(repairRow.context).toMatchObject({ tab: "output-map", scenarioId: sc!.id });
+    } finally {
+      await db.delete(scenariosTable).where(eq(scenariosTable.id, sc!.id));
+    }
+  });
 ```
 
-Two parallel repairs from one rating are covered by the per-user lock (the existing "admits exactly one of two simultaneous questions" test): the second gets 409 `watbot_busy`, and after the first finalizes, the rating is no longer on the latest answer (404). The OpenAPI-enum test already present (`OpenAPI WatBotError enum equals the TS union`) covers the new code once both sides change.
+Two parallel repairs from one rating are covered as follows:
+- **Both in flight:** the per-user lock admits one, and the other gets 409 `watbot_busy` (the existing "admits exactly one of two simultaneous questions" test).
+- **One after the other:** the compare-and-set claim stops a second repair. So does the latest-answer check, because the first repair's tutor row is now the latest answer. The OpenAPI-enum test already present (`OpenAPI WatBotError enum equals the TS union`) covers the new code once both sides change.
 
-- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotRoutes.test.ts`. Expected: the 5 new tests FAIL (404 on `/feedback`, and `repairOf` ignored).
+- [ ] **Step 2: Run them and confirm they fail.** Run `DATABASE_URL=… pnpm --filter api-server exec vitest run src/__tests__/watbotRoutes.test.ts`. Expected: the 8 new tests FAIL (404 on `/feedback`, and `repairOf` ignored). Add `scenariosTable` to the test's `@workspace/db` import if it isn't already there.
 
 - [ ] **Step 3: Update the contract in `lib/api-spec/openapi.yaml`.**
   - **New path, after `/watbot/reports`.** It uses the same `tags`, the same `401` response shape and the same `ErrorEnvelope` ref as the report route:
@@ -387,15 +468,78 @@ Two parallel repairs from one rating are covered by the per-user lock (the exist
 
 - [ ] **Step 4: Error code.** In `errors.ts`, append `"watbot_feedback_locked"` to `WATBOT_ERROR_CODES`. In `Workspace.tsx`, add this line to `WATBOT_ERROR_COPY`: `watbot_feedback_locked: "That answer was already re-answered.",`.
 
-- [ ] **Step 5: The feedback route.** In `routes/watbot.ts`:
-  - Imports:
+- [ ] **Step 5: Helpers and the feedback route.** In `routes/watbot.ts`:
+  - **Imports:**
     - `watbotFeedbackTable` and `type WatBotMessageType` from `@workspace/db`.
+    - `gt` and `isNull` from `drizzle-orm`.
     - `SubmitWatBotFeedbackBody` from `@workspace/api-zod`.
     - `isRepairReason, REPAIR_LABELS, REPAIR_RULES, repairQuestion, type WatBotRepairReason` from `../watbot/prompt.js`.
-  - Add this after the reports route:
+  - **Extract the existing context block** of the ask route into `buildContext`, so the re-answer can rebuild context from its source row (F10). The ask route's non-repair path calls it with `dropMissingScenario: false` and keeps today's 404.
 
 ```ts
-// WATBOT-FB — one rating per tutor answer, upserted until it has produced a re-answer.
+type BuiltContext = { context: WatBotContext | null; shownFacts: string; contextScenarioInputs: unknown };
+
+// Context summary is built server-side from the owned scenario row, never from client text (D20).
+// dropMissingScenario: a re-answer whose source scenario is gone keeps the tab only (spec §4).
+async function buildContext(tab: string | null, scenarioId: number | null, userId: string, modelId: string,
+  { dropMissingScenario }: { dropMissingScenario: boolean }): Promise<BuiltContext | null> {
+  let summary = tab ? `Tab: ${tab}` : "";
+  let shownFacts = "";
+  let contextScenarioInputs: unknown = undefined;
+  let keptScenarioId: number | null = null;
+  if (scenarioId != null) {
+    const [row] = await db.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, userId)));
+    if (row && row.modelId === modelId) {
+      const s = summarizeScenario(row);
+      summary += ` · ${s.summary}`;
+      shownFacts = s.facts;
+      contextScenarioInputs = row.inputs;
+      keptScenarioId = scenarioId;
+    } else if (!dropMissingScenario) return null; // caller answers 404
+  }
+  return { context: { tab, scenarioId: keptScenarioId, summary }, shownFacts, contextScenarioInputs };
+}
+```
+
+  - **The claim and source helpers, and the route:**
+
+```ts
+// F8 — under the per-user lock nothing else of this student's is in flight, so a claim is
+// live only if its re-answer produced a tutor row. A claim with none after it died and may be retaken.
+async function claimIsLive(repairMessageId: number | null): Promise<boolean> {
+  if (repairMessageId == null) return false;
+  const [claimed] = await db.select({ conversationId: watbotMessagesTable.conversationId }).from(watbotMessagesTable)
+    .where(eq(watbotMessagesTable.id, repairMessageId));
+  if (!claimed) return false;
+  const [after] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+    .where(and(eq(watbotMessagesTable.conversationId, claimed.conversationId), eq(watbotMessagesTable.role, "tutor"),
+      gt(watbotMessagesTable.id, repairMessageId))).limit(1);
+  return !!after;
+}
+
+// What a re-answer resends (spec §3). The question is the ROOT question, followed back through
+// earlier re-answers. excludeType and context come from the NEAREST answered student row, the
+// one whose answer is being repaired (a re-answer row copies its source's context).
+async function repairSource(conversationId: number, tutorId: number) {
+  let beforeId = tutorId;
+  let nearest: { messageType: WatBotMessageType | null; context: WatBotContext | null } | null = null;
+  for (let hop = 0; hop < HISTORY_MESSAGES; hop++) {
+    const [row] = await db.select().from(watbotMessagesTable)
+      .where(and(eq(watbotMessagesTable.conversationId, conversationId), eq(watbotMessagesTable.role, "student"),
+        eq(watbotMessagesTable.status, "answered"), lt(watbotMessagesTable.id, beforeId)))
+      .orderBy(desc(watbotMessagesTable.id)).limit(1);
+    if (!row) return null;
+    nearest ??= { messageType: row.messageType ?? null, context: row.context ?? null };
+    const [prior] = await db.select({ messageId: watbotFeedbackTable.messageId }).from(watbotFeedbackTable)
+      .where(eq(watbotFeedbackTable.repairMessageId, row.id));
+    if (!prior) return { question: row.blocks.map((b) => b.text).join("\n\n"), ...nearest };
+    beforeId = prior.messageId;
+  }
+  return null;
+}
+
+// WATBOT-FB — one rating per tutor answer, upserted until a live re-answer claims it (F7, F8).
 router.post("/watbot/conversations/:conversationId/feedback", async (req, res) => {
   const parsed = SubmitWatBotFeedbackBody.safeParse(req.body);
   const d = parsed.success ? parsed.data : null;
@@ -408,78 +552,91 @@ router.post("/watbot/conversations/:conversationId/feedback", async (req, res) =
   const [msg] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
     .where(and(eq(watbotMessagesTable.id, d.messageId), eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")));
   if (!msg) { notFound(res); return; }
-  const [existing] = await db.select({ repairMessageId: watbotFeedbackTable.repairMessageId }).from(watbotFeedbackTable)
-    .where(eq(watbotFeedbackTable.messageId, msg.id));
-  if (existing?.repairMessageId != null) { watbotError(res, 409, "watbot_feedback_locked"); return; }
-  const reason = d.reason ?? null;
-  let id: number;
-  // No error binding: the Drizzle error carries the note (api-server CLAUDE.md).
+  // F7 — the same per-user lock as a question, so a rating can't change under an in-flight re-answer.
+  const unlock = tryLockUser(req.userId!);
+  if (!unlock) { watbotError(res, 409, "watbot_busy"); return; }
   try {
-    const [row] = await db.insert(watbotFeedbackTable)
-      .values({ userId: req.userId!, conversationId: conv.id, messageId: msg.id, helped: d.helped, reason, note })
-      .onConflictDoUpdate({ target: watbotFeedbackTable.messageId, set: { helped: d.helped, reason, note, updatedAt: new Date() } })
-      .returning({ id: watbotFeedbackTable.id });
-    id = row!.id;
-  } catch { res.status(500).json({ error: "Could not store feedback." }); return; }
-  res.status(201).json({ id, repairLabel: isRepairReason(reason) ? REPAIR_LABELS[reason] : null });
-});
-
-// The question a re-answer resends: the student row before `tutorId`, followed back
-// through earlier re-answers to the root question (plan refinement 5). excludeType
-// is the type of the nearest row, the one whose answer is being repaired.
-async function repairSource(conversationId: number, tutorId: number) {
-  let beforeId = tutorId;
-  let excludeType: WatBotMessageType | null | undefined;
-  for (let hop = 0; hop < HISTORY_MESSAGES; hop++) {
-    const [row] = await db.select().from(watbotMessagesTable)
-      .where(and(eq(watbotMessagesTable.conversationId, conversationId), eq(watbotMessagesTable.role, "student"),
-        eq(watbotMessagesTable.status, "answered"), lt(watbotMessagesTable.id, beforeId)))
-      .orderBy(desc(watbotMessagesTable.id)).limit(1);
-    if (!row) return null;
-    if (excludeType === undefined) excludeType = row.messageType ?? null;
-    const [prior] = await db.select({ messageId: watbotFeedbackTable.messageId }).from(watbotFeedbackTable)
-      .where(eq(watbotFeedbackTable.repairMessageId, row.id));
-    if (!prior) return { question: row.blocks.map((b) => b.text).join("\n\n"), excludeType };
-    beforeId = prior.messageId;
+    const [existing] = await db.select({ repairMessageId: watbotFeedbackTable.repairMessageId }).from(watbotFeedbackTable)
+      .where(eq(watbotFeedbackTable.messageId, msg.id));
+    if (await claimIsLive(existing?.repairMessageId ?? null)) { watbotError(res, 409, "watbot_feedback_locked"); return; }
+    const reason = d.reason ?? null;
+    let id: number;
+    // No error binding: the Drizzle error carries the note (api-server CLAUDE.md).
+    try {
+      const [row] = await db.insert(watbotFeedbackTable)
+        .values({ userId: req.userId!, conversationId: conv.id, messageId: msg.id, helped: d.helped, reason, note })
+        .onConflictDoUpdate({ target: watbotFeedbackTable.messageId, set: { helped: d.helped, reason, note, repairMessageId: null, updatedAt: new Date() } })
+        .returning({ id: watbotFeedbackTable.id });
+      id = row!.id;
+    } catch { res.status(500).json({ error: "Could not store feedback." }); return; }
+    res.status(201).json({ id, repairLabel: isRepairReason(reason) ? REPAIR_LABELS[reason] : null });
+  } finally {
+    unlock();
   }
-  return null;
-}
+});
 ```
+
+  - **`onConflictDoUpdate` sets `repairMessageId: null`.** That's reached only when the claim is absent or stale, so it clears a dead claim (F8).
 
 - [ ] **Step 6: `repairOf` in the ask route.**
-  - **Lookup, after the `context` block and before `tryLockUser`:**
+  - **The non-repair path.** Replace the route's inline context block with:
+    ```ts
+      let built: BuiltContext = { context: null, shownFacts: "", contextScenarioInputs: undefined };
+      if (parsed.data.context && parsed.data.repairOf == null) {
+        const b = await buildContext(parsed.data.context.tab ?? null, parsed.data.context.scenarioId ?? null, req.userId!, conv.modelId, { dropMissingScenario: false });
+        if (!b) { notFound(res); return; }
+        built = b;
+      }
+    ```
+    Then use `built.context`, `built.shownFacts` and `built.contextScenarioInputs` where the route used `context`, `shownFacts` and `contextScenarioInputs`. Keep the D20 comments.
+  - **The repair resolution: first thing inside the outer `try`, under the lock, before `isAvailable()` and before any spend reservation:**
 
 ```ts
-  // WATBOT-FB — a re-answer after a ✗ (reasons 1–3), on the conversation's latest answer.
-  let repair: { feedbackId: number; reason: WatBotRepairReason; question: string; excludeType: WatBotMessageType | null } | null = null;
-  if (parsed.data.repairOf != null) {
-    const [fb] = await db.select().from(watbotFeedbackTable).where(and(eq(watbotFeedbackTable.id, parsed.data.repairOf),
-      eq(watbotFeedbackTable.userId, req.userId!), eq(watbotFeedbackTable.conversationId, conv.id)));
-    if (!fb || fb.helped || !isRepairReason(fb.reason)) { notFound(res); return; }
-    if (fb.repairMessageId != null) { watbotError(res, 409, "watbot_feedback_locked"); return; }
-    const [latest] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
-      .where(and(eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")))
-      .orderBy(desc(watbotMessagesTable.id)).limit(1);
-    const source = latest?.id === fb.messageId ? await repairSource(conv.id, fb.messageId) : null;
-    if (!source) { notFound(res); return; }
-    repair = { feedbackId: fb.id, reason: fb.reason, question: source.question,
-      excludeType: fb.reason === "not_what_i_asked" ? source.excludeType : null };
-  }
+    // WATBOT-FB F7/F10 — resolved under the per-user lock; the client's context is ignored.
+    let repair: { feedbackId: number; reason: WatBotRepairReason; claimedBy: number | null; question: string; excludeType: WatBotMessageType | null } | null = null;
+    if (parsed.data.repairOf != null) {
+      const [fb] = await db.select().from(watbotFeedbackTable).where(and(eq(watbotFeedbackTable.id, parsed.data.repairOf),
+        eq(watbotFeedbackTable.userId, req.userId!), eq(watbotFeedbackTable.conversationId, conv.id)));
+      if (!fb || fb.helped || !isRepairReason(fb.reason)) { notFound(res); return; }
+      if (await claimIsLive(fb.repairMessageId)) { watbotError(res, 409, "watbot_feedback_locked"); return; }
+      const [latest] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+        .where(and(eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")))
+        .orderBy(desc(watbotMessagesTable.id)).limit(1);
+      const source = latest?.id === fb.messageId ? await repairSource(conv.id, fb.messageId) : null;
+      if (!source) { notFound(res); return; }
+      const b = await buildContext(source.context?.tab ?? null, source.context?.scenarioId ?? null, req.userId!, conv.modelId, { dropMissingScenario: true });
+      built = b!; // never null with dropMissingScenario
+      repair = { feedbackId: fb.id, reason: fb.reason, claimedBy: fb.repairMessageId, question: source.question,
+        excludeType: fb.reason === "not_what_i_asked" ? source.messageType : null };
+    }
 ```
 
-  - **Inside the `try`:**
-    - Replace `const question = parsed.data.question.trim();` with:
-      ```ts
-          // A re-answer stores its ↻ label, and sends the original question plus a note to the model.
-          const question = repair ? repairQuestion(repair.question, repair.reason) : parsed.data.question.trim();
-          const storedText = repair ? REPAIR_LABELS[repair.reason] : question;
-      ```
-    - In `logStudent`, use `blocks: [{ text: storedText, citations: [] }]`.
-  - **In `finalize()`, inside `if (r.reachedModel) {`, after the messageType update:**
+  - **Turn-aways before the claim.** `isAvailable()`, the student limit and the spend check still run. A turned-away re-answer logs its student row through `turnAway` as usual, and **never claims**: the rating stays usable.
+  - **The question.** Replace `const question = parsed.data.question.trim();` with:
     ```ts
-            if (repair) await db.update(watbotFeedbackTable).set({ repairMessageId: studentMessageId, updatedAt: new Date() }).where(eq(watbotFeedbackTable.id, repair.feedbackId));
+        // A re-answer stores its ↻ label, and sends the root question plus a note to the model.
+        const question = repair ? repairQuestion(repair.question, repair.reason) : parsed.data.question.trim();
+        const storedText = repair ? REPAIR_LABELS[repair.reason] : question;
     ```
-  - **In the `answerQuestion({ … })` call**, add:
+    In `logStudent`, use `blocks: [{ text: storedText, citations: [] }]` and `context: built.context`.
+  - **The claim (F7): right after `studentMessageId = await logStudent("answered")` succeeds, and before the SSE headers:**
+
+```ts
+    if (repair) {
+      // Compare-and-set against the value read above: a concurrent claim, or one taken since, makes this a no-op.
+      const claimed = await db.update(watbotFeedbackTable).set({ repairMessageId: studentMessageId, updatedAt: new Date() })
+        .where(and(eq(watbotFeedbackTable.id, repair.feedbackId),
+          repair.claimedBy == null ? isNull(watbotFeedbackTable.repairMessageId) : eq(watbotFeedbackTable.repairMessageId, repair.claimedBy)))
+        .returning({ id: watbotFeedbackTable.id });
+      if (!claimed.length) {
+        await db.update(watbotMessagesTable).set({ status: "cancelled" }).where(eq(watbotMessagesTable.id, studentMessageId));
+        watbotError(res, 409, "watbot_feedback_locked"); return;
+      }
+    }
+```
+
+  - **`finalize()` is unchanged.** It doesn't touch `watbot_feedback`. A re-answer that dies without a tutor row leaves a stale claim, which F8 makes reclaimable. A stop before any round already marks its student row `cancelled`.
+  - **In the `answerQuestion({ … })` call,** add:
     ```ts
               repair: repair ? { rule: REPAIR_RULES[repair.reason], excludeType: repair.excludeType } : undefined,
     ```
@@ -487,7 +644,7 @@ async function repairSource(conversationId: number, tutorId: number) {
 - [ ] **Step 7: Run them.** Run the Step 2 command, then `pnpm run typecheck`. Expected: all pass. Then run the whole api-server suite once, with 0 concurrent vitest: `DATABASE_URL=… pnpm --filter api-server test`.
 
 - [ ] **Step 8: Docs.**
-  - **The spec:** fold plan-time refinements 1–6 into the approved spec, replacing the `feedback_locked` name and the §3 "stored context" sentence. No alternatives are left open.
+  - **The spec** is already revised (F7–F10). If implementation forces a change, edit the spec in place in this commit.
   - **`docs/ops/watbot-metrics.md`:** append a section, "## N. Answer feedback (WATBOT-FB)", with these four queries. Run each against local `nos_dev` after a local repair (Task 7 QA or a fixture). That shows each one can return non-zero rows before you record that it does.
 
 ```sql
@@ -512,8 +669,10 @@ where not f.helped
 group by 1, 2 order by 1, 3 desc;
 
 -- Repair outcome: did the re-answer's own rating come back ✓?
+-- helped_after is the ✓ share among RATED re-answers only; an unrated one is neither (spec §6).
 select f.reason, count(*) as repairs,
-       count(f2.id) as re_rated, round(avg(case when f2.helped then 1.0 else 0 end), 3) as helped_after
+       count(f2.id) as re_rated,
+       round(avg(case when f2.helped then 1.0 else 0 end) filter (where f2.id is not null), 3) as helped_after_rated
 from watbot_feedback f
 join lateral (select id from watbot_messages t where t.conversation_id = f.conversation_id and t.role = 'tutor'
               and t.id > f.repair_message_id order by t.id limit 1) t on true
@@ -532,7 +691,7 @@ where f.reason = 'not_what_i_asked'
 group by 1, 2 order by 3 desc;
 ```
 
-- [ ] **Step 9: Commit.** One commit for the contract change: `lib/api-spec/openapi.yaml`, `lib/api-zod/src/generated`, `lib/api-client-react/src/generated`, `artifacts/api-server/src/watbot/errors.ts`, `artifacts/api-server/src/routes/watbot.ts`, `artifacts/api-server/src/__tests__/watbotRoutes.test.ts`, `artifacts/studio/src/pages/Workspace.tsx`, the spec, `docs/ops/watbot-metrics.md` and the changelog.
+- [ ] **Step 9: Commit.** One commit for the contract change: `lib/api-spec/openapi.yaml`, `lib/api-zod/src/generated`, `lib/api-client-react/src/generated`, `artifacts/api-server/src/watbot/errors.ts`, `artifacts/api-server/src/routes/watbot.ts`, `artifacts/api-server/src/__tests__/watbotRoutes.test.ts`, `artifacts/studio/src/pages/Workspace.tsx`, `docs/ops/watbot-metrics.md` and the changelog, plus the spec if it changed.
 
 ---
 
@@ -715,13 +874,15 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
 
 `key={latestTutor.id}` gives the line a fresh state for every new answer (spec F1). Run the messages test. Expected: PASS.
 
-- [ ] **Step 7: The hook's `repair`.** In `useWatBotConversation.test.tsx`, follow the file's existing `fetch` mock pattern and add a test: after `ask("Is p = 5 optimal?", { tab: "output-map", scenarioId: 3 })`, call `repair(7, "↻ Explain it step by step")`. The second `fetch` body must equal `{ question: "↻ Explain it step by step", context: { tab: "output-map", scenarioId: 3 }, repairOf: 7 }`, and the label must show as a student item. Then implement it in `useWatBotConversation.ts`:
-  - Add `const lastContext = useRef<{ tab: string | null; scenarioId: number | null } | null>(null);`.
-  - Change the signature to `ask = useCallback(async (question, context, repairOf?: number) => {`.
-  - Inside it, set `if (repairOf === undefined) lastContext.current = context;`.
-  - Use `body: JSON.stringify({ question, context, ...(repairOf ? { repairOf } : {}) })`.
-  - Add `const repair = useCallback((feedbackId: number, label: string) => ask(label, lastContext.current, feedbackId), [ask]);`, and return `repair`.
-  - In `reset`, clear `lastContext.current = null`.
+- [ ] **Step 7: The hook's `repair`.** The server rebuilds a re-answer's context from the source row (spec F10), so the hook sends `context: null` and keeps no context of its own. That also makes a re-answer work after `load()`.
+  - **Test.** In `useWatBotConversation.test.tsx`, follow the file's existing `fetch` mock pattern and add a test. Call `load(5, [studentItem, tutorItem])`, then `repair(7, "↻ Explain it step by step")`:
+    - the `fetch` URL ends in `/watbot/conversations/5/messages`;
+    - its body equals `{ question: "↻ Explain it step by step", context: null, repairOf: 7 }`;
+    - the label shows as a student item.
+  - **Implementation,** in `useWatBotConversation.ts`:
+    - Change the signature to `ask = useCallback(async (question, context, repairOf?: number) => {`.
+    - Use `body: JSON.stringify({ question, context, ...(repairOf ? { repairOf } : {}) })`.
+    - Add `const repair = useCallback((feedbackId: number, label: string) => ask(label, null, feedbackId), [ask]);`, and return `repair`.
 
   Run the hook test. Expected: PASS.
 
@@ -798,6 +959,8 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
   - ✗ with each reason 1–3, each giving one paid re-answer: the ↻ line appears, a fresh rating line shows under the new answer, and `watbot_feedback.repair_message_id` is set.
   - Reason 4, and Other with a note: the rephrase notice shows and no model call is made.
   - Reload, then rate the same answer again: it updates.
+  - Reload, or open the conversation from history, then press ✗ with reason 1 on a question asked with a scenario open. The re-answer's request carries that scenario's summary (F10). Check the stored student row's `context`.
+  - Stop a re-answer before it starts, while it's queued. ✗ on the original answer still works afterwards (F8).
   - The 409 path, by rating the repaired answer through the API.
   - Keyboard-only use of the radio group and Send. Screen-reader names for ✓ and ✗.
 - [ ] Run the four metrics queries from Task 3 against local `nos_dev` and confirm each returns at least one row from this session. That's the non-vacuity check before the metrics doc's "executed" claim stands.
