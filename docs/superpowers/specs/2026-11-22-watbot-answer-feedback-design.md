@@ -60,6 +60,7 @@ Round 1 still forces `record_message_type`. The engine takes `repair?: { rule, e
   - A `record_message_type` call naming that type is not stored. It gets an `is_error` result: "The student said your previous reply did not answer what they asked, so <type> is ruled out. Record a different type."
   - The round after a rejection forces `record_message_type` again, on `FORCE_RECORD_MODELS` only. Without that, the live QA run (WATBOT-FB-7) saw the model answer under `auto` without re-recording, which left the type null.
   - The next valid call is stored (M1's first-wins applies to accepted calls only) and gets that type's normal rule.
+  - A rejected round doesn't count against `MAX_ROUNDS` (at most one bonus round per question), so the answer still gets its two searches. The D21 spend reservation covers `MAX_ROUNDS + 1` rounds.
   - If that row has no type (the model skipped it), nothing is excluded.
 
 `REPAIR_RULES` lives in `prompt.ts` next to `REPLY_RULES`, so Spec 1 §7 applies: any edit needs a passing test-set run before it ships. `SYSTEM_PROMPT` and `TOOLS` do not change, so the cached bundle prefix is unaffected.
