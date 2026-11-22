@@ -37,11 +37,11 @@ export const bundleTokens = (bundle: BundleDoc[]) =>
 // D21 — 20 history messages are taken as a 10K-token allowance.
 export const HISTORY_ALLOWANCE_TOKENS = 10_000;
 
-// D21 — worst-case cost of one question: every round re-writes the whole prompt
+// D21 — worst-case cost of one question: every round (MAX_ROUNDS + 1: an R3 rejection adds one bonus round) re-writes the whole prompt
 // to cache and emits max_tokens. Deliberately conservative (super-model ≈ $0.045);
 // replaced by the actual stored cost when the question finishes, stops or fails.
 export function reservationUsd(model: string, bundleTokenCount: number): number {
   const p = priceFor(model);
-  return (MAX_ROUNDS * (bundleTokenCount + HISTORY_ALLOWANCE_TOKENS) * p.input * CACHE_WRITE
-    + MAX_ROUNDS * MAX_TOKENS * p.output) / 1_000_000;
+  return ((MAX_ROUNDS + 1) * (bundleTokenCount + HISTORY_ALLOWANCE_TOKENS) * p.input * CACHE_WRITE
+    + (MAX_ROUNDS + 1) * MAX_TOKENS * p.output) / 1_000_000;
 }

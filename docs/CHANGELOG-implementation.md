@@ -5362,3 +5362,12 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 ### WATBOT-FB-R4 — hook test: mock the feedback hook and add a positive control
 - `useWatBotConversation.test.tsx`: the "no block events leaves no tutor item" test rendered `WatBotMessages` with `feedback` but the file's `@workspace/api-client-react` mock lacked `useSubmitWatBotFeedback`, so a regression would have thrown a mock error instead of failing the assertion, and nothing proved the line could render in this harness. Added the hook to the mock and a positive control (block + `done {messageId: 21}` renders `watbot-feedback`).
 - Verified red: with `latestTutor` reverted to the old `.find(kind === "tutor")`, the negative test fails on `expected <div> to be null`; the product file was restored. Tests only.
+
+### WATBOT-FB-R4 — post-merge review fixes (engine, routes, contract)
+- **R3 round budget:** a rejected record no longer uses up a round (`bonus = 1`, at most once per question; `round > MAX_ROUNDS + bonus`). `MAX_ROUNDS` stays 4. `reservationUsd` (`cost.ts`) now multiplies by `MAX_ROUNDS + 1` so the bonus round stays inside the D21 spend reservation (super-model reservation ≈ $0.045 → ≈ $0.056).
+- **Search query shown to the student** now passes `passesValueCheck`; otherwise the studio shows "the course book". The search itself still uses the real query.
+- **`reforce`** is cleared when the same response also records a valid type.
+- **Contract:** the feedback operation declares its 403 (locked model). Codegen produced no output diff.
+- **Comments** reworded: forcing happens on round 1 and the round after an R3 rejection.
+- **Claim test** gated on a promise instead of two 12 s sleeps (was ~24 s).
+- No change to `SYSTEM_PROMPT`, `REPLY_RULES`, `REPAIR_RULES` or `TOOLS`, so no test-set re-run is needed.

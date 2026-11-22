@@ -6,7 +6,7 @@ import type { BundleDoc } from "./passages.js";
 // Frozen per deploy: system and tools must be identical on every round of a
 // question, or the cache holding the reading-list bundle is invalidated (spec D18,
 // D19). tool_choice is the one per-round difference: the engine forces
-// record_message_type on round 1 (FORCE_RECORD_TYPE) for FORCE_RECORD_MODELS, `auto` after. Any edit to SYSTEM_PROMPT, REPLY_RULES or TOOLS
+// record_message_type on round 1 and the round after an R3 rejection (FORCE_RECORD_TYPE) for FORCE_RECORD_MODELS, `auto` after. Any edit to SYSTEM_PROMPT, REPLY_RULES or TOOLS
 // needs a passing test-set run before it ships (spec §7, FR-44).
 export const SYSTEM_PROMPT = `You are WatBot, the Socratic tutor for Network Optimization Studio, a course on supply chain network design built on the book "Supply Chain Network Design" by Watson et al. The course materials for the student's chapter model are provided as documents; you may also call search_book to find passages elsewhere in the book.
 
@@ -66,7 +66,7 @@ export const repairQuestion = (question: string, reason: WatBotRepairReason) =>
 export const excludedTypeResult = (type: WatBotMessageType) =>
   `The student said your previous reply did not answer what they asked, so ${type} is ruled out. Record a different type.`;
 
-export const FORCE_RECORD_TYPE = { type: "tool", name: "record_message_type" } as const; // engine, round 1 only
+export const FORCE_RECORD_TYPE = { type: "tool", name: "record_message_type" } as const; // engine: round 1 and the round after an R3 rejection
 // Models known to accept forced tool use with thinking on; others 400 on it (Opus/Sonnet 5.5), so they keep auto.
 export const FORCE_RECORD_MODELS: ReadonlySet<string> = new Set(["claude-haiku-5-5"]);
 
@@ -134,7 +134,7 @@ export function buildRequest(input: {
     max_tokens: MAX_TOKENS,
     system: [{ type: "text", text: SYSTEM_PROMPT }],
     tools: TOOLS,
-    tool_choice: { type: "auto" }, // rounds 2+; the engine forces round 1 (FORCE_RECORD_TYPE)
+    tool_choice: { type: "auto" }, // rounds 2+; the engine forces round 1 and the round after an R3 rejection (FORCE_RECORD_TYPE)
     output_config: { effort: "low" },
     messages,
   } as Anthropic.MessageStreamParams;

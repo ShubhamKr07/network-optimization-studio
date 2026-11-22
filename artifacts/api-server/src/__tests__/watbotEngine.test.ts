@@ -188,10 +188,10 @@ describe("costUsd and the D21 reservation", () => {
     const usd = costUsd("claude-haiku-5-5", { input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000 } as Anthropic.Usage);
     expect(usd).toBeCloseTo(0.10 + 0.50 + 0.01 + 0.125, 6);
   });
-  it("reserves 4 × (bundle + 10K) at the cache-write price + 4 × max_tokens at the output price", () => {
-    // spec §5: super-model's 63.8K bundle reserves ≈ $0.045
-    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(4 * 73_800 * 0.125 / 1e6 + 4 * 4000 * 0.5 / 1e6, 9);
-    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(0.045, 3);
+  it("reserves 5 × (bundle + 10K) at the cache-write price + 5 × max_tokens at the output price", () => {
+    // 4 rounds + the one bonus round an R3 rejection can add; super-model's 63.8K bundle reserves ≈ $0.056
+    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(5 * 73_800 * 0.125 / 1e6 + 5 * 4000 * 0.5 / 1e6, 9);
+    expect(reservationUsd("claude-haiku-5-5", 63_800)).toBeCloseTo(0.056, 3);
   });
   it("estimates bundle tokens as characters ÷ 4", () => {
     expect(bundleTokens(bundle)).toBe(Math.round((bundle[0]!.passages[0]!.body.length + bundle[0]!.passages[1]!.body.length) / 4));
@@ -333,6 +333,47 @@ describe("answerQuestion", () => {
     expect(client.calls.map((c) => c.tool_choice)).toEqual([
       { type: "tool", name: "record_message_type" }, { type: "tool", name: "record_message_type" }, { type: "auto" },
     ]);
+  });
+
+  // Review fix 1: a rejection is not a round against the budget (once per question).
+  it("a rejected record does not use up a round: reject, record, search, search, answer completes", async () => {
+    const client = fakeClient([
+      toolRound("t1", "record_message_type", { type: "concept_question" }),
+      toolRound("t2", "record_message_type", { type: "stuck_or_wants_answer" }),
+      toolRound("s1", "search_book", { query: "a" }),
+      toolRound("s2", "search_book", { query: "b" }),
+      answerRound("What does the passage say about it?"),
+    ]);
+    const events: EngineEvent[] = [];
+    const result = await answerQuestion(baseInput(client, { repair: { rule: null, excludeType: "concept_question" }, deps: { searchBook: vi.fn().mockResolvedValue([]) }, emit: (e) => events.push(e) }));
+    expect(result.failure).toBeNull();
+    expect(result.messageType).toBe("stuck_or_wants_answer");
+    expect(events.some((e) => e.type === "block")).toBe(true);
+    expect(client.calls).toHaveLength(MAX_ROUNDS + 1);
+  });
+
+  // Review fix 3: a valid record in the same response as the rejected one cancels the forced round.
+  it("does not force a round when the same response also records a valid type", async () => {
+    const two = { events: [] as Anthropic.RawMessageStreamEvent[], final: { stop_reason: "tool_use" as const, content: [
+      { type: "tool_use", id: "t1", name: "record_message_type", input: { type: "concept_question" } },
+      { type: "tool_use", id: "t2", name: "record_message_type", input: { type: "stuck_or_wants_answer" } },
+    ] as Anthropic.ToolUseBlock[] } };
+    const client = fakeClient([two, answerRound("What does the passage say about it?")]);
+    const result = await answerQuestion(baseInput(client, { repair: { rule: null, excludeType: "concept_question" } }));
+    expect(result.messageType).toBe("stuck_or_wants_answer");
+    expect(client.calls.map((c) => c.tool_choice)).toEqual([{ type: "tool", name: "record_message_type" }, { type: "auto" }]);
+  });
+
+  // Review fix 2: the displayed search query is value-checked; the search itself is not changed.
+  it("shows a plain search query as is, and 'the course book' for one carrying an unseen value", async () => {
+    for (const [query, shown] of [["aggregation", "aggregation"], ["optimal cost 1234567", "the course book"]] as const) {
+      const events: EngineEvent[] = [];
+      const searchBook = vi.fn().mockResolvedValue([]);
+      const client = fakeClient([toolRound("s1", "search_book", { query }), answerRound("Which part of it is unclear?")]);
+      await answerQuestion(baseInput(client, { emit: (e) => events.push(e), deps: { searchBook } }));
+      expect(events[0]).toEqual({ type: "searching", query: shown });
+      expect(searchBook).toHaveBeenCalledWith(query, []);
+    }
   });
 
   // F9 / Spec 1 D20 (revised): a citation does not make a leaked value safe, in any answer.

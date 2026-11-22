@@ -57,8 +57,8 @@ const textEvents = (index: number, text: string) => [
 
 // Plays the answer as one text block. With `type`, round 1 first calls
 // record_message_type (as the system prompt requires), round 2 answers.
-// `delayMs` holds each round open so concurrent requests overlap.
-function scriptedClient(text: string, opts: { type?: string; gap?: { topic: string; nearestCoveredTopic: string }; delayMs?: number } = {}): WatBotClient {
+// `delayMs` holds each round open so concurrent requests overlap; `gate` holds it until the test resolves it.
+function scriptedClient(text: string, opts: { type?: string; gap?: { topic: string; nearestCoveredTopic: string }; delayMs?: number; gate?: Promise<void> } = {}): WatBotClient {
   const tools = [
     ...(opts.type ? [{ type: "tool_use", id: "rt", name: "record_message_type", input: { type: opts.type } }] : []),
     ...(opts.gap ? [{ type: "tool_use", id: "lg", name: "log_gap", input: opts.gap }] : []),
@@ -76,6 +76,7 @@ function scriptedClient(text: string, opts: { type?: string; gap?: { topic: stri
         return {
           async *[Symbol.asyncIterator]() {
             if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
+            if (opts.gate) await opts.gate; // the test releases the round after its mid-flight assertions
             yield* events;
           },
           finalMessage: async () => (toolRound
@@ -702,7 +703,8 @@ describe("watbot routes", () => {
     const cookie = await registerAndGetCookie();
     const { id, tutorId } = await answered(cookie);
     const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
-    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", delayMs: 12000 })); // hold outlasts the 10 s poll cap below
+    let release!: () => void;
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", gate: new Promise<void>((r) => { release = r; }) }));
     const inFlight = ask(cookie, id, { question: "x", repairOf: fb.body.id }).then((r) => r); // .then starts the request
     // Poll for the claim: admission is several awaited queries, so a fixed sleep flakes under load.
     let mid: typeof watbotFeedbackTable.$inferSelect | undefined;
@@ -714,8 +716,9 @@ describe("watbot routes", () => {
     const during = await feedback(cookie, id, { messageId: tutorId, helped: true });
     expect(during.status).toBe(409);
     expect(during.body.error).toBe("watbot_busy");
+    release();
     expect((await inFlight).status).toBe(200);
-  }, 60_000); // each scripted round holds 12 s
+  });
 
   // F8: a claim whose student row has no tutor row after it died (crash, failure, stop) and can be taken again.
   it("re-claims a stale claim, and accepts a feedback write over it", async () => {

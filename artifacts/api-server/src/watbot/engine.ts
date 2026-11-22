@@ -82,7 +82,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   const searchBook = input.deps?.searchBook ?? defaultSearchBook;
   const gate: RoundGate = input.gate ?? { requeue: (ms) => waitFor(ms, input.signal) };
   // Built once: model, system and tools stay byte-identical across rounds; only
-  // `messages` grows. tool_choice is forced to record_message_type on round 1 only:
+  // `messages` grows. tool_choice is forced to record_message_type on round 1 and on the round after an R3 rejection:
   // left to `auto`, Haiku skipped the call on 12-16 of 40 attempt statements and
   // answered them directly. Measured: round 2 under `auto` still reads the bundle
   // cache after a forced round 1. The search cap stays in the tool result (D19).
@@ -91,6 +91,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   const out = emptyAnswerResult(input.model);
   let searches = 0;
   let requeues = 0;
+  let bonus = 0;       // R3: a rejected round does not count against MAX_ROUNDS (once per question)
   let reforce = false; // WATBOT-FB R3: a rejected (ruled-out) type forces the next round to record again
 
   const addUsage = (u: Anthropic.Usage) => {
@@ -154,7 +155,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
 
   try {
     for (let round = 1; ; round++) {
-      if (round > MAX_ROUNDS) return finish({ failure: "round_limit" });
+      if (round > MAX_ROUNDS + bonus) return finish({ failure: "round_limit" });
       let final!: Anthropic.Message;
       let transientRetries = 0; // per round
       const force = round === 1 || reforce;
@@ -193,6 +194,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           if (isMessageType(type) && out.messageType === null && type === input.repair?.excludeType) {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: excludedTypeResult(type) });
             reforce = true;
+            bonus = 1;
           } else if (isMessageType(type)) {
             out.messageType ??= type; // first call wins; a second call cannot relabel the message
             const rule = REPLY_RULES[out.messageType]; // ...nor switch its rule
@@ -208,7 +210,8 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           }
           searches++;
           const query = String((tu.input as { query?: unknown }).query ?? "");
-          input.emit({ type: "searching", query });
+          // The student sees the query, so it passes the same value check as a block.
+          input.emit({ type: "searching", query: passesValueCheck(query, input.facilityNames, input.shownFacts ?? "") ? query : "the course book" });
           const hits = await searchBook(query, input.readingList);
           results.push({ type: "tool_result", tool_use_id: tu.id, content: hits.length
             ? hits.map((h) => ({ type: "search_result", source: `passage:${h.id}`, title: h.label, content: [{ type: "text", text: h.body }], citations: { enabled: true } })) as never
@@ -222,6 +225,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Unknown tool ${tu.name}.` });
         }
       }
+      reforce &&= out.messageType === null; // a valid record in the same response cancels the forced round
       messages = [...messages, { role: "assistant", content: final.content }, { role: "user", content: results }];
     }
   } catch (err) {
