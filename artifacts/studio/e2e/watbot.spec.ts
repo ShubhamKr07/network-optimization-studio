@@ -204,7 +204,12 @@ const REPAIR_SSE = [
   sseEvent("block", { text: "Here is a plainer explanation of the objective", citations: [] }),
   sseEvent("done", { messageId: 902 }),
 ].join("");
-const REPAIR_LABEL = "↻ Explain it directly, without asking me questions first";
+// Real strings from REPAIR_LABELS in artifacts/api-server/src/watbot/prompt.ts (hard-coded on purpose: a drifted label must fail here).
+const REASON_CASES = [
+  { radio: "It kept asking me questions instead of explaining", reason: "too_many_questions", label: "↻ Explain with fewer questions" },
+  { radio: "The explanation was hard to follow", reason: "hard_to_follow", label: "↻ Explain it step by step" },
+  { radio: "It didn't answer what I asked", reason: "not_what_i_asked", label: "↻ That's not what I asked" },
+] as const;
 const RATING_Q = "Did this help you understand the topic?";
 
 /** Stubs the messages route with a per-call body list and records each POST body. */
@@ -222,7 +227,7 @@ async function stubFeedback(page: Page, reply: { id: number; repairLabel: string
   const posts: unknown[] = [];
   await page.route("**/api/watbot/conversations/77/feedback", async (r) => {
     posts.push(r.request().postDataJSON());
-    await r.fulfill({ status: 200, json: reply });
+    await r.fulfill({ status: 201, json: reply }); // routes/watbot.ts answers feedback with 201
   });
   return posts;
 }
@@ -249,34 +254,45 @@ test("WatBot feedback: ✓ stores helped and thanks the student", async ({ page 
   await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
 });
 
-test("WatBot feedback: ✗ + reason 1 posts feedback, then a repairOf re-answer with a fresh rating line", async ({ page }) => {
-  test.setTimeout(60_000);
-  await registerFreshAccount(page, "fb-repair");
-  await stubWatBot(page);
-  const fbPosts = await stubFeedback(page, { id: 31, repairLabel: REPAIR_LABEL });
-  const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE, REPAIR_SSE]);
-  const panel = await openPanel(page);
-  await askFixed(panel);
-  await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
-  await panel.getByRole("radio", { name: "It kept asking me questions instead of explaining" }).check({ timeout: T });
-  await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
+/** The rating line must be in its initial state: ✗ collapsed, no radios rendered. */
+async function expectFreshRatingLine(panel: ReturnType<Page["getByTestId"]>) {
+  const line = panel.getByTestId("watbot-feedback");
+  await expect(line.getByRole("button", { name: "No, this didn't help" })).toHaveAttribute("aria-expanded", "false", { timeout: T });
+  await expect(line.getByRole("radio")).toHaveCount(0);
+}
 
-  const messages = panel.getByTestId("watbot-messages");
-  await expect(messages.locator('[data-role="student"]').last()).toHaveText(REPAIR_LABEL, { timeout: T });
-  await expect(messages.locator('[data-role="tutor"]').last()).toContainText("plainer explanation", { timeout: T });
-  expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "too_many_questions" }]);
-  expect(msgPosts).toHaveLength(2);
-  expect(msgPosts[1]).toEqual({ question: REPAIR_LABEL, context: null, repairOf: 31 });
-  // A fresh rating line sits under the NEW answer (exactly one, and it is after the last tutor row).
-  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(1, { timeout: T });
-  const order = await messages.evaluate((el) => {
-    const kids = Array.from(el.children);
-    const fb = kids.findIndex((k) => k.getAttribute("data-testid") === "watbot-feedback");
-    const lastTutor = kids.map((k) => k.getAttribute("data-role")).lastIndexOf("tutor");
-    return { fb, lastTutor };
+for (const { radio, reason, label } of REASON_CASES) {
+  test(`WatBot feedback: ✗ + "${radio}" posts ${reason}, then a repairOf re-answer with a fresh rating line`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await registerFreshAccount(page, `fb-repair-${reason}`);
+    await stubWatBot(page);
+    const fbPosts = await stubFeedback(page, { id: 31, repairLabel: label });
+    const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE, REPAIR_SSE]);
+    const panel = await openPanel(page);
+    await askFixed(panel);
+    await expectFreshRatingLine(panel);
+    await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
+    await panel.getByRole("radio", { name: radio, exact: true }).check({ timeout: T });
+    await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
+
+    const messages = panel.getByTestId("watbot-messages");
+    await expect(messages.locator('[data-role="student"]').last()).toHaveText(label, { timeout: T });
+    await expect(messages.locator('[data-role="tutor"]').last()).toContainText("plainer explanation", { timeout: T });
+    expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason }]);
+    expect(msgPosts).toHaveLength(2);
+    expect(msgPosts[1]).toEqual({ question: label, context: null, repairOf: 31 });
+    // A fresh rating line sits under the NEW answer (exactly one, and it is after the last tutor row).
+    await expect(panel.getByTestId("watbot-feedback")).toHaveCount(1, { timeout: T });
+    await expectFreshRatingLine(panel);
+    const order = await messages.evaluate((el) => {
+      const kids = Array.from(el.children);
+      const fb = kids.findIndex((k) => k.getAttribute("data-testid") === "watbot-feedback");
+      const lastTutor = kids.map((k) => k.getAttribute("data-role")).lastIndexOf("tutor");
+      return { fb, lastTutor };
+    });
+    expect(order.fb).toBe(order.lastTutor + 1);
   });
-  expect(order.fb).toBe(order.lastTutor + 1);
-});
+}
 
 test("WatBot feedback: Other with a note shows the rephrase notice and runs no re-answer", async ({ page }) => {
   test.setTimeout(60_000);
@@ -286,12 +302,17 @@ test("WatBot feedback: Other with a note shows the rephrase notice and runs no r
   const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE]);
   const panel = await openPanel(page);
   await askFixed(panel);
+  await expectFreshRatingLine(panel);
+  const studentRows = await panel.getByTestId("watbot-messages").locator('[data-role="student"]').count();
   await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
-  await panel.getByRole("radio", { name: "Other" }).check({ timeout: T });
+  await panel.getByRole("radio", { name: "Other", exact: true }).check({ timeout: T });
   await panel.getByRole("textbox", { name: /What's still unclear/ }).fill("I don't get step 2");
   await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
   await expect(panel.getByTestId("watbot-messages").getByText("Try asking again in your own words, and say which step you're stuck on.")).toBeVisible({ timeout: T });
   expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "other", note: "I don't get step 2" }]);
+  // DOM-side negatives first (a re-answer would show Stop / a new student row); the POST count alone is timing-dependent.
+  await expect(panel.getByTestId("watbot-stop")).toHaveCount(0);
+  await expect(panel.getByTestId("watbot-messages").locator('[data-role="student"]')).toHaveCount(studentRows);
   expect(msgPosts).toHaveLength(1);
 });
 
@@ -303,11 +324,14 @@ test("WatBot feedback: reason 4 (still stuck) shows the rephrase notice and runs
   const msgPosts = await stubMessagesSequence(page, [ANSWER_SSE]);
   const panel = await openPanel(page);
   await askFixed(panel);
+  const studentRows = await panel.getByTestId("watbot-messages").locator('[data-role="student"]').count();
   await panel.getByRole("button", { name: "No, this didn't help" }).click({ timeout: T });
   await panel.getByRole("radio", { name: "I still don't know how to do the exercise" }).check({ timeout: T });
   await panel.getByRole("button", { name: "Send", exact: true }).click({ timeout: T });
   await expect(panel.getByText("Try asking again in your own words")).toBeVisible({ timeout: T });
   expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "still_stuck" }]);
+  await expect(panel.getByTestId("watbot-stop")).toHaveCount(0);
+  await expect(panel.getByTestId("watbot-messages").locator('[data-role="student"]')).toHaveCount(studentRows);
   expect(msgPosts).toHaveLength(1);
 });
 
@@ -341,7 +365,10 @@ test("WatBot feedback: usable by keyboard alone (arrow keys through the radios, 
   expect(fbPosts).toEqual([{ messageId: 901, helped: false, reason: "still_stuck" }]);
 });
 
-test("WatBot feedback: no rating line while an answer is streaming", async ({ page }) => {
+// While Stop is visible the last item is the new student row, so the line is hidden by structure alone; this test
+// does NOT cover the `!pending` guard itself (WatBotMessages.test.tsx does). It proves a new question hides the
+// line and that it returns under the new answer.
+test("WatBot feedback: a new question hides the line and it returns under the new answer", async ({ page }) => {
   test.setTimeout(60_000);
   await registerFreshAccount(page, "fb-stream");
   await stubWatBot(page);
@@ -365,4 +392,41 @@ test("WatBot feedback: no rating line while an answer is streaming", async ({ pa
   release();
   await expect(panel.getByTestId("watbot-stop")).toHaveCount(0, { timeout: T });
   await expect(panel.getByTestId("watbot-feedback")).toHaveCount(1, { timeout: T });
+});
+
+// Commit 57eb268d: the line belongs to the latest answer only and never falls back to an earlier one.
+test("WatBot feedback: a stopped second answer leaves no rating line (never falls back to the earlier answer)", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-stopped");
+  await stubWatBot(page);
+  await stubFeedback(page, { id: 36, repairLabel: null });
+  let n = 0;
+  await page.route("**/api/watbot/conversations/77/messages", async (r) => {
+    n++;
+    if (n === 1) { await r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: ANSWER_SSE }); return; }
+    await new Promise<void>(() => { /* hang until the client aborts */ });
+  });
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("textbox", { name: "Ask WatBot" }).fill("Another question?");
+  await panel.getByRole("button", { name: "Send question" }).click({ timeout: T });
+  await panel.getByRole("button", { name: "Stop generating" }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-messages").locator('[data-role="notice"]')).toHaveText("Answer stopped", { timeout: T });
+  await expect(panel.getByTestId("watbot-stop")).toHaveCount(0);
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
+});
+
+test("WatBot feedback: a second answer that errors with no blocks leaves no rating line", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "fb-errored");
+  await stubWatBot(page);
+  await stubFeedback(page, { id: 37, repairLabel: null });
+  await stubMessagesSequence(page, [ANSWER_SSE, sseEvent("error", { code: "watbot_failed" })]);
+  const panel = await openPanel(page);
+  await askFixed(panel);
+  await panel.getByRole("textbox", { name: "Ask WatBot" }).fill("Another question?");
+  await panel.getByRole("button", { name: "Send question" }).click({ timeout: T });
+  await expect(panel.getByTestId("watbot-error")).toBeVisible({ timeout: T });
+  await expect(panel.getByTestId("watbot-stop")).toHaveCount(0);
+  await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
 });

@@ -5322,3 +5322,12 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
   - The browser console showed only the documented dummy-PostHog-key 404s. The API log had no 500s.
 - **Verdict:** spec §8's "the table stays harmless" holds. A feature rollback needs no schema change, and `watbot_feedback` can stay.
 - The worktree is kept. Removing it waits for the owner's approval.
+
+### WATBOT-FB-7 test-quality review fold (e2e only)
+- **What:** `artifacts/studio/e2e/watbot.spec.ts` only; no product code changed.
+- **Streaming test** retitled "a new question hides the line and it returns under the new answer" and commented: while Stop is visible the last item is the student row, so it does not cover the `!pending` guard (`WatBotMessages.test.tsx` does).
+- **New:** two tests for "latest answer has no blocks, so no line and no fallback to an earlier answer" (commit `57eb268d`): a stopped second answer ("Answer stopped" notice) and a second answer that sends only an `error` event. Both go red when `latestTutor` is reverted to `[...items].reverse().find((x) => x.kind === "tutor")`.
+- **Reasons 1-3** are now generated tests over the label/reason pairs, asserting the exact feedback POST `reason` and the `repairOf` re-answer with the real `REPAIR_LABELS` strings.
+- **Negatives:** the two no-re-answer tests also assert `watbot-stop` count 0 and an unchanged student-row count before the POST-count check.
+- **Fidelity:** the feedback stub returns 201 like the route; fresh-line checks assert `aria-expanded="false"` and 0 radios; the "Other" radio uses `exact: true`.
+- **Result:** 19/19 green on two consecutive runs.
