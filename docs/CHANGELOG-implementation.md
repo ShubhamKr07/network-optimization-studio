@@ -5260,3 +5260,7 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Metrics:** `docs/ops/watbot-metrics.md` section 7, four queries; each run against local `nos_dev` inside a rolled-back fixture transaction and returned non-zero rows.
 - **Tests:** 8 new cases in `watbotRoutes.test.ts` (red 8 failed / 31 passed before the routes, green 39/39 after).
 - **Lead review fix (at cherry-pick):** the feedback route was registered twice (two identical blocks; Express used the first). The second copy was removed.
+
+## WATBOT-KEYS follow-up — drift guard knows Brazil's deviation (2026-11-22)
+
+- `artifacts/studio/src/__tests__/watbotEvalDefaults.test.ts` failed deterministically on `watbot-deploy-prep` since `9613f696`. That commit set Brazil `singleSource: false` in `eval/defaultInputs.json` (owner decision), and the guard still compared every model with `defaultInputsForModel` exactly. The guard now applies a named `DEVIATIONS` map (Brazil `singleSource: false` only), so every other field must still match. A second test fails if a deviation ever stops differing from the default. Found by the WATBOT-FB-3 engineer's studio run; it was on the base, not from that task.
