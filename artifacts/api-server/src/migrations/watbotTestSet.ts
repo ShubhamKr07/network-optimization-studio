@@ -75,7 +75,11 @@ async function keys(baseUrl: string): Promise<number> {
 async function simulatedStudent(client: WatBotClient, model: string, persona: Persona, modelName: string, transcript: HistoryTurn[]) {
   // Roles flipped: the simulated student is the assistant, WatBot's replies are the user turns.
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: "Begin. Write your first message to the tutor." }];
-  for (const t of transcript) messages.push({ role: t.role === "student" ? "assistant" : "user", content: t.text });
+  // An answer can forward nothing (F9 drops every unchecked block): the real student then sees only a
+  // notice, and the API rejects an empty message. The tutor's own history drops such turns (buildRequest).
+  const shown = (t: HistoryTurn) => t.text.trim()
+    || (t.role === "tutor" ? "(The tutor's reply was removed; you only saw a notice that a claim couldn't be supported.)" : "(no message)");
+  for (const t of transcript) messages.push({ role: t.role === "student" ? "assistant" : "user", content: shown(t) });
   const final = await client.messages.stream({
     model, max_tokens: 300, messages,
     system: [{ type: "text", text: `You are role-playing a student using an AI tutor inside a supply chain network design course app, working on the "${modelName}" model. Persona: ${persona.brief} Write only the student's next message: one to three sentences, no quotation marks, no narration.` }],

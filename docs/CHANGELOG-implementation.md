@@ -5331,3 +5331,10 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Negatives:** the two no-re-answer tests also assert `watbot-stop` count 0 and an unchanged student-row count before the POST-count check.
 - **Fidelity:** the feedback stub returns 201 like the route; fresh-line checks assert `aria-expanded="false"` and 0 radios; the "Other" radio uses `exact: true`.
 - **Result:** 19/19 green on two consecutive runs.
+
+## WATBOT-FB-6 fix — the persona simulator crashed on an empty tutor reply (2026-11-22)
+
+- **What happened.** The approved paid re-run failed with an API 400: `messages.4: user messages must have non-empty content`. That came from `simulatedStudent`, which replays each tutor turn as a user message. In a persona's turn 2, the tutor reply forwarded **nothing**, because F9 dropped every block. All 115 test-set messages had already been answered, so the partial run was billed. Its cost is unknown, because the runner prints usage only at the end.
+- **Diagnosis.** An offline replay of all 115 cases through the engine, using a fake client that rejects empty user content, found 0 empty requests. That rules out the engine.
+- **Fix.** The simulator now sees the notice the real student would see in place of an empty turn. The tutor's own history is unchanged: production's `buildRequest` already drops empty turns, so the runner keeps passing the real, empty text.
+- **What it shows.** This is the first live sighting of a fully empty reply caused by F9, the cost the owner reviews in the claim-removed and empty-reply figures.
