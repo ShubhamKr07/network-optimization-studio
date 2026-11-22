@@ -991,5 +991,11 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
 ### Task 8: gates and the pipeline stop
 
 - [ ] Run `pnpm gate` (exit 3 means a timeout, so re-run serially), then `E2E_BASE_URL=http://localhost:<studio-port> pnpm e2e:gate`, then `python3 artifacts/api-server/src/solver/tests/e2e_accuracy.py`.
+- [ ] **Rollback rehearsal (spec §8):**
+  1. In a detached worktree at the branch tip (`git worktree add --detach /Users/shubhamkr/nos-wt/watbot-fb-rollback <tip>`; no branch, so nothing needs `git branch -D`), `git revert --no-edit` the WATBOT-FB-1…5 commits, newest first.
+  2. Start the api-server and studio against local `nos_dev`, which still holds `watbot_feedback` with this branch's rows.
+  3. Ask a question, and open a conversation with a ↻ row from history.
+  4. Expect no errors in the browser console or the server log.
+  5. Record the result in the changelog. Removing the worktree (`git worktree remove <that exact path>`) needs the owner's approval, per branch discipline.
 - [ ] Invoke `superpowers:finishing-a-development-branch`, then `/harness-retro WATBOT-FB`.
 - [ ] **STOP: ask for merge approval.** `watbot-feedback` contains `watbot-deploy-prep`, so merging it into local `main` brings in both. Then come the whole-branch review of the merged range, the pushes, the **production `drizzle-kit push` for `watbot_feedback`**, the corpus load and the deploy. Each of those is its own approval, in the existing order.

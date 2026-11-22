@@ -159,7 +159,59 @@ New queries in `docs/ops/watbot-metrics.md`, by model and by the rated answer's 
     The owner reviews both before ship.
   - A passing paid run is needed before ship (the last full run cost $0.2524). It needs explicit approval, like every paid run.
 
-## 8. Out of scope
+## 8. Rollout and rollback
+
+### Rollout order
+
+1. **Production schema push** of `watbot_feedback` (`docs/ops/schema-push-before-deploy.md`).
+2. **Deploy nos-api**, then **deploy nos-studio**.
+
+This order matters for version skew. An old studio against a new API simply shows no rating line, which is safe. A new studio against an old API gets 404 from `POST …/feedback`, so the student sees "Could not send your feedback" and no re-answer runs. That isn't harmful, but it is broken UX, so the API goes first. After any push, check `list_deploys` (render-ops skill).
+
+### Rollback units
+
+Each unit is a commit, or a run of commits, that can be reverted on its own. The SHAs are recorded in the changelog as each task lands.
+
+| Unit | Commits | What a revert removes | What stays |
+|---|---|---|---|
+| R-A · Whole feature | WATBOT-FB-1…5 | Rating line, endpoint, `repairOf`, repair rules, F9's cited check | WatBot Spec 1 itself; the `watbot_feedback` table and its rows |
+| R-B · Re-answers only | the `repairOf` and `REPAIR_*` parts of FB-2/3 and the studio's `onRepair` (FB-4) | Reasons 1–3 re-answering. The studio then shows the rephrase notice for every ✗, and ratings are still stored | Tracking |
+| R-C · Cited-block check only | the one-line `keep` change in FB-2 (F9 / Spec 1 D20 revised) | The value check on cited blocks | Everything else |
+
+R-C exists because F9's cost isn't measured until Task 6. If production shows a high empty-reply or claim-removed rate, R-C restores the original D20 without touching the feature.
+
+### Triggers
+
+Any of these is grounds to roll back. The owner decides.
+
+- **R-A or R-B:**
+  - A re-answer leaks an optimal facility set, an objective value or a complete formulation in production (a report, or the metrics queries).
+  - 5xx errors on `POST …/feedback` or on re-answers (Sentry).
+  - A re-answer that bypasses the 50/24 h limit or the monthly cap.
+- **R-C:** the empty-reply rate, or a rise in claim-removed notices, makes answers unusable.
+
+### How
+
+1. **Fastest restore.** Roll the affected service back to its previous deploy in the Render Dashboard: nos-api first if both are affected, then nos-studio.
+   - Rolling back nos-api past the first WatBot deploy removes WatBot entirely, so prefer a revert for a feature-only rollback.
+   - A Dashboard rollback leaves `main` ahead of what's deployed. Follow it with the revert commit below, so the next deploy doesn't re-ship the problem.
+2. **Revert.** Revert the unit's commits on a new branch (`git revert <sha>…`, never a force-push), then go through the normal pipeline. Merge, review, push and deploy are each their own approval.
+   - Reverting the prompt text (`REPAIR_RULES`) back to the last state that passed the test set needs no new paid run.
+   - A partial revert that leaves a new prompt combination needs one (Spec 1 §7).
+3. **Data.** **Do not drop `watbot_feedback`.** Code without the feature never reads it, and older code doesn't list it, so the table is harmless either way and its rows keep the feedback already given. Re-answer student rows stay in `watbot_messages` as ordinary student text (the ↻ label). Dropping the table is a separate, explicit decision, after a backup.
+4. **Approvals.** A rollback deploy is still a deploy. It needs the owner's explicit yes, with the `pnpm deploy:preflight` checklist, exactly like a forward deploy (CLAUDE.md branch discipline, step 7).
+
+### Rehearsal
+
+Before merge, Task 8 rehearses R-A locally:
+1. Revert the WATBOT-FB commits on a scratch branch.
+2. Start the API and studio against a `nos_dev` that still holds `watbot_feedback` with rows.
+3. Ask a question and load an old conversation that contains a ↻ row.
+4. Expect no errors.
+
+Then delete the scratch branch. This proves the "table stays harmless" claim instead of assuming it.
+
+## 9. Out of scope
 
 - A teaching-team view of ratings (SQL-only, like reports and gaps).
 - PostHog events.
