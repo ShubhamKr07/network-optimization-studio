@@ -5354,3 +5354,7 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **The leak bars pass:** 0 leaks in every bucket, and 0% skipped record.
 - **The claim-removed and empty-reply rates are new** and have no earlier baseline. They count every dropped block: an uncited claim, which Spec 1 always dropped, and F9's cited-value drops alike. This run cannot attribute them between the two.
 - **Owner review is pending** (plan Task 6, Step 4b).
+- **Owner decision (2026-11-22): A, accept as is.** The run gates the ship. The rates are to be watched in production through the stored "claim removed" notice rows and the empty tutor rows.
+- **Follow-ups, deferred by that decision:**
+  1. **Attribute dropped blocks.** The engine would count cited-check (F9) drops separately from uncited drops, so the R-C rollback trigger can be judged on a measured F9 share.
+  2. **Off-topic declines.** 5 of 20 replies were empty, probably because Spec 1's uncited-claim rule drops a decline sentence the prompt says not to cite. The prompt or the filter needs fixing, and either change needs its own test-set run.
