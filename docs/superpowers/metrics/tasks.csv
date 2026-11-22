@@ -54,3 +54,4 @@ SEC,sec-medium-fixes,2026-10-30T17:09:32+05:30,2026-10-30T17:29:29+05:30,unknown
 DU-5,design-upgrade-p5,2026-11-04T03:42:48+05:30,2026-11-04T05:11:31+05:30,unknown,no,no,1,89,unknown,unknown,unknown,unknown
 CH10-UNHIDE,ch10-unhide,2026-11-09T17:35:41+05:30,2026-11-09T17:35:41+05:30,unknown,yes,no,1,0,unknown,491e5f677fdab6127269cc63531c5273ac98ebcc,no,unknown
 WATBOT,watbot-panel,2026-11-20T13:44:52+05:30,2026-11-20T18:27:22+05:30,unknown,yes,no,2,283,unknown,0a5433118f2436a9d971fb063f0ef3ff72ff210e,no,0
+WATBOT-FB,watbot-feedback,2026-11-22T15:13:25+05:30,2026-11-22T17:18:49+05:30,unknown,no,yes,1,125,unknown,9a2e66e3a1fc0abc16870859567ba02d45326ddf,no,0
