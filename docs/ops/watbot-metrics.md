@@ -114,3 +114,51 @@ order by 1 desc, 2;
 **Leak rate** is not SQL: it is the per-type table printed by the latest
 `watbot-test-set run` (Task 11), pasted into the deploy record. **The
 correct-formulation share** arrives with Spec 2.
+
+## 7. Answer feedback (WATBOT-FB)
+
+Student ratings (`watbot_feedback`, one row per tutor answer) and the re-answers they trigger. Ratings are optional, so every rate below is over rated answers only: read `coverage` first. Each query was run against a local database holding a rated, re-answered, re-rated conversation and returned non-zero rows.
+
+```sql
+-- Helped rate and coverage, by model
+select c.model_id,
+       count(f.id)                                         as rated,
+       round(avg(case when f.helped then 1.0 else 0 end), 3) as helped_rate,
+       round(count(f.id)::numeric / nullif(count(t.id), 0), 3) as coverage
+from watbot_messages t
+join watbot_conversations c on c.id = t.conversation_id
+left join watbot_feedback f on f.message_id = t.id
+where t.role = 'tutor' and jsonb_array_length(t.blocks) > 0
+group by c.model_id;
+
+-- ✗ reasons, by the rated answer's message type
+select coalesce(s.message_type, '(not recorded)') as message_type, f.reason, count(*)
+from watbot_feedback f
+join lateral (select message_type from watbot_messages s
+              where s.conversation_id = f.conversation_id and s.role = 'student' and s.id < f.message_id
+              order by s.id desc limit 1) s on true
+where not f.helped
+group by 1, 2 order by 1, 3 desc;
+
+-- Repair outcome: did the re-answer's own rating come back ✓?
+-- helped_after is the ✓ share among RATED re-answers only; an unrated one is neither (spec §6).
+select f.reason, count(*) as repairs,
+       count(f2.id) as re_rated,
+       round(avg(case when f2.helped then 1.0 else 0 end) filter (where f2.id is not null), 3) as helped_after_rated
+from watbot_feedback f
+join lateral (select id from watbot_messages t where t.conversation_id = f.conversation_id and t.role = 'tutor'
+              and t.id > f.repair_message_id order by t.id limit 1) t on true
+left join watbot_feedback f2 on f2.message_id = t.id
+where f.repair_message_id is not null
+group by f.reason;
+
+-- R3 corrections: original type → re-answer type
+select coalesce(o.message_type, '(not recorded)') as original, coalesce(r.message_type, '(not recorded)') as corrected, count(*)
+from watbot_feedback f
+join watbot_messages r on r.id = f.repair_message_id
+join lateral (select message_type from watbot_messages s
+              where s.conversation_id = f.conversation_id and s.role = 'student' and s.id < f.message_id
+              order by s.id desc limit 1) o on true
+where f.reason = 'not_what_i_asked'
+group by 1, 2 order by 3 desc;
+```

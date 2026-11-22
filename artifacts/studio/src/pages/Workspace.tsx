@@ -1476,6 +1476,7 @@ const WATBOT_ERROR_COPY: Record<string, string> = {
   watbot_refused: "I can't help with that one.",
   watbot_failed: "Something went wrong. Try again.",
   watbot_busy: "WatBot is still answering your last question.",
+  watbot_feedback_locked: "That answer was already re-answered.",
   watbot_project_limit: "WatBot has reached its monthly limit. It will be back next month.",
   watbot_student_limit: "You've reached your question limit for now. Try again later.",
   watbot_unavailable: "WatBot is unavailable right now. Your conversation is saved.",

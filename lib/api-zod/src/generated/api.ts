@@ -1377,6 +1377,8 @@ export const askWatBotBodyQuestionMax = 2000;
 
 export const askWatBotBodyContextScenarioIdMax = 2147483647;
 
+export const askWatBotBodyRepairOfMax = 2147483647;
+
 
 
 export const AskWatBotBody = zod.object({
@@ -1384,7 +1386,8 @@ export const AskWatBotBody = zod.object({
   "context": zod.object({
   "tab": zod.union([zod.literal('input-map'),zod.literal('products'),zod.literal('plants'),zod.literal('warehouses'),zod.literal('customers'),zod.literal('demand'),zod.literal('distances'),zod.literal('optimization-parameters'),zod.literal('mines'),zod.literal('stations'),zod.literal('refineries'),zod.literal('capability-matrix'),zod.literal('output-map'),zod.literal('cost-summary'),zod.literal('open-warehouses'),zod.literal('customer-assignments'),zod.literal('flows'),zod.literal('service-stats'),zod.literal('plantProducts'),zod.literal('transportCosts'),zod.literal('deliveryCosts'),zod.literal('laneCosts'),zod.literal(null)]).nullable(),
   "scenarioId": zod.number().min(1).max(askWatBotBodyContextScenarioIdMax).nullable()
-}).nullable()
+}).nullable(),
+  "repairOf": zod.number().min(1).max(askWatBotBodyRepairOfMax).optional()
 })
 
 
@@ -1419,6 +1422,27 @@ export const SubmitWatBotReportBody = zod.object({
   "messageId": zod.number().min(1).max(submitWatBotReportBodyMessageIdMax),
   "reason": zod.enum(['wrong_or_misleading', 'citation_unsupported', 'not_what_i_asked', 'other']),
   "note": zod.string().max(submitWatBotReportBodyNoteMax).optional()
+})
+
+
+/**
+ * @summary Rate a WatBot answer (helped / did not help, with a reason on not helped)
+ */
+export const SubmitWatBotFeedbackParams = zod.object({
+  "conversationId": zod.coerce.number()
+})
+
+export const submitWatBotFeedbackBodyMessageIdMax = 2147483647;
+
+export const submitWatBotFeedbackBodyNoteMax = 500;
+
+
+
+export const SubmitWatBotFeedbackBody = zod.object({
+  "messageId": zod.number().min(1).max(submitWatBotFeedbackBodyMessageIdMax),
+  "helped": zod.boolean(),
+  "reason": zod.enum(['too_many_questions', 'hard_to_follow', 'not_what_i_asked', 'still_stuck', 'other']).optional(),
+  "note": zod.string().max(submitWatBotFeedbackBodyNoteMax).optional()
 })
 
 

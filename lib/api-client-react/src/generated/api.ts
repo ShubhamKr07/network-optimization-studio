@@ -72,6 +72,8 @@ import type {
   WatBotConversation,
   WatBotConversationSummary,
   WatBotError,
+  WatBotFeedbackRequest,
+  WatBotFeedbackResponse,
   WatBotPassage,
   WatBotReportRequest,
   WatBotStatus
@@ -3043,5 +3045,77 @@ export const useSubmitWatBotReport = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSubmitWatBotReportMutationOptions(options));
+    }
+
+export const getSubmitWatBotFeedbackUrl = (conversationId: number,) => {
+
+
+
+
+  return `/api/watbot/conversations/${conversationId}/feedback`
+}
+
+/**
+ * @summary Rate a WatBot answer (helped / did not help, with a reason on not helped)
+ */
+export const submitWatBotFeedback = async (conversationId: number,
+    watBotFeedbackRequest: WatBotFeedbackRequest, options?: RequestInit): Promise<WatBotFeedbackResponse> => {
+
+  return customFetch<WatBotFeedbackResponse>(getSubmitWatBotFeedbackUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      watBotFeedbackRequest,)
+  }
+);}
+
+
+
+
+export const getSubmitWatBotFeedbackMutationOptions = <TError = ErrorType<ErrorEnvelope | WatBotError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitWatBotFeedback>>, TError,{conversationId: number;data: BodyType<WatBotFeedbackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitWatBotFeedback>>, TError,{conversationId: number;data: BodyType<WatBotFeedbackRequest>}, TContext> => {
+
+const mutationKey = ['submitWatBotFeedback'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitWatBotFeedback>>, {conversationId: number;data: BodyType<WatBotFeedbackRequest>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  submitWatBotFeedback(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitWatBotFeedbackMutationResult = NonNullable<Awaited<ReturnType<typeof submitWatBotFeedback>>>
+    export type SubmitWatBotFeedbackMutationBody = BodyType<WatBotFeedbackRequest>
+    export type SubmitWatBotFeedbackMutationError = ErrorType<ErrorEnvelope | WatBotError>
+
+    /**
+ * @summary Rate a WatBot answer (helped / did not help, with a reason on not helped)
+ */
+export const useSubmitWatBotFeedback = <TError = ErrorType<ErrorEnvelope | WatBotError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitWatBotFeedback>>, TError,{conversationId: number;data: BodyType<WatBotFeedbackRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitWatBotFeedback>>,
+        TError,
+        {conversationId: number;data: BodyType<WatBotFeedbackRequest>},
+        TContext
+      > => {
+      return useMutation(getSubmitWatBotFeedbackMutationOptions(options));
     }
 

@@ -1,11 +1,11 @@
 // artifacts/api-server/src/routes/watbot.ts
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import {
-  db, scenariosTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable,
-  type WatBotContext, type WatBotMessageStatus,
+  db, scenariosTable, watbotConversationsTable, watbotFeedbackTable, watbotMessagesTable, watbotReportsTable,
+  type WatBotContext, type WatBotMessageStatus, type WatBotMessageType,
 } from "@workspace/db";
-import { AskWatBotBody, CreateWatBotConversationBody, SubmitWatBotReportBody } from "@workspace/api-zod";
+import { AskWatBotBody, CreateWatBotConversationBody, SubmitWatBotFeedbackBody, SubmitWatBotReportBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth.js";
 import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { getManifest, listModels } from "../registry/modelRegistry.js";
@@ -18,6 +18,7 @@ import {
   type AnswerResult, type RoundGate,
 } from "../watbot/engine.js";
 import type { WatBotErrorCode } from "../watbot/errors.js";
+import { isRepairReason, REPAIR_LABELS, REPAIR_RULES, repairQuestion, type WatBotRepairReason } from "../watbot/prompt.js";
 import { bundleTokens, reservationUsd } from "../watbot/cost.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { getPassage, loadBundle, maxBundleTokens } from "../watbot/passages.js";
@@ -50,6 +51,99 @@ async function projectCapReached() {
   const worst = reservationUsd(model, await maxBundleTokens(listModels().map((m) => getManifest(m.id)?.tutor?.readingList ?? [])));
   return projectCapFlagged() || (await monthlySpendUsd()) + reservedUsd() + worst >= monthlyCapUsd();
 }
+
+type BuiltContext = { context: WatBotContext | null; shownFacts: string; contextScenarioInputs: unknown };
+
+// Context summary is built server-side from the owned scenario row, never from client text (D20).
+// dropMissingScenario: a re-answer whose source scenario is gone keeps the tab only (spec §4).
+async function buildContext(tab: string | null, scenarioId: number | null, userId: string, modelId: string,
+  { dropMissingScenario }: { dropMissingScenario: boolean }): Promise<BuiltContext | null> {
+  let summary = tab ? `Tab: ${tab}` : "";
+  let shownFacts = "";
+  let contextScenarioInputs: unknown = undefined;
+  let keptScenarioId: number | null = null;
+  if (scenarioId != null) {
+    const [row] = await db.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, userId)));
+    if (row && row.modelId === modelId) {
+      const s = summarizeScenario(row);
+      summary += ` · ${s.summary}`;
+      shownFacts = s.facts;
+      contextScenarioInputs = row.inputs;
+      keptScenarioId = scenarioId;
+    } else if (!dropMissingScenario) return null; // caller answers 404
+  }
+  return { context: { tab, scenarioId: keptScenarioId, summary }, shownFacts, contextScenarioInputs };
+}
+// F8 — under the per-user lock nothing else of this student's is in flight, so a claim is
+// live only if its re-answer produced a tutor row. A claim with none after it died and may be retaken.
+async function claimIsLive(repairMessageId: number | null): Promise<boolean> {
+  if (repairMessageId == null) return false;
+  const [claimed] = await db.select({ conversationId: watbotMessagesTable.conversationId }).from(watbotMessagesTable)
+    .where(eq(watbotMessagesTable.id, repairMessageId));
+  if (!claimed) return false;
+  const [after] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+    .where(and(eq(watbotMessagesTable.conversationId, claimed.conversationId), eq(watbotMessagesTable.role, "tutor"),
+      gt(watbotMessagesTable.id, repairMessageId))).limit(1);
+  return !!after;
+}
+
+// What a re-answer resends (spec §3). The question is the ROOT question, followed back through
+// earlier re-answers. excludeType and context come from the NEAREST answered student row, the
+// one whose answer is being repaired (a re-answer row copies its source's context).
+async function repairSource(conversationId: number, tutorId: number) {
+  let beforeId = tutorId;
+  let nearest: { messageType: WatBotMessageType | null; context: WatBotContext | null } | null = null;
+  for (let hop = 0; hop < HISTORY_MESSAGES; hop++) {
+    const [row] = await db.select().from(watbotMessagesTable)
+      .where(and(eq(watbotMessagesTable.conversationId, conversationId), eq(watbotMessagesTable.role, "student"),
+        eq(watbotMessagesTable.status, "answered"), lt(watbotMessagesTable.id, beforeId)))
+      .orderBy(desc(watbotMessagesTable.id)).limit(1);
+    if (!row) return null;
+    nearest ??= { messageType: row.messageType ?? null, context: row.context ?? null };
+    const [prior] = await db.select({ messageId: watbotFeedbackTable.messageId }).from(watbotFeedbackTable)
+      .where(eq(watbotFeedbackTable.repairMessageId, row.id));
+    if (!prior) return { question: row.blocks.map((b) => b.text).join("\n\n"), ...nearest };
+    beforeId = prior.messageId;
+  }
+  return null;
+}
+
+// WATBOT-FB — one rating per tutor answer, upserted until a live re-answer claims it (F7, F8).
+router.post("/watbot/conversations/:conversationId/feedback", async (req, res) => {
+  const parsed = SubmitWatBotFeedbackBody.safeParse(req.body);
+  const d = parsed.success ? parsed.data : null;
+  const note = d?.note?.trim() || null;
+  if (!d || (d.helped ? d.reason !== undefined : d.reason === undefined) || (note !== null && d.reason !== "other")) {
+    res.status(400).json({ error: "Invalid feedback." }); return;
+  }
+  const conv = await ownedConversation(Number(req.params.conversationId), req.userId!);
+  if (!conv) { notFound(res); return; }
+  const [msg] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+    .where(and(eq(watbotMessagesTable.id, d.messageId), eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")));
+  if (!msg) { notFound(res); return; }
+  // F7 — the same per-user lock as a question, so a rating can't change under an in-flight re-answer.
+  const unlock = tryLockUser(req.userId!);
+  if (!unlock) { watbotError(res, 409, "watbot_busy"); return; }
+  try {
+    const [existing] = await db.select({ repairMessageId: watbotFeedbackTable.repairMessageId }).from(watbotFeedbackTable)
+      .where(eq(watbotFeedbackTable.messageId, msg.id));
+    if (await claimIsLive(existing?.repairMessageId ?? null)) { watbotError(res, 409, "watbot_feedback_locked"); return; }
+    const reason = d.reason ?? null;
+    let id: number;
+    // No error binding: the Drizzle error carries the note (api-server CLAUDE.md).
+    try {
+      const [row] = await db.insert(watbotFeedbackTable)
+        .values({ userId: req.userId!, conversationId: conv.id, messageId: msg.id, helped: d.helped, reason, note })
+        .onConflictDoUpdate({ target: watbotFeedbackTable.messageId, set: { helped: d.helped, reason, note, repairMessageId: null, updatedAt: new Date() } })
+        .returning({ id: watbotFeedbackTable.id });
+      id = row!.id;
+    } catch { res.status(500).json({ error: "Could not store feedback." }); return; }
+    res.status(201).json({ id, repairLabel: isRepairReason(reason) ? REPAIR_LABELS[reason] : null });
+  } finally {
+    unlock();
+  }
+});
 
 const CLAIM_REMOVED_NOTICE = "One claim was removed — I couldn't support it with a course source.";
 
@@ -134,22 +228,12 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
   if (!conv) { notFound(res); return; }
   if (isModelLocked(conv.modelId)) { respondLocked(res); return; }
 
-  let context: WatBotContext | null = null;
-  let shownFacts = ""; // D20: server-derived facts only; the student-controlled tab and scenario name stay out of the value check
-  let contextScenarioInputs: unknown = undefined; // D20: the owned scenario's facilities join the value check
-  if (parsed.data.context) {
-    const { tab, scenarioId } = parsed.data.context;
-    let summary = tab ? `Tab: ${tab}` : "";
-    if (scenarioId != null) {
-      const [row] = await db.select().from(scenariosTable)
-        .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, req.userId!)));
-      if (!row || row.modelId !== conv.modelId) { notFound(res); return; }
-      const s = summarizeScenario(row);
-      summary += ` · ${s.summary}`;
-      shownFacts = s.facts;
-      contextScenarioInputs = row.inputs;
-    }
-    context = { tab: tab ?? null, scenarioId: scenarioId ?? null, summary };
+  // D20: context summary and facts are server-derived only; the student-controlled tab and scenario name stay out of the value check.
+  let built: BuiltContext = { context: null, shownFacts: "", contextScenarioInputs: undefined };
+  if (parsed.data.context && parsed.data.repairOf == null) {
+    const b = await buildContext(parsed.data.context.tab ?? null, parsed.data.context.scenarioId ?? null, req.userId!, conv.modelId, { dropMissingScenario: false });
+    if (!b) { notFound(res); return; }
+    built = b;
   }
 
   // D21 — one question in flight per user. Everything below, the 24 h count,
@@ -161,14 +245,33 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
   res.on("close", () => controller.abort()); // Stop button or a dropped connection (D22)
   let releaseSpend: (() => void) | null = null;
   try {
+    // WATBOT-FB F7/F10 — resolved under the per-user lock; the client's context is ignored.
+    let repair: { feedbackId: number; reason: WatBotRepairReason; claimedBy: number | null; question: string; excludeType: WatBotMessageType | null } | null = null;
+    if (parsed.data.repairOf != null) {
+      const [fb] = await db.select().from(watbotFeedbackTable).where(and(eq(watbotFeedbackTable.id, parsed.data.repairOf),
+        eq(watbotFeedbackTable.userId, req.userId!), eq(watbotFeedbackTable.conversationId, conv.id)));
+      if (!fb || fb.helped || !isRepairReason(fb.reason)) { notFound(res); return; }
+      if (await claimIsLive(fb.repairMessageId)) { watbotError(res, 409, "watbot_feedback_locked"); return; }
+      const [latest] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
+        .where(and(eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")))
+        .orderBy(desc(watbotMessagesTable.id)).limit(1);
+      const source = latest?.id === fb.messageId ? await repairSource(conv.id, fb.messageId) : null;
+      if (!source) { notFound(res); return; }
+      const b = await buildContext(source.context?.tab ?? null, source.context?.scenarioId ?? null, req.userId!, conv.modelId, { dropMissingScenario: true });
+      built = b!; // never null with dropMissingScenario
+      repair = { feedbackId: fb.id, reason: fb.reason, claimedBy: fb.repairMessageId, question: source.question,
+        excludeType: fb.reason === "not_what_i_asked" ? source.messageType : null };
+    }
     const startedAt = Date.now();
-    const question = parsed.data.question.trim();
+    // A re-answer stores its ↻ label, and sends the root question plus a note to the model.
+    const question = repair ? repairQuestion(repair.question, repair.reason) : parsed.data.question.trim();
+    const storedText = repair ? REPAIR_LABELS[repair.reason] : question;
     const history = await db.select().from(watbotMessagesTable)
       .where(eq(watbotMessagesTable.conversationId, conv.id)).orderBy(desc(watbotMessagesTable.id)).limit(HISTORY_MESSAGES);
     // Every question is logged (FR-42). Only "answered" rows count (FR-35, D22).
     const logStudent = async (status: WatBotMessageStatus) => {
       const [row] = await db.insert(watbotMessagesTable)
-        .values({ conversationId: conv.id, userId: req.userId!, role: "student", blocks: [{ text: question, citations: [] }], context, status })
+        .values({ conversationId: conv.id, userId: req.userId!, role: "student", blocks: [{ text: storedText, citations: [] }], context: built.context, status })
         .returning({ id: watbotMessagesTable.id });
       return row!.id;
     };
@@ -194,6 +297,17 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
     let studentMessageId: number;
     try { studentMessageId = await logStudent("answered"); }
     catch { res.status(500).json({ error: "Could not save your question." }); return; }
+    if (repair) {
+      // Compare-and-set against the value read above: a concurrent claim, or one taken since, makes this a no-op.
+      const claimed = await db.update(watbotFeedbackTable).set({ repairMessageId: studentMessageId, updatedAt: new Date() })
+        .where(and(eq(watbotFeedbackTable.id, repair.feedbackId),
+          repair.claimedBy == null ? isNull(watbotFeedbackTable.repairMessageId) : eq(watbotFeedbackTable.repairMessageId, repair.claimedBy)))
+        .returning({ id: watbotFeedbackTable.id });
+      if (!claimed.length) {
+        await db.update(watbotMessagesTable).set({ status: "cancelled" }).where(eq(watbotMessagesTable.id, studentMessageId));
+        watbotError(res, 409, "watbot_feedback_locked"); return;
+      }
+    }
     if (conv.title === "New conversation") {
       // No error binding: the Drizzle error carries the question text (api-server CLAUDE.md).
       try { await db.update(watbotConversationsTable).set({ title: question.slice(0, 80) }).where(eq(watbotConversationsTable.id, conv.id)); }
@@ -269,11 +383,12 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
         result = await answerQuestion({
           client: getWatBotClient(), model, bundle, readingList,
           fixedQuestions: manifest.tutor?.fixedQuestions.map((q) => q.text) ?? [],
-          facilityNames: facilityNames(conv.modelId, contextScenarioInputs),
+          facilityNames: facilityNames(conv.modelId, built.contextScenarioInputs),
           // Questions that never reached the model stay out of its history.
           history: history.reverse().filter((m) => m.role !== "notice" && m.status === "answered")
             .map((m) => ({ role: m.role as "student" | "tutor", text: m.blocks.map((b) => b.text).join("\n\n") })),
-          contextSummary: context?.summary ?? "", shownFacts, question, signal: controller.signal, gate,
+          contextSummary: built.context?.summary ?? "", shownFacts: built.shownFacts, question, signal: controller.signal, gate,
+          repair: repair ? { rule: REPAIR_RULES[repair.reason], excludeType: repair.excludeType } : undefined,
           emit: (e) => send(e.type, e.type === "block" ? e.block : e.type === "searching" ? { query: e.query } : { kind: e.kind }),
         });
       }

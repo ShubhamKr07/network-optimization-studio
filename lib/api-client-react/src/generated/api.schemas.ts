@@ -95,6 +95,11 @@ export interface AskWatBotRequest {
      */
   question: string;
   context: AskWatBotRequestContext;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  repairOf?: number;
 }
 
 export interface WatBotPassage {
@@ -124,6 +129,34 @@ export interface WatBotReportRequest {
   note?: string;
 }
 
+export type WatBotFeedbackRequestReason = typeof WatBotFeedbackRequestReason[keyof typeof WatBotFeedbackRequestReason];
+
+
+export const WatBotFeedbackRequestReason = {
+  too_many_questions: 'too_many_questions',
+  hard_to_follow: 'hard_to_follow',
+  not_what_i_asked: 'not_what_i_asked',
+  still_stuck: 'still_stuck',
+  other: 'other',
+} as const;
+
+export interface WatBotFeedbackRequest {
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  messageId: number;
+  helped: boolean;
+  reason?: WatBotFeedbackRequestReason;
+  /** @maxLength 500 */
+  note?: string;
+}
+
+export interface WatBotFeedbackResponse {
+  id: number;
+  repairLabel: string | null;
+}
+
 export interface WatBotStatus {
   available: boolean;
   studentRemaining: number;
@@ -141,6 +174,7 @@ export const WatBotErrorError = {
   watbot_refused: 'watbot_refused',
   watbot_failed: 'watbot_failed',
   watbot_busy: 'watbot_busy',
+  watbot_feedback_locked: 'watbot_feedback_locked',
 } as const;
 
 export interface WatBotError {

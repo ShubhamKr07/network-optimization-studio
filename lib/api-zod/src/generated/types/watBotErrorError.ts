@@ -16,4 +16,5 @@ export const WatBotErrorError = {
   watbot_refused: 'watbot_refused',
   watbot_failed: 'watbot_failed',
   watbot_busy: 'watbot_busy',
+  watbot_feedback_locked: 'watbot_feedback_locked',
 } as const;

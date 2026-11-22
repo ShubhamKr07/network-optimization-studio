@@ -14,4 +14,9 @@ export interface AskWatBotRequest {
      */
   question: string;
   context: AskWatBotRequestContext;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  repairOf?: number;
 }

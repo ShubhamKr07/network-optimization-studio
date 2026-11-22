@@ -1345,6 +1345,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /watbot/conversations/{conversationId}/feedback:
+    post:
+      tags: [WatBot]
+      operationId: submitWatBotFeedback
+      summary: Rate a WatBot answer (helped / did not help, with a reason on not helped)
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatBotFeedbackRequest'
+      responses:
+        '201':
+          description: Feedback stored. repairLabel is set when the client should re-answer with repairOf.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotFeedbackResponse'
+        '400':
+          description: Invalid feedback.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: No valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Busy (watbot_busy) or the rating already produced a re-answer (watbot_feedback_locked).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatBotError'
 
 components:
   schemas:
@@ -1404,6 +1451,7 @@ components:
               nullable: true
               enum: [input-map, products, plants, warehouses, customers, demand, distances, optimization-parameters, mines, stations, refineries, capability-matrix, output-map, cost-summary, open-warehouses, customer-assignments, flows, service-stats, plantProducts, transportCosts, deliveryCosts, laneCosts, null]
             scenarioId: { type: integer, nullable: true, minimum: 1, maximum: 2147483647 }
+        repairOf: { type: integer, minimum: 1, maximum: 2147483647 }
     WatBotPassage:
       type: object
       required: [id, label, body]
@@ -1418,6 +1466,20 @@ components:
         messageId: { type: integer, minimum: 1, maximum: 2147483647 }
         reason: { type: string, enum: [wrong_or_misleading, citation_unsupported, not_what_i_asked, other] }
         note: { type: string, maxLength: 2000 }
+    WatBotFeedbackRequest:
+      type: object
+      required: [messageId, helped]
+      properties:
+        messageId: { type: integer, minimum: 1, maximum: 2147483647 }
+        helped: { type: boolean }
+        reason: { type: string, enum: [too_many_questions, hard_to_follow, not_what_i_asked, still_stuck, other] }
+        note: { type: string, maxLength: 500 }
+    WatBotFeedbackResponse:
+      type: object
+      required: [id, repairLabel]
+      properties:
+        id: { type: integer }
+        repairLabel: { type: string, nullable: true }
     WatBotStatus:
       type: object
       required: [available, studentRemaining, studentResetAt, projectCapReached]
@@ -1430,7 +1492,7 @@ components:
       type: object
       required: [error]
       properties:
-        error: { type: string, enum: [watbot_unavailable, watbot_student_limit, watbot_project_limit, watbot_refused, watbot_failed, watbot_busy] }
+        error: { type: string, enum: [watbot_unavailable, watbot_student_limit, watbot_project_limit, watbot_refused, watbot_failed, watbot_busy, watbot_feedback_locked] }
         resetAt: { type: string, format: date-time, nullable: true }
     AuthUser:
       type: object

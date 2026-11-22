@@ -5252,3 +5252,11 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Report:** `GradedRow` gains `claimsRemoved`/`forwardedBlocks`; `BucketReport` gains `claimRemovedRate` and `emptyReplyRate`; `console.table` prints `claimRemoved` and `emptyReply`. No bar on either (Task 6 Step 4b: owner decides).
 - **No cases added** to `testSet.json` (Task 6, owner approval) and no paid run.
 - **Test:** 2 parse-error cases plus one accept case (`watbotEvalFiles`), one `buildReport` rates case (`watbotEvalGrader`). Red (3 failed) before, green (23/23) after.
+
+## WATBOT-FB-3 — feedback contract and routes (2026-11-22)
+
+- **Change:** `POST /api/watbot/conversations/:conversationId/feedback` (`{ messageId, helped, reason?, note? }` -> 201 `{ id, repairLabel }`; upsert per tutor answer, 400 on a bad reason/note combination, 404 for a non-owned conversation or non-tutor message, 409 `watbot_busy` / `watbot_feedback_locked`). `AskWatBotRequest.repairOf` drives a re-answer: resolved under the per-user lock, 404 unless the rating is the caller's ✗ with reason 1-3 on the latest answer, context rebuilt server-side from the source row (F10), claim by compare-and-set right after the student row is logged (F7), a claim with no tutor row after it is reclaimable (F8). The ask route's context block is extracted into `buildContext`.
+- **New closed-union code `watbot_feedback_locked`** in `WATBOT_ERROR_CODES`, the OpenAPI `WatBotError` enum, the regenerated client and `WATBOT_ERROR_COPY`, in this one commit.
+- **Metrics:** `docs/ops/watbot-metrics.md` section 7, four queries; each run against local `nos_dev` inside a rolled-back fixture transaction and returned non-zero rows.
+- **Tests:** 8 new cases in `watbotRoutes.test.ts` (red 8 failed / 31 passed before the routes, green 39/39 after).
+- **Lead review fix (at cherry-pick):** the feedback route was registered twice (two identical blocks; Express used the first). The second copy was removed.

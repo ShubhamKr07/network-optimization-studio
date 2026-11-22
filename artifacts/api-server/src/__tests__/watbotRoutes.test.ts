@@ -4,7 +4,7 @@ import request from "supertest";
 import type { AddressInfo } from "node:net";
 import { and, asc, desc, eq } from "drizzle-orm";
 import Anthropic from "@anthropic-ai/sdk";
-import { db, usersTable, coursePassagesTable, scenariosTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable } from "@workspace/db";
+import { db, usersTable, coursePassagesTable, scenariosTable, watbotConversationsTable, watbotMessagesTable, watbotReportsTable, watbotFeedbackTable } from "@workspace/db";
 import app from "../app.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { setWatBotClientForTests, type WatBotClient, type WatBotStream } from "../watbot/client.js";
@@ -13,6 +13,7 @@ import {
   inflight, isAvailable, monthlySpendUsd,
 } from "../watbot/limits.js";
 import { WATBOT_ERROR_CODES } from "../watbot/errors.js";
+import { REPAIR_LABELS } from "../watbot/prompt.js";
 import { FAILED_NOTICE, STOPPED_NOTICE, setTransientBackoffForTests } from "../watbot/engine.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
 
@@ -590,5 +591,158 @@ describe("watbot routes", () => {
     const block = yaml.slice(yaml.indexOf("    WatBotError:"));
     const enumLine = block.match(/enum: \[([^\]]+)\]/)![1]!;
     expect(enumLine.split(",").map((s) => s.trim())).toEqual([...WATBOT_ERROR_CODES]);
+  });
+
+  const ask = (cookie: string, id: number, body: object) =>
+    request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ context: null, ...body });
+  const feedback = (cookie: string, id: number, body: object) =>
+    request(app).post(`/api/watbot/conversations/${id}/feedback`).set("Cookie", cookie).send(body);
+  async function answered(cookie: string, type = "incorrect_attempt") {
+    useClient(scriptedClient("Which constraint does that break?", { type }));
+    const id = await newConversation(cookie);
+    expect((await ask(cookie, id, { question: "Is p = 5 optimal?" })).status).toBe(200);
+    const tutor = (await rows(id)).filter((r) => r.role === "tutor").at(-1)!;
+    return { id, tutorId: tutor.id };
+  }
+
+  it("feedback: stores ✓ and ✗, upserts on the same answer, and returns the re-answer label only for reasons 1–3", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const up = await feedback(cookie, id, { messageId: tutorId, helped: true });
+    expect(up.status).toBe(201);
+    expect(up.body.repairLabel).toBeNull();
+    const down = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    expect(down.body).toEqual({ id: up.body.id, repairLabel: REPAIR_LABELS.hard_to_follow });
+    const other = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "other", note: "  the zones part  " });
+    expect(other.body.repairLabel).toBeNull();
+    const [fb] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.messageId, tutorId));
+    expect(fb).toMatchObject({ helped: false, reason: "other", note: "the zones part", repairMessageId: null });
+  });
+
+  it("feedback: 400 on a reason with ✓, a ✗ without a reason, or a note without 'other'; 404 on another user's or a non-tutor message", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: true, reason: "other" })).status).toBe(400);
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: false })).status).toBe(400);
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "still_stuck", note: "x" })).status).toBe(400);
+    const studentId = (await rows(id)).find((r) => r.role === "student")!.id;
+    expect((await feedback(cookie, id, { messageId: studentId, helped: true })).status).toBe(404);
+    const other = await registerAndGetCookie();
+    expect((await feedback(other, id, { messageId: tutorId, helped: true })).status).toBe(404);
+  });
+
+  it("repairOf: re-answers the original question under the repair rule, stores the label, counts toward the limit, then locks the rating", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "too_many_questions" });
+    const before = await studentUsage(lastUserId());
+    let sent = "";
+    const inner = scriptedClient("The passage says…", { type: "incorrect_attempt" }); // one instance: it counts rounds
+    useClient({ messages: { stream(params, opts) { sent ||= JSON.stringify(params.messages.at(-1)); return inner.messages.stream(params, opts); } } });
+    const res = await ask(cookie, id, { question: "ignored", repairOf: fb.body.id });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("event: done");
+    expect(sent).toContain("Is p = 5 optimal?");
+    expect(sent).toContain('(Re-answer: the student asked \\"Explain with fewer questions\\"');
+    const all = await rows(id);
+    const repairRow = all.filter((r) => r.role === "student").at(-1)!;
+    expect(repairRow).toMatchObject({ status: "answered", messageType: "incorrect_attempt" });
+    expect(repairRow.blocks[0]!.text).toBe(REPAIR_LABELS.too_many_questions);
+    expect((await studentUsage(lastUserId())).remaining).toBe(before.remaining - 1);
+    const [stored] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect(stored!.repairMessageId).toBe(repairRow.id);
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: true })).status).toBe(409);
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: true })).body.error).toBe("watbot_feedback_locked");
+    expect((await ask(cookie, id, { question: "x", repairOf: fb.body.id })).status).toBe(409);
+  });
+
+  it("repairOf: 404 for reasons 4/Other, a ✓, another user's rating, or a rating that is not on the latest answer", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const stuck = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "still_stuck" });
+    expect((await ask(cookie, id, { question: "x", repairOf: stuck.body.id })).status).toBe(404);
+    const other = await registerAndGetCookie();
+    const theirs = await answered(other);
+    const theirFb = await feedback(other, theirs.id, { messageId: theirs.tutorId, helped: false, reason: "hard_to_follow" });
+    expect((await ask(cookie, id, { question: "x", repairOf: theirFb.body.id })).status).toBe(404);
+    const old = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    expect((await ask(cookie, id, { question: "A new question" })).status).toBe(200); // a newer answer now exists
+    expect((await ask(cookie, id, { question: "x", repairOf: old.body.id })).status).toBe(404);
+  });
+
+  it("R3 sends the original row's type as excluded, and a re-answer of a re-answer resends the root question", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie, "concept_question");
+    const fb1 = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "not_what_i_asked" });
+    const results: string[] = [];
+    const capture = (inner: WatBotClient) => useClient({ messages: { stream(params, opts) { results.push(JSON.stringify(params.messages.at(-1))); return inner.messages.stream(params, opts); } } });
+    capture(scriptedClient("Try this.", { type: "concept_question" })); // records the excluded type, so round 2 gets the error result
+    expect((await ask(cookie, id, { question: "x", repairOf: fb1.body.id })).status).toBe(200);
+    expect(results[1]).toContain("concept_question is ruled out");
+    const tutor2 = (await rows(id)).filter((r) => r.role === "tutor").at(-1)!.id;
+    const fb2 = await feedback(cookie, id, { messageId: tutor2, helped: false, reason: "hard_to_follow" });
+    results.length = 0;
+    capture(scriptedClient("Step one: …", { type: "concept_question" }));
+    expect((await ask(cookie, id, { question: "x", repairOf: fb2.body.id })).status).toBe(200);
+    expect(results[0]).toContain("Is p = 5 optimal?"); // the root question, not the ↻ label of the first re-answer
+  });
+
+  // F7: the claim is taken under the per-user lock, before the model call.
+  it("claims the rating before the model call; a feedback write during the re-answer is busy", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", delayMs: 1000 }));
+    const inFlight = ask(cookie, id, { question: "x", repairOf: fb.body.id }).then((r) => r); // .then starts the request
+    // Poll for the claim: admission is several awaited queries, so a fixed sleep flakes under load.
+    let mid: typeof watbotFeedbackTable.$inferSelect | undefined;
+    for (let i = 0; i < 60 && !mid?.repairMessageId; i++) {
+      await sleep(50);
+      [mid] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
+    }
+    expect(mid!.repairMessageId).not.toBeNull();
+    const during = await feedback(cookie, id, { messageId: tutorId, helped: true });
+    expect(during.status).toBe(409);
+    expect(during.body.error).toBe("watbot_busy");
+    expect((await inFlight).status).toBe(200);
+  });
+
+  // F8: a claim whose student row has no tutor row after it died (crash, failure, stop) and can be taken again.
+  it("re-claims a stale claim, and accepts a feedback write over it", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
+    const [orphan] = await db.insert(watbotMessagesTable).values({ conversationId: id, userId: lastUserId(), role: "student",
+      blocks: [{ text: REPAIR_LABELS.hard_to_follow, citations: [] }] }).returning();
+    await db.update(watbotFeedbackTable).set({ repairMessageId: orphan!.id }).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect((await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" })).status).toBe(201);
+    await db.update(watbotFeedbackTable).set({ repairMessageId: orphan!.id }).where(eq(watbotFeedbackTable.id, fb.body.id));
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt" }));
+    expect((await ask(cookie, id, { question: "x", repairOf: fb.body.id })).status).toBe(200);
+    const [after] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
+    expect(after!.repairMessageId).not.toBe(orphan!.id);
+  });
+
+  // F10: the server rebuilds the re-answer's context from the source row; the client's is ignored.
+  it("a re-answer sent with context null still carries the source question's scenario summary", async () => {
+    const cookie = await registerAndGetCookie();
+    const [sc] = await db.insert(scenariosTable).values({ name: "Coastal", userId: lastUserId(), modelId: "p-median-us", inputs: { p: 4 } }).returning();
+    try {
+      useClient(scriptedClient("Which constraint does that break?", { type: "incorrect_attempt" }));
+      const id = await newConversation(cookie);
+      expect((await ask(cookie, id, { question: "Is p = 5 optimal?", context: { tab: "output-map", scenarioId: sc!.id } })).status).toBe(200);
+      const tutorId = (await rows(id)).filter((r) => r.role === "tutor").at(-1)!.id;
+      const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "too_many_questions" });
+      let sent = "";
+      const inner = scriptedClient("The passage says…", { type: "incorrect_attempt" });
+      useClient({ messages: { stream(params, opts) { sent ||= JSON.stringify(params.messages.at(-1)); return inner.messages.stream(params, opts); } } });
+      expect((await ask(cookie, id, { question: "x", context: null, repairOf: fb.body.id })).status).toBe(200);
+      expect(sent).toContain("Scenario: Coastal");
+      expect(sent).toContain("p = 4");
+      const repairRow = (await rows(id)).filter((r) => r.role === "student").at(-1)!;
+      expect(repairRow.context).toMatchObject({ tab: "output-map", scenarioId: sc!.id });
+    } finally {
+      await db.delete(scenariosTable).where(eq(scenariosTable.id, sc!.id));
+    }
   });
 });

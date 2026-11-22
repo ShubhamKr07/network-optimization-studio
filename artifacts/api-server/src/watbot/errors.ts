@@ -4,7 +4,7 @@ import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
 
 // Closed union, in this order, mirrored by the OpenAPI WatBotError enum (Task 6).
 export const WATBOT_ERROR_CODES = [
-  "watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed", "watbot_busy",
+  "watbot_unavailable", "watbot_student_limit", "watbot_project_limit", "watbot_refused", "watbot_failed", "watbot_busy", "watbot_feedback_locked",
 ] as const;
 export type WatBotErrorCode = (typeof WATBOT_ERROR_CODES)[number];
 
