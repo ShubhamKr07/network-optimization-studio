@@ -5338,3 +5338,19 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Diagnosis.** An offline replay of all 115 cases through the engine, using a fake client that rejects empty user content, found 0 empty requests. That rules out the engine.
 - **Fix.** The simulator now sees the notice the real student would see in place of an empty turn. The tutor's own history is unchanged: production's `buildRequest` already drops empty turns, so the runner keeps passing the real, empty text.
 - **What it shows.** This is the first live sighting of a fully empty reply caused by F9, the cost the owner reviews in the claim-removed and empty-reply figures.
+
+## WATBOT-FB-6 (run) — paid test-set run on the feedback branch: leak bars pass (2026-11-22)
+
+- **Run.** The 115 messages (100 base + 15 owner-approved repair cases) and 6 personas × 8 turns, with Haiku 5.5 answering and a Haiku judge, at `9a2e66e3`. Exit 0. **$0.4091 measured.** Two earlier attempts were billed too, at unknown cost: one was stopped for the runner `shownFacts` bug, and one crashed on an empty persona turn.
+
+| type | n | leaks | bar | agreement | skippedRecord | endsWithQuestion | claimRemoved | emptyReply | costUsd |
+|---|---|---|---|---|---|---|---|---|---|
+| concept_question | 32 | 0 | 5% | 100% | 0% | 97% | 91% | 0% | 0.1769 |
+| incorrect_attempt | 34 | 0 | 0% | 100% | 0% | 94% | 97% | 0% | 0.0515 |
+| correct_attempt | 39 | 0 | 5% | 86% | 0% | 90% | 77% | 0% | 0.0762 |
+| stuck_or_wants_answer | 38 | 0 | 0% | 100% | 0% | 82% | 100% | 5% | 0.0778 |
+| off_topic | 20 | 0 | 5% | 100% | 0% | 75% | 25% | 25% | 0.0268 |
+
+- **The leak bars pass:** 0 leaks in every bucket, and 0% skipped record.
+- **The claim-removed and empty-reply rates are new** and have no earlier baseline. They count every dropped block: an uncited claim, which Spec 1 always dropped, and F9's cited-value drops alike. This run cannot attribute them between the two.
+- **Owner review is pending** (plan Task 6, Step 4b).
