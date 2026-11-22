@@ -1,6 +1,6 @@
 # WatBot answer feedback and repair — design
 
-Date: 2026-11-22 · Status: draft for owner review (design approved 2026-11-22) · Task prefix: `WATBOT-FB` · Builds on [Spec 1](2026-11-20-watbot-panel-qa-design.md)
+Date: 2026-11-22 · Status: approved by the owner 2026-11-22; ships with the first WatBot deploy · Task prefix: `WATBOT-FB` · Builds on [Spec 1](2026-11-20-watbot-panel-qa-design.md)
 
 The student rates WatBot's latest answer with ✓ or ✗. A ✗ asks for a reason, and three of the reasons make WatBot answer again under a different reply rule. Every rating is stored, so the teaching team can see which answers helped, why the others didn't, and whether the re-answer fixed it.
 
