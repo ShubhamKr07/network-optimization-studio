@@ -328,6 +328,11 @@ describe("answerQuestion", () => {
     expect(lastToolResults(client.calls[1]!)).toEqual([{ type: "tool_result", tool_use_id: "t1", is_error: true, content: excludedTypeResult("concept_question") }]);
     expect(lastToolResults(client.calls[2]!)).toEqual([{ type: "tool_result", tool_use_id: "t2", content: REPLY_RULES.stuck_or_wants_answer }]);
     expect(result.messageType).toBe("stuck_or_wants_answer");
+    // QA (live R3): with auto on round 2 the model answered without re-recording, leaving the type
+    // null. After a rejection the next round is forced again; the round after a valid record is auto.
+    expect(client.calls.map((c) => c.tool_choice)).toEqual([
+      { type: "tool", name: "record_message_type" }, { type: "tool", name: "record_message_type" }, { type: "auto" },
+    ]);
   });
 
   // F9 / Spec 1 D20 (revised): a citation does not make a leaked value safe, in any answer.

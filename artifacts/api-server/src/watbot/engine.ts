@@ -91,6 +91,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   const out = emptyAnswerResult(input.model);
   let searches = 0;
   let requeues = 0;
+  let reforce = false; // WATBOT-FB R3: a rejected (ruled-out) type forces the next round to record again
 
   const addUsage = (u: Anthropic.Usage) => {
     out.usage.inputTokens += u.input_tokens ?? 0;
@@ -116,9 +117,9 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
     return { ...out, ...extra };
   };
 
-  const streamRound = async (first: boolean): Promise<Anthropic.Message> => {
+  const streamRound = async (force: boolean): Promise<Anthropic.Message> => {
     roundStart = null; roundOutput = null; roundForwardedChars = 0;
-    const toolChoice = first && FORCE_RECORD_MODELS.has(params.model) ? FORCE_RECORD_TYPE : params.tool_choice;
+    const toolChoice = force && FORCE_RECORD_MODELS.has(params.model) ? FORCE_RECORD_TYPE : params.tool_choice;
     const stream = input.client.messages.stream({ ...params, tool_choice: toolChoice, messages }, { signal: input.signal });
     const open = new Map<number, { text: string; citations: WatBotCitation[] }>();
     for await (const ev of stream) {
@@ -156,8 +157,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
       if (round > MAX_ROUNDS) return finish({ failure: "round_limit" });
       let final!: Anthropic.Message;
       let transientRetries = 0; // per round
+      const force = round === 1 || reforce;
+      reforce = false;
       for (;;) {
-        try { final = await streamRound(round === 1); break; }
+        try { final = await streamRound(force); break; }
         catch (err) {
           if (input.signal.aborted) return finish({ stopped: true });
           const kind = classifyAnthropicError(err);
@@ -189,6 +192,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           const type = (tu.input as { type?: unknown }).type;
           if (isMessageType(type) && out.messageType === null && type === input.repair?.excludeType) {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: excludedTypeResult(type) });
+            reforce = true;
           } else if (isMessageType(type)) {
             out.messageType ??= type; // first call wins; a second call cannot relabel the message
             const rule = REPLY_RULES[out.messageType]; // ...nor switch its rule

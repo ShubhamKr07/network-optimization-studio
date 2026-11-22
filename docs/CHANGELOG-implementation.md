@@ -5300,3 +5300,13 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Change:** six new stubbed (no-spend) tests in `artifacts/studio/e2e/watbot.spec.ts`: ✓ thanks; ✗ + reason 1 (feedback POST body, then messages POST `{ question, context: null, repairOf }`, ↻ student line, one fresh rating line directly under the new answer); Other with a note and reason 4 (rephrase notice, no messages POST); keyboard-only radios and Send; rating line absent while streaming. The 7 existing tests needed no locator changes: they use testids and `getByText`, and the feedback line renders only after an answer is saved with an id.
 - **Live check (real local API, dev key, 4 Haiku calls, about $0.0073 per `usage.costUsd`):** ask with context chip on, ✗ reason 1, reload and open from history, ✗ reason 2 (F10), ✗ reason 3. Every re-answer streamed, `watbot_feedback.repair_message_id` was set on all three rows, and each re-answer student row's `context` equalled the source question's context. The only console errors were 404s from the dummy `VITE_POSTHOG_KEY` (`us-assets.i.posthog.com/array/phc_local_dummy_key/config`), which is the documented e2e recipe value, not the app.
 - **Metrics:** all four queries in `docs/ops/watbot-metrics.md` section 7 returned rows against `nos_dev` after the live session.
+
+## WATBOT-FB-R3 — re-force the type call after a ruled-out type (2026-11-22)
+
+- **Found by the WATBOT-FB-7 live QA check.** On an R3 (`not_what_i_asked`) re-answer, the engine rejected the ruled-out type. The model then answered under round 2's `auto` without recording a new type, so the re-answer's `message_type` was null and the R3 corrections metric read "(not recorded)".
+- **Change:**
+  - After an exclusion rejection, the next round forces `record_message_type` again (on `FORCE_RECORD_MODELS` only, as for round 1).
+  - In `engine.ts`, `streamRound`'s flag is renamed from `first` to `force`.
+  - The spec's §3 R3 bullet is updated.
+- **Test:** the existing R3 engine test now pins `tool_choice` per round as forced, forced, `auto`. It was red before the change and is green after (75/75). The engine and route tests pass 115/115, and typecheck is clean.
+- **Also:** three new e2e flake sightings and the gate's studio timeouts are recorded in `docs/superpowers/flake-registry.md`.
