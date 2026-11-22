@@ -5283,3 +5283,9 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Deviations from the plan's code:** (1) the plan's `beforeEach(() => mutateAsync.mockReset())` returns the mock, which vitest then calls as a teardown hook (throws the rejection set by the error-path test), so the test uses a braced body. (2) `mutationErrorSurface.test.ts` gains a named `ALLOWED_NO_ONERROR` entry for `WatBotFeedback.tsx` (awaited in try/catch), the guard's intended mechanism.
 - **e2e:** `e2e/watbot.spec.ts` only uses `watbot-panel`, `watbot-messages`, `watbot-stop`, `watbot-error`, `watbot-history`, "Report this answer" and `[data-role]` locators, none changed. The rating line appears only with a conversation id, and the specs that stub the stream give it one, so new `watbot-feedback` content is additive. Not run (lead runs `e2e:gate`).
 
+
+## WATBOT-FB-R — rating line never falls back to an earlier answer (2026-11-22)
+
+- **Finding (whole-branch review, Medium):** `WatBotMessages` took the latest *tutor item*. The hook only creates a tutor item on a `block` event, so an answer that forwarded nothing (all blocks dropped, refusal, failure after the model call, Stop before the first block) left the previous answer as "latest" and the rating line reappeared under it with fresh state; a click then rated the wrong answer, and `repairOf` 404'd.
+- **Fix:** the line shows only when the last non-notice item is a tutor item (`WatBotMessages.tsx`).
+- **Tests:** one case in `WatBotMessages.test.tsx` (trailing student, trailing student + notice) and one in `useWatBotConversation.test.tsx` (`done` with no `block` leaves only the student item; the line stays hidden). Both red before the fix, green after.

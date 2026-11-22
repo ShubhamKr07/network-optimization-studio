@@ -99,4 +99,13 @@ describe("WatBotMessages", () => {
     rerender(<WatBotMessages items={two} pending={null} onStop={vi.fn()} />);
     expect(screen.queryByTestId("watbot-feedback")).toBeNull(); // no conversation yet
   });
+
+  it("never falls back to an earlier answer: a trailing student or notice hides the rating line", () => {
+    const fb = { conversationId: 5, onRepair: vi.fn() };
+    const student = { kind: "student" as const, blocks: [{ text: "And now?", citations: [] }] };
+    render(<WatBotMessages items={[items[0]!, items[1]!, student]} pending={null} onStop={vi.fn()} feedback={fb} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull();
+    render(<WatBotMessages items={[items[0]!, items[1]!, student, items[2]!]} pending={null} onStop={vi.fn()} feedback={fb} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull();
+  });
 });

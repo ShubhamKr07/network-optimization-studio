@@ -10,7 +10,9 @@ export function WatBotMessages({ items, pending, onStop, feedback }: {
   items: ChatItem[]; pending: Pending | null; onStop: () => void;
   feedback?: { conversationId: number; onRepair: (feedbackId: number, label: string) => void };
 }) {
-  const latestTutor = [...items].reverse().find((x) => x.kind === "tutor");
+  // The line belongs to the latest answer only: an answer with no blocks leaves no tutor item, so never fall back to an earlier one.
+  const last = [...items].reverse().find((x) => x.kind !== "notice");
+  const latestTutor = last?.kind === "tutor" ? last : undefined;
   return (
     <div className="flex flex-col gap-2.5" aria-live="polite" data-testid="watbot-messages">
       {items.map((item, i) => <Message key={item.id ?? item.key ?? `i${i}`} item={item} />)}

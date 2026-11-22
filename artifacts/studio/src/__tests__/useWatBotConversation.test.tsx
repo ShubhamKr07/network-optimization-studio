@@ -7,6 +7,8 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetWatBotStatusQueryKey: () => ["status"],
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
+import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
+import { render, screen } from "@testing-library/react";
 import { useWatBotConversation } from "@/components/workspace/watbot/useWatBotConversation";
 
 function sseResponse(text: string) {
@@ -132,5 +134,15 @@ describe("useWatBotConversation", () => {
     expect(url).toMatch(/\/api\/watbot\/conversations\/5\/messages$/);
     expect(JSON.parse(init.body)).toEqual({ question: "↻ Explain it step by step", context: null, repairOf: 7 });
     expect(result.current.items.some((i) => i.kind === "student" && i.blocks[0]!.text === "↻ Explain it step by step")).toBe(true);
+  });
+
+  it("an answer with no block events leaves no tutor item, so the rating line stays hidden", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse('event: done\ndata: {"messageId":20}\n\n'));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    await act(async () => { await result.current.ask("Why?", null); });
+    expect(result.current.items.map((i) => i.kind)).toEqual(["student"]);
+    const prior = { kind: "tutor" as const, id: 9, blocks: [{ text: "Earlier", citations: [] }] };
+    render(<WatBotMessages items={[prior, ...result.current.items]} pending={null} onStop={vi.fn()} feedback={{ conversationId: 5, onRepair: vi.fn() }} />);
+    expect(screen.queryByTestId("watbot-feedback")).toBeNull();
   });
 });
