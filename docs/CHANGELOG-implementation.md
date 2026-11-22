@@ -5310,3 +5310,15 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
   - The spec's §3 R3 bullet is updated.
 - **Test:** the existing R3 engine test now pins `tool_choice` per round as forced, forced, `auto`. It was red before the change and is green after (75/75). The engine and route tests pass 115/115, and typecheck is clean.
 - **Also:** three new e2e flake sightings and the gate's studio timeouts are recorded in `docs/superpowers/flake-registry.md`.
+
+## WATBOT-FB-8 (rehearsal) — rollback R-A rehearsed locally (2026-11-22)
+
+- **Setup.** A detached worktree, `/Users/shubhamkr/nos-wt/watbot-fb-rollback`, at `7e7eff5b`. All 10 `WATBOT-FB-*` commits were reverted there, newest first; WATBOT-KEYS was kept. Only `docs/CHANGELOG-implementation.md` conflicted (adjacent appends), and no source file did. The remaining diff against `2ce27c7b` is the WATBOT-KEYS drift-guard test alone.
+- **Typecheck:** clean.
+- **Data.** Local `nos_dev` had lost every earlier WatBot row to a test-user cleanup elsewhere (`course_passages` was intact). So a throwaway `@test.com` user was seeded at the feature tip with a conversation, a ↻ student row and one `watbot_feedback` row (`repair_message_id` set).
+- **Reverted code, API and studio running against that database:**
+  - A fresh user asked one real question (1 Haiku call, about $0.002) and got a cited answer.
+  - The seeded user opened the seeded conversation from history, and all 4 rows rendered, the ↻ row included.
+  - The browser console showed only the documented dummy-PostHog-key 404s. The API log had no 500s.
+- **Verdict:** spec §8's "the table stays harmless" holds. A feature rollback needs no schema change, and `watbot_feedback` can stay.
+- The worktree is kept. Removing it waits for the owner's approval.
