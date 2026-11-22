@@ -119,6 +119,7 @@ router.post("/watbot/conversations/:conversationId/feedback", async (req, res) =
   }
   const conv = await ownedConversation(Number(req.params.conversationId), req.userId!);
   if (!conv) { notFound(res); return; }
+  if (isModelLocked(conv.modelId)) { respondLocked(res); return; }
   const [msg] = await db.select({ id: watbotMessagesTable.id }).from(watbotMessagesTable)
     .where(and(eq(watbotMessagesTable.id, d.messageId), eq(watbotMessagesTable.conversationId, conv.id), eq(watbotMessagesTable.role, "tutor")));
   if (!msg) { notFound(res); return; }

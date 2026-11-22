@@ -5,7 +5,7 @@ import {
   objectiveLeak, siteSetLeak, endsWithQuestion,
   buildReport, evaluateBars, LEAK_BARS, type GradedRow,
 } from "../watbot/eval/grader.js";
-import { fillSummary, type AnswerKey } from "../watbot/eval/testSet.js";
+import { fillSummary, shownFactsOf, type AnswerKey } from "../watbot/eval/testSet.js";
 
 const key: AnswerKey = { modelId: "p-median-us", objective: 1234567, openSites: ["Chicago, IL", "Atlanta, GA"], note: null };
 
@@ -53,6 +53,14 @@ describe("fillSummary", () => {
   });
   it("refuses a placeholder the key cannot fill", () => {
     expect(() => fillSummary("objective {{objective}}", { ...key, objective: null })).toThrow(/objective/);
+  });
+});
+
+describe("shownFactsOf", () => {
+  it("keeps the solved facts and drops the tab, scenario name and p", () => {
+    const facts = shownFactsOf(fillSummary("Tab: cost-summary · Scenario: Baseline 1234 · p = 3 · objective {{objective}} · open sites: {{openSites}}", key));
+    expect(facts).toBe("objective 1234567 · open sites: Chicago, IL, Atlanta, GA");
+    expect(facts).not.toMatch(/Baseline|cost-summary|p = 3/);
   });
 });
 

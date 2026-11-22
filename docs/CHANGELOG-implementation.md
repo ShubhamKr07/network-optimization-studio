@@ -5289,3 +5289,8 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Finding (whole-branch review, Medium):** `WatBotMessages` took the latest *tutor item*. The hook only creates a tutor item on a `block` event, so an answer that forwarded nothing (all blocks dropped, refusal, failure after the model call, Stop before the first block) left the previous answer as "latest" and the rating line reappeared under it with fresh state; a click then rated the wrong answer, and `repairOf` 404'd.
 - **Fix:** the line shows only when the last non-notice item is a tutor item (`WatBotMessages.tsx`).
 - **Tests:** one case in `WatBotMessages.test.tsx` (trailing student, trailing student + notice) and one in `useWatBotConversation.test.tsx` (`done` with no `block` leaves only the student item; the line stays hidden). Both red before the fix, green after.
+
+### WATBOT-FB-R — whole-branch review fixes (answer feedback)
+- **Runner:** `watbotTestSet.ts` now passes `shownFacts: shownFactsOf(filledSummary)` to `answerQuestion` (new `shownFactsOf` beside `fillSummary` drops the `Tab:`, `Scenario:` and `p = ` segments, mirroring the route's facts-only `summarizeScenario().facts`). Before, a missing value failed closed and F9's per-block value check dropped cited blocks naming the shown objective or an open site, mismeasuring `claimRemovedRate`/`emptyReplyRate`.
+- **Route:** feedback route returns 403 for a locked model (as the ask route does); new route test. Claim-polling test cap raised to 10 s with a 12 s hold.
+- **Contract:** `openapi.yaml` ask-route 404/409 descriptions now cover invalid `repairOf` and `watbot_feedback_locked`; codegen re-run, no generated output changed (descriptions are not emitted).

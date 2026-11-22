@@ -86,6 +86,12 @@ export function parseAnswerKeys(json: unknown, modelIds: string[]): Record<strin
   return out;
 }
 
+// The route passes only the facts part of its summary to the engine (D20): not the tab, the
+// scenario name, or p, which a student controls. Mirror that for an eval fixture summary.
+export function shownFactsOf(summary: string): string {
+  return summary.split(" · ").filter((seg) => !/^(Tab:|Scenario:|p = )/.test(seg)).join(" · ");
+}
+
 // Fills a route-format context summary from the answer key, so a "solved" test
 // context shows exactly what the student's screen would (spec D14).
 export function fillSummary(summary: string, key: AnswerKey): string {

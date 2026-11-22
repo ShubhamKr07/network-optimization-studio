@@ -20,7 +20,7 @@ import { REPAIR_RULES, repairQuestion, type HistoryTurn } from "../watbot/prompt
 import { buildReport, endsWithQuestion, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
 import { judgeFormulationLeak } from "../watbot/eval/judge.js";
 import {
-  EVAL_DIR, fillSummary, loadEvalJson, parseAnswerKeys, parsePersonas, parseTestSet,
+  EVAL_DIR, fillSummary, shownFactsOf, loadEvalJson, parseAnswerKeys, parsePersonas, parseTestSet,
   type AnswerKey, type Persona,
 } from "../watbot/eval/testSet.js";
 
@@ -110,7 +110,7 @@ async function run(): Promise<number> {
     const tutor = getManifest(modelId)!.tutor!;
     if (!bundles.has(modelId)) bundles.set(modelId, await loadBundle(tutor.readingList));
     return answerQuestion({ client, model, bundle: bundles.get(modelId)!, readingList: tutor.readingList,
-      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), facilityNames: facilityNames(modelId), history, contextSummary, question, repair,
+      fixedQuestions: tutor.fixedQuestions.map((q) => q.text), facilityNames: facilityNames(modelId), history, contextSummary, shownFacts: shownFactsOf(contextSummary), question, repair,
       emit: () => {}, signal: new AbortController().signal });
   };
   const grade = async (base: Pick<GradedRow, "source" | "id" | "modelId" | "labelType">, r: Awaited<ReturnType<typeof ask>>, summary: string, extraCost = 0): Promise<GradedRow> => {

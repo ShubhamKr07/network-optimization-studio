@@ -1,5 +1,6 @@
 // artifacts/api-server/src/__tests__/watbotRoutes.test.ts
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
 import request from "supertest";
 import type { AddressInfo } from "node:net";
 import { and, asc, desc, eq } from "drizzle-orm";
@@ -656,6 +657,15 @@ describe("watbot routes", () => {
     expect((await ask(cookie, id, { question: "x", repairOf: fb.body.id })).status).toBe(409);
   });
 
+  it("feedback on a conversation whose model is now locked is 403", async () => {
+    const cookie = await registerAndGetCookie();
+    const { id, tutorId } = await answered(cookie);
+    setLockedModelsForTests(["p-median-us"]);
+    try {
+      expect((await feedback(cookie, id, { messageId: tutorId, helped: true })).status).toBe(403);
+    } finally { setLockedModelsForTests(null); }
+  });
+
   it("repairOf: 404 for reasons 4/Other, a ✓, another user's rating, or a rating that is not on the latest answer", async () => {
     const cookie = await registerAndGetCookie();
     const { id, tutorId } = await answered(cookie);
@@ -692,11 +702,11 @@ describe("watbot routes", () => {
     const cookie = await registerAndGetCookie();
     const { id, tutorId } = await answered(cookie);
     const fb = await feedback(cookie, id, { messageId: tutorId, helped: false, reason: "hard_to_follow" });
-    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", delayMs: 1000 }));
+    useClient(scriptedClient("Step one.", { type: "incorrect_attempt", delayMs: 12000 })); // hold outlasts the 10 s poll cap below
     const inFlight = ask(cookie, id, { question: "x", repairOf: fb.body.id }).then((r) => r); // .then starts the request
     // Poll for the claim: admission is several awaited queries, so a fixed sleep flakes under load.
     let mid: typeof watbotFeedbackTable.$inferSelect | undefined;
-    for (let i = 0; i < 60 && !mid?.repairMessageId; i++) {
+    for (let i = 0; i < 200 && !mid?.repairMessageId; i++) {
       await sleep(50);
       [mid] = await db.select().from(watbotFeedbackTable).where(eq(watbotFeedbackTable.id, fb.body.id));
     }
@@ -705,7 +715,7 @@ describe("watbot routes", () => {
     expect(during.status).toBe(409);
     expect(during.body.error).toBe("watbot_busy");
     expect((await inFlight).status).toBe(200);
-  });
+  }, 60_000); // each scripted round holds 12 s
 
   // F8: a claim whose student row has no tutor row after it died (crash, failure, stop) and can be taken again.
   it("re-claims a stale claim, and accepts a feedback write over it", async () => {
