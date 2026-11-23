@@ -5453,3 +5453,7 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Fix.** `pane="tooltipPane"` on the lane tooltip (`NetworkMap.tsx`); stale "Translucent" comment corrected. Re-measured: lane tooltip pane z 650 in both themes, text no longer crossed by lanes.
 - **Test.** `NetworkMap.test.tsx` route-tooltip test pins `props.pane === "tooltipPane"`. A computed-style/pane assertion in a Playwright spec is left for OMQ-4.
 - **Next.** OMQ-3.
+
+### OMQ-3 — Output Map panel chrome (info popover, icon buttons, no open-sites caption)
+
+Studio only. The footer narrative moved behind an info popover (`button-output-map-info`, shadcn Popover, click/keyboard, Escape returns focus); `output-map-narrative` is now the PopoverContent, `output-map-narrative-summary` unchanged. Download/Copy are icon-only (lucide, shared `ICON_BUTTON`, aria-label + title); `copyMapToClipboard` untouched. The QFX-8 open-sites caption was dropped: `OpenSitesCaption.tsx` + test deleted, `OPEN_SITE_NOUN`/`_FALLBACK` removed from `lib/openSites.ts` (no other consumer; `openSiteIds` stays). Sibling e2e rewritten, not run locally (typecheck:e2e only): `design-upgrade-p2` (open-read-Escape; `narrative:false` asserts info button absent), `design-upgrade-p3` (`narrativeText` helper re-opens per read), `quick-fixes` QFX-8 now "caption absent". `design-upgrade-p5` hits are testid clicks only, unchanged. Gate: studio 199 files / 3257 tests passed, plus the registered Leaflet `classList` post-teardown unhandled error (exit 1).

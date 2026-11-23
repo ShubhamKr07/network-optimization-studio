@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { Copy, Download } from "lucide-react";
 import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
 import type { Dataset, Plant, SolveResult } from "@workspace/api-client-react";
@@ -17,11 +18,10 @@ import { FloorExceedsMaxAlert } from "@/components/workspace/FloorExceedsMaxAler
 import { buildResultNarrative, legLabel } from "@/lib/resultNarrative";
 import { formatCityState } from "@/lib/formatLocation";
 import type { EntityIdentity } from "@/lib/entityIdentity";
-import { OutputMapNarrative } from "@/components/workspace/tabs/OutputMapNarrative";
+import { OutputMapNarrative, ICON_BUTTON } from "@/components/workspace/tabs/OutputMapNarrative";
 import { chapterForModelId } from "@/lib/chapters";
 import { MINE_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
 import { solveBounds } from "@/lib/solveBounds";
-import { OpenSitesCaption } from "@/components/workspace/OpenSitesCaption";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
 // timing. Optional/no default — when the caller (eventually INT) has no
@@ -296,22 +296,27 @@ export function OutputMapTab({
 
   const copyDownloadButtons = (
     <div className="flex items-center gap-2 ml-auto">
+      {narrative && <OutputMapNarrative narrative={narrative} />}
       <button
         type="button"
         data-testid="button-download-map-png"
-        className="text-xs border rounded px-2 py-1 hover:bg-muted"
+        aria-label="Download PNG"
+        title="Download PNG"
+        className={ICON_BUTTON}
         onClick={handleDownload}
       >
-        Download PNG
+        <Download className="size-4" aria-hidden="true" />
       </button>
       {clipboardSupported && (
         <button
           type="button"
           data-testid="button-copy-map-clipboard"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
+          aria-label="Copy to clipboard"
+          title="Copy to clipboard"
+          className={ICON_BUTTON}
           onClick={handleCopy}
         >
-          Copy to clipboard
+          <Copy className="size-4" aria-hidden="true" />
         </button>
       )}
     </div>
@@ -435,11 +440,6 @@ export function OutputMapTab({
           it never covers it; self-gated, renders nothing otherwise. */}
       <FloorExceedsMaxAlert result={result} formatDistance={showDistance} className="mx-2 mt-2" />
 
-      {/* QFX-8 — open-site caption directly above the map (outside mapRef, so
-          the PNG/clipboard capture is unchanged). A failed result keeps stale
-          ids in details on some envelopes, so only an incumbent is captioned. */}
-      <OpenSitesCaption result={showIncumbent ? result : null} modelId={modelId} identityById={identityById} />
-
       <div className="flex-1 min-h-0 relative" ref={mapRef}>
         {/* B2.1-T2 (item 2) — floating objective/weighted-avg-distance card.
             `result` here is `displayedResult` at the Workspace.tsx call
@@ -549,7 +549,6 @@ export function OutputMapTab({
           onWarehouseSelectionChange={setSelectedWarehouseId}
         />
       </div>
-      {narrative && <OutputMapNarrative narrative={narrative} />}
     </div>
   );
 }

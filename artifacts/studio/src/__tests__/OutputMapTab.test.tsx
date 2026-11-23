@@ -946,26 +946,31 @@ describe("OutputMapTab — CH4OS floor-exceeds-max alert", () => {
 // tab renders a result. (Stale never reaches this component: Workspace's
 // StaleOutputBanner gate, Workspace.tsx:3934-3936, is unchanged — D5.)
 describe("OutputMapTab — result narrative (SCU-1.9)", () => {
+  const openInfo = () => {
+    if (!screen.queryByTestId("output-map-narrative")) fireEvent.click(screen.getByTestId("button-output-map-info"));
+    return screen.getByTestId("output-map-narrative");
+  };
+
   it("renders no narrative when there is no solved result", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[]} modelId="p-median-us" />);
     expect(screen.queryByTestId("output-map-narrative")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-output-map-info")).not.toBeInTheDocument();
   });
 
-  it("renders the narrative below the map for a solved result, over the map's own band lens", () => {
+  it("renders the narrative in the info popover for a solved result, over the map's own band lens", () => {
     const { container } = render(
       <OutputMapTab
         dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us"
         identityById={{ W1: { city: "Boston", state: "MA", displayId: "W1" } }}
       />,
     );
-    const narrative = screen.getByTestId("output-map-narrative");
+    const narrative = openInfo();
     // fixture: W1 open; 50 flow at 100 mi (band 0) + 50 flow at 900 mi (overflow) -> tie goes to band 0.
     expect(narrative).toHaveTextContent("Open Boston, MA. A typical unit ships about 500 miles");
     expect(narrative).toHaveTextContent("The largest share of your demand, 50%, is within 250 miles");
     expect(narrative).not.toHaveTextContent("How to read this map");
     const map = container.querySelector(".leaflet-container")!;
-    expect(map.contains(narrative)).toBe(false);
-    expect(map.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(map.contains(screen.getByTestId("button-output-map-info"))).toBe(false);
   });
 
   it("follows the filtered warehouse (DU-3.3), and returns to the summary on deselect", () => {
@@ -977,9 +982,9 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
     );
     const marker = container.querySelector(".leaflet-marker-pane .leaflet-marker-icon") as HTMLElement;
     fireEvent.click(marker);
-    expect(screen.getByTestId("output-map-narrative")).toHaveTextContent(/^Boston, MA serves 2 customers \u2014 100 units of demand, about 500 miles on average/);
+    expect(openInfo()).toHaveTextContent(/^Boston, MA serves 2 customers \u2014 100 units of demand, about 500 miles on average/);
     fireEvent.click(marker);
-    expect(screen.getByTestId("output-map-narrative")).toHaveTextContent("Open Boston, MA. A typical unit ships");
+    expect(openInfo()).toHaveTextContent("Open Boston, MA. A typical unit ships");
   });
 
   // DU-3.3 — the demand unit and source role come from the chapter, not a default.
@@ -1010,7 +1015,7 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
     );
     const wh = Array.from(container.querySelectorAll<HTMLElement>(".leaflet-marker-pane .leaflet-marker-icon"))[role === "mine" ? 1 : 0];
     fireEvent.click(wh);
-    const text = screen.getByTestId("output-map-narrative").textContent ?? "";
+    const text = openInfo().textContent ?? "";
     expect(text).toContain(`Testville, TS serves 1 customer \u2014 100 ${unitText}`);
     expect(text).toContain(`It is fed from ${role} Src, SS.`);
   });
@@ -1018,36 +1023,40 @@ describe("OutputMapTab — result narrative (SCU-1.9)", () => {
   it("renders no narrative for a model with no adapter", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} />);
     expect(screen.queryByTestId("output-map-narrative")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-output-map-info")).not.toBeInTheDocument();
+  });
+
+  it("the info button opens the summary; Escape closes it and returns focus", async () => {
+    render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} modelId="p-median-us"
+        identityById={{ W1: { city: "Boston", state: "MA", displayId: "W1" } }} />,
+    );
+    const btn = screen.getByTestId("button-output-map-info");
+    expect(btn).toHaveAccessibleName("About this result");
+    expect(screen.queryByTestId("output-map-narrative-summary")).not.toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(screen.getByTestId("output-map-narrative-summary")).toHaveTextContent("Open Boston, MA.");
+    fireEvent.keyDown(screen.getByTestId("output-map-narrative"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("output-map-narrative-summary")).not.toBeInTheDocument());
+    expect(btn).toHaveFocus();
   });
 });
 
-// QFX-8 — the open-sites caption sits directly ABOVE the map, outside the
-// captured map node, and only for a result with an incumbent.
-describe("OutputMapTab — open-sites caption (QFX-8)", () => {
-  it("renders the caption above the map for a solved result", () => {
-    const { container } = render(
-      <OutputMapTab
-        dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} modelId="p-median-us"
-        identityById={{ W1: { city: "Testville", state: "TS", displayId: "W1" } }}
-      />,
-    );
-    const caption = screen.getByTestId("output-map-open-sites");
-    expect(caption.textContent).toBe("Open warehouses: W1 · Testville, TS");
-    const map = container.querySelector(".leaflet-container")!;
-    expect(map.contains(caption)).toBe(false);
-    expect(caption.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("no caption pre-solve (input network only)", () => {
-    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[]} modelId="p-median-us" />);
+// OMQ-3 — the open-sites caption is gone; Download/Copy are icon-only.
+describe("OutputMapTab — chrome (OMQ-3)", () => {
+  it("renders no open-sites caption", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} modelId="p-median-us" />);
     expect(screen.queryByTestId("output-map-open-sites")).not.toBeInTheDocument();
   });
 
-  it("no caption for a failed result, even though its details still list W1", () => {
-    const failed = { ...result, status: "infeasible" as const, solutionStatus: "infeasible" as const, objective: 0, edges: [] };
-    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={failed} bands={[]} modelId="p-median-us" />);
-    expect(screen.getByTestId("output-map-no-incumbent")).toBeInTheDocument();
-    expect(screen.queryByTestId("output-map-open-sites")).not.toBeInTheDocument();
+  it("Download and Copy are icon-only with accessible names", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} modelId="p-median-us" />);
+    for (const [id, name] of [["button-download-map-png", "Download PNG"], ["button-copy-map-clipboard", "Copy to clipboard"]]) {
+      const b = screen.getByTestId(id);
+      expect(b).toHaveAccessibleName(name);
+      expect(b).toHaveAttribute("title", name);
+      expect(b.textContent).toBe("");
+    }
   });
 });
 

@@ -1,15 +1,23 @@
+import { Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ResultNarrative } from "@/lib/resultNarrative";
 
-// NAR-1 — plain-language reading of the displayed result, rendered below the
-// Output Map. Presentational only: the text comes from buildResultNarrative.
+export const ICON_BUTTON =
+  "grid size-8 place-items-center rounded border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+// NAR-1 — plain-language reading of the displayed result, behind an info
+// popover (OMQ-3). Presentational only: the text comes from buildResultNarrative.
 export function OutputMapNarrative({ narrative }: { narrative: ResultNarrative }) {
   return (
-    <section
-      data-testid="output-map-narrative"
-      aria-label="About this result"
-      className="flex-shrink-0 max-h-40 overflow-y-auto rounded-md border bg-card px-3 py-2 text-xs leading-relaxed"
-    >
-      <p data-testid="output-map-narrative-summary">{narrative.text}</p>
-    </section>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" data-testid="button-output-map-info" aria-label="About this result" title="About this result" className={ICON_BUTTON}>
+          <Info className="size-4" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" data-testid="output-map-narrative" aria-label="About this result" className="w-96 max-h-80 overflow-y-auto text-xs leading-relaxed">
+        <p data-testid="output-map-narrative-summary">{narrative.text}</p>
+      </PopoverContent>
+    </Popover>
   );
 }

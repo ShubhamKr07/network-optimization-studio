@@ -780,7 +780,13 @@ async function clickOutputBackground(page: Page): Promise<void> {
   expect(spot, "an empty map point to click").not.toBeNull();
   await clickAt(page, spot!.x, spot!.y);
 }
-const narrativeText = (page: Page) => page.getByTestId("output-map-narrative-summary").innerText();
+// OMQ-3 — the narrative lives in an info popover: open it, read, close (an outside click also closes it, so re-open on each read).
+async function narrativeText(page: Page): Promise<string> {
+  await page.getByTestId("button-output-map-info").click({ timeout: T });
+  const text = await page.getByTestId("output-map-narrative-summary").innerText();
+  await page.keyboard.press("Escape");
+  return text;
+}
 const legendOpacity = (page: Page) => page.locator(`${OUT} [data-testid="map-legend"]`).evaluate(el => parseFloat(getComputedStyle(el).opacity));
 const visibleTooltips = (page: Page) =>
   page.locator(`${OUT} .leaflet-tooltip`).evaluateAll(els => els.filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).opacity !== "0"; }).map(e => (e as HTMLElement).innerText.trim()));

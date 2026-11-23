@@ -764,10 +764,17 @@ test.describe("DU-2.9 — Phase 2 real-browser QA", () => {
         await expect(page.getByTestId(`segment-lane-colour-${ex.laneSegment}`)).toBeVisible();
         await expect(page.getByTestId(`segment-lane-colour-${ex.laneSegment === "leg" ? "none" : "leg"}`)).toHaveCount(0);
         if (modelId === "two-echelon-jade-us") await shot(seg, "lane-colour-control-jade.png");
-        const narrative = page.getByTestId("output-map-narrative-summary");
-        if (ex.narrative) await expect(narrative, "narrative paragraph present").toHaveCount(1, { timeout: T });
-        else await expect(narrative).toHaveCount(0);
-        const narrativeText = ex.narrative ? await narrative.innerText() : "";
+        // OMQ-3 — the narrative sits behind the info button: open, read, Escape.
+        const info = page.getByTestId("button-output-map-info");
+        let narrativeText = "";
+        if (ex.narrative) {
+          await expect(info, "info button present").toHaveCount(1, { timeout: T });
+          await info.click({ timeout: T });
+          const narrative = page.getByTestId("output-map-narrative-summary");
+          await expect(narrative, "narrative paragraph present").toHaveCount(1, { timeout: T });
+          narrativeText = await narrative.innerText();
+          await page.keyboard.press("Escape");
+        } else await expect(info).toHaveCount(0);
         if (ex.chips) {
           const tokens = narrativeText.match(/\$[\d.,]+[KMB]/g) ?? [];
           expect(tokens.length, "compact money chips in the narrative").toBeGreaterThan(0);
