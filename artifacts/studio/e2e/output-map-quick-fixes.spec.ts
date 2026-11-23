@@ -154,8 +154,8 @@ for (const theme of ["light", "dark"] as const) {
         const box = page.getByTestId("output-map-bounds");
         await expect(box).toBeVisible({ timeout: T });
 
-        // Inside the node: the same parent holds the map, the metric box and the bounds box, and the box lies within it.
-        const node = box.locator("xpath=..");
+        // Inside the node: the grandparent (past the OMQ-5 overlay wrapper) holds the map, the metric box and the bounds box, and the box lies within it.
+        const node = box.locator("xpath=../..");
         await expect(node.locator(".leaflet-container")).toHaveCount(1);
         await expect(node.getByTestId("output-map-metric-overlay")).toHaveCount(1);
         const [nb, bb] = [await node.boundingBox(), await box.boundingBox()];
@@ -334,7 +334,17 @@ for (const theme of ["light", "dark"] as const) {
         expect(pr.x, "popover inside viewport (left)").toBeGreaterThanOrEqual(0);
         expect(pr.x + pr.width, "popover inside viewport (right)").toBeLessThanOrEqual(390);
         await shot(page, `phone-${theme}.png`);
+        await expectBoxesDisjoint(page);
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await expectBoxesDisjoint(page);
       } finally { await cleanup(page, id); }
     });
   });
+}
+
+async function expectBoxesDisjoint(page: Page) {
+  const a = (await page.getByTestId("output-map-bounds").boundingBox())!;
+  const b = (await page.getByTestId("output-map-metric-overlay").boundingBox())!;
+  const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  expect(overlap, `bounds ${JSON.stringify(a)} vs metric ${JSON.stringify(b)} must not intersect`).toBe(false);
 }

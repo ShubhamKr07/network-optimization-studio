@@ -441,27 +441,27 @@ export function OutputMapTab({
       <FloorExceedsMaxAlert result={result} formatDistance={showDistance} className="mx-2 mt-2" />
 
       <div className="flex-1 min-h-0 relative" ref={mapRef}>
-        {/* B2.1-T2 (item 2) — floating objective/weighted-avg-distance card.
-            `result` here is `displayedResult` at the Workspace.tsx call
-            site, so this follows the result-history stepper automatically.
-            pointer-events-none so it never blocks map pan/zoom/click;
-            top-right is otherwise unused (NetworkMap's own legend is
-            bottom-right, Leaflet's zoom control is top-left). */}
-        {/* OMQ-1 — solver bounds + gap; top-left (zoom control is off), inside mapRef so the PNG includes it. */}
+        {/* OMQ-5 — one wrapper holds both boxes so they wrap to two rows instead of
+            overlapping at narrow widths. Inside mapRef so the PNG includes them;
+            pointer-events-none so they never block map pan/zoom/click. */}
+        <div className="absolute top-2 inset-x-2 z-[1000] pointer-events-none flex flex-wrap justify-between items-start gap-2">
+        {/* OMQ-1 — solver bounds + gap, left (zoom control is off). */}
         {bounds && (
           <div
             data-testid="output-map-bounds"
-            className="absolute top-2 left-2 z-[1000] pointer-events-none bg-card rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
+            className="bg-card rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
           >
             <div><span className="text-muted-foreground">Upper bound: </span><span className="font-medium font-mono" data-testid="output-map-bound-upper">{bounds.upper == null ? "—" : fmtObjective(bounds.upper)}</span></div>
             <div><span className="text-muted-foreground">Lower bound: </span><span className="font-medium font-mono" data-testid="output-map-bound-lower">{bounds.lower == null ? "—" : fmtObjective(bounds.lower)}</span></div>
             <div><span className="text-muted-foreground">Gap: </span><span className="font-medium font-mono" data-testid="output-map-bound-gap">{bounds.gap == null ? "—" : `${(bounds.gap * 100).toFixed(2)}%`}{bounds.provenOptimal && " (proven optimal)"}</span></div>
           </div>
         )}
+        {/* B2.1-T2 (item 2) — objective/weighted-avg-distance card, right; follows
+            the result-history stepper (`result` is `displayedResult`). */}
         {result && (
           <div
             data-testid="output-map-metric-overlay"
-            className="absolute top-2 right-2 z-[1000] pointer-events-none bg-background/80 backdrop-blur rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
+            className="ml-auto bg-background/80 backdrop-blur rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
           >
             {showIncumbent ? (
               <>
@@ -524,6 +524,7 @@ export function OutputMapTab({
             )}
           </div>
         )}
+        </div>
         <NetworkMap
           dataset={effectiveDataset}
           warehouseStatuses={warehouseStatuses}

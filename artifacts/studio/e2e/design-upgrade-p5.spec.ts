@@ -780,9 +780,10 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
         testInfo.annotations.push({ type: `export-${label}`, description: `#1C1915 share ${(exportShare * 100).toFixed(1)}% (live ${(live.landShare * 100).toFixed(1)}%); dominant ${rgbStr(pal.top[0].rgb)}; top ${pal.top.slice(0, 4).map(p => rgbStr(p.rgb)).join(" ")}` });
         expect(Math.abs(exportShare - live.landShare), `${label}: export #1C1915 share ${(exportShare * 100).toFixed(1)}% within 15 points of live ${(live.landShare * 100).toFixed(1)}%`).toBeLessThanOrEqual(0.15);
         expect(lum(pal.top[0].rgb), `${label}: dominant colour dark`).toBeLessThan(0.05);
-        // OMQ-4: the dominant colour is whichever of land (#1C1915) / dark ocean wins the map's framing, and on the OMQ
-        // branch ocean (rgb 28,61,71) leads the capture (framing change; cause not bisected). Land only has to
-        // be one of the leading colours; its share is already pinned against the live map above.
+        // OMQ-4/5: the dominant colour is whichever of land (#1C1915) / dark ocean (rgb 28,61,71) wins the map's framing.
+        // OMQ-3 removed the open-sites caption and the footer narrative, so at 1280x720 the Output Map container grew
+        // from 489.5px (04707e7c) to 584px (same 1022px width) and fitBounds frames more ocean, which now leads the
+        // capture. Land only has to be one of the leading colours; its share is pinned against the live map above.
         expect(pal.top.slice(0, 3).some(p => near(p.rgb, DARK_TILE_RGB, 3)), `${label}: #1C1915 among the 3 leading colours`).toBe(true);
         // Open warehouse triangle: solid --map-warehouse-open. Customer dot: --map-customer at fill-opacity 0.8 over the
         // dark land (NetworkMap), so the rendered fill is that blend; its stroke is --map-customer-stroke.
