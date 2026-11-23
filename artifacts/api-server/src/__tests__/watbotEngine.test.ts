@@ -325,6 +325,13 @@ describe("answerQuestion", () => {
     expect(lastToolResults(client.calls[1]!)[0]!.content).toBe(REPLY_RULES.off_topic);
     expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
   });
+  // A correct answer is confirmed again on a re-answer: too_many_questions says "never confirm",
+  // which contradicts the correct_attempt rule.
+  it("sends only the correct_attempt rule on a re-answer, never the repair rule", async () => {
+    const client = fakeClient([toolRound("t1", "record_message_type", { type: "correct_attempt" }), answerRound("Right.")]);
+    await answerQuestion(baseInput(client, { repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(lastToolResults(client.calls[1]!)[0]!.content).toBe(REPLY_RULES.correct_attempt);
+  });
   it("still value-checks an off-topic decline", async () => {
     const leaky = "That is off topic, but the optimal network costs 1,234,567 dollars in total.";
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);

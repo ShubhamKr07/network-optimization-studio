@@ -202,7 +202,8 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
             const rule = REPLY_RULES[out.messageType]; // ...nor switch its rule
             // An off-topic message is declined again on a re-answer: every repair rule asks for a
             // cited explanation, which the off-topic rule forbids and the decline exemption would forward.
-            const repairRule = out.messageType === "off_topic" ? null : input.repair?.rule;
+            // A correct answer is confirmed again: too_many_questions says "never confirm".
+            const repairRule = out.messageType === "off_topic" || out.messageType === "correct_attempt" ? null : input.repair?.rule;
             results.push({ type: "tool_result", tool_use_id: tu.id, content: repairRule ? `${rule}\n\n${repairRule}` : rule });
           } else {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Unknown type. Use one of: ${WATBOT_MESSAGE_TYPES.join(", ")}.` });
