@@ -5397,4 +5397,4 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
   - 289 book and 113 notebook passages;
   - an md5 fingerprint over key fields and bodies equal to the stage's;
   - a full-text search probe returning ranked passages.
-- **Spot check (runbook step 5).** 10 random passages of the 19 containing `$$` were put on a local-only review page for the owner. The result is pending.
+- **Spot check (runbook step 5).** 10 random passages of the 19 containing `$$` were put on a local-only review page: Ch 2 p.26/27, Ch 3 p.47, Ch 4 p.71, Ch 5 p.88, Ch 6 p.107/116, Ch 9 p.165 and Ch 10 p.181/183. **The owner confirmed all 10 match the book (2026-11-23).**
