@@ -5412,5 +5412,5 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Not yet proven.** No real model call has run in production yet, so OIDC authentication is unverified until the first question. A failure fails closed: the panel shows "WatBot is unavailable".
 - **Open:**
   - The database allowlist cleanup (owner).
-  - The deferred follow-ups: drop attribution, off-topic declines, and a project rule to prefer the separate `watbot-feedback` branch lifecycle.
+  - The deferred follow-ups: attribute dropped blocks (F9 vs uncited), and fix empty off-topic declines (WATBOT-FB-6).
   - Retiring the WATBOT worktrees and branches (owner approval).
