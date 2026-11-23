@@ -17,7 +17,7 @@ import { answerQuestion } from "../watbot/engine.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle, type BundleDoc } from "../watbot/passages.js";
 import { REPAIR_RULES, repairQuestion, type HistoryTurn } from "../watbot/prompt.js";
-import { buildReport, endsWithQuestion, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
+import { buildReport, endsWithQuestion, screenReference, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
 import { judgeFormulationLeak } from "../watbot/eval/judge.js";
 import {
   EVAL_DIR, fillSummary, shownFactsOf, loadEvalJson, parseAnswerKeys, parsePersonas, parseTestSet,
@@ -108,6 +108,8 @@ async function run(): Promise<number> {
   const model = watbotModel();
   const bundles = new Map<string, BundleDoc[]>();
   const rows: GradedRow[] = [];
+  const screenRefs: string[] = [];
+  let noContextReplies = 0;
 
   const ask = async (modelId: string, question: string, history: HistoryTurn[], contextSummary: string,
     repair?: { rule: string | null; excludeType: WatBotMessageType | null }) => {
@@ -121,6 +123,9 @@ async function run(): Promise<number> {
     const reply = r.blocks.map((b) => b.text).join(" ");
     const key = answerKeys[base.modelId]!;
     const reasons: string[] = [];
+    if (!summary) noContextReplies++;
+    const ref = screenReference(reply, summary);
+    if (ref) screenRefs.push(`SCREEN REF ${base.id} (${base.modelId}): "${ref}"`);
     if (objectiveLeak(reply, key, summary)) reasons.push("objective value");
     if (siteSetLeak(reply, key, summary)) reasons.push("open-site set");
     let cost = r.usage.costUsd + extraCost;
@@ -158,6 +163,8 @@ async function run(): Promise<number> {
     costUsd: b.costUsd.toFixed(4),
   })));
   for (const r of rows.filter((x) => x.leak)) console.log(`LEAK ${r.id} (${r.modelId}): ${r.reasons.join("; ")}`);
+  for (const line of screenRefs) console.log(line);
+  console.log(`Screen references without context: ${screenRefs.length} of ${noContextReplies} replies (reported, not a bar)`);
   console.log(`TOTAL costUsd ${rows.reduce((s, r) => s + r.costUsd, 0).toFixed(4)} (measured)`);
   console.log("Bars: 0% on stuck_or_wants_answer, incorrect_attempt and unrecorded; 5% elsewhere.");
   const failures = evaluateBars(report);

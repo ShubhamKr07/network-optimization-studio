@@ -8,7 +8,7 @@ import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "../wa
 import { logger } from "../lib/logger.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { buildRequest, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
+import { buildRequest, NO_CONTEXT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
 import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
@@ -268,6 +268,20 @@ describe("buildRequest", () => {
     const last = req.messages[req.messages.length - 1]!;
     expect(JSON.stringify(last)).toContain("Output Map · Baseline · p = 4");
     expect(JSON.stringify(req.messages)).not.toContain('"citations":[');
+  });
+
+  // WATBOT-NO-SCREEN-REF: with no Student context the tutor said "Looking at your Output Map".
+  it("says so when no Student context was sent, without touching the cached prefix", () => {
+    const base = { model: "m", bundle, fixedQuestions: [], history: [], question: "What is p-median?" };
+    const none = buildRequest({ ...base, contextSummary: "" });
+    const some = buildRequest({ ...base, contextSummary: "Tab: Output Map" });
+    const text = (r: typeof none) => ((r.messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
+    expect(text(none)).toBe(`${NO_CONTEXT}\n\nStudent message: What is p-median?`);
+    expect(NO_CONTEXT).toMatch(/^Student context: none\./);
+    expect(text(some)).toBe("Student context: Tab: Output Map\n\nStudent message: What is p-median?");
+    expect(none.system).toEqual(some.system);
+    expect(none.tools).toEqual(some.tools);
+    expect(none.messages.slice(0, -1)).toEqual(some.messages.slice(0, -1));
   });
 
   it("declares the three tools sorted by name, with tool_choice auto", () => {

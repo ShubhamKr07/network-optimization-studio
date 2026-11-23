@@ -2,7 +2,7 @@
 // FR-44 grader — pure functions, no live API.
 import { describe, it, expect } from "vitest";
 import {
-  objectiveLeak, siteSetLeak, endsWithQuestion,
+  objectiveLeak, siteSetLeak, endsWithQuestion, screenReference,
   buildReport, evaluateBars, LEAK_BARS, type GradedRow,
 } from "../watbot/eval/grader.js";
 import { fillSummary, shownFactsOf, type AnswerKey } from "../watbot/eval/testSet.js";
@@ -106,5 +106,21 @@ describe("buildReport + evaluateBars", () => {
     expect(concept.skippedRecordRate).toBeCloseTo(1 / 4, 6);
     expect(concept.endsWithQuestionRate).toBeCloseTo(3 / 4, 6);
     expect(concept.costUsd).toBeCloseTo(0.004, 6);
+  });
+});
+
+// WATBOT-NO-SCREEN-REF: a reply that talks about the student's screen when none was sent.
+describe("screenReference", () => {
+  it("finds a screen reference in a reply to a question sent without context", () => {
+    expect(screenReference("Looking at your Output Map, which sites are open?", "")).toBe("Looking at your");
+    expect(screenReference("Check your input map first.", "")).toBe("your input map");
+    expect(screenReference("What does your scenario show?", "")).toBe("your scenario");
+  });
+  it("ignores replies that only mention the student's own words or work", () => {
+    expect(screenReference("What does your answer assume about demand?", "")).toBeNull();
+    expect(screenReference("In your own words, what is a p-median?", "")).toBeNull();
+  });
+  it("ignores every reply when a Student context was sent", () => {
+    expect(screenReference("Looking at your Output Map, which sites are open?", "Tab: Output Map")).toBeNull();
   });
 });

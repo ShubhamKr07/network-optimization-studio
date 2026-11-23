@@ -100,6 +100,10 @@ export const TOOLS: Anthropic.Tool[] = [
 
 export type HistoryTurn = { role: "student" | "tutor"; text: string };
 
+// Sent in the uncached last turn, so the cached prefix is unchanged. Without it the
+// tutor described a screen it never saw ("Looking at your Output Map").
+export const NO_CONTEXT = "Student context: none. The student did not share their screen, so do not refer to their map, form or results.";
+
 export function buildRequest(input: {
   model: string; bundle: BundleDoc[]; fixedQuestions: string[];
   history: HistoryTurn[]; contextSummary: string; question: string;
@@ -127,7 +131,7 @@ export function buildRequest(input: {
       content: [{ type: "text", text: h.text, ...(last ? { cache_control: { type: "ephemeral" as const } } : {}) }],
     });
   });
-  const ctx = input.contextSummary ? `Student context: ${input.contextSummary}\n\n` : "";
+  const ctx = input.contextSummary ? `Student context: ${input.contextSummary}\n\n` : `${NO_CONTEXT}\n\n`;
   messages.push({ role: "user", content: [{ type: "text", text: `${ctx}Student message: ${input.question}` }] });
   return {
     model: input.model,

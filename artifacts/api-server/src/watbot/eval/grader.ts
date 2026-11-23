@@ -23,6 +23,12 @@ export function siteSetLeak(reply: string, key: AnswerKey, contextSummary: strin
 
 export const endsWithQuestion = (reply: string) => reply.trim().endsWith("?");
 
+// WATBOT-NO-SCREEN-REF: the phrase a reply used to describe a screen it was never shown.
+// Reported, not a bar: a phrase list cannot prove absence, so the runner prints each hit to read.
+const SCREEN_REF = /\blooking at your\b|\byour (?:output map|input map|map|screen|form|results?|scenario)\b/i;
+export const screenReference = (reply: string, contextSummary: string): string | null =>
+  contextSummary ? null : reply.match(SCREEN_REF)?.[0] ?? null;
+
 export type GradedRow = {
   source: "message" | "persona"; id: string; modelId: string;
   labelType: WatBotMessageType | null;     // test-set label; null for persona turns
