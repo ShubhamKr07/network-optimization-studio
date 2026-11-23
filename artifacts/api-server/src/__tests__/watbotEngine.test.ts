@@ -661,15 +661,32 @@ describe("answerQuestion", () => {
   });
 
   it("ends through the stopped path when the student stops during the backoff", async () => {
-    const ac = new AbortController();
-    const client = fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("never sent")]);
-    setTransientBackoffForTests([10_000, 10_000]);
-    const p = answerQuestion(baseInput(client, { signal: ac.signal }));
-    await new Promise((r) => setTimeout(r, 10));
-    ac.abort();
-    const result = await p;
-    expect(client.calls).toHaveLength(1);
-    expect(result).toMatchObject({ stopped: true, failure: null, reachedModel: false });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    try {
+      const ac = new AbortController();
+      const client = fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("never sent")]);
+      setTransientBackoffForTests([10_000, 10_000]);
+      const p = answerQuestion(baseInput(client, { signal: ac.signal }));
+      await new Promise((r) => setTimeout(r, 10));
+      ac.abort();
+      const result = await p;
+      expect(client.calls).toHaveLength(1);
+      expect(result).toMatchObject({ stopped: true, failure: null, reachedModel: false });
+      expect(warn).not.toHaveBeenCalled(); // a stopped answer is not a provider failure
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("does not log a transient error that a retry recovers", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    try {
+      const result = await answerQuestion(baseInput(fakeClient([{ error: apiErr(529, "overloaded") }, answerRound("Recovered?")])));
+      expect(result.failure).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   // D22 — provider failures return a result with what was forwarded and billed; they never throw.
