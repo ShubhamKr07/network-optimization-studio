@@ -232,9 +232,9 @@ One streamed Messages API exchange per question: a first round that records the 
 | `concept_question`, simple fact | One cited sentence, then one question for the student | FR-12, 41 |
 | `concept_question`, conceptual | A two-to-four-sentence explanation from the cited passage, tied to the student's own map or form where the context has one, then one question for the student | FR-13, 7, 41 |
 | `concept_question`, not covered | Says so, offers the nearest covered topic, calls `log_gap`; panel shows "gap logged for the teaching team" | FR-27 |
-| `off_topic` | Declines in one line and returns to the current exercise; no gap logged | FR-38, 27 |
+| `off_topic` | One generic line that declines, with no question and no citation; no gap logged (owner, 2026-11-23: was "returns to the current exercise") | FR-38, 27 |
 | `incorrect_attempt` | Points at the error with a question; does not correct it | FR-39 |
-| `correct_attempt` | Says specifically what is right, then moves to the next step (the next question in the exercise, or the next fixed question) | FR-40 |
+| `correct_attempt` | Says specifically what is right, citing the passage, and stops: no question and no next step (owner, 2026-11-23: was "then moves to the next step") | FR-40 |
 | `stuck_or_wants_answer` | A one-line reason it won't give the answer, then a pointed hint from a cited passage and one question. Help levels exist only in Spec 2 | FR-26 (spirit), 41 |
 
 In Spec 1 the "exercise" is the chapter model the panel is open on. "Attempts" are the student's replies to WatBot's question at the end of each reply.
@@ -242,7 +242,7 @@ In Spec 1 the "exercise" is the chapter model the panel is open on. "Attempts" a
 Answer rules for every type (FR-41, D14):
 - Replies are two to four sentences. The exceptions are the one-line off-topic decline and the fact answer.
 - Every reply rests on a cited passage.
-- Every reply ends with one question, unless the student has finished the exercise.
+- Every reply ends with one question, except after a correct attempt or an off-topic message (owner, 2026-11-23).
 - No complete formulation.
 - No optimal facility set or objective value that is not already in the student's context summary.
 
@@ -261,7 +261,7 @@ The SSE stream carries these events:
 The server buffers each text block until its stop event, then decides:
 
 - Cited block: forwarded with its chips **only if it passes the value check** below (D20). A failing cited block is dropped with the same notice as an uncited claim.
-- Uncited block that is a question to the student (ends with "?"), or connective text under 12 words: forwarded **only if it passes the value check**. The check fails when the text contains:
+- Uncited block that is a question to the student (ends with "?"), connective text under 12 words, or any block of a reply whose recorded type is `off_topic` (the decline is uncited by design; WATBOT-REPLY-ENDINGS, 2026-11-23): forwarded **only if it passes the value check**. The check fails when the text contains:
   - a number of four or more digits, after removing commas and reading "M"/"million"/"k" forms;
   - or the name of a candidate facility: from the model's dataset (warehouse, plant, refinery or mine), plus, for a scenario in the context, the facilities in that scenario's own inputs (this is how `super-model`'s imported networks are covered). Names are matched as whole words with Unicode case folding.
 

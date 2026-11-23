@@ -140,9 +140,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         const b = open.get(ev.index);
         if (!b || !b.text.trim()) continue;
         open.delete(ev.index);
-        // Cited, or an uncited question / short connective (FR-17): forward only if it also
-        // carries no unseen value or site (D20, revised 2026-11-22: cited blocks too).
-        const keep = (b.citations.length > 0 || keepUncitedBlock(b.text))
+        // Cited, or an uncited question / short connective (FR-17), or the off-topic decline,
+        // which is uncited by design: forward only if it also carries no unseen value or
+        // site (D20, revised 2026-11-22: cited blocks too).
+        const keep = (b.citations.length > 0 || keepUncitedBlock(b.text) || out.messageType === "off_topic")
           && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
         if (keep) { out.blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
         else if (out.claimsRemoved++ === 0) input.emit({ type: "notice", kind: "claim_removed" });

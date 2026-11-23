@@ -300,6 +300,30 @@ describe("buildRequest", () => {
 });
 
 describe("answerQuestion", () => {
+  // WATBOT-REPLY-ENDINGS: the off-topic decline is uncited by design, so it must not be
+  // dropped as an uncited claim (it left 35% of off-topic replies empty).
+  const DECLINE = "That question is outside this course, so I can't help with it here.";
+  it("forwards an uncited off-topic decline of 12+ words", async () => {
+    const events: EngineEvent[] = [];
+    const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(DECLINE)]);
+    const r = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
+    expect(DECLINE.split(/\s+/).length).toBeGreaterThanOrEqual(12); // non-vacuity: long enough to be dropped otherwise
+    expect(r).toMatchObject({ messageType: "off_topic", claimsRemoved: 0 });
+    expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
+    expect(events.some((e) => e.type === "notice")).toBe(false);
+  });
+  it("still drops the same uncited text for any other type", async () => {
+    const client = fakeClient([toolRound("t1", "record_message_type", { type: "concept_question" }), answerRound(DECLINE)]);
+    const r = await answerQuestion(baseInput(client));
+    expect(r).toMatchObject({ messageType: "concept_question", claimsRemoved: 1, blocks: [] });
+  });
+  it("still value-checks an off-topic decline", async () => {
+    const leaky = "That is off topic, but the optimal network costs 1,234,567 dollars in total.";
+    const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);
+    const r = await answerQuestion(baseInput(client));
+    expect(r).toMatchObject({ claimsRemoved: 1, blocks: [] });
+  });
+
   it("forwards cited blocks, drops uncited claims once, keeps guiding questions; a skipped type call leaves messageType null", async () => {
     const client = fakeClient([{ events: [
       ...textBlock(0, "Demand weights each distance", [{ type: "content_block_location", cited_text: "P-median minimizes demand-weighted distance.", document_index: 0, document_title: "Chapter 3", start_block_index: 0, end_block_index: 1 }]),
