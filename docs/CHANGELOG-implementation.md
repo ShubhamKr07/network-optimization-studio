@@ -5371,3 +5371,16 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Comments** reworded: forcing happens on round 1 and the round after an R3 rejection.
 - **Claim test** gated on a promise instead of two 12 s sleeps (was ~24 s).
 - No change to `SYSTEM_PROMPT`, `REPLY_RULES`, `REPAIR_RULES` or `TOOLS`, so no test-set re-run is needed.
+
+## WATBOT-SCHEMA-PROD — WatBot schema applied to production (2026-11-23)
+
+- **Approval and baseline.** The owner approved this step separately; the merge to local `main` was `32558275`. A read-only check first showed production had none of the WatBot tables, `users.id` was `varchar`, and the connection ran as the owner role through the login shim.
+- **Applied:** 5 tables, `course_passages`, `watbot_conversations`, `watbot_messages`, `watbot_reports` and `watbot_feedback`, plus the `watbot_sessions` view. One transaction, through `render psql --command`, so no password entered the transcript.
+  - The DDL was dumped from local `nos_dev` after `drizzle-kit push` reported "No changes detected" against `main`'s schema, and dry-run on a scratch database.
+- **First attempt failed** on pg_dump 18's `SET transaction_timeout`, which Postgres 16 rejects. It rolled back: production showed 0 WatBot objects afterwards. The retry without that line committed.
+- **Verified by query:** 6 objects owned by `nos_postgres_user`. Column counts (9/6/10/12/8), 12 indexes and 9 FKs are identical to `nos_dev`. `users` was untouched.
+- **Runbook:** `docs/ops/schema-push-before-deploy.md` now documents this additive route and the Postgres 16 gotcha.
+- **Pending:**
+  - The owner removes the temporary database allowlist entries (runbook step 6).
+  - The production corpus load (its own approval).
+  - The deploys.

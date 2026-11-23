@@ -58,6 +58,16 @@ degraded new feature.
      "SELECT column_name, data_type, is_nullable FROM information_schema.columns
       WHERE table_name='<table>' AND column_name LIKE '<prefix>%' ORDER BY column_name;"
    ```
+   **Alternative for an additive change, with no password in the transcript (used for WatBot, 2026-11-23):**
+   1. Dump the new objects' DDL from a local database that `drizzle-kit push` built. Prove it matches first: `push` against it must report "No changes detected".
+      ```bash
+      pg_dump "<local db>" --schema-only --no-owner --no-privileges -t <table>… > schema.sql
+      ```
+   2. Wrap the DDL in `BEGIN; … COMMIT;`. Strip the psql meta-commands (`\restrict` / `\unrestrict`, `\set`), because `render psql` is non-interactive and only accepts `--command`. **Strip `SET transaction_timeout = 0;`**: pg_dump 17+ emits it, and production Postgres 16 rejects it (`unrecognized configuration parameter`). The transaction then rolls back, so retrying is safe.
+   3. Dry-run the file on a scratch database (`createdb`, a stand-in for any referenced table, apply, `dropdb`).
+   4. Apply it with `render psql <db id> -o text --confirm -c "$(cat schema.sql)"`. The CLI fetches the credential itself.
+   5. Compare object, column, index and FK counts against the local database.
+   This only adds objects. It is not a substitute for a change to an existing table, which needs its own runbook (step 2).
 5. **Then** deploy `nos-api`.
 6. **Remove the allowlist entry** afterwards if you added one, and prune stale
    ones while you are there.
