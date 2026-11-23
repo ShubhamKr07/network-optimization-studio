@@ -116,7 +116,7 @@ export function buildRequest(input: {
   }));
   // Fixed questions sit in the cached bundle message (constant per model), so
   // the tutor can refer to them (spec §5). correct_attempt no longer points at the
-  // next one (WATBOT-REPLY-ENDINGS); the list stays so the cached prefix is unchanged.
+  // next one (WATBOT-REPLY-ENDINGS); the list stays as course context.
   const fixed = input.fixedQuestions.length
     ? `\n\nFixed chapter questions, in order:\n${input.fixedQuestions.map((q, i) => `Q${i + 1}. ${q}`).join("\n")}`
     : "";

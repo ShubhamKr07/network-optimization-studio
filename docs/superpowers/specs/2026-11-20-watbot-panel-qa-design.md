@@ -237,11 +237,11 @@ One streamed Messages API exchange per question: a first round that records the 
 | `correct_attempt` | Says specifically what is right, citing the passage, and stops: no question and no next step (owner, 2026-11-23: was "then moves to the next step") | FR-40 |
 | `stuck_or_wants_answer` | A one-line reason it won't give the answer, then a pointed hint from a cited passage and one question. Help levels exist only in Spec 2 | FR-26 (spirit), 41 |
 
-In Spec 1 the "exercise" is the chapter model the panel is open on. "Attempts" are the student's replies to WatBot's question at the end of each reply.
+In Spec 1 the "exercise" is the chapter model the panel is open on. "Attempts" are the student's replies to WatBot's questions (most replies end with one; see the rules below).
 
 Answer rules for every type (FR-41, D14):
 - Replies are two to four sentences. The exceptions are the one-line off-topic decline and the fact answer.
-- Every reply rests on a cited passage.
+- Every reply rests on a cited passage, except the off-topic decline.
 - Every reply ends with one question, except after a correct attempt or an off-topic message (owner, 2026-11-23).
 - No complete formulation.
 - No optimal facility set or objective value that is not already in the student's context summary.
@@ -261,7 +261,7 @@ The SSE stream carries these events:
 The server buffers each text block until its stop event, then decides:
 
 - Cited block: forwarded with its chips **only if it passes the value check** below (D20). A failing cited block is dropped with the same notice as an uncited claim.
-- Uncited block that is a question to the student (ends with "?"), connective text under 12 words, or any block of a reply whose recorded type is `off_topic` (the decline is uncited by design; WATBOT-REPLY-ENDINGS, 2026-11-23): forwarded **only if it passes the value check**. The check fails when the text contains:
+- Uncited block that is a question to the student (ends with "?"), connective text under 12 words, or a block that finishes after the model has recorded `off_topic` for the message (the decline is uncited by design; WATBOT-REPLY-ENDINGS, 2026-11-23): forwarded **only if it passes the value check**. The check fails when the text contains:
   - a number of four or more digits, after removing commas and reading "M"/"million"/"k" forms;
   - or the name of a candidate facility: from the model's dataset (warehouse, plant, refinery or mine), plus, for a scenario in the context, the facilities in that scenario's own inputs (this is how `super-model`'s imported networks are covered). Names are matched as whole words with Unicode case folding.
 

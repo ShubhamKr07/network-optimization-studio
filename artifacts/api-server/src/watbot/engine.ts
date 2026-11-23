@@ -200,7 +200,10 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
           } else if (isMessageType(type)) {
             out.messageType ??= type; // first call wins; a second call cannot relabel the message
             const rule = REPLY_RULES[out.messageType]; // ...nor switch its rule
-            results.push({ type: "tool_result", tool_use_id: tu.id, content: input.repair?.rule ? `${rule}\n\n${input.repair.rule}` : rule });
+            // An off-topic message is declined again on a re-answer: every repair rule asks for a
+            // cited explanation, which the off-topic rule forbids and the decline exemption would forward.
+            const repairRule = out.messageType === "off_topic" ? null : input.repair?.rule;
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: repairRule ? `${rule}\n\n${repairRule}` : rule });
           } else {
             results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Unknown type. Use one of: ${WATBOT_MESSAGE_TYPES.join(", ")}.` });
           }

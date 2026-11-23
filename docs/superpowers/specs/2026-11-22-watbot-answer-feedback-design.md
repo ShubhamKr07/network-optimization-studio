@@ -62,6 +62,7 @@ Round 1 still forces `record_message_type`. The engine takes `repair?: { rule, e
   - The next valid call is stored (M1's first-wins applies to accepted calls only) and gets that type's normal rule.
   - A rejected round doesn't count against `MAX_ROUNDS` (at most one bonus round per question), so the answer still gets its two searches. The D21 spend reservation covers `MAX_ROUNDS + 1` rounds.
   - If that row has no type (the model skipped it), nothing is excluded.
+- **Off-topic exception (WATBOT-REPLY-ENDINGS review, 2026-11-23):** when the recorded type is `off_topic`, R1 and R2 send only `REPLY_RULES.off_topic`, with no repair rule. Both repair rules ask for a cited explanation, which the off-topic rule forbids, and the off-topic decline exemption would forward the uncited answer. So the student gets the decline again.
 
 `REPAIR_RULES` lives in `prompt.ts` next to `REPLY_RULES`, so Spec 1 §7 applies: any edit needs a passing test-set run before it ships. `SYSTEM_PROMPT` and `TOOLS` do not change, so the cached bundle prefix is unaffected.
 

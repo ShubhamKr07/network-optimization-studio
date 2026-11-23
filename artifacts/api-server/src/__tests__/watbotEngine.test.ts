@@ -317,6 +317,14 @@ describe("answerQuestion", () => {
     const r = await answerQuestion(baseInput(client));
     expect(r).toMatchObject({ messageType: "concept_question", claimsRemoved: 1, blocks: [] });
   });
+  // Review fold: a ✗ re-answer of an off-topic reply must not ask for a cited explanation
+  // that the off-topic rule forbids; the exemption would forward the uncited answer.
+  it("sends only the off-topic rule on a re-answer, never the repair rule", async () => {
+    const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(DECLINE)]);
+    const r = await answerQuestion(baseInput(client, { repair: { rule: REPAIR_RULES.too_many_questions, excludeType: null } }));
+    expect(lastToolResults(client.calls[1]!)[0]!.content).toBe(REPLY_RULES.off_topic);
+    expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
+  });
   it("still value-checks an off-topic decline", async () => {
     const leaky = "That is off topic, but the optimal network costs 1,234,567 dollars in total.";
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);
