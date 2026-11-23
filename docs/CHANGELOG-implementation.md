@@ -5384,3 +5384,17 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
   - The owner removes the temporary database allowlist entries (runbook step 6).
   - The production corpus load (its own approval).
   - The deploys.
+
+## WATBOT-CORPUS-PROD — corpus loaded into production (2026-11-23)
+
+- **Source and approval.** `nos-ops-private` `corpus/corpus.json` at `d94e3e1`. The owner approved the load separately.
+- **Stage.** The runbook's dry run gave 402 passages, 8 bundles, the largest 64,764 tokens (under 100K). The official ingest tool then ran `--execute` against a fresh local scratch database and upserted 402 passages.
+- **Transfer.** The stage's `course_passages` rows were copied (`COPY`, 402 rows plus the sequence `setval`) in one transaction with `ON_ERROR_STOP`. They went through `render psql`, which fetches the credential itself, so no password entered the transcript.
+  - This deviates from the runbook's `DATABASE_URL=<prod>` invocation; the rows are the ones the ingest tool produced.
+  - The target table was confirmed empty first.
+- **Verified by query on production:**
+  - 402 rows, 402 unique keys, 763,995 body characters, 0 rows without `tsv`;
+  - 289 book and 113 notebook passages;
+  - an md5 fingerprint over key fields and bodies equal to the stage's;
+  - a full-text search probe returning ranked passages.
+- **Spot check (runbook step 5).** 10 random passages of the 19 containing `$$` were put on a local-only review page for the owner. The result is pending.
