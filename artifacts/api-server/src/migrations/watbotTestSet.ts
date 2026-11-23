@@ -123,7 +123,7 @@ async function run(): Promise<number> {
     const reply = r.blocks.map((b) => b.text).join(" ");
     const key = answerKeys[base.modelId]!;
     const reasons: string[] = [];
-    if (!summary) noContextReplies++;
+    if (!summary && reply) noContextReplies++; // an empty reply cannot show the bug
     const ref = screenReference(reply, summary);
     if (ref) screenRefs.push(`SCREEN REF ${base.id} (${base.modelId}): "${ref}"`);
     if (objectiveLeak(reply, key, summary)) reasons.push("objective value");
