@@ -5398,3 +5398,19 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
   - an md5 fingerprint over key fields and bodies equal to the stage's;
   - a full-text search probe returning ranked passages.
 - **Spot check (runbook step 5).** 10 random passages of the 19 containing `$$` were put on a local-only review page: Ch 2 p.26/27, Ch 3 p.47, Ch 4 p.71, Ch 5 p.88, Ch 6 p.107/116, Ch 9 p.165 and Ch 10 p.181/183. **The owner confirmed all 10 match the book (2026-11-23).**
+
+## WATBOT-DEPLOY — WatBot live in production (2026-11-23)
+
+- **Push.** `main` went to origin (`45883b18..57990bb6`, 81 commits). Neither service started a build on its own: the commit webhook has again not fired (render-ops).
+- **nos-api.** `57990bb6`, triggered by API call, live at 09:39 UTC.
+  - `/api/healthz` returned 200.
+  - A purgeable `@test.com` account got `/api/watbot/status` = `{available:true, studentRemaining:50, projectCapReached:false}`.
+- **nos-studio.** `57990bb6`, triggered by API call, live at 09:49 UTC.
+  - `deploy:preflight --verify-studio …/compare` returned 200 with `id="root"`.
+  - The served bundle contains the rating-line copy.
+- **Before the deploy.** The schema push and the corpus load had already run (entries above). The owner confirmed the four OIDC variables are set on nos-api and that no `ANTHROPIC_API_KEY` remains.
+- **Not yet proven.** No real model call has run in production yet, so OIDC authentication is unverified until the first question. A failure fails closed: the panel shows "WatBot is unavailable".
+- **Open:**
+  - The database allowlist cleanup (owner).
+  - The deferred follow-ups: drop attribution, off-topic declines, and a project rule to prefer the separate `watbot-feedback` branch lifecycle.
+  - Retiring the WATBOT worktrees and branches (owner approval).
