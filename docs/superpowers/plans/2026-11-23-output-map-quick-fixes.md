@@ -27,7 +27,7 @@
 - **Commit:** guard `[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || { echo "ON MAIN — commit refused"; exit 1; }`; stage an explicit path list `P`, check `git diff --cached --name-only` equals `P`; `git commit --only ${=P} -m "[OMQ-N] …"`, message ending `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **Public repo (PRIV-1):** no emails, IPs, production ids or screenshots of real accounts in commits or docs.
 
-## Decisions (user, 2026-11-23)
+## Decisions (user, 2026-11-23; plan approved 2026-11-23)
 
 | ID | Decision | Task |
 |---|---|---|

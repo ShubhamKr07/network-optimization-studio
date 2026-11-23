@@ -44,9 +44,9 @@ The master plan's Global Constraints (`docs/superpowers/plans/2026-10-24-design-
   2. Build a static path list `P` (deleted files included), `git add -A -- ${=P}`, check `git diff --cached --name-only` equals `P`.
   3. `git commit --only ${=P} -m "[DU-6.N] …"` (no `--` before the paths; message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
 
-## Open questions for the user
+## User decisions OQ1–OQ6 (approved 2026-11-23)
 
-Each has a recommended default; the plan is written to the default. Answer before DU-6.2 is dispatched.
+The user approved this plan on 2026-11-23 with every default below unchanged. The "Recommended default" column is the decision; the alternatives are recorded for history only.
 
 | ID | Question | Recommended default |
 |---|---|---|
