@@ -25,6 +25,22 @@ export function classifyAnthropicError(err: unknown): "unavailable" | "project_l
   return "failed";
 }
 
+// Why WatBot failed, for the log: never the message, which can carry a question
+// (a drizzle error) or the redacted token-endpoint body. An OIDC 401 is opaque by
+// design; its deny reason is only in the Console's authentication history.
+export function providerErrorFields(err: unknown) {
+  const api = err instanceof Anthropic.APIError ? err : null;
+  const wif = err instanceof WorkloadIdentityError ? err : null;
+  const body = api?.error as { error?: { type?: string; details?: { error_code?: string } } } | undefined;
+  return {
+    errorClass: err instanceof Error ? err.name : typeof err,
+    status: api?.status ?? wif?.statusCode ?? null,
+    errorType: body?.error?.type ?? null,
+    errorCode: body?.error?.details?.error_code ?? null,
+    requestId: api?.requestID ?? wif?.requestId ?? null,
+  };
+}
+
 // D24 — `retry-after` in seconds, clamped to 1–60; 5 when missing or invalid.
 export function retryAfterMs(err: unknown): number {
   const raw = err instanceof Anthropic.APIError ? err.headers?.get("retry-after") : null;

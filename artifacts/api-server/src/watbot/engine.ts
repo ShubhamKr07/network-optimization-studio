@@ -6,7 +6,8 @@ import type { WatBotClient } from "./client.js";
 import { buildRequest, FORCE_RECORD_MODELS, FORCE_RECORD_TYPE, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, excludedTypeResult, type HistoryTurn } from "./prompt.js";
 import { keepUncitedBlock, mapCitation, passesValueCheck } from "./citations.js";
 import { costUsd } from "./cost.js";
-import { classifyAnthropicError, retryAfterMs } from "./errors.js";
+import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "./errors.js";
+import { logger } from "../lib/logger.js";
 import { searchBook as defaultSearchBook, type BundleDoc } from "./passages.js";
 
 export { MAX_ROUNDS };
@@ -233,6 +234,8 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
     // forwarded block) or any other error still returns what was forwarded and billed.
     if (input.signal.aborted) return finish({ stopped: true });
     const kind = classifyAnthropicError(err);
-    return finish({ failure: kind === "unavailable" || kind === "project_limit" ? kind : "error" });
+    const failure = kind === "unavailable" || kind === "project_limit" ? kind : "error";
+    logger.warn({ failure, ...providerErrorFields(err) }, "WatBot: provider call failed");
+    return finish({ failure });
   }
 }

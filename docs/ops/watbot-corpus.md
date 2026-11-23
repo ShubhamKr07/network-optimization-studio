@@ -113,8 +113,11 @@ static key. Render docs: <https://render.com/docs/oidc> (needs a Pro workspace).
 5. **Verify after the deploy:** `render ssh <nos-api service id>`, then run the rule's
    *Test connection* script with `JWT=$(cat $ANTHROPIC_IDENTITY_TOKEN_FILE)`; then ask one
    question as a student. A misconfigured rule surfaces as WatBot "unavailable" (the SDK's
-   `WorkloadIdentityError`, "Token exchange failed with status 401"), and the Console's Workload
-   identity page logs the rejected exchange with a reason code (e.g. `jwt_audience_mismatch`).
+   `WorkloadIdentityError`, "Token exchange failed with status 401"), and the Console's authentication
+   history (<https://platform.claude.com/settings/workload-identity-federation?tab=history>) logs the
+   rejected exchange with a reason code (e.g. `jwt_audience_mismatch`). The 401 itself always says
+   "Authentication failed", and no API reads the history; nos-api logs "WatBot: provider call failed"
+   with the time, class and status.
    `render ssh` needs an SSH key on the Render account; the Dashboard **Shell** tab does not.
    To compare the token with the rule, decode only its claims in that Shell, never print the token:
    `node -e 'const p=JSON.parse(Buffer.from(require("fs").readFileSync(process.env.ANTHROPIC_IDENTITY_TOKEN_FILE,"utf8").trim().split(".")[1],"base64url"));console.log(p.iss,p.sub,p.aud,(p.exp-p.iat)/60)'`.

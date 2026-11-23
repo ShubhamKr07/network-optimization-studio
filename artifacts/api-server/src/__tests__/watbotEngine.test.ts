@@ -4,7 +4,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
 import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
 import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
-import { classifyAnthropicError, retryAfterMs } from "../watbot/errors.js";
+import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "../watbot/errors.js";
+import { logger } from "../lib/logger.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { buildRequest, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
@@ -232,6 +233,25 @@ describe("classifyAnthropicError", () => {
   });  it("maps a failed OIDC token exchange (Render workload identity) to unavailable", () => {
     expect(classifyAnthropicError(new WorkloadIdentityError("Token exchange failed with status 401: rule mismatch", 401))).toBe("unavailable");
     expect(classifyAnthropicError(new WorkloadIdentityError("oidc_federation config requires organization_id"))).toBe("unavailable");
+  });
+});
+
+// WATBOT-UNAVAIL-LOG: the log line names the cause, never the message (it can carry
+// a question via a drizzle error, or the redacted token-endpoint body).
+describe("providerErrorFields", () => {
+  it("keeps class, status, type, code and request id of an API error", () => {
+    const err = apiErr(401, "invalid x-api-key", { type: "authentication_error", details: { error_code: "bad_key" } }, { "request-id": "req_1" });
+    expect(providerErrorFields(err)).toEqual({ errorClass: "AuthenticationError", status: 401, errorType: "authentication_error", errorCode: "bad_key", requestId: "req_1" });
+  });
+  it("keeps class, status and request id of a failed OIDC exchange", () => {
+    const err = new WorkloadIdentityError("Token exchange failed with status 401: SECRET-BODY", 401, "SECRET-BODY", "req_2");
+    expect(providerErrorFields(err)).toEqual({ errorClass: "WorkloadIdentityError", status: 401, errorType: null, errorCode: null, requestId: "req_2" });
+  });
+  it("names only the class of any other error, and never its message", () => {
+    const fields = providerErrorFields(new Error("Failed query: params: my secret question"));
+    expect(fields).toEqual({ errorClass: "Error", status: null, errorType: null, errorCode: null, requestId: null });
+    expect(JSON.stringify(fields)).not.toContain("secret");
+    expect(providerErrorFields("thrown string")).toMatchObject({ errorClass: "string" });
   });
 });
 
@@ -609,6 +629,23 @@ describe("answerQuestion", () => {
     expect(waits).toEqual([]);
     expect(result).toMatchObject({ failure: "unavailable", reachedModel: false, blocks: [] });
     expect(result.usage.costUsd).toBe(0);
+  });
+
+  it("logs the cause, without the message, when it ends as unavailable", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    try {
+      const err = () => ({ error: apiErr(401, "SECRET-MESSAGE", { type: "authentication_error" }, { "request-id": "req_9" }) });
+      const result = await answerQuestion(baseInput(fakeClient([err(), err(), err()]))); // 1 attempt + 2 retries
+      expect(result.failure).toBe("unavailable");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        { failure: "unavailable", errorClass: "AuthenticationError", status: 401, errorType: "authentication_error", errorCode: null, requestId: "req_9" },
+        "WatBot: provider call failed",
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET-MESSAGE");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("does not retry a 529 that follows a forwarded block", async () => {

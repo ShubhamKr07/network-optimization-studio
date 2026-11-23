@@ -5429,3 +5429,10 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 - **Follow-ups:**
   1. Log the provider error's class and status (no secrets) when WatBot marks itself unavailable. Without that log, this failure was silent.
   2. The answer said "Looking at your Output Map" for a question sent with no context. The prompt should forbid screen references without a Student context.
+
+## WATBOT-UNAVAIL-LOG — log why a WatBot answer failed (2026-11-23)
+
+- **What.** When an answer ends through the provider-failure path (`unavailable`, `project_limit` or `error`), the engine now logs one `warn` line, "WatBot: provider call failed". It carries `failure`, `errorClass`, `status`, `errorType`, `errorCode` and `requestId`, from the new `providerErrorFields` in `watbot/errors.ts`. Closes WATBOT-OIDC-FIX follow-up 1.
+- **Never the message.** An error message can carry the student's question (a drizzle error; see `artifacts/api-server/CLAUDE.md`) or the redacted token-endpoint body. So the line names the class only. An OIDC denial is a deliberately opaque `401 authentication_error` ("Authentication failed"). Its deny reason (e.g. `jwt_audience_mismatch`) appears only in the Console's authentication history (Workload identity page, History tab), and no API reads it. The log's timestamp locates the entry there.
+- **Scope.** The line is written once, at the engine's single failure exit, after the in-round retries. A transient error that a retry recovers is not logged.
+- **Tests.** `watbotEngine.test.ts` has 4 new tests: three for `providerErrorFields` (an API error, a `WorkloadIdentityError`, and any other error, asserting the message never appears) and one engine test that spies on `logger.warn` for an unavailable ending. They failed before the change.
