@@ -390,6 +390,14 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3, { steps: 6 });
       await page.mouse.up();
       await expect(card).toBeVisible();
+      // mouse.up starts Leaflet's pan inertia (~100px of animated travel); mid-flight the card
+      // re-anchors a frame behind its marker (measured: marker +103px vs card +98px). Wait for
+      // both rects to hold still across two reads before comparing.
+      const rects = async () => JSON.stringify([await addedMarker.boundingBox(), await card.boundingBox()]);
+      let prev = "";
+      await expect
+        .poll(async () => { const cur = await rects(); const settled = cur === prev; prev = cur; return settled; }, { intervals: [150], timeout: 5_000 })
+        .toBe(true);
       const markerAfter = (await addedMarker.boundingBox())!;
       const cardAfter = (await card.boundingBox())!;
       // The un-zoomed map is clamped to the country bounds, so this drag may
