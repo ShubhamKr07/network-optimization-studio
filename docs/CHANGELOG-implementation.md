@@ -5417,18 +5417,7 @@ Spec `docs/superpowers/specs/2026-11-20-watbot-panel-qa-design.md` (PRD rev 183,
 
 ## WATBOT-OIDC-FIX — production OIDC fixed: rule audience (2026-11-23)
 
-- **Symptom.** The first production questions (09:55 and 09:56 UTC) were stored as `unavailable` with no usage, and `/api/watbot/status` showed `available:false`. The engine does not log the cause.
-- **Diagnosis** (owner, in the nos-api Dashboard Shell, because `render ssh` had no registered key):
-  - The SDK call failed with `WorkloadIdentityError` (token exchange 401).
-  - All four OIDC vars were set, there was no `ANTHROPIC_API_KEY`, and the token file was present.
-  - The decoded token claims matched the runbook exactly: `iss` is the Render workspace issuer, `sub` is nos-api's subject, `aud` is `api.anthropic.com`, and the lifetime is 60 min.
-  - The Console's authentication event named **`jwt_audience_mismatch`**: the rule's audience differed from the token's.
-- **Fix.** The owner set the rule's audience to exactly `api.anthropic.com` in the Claude Console. No redeploy.
-- **Verified.** The next question as a purgeable `@test.com` account returned `available:true`, streamed 4 blocks, and cited Ch 3 p.49 and p.50 with type `concept_question`. Latency was 7.8 s, the bundle was read from cache (69,757 tokens), and it cost **$0.01857 measured**, about 9× the $0.002 estimate, which had ignored the bundle input.
-- **Runbook.** `docs/ops/watbot-corpus.md` step 7 now says the audience must match the token's `aud` exactly. It names the `jwt_audience_mismatch` reason and the Shell-based check.
-- **Follow-ups:**
-  1. Log the provider error's class and status (no secrets) when WatBot marks itself unavailable. Without that log, this failure was silent.
-  2. The answer said "Looking at your Output Map" for a question sent with no context. The prompt should forbid screen references without a Student context.
+- Production OIDC sign-in failed after the first WatBot deploy and was fixed in the Claude Console, with no code change. The incident record is in the private ops log (§ WATBOT-OIDC-FIX). The operational lesson is in `docs/ops/watbot-corpus.md` step 7. Its two follow-ups shipped as WATBOT-UNAVAIL-LOG and WATBOT-NO-SCREEN-REF.
 
 ## WATBOT-UNAVAIL-LOG — log why a WatBot answer failed (2026-11-23)
 
