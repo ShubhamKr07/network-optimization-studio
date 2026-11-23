@@ -7,7 +7,7 @@
  * Target: E2E_BASE_URL (NEVER run without it — see e2e/CLAUDE.md).
  *
  * Every check can fail: the optimal case compares the bounds box against the metric box's own text,
- * the PNG case diffs a capture with the box against one with it hidden, and the tooltip case asserts
+ * the PNG case diffs a capture with the box against one with it hidden (and against a second with-box capture as a noise control), and the tooltip case asserts
  * it really found a lane (not a marker) before reading the pane.
  */
 import fs from "node:fs";
@@ -86,6 +86,9 @@ for (const theme of ["light", "dark"] as const) {
         id = await openOutputMap(page, "p-median-us", loadFixture("p-median-us"));
         const objective = (await metricObjective(page).textContent())!.trim();
         expect(objective.length, "metric box shows an Objective").toBeGreaterThan(0);
+        // Independent anchor: the fixture objective 29873735731 (demand-miles), formatted by hand.
+        expect(objective, "metric box Objective is the fixture value, formatted by hand").toBe("29,873,735,731 demand-mi");
+        await expect(page.getByTestId("output-map-bound-upper")).toHaveText("29,873,735,731 demand-mi");
         await expect(page.getByTestId("output-map-bound-upper")).toHaveText(objective);
         await expect(page.getByTestId("output-map-bound-lower")).toHaveText(objective);
         await expect(page.getByTestId("output-map-bound-gap")).toHaveText("0.00% (proven optimal)");
@@ -111,6 +114,20 @@ for (const theme of ["light", "dark"] as const) {
         await expect(gap).toHaveText("5.00%");
         await expect(gap).not.toContainText("proven optimal");
         await shot(page, `bounds-feasible-min-${theme}.png`);
+      } finally { await cleanup(page, id); }
+    });
+
+    test("seeded feasible with NO achievedGap, minimise (p-median-us): Upper = objective, Lower and Gap are \"—\"", async ({ page }) => {
+      let id: string | null = null;
+      try {
+        const base = loadFixture("p-median-us");
+        id = await openOutputMap(page, "p-median-us", { ...base, status: "feasible", solutionStatus: "feasible", terminationReason: "time_limit", achievedGap: null });
+        const objective = (await metricObjective(page).textContent())!.trim();
+        await expect(page.getByTestId("output-map-bounds")).toBeVisible({ timeout: T });
+        await expect(page.getByTestId("output-map-bound-upper")).toHaveText(objective);
+        await expect(page.getByTestId("output-map-bound-lower")).toHaveText("—");
+        await expect(page.getByTestId("output-map-bound-gap")).toHaveText("—");
+        await expect(page.getByTestId("output-map-bound-gap")).not.toContainText("proven optimal");
       } finally { await cleanup(page, id); }
     });
 
@@ -175,12 +192,13 @@ for (const theme of ["light", "dark"] as const) {
           return buf;
         };
         const withBox = await grab();
+        const withBox2 = await grab(); // control: two captures WITH the box differ only by tile/render noise
         await page.addStyleTag({ content: '[data-testid="output-map-bounds"]{visibility:hidden !important}' });
         const without = await grab();
 
-        // Diff the two exports inside the box's region (node-relative, scaled to PNG pixels).
+        // Diff two exports inside the box's region (node-relative, scaled to PNG pixels).
         const region = { x: bb!.x - nb!.x, y: bb!.y - nb!.y, w: bb!.width, h: bb!.height, nodeW: nb!.width };
-        const diff = await page.evaluate(async ([a, b, r]) => {
+        const diffOf = (x: Buffer, y: Buffer) => page.evaluate(async ([a, b, r]) => {
           const load = async (b64: string) => { const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode(); return img; };
           const [ia, ib] = [await load(a as string), await load(b as string)];
           if (ia.naturalWidth !== ib.naturalWidth || ia.naturalHeight !== ib.naturalHeight) return { sameSize: false, share: 0, scale: 0 };
@@ -195,9 +213,13 @@ for (const theme of ["light", "dark"] as const) {
           let differing = 0;
           for (let i = 0; i < da.length; i += 4) if (Math.abs(da[i] - db[i]) + Math.abs(da[i + 1] - db[i + 1]) + Math.abs(da[i + 2] - db[i + 2]) > 30) differing++;
           return { sameSize: true, share: differing / (da.length / 4), scale };
-        }, [withBox.toString("base64"), without.toString("base64"), region] as const);
-        expect(diff.sameSize, "both exports have the same dimensions").toBe(true);
+        }, [x.toString("base64"), y.toString("base64"), region] as const);
+        const diff = await diffOf(withBox, without);
+        const noise = await diffOf(withBox, withBox2);
+        expect(diff.sameSize, "with/without exports have the same dimensions").toBe(true);
+        expect(noise.sameSize, "with/with exports have the same dimensions").toBe(true);
         expect(diff.share, `share of pixels in the box region that differ with/without the box (scale ${diff.scale.toFixed(2)})`).toBeGreaterThan(0.3);
+        expect(noise.share, `with/with noise share ${noise.share.toFixed(4)} must be far below with/without ${diff.share.toFixed(4)}`).toBeLessThan(diff.share / 5);
       } finally { await cleanup(page, id); }
     });
 
@@ -239,6 +261,10 @@ for (const theme of ["light", "dark"] as const) {
           return { paneClass: pane.className, paneZ: getComputedStyle(pane).zIndex, bg: cs.backgroundColor, card, opacity: cs.opacity, chain, text: (el.textContent ?? "").trim() };
         });
         expect(info.text.length, "the tooltip has content").toBeGreaterThan(0);
+        // It is the LANE tooltip, not a marker's (markers share class/bg/pane): "From → To" plus a distance with a unit.
+        await expect(tip).toHaveClass(/nos-map-tooltip/);
+        expect(info.text, "lane tooltip names both ends").toContain("→");
+        expect(info.text, "lane tooltip carries a distance with a unit").toMatch(/\d.*\b(mi|km)\b/);
         expect(info.paneClass, "lane tooltip is a child of the tooltip pane").toContain("leaflet-tooltip-pane");
         expect(info.paneZ).toBe("650");
         expect(info.bg, "background is the opaque --card colour (no alpha)").toBe(info.card);
