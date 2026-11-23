@@ -20,6 +20,7 @@ import type { EntityIdentity } from "@/lib/entityIdentity";
 import { OutputMapNarrative } from "@/components/workspace/tabs/OutputMapNarrative";
 import { chapterForModelId } from "@/lib/chapters";
 import { MINE_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
+import { solveBounds } from "@/lib/solveBounds";
 import { OpenSitesCaption } from "@/components/workspace/OpenSitesCaption";
 
 // jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
@@ -229,6 +230,15 @@ export function OutputMapTab({
   const outcome = result ? classifyResultOutcome(result) : null;
   const showIncumbent = result != null && outcome != null && hasIncumbent(outcome);
 
+  // OMQ-1 — one formatter for the metric box and the bounds box.
+  const fmtObjective = (v: number) =>
+    result == null
+      ? ""
+      : modelId != null && distanceUnit != null
+        ? formatObjective(modelId, objectiveModeOfDetails(result.details), v, distanceUnit, unit)
+        : formatChenObjective(v, objectiveModeOfDetails(result.details)) ?? v.toLocaleString("en-US");
+  const bounds = result ? solveBounds(result) : null;
+
   // NAR-1 — the narrative reads the SAME band lens the lanes are coloured
   // with (effectiveBands, not mapBands: unticking "Color lanes" must not
   // change the sentence) and names sites "City, ST".
@@ -437,6 +447,17 @@ export function OutputMapTab({
             pointer-events-none so it never blocks map pan/zoom/click;
             top-right is otherwise unused (NetworkMap's own legend is
             bottom-right, Leaflet's zoom control is top-left). */}
+        {/* OMQ-1 — solver bounds + gap; top-left (zoom control is off), inside mapRef so the PNG includes it. */}
+        {bounds && (
+          <div
+            data-testid="output-map-bounds"
+            className="absolute top-2 left-2 z-[1000] pointer-events-none bg-card rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
+          >
+            <div><span className="text-muted-foreground">Upper bound: </span><span className="font-medium font-mono" data-testid="output-map-bound-upper">{bounds.upper == null ? "—" : fmtObjective(bounds.upper)}</span></div>
+            <div><span className="text-muted-foreground">Lower bound: </span><span className="font-medium font-mono" data-testid="output-map-bound-lower">{bounds.lower == null ? "—" : fmtObjective(bounds.lower)}</span></div>
+            <div><span className="text-muted-foreground">Gap: </span><span className="font-medium font-mono" data-testid="output-map-bound-gap">{bounds.gap == null ? "—" : `${(bounds.gap * 100).toFixed(2)}%`}{bounds.provenOptimal && " (proven optimal)"}</span></div>
+          </div>
+        )}
         {result && (
           <div
             data-testid="output-map-metric-overlay"
@@ -446,9 +467,7 @@ export function OutputMapTab({
               <>
                 <div>
                   <span className="text-muted-foreground">Objective: </span>
-                  <span className="font-medium font-mono">{modelId != null && distanceUnit != null
-                      ? formatObjective(modelId, objectiveModeOfDetails(result.details), result.objective, distanceUnit, unit)
-                      : formatChenObjective(result.objective, objectiveModeOfDetails(result.details)) ?? result.objective.toLocaleString("en-US")}</span>
+                  <span className="font-medium font-mono">{fmtObjective(result.objective)}</span>
                 </div>
                 {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
                     two-echelon result (>=2 avgDistanceByLeg entries) shows one

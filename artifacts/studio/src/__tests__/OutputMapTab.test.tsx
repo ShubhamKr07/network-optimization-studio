@@ -416,6 +416,43 @@ describe("OutputMapTab — copy/download", () => {
   });
 });
 
+// OMQ-1 — solver bounds box.
+describe("OutputMapTab — bounds box (OMQ-1)", () => {
+  const ui = (r: object) => (
+    <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={{ ...result, ...r } as typeof result} bands={[250, 500, 750]} />
+  );
+
+  it("optimal: upper = lower = objective, gap 0.00% proven optimal", () => {
+    render(ui({ solutionStatus: "optimal", objective: 1234 }));
+    const upper = screen.getByTestId("output-map-bound-upper").textContent;
+    expect(upper).not.toBe("—");
+    expect(screen.getByTestId("output-map-bound-lower").textContent).toBe(upper);
+    expect(screen.getByTestId("output-map-bound-gap").textContent).toBe("0.00% (proven optimal)");
+  });
+
+  it("feasible + gap shows both bounds and the gap", () => {
+    render(ui({ solutionStatus: "feasible", objective: 1000, achievedGap: 0.05 }));
+    expect(screen.getByTestId("output-map-bound-upper").textContent).not.toBe("—");
+    expect(screen.getByTestId("output-map-bound-lower").textContent).not.toBe("—");
+    expect(screen.getByTestId("output-map-bound-lower").textContent).not.toBe(screen.getByTestId("output-map-bound-upper").textContent);
+    expect(screen.getByTestId("output-map-bound-gap").textContent).toBe("5.00%");
+  });
+
+  it("infeasible result renders no bounds box", () => {
+    render(ui({ solutionStatus: "infeasible", status: "infeasible" }));
+    expect(screen.queryByTestId("output-map-bounds")).toBeNull();
+  });
+
+  it("the box sits inside the node handed to downloadMapAsPng", async () => {
+    vi.mocked(copyMapToClipboard.downloadMapAsPng).mockResolvedValue(undefined);
+    render(ui({ solutionStatus: "optimal" }));
+    fireEvent.click(screen.getByTestId("button-download-map-png"));
+    await waitFor(() => expect(copyMapToClipboard.downloadMapAsPng).toHaveBeenCalled());
+    const node = vi.mocked(copyMapToClipboard.downloadMapAsPng).mock.calls.at(-1)![0] as HTMLElement;
+    expect(node.contains(screen.getByTestId("output-map-bounds"))).toBe(true);
+  });
+});
+
 // jade-T15.6 — per-leg lane visibility toggles. Two-echelon models
 // (two-echelon-gold-au, two-echelon-jade-us) tag each edge with a `leg`;
 // this suite proves the toggle checkboxes are derived from the RESULT's
