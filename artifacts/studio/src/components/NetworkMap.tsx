@@ -844,12 +844,16 @@ export function NetworkMap({
                 >
                   {/* B2.2-T4 (A4) — hover tooltip: cities + length in the
                       active model's own distance unit (never hardcoded
-                      "mi"). Translucent + pointer-events-none so it never
+                      "mi"). Solid (nos-map-tooltip) + pointer-events-none so it never
                       blocks clicks/hover on the polyline itself or on
                       markers underneath it. Deliberately does not touch the
-                      click-based CustomerPopup above. */}
+                      click-based CustomerPopup above. OMQ-2: pane="tooltipPane" is required —
+                      react-leaflet gives a child layer its enclosing <Pane>
+                      (routePane, z 350), where later lanes and markers paint
+                      over the box. */}
                   <Tooltip
                     direction="center"
+                    pane="tooltipPane"
                     opacity={1}
                     className="nos-map-tooltip pointer-events-none"
                     sticky

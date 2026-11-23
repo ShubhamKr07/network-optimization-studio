@@ -1179,6 +1179,9 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     expect(routeTooltip!.props.opacity).toBe(1);
     expect(routeTooltip!.props.className).toContain("nos-map-tooltip");
     expect(routeTooltip!.props.className).toContain("pointer-events-none");
+    // OMQ-2: inside <Pane routePane> (z 350) a child Tooltip inherits that pane, so lanes and
+    // markers paint over the box and it reads see-through; it must go to the tooltip pane (z 650).
+    expect(routeTooltip!.props.pane).toBe("tooltipPane");
 
     const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
     expect(tooltipContainer.textContent).toContain("Testville");

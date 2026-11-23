@@ -133,7 +133,7 @@ test.describe("QFX quick fixes", () => {
     }
   });
 
-  test("QFX-8: output map caption lists at most 5 open sites, expands and collapses, and clears the map's top edge", async ({ page }) => {
+  test("QFX-8 (superseded by OMQ-3): the output map has no open-sites caption", async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page);
     const whIds = sample.warehouses.map((w: { id: string }) => w.id).slice(0, 7);
@@ -148,27 +148,8 @@ test.describe("QFX quick fixes", () => {
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
       await expect(page.getByTestId("super-map-toolbar")).toBeVisible({ timeout: 30_000 });   // Input Map seed lands first; see QFX-6
       await page.getByTestId("sidebar-output-output-map").click({ timeout: HEADER_TIMEOUT });
-      const caption = page.getByTestId("output-map-open-sites");
-      await expect(caption).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(caption).toHaveText(/^Open facilities: /);
-      const labelCount = async () => ((await caption.innerText()).match(/\bwh-\d+ · /g) ?? []).length;
-      expect(await labelCount()).toBe(5);
-      const toggle = page.getByTestId("output-map-open-sites-toggle");
-      await expect(toggle).toHaveText("+2 more");
-
-      await toggle.click({ timeout: HEADER_TIMEOUT });
-      await expect(toggle).toHaveText("Show fewer");
-      expect(await labelCount()).toBe(7);
-      await toggle.click({ timeout: HEADER_TIMEOUT });
-      await expect(toggle).toHaveText("+2 more");
-      expect(await labelCount()).toBe(5);
-
-      const cap = (await caption.boundingBox())!;
-      expect(cap.width).toBeGreaterThan(0);
-      expect(cap.height).toBeGreaterThan(0);
-      const map = (await page.getByTestId("output-map-tab").locator(".leaflet-container").first().boundingBox())!;
-      expect(map, "map container renders").toBeTruthy();
-      expect(cap.y + cap.height, "caption bottom <= map top (no overlap)").toBeLessThanOrEqual(map.y + 1);
+      await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("output-map-open-sites")).toHaveCount(0);
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }

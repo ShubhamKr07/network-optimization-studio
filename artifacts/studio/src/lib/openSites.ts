@@ -1,6 +1,5 @@
 // QFX-8 — the ONE per-model authority for "which sites did this solve open",
-// shared by the Output Map narrative (resultNarrative.ts) and its caption
-// (OpenSitesCaption.tsx). Extracted unchanged from buildResultNarrative:
+// used by the Output Map narrative (resultNarrative.ts). Extracted unchanged from buildResultNarrative:
 //   - super-model: metrics.openFacilityIds only (SM-8).
 //   - every other model: details.openWarehouseIds, else metrics.openFacilityIds.
 //     transport-coal's openWarehouseIds are MINES (solve.py:687); JADE emits
@@ -20,16 +19,3 @@ export function openSiteIds(result: unknown, modelId: string): string[] | null {
   if (modelId === "super-model") return facilities;
   return stringIds(field(field(result, "details"), "openWarehouseIds")) ?? facilities;
 }
-
-// Decision L3 — the caption's noun, keyed by modelId.
-export const OPEN_SITE_NOUN: Record<string, string> = {
-  "p-median-us": "Open warehouses",
-  "p-median-brazil": "Open warehouses",
-  "max-coverage-us": "Open warehouses",
-  "delivery-teaching-us": "Open warehouses",
-  "transport-coal": "Open mines",
-  "two-echelon-gold-au": "Open facilities",
-  "two-echelon-jade-us": "Open facilities",
-  "super-model": "Open facilities",
-};
-export const OPEN_SITE_NOUN_FALLBACK = "Open sites";

@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import { OPEN_SITE_NOUN, OPEN_SITE_NOUN_FALLBACK, openSiteIds } from "@/lib/openSites";
+import { openSiteIds } from "@/lib/openSites";
 
 const narrative = (name: string): unknown =>
   JSON.parse(readFileSync(path.join(__dirname, "fixtures/narrative", `${name}.json`), "utf8")).result;
@@ -54,21 +54,5 @@ describe("openSiteIds — field precedence", () => {
     expect(openSiteIds({ metrics: {}, details: { openWarehouseIds: [1, 2] } }, "p-median-us")).toBeNull();
     expect(openSiteIds(null, "p-median-us")).toBeNull();
     expect(openSiteIds("not a result", "p-median-us")).toBeNull();
-  });
-});
-
-describe("OPEN_SITE_NOUN (decision L3)", () => {
-  it("names every model's open sites", () => {
-    expect(OPEN_SITE_NOUN).toEqual({
-      "p-median-us": "Open warehouses",
-      "p-median-brazil": "Open warehouses",
-      "max-coverage-us": "Open warehouses",
-      "delivery-teaching-us": "Open warehouses",
-      "transport-coal": "Open mines",
-      "two-echelon-gold-au": "Open facilities",
-      "two-echelon-jade-us": "Open facilities",
-      "super-model": "Open facilities",
-    });
-    expect(OPEN_SITE_NOUN_FALLBACK).toBe("Open sites");
   });
 });
