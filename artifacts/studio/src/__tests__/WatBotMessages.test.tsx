@@ -2,11 +2,11 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 const mutateAsync = vi.fn().mockResolvedValue(undefined);
-const passageState = { isError: false, isLoading: false, retry: undefined as boolean | undefined };
+const passageState = { isError: false, isLoading: false, retry: undefined as boolean | undefined, body: "Full page text." };
 vi.mock("@workspace/api-client-react", () => ({
   getGetWatBotPassageQueryKey: (id: number) => ["passage", id],
   useGetWatBotPassage: (id: number, o: { query: { enabled: boolean; retry: boolean } }) => ({
-    data: o.query.enabled && !passageState.isError && !passageState.isLoading ? { id, label: "Ch 3 · p.38", body: "Full page text." } : undefined,
+    data: o.query.enabled && !passageState.isError && !passageState.isLoading ? { id, label: "Ch 3 · p.38", body: passageState.body } : undefined,
     isError: o.query.enabled && passageState.isError, isLoading: o.query.enabled && passageState.isLoading,
     ...(passageState.retry = o.query.retry, {}),
   }),
@@ -22,7 +22,7 @@ const items = [
 ];
 
 describe("WatBotMessages", () => {
-  afterEach(() => { passageState.isError = false; passageState.isLoading = false; passageState.retry = undefined; });
+  afterEach(() => { passageState.isError = false; passageState.isLoading = false; passageState.retry = undefined; passageState.body = "Full page text."; });
   it("renders student, tutor and notice messages distinctly", () => {
     render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     expect(screen.getByText("Why?").closest("[data-role]")).toHaveAttribute("data-role", "student");
@@ -107,5 +107,28 @@ describe("WatBotMessages", () => {
     expect(screen.queryByTestId("watbot-feedback")).toBeNull();
     render(<WatBotMessages items={[items[0]!, items[1]!, student, items[2]!]} pending={null} onStop={vi.fn()} feedback={fb} />);
     expect(screen.queryByTestId("watbot-feedback")).toBeNull();
+  });
+
+  // WATBOT-POPOVER-KATEX: the corpus stores formulas as $$…$$ LaTeX; the popover renders them.
+  it("renders $$ LaTeX in the cited passage and the full source as math", async () => {
+    passageState.body = "Page text $$\\sum_{i} d_i$$ continues.";
+    const math = [{ kind: "tutor" as const, id: 9, blocks: [{ text: "See the book", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "The cost is $$x_{ij} + y$$ here." }] }] }];
+    render(<WatBotMessages items={math} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open full source" }));
+    const popover = screen.getByRole("dialog");
+    await vi.waitFor(() => expect(popover.querySelectorAll(".katex")).toHaveLength(2));
+    expect(popover.textContent).not.toContain("$$");
+    expect(popover.textContent).toContain("The cost is");
+    expect(popover.textContent).toContain("continues.");
+  });
+
+  it("keeps an unclosed $$ as text and shows invalid LaTeX without throwing", async () => {
+    const math = [{ kind: "tutor" as const, id: 9, blocks: [{ text: "See the book", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "Bad $$\\frac{$$ then cut $$\\sum_i" }] }] }];
+    render(<WatBotMessages items={math} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    const popover = screen.getByRole("dialog");
+    await vi.waitFor(() => expect(popover.querySelector(".katex-error")).not.toBeNull());
+    expect(popover.textContent).toContain("then cut $$\\sum_i");
   });
 });

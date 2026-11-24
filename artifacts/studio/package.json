@@ -21,6 +21,7 @@
     "@sentry/react": "^10.74.0",
     "@tanstack/react-virtual": "^3.14.10",
     "html-to-image": "^1.11.13",
+    "katex": "^0.19.1",
     "posthog-js": "^1.430.2"
   },
   "devDependencies": {
