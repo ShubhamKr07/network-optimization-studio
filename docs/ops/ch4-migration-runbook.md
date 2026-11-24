@@ -91,7 +91,7 @@ gate, so reverting it simply reopens the chapter with all data intact.
 (`succeeded` or `failed`) before Stage C deletes the rows underneath them.
 
 **Do not use a `SIGTERM`/deploy-triggered drain for this.**
-`drainForShutdown` (`artifacts/api-server/src/solver/jobRunner.ts:800-808`)
+`drainForShutdown` (`artifacts/api-server/src/solver/jobRunner.ts`)
 stops the dispatcher's recurring scan and waits for *currently active*
 jobs to finish (force-cancelling them if they don't, after a grace period)
 — but it **never touches `queued` rows**. A `queued` job simply sits there;
