@@ -131,4 +131,23 @@ describe("WatBotMessages", () => {
     await vi.waitFor(() => expect(popover.querySelector(".katex-error")).not.toBeNull());
     expect(popover.textContent).toContain("then cut $$\\sum_i");
   });
+
+  // WATBOT-POPOVER-INLINE-MATH: the corpus also writes symbols as single-$ inline math.
+  it("renders single-$ inline math that starts with a command, and leaves prices as text", async () => {
+    const math = [{ kind: "tutor" as const, id: 9, blocks: [{ text: "See the book", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "For $\\forall$ j $\\in$ J, each site costs $2 or $3 more." }] }] }];
+    render(<WatBotMessages items={math} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    const popover = screen.getByRole("dialog");
+    await vi.waitFor(() => expect(popover.querySelectorAll(".katex")).toHaveLength(2));
+    expect(popover.textContent).not.toContain("$\\forall$");
+    expect(popover.textContent).toContain("each site costs $2 or $3 more.");
+  });
+
+  it("caps the cited quote's height so a whole-page citation scrolls instead of running off screen", () => {
+    render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    expect(screen.getByText("P-median minimizes demand-weighted distance.").closest("mark")).toHaveClass("max-h-48", "overflow-auto");
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[var(--radix-popover-content-available-height)]", "overflow-y-auto");
+  });
 });
+

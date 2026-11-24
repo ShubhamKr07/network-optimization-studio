@@ -462,3 +462,27 @@ test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.replace(/"/g, "") === "KaTeX_Main" && f.status === "loaded")), { timeout: T }).toBe(true);
   await popover.screenshot({ path: test.info().outputPath("katex-popover.png") });
 });
+
+// WATBOT-POPOVER-INLINE-MATH: a whole-page citation stays on screen (it scrolls instead of running
+// off the top), and single-$ inline math such as $\forall$ renders.
+test("WatBot: a long citation popover stays inside the viewport and renders $\\cmd$ inline math", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await registerFreshAccount(page, "longcite");
+  const longQuote = `For $\\forall$ j $\\in$ J the sum is one. ${"Every customer must be served by one site. ".repeat(60)}`;
+  await stubWatBot(page, { messagesBody: [
+    sseEvent("block", { text: "Each customer is served once", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: longQuote }] }),
+    sseEvent("done", { messageId: 903 }),
+  ].join("") });
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  await expect(popover.locator(".katex-html")).toHaveCount(2, { timeout: T });
+  expect(await popover.locator("mark").innerText()).not.toContain("$\\forall$");
+  const box = (await popover.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(600);
+  await expect(page.getByRole("button", { name: "Open full source" })).toBeInViewport();
+  await popover.screenshot({ path: test.info().outputPath("long-citation.png") });
+});
