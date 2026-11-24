@@ -122,10 +122,14 @@ describe("Workspace mutation error surface", () => {
   // A handler that deliberately needs no parameter (nothing to report, or it
   // unconditionally does something else useful) is still allowed, but only
   // by name, in ALLOWED_EMPTY_CATCHES below — same shape as the api-server's
-  // maxCoverageWriteGuard.test.ts ALLOWED_INPUTS_WRITERS. There are none
-  // today; this list exists so the next legitimate exception is a reviewable
-  // one-liner, not a loosened regex.
-  const ALLOWED_EMPTY_CATCHES: string[] = [];
+  // maxCoverageWriteGuard.test.ts ALLOWED_INPUTS_WRITERS. This list exists so
+  // each legitimate exception is a reviewable one-liner, not a loosened regex.
+  const ALLOWED_EMPTY_CATCHES: string[] = [
+    // WatBotMessages.tsx (WATBOT-POPOVER-KATEX): a failed KaTeX chunk load is a
+    // read-only render degrade — the popover shows the raw $$ text. No write is
+    // lost and there is nothing for the student to act on.
+    'import("./MathText").catch(',
+  ];
 
   // Extracts the exact text of the `.catch( ... )` call starting at
   // `charOffset` (the index of its `.catch(`), by counting parens from the
