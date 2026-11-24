@@ -1,5 +1,6 @@
 // WATBOT-POPOVER-KATEX review fold: a MathText chunk that fails to load (a tab left open
 // across a deploy) must fall back to the raw text, not reach the app-level error boundary.
+// A render-time KaTeX throw takes the same path: lazy rethrows either during render.
 import { describe, it, expect, vi } from "vitest";
 import { Component, type ReactNode } from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
@@ -26,7 +27,10 @@ describe("WatBotMessages math fallback", () => {
     render(<AppBoundary><WatBotMessages items={items} pending={null} onStop={vi.fn()} /></AppBoundary>);
     fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
     // Wait for the same import to reject, then let React process the lazy rejection.
-    await act(async () => { await import("@/components/workspace/watbot/MathText").catch(() => {}); });
+    await act(async () => {
+      await import("@/components/workspace/watbot/MathText").catch(() => {});
+      await new Promise((r) => setTimeout(r, 0)); // a macrotask, so React has processed the rejection
+    });
     expect(screen.queryByText("Something went wrong")).toBeNull();
     expect(screen.getByRole("dialog")).toHaveTextContent("The cost is $$x_{ij}$$ here.");
   });

@@ -5,11 +5,14 @@ import type { ChatItem, Pending } from "./useWatBotConversation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WatBotReportForm } from "./WatBotReportForm";
 import { WatBotFeedback } from "./WatBotFeedback";
+import { SentryErrorBoundary } from "@/lib/errorTracking";
 
-// A failed chunk load (a tab open across a deploy) falls back to the raw text instead of
-// reaching the app-level error boundary, which would replace the whole app.
-const MathText = lazy(() => import("./MathText").catch(() => ({ default: ({ text }: { text: string }) => <>{text}</> })));
-const withMath = (text: string) => text.includes("$$") ? <Suspense fallback={text}><MathText text={text} /></Suspense> : text;
+const MathText = lazy(() => import("./MathText"));
+// A failed chunk load (a tab open across a deploy) or a KaTeX throw is reported and shows the raw
+// text here, instead of reaching main.tsx's app-level boundary, which replaces the whole app.
+const withMath = (text: string) => text.includes("$$")
+  ? <SentryErrorBoundary fallback={<>{text}</>}><Suspense fallback={text}><MathText text={text} /></Suspense></SentryErrorBoundary>
+  : text;
 
 export function WatBotMessages({ items, pending, onStop, feedback }: {
   items: ChatItem[]; pending: Pending | null; onStop: () => void;
@@ -87,7 +90,7 @@ function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
       </PopoverTrigger>
       {/* Portaled + collision-aware (Radix), so the panel's overflow-y-auto can't clip it. */}
       <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-w-[calc(100vw-16px)] p-3 text-xs">
-        <mark className="block overflow-x-auto bg-warning-bg p-1">{withMath(c.citedText)}</mark>
+        <mark className="block overflow-x-auto overflow-y-hidden bg-warning-bg p-1">{withMath(c.citedText)}</mark>
         {full && passage ? <span className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
           : full && isError ? <p role="alert" className="mt-2 text-danger">Source unavailable</p>
           : full && isLoading ? <p role="status" className="mt-2">Loading…</p>
