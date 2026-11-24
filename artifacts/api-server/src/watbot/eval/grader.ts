@@ -29,6 +29,10 @@ const SCREEN_REF = /\blooking at your\b|\byour (?:output map|input map|map|scree
 export const screenReference = (reply: string, contextSummary: string): string | null =>
   contextSummary ? null : reply.match(SCREEN_REF)?.[0] ?? null;
 
+// WATBOT-PLAIN-FORMULAS — the panel shows reply text as-is, so any LaTeX reaches the student raw.
+const LATEX = /\$\$|\\[a-zA-Z]+/;
+export const latexMarkup = (reply: string): string | null => reply.match(LATEX)?.[0] ?? null;
+
 export type GradedRow = {
   source: "message" | "persona"; id: string; modelId: string;
   labelType: WatBotMessageType | null;     // test-set label; null for persona turns
