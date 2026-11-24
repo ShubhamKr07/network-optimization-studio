@@ -432,7 +432,7 @@ test("WatBot feedback: a second answer that errors with no blocks leaves no rati
 });
 
 // WATBOT-POPOVER-KATEX: corpus formulas ($$…$$ LaTeX) render as math in the popover, with KaTeX's
-// CSS and fonts actually applied — jsdom cannot see either.
+// CSS applied and its font loaded — jsdom cannot see either.
 test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
   test.setTimeout(60_000);
   await registerFreshAccount(page, "katex");
@@ -455,6 +455,10 @@ test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
   await expect(popover.locator(".katex-html")).toHaveCount(2, { timeout: T });
   await expect(popover.locator(".katex-html").first()).toBeVisible();
   expect(await popover.innerText()).not.toContain("$$");
-  await expect.poll(() => page.evaluate(() => document.fonts.check("16px KaTeX_Main")), { timeout: T }).toBe(true);
+  // Both are false without katex.min.css: its rule positions .katex-mathml absolutely, and its
+  // @font-face rules are the only source of a KaTeX_Main face. (document.fonts.check() is true
+  // for any unknown family, so it cannot fail.)
+  await expect(popover.locator(".katex-mathml").first()).toHaveCSS("position", "absolute");
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.replace(/"/g, "") === "KaTeX_Main" && f.status === "loaded")), { timeout: T }).toBe(true);
   await popover.screenshot({ path: test.info().outputPath("katex-popover.png") });
 });
