@@ -459,6 +459,8 @@ test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
   // @font-face rules are the only source of a KaTeX_Main face. (document.fonts.check() is true
   // for any unknown family, so it cannot fail.)
   await expect(popover.locator(".katex-mathml").first()).toHaveCSS("position", "absolute");
+  // A one-line formula must not make the height-capped quote scroll (KaTeX struts can add a pixel).
+  expect(await popover.locator("mark").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.replace(/"/g, "") === "KaTeX_Main" && f.status === "loaded")), { timeout: T }).toBe(true);
   await popover.screenshot({ path: test.info().outputPath("katex-popover.png") });
 });
@@ -484,5 +486,15 @@ test("WatBot: a long citation popover stays inside the viewport and renders $\\c
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(600);
   await expect(page.getByRole("button", { name: "Open full source" })).toBeInViewport();
+  // With a long full source open too, the quote and the source caps together exceed the space
+  // above the chip, so only the popover-level cap keeps the popover on screen.
+  await page.route("**/api/watbot/passages/11", (r) =>
+    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "A long page of text. ".repeat(200) } }),
+  );
+  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
+  await expect(popover.getByText(/A long page of text/)).toBeVisible({ timeout: T });
+  const full = (await popover.boundingBox())!;
+  expect(full.y).toBeGreaterThanOrEqual(0);
+  expect(full.y + full.height).toBeLessThanOrEqual(600);
   await popover.screenshot({ path: test.info().outputPath("long-citation.png") });
 });

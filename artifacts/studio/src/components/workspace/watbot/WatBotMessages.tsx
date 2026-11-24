@@ -91,8 +91,8 @@ function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
       </PopoverTrigger>
       {/* Portaled + collision-aware (Radix), so the panel's overflow-y-auto can't clip it. */}
       <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-h-[var(--radix-popover-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto p-3 text-xs">
-        <mark className="block max-h-48 overflow-auto bg-warning-bg p-1">{withMath(c.citedText)}</mark>
-        {full && passage ? <span className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
+        <mark tabIndex={0} className="block max-h-48 overflow-auto bg-warning-bg p-1">{withMath(c.citedText)}</mark>
+        {full && passage ? <span tabIndex={0} className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
           : full && isError ? <p role="alert" className="mt-2 text-danger">Source unavailable</p>
           : full && isLoading ? <p role="status" className="mt-2">Loading…</p>
           : saved && <button type="button" onClick={() => setFull(true)} className="mt-2 inline-flex h-8 items-center underline">Open full source</button>}

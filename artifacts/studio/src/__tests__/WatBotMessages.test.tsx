@@ -149,5 +149,15 @@ describe("WatBotMessages", () => {
     expect(screen.getByText("P-median minimizes demand-weighted distance.").closest("mark")).toHaveClass("max-h-48", "overflow-auto");
     expect(screen.getByRole("dialog")).toHaveClass("max-h-[var(--radix-popover-content-available-height)]", "overflow-y-auto");
   });
+
+  it("never lets an unclosed $\\cmd run past the end of its line", async () => {
+    const math = [{ kind: "tutor" as const, id: 9, blocks: [{ text: "See the book", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "cut $\\forall\nnew para $$x$$ costs $5" }] }] }];
+    render(<WatBotMessages items={math} pending={null} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Source: Ch 3 · p.38" }));
+    const popover = screen.getByRole("dialog");
+    await vi.waitFor(() => expect(popover.querySelectorAll(".katex")).toHaveLength(1));
+    expect(popover.querySelector("mark")!.textContent).toContain("cut $\\forall");
+    expect(popover.querySelector("mark")!.textContent).toContain("costs $5");
+  });
 });
 
