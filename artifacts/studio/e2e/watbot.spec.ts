@@ -430,3 +430,31 @@ test("WatBot feedback: a second answer that errors with no blocks leaves no rati
   await expect(panel.getByTestId("watbot-stop")).toHaveCount(0);
   await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
 });
+
+// WATBOT-POPOVER-KATEX: corpus formulas ($$…$$ LaTeX) render as math in the popover, with KaTeX's
+// CSS and fonts actually applied — jsdom cannot see either.
+test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "katex");
+  const mathSse = [
+    sseEvent("block", {
+      text: "The objective sums cost over every assignment",
+      citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "The objective is $$\\sum_{i} \\sum_{j} c_{ij} x_{ij}$$ for all pairs." }],
+    }),
+    sseEvent("done", { messageId: 902 }),
+  ].join("");
+  await stubWatBot(page, { messagesBody: mathSse });
+  await page.route("**/api/watbot/passages/11", (r) =>
+    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "Page text $$\\frac{a}{b} \\le 1$$ continues." } }),
+  );
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
+  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  await expect(popover.locator(".katex-html")).toHaveCount(2, { timeout: T });
+  await expect(popover.locator(".katex-html").first()).toBeVisible();
+  expect(await popover.innerText()).not.toContain("$$");
+  await expect.poll(() => page.evaluate(() => document.fonts.check("16px KaTeX_Main")), { timeout: T }).toBe(true);
+  await popover.screenshot({ path: test.info().outputPath("katex-popover.png") });
+});
