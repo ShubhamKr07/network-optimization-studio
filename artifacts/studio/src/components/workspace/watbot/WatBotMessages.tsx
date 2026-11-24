@@ -10,7 +10,8 @@ import { SentryErrorBoundary } from "@/lib/errorTracking";
 const MathText = lazy(() => import("./MathText"));
 // A failed chunk load (a tab open across a deploy) or a KaTeX throw is reported and shows the raw
 // text here, instead of reaching main.tsx's app-level boundary, which replaces the whole app.
-const withMath = (text: string) => text.includes("$$")
+// Same test as MathText: $$, or a $ followed by a \command (kept here so KaTeX stays lazy).
+const withMath = (text: string) => /\$\$|\$\\[a-zA-Z]/.test(text)
   ? <SentryErrorBoundary fallback={<>{text}</>}><Suspense fallback={text}><MathText text={text} /></Suspense></SentryErrorBoundary>
   : text;
 
@@ -89,9 +90,9 @@ function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
         </button>
       </PopoverTrigger>
       {/* Portaled + collision-aware (Radix), so the panel's overflow-y-auto can't clip it. */}
-      <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-w-[calc(100vw-16px)] p-3 text-xs">
-        <mark className="block overflow-x-auto overflow-y-hidden bg-warning-bg p-1">{withMath(c.citedText)}</mark>
-        {full && passage ? <span className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
+      <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-h-[var(--radix-popover-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto p-3 text-xs">
+        <mark tabIndex={0} className="block max-h-48 overflow-auto bg-warning-bg p-1">{withMath(c.citedText)}</mark>
+        {full && passage ? <span tabIndex={0} className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
           : full && isError ? <p role="alert" className="mt-2 text-danger">Source unavailable</p>
           : full && isLoading ? <p role="status" className="mt-2">Loading…</p>
           : saved && <button type="button" onClick={() => setFull(true)} className="mt-2 inline-flex h-8 items-center underline">Open full source</button>}
