@@ -64,15 +64,17 @@ export async function measureCoverContrast(page: Page, min = 4.5): Promise<Cover
       if (r.width < 2 || r.height < 2 || s.visibility === "hidden" || s.display === "none") continue; // the .sr text is 1px: skipped here on purpose
       let op = 1;
       for (let e: Element | null = el; e; e = e.parentElement) op *= +getComputedStyle(e).opacity;
-      if (op < 0.99) continue; // disabled submit is dimmed on purpose
+      if (op < 0.99 && el.closest(".go")?.matches(":disabled")) continue; // only the disabled submit is dimmed on purpose; any other dimmed text is measured
       const px = parseFloat(s.fontSize);
       if (px < 11) smallText.push({ text: text.slice(0, 40), px });
       const surface = el.closest(".go") ? "button" : el.closest(".band") ? "band" : el.closest(".strip") ? "strip" : "paper";
       const fg = toRgb(s.color);
       // Worst case over the surface's stops.
-      const worst = surfaces[surface as keyof typeof surfaces].reduce((a, b) => (ratio(fg, a) <= ratio(fg, b) ? a : b));
+      // Dimmed text is composited onto the ground first, so a faded label is measured as it renders.
+      const composite = (g: number[]) => fg.map((c, i) => c * op + g[i] * (1 - op));
+      const worst = surfaces[surface as keyof typeof surfaces].reduce((a, b) => (ratio(composite(a), a) <= ratio(composite(b), b) ? a : b));
       checked++;
-      const rr = ratio(fg, worst);
+      const rr = ratio(composite(worst), worst);
       if (rr < minRatio) findings.push({ text: text.slice(0, 40), ratio: Math.round(rr * 100) / 100, surface, fg: s.color, bg: `rgb(${worst.join(",")})` });
     }
     return { checked, findings, smallText };

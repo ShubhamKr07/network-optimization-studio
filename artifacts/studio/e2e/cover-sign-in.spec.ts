@@ -28,6 +28,8 @@ const WIDTHS = [
   { w: 1024, h: 768 },
   { w: 390, h: 844 },
 ] as const;
+// Layout also visits both sides of the 860px one-line breakpoint (cover.css `.one-line`).
+const LAYOUT_WIDTHS = [...WIDTHS, { w: 860, h: 800 }, { w: 859, h: 800 }] as const;
 
 async function expectCover(page: Page, mode: "login" | "register") {
   await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: T });
@@ -304,8 +306,8 @@ async function readFocus(page: Page) {
   });
 
   // ── layout ───────────────────────────────────────────────────────────────
-  for (const { w, h } of WIDTHS) {
-    test(`layout at ${w}px: no horizontal scroll, no text under 11px, lede second sentence ${w >= 860 ? "on one line" : "wraps"}`, async ({ page }) => {
+  for (const { w, h } of LAYOUT_WIDTHS) {
+    test(`layout at ${w}px: no horizontal scroll, no text under 11px, lede second sentence ${w >= 860 ? "on one line" : w < 500 ? "wraps" : "may wrap"}`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: h });
       for (const route of ["/", "/register", "/forgot-password"]) {
         await page.goto(route);
@@ -316,9 +318,19 @@ async function readFocus(page: Page) {
         expect(scan.smallText, `${route} @${w}: text under 11px`).toEqual([]);
         expect(scan.findings, `${route} @${w}: text under 4.5:1`).toEqual([]);
         if (route === "/") {
-          const lines = await page.locator(".one-line").evaluate((el) => el.getClientRects().length); // one box per wrapped line of an inline span
+          const { lines, left, right, vw, ws } = await page.locator(".one-line").evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return { lines: el.getClientRects().length, left: r.left, right: r.right, vw: document.documentElement.clientWidth, ws: getComputedStyle(el).whiteSpace };
+          }); // one box per wrapped line of an inline span
+          // nowrap never yields a second box, it overflows instead, and .paper's overflow:hidden would clip that
+          // silently (scrollWidth stays fine) — so the sentence must also fit inside the viewport.
+          expect(left, `@${w}: the lede's second sentence starts on screen`).toBeGreaterThanOrEqual(0);
+          expect(right, `@${w}: the lede's second sentence ends on screen (right ${right} <= ${vw})`).toBeLessThanOrEqual(vw);
           if (w >= 860) expect(lines, `@${w}: the lede's second sentence is one line`).toBe(1);
-          else expect(lines, `@${w}: the lede's second sentence wraps`).toBeGreaterThan(1);
+          // Below 860 the sentence is free to wrap (it still fits on one line just under the breakpoint), so the
+          // control there is that nowrap is off; on a phone it must actually wrap.
+          else expect(ws, `@${w}: nowrap is off below 860px`).not.toBe("nowrap");
+          if (w < 500) expect(lines, `@${w}: the lede's second sentence wraps`).toBeGreaterThan(1);
         }
       }
     });
@@ -353,13 +365,13 @@ async function readFocus(page: Page) {
   for (const scheme of ["light", "dark"] as const) {
     test(`screenshots (${scheme} OS scheme): /, /register, /forgot-password at 1440, 1024 and 390`, async ({ page }, testInfo) => {
       test.setTimeout(90_000);
-      await page.emulateMedia({ colorScheme: scheme });
+      // reduced motion: the route draw-in ends in the same frame, so shots are stable without a fixed sleep
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
       for (const { w, h } of WIDTHS) {
         await page.setViewportSize({ width: w, height: h });
         for (const route of ["/", "/register", "/forgot-password"]) {
           await page.goto(route);
           await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: T });
-          await page.waitForTimeout(2300); // let the one-shot route draw-in finish so shots are stable
           const name = `cover${route === "/" ? "-root" : route.replace("/", "-")}-${w}-${scheme}.png`;
           const png = await page.screenshot({ fullPage: true });
           await testInfo.attach(name, { body: png, contentType: "image/png" });
