@@ -23,6 +23,14 @@ export function SignIn({ initialMode }: { initialMode: "login" | "register" }) {
   const create = mode === "register";
   const mutation = create ? registerUser : loginUser;
   const passwordTooShort = create && password.length > 0 && password.length < 8;
+  // Either request in flight locks both modes, so a second mutation can't race the first.
+  const busy = loginUser.isPending || registerUser.isPending;
+
+  function switchMode(next: "login" | "register") {
+    loginUser.reset();
+    registerUser.reset(); // a mode's old error must not reappear after the student has moved on
+    setMode(next);
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,10 +58,10 @@ export function SignIn({ initialMode }: { initialMode: "login" | "register" }) {
 
   return (
     <CoverShell>
-      <ul className="modes" role="group" aria-label="Choose">
-        <li><button type="button" data-testid="mode-login" aria-pressed={!create} onClick={() => setMode("login")}>Log in</button></li>
-        <li><button type="button" data-testid="mode-register" aria-pressed={create} onClick={() => setMode("register")}>Create account</button></li>
-      </ul>
+      <div className="modes" role="group" aria-label="Log in or create an account">
+        <button type="button" data-testid="mode-login" aria-pressed={!create} disabled={busy} onClick={() => switchMode("login")}>Log in</button>
+        <button type="button" data-testid="mode-register" aria-pressed={create} disabled={busy} onClick={() => switchMode("register")}>Create account</button>
+      </div>
       <form onSubmit={handleSubmit}>
         {passwordChanged && !create && !errorMessage && (
           <p className="note" role="status" data-testid="alert-password-changed">Your password was changed. Log in to continue.</p>
@@ -78,7 +86,7 @@ export function SignIn({ initialMode }: { initialMode: "login" | "register" }) {
           {passwordTooShort && <p className="field-error" data-testid="text-password-hint">Password must be at least 8 characters.</p>}
         </div>
         <TermsConsent checked={acceptedTerms} onCheckedChange={setAcceptedTerms} />
-        <button type="submit" className="go" disabled={mutation.isPending || !acceptedTerms} data-testid={create ? "button-register" : "button-login"}>
+        <button type="submit" className="go" disabled={busy || !acceptedTerms} data-testid={create ? "button-register" : "button-login"}>
           {create ? (mutation.isPending ? "Creating account…" : "Create account") : (mutation.isPending ? "Logging in…" : "Log in")}
         </button>
       </form>

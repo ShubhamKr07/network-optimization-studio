@@ -32,7 +32,7 @@
 .cover .ext-ico{display:inline-block;margin-left:2px;vertical-align:-1px}
 .cover .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .cover .paper{--link:var(--band-deep)}
-.cover .access{--link:#B8E6CB}
+.cover .access{--link:#B8E6CB;--text-muted:var(--strip-ink-muted)} /* guard: nothing in the shell reads --text-muted today */
 .cover .band{--link:#FFFFFF}
 /* one line wherever it fits; phones wrap */
 @media (min-width:860px){.cover .one-line{white-space:nowrap}}
@@ -94,6 +94,7 @@
 .cover .modes{display:flex;gap:22px;margin:0 0 20px;padding:0;list-style:none}
 .cover .modes button,.cover .modes .heading{all:unset;font:600 17px/1.3 var(--serif);color:var(--strip-ink-muted);padding-bottom:4px;border-bottom:2px solid transparent}
 .cover .modes button{cursor:pointer}
+.cover .modes button:disabled{cursor:progress}
 .cover .modes button[aria-pressed="true"],.cover .modes .heading{color:var(--strip-ink);border-color:var(--accent)}
 .cover .modes button:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 .cover form{display:flex;flex-direction:column;gap:16px;margin:0}

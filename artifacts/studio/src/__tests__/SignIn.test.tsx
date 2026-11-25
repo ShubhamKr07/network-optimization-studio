@@ -19,11 +19,13 @@ vi.mock("@tanstack/react-query", () => ({
 type MutationState = { isPending: boolean; isError: boolean; error?: unknown };
 const mockLoginMutate = vi.fn();
 const mockRegisterMutate = vi.fn();
+const mockLoginReset = vi.fn();
+const mockRegisterReset = vi.fn();
 let loginState: MutationState = { isPending: false, isError: false };
 let registerState: MutationState = { isPending: false, isError: false };
 vi.mock("@workspace/api-client-react", () => ({
-  useLoginUser: () => ({ mutate: mockLoginMutate, ...loginState }),
-  useRegisterUser: () => ({ mutate: mockRegisterMutate, ...registerState }),
+  useLoginUser: () => ({ mutate: mockLoginMutate, reset: mockLoginReset, ...loginState }),
+  useRegisterUser: () => ({ mutate: mockRegisterMutate, reset: mockRegisterReset, ...registerState }),
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
 }));
 
@@ -282,6 +284,27 @@ describe("SignIn, create-account mode", () => {
 });
 
 describe("SignIn, mode toggle and cover content", () => {
+  it("names the toggle group for screen readers", () => {
+    render(<SignIn initialMode="login" />);
+    expect(screen.getByRole("group", { name: "Log in or create an account" })).toContainElement(screen.getByTestId("mode-login"));
+  });
+
+  it("locks both modes and both submits while either request is in flight", () => {
+    registerState = { isPending: true, isError: false };
+    render(<SignIn initialMode="register" />);
+    expect(screen.getByTestId("mode-login")).toBeDisabled();
+    expect(screen.getByTestId("mode-register")).toBeDisabled();
+    expect(screen.getByTestId("button-register")).toBeDisabled();
+  });
+
+  it("clears both requests' errors when the mode changes", async () => {
+    loginState = { isPending: false, isError: true, error: { status: 401, data: { error: "Invalid email or password" } } };
+    render(<SignIn initialMode="login" />);
+    await userEvent.click(screen.getByTestId("mode-register"));
+    expect(mockLoginReset).toHaveBeenCalledTimes(1);
+    expect(mockRegisterReset).toHaveBeenCalledTimes(1);
+  });
+
   it("toggles between log in and create account without a URL change, and back", async () => {
     render(<SignIn initialMode="login" />);
     expect(screen.getByTestId("mode-login")).toHaveAttribute("aria-pressed", "true");
