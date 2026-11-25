@@ -1,17 +1,11 @@
 import { Link } from "wouter";
-import { LEGAL_DRAFT, PRIVACY_CONTACT_EMAIL, TERMS_VERSION } from "./legalMeta";
+import { PRIVACY_CONTACT_EMAIL, TERMS_VERSION } from "./legalMeta";
 import type { LegalDoc } from "./legalText";
 
 export function LegalPage({ doc }: { doc: LegalDoc }) {
   return (
     <div className="min-h-screen bg-background text-foreground" data-testid={`page-${doc.slug}`}>
       <main className="max-w-[720px] mx-auto px-6 py-10">
-        {LEGAL_DRAFT && (
-          <div role="status" data-testid="legal-draft-banner" className="mb-6 rounded-md border px-4 py-3 text-sm font-semibold"
-            style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-            Draft — pending review. This text has not yet been reviewed and may change.
-          </div>
-        )}
         <h1 className="scnd-display text-3xl font-bold" style={{ color: "var(--text-brand)" }}>{doc.title}</h1>
         <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }} data-testid="legal-version">Version {TERMS_VERSION}</p>
         <p className="mt-4 text-sm leading-relaxed">{doc.intro}</p>

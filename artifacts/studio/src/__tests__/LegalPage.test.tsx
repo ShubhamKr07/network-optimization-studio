@@ -9,7 +9,7 @@ vi.mock("wouter", () => ({
 
 import { LegalPage } from "@/pages/legal/LegalPage";
 import { TERMS_OF_SERVICE, PRIVACY_NOTICE } from "@/pages/legal/legalText";
-import { LEGAL_DRAFT, PRIVACY_CONTACT_EMAIL, TERMS_VERSION } from "@/pages/legal/legalMeta";
+import { PRIVACY_CONTACT_EMAIL, TERMS_VERSION } from "@/pages/legal/legalMeta";
 
 describe("LegalPage", () => {
   it("renders the Terms of Service with its version and the contact link", () => {
@@ -20,10 +20,9 @@ describe("LegalPage", () => {
     expect(screen.getByTestId("link-legal-contact")).toHaveAttribute("href", `mailto:${PRIVACY_CONTACT_EMAIL}`);
   });
 
-  it("shows the draft banner while the text is pending review", () => {
-    expect(LEGAL_DRAFT).toBe(true); // B9 deletes the flag and flips this test
+  it("shows no draft banner once the owner has signed off the text", () => {
     render(<LegalPage doc={PRIVACY_NOTICE} />);
-    expect(screen.getByTestId("legal-draft-banner")).toHaveTextContent("Draft — pending review");
+    expect(screen.queryByText(/Draft — pending review/)).toBeNull();
   });
 
   it("the Privacy Notice names every outside service that receives student data (spec B1)", () => {
