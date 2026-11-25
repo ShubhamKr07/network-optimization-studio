@@ -551,8 +551,6 @@ test("WatBot A8: dark theme paints a distinct highlight and both icons load", as
   const headerIcon = panel.locator('header img[alt=""]');
   await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
   await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
-  expect(await toolbarIcon.evaluate((el) => (el as HTMLImageElement).getBoundingClientRect().width)).toBe(16);
-  expect(await headerIcon.evaluate((el) => (el as HTMLImageElement).getBoundingClientRect().width)).toBe(14);
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", CHIP).click({ timeout: T });
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
@@ -586,7 +584,6 @@ test("WatBot A8: keyboard opens the page, reaches the source box, scrolls it, an
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
   const source = popover.getByTestId("watbot-source");
   await expect(source).toContainText("Page 38 ends here.", { timeout: T });
-  await expect(source).toHaveAttribute("tabindex", "0");
   // Focus is at the popover; Tab(s) must reach the source box.
   for (let i = 0; i < 4; i++) {
     if (await source.evaluate((el) => el === document.activeElement)) break;
@@ -635,6 +632,8 @@ test("WatBot A8: a failed page load keeps the cited text visible above 'Source u
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
   const alert = popover.getByRole("alert");
   await expect(alert).toHaveText("Source unavailable", { timeout: 20_000 });
+  expect((await alert.boundingBox())!.height).toBeGreaterThan(0);
+  await expect(alert).toHaveCSS("opacity", "1");
   const source = popover.getByTestId("watbot-source");
   await expect(source).toHaveText("Minimize demand-weighted distance.", { timeout: T });
   await expect(popover.locator("mark")).toHaveCount(0);

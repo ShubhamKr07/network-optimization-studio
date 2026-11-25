@@ -5614,4 +5614,12 @@ Reported, not bars: screen references without context 0 of 64; replies with LaTe
 - **Covered** (4 new tests in `e2e/watbot.spec.ts`, all stubbed with `page.route`, no model call): dark theme (`emulateMedia` dark: highlight painted and different from the source box's effective background; both icons load at 16 / 14 px); keyboard (chip Enter opens the page, Tab reaches `watbot-source`, PageDown scrolls it, Escape closes and focus returns to the chip); loading (held `passages/11`: cited text alone, no `mark`; then the page with the `mark`); failed load (500: cited text stays above the `Source unavailable` alert, no `mark`).
 - **Deviation:** written in `watbot.spec.ts` (lead's instruction) rather than the plan's new `watbot-qf-a.spec.ts`.
 - **Non-vacuity** (product code temporarily mutated, then restored): highlight `bg-transparent` and `bg-popover` (dark test red on each assertion); `tabIndex` removed (keyboard red); loading view emptied (loading and failed-load tests red); alert removed (failed-load red). The Escape/focus-return step has no separate red run.
-- **Runs:** new tests 4/4 green; `watbot.spec.ts` with `--repeat-each 2`: 50 passed (24 tests x 2 plus setup/cleanup), 0 failed. `typecheck:e2e` clean. Step 3 (paid live check) not run.
+- **Runs:** new tests 4/4 green; `watbot.spec.ts` with `--repeat-each 2`: 50 passed (`--list`: 26 = 24 watbot tests + setup + teardown; 22 literal `test(` calls, the other 2 come from the feedback-radio `for` loop; so 24 x 2 + 2), 0 failed. `typecheck:e2e` clean. Step 3 (paid live check) not run.
+
+### WQF-A8 review fold
+
+- **Escape/focus-return** now has a red run: `onCloseAutoFocus` preventDefault on `PopoverContent` turned the keyboard test red at `toBeFocused`; reverted.
+- **Failed-load alert** now also asserts a non-zero bounding-box height and `opacity` 1; red with `opacity-0` on the alert (Received "0"), reverted.
+- **Noise dropped:** the dark test's duplicate icon-width asserts (A6 covers them) and the `tabindex` attribute assert.
+- **Open product finding (not a test change; reported to the lead):** a WCAG-contrast version of the dark test is red against the product. Dark: `mark` text rgb(0,0,0) on bg rgb(42,30,5) = 1.29:1 (needs 4.5), highlight vs box rgb(36,39,32) = 1.08:1 (needs 1.3). Light: text 20.25:1 on rgb(255,251,235), highlight vs white 1.04:1. That test is not committed; the existing dark test (colour inequality) is kept.
+- Runs: `watbot.spec.ts --repeat-each 2`: 50 passed; `typecheck:e2e` clean.
