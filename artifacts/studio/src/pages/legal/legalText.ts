@@ -15,7 +15,7 @@ export const TERMS_OF_SERVICE: LegalDoc = {
   slug: "terms",
   title: "Terms of Service",
   intro:
-    "These terms cover your use of Optimization Studio (\"the app\"), a teaching tool built around the textbook Supply Chain Network Design. You are using it because your instructor or institution chose it for your course. By ticking the box when you register or log in, you agree to these terms and to the Privacy Notice.",
+    "These terms cover your use of Network Design Labs (\"the app\"), a teaching tool built around the textbook Supply Chain Network Design. You are using it because your instructor or institution chose it for your course. By ticking the box when you register or log in, you agree to these terms and to the Privacy Notice.",
   sections: [
     {
       heading: "Your account",
@@ -79,7 +79,7 @@ export const PRIVACY_NOTICE: LegalDoc = {
   slug: "privacy",
   title: "Privacy Notice",
   intro:
-    "This notice explains what Optimization Studio (\"the app\") stores about you, which outside services receive it, and how to use your rights. The app is used on behalf of your instructor or institution as part of your course.",
+    "This notice explains what Network Design Labs (\"the app\") stores about you, which outside services receive it, and how to use your rights. The app is used on behalf of your instructor or institution as part of your course.",
   sections: [
     {
       heading: "What the app stores",
