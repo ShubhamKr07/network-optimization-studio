@@ -209,6 +209,8 @@ export interface RegisterRequest {
      * @maxLength 128
      */
   password: string;
+  /** Must be true (the student ticked the terms box); otherwise the server answers 400. The server records the current terms version and time on the new account. */
+  acceptTerms?: boolean;
 }
 
 export interface LoginRequest {
@@ -220,6 +222,8 @@ export interface LoginRequest {
      * @maxLength 128
      */
   password: string;
+  /** Required as true only when the account has not accepted the current terms version, in which case its absence answers 403 terms_required; when true and the stored version is stale, the server records the current version and time. */
+  acceptTerms?: boolean;
 }
 
 export interface ForgotPasswordRequest {
@@ -246,6 +250,15 @@ export interface ResetPasswordRequest {
   password: string;
 }
 
+export interface DeleteAccountRequest {
+  /**
+     * The current password, re-checked with argon2 before anything is deleted. Same upper bound as log-in (argon2 cost guard).
+     * @minLength 1
+     * @maxLength 128
+     */
+  password: string;
+}
+
 export interface FeedbackRequest {
   /**
      * Free-text feedback. Trimmed by the server before validation and before storage, so a whitespace-only body is rejected.
@@ -262,6 +275,17 @@ export type LogoutSuccess = typeof LogoutSuccessValue;
 
 export interface ErrorEnvelope {
   error: string;
+}
+
+export type TermsRequiredErrorError = typeof TermsRequiredErrorError[keyof typeof TermsRequiredErrorError];
+
+
+export const TermsRequiredErrorError = {
+  terms_required: 'terms_required',
+} as const;
+
+export interface TermsRequiredError {
+  error: TermsRequiredErrorError;
 }
 
 export interface NetworkImportIssue {

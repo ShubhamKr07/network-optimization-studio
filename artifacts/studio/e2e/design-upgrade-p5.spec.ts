@@ -50,7 +50,7 @@ const rgbStr = ([r, g, b]: Rgb) => `rgb(${r}, ${g}, ${b})`;
 // ── page plumbing ───────────────────────────────────────────────────────────
 async function register(page: Page): Promise<string> {
   const email = `e2e-du5-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1" } });
+  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1", acceptTerms: true } });
   expect(resp.status()).toBe(201);
   return email;
 }
@@ -382,6 +382,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
         await page.goto("/login");
         await page.getByTestId("input-email").fill(email);
         await page.getByTestId("input-password").fill("correcthorse1");
+        await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
         await page.getByTestId("button-login").click();
         await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: T });
         await expectTheme(page, want, "Landing after logging in again");
@@ -414,7 +415,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
       await expectTheme(page, true, "OS dark with storage blocked");
       expect(await page.evaluate(() => { try { localStorage.getItem("x"); return "ok"; } catch { return "throws"; } }), "non-vacuity: storage really throws").toBe("throws");
 
-      const resp = await page.request.post("/api/auth/register", { data: { email: `e2e-du5-nostore-${Date.now()}@test.com`, password: "correcthorse1" } });
+      const resp = await page.request.post("/api/auth/register", { data: { email: `e2e-du5-nostore-${Date.now()}@test.com`, password: "correcthorse1", acceptTerms: true } });
       expect(resp.status()).toBe(201);
       const create = await page.request.post("/api/scenarios", { data: { name: "nostore", modelId: "p-median-us", inputs: SOLVED_MODEL_INPUTS["p-median-us"] } });
       const id = String((await create.json()).id);
@@ -993,6 +994,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     // Alert (Q9: `dark:border-destructive`): trigger the real login error.
     await page.getByTestId("input-email").fill("nobody@example.com");
     await page.getByTestId("input-password").fill("wrong-password-1");
+    await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
     await page.getByTestId("button-login").click();
     const alert = page.getByTestId("alert-login-error");
     await expect(alert).toBeVisible({ timeout: T });

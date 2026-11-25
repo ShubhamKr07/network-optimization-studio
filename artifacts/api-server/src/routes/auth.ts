@@ -14,10 +14,15 @@ import {
   ForgotPasswordResponse,
   ResetPasswordBody,
   ResetPasswordResponse,
+  DeleteAccountBody,
   resetPasswordBodyPasswordMin,
   resetPasswordBodyPasswordMax,
 } from "@workspace/api-zod";
-import { SESSION_COOKIE, SESSION_TTL_MS, sessionCookieValue, sessionUser } from "../middlewares/auth.js";
+import { SESSION_COOKIE, SESSION_TTL_MS, clearSessionCookie, requireAuth, sessionCookieValue, sessionUser } from "../middlewares/auth.js";
+import { findUserById } from "../lib/sessionUser.js";
+import { deleteAccountData } from "../services/deleteAccount.js";
+import type { TermsRequiredError } from "@workspace/api-zod";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { posthog } from "../lib/posthog.js";
 import { withNormalizedEmail } from "../lib/normalizeEmail.js";
 import { sendEmail } from "../lib/email.js";
@@ -119,6 +124,12 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
   const { email, password } = parsed.data;
+  // WQF-B3 — the box is the consent; no tick, no account. Checked before any
+  // lookup so a refused request costs nothing and reveals nothing.
+  if (parsed.data.acceptTerms !== true) {
+    res.status(400).json({ error: "Accept the Terms of Service and the Privacy Notice to create an account." });
+    return;
+  }
 
   let existing: Awaited<ReturnType<typeof findUserByEmail>>;
   try {
@@ -141,6 +152,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       email,
       passwordHash,
       role: "student",
+      termsVersion: CURRENT_TERMS_VERSION,
+      termsAcceptedAt: sql`now()`,
     }).returning();
   } catch {
     logger.error({ step: "register-insert" }, "user insert failed");
@@ -197,6 +210,27 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
+  // WQF-B3 — after the password check, never before: the terms state of an
+  // account is not revealed to someone who does not hold its password.
+  if (user.termsVersion !== CURRENT_TERMS_VERSION) {
+    if (parsed.data.acceptTerms !== true) {
+      const body: TermsRequiredError = { error: "terms_required" };
+      res.status(403).json(body);
+      return;
+    }
+    // D2 — written only when stale, so termsAcceptedAt is when THIS version
+    // was first accepted. No error binding (drizzle params carry the user id).
+    try {
+      await db.update(usersTable)
+        .set({ termsVersion: CURRENT_TERMS_VERSION, termsAcceptedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id));
+    } catch {
+      logger.error({ step: "login-terms-accept" }, "terms acceptance write failed");
+      res.status(500).json({ error: "Could not sign in." });
+      return;
+    }
+  }
+
   setSessionCookie(res, user);
 
   posthog?.capture({
@@ -214,12 +248,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 router.post("/auth/logout", (req: Request, res: Response) => {
   // Analytics only, so the unverified id prefix of the signed cookie is enough.
   const userId = (req.signedCookies?.[SESSION_COOKIE] as string | undefined)?.split(".")[0];
-  const crossOrigin = process.env.NODE_ENV === "production";
-  res.clearCookie(SESSION_COOKIE, {
-    path: "/",
-    sameSite: crossOrigin ? "none" : "lax",
-    secure: crossOrigin,
-  });
+  clearSessionCookie(res);
 
   if (userId) {
     posthog?.capture({
@@ -243,7 +272,61 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Could not load your account." });
     return;
   }
+  if (user === null) clearSessionCookie(res); // WQF-B6 (D11) — the deleted account's cookie, on page load too
   res.json(GetCurrentAuthUserResponse.parse({ user: user ? toAuthUser(user) : null }));
+});
+
+// WQF-B6 — in-app account deletion. The id is ALWAYS the session's own
+// (rule #5); nothing in the body names a user. No PostHog event (D10): a
+// capture keyed on this id would recreate the person just deleted.
+router.delete("/auth/account", requireAuth, async (req: Request, res: Response) => {
+  const parsed = DeleteAccountBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter your current password to delete your account." });
+    return;
+  }
+  // D8 — same per-IP budget as log-in: a stolen cookie must not become an
+  // unlimited password oracle, and argon2 is the expensive part.
+  if (loginLimiter.check(req.ip ?? "unknown")) {
+    res.status(429).json({ error: "Too many attempts, try again shortly" });
+    return;
+  }
+
+  let user: Awaited<ReturnType<typeof findUserById>>;
+  try {
+    user = await findUserById(req.userId!);
+  } catch {
+    logger.error({ step: "account-delete-lookup" }, "account delete lookup failed");
+    res.status(500).json({ error: "Could not delete your account. Nothing was deleted. Try again." });
+    return;
+  }
+  if (!user) {
+    // D11 — the row vanished after requireAuth (a concurrent delete): signed out, same as the auth boundary.
+    clearSessionCookie(res);
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const valid = user.passwordHash ? await argon2.verify(user.passwordHash, parsed.data.password) : false;
+  if (!valid) {
+    res.status(403).json({ error: "That password is not correct." });
+    return;
+  }
+
+  // No error binding: a failed drizzle statement's message carries the user id.
+  let outcome: Awaited<ReturnType<typeof deleteAccountData>>;
+  try {
+    outcome = await deleteAccountData(user.id);
+  } catch {
+    logger.error({ step: "account-delete" }, "account delete failed; transaction rolled back");
+    res.status(500).json({ error: "Could not delete your account. Nothing was deleted. Try again." });
+    return;
+  }
+  if (outcome === "busy") {
+    res.status(409).json({ error: "A solve is still queued or running for your account. Wait for it to finish, then try again." });
+    return;
+  }
+  clearSessionCookie(res);
+  res.status(204).send();
 });
 
 // Reset-request limits. The per-ADDRESS limiter is the primary defence (what
@@ -415,7 +498,10 @@ async function handleResetPassword(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  setSessionCookie(res, user);
+  // WQF-B2 — sign in only a user who has accepted the current terms; anyone
+  // else gets the same 200 body with NO cookie and must log in, where the box
+  // is. Setting a cookie here would hand out a session sessionUser rejects.
+  if (user.termsVersion === CURRENT_TERMS_VERSION) setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,

@@ -20,7 +20,7 @@ afterAll(async () => {
 
 async function registerAndGetCookie(): Promise<string> {
   const email = `sm-6-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(res.status).toBe(201);
   registeredUserIds.push(res.body.user.id);
   return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
@@ -234,7 +234,7 @@ describe("SM-12 body limits", () => {
     expect(res.status).toBe(422);                                       // unknown key "pad", after the parser accepted 3 MiB
   });
   it("a >100 KiB body to a non-scenario route is 413, not 500", async () => {
-    const res = await request(app).post("/api/auth/login").send({ email: "a@b.test", password: "x".repeat(110_000) });
+    const res = await request(app).post("/api/auth/login").send({ email: "a@b.test", password: "x".repeat(110_000), acceptTerms: true });
     expect(res.status).toBe(413);
     expect(res.body).toEqual({ error: "payload_too_large" });
   });

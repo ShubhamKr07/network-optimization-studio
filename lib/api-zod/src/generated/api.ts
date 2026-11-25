@@ -1183,7 +1183,8 @@ export const registerUserBodyPasswordMax = 128;
 
 export const RegisterUserBody = zod.object({
   "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before validation, lookup, and insert — `Foo@X.com` and `foo@x.com` are one account.'),
-  "password": zod.string().min(registerUserBodyPasswordMin).max(registerUserBodyPasswordMax).describe('The upper bound is a cost guard, not a policy preference: argon2 is deliberately CPU-expensive and the API runs on a 0.5-CPU instance, so an unbounded password lets one request starve every other student\'s.')
+  "password": zod.string().min(registerUserBodyPasswordMin).max(registerUserBodyPasswordMax).describe('The upper bound is a cost guard, not a policy preference: argon2 is deliberately CPU-expensive and the API runs on a 0.5-CPU instance, so an unbounded password lets one request starve every other student\'s.'),
+  "acceptTerms": zod.boolean().optional().describe('Must be true (the student ticked the terms box); otherwise the server answers 400. The server records the current terms version and time on the new account.')
 })
 
 
@@ -1196,7 +1197,8 @@ export const loginUserBodyPasswordMax = 128;
 
 export const LoginUserBody = zod.object({
   "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before lookup; the lookup itself is case-insensitive so accounts created before normalization still resolve.'),
-  "password": zod.string().min(1).max(loginUserBodyPasswordMax).describe('Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.')
+  "password": zod.string().min(1).max(loginUserBodyPasswordMax).describe('Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.'),
+  "acceptTerms": zod.boolean().optional().describe('Required as true only when the account has not accepted the current terms version, in which case its absence answers 403 terms_required; when true and the stored version is stale, the server records the current version and time.')
 })
 
 export const LoginUserResponse = zod.object({
@@ -1229,6 +1231,19 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 /**
+ * Requires the current password. One transaction: locks the user's scenarios and then the user's row (the solve-enqueue lock order), refuses with 409 while any of the user's solve jobs is queued or running, then deletes the user's solve jobs, scenarios and account; WatBot conversations, messages, reports and feedback go by ON DELETE CASCADE. Anonymous site feedback and the input-keyed result cache are not linked to accounts and are not touched. Third-party copies (analytics, error reports, the AI provider) and hosting backups are not reached. Clears the session cookie.
+ * @summary Delete the signed-in user's account and the app's data about them
+ */
+export const deleteAccountBodyPasswordMax = 128;
+
+
+
+export const DeleteAccountBody = zod.object({
+  "password": zod.string().min(1).max(deleteAccountBodyPasswordMax).describe('The current password, re-checked with argon2 before anything is deleted. Same upper bound as log-in (argon2 cost guard).')
+})
+
+
+/**
  * Always answers 200, whether or not an account exists for the address, and answers before any lookup or send happens — a real lookup plus a Resend call is measurable against an instant miss, which would leak account existence even with an identical body. A failed send is therefore invisible to the caller and is reported to Sentry instead.
  * @summary Request a password reset link
  */
@@ -1242,7 +1257,7 @@ export const ForgotPasswordResponse = zod.object({
 
 
 /**
- * On success the caller is logged in, so a student lands straight in the app. The token is consumed by the same statement that writes the new hash, which is what makes it single-use.
+ * On success the caller is logged in if the account has accepted the current Terms of Service and Privacy Notice; otherwise the password is still changed, no session cookie is set, and the caller must log in (accepting the terms). The response body is the same either way. The token is consumed by the same statement that writes the new hash, which is what makes it single-use.
  * @summary Set a new password using a reset token
  */
 

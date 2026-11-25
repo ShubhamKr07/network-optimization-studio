@@ -44,6 +44,7 @@ vi.mock("../lib/email.js", () => ({ sendEmail: mockSendEmail }));
 import app from "../app.js";
 import { resetForgotPasswordLimitersForTests } from "../routes/auth.js";
 import { hashResetToken } from "../lib/resetTokens.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 
 type Chain = Record<string, ReturnType<typeof vi.fn>>;
 
@@ -73,7 +74,7 @@ it("dump() renders an Error's message, so the absence checks below can fail", ()
   expect(JSON.stringify(new Error("SECRET-PW-HASH"))).not.toContain("SECRET-PW-HASH");
 });
 
-const USER = { id: "u1", email: "student@example.test", role: "student", passwordHash: "argon2-hash" };
+const USER = { id: "u1", email: "student@example.test", role: "student", passwordHash: "argon2-hash", termsVersion: CURRENT_TERMS_VERSION };
 
 /** The route answers before it sends, so tests must let the tail run. */
 const flush = () => new Promise((r) => setImmediate(r));
@@ -270,6 +271,14 @@ describe("POST /api/auth/reset-password", () => {
     expect(written.resetTokenExpiresAt).toBeNull();
     expect(typeof written.passwordHash).toBe("string");
     expect(written.passwordHash).not.toBe("correcthorse1");
+  });
+
+  it("succeeds WITHOUT a cookie for an account that has not accepted the current terms (WQF-B2)", async () => {
+    mockDb.update.mockReturnValue(makeChain([{ ...USER, termsVersion: null }]));
+    const res = await request(app).post("/api/auth/reset-password").send({ token: "raw-token", password: "correcthorse1" });
+    expect(res.status).toBe(200);
+    expect(res.body.user).toEqual({ id: "u1", email: "student@example.test", role: "student" }); // contract unchanged
+    expect(res.headers["set-cookie"]).toBeUndefined();
   });
 
   it("matches on the HASH of the token, never the token itself", async () => {

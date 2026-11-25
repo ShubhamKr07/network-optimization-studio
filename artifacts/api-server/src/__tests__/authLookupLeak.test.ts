@@ -57,7 +57,7 @@ describe("a failed user lookup never carries its params into an error sink", () 
     mockDb.select.mockReturnValue(failingSelect("victim@example.com", 'lower("users"."email")'));
     const logSpy = vi.spyOn(logger, "error");
 
-    const res = await request(app).post("/api/auth/login").send({ email: "victim@example.com", password: "whatever-pw" });
+    const res = await request(app).post("/api/auth/login").send({ email: "victim@example.com", password: "whatever-pw", acceptTerms: true });
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "Could not sign in." });
@@ -110,7 +110,7 @@ describe("a failed register insert never carries its params into an error sink",
     mockDb.insert.mockReturnValue(ins);
     const logSpy = vi.spyOn(logger, "error");
 
-    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw" });
+    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw", acceptTerms: true });
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "Could not create your account." });
@@ -123,7 +123,7 @@ describe("a failed register insert never carries its params into an error sink",
 
   it("/auth/register answers 500 when the existence check itself fails", async () => {
     mockDb.select.mockReturnValue(failingSelect("victim@example.com", 'lower("users"."email")'));
-    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw" });
+    const res = await request(app).post("/api/auth/register").send({ email: "victim@example.com", password: "a-long-enough-pw", acceptTerms: true });
     expect(res.status).toBe(500);
     expect(dump([res.body, mockCaptureException.mock.calls])).not.toContain("victim@example.com");
   });

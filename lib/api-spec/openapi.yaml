@@ -916,6 +916,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+        '400':
+          description: >-
+            Email or password invalid, or acceptTerms is not true (the student
+            did not tick the terms box).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '409':
           description: An account with this email already exists.
           content:
@@ -946,6 +954,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: >-
+            The password was correct, but the account has not accepted the
+            current Terms of Service and Privacy Notice and the request did not
+            carry acceptTerms: true. No session cookie is set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TermsRequiredError'
   /auth/logout:
     post:
       tags: [Auth]
@@ -970,6 +987,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+  /auth/account:
+    delete:
+      tags: [Auth]
+      operationId: deleteAccount
+      summary: Delete the signed-in user's account and the app's data about them
+      description: >-
+        Requires the current password. One transaction: locks the user's
+        scenarios and then the user's row (the solve-enqueue lock order),
+        refuses with 409 while any of the user's solve jobs is queued or
+        running, then deletes the user's solve jobs, scenarios and account;
+        WatBot conversations, messages, reports and feedback go by ON DELETE
+        CASCADE. Anonymous site feedback and the input-keyed result cache are
+        not linked to accounts and are not touched. Third-party copies
+        (analytics, error reports, the AI provider) and hosting backups are
+        not reached. Clears the session cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '204':
+          description: Account deleted; session cookie cleared.
+        '400':
+          description: Password missing or over-length.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: >-
+            Not authenticated. When the session cookie is validly signed but
+            its account no longer exists (e.g. a second delete), the response
+            also clears the cookie.
+        '403':
+          description: The password is not correct. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A solve job is queued or running. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Shares the log-in attempt limit (per client IP).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: The transaction failed and rolled back. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /auth/forgot-password:
     post:
       tags: [Auth]
@@ -1009,9 +1085,12 @@ paths:
       operationId: resetPassword
       summary: Set a new password using a reset token
       description: >-
-        On success the caller is logged in, so a student lands straight in the
-        app. The token is consumed by the same statement that writes the new
-        hash, which is what makes it single-use.
+        On success the caller is logged in if the account has accepted the
+        current Terms of Service and Privacy Notice; otherwise the password is
+        still changed, no session cookie is set, and the caller must log in
+        (accepting the terms). The response body is the same either way. The
+        token is consumed by the same statement that writes the new hash, which
+        is what makes it single-use.
       requestBody:
         required: true
         content:
@@ -1020,7 +1099,7 @@ paths:
               $ref: '#/components/schemas/ResetPasswordRequest'
       responses:
         '200':
-          description: Password changed; caller is logged in.
+          description: Password changed; caller is logged in when their terms acceptance is current.
           content:
             application/json:
               schema:
@@ -1543,6 +1622,12 @@ components:
             deliberately CPU-expensive and the API runs on a 0.5-CPU instance,
             so an unbounded password lets one request starve every other
             student's.
+        acceptTerms:
+          type: boolean
+          description: >-
+            Must be true (the student ticked the terms box); otherwise the
+            server answers 400. The server records the current terms version
+            and time on the new account.
     LoginRequest:
       type: object
       required: [email, password]
@@ -1562,6 +1647,13 @@ components:
             Same cost guard as registration — an over-length password is
             rejected before argon2 ever runs, and (per the no-enumeration rule)
             is indistinguishable from any other bad credential.
+        acceptTerms:
+          type: boolean
+          description: >-
+            Required as true only when the account has not accepted the current
+            terms version, in which case its absence answers 403 terms_required;
+            when true and the stored version is stale, the server records the
+            current version and time.
     ForgotPasswordRequest:
       type: object
       required: [email]
@@ -1597,6 +1689,17 @@ components:
             Same bounds as registration — deliberately one password standard,
             not two. The upper bound is the same argon2 cost guard described on
             RegisterRequest.password.
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            The current password, re-checked with argon2 before anything is
+            deleted. Same upper bound as log-in (argon2 cost guard).
     FeedbackRequest:
       type: object
       required: [body]
@@ -1621,6 +1724,13 @@ components:
       properties:
         error:
           type: string
+    TermsRequiredError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [terms_required]
     NetworkImportIssue:
       type: object
       required: [path, message]

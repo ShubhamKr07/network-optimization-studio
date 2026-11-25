@@ -13,6 +13,7 @@ vi.mock("@/pages/auth/Login", () => ({ Login: () => <div>LoginPage</div> }));
 vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div> }));
 vi.mock("@/pages/auth/ResetPassword", () => ({ ResetPassword: () => <div>ResetPasswordPage</div> }));
 vi.mock("@/pages/auth/ForgotPassword", () => ({ ForgotPassword: () => <div>ForgotPasswordPage</div> }));
+vi.mock("@/pages/legal/LegalPage", () => ({ LegalPage: ({ doc }: { doc: { slug: string } }) => <div>LegalPage:{doc.slug}</div> }));
 vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
 vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
 vi.mock("@/components/AppShell", () => ({
@@ -202,4 +203,17 @@ describe("DU-1.1 — Studio page is gone", () => {
     walk(root);
     expect(hits).toEqual([]);
   });
+});
+
+describe("Gate routing — WQF-B public legal pages", () => {
+  for (const [path, slug] of [["/terms", "terms"], ["/privacy", "privacy"]] as const) {
+    it(`shows ${path} when unauthenticated`, () => {
+      renderAt(path, null);
+      expect(screen.getByText(`LegalPage:${slug}`)).toBeInTheDocument();
+    });
+    it(`shows ${path} when authenticated (no redirect away)`, () => {
+      renderAt(path, { id: "u1", email: "s@example.test" });
+      expect(screen.getByText(`LegalPage:${slug}`)).toBeInTheDocument();
+    });
+  }
 });

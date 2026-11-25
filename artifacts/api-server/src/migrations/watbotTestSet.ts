@@ -36,7 +36,7 @@ async function keys(baseUrl: string): Promise<number> {
   const defaults = loadEvalJson("defaultInputs.json") as Record<string, unknown>;
   defaults["super-model"] = JSON.parse(readFileSync(path.resolve(process.cwd(), "../studio/src/lib/superDefaults.json"), "utf8"));
   const email = `watbot-eval-${Date.now()}@test.com`; // test-user pattern, removed by the usual test-user purge
-  const reg = await fetch(`${baseUrl}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: randomUUID() }) });
+  const reg = await fetch(`${baseUrl}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: randomUUID(), acceptTerms: true }) });
   if (reg.status !== 201) { console.error(`register failed: HTTP ${reg.status}`); return 1; }
   const cookie = reg.headers.get("set-cookie")!.split(";")[0]!;
   const api = (p: string, init: RequestInit = {}) =>

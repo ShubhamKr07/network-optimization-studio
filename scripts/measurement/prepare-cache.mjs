@@ -57,9 +57,9 @@ async function post(p, body, cookie) {
   return fetchT(BASE + p, { method: "POST", headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 async function session() {
-  let r = await post("/api/auth/register", { email: EMAIL, password: PW });
+  let r = await post("/api/auth/register", { email: EMAIL, password: PW, acceptTerms: true });
   if (r.ok) return cookieFrom(r);
-  const l = await post("/api/auth/login", { email: EMAIL, password: PW });
+  const l = await post("/api/auth/login", { email: EMAIL, password: PW, acceptTerms: true });
   if (l.ok) return cookieFrom(l);
   throw new Error(`auth failed register ${r.status}`);
 }

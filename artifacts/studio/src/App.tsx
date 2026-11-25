@@ -8,6 +8,8 @@ import { useGetCurrentAuthUser } from "@workspace/api-client-react";
 import NotFound from "@/pages/not-found";
 import { Landing } from "@/pages/Landing";
 import { Workspace } from "@/pages/Workspace";
+import { LegalPage } from "@/pages/legal/LegalPage";
+import { TERMS_OF_SERVICE, PRIVACY_NOTICE } from "@/pages/legal/legalText";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
 import { ForgotPassword } from "@/pages/auth/ForgotPassword";
@@ -62,6 +64,10 @@ export function Gate() {
       <Route path="/register">{user ? <Redirect to="/" /> : <Register />}</Route>
       <Route path="/forgot-password">{user ? <Redirect to="/" /> : <ForgotPassword />}</Route>
       <Route path="/reset-password"><ResetPassword /></Route>
+      {/* WQF-B1 — public for every visitor, signed in or not, so the consent
+          links work from the log-in form and from the home footer alike. */}
+      <Route path="/terms"><LegalPage doc={TERMS_OF_SERVICE} /></Route>
+      <Route path="/privacy"><LegalPage doc={PRIVACY_NOTICE} /></Route>
       <Route path="/">{authedOnly(<Landing />, "Network Design Labs", true)}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>

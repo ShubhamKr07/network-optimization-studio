@@ -43,7 +43,7 @@ async function api(method: string, p: string, body?: unknown): Promise<{ status:
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const email = `e2e-capture-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const reg = await api("POST", "/auth/register", { email, password: "correcthorse1" });
+  const reg = await api("POST", "/auth/register", { email, password: "correcthorse1", acceptTerms: true });
   if (reg.status !== 201) throw new Error(`register failed: ${reg.status} ${JSON.stringify(reg.json)}`);
 
   for (const modelId of Object.keys(INPUTS)) {

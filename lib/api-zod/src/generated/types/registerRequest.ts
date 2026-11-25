@@ -15,4 +15,6 @@ export interface RegisterRequest {
      * @maxLength 128
      */
   password: string;
+  /** Must be true (the student ticked the terms box); otherwise the server answers 400. The server records the current terms version and time on the new account. */
+  acceptTerms?: boolean;
 }

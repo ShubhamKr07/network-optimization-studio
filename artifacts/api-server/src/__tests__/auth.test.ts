@@ -5,12 +5,13 @@ import argon2 from "argon2";
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
   insert: vi.fn(),
+  update: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
   WATBOT_MESSAGE_TYPES: [], coursePassagesTable: {}, // routes/index.ts now loads the WatBot router, which reads these at import
-  usersTable: { id: "id", email: "email" },
+  usersTable: { id: "id", email: "email", termsVersion: "terms_version", termsAcceptedAt: "terms_accepted_at" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -26,13 +27,14 @@ import app from "../app.js";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { createHmac } from "node:crypto";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { requireAuth, sessionCookieValue, SESSION_SECRET, SESSION_TTL_MS } from "../middlewares/auth.js";
 
 type Chain = Record<string, ReturnType<typeof vi.fn>>;
 
 function makeChain(returnValue: unknown): Chain {
   const chain: Record<string, unknown> = {};
-  ["select", "from", "where", "insert", "values", "returning"].forEach((m) => {
+  ["select", "from", "where", "insert", "values", "returning", "update", "set"].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
@@ -60,7 +62,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "supersecret" });
+      .send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(201);
     expect(res.body.user).toMatchObject({ id: "user-1", email: "student@example.com", role: "student" });
@@ -71,7 +73,7 @@ describe("POST /api/auth/register", () => {
     mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com" }]));
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "supersecret" });
+      .send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(409);
     expect(res.body.error).not.toMatch(/password/i);
@@ -80,7 +82,7 @@ describe("POST /api/auth/register", () => {
   it("returns 400 when password is shorter than 8 characters", async () => {
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "short" });
+      .send({ email: "student@example.com", password: "short", acceptTerms: true });
     expect(res.status).toBe(400);
   });
 
@@ -88,7 +90,7 @@ describe("POST /api/auth/register", () => {
     const hashSpy = vi.spyOn(argon2, "hash");
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD, acceptTerms: true });
 
     expect(res.status).toBe(400);
     // The whole point of the cap: argon2 is the expensive part, so an
@@ -103,7 +105,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "bound@example.com", password: "a".repeat(128) });
+      .send({ email: "bound@example.com", password: "a".repeat(128), acceptTerms: true });
 
     expect(res.status).toBe(201);
   });
@@ -118,7 +120,7 @@ describe("POST /api/auth/register", () => {
 
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "  Student@Example.COM  ", password: "supersecret" });
+      .send({ email: "  Student@Example.COM  ", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(201);
     // Uniqueness is checked against the normalized form...
@@ -136,7 +138,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "STUDENT@example.com", password: "supersecret" });
+      .send({ email: "STUDENT@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(409);
   });
@@ -156,7 +158,7 @@ describe("session cookie flags by environment", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "dev@example.com", password: "supersecret" });
+      .send({ email: "dev@example.com", password: "supersecret", acceptTerms: true });
 
     const setCookie = res.headers["set-cookie"]?.[0] ?? "";
     expect(setCookie).toMatch(/SameSite=Lax/i);
@@ -170,7 +172,7 @@ describe("session cookie flags by environment", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "prod@example.com", password: "supersecret" });
+      .send({ email: "prod@example.com", password: "supersecret", acceptTerms: true });
 
     const setCookie = res.headers["set-cookie"]?.[0] ?? "";
     expect(setCookie).toMatch(/SameSite=None/i);
@@ -182,11 +184,11 @@ describe("POST /api/auth/login", () => {
   it("returns 200 with the user and sets the session cookie on valid credentials", async () => {
     const passwordHash = await argon2.hash("correct-horse");
     mockDb.select.mockReturnValue(
-      makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash }]),
+      makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash, termsVersion: CURRENT_TERMS_VERSION }]),
     );
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: "correct-horse" });
+      .send({ email: "student@example.com", password: "correct-horse", acceptTerms: true });
 
     expect(res.status).toBe(200);
     expect(res.body.user).toMatchObject({ id: "user-1", email: "student@example.com" });
@@ -196,11 +198,11 @@ describe("POST /api/auth/login", () => {
   it("returns 401 with a generic message on wrong password", async () => {
     const passwordHash = await argon2.hash("correct-horse");
     mockDb.select.mockReturnValue(
-      makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash }]),
+      makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash, termsVersion: CURRENT_TERMS_VERSION }]),
     );
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: "wrong-password" });
+      .send({ email: "student@example.com", password: "wrong-password", acceptTerms: true });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid email or password");
@@ -210,7 +212,7 @@ describe("POST /api/auth/login", () => {
     // Default beforeEach: select returns []
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "nobody@example.com", password: "whatever1" });
+      .send({ email: "nobody@example.com", password: "whatever1", acceptTerms: true });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid email or password");
@@ -223,13 +225,13 @@ describe("POST /api/auth/login", () => {
     // case-insensitive, so the stored row still matches.
     const passwordHash = await argon2.hash("correct-horse");
     const selectChain = makeChain([
-      { id: "user-1", email: "Student@Example.com", role: "student", passwordHash },
+      { id: "user-1", email: "Student@Example.com", role: "student", passwordHash, termsVersion: CURRENT_TERMS_VERSION },
     ]);
     mockDb.select.mockReturnValue(selectChain);
 
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "  STUDENT@example.COM ", password: "correct-horse" });
+      .send({ email: "  STUDENT@example.COM ", password: "correct-horse", acceptTerms: true });
 
     expect(res.status).toBe(200);
     expect(emailInWhereClause(selectChain)).toBe("student@example.com");
@@ -239,7 +241,7 @@ describe("POST /api/auth/login", () => {
     const verifySpy = vi.spyOn(argon2, "verify");
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD, acceptTerms: true });
 
     expect(res.status).toBe(401);
     // Indistinguishable from any other bad credential — the cap must not
@@ -268,9 +270,9 @@ describe("GET /api/auth/user", () => {
   });
 
   it("returns the user for a cookie issued by login, and null once the password hash changes", async () => {
-    const row = { id: "user-1", email: "student@example.com", role: "student", passwordHash: await argon2.hash("supersecret") };
+    const row = { id: "user-1", email: "student@example.com", role: "student", passwordHash: await argon2.hash("supersecret"), termsVersion: CURRENT_TERMS_VERSION };
     mockDb.select.mockReturnValue(makeChain([row]));
-    const login = await request(app).post("/api/auth/login").send({ email: row.email, password: "supersecret" });
+    const login = await request(app).post("/api/auth/login").send({ email: row.email, password: "supersecret", acceptTerms: true });
     const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
 
     const ok = await request(app).get("/api/auth/user").set("Cookie", cookie);
@@ -286,21 +288,23 @@ describe("GET /api/auth/user", () => {
 // issued-at time, checked against the users row on every request.
 describe("requireAuth middleware", () => {
   const HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaGhhc2hoYXNo";
-  const row = { id: "user-1", email: "a@b.c", role: "student", passwordHash: HASH };
+  const row = { id: "user-1", email: "a@b.c", role: "student", passwordHash: HASH, termsVersion: CURRENT_TERMS_VERSION };
 
   async function run(cookie: unknown) {
     const req = { signedCookies: { nos_session: cookie } } as any;
     const json = vi.fn();
     const status = vi.fn(() => ({ json }));
+    const clearCookie = vi.fn();
     const next = vi.fn();
-    await requireAuth(req, { status } as any, next);
-    return { req, status, json, next };
+    await requireAuth(req, { status, clearCookie } as any, next);
+    return { req, status, json, next, clearCookie };
   }
 
   it("returns 401 JSON and does not call next() when no session cookie is present", async () => {
-    const { status, next } = await run(undefined);
+    const { status, next, clearCookie } = await run(undefined);
     expect(status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
+    expect(clearCookie).not.toHaveBeenCalled();
   });
 
   it("sets req.userId and calls next() for a current session", async () => {
@@ -328,11 +332,22 @@ describe("requireAuth middleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("401s a deleted user", async () => {
+  it("401s a session whose user has not accepted the current terms (WQF-B4 one-time log-out)", async () => {
+    const cookie = sessionCookieValue(row);
+    for (const termsVersion of [null, "1999-01-01"]) {
+      mockDb.select.mockReturnValue(makeChain([{ ...row, termsVersion }]));
+      const { status, next } = await run(cookie);
+      expect(status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    }
+  });
+
+  it("401s a deleted user AND clears the cookie, so the browser stops sending it (WQF-B6 D11)", async () => {
     const cookie = sessionCookieValue(row);
     mockDb.select.mockReturnValue(makeChain([]));
-    const { status } = await run(cookie);
+    const { status, clearCookie } = await run(cookie);
     expect(status).toHaveBeenCalledWith(401);
+    expect(clearCookie).toHaveBeenCalledWith("nos_session", expect.objectContaining({ path: "/" }));
   });
 
   it("401s a pre-SEC-2 cookie (bare user id) without a DB lookup", async () => {
@@ -367,5 +382,79 @@ describe("requireAuth middleware", () => {
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({ error: "Could not verify your session." });
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe("WQF-B3 — terms consent at register and log-in", () => {
+  const hashOf = (pw: string) => argon2.hash(pw);
+
+  it("refuses to register without acceptTerms: true, before any lookup or insert", async () => {
+    for (const extra of [{}, { acceptTerms: false }]) {
+      const res = await request(app).post("/api/auth/register")
+        .send({ email: "student@example.com", password: "supersecret", ...extra });
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "Accept the Terms of Service and the Privacy Notice to create an account." });
+    }
+    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("records the current terms version and a DB-side time on the new row", async () => {
+    const insertChain = makeChain([{ id: "user-1", email: "student@example.com", role: "student", termsVersion: CURRENT_TERMS_VERSION }]);
+    mockDb.insert.mockReturnValue(insertChain);
+    const res = await request(app).post("/api/auth/register")
+      .send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
+    expect(res.status).toBe(201);
+    const values = insertChain.values.mock.calls[0]![0] as Record<string, unknown>;
+    expect(values.termsVersion).toBe(CURRENT_TERMS_VERSION);
+    expect(values.termsAcceptedAt).toBeDefined();
+  });
+
+  it("403s terms_required with no cookie when the stored version is stale and acceptTerms is absent", async () => {
+    mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash: await hashOf("supersecret"), termsVersion: null }]));
+    const res = await request(app).post("/api/auth/login").send({ email: "student@example.com", password: "supersecret" });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "terms_required" });
+    expect(res.headers["set-cookie"]).toBeUndefined();
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("checks the password before the terms: a wrong password is still the generic 401", async () => {
+    mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash: await hashOf("supersecret"), termsVersion: null }]));
+    const res = await request(app).post("/api/auth/login").send({ email: "student@example.com", password: "wrong-password" });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Invalid email or password" });
+  });
+
+  it("records acceptance and logs in when acceptTerms is true and the stored version is stale", async () => {
+    mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash: await hashOf("supersecret"), termsVersion: "1999-01-01" }]));
+    const updateChain = makeChain([]);
+    mockDb.update.mockReturnValue(updateChain);
+    const res = await request(app).post("/api/auth/login").send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
+    expect(res.status).toBe(200);
+    expect(res.headers["set-cookie"]?.[0]).toMatch(/nos_session=/);
+    const written = updateChain.set.mock.calls[0]![0] as Record<string, unknown>;
+    expect(written.termsVersion).toBe(CURRENT_TERMS_VERSION);
+    expect(written.termsAcceptedAt).toBeDefined();
+  });
+
+  it("does not write the users row when the stored version is already current (D2)", async () => {
+    mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash: await hashOf("supersecret"), termsVersion: CURRENT_TERMS_VERSION }]));
+    const res = await request(app).post("/api/auth/login").send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
+    expect(res.status).toBe(200);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("a failed acceptance write is the route's own 500, and its params never reach the body", async () => {
+    mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com", role: "student", passwordHash: await hashOf("supersecret"), termsVersion: null }]));
+    const chain = makeChain([]);
+    (chain as { then: unknown }).then = (_ok: unknown, fail: (e: Error) => void) =>
+      Promise.reject(new Error("Failed query: update users\nparams: SECRET-USER-ID")).catch(fail);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/auth/login").send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Could not sign in." });
+    expect(JSON.stringify(res.body)).not.toContain("SECRET-USER-ID");
+    expect(res.headers["set-cookie"]).toBeUndefined();
   });
 });

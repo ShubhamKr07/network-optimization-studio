@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TermsConsent } from "@/components/auth/TermsConsent";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { describeWriteError } from "@/lib/describeWriteError";
 
@@ -15,11 +16,16 @@ export function Login() {
   const loginUser = useLoginUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  // WQF-B2 — ResetPassword lands here when the reset could not sign the
+  // student in (terms not yet accepted). Read once; wouter's path excludes search.
+  const [passwordChanged] = useState(() => new URLSearchParams(window.location.search).get("reset") === "done");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!acceptedTerms) return;
     loginUser.mutate(
-      { data: { email, password } },
+      { data: { email, password, acceptTerms: true } },
       {
         onSuccess: (data) => {
           // Write the cache synchronously instead of invalidating + waiting
@@ -40,6 +46,11 @@ export function Login() {
   return (
     <AuthShell tagline="Log in to continue your labs. Build a scenario on the map, solve it with a real optimizer, compare the results.">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+        {passwordChanged && !loginUser.isError && (
+          <Alert data-testid="alert-password-changed">
+            <AlertDescription>Your password was changed. Log in to continue.</AlertDescription>
+          </Alert>
+        )}
         {loginUser.isError && (
           <Alert variant="destructive" data-testid="alert-login-error">
             <AlertDescription>{describeWriteError(loginUser.error, "Could not log in. Please try again.")}</AlertDescription>
@@ -60,7 +71,8 @@ export function Login() {
           {/* Mirrors LoginRequest.password's maxLength in openapi.yaml. */}
           <Input id="password" type="password" required maxLength={128} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
         </div>
-        <Button type="submit" disabled={loginUser.isPending} data-testid="button-login" className="mt-1">
+        <TermsConsent checked={acceptedTerms} onCheckedChange={setAcceptedTerms} />
+        <Button type="submit" disabled={loginUser.isPending || !acceptedTerms} data-testid="button-login" className="mt-1">
           {loginUser.isPending ? "Logging in…" : "Log in"}
         </Button>
       </form>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { useResetPassword, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
+import { useResetPassword, getCurrentAuthUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,12 +37,24 @@ export function ResetPassword() {
     resetPassword.mutate(
       { data: { token, password } },
       {
-        onSuccess: (data) => {
-          // Same reasoning as Login.tsx's onSuccess: write the cache
-          // synchronously rather than invalidating, to avoid racing Gate()'s
-          // auth-gated render.
-          queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), data);
-          navigate("/", { replace: true });
+        onSuccess: async () => {
+          // WQF-B2 / D4 — the server sets the session cookie only for an account
+          // that has accepted the current terms, and the body is identical either
+          // way, so ask the server who is signed in instead of trusting it.
+          // fetchQuery also fills the cache BEFORE navigating, which is what the
+          // old synchronous setQueryData was protecting (Gate race, Login.tsx).
+          let signedIn = false;
+          try {
+            const fresh = await queryClient.fetchQuery({
+              queryKey: getGetCurrentAuthUserQueryKey(),
+              queryFn: () => getCurrentAuthUser(),
+              staleTime: 0,
+            });
+            signedIn = Boolean(fresh.user);
+          } catch {
+            // The password is already changed; Log in is always a safe landing.
+          }
+          navigate(signedIn ? "/" : "/login?reset=done", { replace: true });
         },
         onError: (err: unknown) =>
           setError(describeWriteError(err, "Could not set your new password. Request a fresh link.")),

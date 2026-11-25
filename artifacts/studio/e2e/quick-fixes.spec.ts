@@ -23,7 +23,7 @@ const seededResult = JSON.parse(fs.readFileSync(path.resolve(HERE, "../src/__tes
 
 async function registerAndGoHome(page: Page): Promise<void> {
   const email = `e2e-qfx-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1" } });
+  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1", acceptTerms: true } });
   expect(resp.status()).toBe(201);
   await page.goto("/");
   await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });

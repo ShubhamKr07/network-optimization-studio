@@ -357,7 +357,7 @@ describe("A1/CH4-11 — the active-job conflict guard (max-coverage-us only)", (
   // scenarios.ts's outcome-to-status mapping, `kind === "conflict"`).
   it("POST /scenarios/:id/solve twice returns 202 then 409, with the first jobId in the second response body", async () => {
     const email = `ch4-11-conflict-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
     registeredUserIds.push(registerRes.body.user.id);
     const setCookie = registerRes.headers["set-cookie"] as unknown as string[];
     const cookie = setCookie[0]!.split(";")[0]!;
@@ -425,7 +425,7 @@ describe("SEC-3 — one active solve job per user", () => {
 
   it("POST /scenarios/:id/solve on a second scenario answers 429 with Retry-After", async () => {
     const email = `sec3-busy-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    const registerRes = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
     registeredUserIds.push(registerRes.body.user.id);
     const cookie = (registerRes.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
     const ids: number[] = [];
@@ -568,7 +568,7 @@ describe("A1 — historical-null tolerance on read paths", () => {
 describe("A1 — writer enumeration, real HTTP (PATCH /scenarios/:id vs the distanceBands-only PATCH)", () => {
   async function registerAndGetCookie(): Promise<string> {
     const email = `a1-writer-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-    const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
     registeredUserIds.push(res.body.user.id);
     const setCookie = res.headers["set-cookie"] as unknown as string[];
     return setCookie[0]!.split(";")[0]!;
@@ -675,7 +675,7 @@ describe("DU-4.1 — inboundDistanceBands epoch rule and field-scoped route (rea
 
   async function registerAndGetCookie(): Promise<string> {
     const email = `du41-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-    const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+    const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
     registeredUserIds.push(res.body.user.id);
     return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
   }

@@ -23,7 +23,7 @@ afterAll(async () => {
 
 async function register(tag: string): Promise<string> {
   const email = `scu-p2-2-${tag}-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   userIds.push(res.body.user.id);
   return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;

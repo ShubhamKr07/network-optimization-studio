@@ -64,11 +64,15 @@ vi.mock("../solver/jobRunner.js", () => ({
 // SEC-2 — requireAuth's per-request users lookup. Returning the hash loginAs logged
 // in with keeps the real password-tag check in play without queueing a users row
 // ahead of every mocked db.select below.
-vi.mock("../lib/sessionUser.js", () => ({
-  findUserById: async (id: string) => ({ id, email: `${id}@example.com`, role: "student", passwordHash: testPasswordHash }),
-}));
+vi.mock("../lib/sessionUser.js", async () => {
+  const { CURRENT_TERMS_VERSION } = await import("../lib/terms.js");
+  return {
+    findUserById: async (id: string) => ({ id, email: `${id}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION }),
+  };
+});
 
 import app from "../app.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
 
@@ -100,11 +104,11 @@ const OWNER = "seed-user-id";
 
 async function loginAs(userId: string): Promise<string> {
   mockDb.select.mockReturnValueOnce(
-    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash }]),
+    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION }]),
   );
   const res = await request(app)
     .post("/api/auth/login")
-    .send({ email: `${userId}@example.com`, password: "test-password" });
+    .send({ email: `${userId}@example.com`, password: "test-password", acceptTerms: true });
   const setCookie = res.headers["set-cookie"] as unknown as string[];
   return setCookie[0].split(";")[0];
 }

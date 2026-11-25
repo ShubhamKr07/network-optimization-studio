@@ -10,7 +10,7 @@ import { loginLimiterSizeForTests, resetLoginRateLimiterForTests } from "../rout
 const login = (email: string, xff?: string) => {
   const r = request(app).post("/api/auth/login");
   if (xff) r.set("X-Forwarded-For", xff);
-  return r.send({ email, password: "wrong-password-123" });
+  return r.send({ email, password: "wrong-password-123", acceptTerms: true });
 };
 
 describe("login rate limit keys on the client address behind the proxies", () => {

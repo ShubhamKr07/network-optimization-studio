@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TermsConsent } from "@/components/auth/TermsConsent";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { describeWriteError } from "@/lib/describeWriteError";
 
@@ -15,14 +16,15 @@ export function Register() {
   const registerUser = useRegisterUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const passwordTooShort = password.length > 0 && password.length < 8;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (passwordTooShort) return;
+    if (passwordTooShort || !acceptedTerms) return;
     registerUser.mutate(
-      { data: { email, password } },
+      { data: { email, password, acceptTerms: true } },
       {
         onSuccess: (data) => {
           // See Login.tsx's onSuccess for why this writes the cache
@@ -61,7 +63,8 @@ export function Register() {
             <p className="text-xs text-destructive" data-testid="text-password-hint">Password must be at least 8 characters.</p>
           )}
         </div>
-        <Button type="submit" disabled={registerUser.isPending} data-testid="button-register" className="mt-1">
+        <TermsConsent checked={acceptedTerms} onCheckedChange={setAcceptedTerms} />
+        <Button type="submit" disabled={registerUser.isPending || !acceptedTerms} data-testid="button-register" className="mt-1">
           {registerUser.isPending ? "Creating account…" : "Register"}
         </Button>
       </form>
