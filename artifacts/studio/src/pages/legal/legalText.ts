@@ -87,7 +87,7 @@ export const PRIVACY_NOTICE: LegalDoc = {
       heading: "What the app stores",
       paragraphs: [
         "Site feedback you send with the feedback button is stored without your account, your session or your IP address. It is anonymous: it cannot be traced back to you, so it cannot be found or removed per account.",
-        "Your IP address is used briefly, in memory, to limit repeated log-in and reset attempts. It is not stored in the app's database, but our hosting provider's request logs may record it.",
+        "Your IP address is used briefly, in memory, to limit repeated log-in, password-reset and account-deletion attempts. It is not stored in the app's database, but our hosting provider's request logs may record it.",
       ],
       bullets: [
         "Your account: your email address, your password stored only as a one-way hash (we cannot read it), your role, and when the account was created and last changed.",
@@ -125,7 +125,7 @@ export const PRIVACY_NOTICE: LegalDoc = {
       paragraphs: [],
       bullets: [
         "One sign-in cookie, which keeps you logged in for up to 7 days.",
-        "PostHog stores an analytics identifier in your browser.",
+        "PostHog stores an analytics identifier in your browser, in a cookie and in local storage.",
         "The app remembers display settings, such as the theme, in your browser's storage.",
       ],
     },
@@ -139,7 +139,7 @@ export const PRIVACY_NOTICE: LegalDoc = {
       heading: "Your rights and how to use them",
       paragraphs: [
         "Delete your account yourself: on the home page, choose \"Delete my account\" and confirm with your password. This permanently deletes your account, your scenarios and solves, your WatBot conversations, ratings and reports, and your record of which version you accepted.",
-        `In-app deletion does not reach copies held by PostHog, Sentry or Anthropic, or database backups. Since 25 November 2026 PostHog and Sentry are set not to store your IP address; older analytics events and error reports may still hold it until each service's retention period removes them. To ask for any of these to be deleted sooner, or to ask for a copy of your data or a correction, write to ${PRIVACY_CONTACT_EMAIL}.`,
+        `In-app deletion does not reach copies held by PostHog, Sentry or Anthropic, or database backups. Since 25 November 2026 PostHog and Sentry are set not to store your IP address; older analytics events and error reports may still hold it until each service's retention period removes them. To ask for any of these to be deleted sooner, or to ask for a copy of your data or a correction, write to ${PRIVACY_CONTACT_EMAIL}. You can do this by email without logging in.`,
         "Depending on where you live, laws such as the GDPR may give you further rights, including to object to or restrict processing, and to complain to your data protection authority.",
       ],
     },
