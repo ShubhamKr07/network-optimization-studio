@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TermsConsent } from "@/components/auth/TermsConsent";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { describeWriteError } from "@/lib/describeWriteError";
 
@@ -15,11 +16,13 @@ export function Login() {
   const loginUser = useLoginUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!acceptedTerms) return;
     loginUser.mutate(
-      { data: { email, password } },
+      { data: { email, password, acceptTerms: true } },
       {
         onSuccess: (data) => {
           // Write the cache synchronously instead of invalidating + waiting
@@ -60,7 +63,8 @@ export function Login() {
           {/* Mirrors LoginRequest.password's maxLength in openapi.yaml. */}
           <Input id="password" type="password" required maxLength={128} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
         </div>
-        <Button type="submit" disabled={loginUser.isPending} data-testid="button-login" className="mt-1">
+        <TermsConsent checked={acceptedTerms} onCheckedChange={setAcceptedTerms} />
+        <Button type="submit" disabled={loginUser.isPending || !acceptedTerms} data-testid="button-login" className="mt-1">
           {loginUser.isPending ? "Logging in…" : "Log in"}
         </Button>
       </form>

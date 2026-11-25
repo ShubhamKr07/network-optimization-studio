@@ -32,16 +32,48 @@ beforeEach(() => {
 });
 
 describe("Register", () => {
-  it("submits email and password", async () => {
+  it("starts with the terms box unticked and the button disabled", async () => {
+    render(<Register />);
+    expect(screen.getByTestId("checkbox-accept-terms")).toHaveAttribute("aria-checked", "false");
+    await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
+    await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    expect(screen.getByTestId("button-register")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("button-register"));
+    expect(mockRegisterMutate).not.toHaveBeenCalled();
+  });
+
+  it("enables the button once the box is ticked, and disables it again when unticked", async () => {
+    render(<Register />);
+    const box = screen.getByTestId("checkbox-accept-terms");
+    await userEvent.click(box);
+    expect(screen.getByTestId("button-register")).toBeEnabled();
+    await userEvent.click(box);
+    expect(screen.getByTestId("button-register")).toBeDisabled();
+  });
+
+  it("submits email, password and acceptTerms: true", async () => {
     render(<Register />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    await userEvent.click(screen.getByTestId("checkbox-accept-terms"));
     await userEvent.click(screen.getByTestId("button-register"));
-
     expect(mockRegisterMutate).toHaveBeenCalledWith(
-      { data: { email: "student@example.com", password: "correcthorse" } },
+      { data: { email: "student@example.com", password: "correcthorse", acceptTerms: true } },
       expect.anything(),
     );
+  });
+
+  it("labels the box with the exact consent sentence and links both documents in a new tab", () => {
+    render(<Register />);
+    expect(document.querySelector("label[for='accept-terms']")).toHaveTextContent(
+      "I agree to the Terms of Service and the Privacy Notice (FERPA, GDPR)",
+    );
+    for (const [id, path] of [["link-consent-terms", "/terms"], ["link-consent-privacy", "/privacy"]] as const) {
+      const a = screen.getByTestId(id);
+      expect(a).toHaveAttribute("href", path);
+      expect(a).toHaveAttribute("target", "_blank");
+      expect(a).toHaveAttribute("rel", "noopener noreferrer");
+    }
   });
 
   it("writes the auth-user cache synchronously and navigates home on success", async () => {
@@ -50,6 +82,7 @@ describe("Register", () => {
     render(<Register />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    await userEvent.click(screen.getByTestId("checkbox-accept-terms"));
     await userEvent.click(screen.getByTestId("button-register"));
 
     // See Login.test.tsx for why this must write the cache directly rather
@@ -63,6 +96,7 @@ describe("Register", () => {
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "short");
     expect(screen.getByTestId("text-password-hint")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("checkbox-accept-terms"));
     await userEvent.click(screen.getByTestId("button-register"));
     expect(mockRegisterMutate).not.toHaveBeenCalled();
   });

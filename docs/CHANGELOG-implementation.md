@@ -5559,3 +5559,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - Test: `termsContract.test.ts` (4), red before codegen (key stripped: 3 failed / 1 passed).
 - Gate: `pnpm run typecheck` clean; api-server 2468 passed / 1 failed of 2469 (`jobRunnerDispatcher` `markSucceeded resolves false…`, a registered flake; 11/11 on two isolated re-runs). Studio gate not run (no studio source changed; e2e specs are not type-affected beyond a data field).
 - Deviation: the plan's perl one-liners skipped bodies containing `${…}` template braces, so 5 call sites (`routes`, `error-handling`, `importMultiModelRoundTrip`, `deliveryCostsImportRoute`, `design-upgrade-p5.spec`) were edited by sed, and `loginRateLimitProxy.test.ts` by a targeted perl.
+
+### WQF-B3 — terms box on log in and register
+- New `components/auth/TermsConsent.tsx` (unticked checkbox `accept-terms`, exact sentence, plain `<a target="_blank" rel="noopener noreferrer">` to `/terms` and `/privacy`); `Login.tsx`/`Register.tsx` hold `acceptedTerms`, disable the button until ticked, guard `handleSubmit`, and send `acceptTerms: true`.
+- Tests: `Login.test.tsx`/`Register.test.tsx` +4 cases each (unticked/disabled, toggle, payload, label + links); red first (11 failed on missing `checkbox-accept-terms`), then 41/41 green with the two write-error guard tests.
+- `/terms` and `/privacy` pages land in B2; links point at the paths regardless.
+- e2e gate EXPECTED RED until B8: UI-login specs now need a tick: `bundle4-auth-landing.spec.ts:87`, `design-upgrade-p5.spec.ts:385,996`, `design-system.spec.ts:174`.
+- `tsc --noEmit -p .` in the worktree reports 246 errors identical before/after (unbuilt `lib/*/dist` project references, TS6305), none introduced here.

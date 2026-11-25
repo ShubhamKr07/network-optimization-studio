@@ -39,16 +39,48 @@ describe("Login", () => {
     expect(link).toHaveAttribute("href", "/forgot-password");
   });
 
-  it("submits email and password", async () => {
+  it("starts with the terms box unticked and the button disabled", async () => {
+    render(<Login />);
+    expect(screen.getByTestId("checkbox-accept-terms")).toHaveAttribute("aria-checked", "false");
+    await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
+    await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    expect(screen.getByTestId("button-login")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("button-login"));
+    expect(mockLoginMutate).not.toHaveBeenCalled();
+  });
+
+  it("enables the button once the box is ticked, and disables it again when unticked", async () => {
+    render(<Login />);
+    const box = screen.getByTestId("checkbox-accept-terms");
+    await userEvent.click(box);
+    expect(screen.getByTestId("button-login")).toBeEnabled();
+    await userEvent.click(box);
+    expect(screen.getByTestId("button-login")).toBeDisabled();
+  });
+
+  it("submits email, password and acceptTerms: true", async () => {
     render(<Login />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    await userEvent.click(screen.getByTestId("checkbox-accept-terms"));
     await userEvent.click(screen.getByTestId("button-login"));
-
     expect(mockLoginMutate).toHaveBeenCalledWith(
-      { data: { email: "student@example.com", password: "correcthorse" } },
+      { data: { email: "student@example.com", password: "correcthorse", acceptTerms: true } },
       expect.anything(),
     );
+  });
+
+  it("labels the box with the exact consent sentence and links both documents in a new tab", () => {
+    render(<Login />);
+    expect(document.querySelector("label[for='accept-terms']")).toHaveTextContent(
+      "I agree to the Terms of Service and the Privacy Notice (FERPA, GDPR)",
+    );
+    for (const [id, path] of [["link-consent-terms", "/terms"], ["link-consent-privacy", "/privacy"]] as const) {
+      const a = screen.getByTestId(id);
+      expect(a).toHaveAttribute("href", path);
+      expect(a).toHaveAttribute("target", "_blank");
+      expect(a).toHaveAttribute("rel", "noopener noreferrer");
+    }
   });
 
   it("writes the auth-user cache synchronously and navigates home on success", async () => {
@@ -57,6 +89,7 @@ describe("Login", () => {
     render(<Login />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
+    await userEvent.click(screen.getByTestId("checkbox-accept-terms"));
     await userEvent.click(screen.getByTestId("button-login"));
 
     // Writing the cache directly (not invalidate + refetch) is the fix for
