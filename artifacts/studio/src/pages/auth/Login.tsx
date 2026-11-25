@@ -17,6 +17,9 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  // WQF-B2 — ResetPassword lands here when the reset could not sign the
+  // student in (terms not yet accepted). Read once; wouter's path excludes search.
+  const [passwordChanged] = useState(() => new URLSearchParams(window.location.search).get("reset") === "done");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +46,11 @@ export function Login() {
   return (
     <AuthShell tagline="Log in to continue your labs. Build a scenario on the map, solve it with a real optimizer, compare the results.">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+        {passwordChanged && !loginUser.isError && (
+          <Alert data-testid="alert-password-changed">
+            <AlertDescription>Your password was changed. Log in to continue.</AlertDescription>
+          </Alert>
+        )}
         {loginUser.isError && (
           <Alert variant="destructive" data-testid="alert-login-error">
             <AlertDescription>{describeWriteError(loginUser.error, "Could not log in. Please try again.")}</AlertDescription>

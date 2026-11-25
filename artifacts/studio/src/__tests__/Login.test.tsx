@@ -189,4 +189,17 @@ describe("Login", () => {
     // cover collapses to a top band on narrow, becomes the left rail on wide
     expect(screen.getByTestId("auth-cover").className).toContain("md:basis-[44%]");
   });
+
+  it("tells the student their password changed when arriving from a reset", () => {
+    window.history.replaceState(null, "", "/login?reset=done");
+    render(<Login />);
+    expect(screen.getByTestId("alert-password-changed")).toHaveTextContent("Your password was changed. Log in to continue.");
+    window.history.replaceState(null, "", "/login");
+  });
+
+  it("shows no password notice on a plain visit", () => {
+    window.history.replaceState(null, "", "/login");
+    render(<Login />);
+    expect(screen.queryByTestId("alert-password-changed")).toBeNull();
+  });
 });

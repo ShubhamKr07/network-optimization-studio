@@ -446,7 +446,10 @@ async function handleResetPassword(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  setSessionCookie(res, user);
+  // WQF-B2 — sign in only a user who has accepted the current terms; anyone
+  // else gets the same 200 body with NO cookie and must log in, where the box
+  // is. Setting a cookie here would hand out a session sessionUser rejects.
+  if (user.termsVersion === CURRENT_TERMS_VERSION) setSessionCookie(res, user);
 
   posthog?.capture({
     distinctId: user.id,

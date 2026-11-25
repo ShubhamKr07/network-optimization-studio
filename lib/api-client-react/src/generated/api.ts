@@ -2314,7 +2314,7 @@ export const getResetPasswordUrl = () => {
 }
 
 /**
- * On success the caller is logged in, so a student lands straight in the app. The token is consumed by the same statement that writes the new hash, which is what makes it single-use.
+ * On success the caller is logged in if the account has accepted the current Terms of Service and Privacy Notice; otherwise the password is still changed, no session cookie is set, and the caller must log in (accepting the terms). The response body is the same either way. The token is consumed by the same statement that writes the new hash, which is what makes it single-use.
  * @summary Set a new password using a reset token
  */
 export const resetPassword = async (resetPasswordRequest: ResetPasswordRequest, options?: RequestInit): Promise<AuthUserEnvelope> => {

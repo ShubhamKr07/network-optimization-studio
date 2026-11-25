@@ -288,7 +288,7 @@ describe("GET /api/auth/user", () => {
 // issued-at time, checked against the users row on every request.
 describe("requireAuth middleware", () => {
   const HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaGhhc2hoYXNo";
-  const row = { id: "user-1", email: "a@b.c", role: "student", passwordHash: HASH };
+  const row = { id: "user-1", email: "a@b.c", role: "student", passwordHash: HASH, termsVersion: CURRENT_TERMS_VERSION };
 
   async function run(cookie: unknown) {
     const req = { signedCookies: { nos_session: cookie } } as any;
@@ -328,6 +328,16 @@ describe("requireAuth middleware", () => {
     const { status, next } = await run(cookie);
     expect(status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("401s a session whose user has not accepted the current terms (WQF-B4 one-time log-out)", async () => {
+    const cookie = sessionCookieValue(row);
+    for (const termsVersion of [null, "1999-01-01"]) {
+      mockDb.select.mockReturnValue(makeChain([{ ...row, termsVersion }]));
+      const { status, next } = await run(cookie);
+      expect(status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    }
   });
 
   it("401s a deleted user", async () => {

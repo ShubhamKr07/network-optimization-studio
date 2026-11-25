@@ -64,9 +64,12 @@ vi.mock("../solver/jobRunner.js", () => ({
 // SEC-2 — requireAuth's per-request users lookup. Returning the hash loginAs logged
 // in with keeps the real password-tag check in play without queueing a users row
 // ahead of every mocked db.select below.
-vi.mock("../lib/sessionUser.js", () => ({
-  findUserById: async (id: string) => ({ id, email: `${id}@example.com`, role: "student", passwordHash: testPasswordHash }),
-}));
+vi.mock("../lib/sessionUser.js", async () => {
+  const { CURRENT_TERMS_VERSION } = await import("../lib/terms.js");
+  return {
+    findUserById: async (id: string) => ({ id, email: `${id}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION }),
+  };
+});
 
 import app from "../app.js";
 import { CURRENT_TERMS_VERSION } from "../lib/terms.js";

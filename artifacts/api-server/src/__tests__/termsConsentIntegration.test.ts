@@ -10,6 +10,7 @@ import { db, usersTable } from "@workspace/db";
 import app from "../app.js";
 import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+import { hashResetToken, generateResetToken } from "../lib/resetTokens.js";
 
 const createdUserIds: string[] = [];
 const PASSWORD = "correcthorse1";
@@ -66,5 +67,42 @@ describe("WQF-B — terms acceptance record (real Postgres)", () => {
     const row = await termsRow(user.id);
     expect(row.v).toBe(CURRENT_TERMS_VERSION);
     expect(Math.abs(row.at!.getTime() - Date.now())).toBeLessThan(60_000);
+  });
+});
+
+async function plantToken(userId: string): Promise<string> {
+  const token = generateResetToken();
+  await db.update(usersTable)
+    .set({ resetTokenHash: hashResetToken(token), resetTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000) })
+    .where(eq(usersTable.id, userId));
+  return token;
+}
+
+describe("WQF-B — one-time log-out and the reset landing (real Postgres)", () => {
+  it("a version change signs an existing session out on its next request", async () => {
+    const user = await registerFreshUser();
+    expect((await request(app).get("/api/scenarios").set("Cookie", user.cookie)).status).toBe(200); // non-vacuity
+    await db.update(usersTable).set({ termsVersion: "1999-01-01" }).where(eq(usersTable.id, user.id));
+    expect((await request(app).get("/api/scenarios").set("Cookie", user.cookie)).status).toBe(401);
+    expect((await request(app).get("/api/auth/user").set("Cookie", user.cookie)).body).toEqual({ user: null });
+  });
+
+  it("reset sets no cookie for a stale account; the account then logs in by accepting", async () => {
+    const user = await registerFreshUser();
+    await db.update(usersTable).set({ termsVersion: null }).where(eq(usersTable.id, user.id));
+    const reset = await request(app).post("/api/auth/reset-password").send({ token: await plantToken(user.id), password: "brandnewpass1" });
+    expect(reset.status).toBe(200);
+    expect(reset.body.user.id).toBe(user.id);
+    expect(reset.headers["set-cookie"]).toBeUndefined();
+    const login = await request(app).post("/api/auth/login").send({ email: user.email, password: "brandnewpass1", acceptTerms: true });
+    expect(login.status).toBe(200);
+  });
+
+  it("reset still signs a current account straight in", async () => {
+    const user = await registerFreshUser();
+    const reset = await request(app).post("/api/auth/reset-password").send({ token: await plantToken(user.id), password: "brandnewpass1" });
+    expect(reset.status).toBe(200);
+    const cookie = (reset.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
+    expect((await request(app).get("/api/auth/user").set("Cookie", cookie)).body.user.id).toBe(user.id);
   });
 });

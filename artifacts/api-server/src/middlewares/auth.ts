@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { findUserById } from "../lib/sessionUser.js";
 import { logger } from "../lib/logger.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 
 export const SESSION_COOKIE = "nos_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -42,7 +43,12 @@ export async function sessionUser(req: Request) {
   const [userId, issuedAt, tag] = raw.split(".");
   if (!tag || !(Date.now() - Number(issuedAt) <= SESSION_TTL_MS)) return undefined;
   const user = await findUserById(userId);
-  return user && passwordTag(user.passwordHash) === tag ? user : undefined;
+  // WQF-B4 — a user who has not accepted the CURRENT terms holds no session.
+  // Sessions are stateless signed cookies, so this one comparison is the
+  // whole one-time log-out (deploy) and every future re-acceptance (a
+  // constant bump). It runs at the start of each request, so a request that
+  // already passed it when the version changed completes normally.
+  return user && passwordTag(user.passwordHash) === tag && user.termsVersion === CURRENT_TERMS_VERSION ? user : undefined;
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {

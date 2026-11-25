@@ -11,14 +11,16 @@ vi.mock("wouter", () => ({
 }));
 
 const mockSetQueryData = vi.fn();
+const mockFetchQuery = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ setQueryData: mockSetQueryData }),
+  useQueryClient: () => ({ setQueryData: mockSetQueryData, fetchQuery: mockFetchQuery }),
 }));
 
 const mockMutate = vi.fn();
 let state: { isPending: boolean; isError: boolean; error: unknown } = { isPending: false, isError: false, error: null };
 vi.mock("@workspace/api-client-react", () => ({
   useResetPassword: () => ({ mutate: mockMutate, ...state }),
+  getCurrentAuthUser: vi.fn(),
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
 }));
 
@@ -60,16 +62,32 @@ describe("ResetPassword", () => {
     expect(screen.queryByTestId("input-new-password")).toBeNull();
   });
 
-  it("logs the user in and redirects on success", async () => {
+  async function submitReset() {
     setHash("#token=abc123");
-    const data = { user: { id: "u1", email: "s@e.com", role: "student" } };
-    mockMutate.mockImplementation((_vars, opts) => opts.onSuccess?.(data));
+    mockMutate.mockImplementation((_body, { onSuccess }) => onSuccess({ user: { id: "u1", email: "s@example.test", role: "student" } }));
     render(<ResetPassword />);
     await userEvent.type(screen.getByTestId("input-new-password"), "brandnewpass1");
     await userEvent.click(screen.getByTestId("button-set-password"));
+  }
 
-    expect(mockSetQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], data);
-    expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
+  it("asks the server who is signed in and goes home when the reset signed the student in", async () => {
+    mockFetchQuery.mockResolvedValue({ user: { id: "u1", email: "s@example.test", role: "student" } });
+    await submitReset();
+    await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true }));
+    expect(mockFetchQuery).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["getCurrentAuthUser"], staleTime: 0 }));
+    expect(mockSetQueryData).not.toHaveBeenCalled(); // never trust the body: it is identical either way
+  });
+
+  it("sends the student to Log in when the reset set no session (terms not yet accepted)", async () => {
+    mockFetchQuery.mockResolvedValue({ user: null });
+    await submitReset();
+    await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/login?reset=done", { replace: true }));
+  });
+
+  it("falls back to Log in when the who-am-I check itself fails", async () => {
+    mockFetchQuery.mockRejectedValue(new Error("offline"));
+    await submitReset();
+    await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/login?reset=done", { replace: true }));
   });
 
   it("surfaces an expired-link failure", async () => {
