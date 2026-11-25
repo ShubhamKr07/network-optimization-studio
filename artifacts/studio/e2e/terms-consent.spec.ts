@@ -54,8 +54,10 @@ test.describe("terms consent (unauthenticated)", () => {
     await page.goto("/login");
     for (const [id, pageId] of [["link-consent-terms", "page-terms"], ["link-consent-privacy", "page-privacy"]] as const) {
       await expect(page.getByTestId(id)).toHaveAttribute("target", "_blank");
+      await expect(page.getByTestId(id)).toHaveAttribute("rel", /noopener/);
       const [popup] = await Promise.all([page.context().waitForEvent("page"), page.getByTestId(id).click({ timeout: T })]);
       await expect(popup.getByTestId(pageId)).toBeVisible({ timeout: T });
+      expect(popup.url()).toMatch(pageId === "page-terms" ? /\/terms$/ : /\/privacy$/);
       await popup.close();
     }
     await expect(page).toHaveURL(/\/login$/); // the form tab never navigated
@@ -66,6 +68,7 @@ test.describe("terms consent (unauthenticated)", () => {
       await page.goto(path);
       await expect(page.getByTestId(id)).toBeVisible({ timeout: T });
       await expect(page.getByTestId("legal-draft-banner")).toHaveCount(0); // B9 removed the draft banner
+      await expect(page.getByText(/draft/i)).toHaveCount(0); // and no draft wording survives anywhere on the page
       await expect(page.getByTestId("legal-version")).toHaveText(`Version ${TERMS_VERSION}`);
     }
     await page.goto("/privacy");
@@ -167,6 +170,7 @@ test.describe("delete my account (B5)", () => {
     await page.getByTestId("input-delete-password").fill(PASSWORD);
     await page.getByTestId("button-confirm-delete").click({ timeout: T });
     await expect(page).toHaveURL(/\/login$/, { timeout: T });
+    expect((await page.context().cookies()).some((c) => c.name === "nos_session")).toBe(false);
     const login = await page.request.post("/api/auth/login", { data: { email, password: PASSWORD, acceptTerms: true } });
     expect(login.status()).toBe(401);
     if (process.env.DATABASE_URL) expect(userExists(email)).toBe(false);

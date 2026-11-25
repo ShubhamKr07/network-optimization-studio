@@ -7,7 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
-export function psql(sql: string, vars: Record<string, string>): string {
+function psql(sql: string, vars: Record<string, string>): string {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required (local e2e gate only)");
   const args = [url, "-X", "-q", "-At", "-v", "ON_ERROR_STOP=1"];
@@ -16,7 +16,7 @@ export function psql(sql: string, vars: Record<string, string>): string {
 }
 
 export function makeTermsStale(email: string): void {
-  const id = psql("UPDATE users SET terms_version = NULL, terms_accepted_at = NULL WHERE email = :'email' RETURNING id;\n", { email });
+  const id = psql("UPDATE users SET terms_version = '2000-01-01', terms_accepted_at = NULL WHERE email = :'email' RETURNING id;\n", { email });
   if (!id) throw new Error(`no users row for ${email}`);
 }
 
