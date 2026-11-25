@@ -5548,3 +5548,14 @@ Branch `watbot-popover-inline-math`. A live check of WATBOT-POPOVER-KATEX (owner
 - **Corpus check of the backslash rule (read-only `render psql`, snippets only).** Every single-`$` span outside `$$…$$` that does not start with a backslash — 36 distinct spans, the whole set — is the stretch between two prices in prose ("$12 million, $", "$1.70 or $", "$/mile"); none is backslash-less inline math such as `$X_i$` or `$P$`. So the 30-page loose count was prices plus the 5 `$\cmd$` pages, and the rule renders every inline formula in the corpus while leaving prices alone. Backslash-less inline math added to the corpus later would show raw.
 - **Gate:** first `pnpm gate` run hit the `routes` load flake (flake registry); the re-gate after the review fold, 0 concurrent vitest: api-server 2465/2465, studio 3263/3263, pytest 369/369, typecheck clean.
 - **Deployed (2026-11-24).** Pushed `main` `17c31523..599b9c52` (with the WATBOT-POPOVER-KATEX nos-studio deploy record; Design Upgrade session told first, no conflict); no webhook build. Preflight: nos-studio only, nos-api unchanged, no schema change, no migrations, no new env vars. Triggered nos-studio by API; `599b9c52` went live at 12:02:31 UTC. `/compare` returned 200 with `id="root"`. **Live check** (the owner's saved Ch 3 conversation, reopened from history, so no new question): the Ch 3 · p.50 popover opened fully on screen (top 373, bottom 631 in an 801 px window), its quote scrolls, 9 formulas render including `\forall`, and no raw `$\cmd` or `$$` is left.
+
+## WQF-B — Terms consent, one-time log-out, account deletion (2026-11-25)
+
+Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` Part B. Plan: `docs/superpowers/plans/2026-11-25-wqf-b-terms-consent.md`.
+
+### WQF-B1 — acceptTerms in the auth contract
+- `RegisterRequest`/`LoginRequest` gain optional `acceptTerms` (D1); codegen regenerated. The server ignores it until WQF-B4.
+- Every programmatic caller now sends `acceptTerms: true`: api-server tests (26 files), e2e API register calls (38 specs; `labs.spec.ts` left alone), `e2e_journey.py` (6 calls), `watbotTestSet.ts`, `capture-solved-results.ts`, the three measurement scripts, and the deploy smoke's `cookie_attributes` check.
+- Test: `termsContract.test.ts` (4), red before codegen (key stripped: 3 failed / 1 passed).
+- Gate: `pnpm run typecheck` clean; api-server 2468 passed / 1 failed of 2469 (`jobRunnerDispatcher` `markSucceeded resolves false…`, a registered flake; 11/11 on two isolated re-runs). Studio gate not run (no studio source changed; e2e specs are not type-affected beyond a data field).
+- Deviation: the plan's perl one-liners skipped bodies containing `${…}` template braces, so 5 call sites (`routes`, `error-handling`, `importMultiModelRoundTrip`, `deliveryCostsImportRoute`, `design-upgrade-p5.spec`) were edited by sed, and `loginRateLimitProxy.test.ts` by a targeted perl.

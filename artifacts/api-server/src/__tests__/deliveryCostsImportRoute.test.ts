@@ -25,7 +25,7 @@ let cookie = "";
 
 beforeAll(async () => {
   const email = `scu-p2-3-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const reg = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const reg = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(reg.status).toBe(201);
   userIds.push(reg.body.user.id);
   cookie = (reg.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
@@ -103,7 +103,7 @@ describe("deliveryCosts routes", () => {
 
   it("a non-owner gets 404", async () => {
     const id = await create();
-    const other = await request(app).post("/api/auth/register").send({ email: `scu-p2-3-x-${Date.now()}@example.test`, password: "correct horse battery" });
+    const other = await request(app).post("/api/auth/register").send({ email: `scu-p2-3-x-${Date.now()}@example.test`, password: "correct horse battery", acceptTerms: true });
     userIds.push(other.body.user.id);
     const otherCookie = (other.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
     const res = await request(app).post(`/api/scenarios/${id}/import`).set("Cookie", otherCookie).send({ entity: "deliveryCosts", csvText: `${HEADER}\n` });

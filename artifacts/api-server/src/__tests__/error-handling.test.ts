@@ -83,7 +83,7 @@ async function loginAs(userId: string): Promise<string> {
   );
   const res = await request(app)
     .post("/api/auth/login")
-    .send({ email: `${userId}@example.com`, password: "test-password" });
+    .send({ email: `${userId}@example.com`, password: "test-password", acceptTerms: true });
   const setCookie = res.headers["set-cookie"] as unknown as string[];
   return setCookie[0].split(";")[0];
 }

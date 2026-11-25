@@ -50,7 +50,7 @@ const rgbStr = ([r, g, b]: Rgb) => `rgb(${r}, ${g}, ${b})`;
 // ── page plumbing ───────────────────────────────────────────────────────────
 async function register(page: Page): Promise<string> {
   const email = `e2e-du5-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1" } });
+  const resp = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1", acceptTerms: true } });
   expect(resp.status()).toBe(201);
   return email;
 }
@@ -414,7 +414,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
       await expectTheme(page, true, "OS dark with storage blocked");
       expect(await page.evaluate(() => { try { localStorage.getItem("x"); return "ok"; } catch { return "throws"; } }), "non-vacuity: storage really throws").toBe("throws");
 
-      const resp = await page.request.post("/api/auth/register", { data: { email: `e2e-du5-nostore-${Date.now()}@test.com`, password: "correcthorse1" } });
+      const resp = await page.request.post("/api/auth/register", { data: { email: `e2e-du5-nostore-${Date.now()}@test.com`, password: "correcthorse1", acceptTerms: true } });
       expect(resp.status()).toBe(201);
       const create = await page.request.post("/api/scenarios", { data: { name: "nostore", modelId: "p-median-us", inputs: SOLVED_MODEL_INPUTS["p-median-us"] } });
       const id = String((await create.json()).id);

@@ -23,7 +23,7 @@ afterAll(async () => {
 let cookie = "";
 beforeAll(async () => {
   const email = `scu-r1-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const reg = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const reg = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(reg.status).toBe(201);
   userIds.push(reg.body.user.id);
   cookie = (reg.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;

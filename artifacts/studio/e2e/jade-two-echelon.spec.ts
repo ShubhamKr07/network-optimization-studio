@@ -40,7 +40,7 @@ const GROUND_TRUTH_OBJECTIVE = 254060828.6157;
 async function registerAndGoHome(page: Page): Promise<string> {
   const email = `e2e-jade-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
   const resp = await page.request.post("/api/auth/register", {
-    data: { email, password: "correcthorse1" },
+    data: { email, password: "correcthorse1", acceptTerms: true },
   });
   expect(resp.status()).toBe(201);
   await page.goto("/");

@@ -333,7 +333,7 @@ describe("A7 — lost lease while the scenario CAS would still have matched", ()
 
 async function registerAndGetCookie(): Promise<{ cookie: string; userId: string }> {
   const email = `a7-writer-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   registeredUserIds.push(res.body.user.id);
   const setCookie = res.headers["set-cookie"] as unknown as string[];
   return { cookie: setCookie[0]!.split(";")[0]!, userId: res.body.user.id as string };

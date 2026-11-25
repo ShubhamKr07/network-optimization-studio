@@ -199,7 +199,7 @@ def journey_auth() -> None:
     _check("Health body has status=ok",    b.get("status") == "ok", str(body)[:100])
 
     _step(f"Register {TEST_EMAIL!r}")
-    status, body = POST("/auth/register", {"email": TEST_EMAIL, "password": TEST_PASSWORD})
+    status, body = POST("/auth/register", {"email": TEST_EMAIL, "password": TEST_PASSWORD, "acceptTerms": True})
     b = _d(body)
     _check("POST /api/auth/register → 201", status == 201, f"HTTP {status} {b}")
     _check("Register returns user.email",  _d(b.get("user")).get("email") == TEST_EMAIL)
@@ -214,11 +214,11 @@ def journey_auth() -> None:
            _d(b.get("user")).get("email") == TEST_EMAIL)
 
     _step("Register validation — password too short")
-    status, _ = POST("/auth/register", {"email": f"short_{_run_id}@example.test", "password": "x"})
+    status, _ = POST("/auth/register", {"email": f"short_{_run_id}@example.test", "password": "x", "acceptTerms": True})
     _check("Short password → 400",         status == 400, f"HTTP {status}")
 
     _step("Register validation — duplicate email")
-    status, _ = POST("/auth/register", {"email": TEST_EMAIL, "password": TEST_PASSWORD})
+    status, _ = POST("/auth/register", {"email": TEST_EMAIL, "password": TEST_PASSWORD, "acceptTerms": True})
     _check("Duplicate email → 409",        status == 409, f"HTTP {status}")
 
     _step("Logout")
@@ -233,11 +233,11 @@ def journey_auth() -> None:
     _check("User is null after logout",    b.get("user") is None)
 
     _step("Login with wrong password")
-    status, _ = POST("/auth/login", {"email": TEST_EMAIL, "password": "definitely-wrong"})
+    status, _ = POST("/auth/login", {"email": TEST_EMAIL, "password": "definitely-wrong", "acceptTerms": True})
     _check("Wrong password → 401",         status == 401, f"HTTP {status}")
 
     _step(f"Login as {TEST_EMAIL!r}")
-    status, body = POST("/auth/login", {"email": TEST_EMAIL, "password": TEST_PASSWORD})
+    status, body = POST("/auth/login", {"email": TEST_EMAIL, "password": TEST_PASSWORD, "acceptTerms": True})
     b = _d(body)
     _check("POST /api/auth/login → 200",   status == 200, f"HTTP {status}")
     _check("Login returns user.email",     _d(b.get("user")).get("email") == TEST_EMAIL)
@@ -775,7 +775,7 @@ def journey_super() -> None:
         _check("Owner scenario has updatedAt before the attempt", st == 200 and before_updated is not None, f"HTTP {st}")
         _session_cookie = None
         other_email = f"journey_super_other_{_run_id}@example.test"
-        st, _ = POST("/auth/register", {"email": other_email, "password": TEST_PASSWORD})
+        st, _ = POST("/auth/register", {"email": other_email, "password": TEST_PASSWORD, "acceptTerms": True})
         _check("Register second user → 201", st == 201, f"HTTP {st}")
         if not _check("Second user session cookie is set", _session_cookie is not None):
             return

@@ -36,7 +36,7 @@ beforeEach(() => {
 
 async function registerFreshUser(): Promise<{ id: string; email: string }> {
   const email = `pwr-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correcthorse1" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correcthorse1", acceptTerms: true });
   expect(res.status).toBe(201);
   const id = res.body.user.id as string;
   createdUserIds.push(id);
@@ -62,7 +62,7 @@ describe("password reset against a real database", () => {
   // issued before that reset must stop working, while the reset's own session works.
   it("a completed reset revokes every session issued before it", async () => {
     const email = `pwr-hijack-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-    const reg = await request(app).post("/api/auth/register").send({ email, password: "squatterpass1" });
+    const reg = await request(app).post("/api/auth/register").send({ email, password: "squatterpass1", acceptTerms: true });
     expect(reg.status).toBe(201);
     createdUserIds.push(reg.body.user.id);
     const squatter = (reg.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
@@ -100,11 +100,11 @@ describe("password reset against a real database", () => {
     const token = await plantToken(user.id, inAnHour());
     await request(app).post("/api/auth/reset-password").send({ token, password: "brandnewpass1" });
 
-    const good = await request(app).post("/api/auth/login").send({ email: user.email, password: "brandnewpass1" });
+    const good = await request(app).post("/api/auth/login").send({ email: user.email, password: "brandnewpass1", acceptTerms: true });
     expect(good.status).toBe(200);
 
     resetForgotPasswordLimitersForTests();
-    const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: "correcthorse1" });
+    const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: "correcthorse1", acceptTerms: true });
     expect(bad.status).toBe(401);
   });
 
@@ -117,7 +117,7 @@ describe("password reset against a real database", () => {
     // Same body as an unknown token: a distinct "expired" message is an oracle.
     expect(res.body.error).toBe("This reset link is invalid or has expired.");
 
-    const stillWorks = await request(app).post("/api/auth/login").send({ email: user.email, password: "correcthorse1" });
+    const stillWorks = await request(app).post("/api/auth/login").send({ email: user.email, password: "correcthorse1", acceptTerms: true });
     expect(stillWorks.status).toBe(200);
   });
 
@@ -190,10 +190,10 @@ describe("password reset against a real database", () => {
       const winnerPassword = a.status === 200 ? "racepassword1" : "racepassword2";
       const loserPassword = a.status === 200 ? "racepassword2" : "racepassword1";
       resetForgotPasswordLimitersForTests();
-      const good = await request(app).post("/api/auth/login").send({ email: user.email, password: winnerPassword });
+      const good = await request(app).post("/api/auth/login").send({ email: user.email, password: winnerPassword, acceptTerms: true });
       expect(good.status).toBe(200);
       resetForgotPasswordLimitersForTests();
-      const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: loserPassword });
+      const bad = await request(app).post("/api/auth/login").send({ email: user.email, password: loserPassword, acceptTerms: true });
       expect(bad.status).toBe(401);
     } finally {
       querySpy.mockRestore();

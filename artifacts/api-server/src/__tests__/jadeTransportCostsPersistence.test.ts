@@ -28,7 +28,7 @@ afterAll(async () => {
 
 async function registerAndGetCookie(): Promise<string> {
   const email = `ch9-tc-4-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(res.status).toBe(201);
   registeredUserIds.push(res.body.user.id);
   const setCookie = res.headers["set-cookie"] as unknown as string[];

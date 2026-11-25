@@ -1543,6 +1543,12 @@ components:
             deliberately CPU-expensive and the API runs on a 0.5-CPU instance,
             so an unbounded password lets one request starve every other
             student's.
+        acceptTerms:
+          type: boolean
+          description: >-
+            Whether the student ticked "I agree to the Terms of Service and the
+            Privacy Notice". Optional in the schema so the server, not the
+            validator, owns the refusal sentence.
     LoginRequest:
       type: object
       required: [email, password]
@@ -1562,6 +1568,9 @@ components:
             Same cost guard as registration — an over-length password is
             rejected before argon2 ever runs, and (per the no-enumeration rule)
             is indistinguishable from any other bad credential.
+        acceptTerms:
+          type: boolean
+          description: Whether the student ticked the terms box on the log-in form.
     ForgotPasswordRequest:
       type: object
       required: [email]

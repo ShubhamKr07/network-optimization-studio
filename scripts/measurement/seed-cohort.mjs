@@ -96,12 +96,12 @@ async function post(pathname, body, cookie) {
 
 // Register (or, if the email already exists on a re-run, log in) and return a cookie.
 async function ensureSession(email, pw) {
-  let res = await post("/api/auth/register", { email, password: pw });
+  let res = await post("/api/auth/register", { email, password: pw, acceptTerms: true });
   if (res.status === 429) return { retry: true };
   if (res.ok) return { cookie: cookieHeaderFrom(res), created: true };
   if (res.status === 409) {
     // already exists (re-run) — log in instead
-    const lr = await post("/api/auth/login", { email, password: pw });
+    const lr = await post("/api/auth/login", { email, password: pw, acceptTerms: true });
     if (lr.ok) return { cookie: cookieHeaderFrom(lr), created: false };
     return { error: `login ${lr.status}` };
   }

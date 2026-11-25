@@ -15,7 +15,7 @@ const T = 10_000;
 
 async function registerFreshAccount(page: Page, tag: string) {
   const email = `e2e-watbot-${tag}-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const res = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1" } });
+  const res = await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1", acceptTerms: true } });
   expect(res.status()).toBe(201);
 }
 

@@ -18,7 +18,7 @@ export const cookieAttributes: Check = async (env, ctx) => {
     ctx.fetch(`${env.apiBase}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: env.studioBase },
-      body: JSON.stringify({ email, password: "smoke-password-123" }),
+      body: JSON.stringify({ email, password: "smoke-password-123", acceptTerms: true }),
     }),
   );
   const setCookie = firstSetCookie(res.headers);

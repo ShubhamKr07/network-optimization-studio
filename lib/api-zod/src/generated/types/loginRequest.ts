@@ -15,4 +15,6 @@ export interface LoginRequest {
      * @maxLength 128
      */
   password: string;
+  /** Whether the student ticked the terms box on the log-in form. */
+  acceptTerms?: boolean;
 }

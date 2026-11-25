@@ -27,7 +27,7 @@ const HEADER_TIMEOUT = 10_000;
 async function registerFreshAccount(page: Page): Promise<void> {
   const email = `e2e-emptyfirstrun-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
   const resp = await page.request.post("/api/auth/register", {
-    data: { email, password: "correcthorse1" },
+    data: { email, password: "correcthorse1", acceptTerms: true },
   });
   expect(resp.status()).toBe(201);
 }

@@ -60,7 +60,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "supersecret" });
+      .send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(201);
     expect(res.body.user).toMatchObject({ id: "user-1", email: "student@example.com", role: "student" });
@@ -71,7 +71,7 @@ describe("POST /api/auth/register", () => {
     mockDb.select.mockReturnValue(makeChain([{ id: "user-1", email: "student@example.com" }]));
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "supersecret" });
+      .send({ email: "student@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(409);
     expect(res.body.error).not.toMatch(/password/i);
@@ -80,7 +80,7 @@ describe("POST /api/auth/register", () => {
   it("returns 400 when password is shorter than 8 characters", async () => {
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: "short" });
+      .send({ email: "student@example.com", password: "short", acceptTerms: true });
     expect(res.status).toBe(400);
   });
 
@@ -88,7 +88,7 @@ describe("POST /api/auth/register", () => {
     const hashSpy = vi.spyOn(argon2, "hash");
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD, acceptTerms: true });
 
     expect(res.status).toBe(400);
     // The whole point of the cap: argon2 is the expensive part, so an
@@ -103,7 +103,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "bound@example.com", password: "a".repeat(128) });
+      .send({ email: "bound@example.com", password: "a".repeat(128), acceptTerms: true });
 
     expect(res.status).toBe(201);
   });
@@ -118,7 +118,7 @@ describe("POST /api/auth/register", () => {
 
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "  Student@Example.COM  ", password: "supersecret" });
+      .send({ email: "  Student@Example.COM  ", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(201);
     // Uniqueness is checked against the normalized form...
@@ -136,7 +136,7 @@ describe("POST /api/auth/register", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "STUDENT@example.com", password: "supersecret" });
+      .send({ email: "STUDENT@example.com", password: "supersecret", acceptTerms: true });
 
     expect(res.status).toBe(409);
   });
@@ -156,7 +156,7 @@ describe("session cookie flags by environment", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "dev@example.com", password: "supersecret" });
+      .send({ email: "dev@example.com", password: "supersecret", acceptTerms: true });
 
     const setCookie = res.headers["set-cookie"]?.[0] ?? "";
     expect(setCookie).toMatch(/SameSite=Lax/i);
@@ -170,7 +170,7 @@ describe("session cookie flags by environment", () => {
     );
     const res = await request(app)
       .post("/api/auth/register")
-      .send({ email: "prod@example.com", password: "supersecret" });
+      .send({ email: "prod@example.com", password: "supersecret", acceptTerms: true });
 
     const setCookie = res.headers["set-cookie"]?.[0] ?? "";
     expect(setCookie).toMatch(/SameSite=None/i);
@@ -186,7 +186,7 @@ describe("POST /api/auth/login", () => {
     );
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: "correct-horse" });
+      .send({ email: "student@example.com", password: "correct-horse", acceptTerms: true });
 
     expect(res.status).toBe(200);
     expect(res.body.user).toMatchObject({ id: "user-1", email: "student@example.com" });
@@ -200,7 +200,7 @@ describe("POST /api/auth/login", () => {
     );
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: "wrong-password" });
+      .send({ email: "student@example.com", password: "wrong-password", acceptTerms: true });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid email or password");
@@ -210,7 +210,7 @@ describe("POST /api/auth/login", () => {
     // Default beforeEach: select returns []
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "nobody@example.com", password: "whatever1" });
+      .send({ email: "nobody@example.com", password: "whatever1", acceptTerms: true });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid email or password");
@@ -229,7 +229,7 @@ describe("POST /api/auth/login", () => {
 
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "  STUDENT@example.COM ", password: "correct-horse" });
+      .send({ email: "  STUDENT@example.COM ", password: "correct-horse", acceptTerms: true });
 
     expect(res.status).toBe(200);
     expect(emailInWhereClause(selectChain)).toBe("student@example.com");
@@ -239,7 +239,7 @@ describe("POST /api/auth/login", () => {
     const verifySpy = vi.spyOn(argon2, "verify");
     const res = await request(app)
       .post("/api/auth/login")
-      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD, acceptTerms: true });
 
     expect(res.status).toBe(401);
     // Indistinguishable from any other bad credential — the cap must not
@@ -270,7 +270,7 @@ describe("GET /api/auth/user", () => {
   it("returns the user for a cookie issued by login, and null once the password hash changes", async () => {
     const row = { id: "user-1", email: "student@example.com", role: "student", passwordHash: await argon2.hash("supersecret") };
     mockDb.select.mockReturnValue(makeChain([row]));
-    const login = await request(app).post("/api/auth/login").send({ email: row.email, password: "supersecret" });
+    const login = await request(app).post("/api/auth/login").send({ email: row.email, password: "supersecret", acceptTerms: true });
     const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
 
     const ok = await request(app).get("/api/auth/user").set("Cookie", cookie);

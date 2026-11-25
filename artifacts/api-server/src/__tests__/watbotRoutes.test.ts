@@ -29,7 +29,7 @@ beforeEach(() => { resetWatBotLimitsForTests(); resetLoginRateLimiterForTests();
 
 async function registerAndGetCookie(): Promise<string> {
   const email = `watbot-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
-  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery" });
+  const res = await request(app).post("/api/auth/register").send({ email, password: "correct horse battery", acceptTerms: true });
   expect(res.status).toBe(201);
   userIds.push(res.body.user.id);
   return (res.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
