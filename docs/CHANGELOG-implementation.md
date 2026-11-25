@@ -5587,3 +5587,9 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Tests:** `citationHighlight.test.ts` (6), `WatBotMessages.test.tsx` rewritten (16 tests), `e2e/watbot.spec.ts`: 3 rewritten real-browser tests (highlight paint and `pre-wrap`; formula unmarked inside the span with KaTeX CSS and font; 192 px cap + scroll + popover in a 600 px viewport). All red first; non-vacuity checked by removing the `<mark>` (2 red) and the `max-h-48` (1 red, max-height "none"), then restored.
 - **Deviation:** the rewritten `WatBotMessages.test.tsx` keeps this branch's existing notice text ("One claim was removed — …"); the plan's "Part of this answer was removed…" text belongs to an earlier task not in this base.
 - **Gate:** touched studio tests green; `typecheck` libs + studio + e2e clean; full gate run by the lead.
+
+### WQF-A6 — WatBot icon
+
+- **Studio:** the owner's SVG (512×512, green gradient robot; checked: no script, event handler, foreignObject or external href; owner confirmed rights, no credit) at `src/assets/watbot-icon.svg`, rendered as `<img alt="">` beside "WatBot": 16 px on the toolbar button (unavailable dot kept), 14 px in the panel header in place of the placeholder square.
+- **Tests:** RTL `WatBotPanel` / `Workspace` (alt, size, accessible name unchanged); e2e `"the icon renders beside the name…"`: image loaded, 16×16 and vertically centred in the button, 14×14 in the header. Red first; non-vacuity by removing each `<img>` (each went red), then restored.
+- **Gate:** touched studio tests green (202), typecheck + typecheck:e2e clean, watbot spec 22/22; full gate run by the lead.

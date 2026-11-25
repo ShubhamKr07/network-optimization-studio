@@ -51,6 +51,7 @@ import { WatBotPanel } from "@/components/workspace/watbot/WatBotPanel";
 import { useWatBotConversation } from "@/components/workspace/watbot/useWatBotConversation";
 import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
 import { WatBotHistory } from "@/components/workspace/watbot/WatBotHistory";
+import watbotIconUrl from "@/assets/watbot-icon.svg";
 import { SolveProgressOverlay, type SolvePhase } from "@/components/workspace/SolveProgressOverlay";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
@@ -4687,6 +4688,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             <Button type="button" size="sm" variant={watbotOpen ? "secondary" : "outline"} aria-pressed={watbotOpen}
               disabled={watbotStatus ? !watbotStatus.available && !watbotOpen : false}
               ref={watbotButtonRef} onClick={openWatBot} data-testid="button-watbot">
+              <img src={watbotIconUrl} alt="" width={16} height={16} className="size-4" />
               WatBot{watbotStatus && !watbotStatus.available && <span aria-label="unavailable" className="ml-1.5 inline-block size-2 rounded-full bg-warning" />}
             </Button>
             {/* chen-bands-units, Part A (eighth-review #3) — disabled while

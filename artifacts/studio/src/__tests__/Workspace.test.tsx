@@ -306,6 +306,10 @@ describe("Workspace — WatBot panel toggle", () => {
   it("button-watbot opens and closes the docked panel", () => {
     renderWorkspace();
     const btn = screen.getByTestId("button-watbot");
+    // WQF-A6: a decorative 16 px icon; the button's name stays "WatBot".
+    expect(btn.querySelector("img")).toHaveAttribute("alt", "");
+    expect(btn.querySelector("img")).toHaveAttribute("width", "16");
+    expect(screen.getByRole("button", { name: "WatBot" })).toBe(btn);
     expect(screen.queryByTestId("watbot-panel")).toBeNull();
     fireEvent.click(btn);
     expect(screen.getByTestId("watbot-panel")).toBeInTheDocument();

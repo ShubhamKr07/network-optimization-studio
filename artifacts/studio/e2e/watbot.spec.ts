@@ -9,7 +9,7 @@
  *
  * Target: E2E_BASE_URL (local two-server recipe in e2e/CLAUDE.md).
  */
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, type Page, type Locator } from "./fixtures";
 
 const T = 10_000;
 
@@ -130,6 +130,31 @@ test("WatBot: unavailable state shows the toolbar dot", async ({ page }) => {
   await page.goto("/chapter-3");
   await expect(page.getByTestId("button-watbot").getByLabel("unavailable")).toBeVisible({ timeout: T });
   await expect(page.getByTestId("button-watbot")).toBeDisabled();
+});
+
+// WQF-A6: the icon renders beside the name, 16 px in the toolbar and 14 px in the panel header.
+// Real browser only: jsdom loads no image and lays nothing out.
+test("WatBot: the icon renders beside the name in the toolbar and the panel header", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "icon");
+  await stubWatBot(page);
+  await page.goto("/chapter-3");
+  const button = page.getByTestId("button-watbot");
+  await expect(button).toHaveAccessibleName("WatBot", { timeout: T }); // alt="" leaves the name to the text
+  const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
+  const toolbarIcon = button.locator('img[alt=""]');
+  await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
+  const tb = (await toolbarIcon.boundingBox())!;
+  const bb = (await button.boundingBox())!;
+  expect([Math.round(tb.width), Math.round(tb.height)]).toEqual([16, 16]);
+  expect(tb.x).toBeGreaterThanOrEqual(bb.x);
+  expect(Math.abs(tb.y + tb.height / 2 - (bb.y + bb.height / 2))).toBeLessThanOrEqual(1); // vertically centred beside the text
+  await button.click({ timeout: T });
+  const headerIcon = page.getByTestId("watbot-panel").locator('header img[alt=""]');
+  await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  const hb = (await headerIcon.boundingBox())!;
+  expect([Math.round(hb.width), Math.round(hb.height)]).toEqual([14, 14]);
+  await page.getByTestId("watbot-panel").locator("header").screenshot({ path: test.info().outputPath("watbot-icon-header.png") });
 });
 
 test("WatBot: Stop ends an in-flight answer with an 'Answer stopped' notice", async ({ page }) => {
