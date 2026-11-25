@@ -844,3 +844,22 @@ describe("DataTable — Workspace Save slot (WQF-C2)", () => {
     expect(screen.queryByTestId("data-table-save-slot")).not.toBeInTheDocument();
   });
 });
+
+describe("DataTable — renderToolbarAction (WQF-C5)", () => {
+  it("receives every row matching the filter across all pages, not just the visible page", async () => {
+    const seen: string[][] = [];
+    renderTable({
+      rows: makeRows(120),
+      renderToolbarAction: filtered => {
+        seen.push(filtered.map(r => r.id));
+        return <span data-testid="action">{filtered.length}</span>;
+      },
+    });
+    expect(screen.getByTestId("action")).toHaveTextContent("120");
+    await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+    await userEvent.type(screen.getByTestId("input-filter-id"), "C1");
+    // "C1" matches C1, C10–C19 and C100–C120: 1 + 10 + 21 = 32 rows (the unfiltered 120 above span 3 pages of 50).
+    expect(screen.getByTestId("action")).toHaveTextContent("32");
+    expect(seen.at(-1)).toContain("C120");
+  });
+});

@@ -127,6 +127,8 @@ import superDefaults from "@/lib/superDefaults.json";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { toast } from "@/hooks/use-toast";
 import { describeWriteError } from "@/lib/describeWriteError";
+import { rowsThatFit } from "@/lib/deliveryCosts";
+import { MAX_IMPORT_BYTES } from "@workspace/import-schema";
 import {
   completenessCountForWarehouse,
   completenessCountForCustomer,
@@ -1458,6 +1460,9 @@ interface WorkspaceProps {
   modelId: StudioModelType;
   /** Passed in by the routing layer (mirrors AppShellProps) rather than fetched here, so this page doesn't duplicate auth-fetching. */
   userEmail: string;
+  /** WQF-C5 — the scenario write body limit the Base multiplier's size guard checks against. Defaults to the
+   * server's own (`MAX_IMPORT_BYTES`, the shared constant `app.ts:97` passes to express.json); tests inject a small one. */
+  writeLimitBytes?: number;
 }
 
 // Task 6 (C5.1) — mirrors Studio.tsx:48's `ResultHistoryEntry` exactly (same
@@ -1504,7 +1509,7 @@ function watbotNoticeCovers(code: string | null, st: { available: boolean; stude
     || (code === "watbot_project_limit" && st.projectCapReached);
 }
 
-export function Workspace({ modelId, userEmail }: WorkspaceProps) {
+export function Workspace({ modelId, userEmail, writeLimitBytes = MAX_IMPORT_BYTES }: WorkspaceProps) {
   const search = useSearch();
   // A4.1 — `chapterPath` (was discarded) is needed as the "clear the
   // ?scenario= param" navigation target once the last scenario is deleted,
@@ -2218,14 +2223,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // (defense-in-depth alongside `updateInputsField`'s own guard above), so
   // the whole-input PATCH is genuinely unreachable there regardless of
   // which caller invoked it.
-  function saveWholeInputsAsync(): Promise<Scenario> {
+  // WQF-C5 — the PATCH body a whole-input save sends (the generated client JSON.stringifies exactly this
+  // `data`), built in ONE place so the Base multiplier's size guard measures what the save will send.
+  // A caller may add keys on top of the draft (the Base multiplier passes laneCostOverrides).
+  function wholeInputsBody(patch: Record<string, unknown> = {}): { inputs: Record<string, unknown> } {
+    return { inputs: { ...buildWholeInputPayload(), ...patch } };
+  }
+
+  function saveWholeInputsAsync(patch: Record<string, unknown> = {}): Promise<Scenario> {
     return new Promise((resolve, reject) => {
       if (!currentScenario || !localInputs || isBrowsingHistoryNow) {
         reject(new Error("Nothing to save."));
         return;
       }
       const scenarioId = currentScenario.id;
-      const inputs = buildWholeInputPayload();
+      const { inputs } = wholeInputsBody(patch);
       // T8 — pre-save snapshot, diffed post-save against the response's own
       // distanceOverrides to compute the "N distances estimated" toast (see
       // reportEstimatedDistanceWatches's own comment) — captured here, not
@@ -2294,6 +2306,30 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     saveWholeInputsAsync().catch(err => {
       toast({
         title: "Couldn't save your changes",
+        description: describeWriteError(err),
+        variant: "destructive",
+      });
+    });
+  }
+
+  // WQF-C5 — Delivery Costs' Base multiplier: the new laneCostOverrides go out as ONE whole-input write and
+  // the response becomes the draft (saveWholeInputsAsync's onSuccess). Blocked while anything else is unsaved
+  // (applyBlockedReason below), so the write changes laneCostOverrides and nothing else.
+  // Size guard (spec C5), BEFORE any state change: measure the exact body the save would send against the
+  // server's limit; over it, write nothing, leave every row as it is, and say how many rows fit.
+  function handleApplyDeliveryCosts(next: LaneCostOverride[], appliedKeys: ReadonlySet<string>) {
+    const fit = rowsThatFit(o => wholeInputsBody({ laneCostOverrides: o }), next, appliedKeys, writeLimitBytes);
+    if (fit !== null) {
+      toast({
+        title: "Too many rows to apply at once",
+        description: `Filter to ${fit} rows or fewer, then apply again.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    saveWholeInputsAsync({ laneCostOverrides: next }).catch(err => {
+      toast({
+        title: "Couldn't apply the multiplier",
         description: describeWriteError(err),
         variant: "destructive",
       });
@@ -4263,6 +4299,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           readOnly={isBrowsingHistoryNow}
           locationById={chenLocationMapFromInputs(dataset, localInputs)}
+          onApplyCosts={handleApplyDeliveryCosts}
+          applyBlockedReason={saveIsPending ? "Saving…" : saveEnabled ? "Save your changes first" : null}
         />
       );
     }

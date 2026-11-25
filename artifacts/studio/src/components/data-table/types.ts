@@ -135,4 +135,7 @@ export interface DataTableProps<T> {
   footer?: ReactNode;
   /** Plural noun for the toolbar count: "4 plants" unfiltered, "1 of 4 plants" filtered. Without it: "N of M". */
   countNoun?: string;
+  /** WQF-C5 — rendered in the toolbar after `toolbar.extra`, given every row that matches the current filter
+   * across ALL pages (before sort and paging) — for bulk actions such as Delivery Costs' Base multiplier. */
+  renderToolbarAction?: (filteredRows: T[]) => ReactNode;
 }

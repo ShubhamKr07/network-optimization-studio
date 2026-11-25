@@ -87,6 +87,7 @@ export function DataTable<T>({
   loading,
   footer,
   countNoun,
+  renderToolbarAction,
 }: DataTableProps<T>) {
   const saveSlot = useContext(ToolbarSaveSlot);
   // Pipeline (B2.2 + QFX-4, fixed order): effective rows (adapter) → filter → sort → clamp page → slice 50.
@@ -309,7 +310,7 @@ export function DataTable<T>({
   }
 
   const hasToolbar = Boolean(
-    toolbar?.upload || toolbar?.download || toolbar?.add || toolbar?.extra || showFilter || saveSlot != null || testIds.count || testIds.toolbar,
+    toolbar?.upload || toolbar?.download || toolbar?.add || toolbar?.extra || showFilter || saveSlot != null || renderToolbarAction != null || testIds.count || testIds.toolbar,
   );
 
   return (
@@ -320,6 +321,7 @@ export function DataTable<T>({
           {toolbar?.downloadAlign !== "right" && toolbar?.download}
           {toolbar?.add}
           {toolbar?.extra}
+          {renderToolbarAction?.(filteredRows)}
           <div className="ml-auto flex items-center gap-2">
             {testIds.count && (
               <span className="text-xs text-muted-foreground" data-testid={testIds.count}>

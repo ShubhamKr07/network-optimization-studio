@@ -1347,6 +1347,81 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
       expect(cells[0]).toHaveTextContent("CHI · Chicago, IL");
       expect(cells[1]).toHaveTextContent("C1 · New York, NY");
     });
+
+    it("WQF-C5: Apply writes Base × m for every filtered row in ONE whole-input save", () => {
+      renderDeliveryWorkspace();
+      fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+      fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: "1.5" } });
+      fireEvent.click(screen.getByTestId("button-deliverycost-apply-multiplier"));
+      expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+      const [args] = mockUpdateScenario.mutate.mock.calls[0];
+      expect(args).toEqual({
+        scenarioId: 9,
+        data: { inputs: expect.objectContaining({ laneCostOverrides: [{ fromId: "CHI", toId: "C1", cost: 15.01 }] }) },
+      });
+    });
+
+    it("WQF-C5: Apply is blocked while the draft has unsaved changes", () => {
+      renderDeliveryWorkspace();
+      fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+      fireEvent.change(screen.getByTestId("input-deliverycost-CHI-C1"), { target: { value: "4" } });
+      fireEvent.blur(screen.getByTestId("input-deliverycost-CHI-C1"));
+      fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: "2" } });
+      expect(screen.getByTestId("button-deliverycost-apply-multiplier")).toBeDisabled();
+      expect(screen.getByTestId("button-deliverycost-apply-multiplier")).toHaveAttribute("title", "Save your changes first");
+    });
+
+    it("WQF-C5: a rejected Apply shows the server's sentence via describeWriteError", async () => {
+      const sentence = "laneCostOverrides row 1 cost must be a number.";
+      mockUpdateScenario.mutate.mockImplementationOnce((_vars: unknown, opts: { onError: (e: unknown) => void }) =>
+        opts.onError(Object.assign(new Error("HTTP 422 Unprocessable Content: {}"), { status: 422, data: { error: sentence } })),
+      );
+      renderDeliveryWorkspace();
+      fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+      fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: "2" } });
+      fireEvent.click(screen.getByTestId("button-deliverycost-apply-multiplier"));
+      await waitFor(() =>
+        expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't apply the multiplier", description: sentence, variant: "destructive" })),
+      );
+    });
+
+    it("WQF-C5: an Apply whose body would exceed the write limit writes nothing and says how many rows fit", () => {
+      // Five equal-length pairs: each applied override {"fromId":"CHI","toId":"Cn","cost":2x} is 38 bytes.
+      vi.mocked(useGetReferenceCosts).mockReturnValue({
+        data: { pairs: [1, 2, 3, 4, 5].map(i => ({ fromId: "CHI", fromCode: "CHI", toId: `C${i}`, toCode: `C${i}`, cost: 9 + i })), distanceUnit: "mi" },
+        isLoading: false,
+        isError: false,
+      } as unknown as ReturnType<typeof useGetReferenceCosts>);
+      const applyTimesTwo = () => {
+        fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+        fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: "2" } });
+        fireEvent.click(screen.getByTestId("button-deliverycost-apply-multiplier"));
+      };
+
+      // 1) Default limit (MAX_IMPORT_BYTES): the write goes out. Capture the exact body the save sent.
+      const first = renderDeliveryWorkspace();
+      applyTimesTwo();
+      expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+      const sent = mockUpdateScenario.mutate.mock.calls[0][0].data as { inputs: Record<string, unknown> };
+      expect(sent.inputs.laneCostOverrides).toHaveLength(5); // non-vacuity: the applied rows are in the body
+      const bytesWithout = new TextEncoder().encode(JSON.stringify({ inputs: { ...sent.inputs, laneCostOverrides: [] } })).length;
+      first.unmount();
+      mockUpdateScenario.mutate.mockClear();
+      mockToast.mockClear();
+
+      // 2) Injected limit 100 bytes above the body without overrides. The 5 applied overrides add
+      // 5 × 38 + 4 commas = 194 bytes = 38.8 per row, so the body is over the limit and floor(100 / 38.8) = 2 fit.
+      render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" writeLimitBytes={bytesWithout + 100} />);
+      applyTimesTwo();
+      expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Too many rows to apply at once",
+        description: "Filter to 2 rows or fewer, then apply again.",
+        variant: "destructive",
+      }));
+      // Every row unchanged: no Cost became an override.
+      for (const i of [1, 2, 3, 4, 5]) expect(screen.queryByTestId(`badge-deliverycost-overridden-CHI-C${i}`)).not.toBeInTheDocument();
+    });
   });
 
   it("adding a delivery cost override and saving PATCHes the new entry into inputs.laneCostOverrides", () => {

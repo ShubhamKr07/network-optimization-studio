@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -361,5 +361,76 @@ describe("DeliveryCostsTab — names and two decimals (WQF-C4/C6)", () => {
     fireEvent.change(screen.getByTestId("input-deliverycost-W1-C1"), { target: { value: "3.14159" } });
     fireEvent.blur(screen.getByTestId("input-deliverycost-W1-C1"));
     expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 3.14159 }]);
+  });
+});
+
+describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
+  function setup(pairs: Pair[], props: Partial<ComponentProps<typeof DeliveryCostsTab>> = {}) {
+    mockReferenceCosts(pairs);
+    const onApplyCosts = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" onApplyCosts={onApplyCosts} {...props} />);
+    return onApplyCosts;
+  }
+  const apply = () => screen.getByTestId("button-deliverycost-apply-multiplier");
+  const typeMultiplier = (v: string) => fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: v } });
+
+  it.each(["", "0", "-2", "abc", "Infinity"])("disables Apply for %j", v => {
+    setup(buildPairs(3));
+    typeMultiplier(v);
+    expect(apply()).toBeDisabled();
+  });
+
+  it("applies to all 10,329 rows when unfiltered, not just page 1", () => {
+    const onApplyCosts = setup(buildPairs(10329));
+    typeMultiplier("1.5");
+    fireEvent.click(apply());
+    const next = onApplyCosts.mock.calls[0][0] as { fromId: string; toId: string; cost: number }[];
+    expect(next).toHaveLength(10329);
+    expect(next[0]).toEqual({ fromId: "W1", toId: "C1", cost: 15 });
+    expect(next[10328]).toEqual({ fromId: "W33", toId: "C10329", cost: 15507 });
+    expect((onApplyCosts.mock.calls[0][1] as ReadonlySet<string>).size).toBe(10329); // the applied keys, for the size guard
+  });
+
+  it("applies only to the filtered rows and keeps every other override", () => {
+    const keep = { fromId: "W1", toId: "C1", cost: 7 };
+    const onApplyCosts = setup(buildPairs(120), { laneCostOverrides: [keep] });
+    filterText("from", "W33");
+    typeMultiplier("2");
+    fireEvent.click(apply());
+    expect(onApplyCosts).toHaveBeenCalledWith(
+      [
+        keep,
+        { fromId: "W33", toId: "C33", cost: 84 },
+        { fromId: "W33", toId: "C66", cost: 150 },
+        { fromId: "W33", toId: "C99", cost: 216 },
+      ],
+      new Set(["W33|C33", "W33|C66", "W33|C99"]), // applied keys only; the kept override is not one
+    );
+  });
+
+  it("is disabled when the filter matches nothing", () => {
+    setup(buildPairs(40));
+    filterText("from", "ZZZ");
+    typeMultiplier("2");
+    expect(apply()).toBeDisabled();
+  });
+
+  it("is disabled, with Workspace's reason as its title, when Workspace blocks it", () => {
+    setup(buildPairs(3), { applyBlockedReason: "Save your changes first" });
+    typeMultiplier("2");
+    expect(apply()).toBeDisabled();
+    expect(apply()).toHaveAttribute("title", "Save your changes first");
+  });
+
+  it("is read-only while browsing history", () => {
+    setup(buildPairs(3), { readOnly: true });
+    expect(screen.getByTestId("input-deliverycost-multiplier")).toBeDisabled();
+    expect(apply()).toBeDisabled();
+  });
+
+  it("renders no multiplier without onApplyCosts", () => {
+    mockReferenceCosts(buildPairs(3));
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+    expect(screen.queryByTestId("input-deliverycost-multiplier")).not.toBeInTheDocument();
   });
 });
