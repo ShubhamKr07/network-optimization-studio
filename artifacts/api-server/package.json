@@ -17,7 +17,8 @@
     "clear-floor-zero-objective": "tsx ./src/migrations/clearFloorZeroObjective.ts",
     "watbot-ingest-corpus": "tsx ./src/migrations/watbotIngestCorpus.ts",
     "watbot-smoke": "tsx ./src/migrations/watbotSmoke.ts",
-    "watbot-test-set": "tsx ./src/migrations/watbotTestSet.ts"
+    "watbot-test-set": "tsx ./src/migrations/watbotTestSet.ts",
+    "delete-account": "tsx ./src/migrations/deleteAccount.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0",
