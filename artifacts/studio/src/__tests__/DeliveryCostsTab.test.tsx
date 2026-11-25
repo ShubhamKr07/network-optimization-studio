@@ -380,6 +380,13 @@ describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
     expect(apply()).toBeDisabled();
   });
 
+  // Whole-branch review M4: Apply skips rows with no Base, so its count must too.
+  it("counts only rows that have a Base in the Apply title", () => {
+    setup(buildPairs(2), { laneCostOverrides: [{ fromId: "WX", toId: "CY", cost: 5 }] });
+    typeMultiplier("2");
+    expect(apply()).toHaveAttribute("title", "Set Cost = Base × 2 for 2 rows");
+  });
+
   it("applies to all 10,329 rows when unfiltered, not just page 1", () => {
     const onApplyCosts = setup(buildPairs(10329));
     typeMultiplier("1.5");

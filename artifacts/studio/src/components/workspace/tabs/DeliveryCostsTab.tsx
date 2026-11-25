@@ -266,9 +266,11 @@ export function DeliveryCostsTab({
   // matching the current filter across all pages; Apply overwrites those rows' Cost and saves once.
   const renderMultiplier = onApplyCosts
     ? (filtered: MergedRow[]) => {
+        // Apply skips rows with no Base (applyBaseMultiplier), so the count and the empty check use the same set.
+        const withBase = filtered.filter(r => r.base != null);
         const blocked = readOnly
           ? READ_ONLY_TITLE
-          : applyBlockedReason ?? (multiplier == null ? "Enter a multiplier greater than 0" : filtered.length === 0 ? "No rows match the filter" : null);
+          : applyBlockedReason ?? (multiplier == null ? "Enter a multiplier greater than 0" : withBase.length === 0 ? "No rows with a Base match the filter" : null);
         return (
           <div className="flex items-center gap-1.5" data-testid="deliverycost-multiplier">
             <span className="text-xs text-muted-foreground">Base ×</span>
@@ -288,10 +290,10 @@ export function DeliveryCostsTab({
               variant="outline"
               className="h-7 px-2 text-xs"
               disabled={blocked != null}
-              title={blocked ?? `Set Cost = Base × ${multiplier} for ${filtered.length} rows`}
+              title={blocked ?? `Set Cost = Base × ${multiplier} for ${withBase.length} rows`}
               onClick={() => {
                 if (multiplier == null) return;
-                const appliedKeys = new Set(filtered.filter(r => r.base != null).map(appliedKey));
+                const appliedKeys = new Set(withBase.map(appliedKey));
                 onApplyCosts(applyBaseMultiplier(laneCostOverrides, filtered, multiplier), appliedKeys);
               }}
               data-testid="button-deliverycost-apply-multiplier"
