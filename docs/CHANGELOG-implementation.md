@@ -5580,3 +5580,10 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Test set:** `unseparatedNumbers` (grader); the runner prints `Unseparated 4+-digit numbers: n in m of r replies (reported, not a bar)`, per-reply counts only.
 - **Tests:** "asks for thousands separators, the context's units, and $ only for money", `unseparatedNumbers` x2 (red first: 3).
 - **Gate:** per-task only: all `watbot*` api-server test files 211/211 (9 files), typecheck clean.
+
+### WQF-A5 — citation popover shows the formatted page, once
+
+- **Studio:** a saved answer's chip opens straight to `GET /watbot/passages/:id`, rendered as the old full source (paragraphs, KaTeX, `max-h-48` + scroll). The cited text is marked inside it when it is a shorter sub-span: first exact match once whitespace runs are collapsed in both, no fuzzy match; whole-body or not-found → page with no mark, never the separate quote. Formulas are split out first (`citationSegments`, new `citationHighlight.ts`, which now also owns the `MATH` regex `MathText` uses), so a formula inside the range renders whole and unmarked. While loading, and for an unsaved answer (D23), the cited text shows alone with the same formatting; "Source unavailable" stays for a failed load, under the cited text (plan P5). "Open full source" and "Loading…" are gone.
+- **Tests:** `citationHighlight.test.ts` (6), `WatBotMessages.test.tsx` rewritten (16 tests), `e2e/watbot.spec.ts`: 3 rewritten real-browser tests (highlight paint and `pre-wrap`; formula unmarked inside the span with KaTeX CSS and font; 192 px cap + scroll + popover in a 600 px viewport). All red first; non-vacuity checked by removing the `<mark>` (2 red) and the `max-h-48` (1 red, max-height "none"), then restored.
+- **Deviation:** the rewritten `WatBotMessages.test.tsx` keeps this branch's existing notice text ("One claim was removed — …"); the plan's "Part of this answer was removed…" text belongs to an earlier task not in this base.
+- **Gate:** touched studio tests green; `typecheck` libs + studio + e2e clean; full gate run by the lead.
