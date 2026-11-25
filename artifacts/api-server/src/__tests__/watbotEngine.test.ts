@@ -2,14 +2,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
 import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
-import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
+import { keepUncitedBlock, MAX_DECLINE_WORDS, MIN_CLAIM_WORDS, passesValueCheck, wordCount } from "../watbot/citations.js";
 import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
 import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "../watbot/errors.js";
 import { logger } from "../lib/logger.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { buildRequest, NO_CONTEXT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
-import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
+import { buildRequest, NO_CONTEXT, SYSTEM_PROMPT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
+import { answerQuestion, CLAIM_REMOVED_NOTICE, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
 
@@ -257,7 +257,7 @@ describe("providerErrorFields", () => {
 
 describe("buildRequest", () => {
   it("puts the bundle in cached, citation-enabled content documents and history as plain text", () => {
-    const req = buildRequest({ model: "claude-haiku-5-5", bundle, fixedQuestions: ["What decision is this model making?"], history: [{ role: "student", text: "hi" }, { role: "tutor", text: "hello" }], contextSummary: "Output Map · Baseline · p = 4", question: "Why?" });
+    const req = buildRequest({ model: "claude-haiku-5-5", bundle, fixedQuestions: ["What decision is this model making?"], history: [{ role: "student", text: "hi" }, { role: "tutor", text: "hello" }], contextSummary: "Tab: output-map · Scenario: Baseline · p = 4", question: "Why?" });
     const first = req.messages[0]!.content as Anthropic.ContentBlockParam[];
     const doc = first[0] as Anthropic.DocumentBlockParam;
     expect(doc.citations).toEqual({ enabled: true });
@@ -266,7 +266,7 @@ describe("buildRequest", () => {
     expect(intro.cache_control).toEqual({ type: "ephemeral" });
     expect(intro.text).toContain("Q1. What decision is this model making?");
     const last = req.messages[req.messages.length - 1]!;
-    expect(JSON.stringify(last)).toContain("Output Map · Baseline · p = 4");
+    expect(JSON.stringify(last)).toContain("Student context: Tab: output-map · Scenario: Baseline · p = 4");
     expect(JSON.stringify(req.messages)).not.toContain('"citations":[');
   });
 
@@ -274,14 +274,29 @@ describe("buildRequest", () => {
   it("says so when no Student context was sent, without touching the cached prefix", () => {
     const base = { model: "m", bundle, fixedQuestions: [], history: [], question: "What is p-median?" };
     const none = buildRequest({ ...base, contextSummary: "" });
-    const some = buildRequest({ ...base, contextSummary: "Tab: Output Map" });
+    const some = buildRequest({ ...base, contextSummary: "Tab: output-map · Scenario: Baseline · p = 4" });
     const text = (r: typeof none) => ((r.messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
     expect(text(none)).toBe(`${NO_CONTEXT}\n\nStudent message: What is p-median?`);
     expect(NO_CONTEXT).toMatch(/^Student context: none\./);
-    expect(text(some)).toBe("Student context: Tab: Output Map\n\nStudent message: What is p-median?");
+    expect(text(some)).toBe("Student context: Tab: output-map · Scenario: Baseline · p = 4\n\nStudent message: What is p-median?");
     expect(none.system).toEqual(some.system);
     expect(none.tools).toEqual(some.tools);
     expect(none.messages.slice(0, -1)).toEqual(some.messages.slice(0, -1));
+  });
+
+  // WQF-A3: an open tab with no scenario (none selected, or a re-answer whose scenario was deleted)
+  // is no context; with a scenario, the summary is context whether or not a tab is open.
+  it("sends NO_CONTEXT for a tab with no scenario", () => {
+    const base = { model: "m", bundle, fixedQuestions: [], history: [], question: "q" };
+    const text = (contextSummary: string) => ((buildRequest({ ...base, contextSummary }).messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
+    expect(text("Tab: output-map")).toBe(`${NO_CONTEXT}\n\nStudent message: q`);
+    expect(text(" · Scenario: Baseline · not solved yet")).toBe("Student context:  · Scenario: Baseline · not solved yet\n\nStudent message: q");
+  });
+
+  // WQF-A4: the example number is made up (plan P4); the value check reads the separated form.
+  it("asks for thousands separators, the context's units, and $ only for money", () => {
+    expect(SYSTEM_PROMPT).toContain("- Write numbers of four or more digits with thousands separators, for example 12,345,678. Keep the units the Student context uses, such as demand-mi, mi or tons, and use $ only for money values.");
+    expect(extractNumbers("12,345,678 demand-mi")).toEqual([12345678]);
   });
 
   it("declares the three tools sorted by name, with tool_choice auto", () => {
@@ -308,7 +323,7 @@ describe("answerQuestion", () => {
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(DECLINE)]);
     const r = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
     expect(DECLINE.split(/\s+/).length).toBeGreaterThanOrEqual(12); // non-vacuity: long enough to be dropped otherwise
-    expect(r).toMatchObject({ messageType: "off_topic", claimsRemoved: 0 });
+    expect(r).toMatchObject({ messageType: "off_topic", claimsRemoved: 0, valuesBlocked: 0 });
     expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
     expect(events.some((e) => e.type === "notice")).toBe(false);
   });
@@ -336,7 +351,54 @@ describe("answerQuestion", () => {
     const leaky = "That is off topic, but the optimal network costs 1,234,567 dollars in total.";
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);
     const r = await answerQuestion(baseInput(client));
-    expect(r).toMatchObject({ claimsRemoved: 1, blocks: [] });
+    expect(r).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1, blocks: [] });
+  });
+  // WQF-A2: the exemption covers one decline of at most 25 words, never a whole uncited answer.
+  const LONG_UNCITED = "Minimize the total of cost times flow over every lane, subject to supply at each plant and demand at each customer being met.";
+  const words = (n: number) => `${Array(n).fill("decline").join(" ")}.`;
+  const offTopic = (...texts: string[]) => fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }),
+    { events: texts.flatMap((t, i) => textBlock(i, t, [])), final: { stop_reason: "end_turn" as const } }]);
+  it("drops every uncited block after the first in an off-topic answer", async () => {
+    const events: EngineEvent[] = [];
+    const r = await answerQuestion(baseInput(offTopic(DECLINE, LONG_UNCITED), { emit: (e) => events.push(e) }));
+    expect(wordCount(LONG_UNCITED)).toBeGreaterThanOrEqual(MIN_CLAIM_WORDS); // non-vacuity: claim-length, not FR-17-short
+    expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 0 });
+    expect(events.filter((e) => e.type === "notice")).toEqual([{ type: "notice", kind: "claim_removed" }]);
+  });
+  it("forwards a first uncited off-topic block of 25 words and drops one of 26", async () => {
+    expect(wordCount(words(25))).toBe(MAX_DECLINE_WORDS);
+    expect((await answerQuestion(baseInput(offTopic(words(25))))).blocks).toHaveLength(1);
+    expect(await answerQuestion(baseInput(offTopic(words(26))))).toMatchObject({ blocks: [], claimsRemoved: 1 });
+  });
+  it("a too-long first block spends the exemption, so the decline after it is dropped too", async () => {
+    expect(await answerQuestion(baseInput(offTopic(words(26), DECLINE)))).toMatchObject({ blocks: [], claimsRemoved: 2 });
+  });
+  it("a short line before the decline does not spend the exemption (plan P2)", async () => {
+    const r = await answerQuestion(baseInput(offTopic("Sorry.", DECLINE)));
+    expect(r.blocks.map((b) => b.text)).toEqual(["Sorry.", DECLINE]);
+  });
+
+  // WQF-A1: the two reasons a block is dropped are counted apart; one notice covers the answer.
+  const citedLoc = { type: "content_block_location", cited_text: "x", document_index: 0, document_title: "Chapter 3", start_block_index: 0, end_block_index: 1 };
+  it("counts an uncited claim and a blocked value apart, with one notice for the answer", async () => {
+    const client = fakeClient([{ events: [
+      ...textBlock(0, "Open-site counts scale roughly with the square root of demand points in this dataset overall.", []),
+      ...textBlock(1, "The total cost is 1,234,567 in this solution.", [citedLoc]),
+      ...textBlock(2, "What would happen with p = 1?", []),
+    ], final: { stop_reason: "end_turn" } }]);
+    const events: EngineEvent[] = [];
+    const r = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 1 });
+    expect(r.blocks.map((b) => b.text)).toEqual(["What would happen with p = 1?"]);
+    expect(events.filter((e) => e.type === "notice")).toEqual([{ type: "notice", kind: "claim_removed" }]);
+  });
+  it("counts an uncited block that also carries an unseen value under both reasons", async () => {
+    const r = await answerQuestion(baseInput(fakeClient([answerRound("Every plant should ship 25,000 tons on the cheapest lane to cover the remaining demand in full.")])));
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 1, blocks: [] });
+  });
+  it("words the drop notice for both reasons", () => {
+    expect(CLAIM_REMOVED_NOTICE).toBe("Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.");
   });
 
   it("forwards cited blocks, drops uncited claims once, keeps guiding questions; a skipped type call leaves messageType null", async () => {
@@ -457,7 +519,7 @@ describe("answerQuestion", () => {
     const events: EngineEvent[] = [];
     const hidden = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e) }));
     expect(hidden.blocks).toHaveLength(0);
-    expect(hidden.claimsRemoved).toBe(1);
+    expect(hidden).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1 });
     expect(events).toContainEqual({ type: "notice", kind: "claim_removed" });
     const shown = await answerQuestion(baseInput(fakeClient(round()), { shownFacts: "objective 1234567" }));
     expect(shown.blocks).toHaveLength(1); // non-vacuity: the citation itself is accepted, only the value decides
@@ -559,7 +621,7 @@ describe("answerQuestion", () => {
     };
     const hidden = await run("");
     expect(hidden.result.blocks).toEqual([]);
-    expect(hidden.result.claimsRemoved).toBe(1);
+    expect(hidden.result).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1 });
     expect(hidden.events).toEqual([{ type: "notice", kind: "claim_removed" }]);
     const shown = await run("objective 1234567");
     expect(shown.result.blocks.map((b) => b.text)).toEqual([leak]);

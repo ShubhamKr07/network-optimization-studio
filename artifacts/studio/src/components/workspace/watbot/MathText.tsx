@@ -5,10 +5,7 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-// $$…$$, or single-$ inline math that starts with a \command ($\forall$); a price such as
-// "$2 or $3" never starts with a backslash, so it stays text. Inline math ends at its line, so
-// an unclosed $\cmd (a quote cut mid-formula) cannot swallow the next paragraph.
-const MATH = /\$\$([\s\S]+?)\$\$|\$(\\[a-zA-Z][^$\n]*)\$/g;
+import { MATH } from "./citationHighlight"; // one regex for splitting and rendering
 
 export default function MathText({ text }: { text: string }) {
   // split() with two groups yields [text, $$-group, $-group, text, …]; an unclosed $$ stays text.

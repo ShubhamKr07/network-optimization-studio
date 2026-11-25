@@ -28,7 +28,7 @@ async function main(): Promise<number> {
         emit: (e) => { if (e.type === "searching") searched++; } });
       total += r.usage.costUsd;
       console.log(JSON.stringify({ model: m.id, q, type: r.messageType, blocks: r.blocks.length, cited: r.blocks.filter((b) => b.citations.length).length,
-        removed: r.claimsRemoved, searched, gap: r.gapTopic, failed: r.failure !== null, costUsd: r.usage.costUsd.toFixed(5) }));
+        removed: r.claimsRemoved, blocked: r.valuesBlocked, searched, gap: r.gapTopic, failed: r.failure !== null, costUsd: r.usage.costUsd.toFixed(5) }));
     }
   }
   console.log(`TOTAL costUsd ${total.toFixed(4)}`);

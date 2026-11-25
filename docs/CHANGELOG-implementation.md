@@ -5548,3 +5548,83 @@ Branch `watbot-popover-inline-math`. A live check of WATBOT-POPOVER-KATEX (owner
 - **Corpus check of the backslash rule (read-only `render psql`, snippets only).** Every single-`$` span outside `$$…$$` that does not start with a backslash — 36 distinct spans, the whole set — is the stretch between two prices in prose ("$12 million, $", "$1.70 or $", "$/mile"); none is backslash-less inline math such as `$X_i$` or `$P$`. So the 30-page loose count was prices plus the 5 `$\cmd$` pages, and the rule renders every inline formula in the corpus while leaving prices alone. Backslash-less inline math added to the corpus later would show raw.
 - **Gate:** first `pnpm gate` run hit the `routes` load flake (flake registry); the re-gate after the review fold, 0 concurrent vitest: api-server 2465/2465, studio 3263/3263, pytest 369/369, typecheck clean.
 - **Deployed (2026-11-24).** Pushed `main` `17c31523..599b9c52` (with the WATBOT-POPOVER-KATEX nos-studio deploy record; Design Upgrade session told first, no conflict); no webhook build. Preflight: nos-studio only, nos-api unchanged, no schema change, no migrations, no new env vars. Triggered nos-studio by API; `599b9c52` went live at 12:02:31 UTC. `/compare` returned 200 with `id="root"`. **Live check** (the owner's saved Ch 3 conversation, reopened from history, so no new question): the Ch 3 · p.50 popover opened fully on screen (top 373, bottom 631 in an 801 px window), its quote scrolls, 9 formulas render including `\forall`, and no raw `$\cmd` or `$$` is left.
+
+## WQF-A — WatBot QFs, Part A (2026-11-25)
+
+Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). Plan: `docs/superpowers/plans/2026-11-25-wqf-a-watbot.md`.
+
+### WQF-A1 — two drop counters, one honest notice
+
+- **Engine:** `claimsRemoved` (uncited) and new `valuesBlocked` (D20 value check, cited or not) count apart. One block can count under both (plan P1). One `claim_removed` notice per answer, on the first drop of either kind. The stored notice now fires on either counter (`routes/watbot.ts`), and its text moved to `engine.ts` as `CLAIM_REMOVED_NOTICE`, the spec's wording. The studio's live notice text matches.
+- **Log:** `WatBot: answer saved` with `{ claimsRemoved, valuesBlocked }` for every answer that reached the model. Counts only.
+- **Test set:** a per-type `valuesBlocked` column beside `claimRemoved`; the smoke CLI prints `blocked`.
+- **Tests:** engine (4 changed expectations; new "counts an uncited claim and a blocked value apart…", "counts an uncited block that also carries an unseen value under both reasons", "words the drop notice for both reasons"), grader ("reports the values-blocked rate apart…"), route (value-only drop stores the notice and logs counts), studio hook ("shows the drop notice in the server's wording"). Red before: 9 api-server + 1 studio failures; green after.
+- **Gate:** per-task only (lead gates): watbotEngine/EvalGrader/Routes files green (routes 40/40 alone; one load-flake sighting of the re-answer test in the 3-file run, passed alone), studio hook + messages files 27/27, `tsc --build` + api-server typecheck clean.
+
+### WQF-A2 — off-topic exemption capped at one decline of ≤ 25 words
+
+- **Engine:** in an `off_topic` answer, only the first block that would otherwise be dropped as uncited is exempt, and only at ≤ `MAX_DECLINE_WORDS` (25) whitespace-separated words. It spends the exemption either way. Short FR-17 blocks do not spend it (plan P2). Every later uncited block is dropped. The value check still applies to every block. No buffering: decided per block as it finishes.
+- **Why:** a mislabelled request (e.g. a full formulation: no 4+-digit number, no facility name) could pass uncited under the old blanket exemption.
+- **Tests:** "drops every uncited block after the first in an off-topic answer", "forwards a first uncited off-topic block of 25 words and drops one of 26", "a too-long first block spends the exemption…" (red before: 3), "a short line before the decline does not spend the exemption (plan P2)" (guard, green both sides).
+- **Gate:** per-task only: watbotEngine/Routes/EvalGrader 157/157, typecheck clean.
+
+### WQF-A3 — a tab without a scenario is no context
+
+- **Prompt:** `buildRequest` sends `NO_CONTEXT` verbatim unless the summary carries a `Scenario: ` segment, which only `buildContext` writes for an owned scenario (the tab is an enum). Covers both the question path (studio sends a tab with `scenarioId: null`) and the re-answer path (source scenario deleted), in one place. The tab name is not appended (plan P3). Closes WATBOT-NO-SCREEN-REF's open follow-up.
+- **Tests:** unit "sends NO_CONTEXT for a tab with no scenario" and route "sends NO_CONTEXT for a tab with no scenario, and the Student context for an owned scenario" (both red first); two old `buildRequest` fixtures moved to the route's summary format.
+- **Gate:** per-task only: watbotEngine/Routes/EvalGrader 159/159, typecheck clean.
+
+### WQF-A4 — thousands separators
+
+- **Prompt:** one `SYSTEM_PROMPT` rule: separators on 4+-digit numbers, the Student context's units, `$` only for money. The example `12,345,678` is invented (plan P4: the spec's example equals a committed answer-key objective). No value-check change: `extractNumbers` already reads `1,234,567`, `$1.23M`, `1.2 million`. This edit rewrites the prompt cache once after deploy, and **needs WQF-A7's passing paid run before it ships** (`prompt.ts:9-10`).
+- **Test set:** `unseparatedNumbers` (grader); the runner prints `Unseparated 4+-digit numbers: n in m of r replies (reported, not a bar)`, per-reply counts only.
+- **Tests:** "asks for thousands separators, the context's units, and $ only for money", `unseparatedNumbers` x2 (red first: 3).
+- **Gate:** per-task only: all `watbot*` api-server test files 211/211 (9 files), typecheck clean.
+
+### WQF-A5 — citation popover shows the formatted page, once
+
+- **Studio:** a saved answer's chip opens straight to `GET /watbot/passages/:id`, rendered as the old full source (paragraphs, KaTeX, `max-h-48` + scroll). The cited text is marked inside it when it is a shorter sub-span: first exact match once whitespace runs are collapsed in both, no fuzzy match; whole-body or not-found → page with no mark, never the separate quote. Formulas are split out first (`citationSegments`, new `citationHighlight.ts`, which now also owns the `MATH` regex `MathText` uses), so a formula inside the range renders whole and unmarked. While loading, and for an unsaved answer (D23), the cited text shows alone with the same formatting; "Source unavailable" stays for a failed load, under the cited text (plan P5). "Open full source" and "Loading…" are gone.
+- **Tests:** `citationHighlight.test.ts` (6), `WatBotMessages.test.tsx` rewritten (16 tests), `e2e/watbot.spec.ts`: 3 rewritten real-browser tests (highlight paint and `pre-wrap`; formula unmarked inside the span with KaTeX CSS and font; 192 px cap + scroll + popover in a 600 px viewport). All red first; non-vacuity checked by removing the `<mark>` (2 red) and the `max-h-48` (1 red, max-height "none"), then restored.
+- **Deviation:** the rewritten `WatBotMessages.test.tsx` keeps this branch's existing notice text ("One claim was removed — …"); the plan's "Part of this answer was removed…" text belongs to an earlier task not in this base.
+- **Gate:** touched studio tests green; `typecheck` libs + studio + e2e clean; full gate run by the lead.
+
+### WQF-A6 — WatBot icon
+
+- **Studio:** the owner's SVG (512×512, green gradient robot; checked: no script, event handler, foreignObject or external href; owner confirmed rights, no credit) at `src/assets/watbot-icon.svg`, rendered as `<img alt="">` beside "WatBot": 16 px on the toolbar button (unavailable dot kept), 14 px in the panel header in place of the placeholder square.
+- **Tests:** RTL `WatBotPanel` / `Workspace` (alt, size, accessible name unchanged); e2e `"the icon renders beside the name…"`: image loaded, 16×16 and vertically centred in the button, 14×14 in the header. Red first; non-vacuity by removing each `<img>` (each went red), then restored.
+- **Gate:** touched studio tests green (202), typecheck + typecheck:e2e clean, watbot spec 22/22; full gate run by the lead.
+
+## WQF-A7 — paid test-set run on combined `wqf-a` (2026-11-25)
+
+Owner approved the spend. Run on `wqf-a` at `f559ebab` (A1–A6), dev key, local corpus (402 passages). **0 leaks in every type; all bars pass.** Measured cost $0.4294.
+
+| type | n | agreement | ends with ? | claim removed | values blocked | empty |
+|---|---|---|---|---|---|---|
+| concept_question | 31 | 100% | 97% | 87% | 16% | 0% |
+| incorrect_attempt | 36 | 96% | 97% | 92% | 11% | 0% |
+| correct_attempt | 35 | 91% | 6% | 97% | 11% | 0% |
+| stuck_or_wants_answer | 41 | 100% | 95% | 98% | 24% | 5% |
+| off_topic | 20 | 100% | 0% | 0% | 0% | 0% |
+
+Reported, not bars: screen references without context 0 of 64; replies with LaTeX 0 of 161; unseparated 4+-digit numbers 0 in 161 replies. Readings: A2's cap keeps every off-topic decline (0% empty, 0% removed). A1's split shows the high drop rate is mostly uncited text (87–98% of replies lose at least one uncited block), with the value check also firing on 11–24%; that is the input to the next prompt decision, not a regression. Correct-attempt "ends with a question" is 6% (2% on the previous run).
+- **Owner decision (2026-11-25, Lavish):** run accepted; open a follow-up on the high uncited-drop rate (87–98% of replies lose at least one uncited block) — a prompt change, measured by another paid run. Not part of this bundle.
+
+### WQF-A8 — real-browser QA
+
+- **Covered** (4 new tests in `e2e/watbot.spec.ts`, all stubbed with `page.route`, no model call): dark theme (`emulateMedia` dark: highlight painted and different from the source box's effective background; both icons load at 16 / 14 px); keyboard (chip Enter opens the page, Tab reaches `watbot-source`, PageDown scrolls it, Escape closes and focus returns to the chip); loading (held `passages/11`: cited text alone, no `mark`; then the page with the `mark`); failed load (500: cited text stays above the `Source unavailable` alert, no `mark`).
+- **Deviation:** written in `watbot.spec.ts` (lead's instruction) rather than the plan's new `watbot-qf-a.spec.ts`.
+- **Non-vacuity** (product code temporarily mutated, then restored): highlight `bg-transparent` and `bg-popover` (dark test red on each assertion); `tabIndex` removed (keyboard red); loading view emptied (loading and failed-load tests red); alert removed (failed-load red). The Escape/focus-return step has no separate red run.
+- **Runs:** new tests 4/4 green; `watbot.spec.ts` with `--repeat-each 2`: 50 passed (`--list`: 26 = 24 watbot tests + setup + teardown; 22 literal `test(` calls, the other 2 come from the feedback-radio `for` loop; so 24 x 2 + 2), 0 failed. `typecheck:e2e` clean. Step 3 (paid live check) not run.
+
+### WQF-A8 review fold
+
+- **Escape/focus-return** now has a red run: `onCloseAutoFocus` preventDefault on `PopoverContent` turned the keyboard test red at `toBeFocused`; reverted.
+- **Failed-load alert** now also asserts a non-zero bounding-box height and `opacity` 1; red with `opacity-0` on the alert (Received "0"), reverted.
+- **Noise dropped:** the dark test's duplicate icon-width asserts (A6 covers them) and the `tabindex` attribute assert.
+- **Open product finding (not a test change; reported to the lead):** a WCAG-contrast version of the dark test is red against the product. Dark: `mark` text rgb(0,0,0) on bg rgb(42,30,5) = 1.29:1 (needs 4.5), highlight vs box rgb(36,39,32) = 1.08:1 (needs 1.3). Light: text 20.25:1 on rgb(255,251,235), highlight vs white 1.04:1. That test is not committed; the existing dark test (colour inequality) is kept.
+- Runs: `watbot.spec.ts --repeat-each 2`: 50 passed; `typecheck:e2e` clean.
+
+### [WQF-A5b] citation highlight readable and visible in both themes
+
+Measured (computed styles, alpha composited) on the WatBot citation popover `<mark>`: it had no text colour (browser-default black). Dark: text 1.29:1 on the mark, mark vs popover 1.08:1. Light: text 20.25:1 but mark vs white popover 1.04:1. Fix in `WatBotMessages.tsx`: `<mark className="bg-warning/40 text-foreground">` (existing tokens only; one class pair covers the plain and formula-aware segments since both render through this single `<mark>`). After: dark text 5.56:1, mark vs popover 2.63:1; light text 9.86:1, mark vs popover 1.80:1. `e2e/watbot.spec.ts` A8 test now runs for dark and light, asserts text >= 4.5 and highlight >= 1.3 (colours normalised via canvas because computed values are oklab). Red against the old classes in both themes, green after. No other `<mark>` in studio src uses these classes; `bg-warning-bg` elsewhere is a badge/row background and untouched.
+- **WQF-A9 close-out gates (2026-11-25, on `wqf-a` @ `48c9c2ef`):** `pnpm gate` typecheck ✓, api-server 2477/2478 (the one failure `routes` > DELETE /api/scenarios/:id at load avg ~144, a registered load flake; `routes.test.ts` 314/314 ×2 alone), studio 3272/3272, pytest 369/369. Full e2e gate ran on `ce25e557` (A8): 216 expected, 0 unexpected, 3 flaky (registry). After the highlight fix, `watbot.spec.ts` on the final branch: 27/27 (local two-server, `--retries=0`).

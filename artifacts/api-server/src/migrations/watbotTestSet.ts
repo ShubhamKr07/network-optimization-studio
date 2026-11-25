@@ -17,7 +17,7 @@ import { answerQuestion } from "../watbot/engine.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle, type BundleDoc } from "../watbot/passages.js";
 import { REPAIR_RULES, repairQuestion, type HistoryTurn } from "../watbot/prompt.js";
-import { buildReport, endsWithQuestion, screenReference, latexMarkup, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
+import { buildReport, endsWithQuestion, screenReference, latexMarkup, unseparatedNumbers, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
 import { judgeFormulationLeak } from "../watbot/eval/judge.js";
 import {
   EVAL_DIR, fillSummary, shownFactsOf, loadEvalJson, parseAnswerKeys, parsePersonas, parseTestSet,
@@ -78,7 +78,7 @@ async function simulatedStudent(client: WatBotClient, model: string, persona: Pe
   // An answer can forward nothing (F9 drops every unchecked block): the real student then sees only a
   // notice, and the API rejects an empty message. The tutor's own history drops such turns (buildRequest).
   const shown = (t: HistoryTurn) => t.text.trim()
-    || (t.role === "tutor" ? "(The tutor's reply was removed; you only saw a notice that a claim couldn't be supported.)" : "(no message)");
+    || (t.role === "tutor" ? "(The tutor's reply was removed; you only saw a notice that part of the answer was removed.)" : "(no message)");
   for (const t of transcript) messages.push({ role: t.role === "student" ? "assistant" : "user", content: shown(t) });
   const final = await client.messages.stream({
     model, max_tokens: 300, messages,
@@ -110,6 +110,8 @@ async function run(): Promise<number> {
   const rows: GradedRow[] = [];
   const screenRefs: string[] = [];
   const latexReplies: string[] = [];
+  const unseparated: string[] = [];
+  let unseparatedCount = 0;
   let replies = 0;
   let noContextReplies = 0;
 
@@ -131,6 +133,8 @@ async function run(): Promise<number> {
     if (reply) replies++;
     const tex = latexMarkup(reply);
     if (tex) latexReplies.push(`LATEX ${base.id} (${base.modelId}): "${tex}"`);
+    const raw = unseparatedNumbers(reply);
+    if (raw.length) { unseparatedCount += raw.length; unseparated.push(`UNSEPARATED ${base.id} (${base.modelId}): ${raw.length}`); }
     if (objectiveLeak(reply, key, summary)) reasons.push("objective value");
     if (siteSetLeak(reply, key, summary)) reasons.push("open-site set");
     let cost = r.usage.costUsd + extraCost;
@@ -139,7 +143,7 @@ async function run(): Promise<number> {
       cost += costUsd(model, j.usage);
       if (j.leak) reasons.push(`complete formulation: ${j.reason}`);
     }
-    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost, claimsRemoved: r.claimsRemoved, forwardedBlocks: r.blocks.length };
+    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost, claimsRemoved: r.claimsRemoved, valuesBlocked: r.valuesBlocked, forwardedBlocks: r.blocks.length };
   };
 
   for (const m of set.messages) {
@@ -164,7 +168,7 @@ async function run(): Promise<number> {
     type: b.bucket, n: b.n, leaks: b.leaks, leakRate: `${(b.leakRate * 100).toFixed(1)}%`, bar: `${(LEAK_BARS[b.bucket] * 100).toFixed(0)}%`,
     agreement: b.agreement === null ? "n/a" : `${(b.agreement * 100).toFixed(0)}%`,
     skippedRecord: `${(b.skippedRecordRate * 100).toFixed(0)}%`, endsWithQuestion: `${(b.endsWithQuestionRate * 100).toFixed(0)}%`,
-    claimRemoved: `${(b.claimRemovedRate * 100).toFixed(0)}%`, emptyReply: `${(b.emptyReplyRate * 100).toFixed(0)}%`,
+    claimRemoved: `${(b.claimRemovedRate * 100).toFixed(0)}%`, valuesBlocked: `${(b.valueBlockedRate * 100).toFixed(0)}%`, emptyReply: `${(b.emptyReplyRate * 100).toFixed(0)}%`,
     costUsd: b.costUsd.toFixed(4),
   })));
   for (const r of rows.filter((x) => x.leak)) console.log(`LEAK ${r.id} (${r.modelId}): ${r.reasons.join("; ")}`);
@@ -172,6 +176,8 @@ async function run(): Promise<number> {
   console.log(`Screen references without context: ${screenRefs.length} of ${noContextReplies} replies (reported, not a bar)`);
   for (const line of latexReplies) console.log(line);
   console.log(`Replies with LaTeX: ${latexReplies.length} of ${replies} (reported, not a bar)`);
+  for (const line of unseparated) console.log(line);
+  console.log(`Unseparated 4+-digit numbers: ${unseparatedCount} in ${unseparated.length} of ${replies} replies (reported, not a bar)`);
   console.log(`TOTAL costUsd ${rows.reduce((s, r) => s + r.costUsd, 0).toFixed(4)} (measured)`);
   console.log("Bars: 0% on stuck_or_wants_answer, incorrect_attempt and unrecorded; 5% elsewhere.");
   const failures = evaluateBars(report);

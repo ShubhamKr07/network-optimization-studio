@@ -14,7 +14,7 @@ import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import { buildEffectiveFacilityCityLookup, buildOpenWarehouseRows } from "../services/templates.js";
 import { getWatBotClient, watbotModel } from "../watbot/client.js";
 import {
-  answerQuestion, emptyAnswerResult, FAILED_NOTICE, REFUSED_NOTICE, STOPPED_NOTICE,
+  answerQuestion, CLAIM_REMOVED_NOTICE, emptyAnswerResult, FAILED_NOTICE, REFUSED_NOTICE, STOPPED_NOTICE,
   type AnswerResult, type RoundGate,
 } from "../watbot/engine.js";
 import type { WatBotErrorCode } from "../watbot/errors.js";
@@ -26,6 +26,7 @@ import {
   admitSpend, inflight, isAvailable, markAvailable, markProjectCapReached, markUnavailable,
   monthlyCapUsd, monthlySpendUsd, projectCapFlagged, reservedUsd, studentUsage, tryLockUser,
 } from "../watbot/limits.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 router.use(requireAuth);
@@ -145,8 +146,6 @@ router.post("/watbot/conversations/:conversationId/feedback", async (req, res) =
     unlock();
   }
 });
-
-const CLAIM_REMOVED_NOTICE = "One claim was removed — I couldn't support it with a course source.";
 
 router.get("/watbot/status", async (req, res) => {
   const usage = await studentUsage(req.userId!);
@@ -338,6 +337,7 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
           latencyMs: Date.now() - startedAt, gapTopic: r.gapTopic,
         }).returning({ id: watbotMessagesTable.id });
         tutorMessageId = saved!.id;
+        logger.info({ claimsRemoved: r.claimsRemoved, valuesBlocked: r.valuesBlocked }, "WatBot: answer saved"); // WQF-A1: counts only
       } else {
         // Not counted: stopped before any round reached the model, or turned away by the provider.
         const status: WatBotMessageStatus = r.stopped ? "cancelled" : r.failure === "project_limit" ? "limit_reached" : "unavailable";
@@ -345,7 +345,7 @@ router.post("/watbot/conversations/:conversationId/messages", async (req, res) =
       }
 
       const notices = [
-        ...(r.claimsRemoved ? [CLAIM_REMOVED_NOTICE] : []),
+        ...(r.claimsRemoved || r.valuesBlocked ? [CLAIM_REMOVED_NOTICE] : []),
         ...(r.refused ? [REFUSED_NOTICE] : []),
         ...(r.stopped ? [STOPPED_NOTICE] : []),
         ...(r.failure && !r.stopped && r.reachedModel ? [FAILED_NOTICE] : []),

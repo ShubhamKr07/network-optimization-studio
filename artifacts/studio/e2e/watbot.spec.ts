@@ -9,7 +9,7 @@
  *
  * Target: E2E_BASE_URL (local two-server recipe in e2e/CLAUDE.md).
  */
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, type Page, type Locator } from "./fixtures";
 
 const T = 10_000;
 
@@ -36,6 +36,9 @@ const FIXED_Q = "What decision is this model making, and what is it trying to mi
 
 const STATUS_OK = { available: true, studentRemaining: 50, studentResetAt: null, projectCapReached: false };
 
+// Made-up page text that contains ANSWER_SSE's cited text (WQF-A5 highlights it inside the page).
+const PAGE_38 = "Page 38 opens here.\n\nMinimize demand-weighted distance.\n\nPage 38 ends here.";
+
 async function stubWatBot(page: Page, opts: { messagesBody?: string } = {}) {
   await page.route("**/api/watbot/status", (r) => r.fulfill({ json: STATUS_OK }));
   // List/create path only (plus its query string); sub-paths get their own exact routes.
@@ -48,7 +51,7 @@ async function stubWatBot(page: Page, opts: { messagesBody?: string } = {}) {
     r.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: opts.messagesBody ?? ANSWER_SSE }),
   );
   await page.route("**/api/watbot/passages/11", (r) =>
-    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "Full page text for p.38." } }),
+    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: PAGE_38 } }),
   );
 }
 
@@ -97,17 +100,26 @@ test("WatBot: open from toolbar, ask a fixed question, read a citation, report",
   expect(reportRequests[0]).toMatchObject({ messageId: 901, reason: "wrong_or_misleading" });
 });
 
-// Regression (WATBOT-8b): the popover must stay clickable near the panel's left edge.
-test("WatBot: 'Open full source' is reachable from the citation popover", async ({ page }) => {
+// WQF-A5: a saved answer's chip opens straight to its formatted page, with the cited text
+// highlighted inside it once. (Replaces the WATBOT-8b "Open full source" check: the button is gone.)
+test("WatBot: a citation opens to its page with the cited text highlighted once", async ({ page }) => {
   test.setTimeout(60_000);
-  await registerFreshAccount(page, "fullsrc");
+  await registerFreshAccount(page, "srcpage");
   await stubWatBot(page);
   const panel = await openPanel(page);
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
   // The popover is portaled out of the panel, so query the page.
-  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
-  await expect(page.getByText("Full page text for p.38.")).toBeVisible({ timeout: 5_000 });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toContainText("Page 38 opens here.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveText(["Minimize demand-weighted distance."]);
+  expect((await popover.innerText()).split("Minimize demand-weighted distance.")).toHaveLength(2);
+  await expect(page.getByRole("button", { name: "Open full source" })).toHaveCount(0);
+  // CSS only a browser applies: the page keeps its paragraphs, and the highlight is painted.
+  await expect(source).toHaveCSS("white-space", "pre-wrap");
+  expect(await popover.locator("mark").evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  await popover.screenshot({ path: test.info().outputPath("citation-page.png") });
 });
 
 test("WatBot: unavailable state shows the toolbar dot", async ({ page }) => {
@@ -118,6 +130,31 @@ test("WatBot: unavailable state shows the toolbar dot", async ({ page }) => {
   await page.goto("/chapter-3");
   await expect(page.getByTestId("button-watbot").getByLabel("unavailable")).toBeVisible({ timeout: T });
   await expect(page.getByTestId("button-watbot")).toBeDisabled();
+});
+
+// WQF-A6: the icon renders beside the name, 16 px in the toolbar and 14 px in the panel header.
+// Real browser only: jsdom loads no image and lays nothing out.
+test("WatBot: the icon renders beside the name in the toolbar and the panel header", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "icon");
+  await stubWatBot(page);
+  await page.goto("/chapter-3");
+  const button = page.getByTestId("button-watbot");
+  await expect(button).toHaveAccessibleName("WatBot", { timeout: T }); // alt="" leaves the name to the text
+  const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
+  const toolbarIcon = button.locator('img[alt=""]');
+  await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
+  const tb = (await toolbarIcon.boundingBox())!;
+  const bb = (await button.boundingBox())!;
+  expect([Math.round(tb.width), Math.round(tb.height)]).toEqual([16, 16]);
+  expect(tb.x).toBeGreaterThanOrEqual(bb.x);
+  expect(Math.abs(tb.y + tb.height / 2 - (bb.y + bb.height / 2))).toBeLessThanOrEqual(1); // vertically centred beside the text
+  await button.click({ timeout: T });
+  const headerIcon = page.getByTestId("watbot-panel").locator('header img[alt=""]');
+  await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  const hb = (await headerIcon.boundingBox())!;
+  expect([Math.round(hb.width), Math.round(hb.height)]).toEqual([14, 14]);
+  await page.getByTestId("watbot-panel").locator("header").screenshot({ path: test.info().outputPath("watbot-icon-header.png") });
 });
 
 test("WatBot: Stop ends an in-flight answer with an 'Answer stopped' notice", async ({ page }) => {
@@ -431,42 +468,43 @@ test("WatBot feedback: a second answer that errors with no blocks leaves no rati
   await expect(panel.getByTestId("watbot-feedback")).toHaveCount(0);
 });
 
-// WATBOT-POPOVER-KATEX: corpus formulas ($$…$$ LaTeX) render as math in the popover, with KaTeX's
-// CSS applied and its font loaded — jsdom cannot see either.
-test("WatBot: citation popover renders $$ LaTeX as math", async ({ page }) => {
+// WATBOT-POPOVER-KATEX + WQF-A5: the page's formulas ($$…$$ LaTeX) render as math, with KaTeX's
+// CSS applied and its font loaded (jsdom cannot see either); a formula inside the cited span is
+// not highlighted, only the text around it.
+test("WatBot: citation popover renders $$ LaTeX as math, unhighlighted inside the cited span", async ({ page }) => {
   test.setTimeout(60_000);
   await registerFreshAccount(page, "katex");
+  const cited = "The objective is $$\\sum_{i} \\sum_{j} c_{ij} x_{ij}$$ for all pairs.";
   const mathSse = [
-    sseEvent("block", {
-      text: "The objective sums cost over every assignment",
-      citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "The objective is $$\\sum_{i} \\sum_{j} c_{ij} x_{ij}$$ for all pairs." }],
-    }),
+    sseEvent("block", { text: "The objective sums cost over every assignment", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: cited }] }),
     sseEvent("done", { messageId: 902 }),
   ].join("");
   await stubWatBot(page, { messagesBody: mathSse });
   await page.route("**/api/watbot/passages/11", (r) =>
-    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "Page text $$\\frac{a}{b} \\le 1$$ continues." } }),
+    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: `Page text $$\\frac{a}{b} \\le 1$$ continues.\n\n${cited}\n\nPage ends.` } }),
   );
   const panel = await openPanel(page);
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
-  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  await expect(popover.getByTestId("watbot-source")).toContainText("continues.", { timeout: T });
   await expect(popover.locator(".katex-html")).toHaveCount(2, { timeout: T });
   await expect(popover.locator(".katex-html").first()).toBeVisible();
   expect(await popover.innerText()).not.toContain("$$");
+  await expect(popover.locator("mark")).toHaveText(["The objective is", "for all pairs."]);
+  await expect(popover.locator("mark .katex")).toHaveCount(0);
   // Both are false without katex.min.css: its rule positions .katex-mathml absolutely, and its
   // @font-face rules are the only source of a KaTeX_Main face. (document.fonts.check() is true
   // for any unknown family, so it cannot fail.)
   await expect(popover.locator(".katex-mathml").first()).toHaveCSS("position", "absolute");
-  // A one-line formula must not make the height-capped quote scroll (KaTeX struts can add a pixel).
-  expect(await popover.locator("mark").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
+  // A short page must not make the height-capped box scroll (KaTeX struts can add a pixel).
+  expect(await popover.getByTestId("watbot-source").evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family.replace(/"/g, "") === "KaTeX_Main" && f.status === "loaded")), { timeout: T }).toBe(true);
   await popover.screenshot({ path: test.info().outputPath("katex-popover.png") });
 });
 
-// WATBOT-POPOVER-INLINE-MATH: a whole-page citation stays on screen (it scrolls instead of running
-// off the top), and single-$ inline math such as $\forall$ renders.
+// WATBOT-POPOVER-INLINE-MATH + WQF-A5: a whole-page passage scrolls inside its 12rem box
+// (max-h-48 = 192px at the 16px root) and the popover stays on screen; $\forall$ renders.
 test("WatBot: a long citation popover stays inside the viewport and renders $\\cmd$ inline math", async ({ page }) => {
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 1280, height: 600 });
@@ -476,25 +514,144 @@ test("WatBot: a long citation popover stays inside the viewport and renders $\\c
     sseEvent("block", { text: "Each customer is served once", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: longQuote }] }),
     sseEvent("done", { messageId: 903 }),
   ].join("") });
+  await page.route("**/api/watbot/passages/11", (r) =>
+    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: `Page 38 opens here.\n\n${longQuote}\n\nPage 38 ends here.` } }),
+  );
   const panel = await openPanel(page);
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", { name: "Source: Ch 3 · p.38" }).click({ timeout: T });
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toContainText("Page 38 ends here.", { timeout: T });
   await expect(popover.locator(".katex-html")).toHaveCount(2, { timeout: T });
-  expect(await popover.locator("mark").innerText()).not.toContain("$\\forall$");
+  expect(await source.innerText()).not.toContain("$\\forall$");
+  await expect(popover.locator("mark").last()).toContainText("Every customer must be served by one site.");
+  await expect(source).toHaveCSS("max-height", "192px");
+  expect(await source.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   const box = (await popover.boundingBox())!;
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(600);
-  await expect(page.getByRole("button", { name: "Open full source" })).toBeInViewport();
-  // With a long full source open too, the quote and the source caps together exceed the space
-  // above the chip, so only the popover-level cap keeps the popover on screen.
-  await page.route("**/api/watbot/passages/11", (r) =>
-    r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: "A long page of text. ".repeat(200) } }),
-  );
-  await page.getByRole("button", { name: "Open full source" }).click({ timeout: 5_000 });
-  await expect(popover.getByText(/A long page of text/)).toBeVisible({ timeout: T });
-  const full = (await popover.boundingBox())!;
-  expect(full.y).toBeGreaterThanOrEqual(0);
-  expect(full.y + full.height).toBeLessThanOrEqual(600);
   await popover.screenshot({ path: test.info().outputPath("long-citation.png") });
+});
+
+// ---- WQF-A8: real-browser QA for the citation popover and icon (stubbed; no model call) ----
+
+const CHIP = { name: "Source: Ch 3 · p.38" };
+const LONG_PAGE = `Page 38 opens here.\n\nMinimize demand-weighted distance.\n\n${"Filler line of made-up page text.\n".repeat(80)}Page 38 ends here.`;
+
+for (const theme of ["dark", "light"] as const) test(`WatBot A8: ${theme} theme: the highlight is perceivable and its text readable (WCAG contrast)${theme === "dark" ? ", icons load" : ""}`, async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ colorScheme: theme });
+  await registerFreshAccount(page, theme);
+  await stubWatBot(page);
+  const panel = await openPanel(page);
+  await expect(page.locator("html")).toHaveClass(theme === "dark" ? /dark/ : /^(?!.*dark)/, { timeout: T });
+  if (theme === "dark") {
+    const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
+    const toolbarIcon = page.getByTestId("button-watbot").locator('img[alt=""]');
+    const headerIcon = panel.locator('header img[alt=""]');
+    await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
+    await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  }
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const mark = popover.locator("mark");
+  await expect(mark).toHaveText(["Minimize demand-weighted distance."], { timeout: T });
+  // WCAG contrast computed from computed styles, in the page (alpha composited over the nearest opaque ancestors).
+  const m = await mark.evaluate((el) => {
+    // Canvas normalises any CSS colour syntax (computed values can be oklab/color-mix, not rgb()).
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    const parse = (c: string) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = "#000"; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); const d = ctx.getImageData(0, 0, 1, 1).data; return { r: d[0], g: d[1], b: d[2], a: d[3] / 255 }; };
+    const behind = (start: Element | null) => { // composite the chain of backgrounds starting at `start`
+      const layers: ReturnType<typeof parse>[] = [];
+      for (let n = start; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c.a > 0) layers.push(c); if (c.a === 1) break; }
+      let out = { r: 255, g: 255, b: 255 };
+      for (const l of layers.reverse()) out = { r: l.r * l.a + out.r * (1 - l.a), g: l.g * l.a + out.g * (1 - l.a), b: l.b * l.a + out.b * (1 - l.a) };
+      return out;
+    };
+    const lum = (c: { r: number; g: number; b: number }) => { const f = (x: number) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+    const ratio = (x: { r: number; g: number; b: number }, y: { r: number; g: number; b: number }) => { const [hi, lo] = [lum(x), lum(y)].sort((p, q) => q - p); return (hi + 0.05) / (lo + 0.05); };
+    const cs = getComputedStyle(el);
+    const boxBg = behind(el.parentElement);
+    const markBg = behind(el);
+    const text = parse(cs.color);
+    return { markColor: cs.color, markBgCss: cs.backgroundColor, markBg, boxBg, highlightVsBox: ratio(markBg, boxBg), textVsMark: ratio(text, markBg) };
+  });
+  console.log(`A8 contrast (${await page.evaluate(() => document.documentElement.className)}): ${JSON.stringify(m)}`);
+  expect(m.highlightVsBox).toBeGreaterThanOrEqual(1.3); // the highlight is perceivable against the box
+  expect(m.textVsMark).toBeGreaterThanOrEqual(4.5); // the marked text is readable
+});
+
+test("WatBot A8: keyboard opens the page, reaches the source box, scrolls it, and Escape returns focus to the chip", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "kbd");
+  await stubWatBot(page);
+  await page.route("**/api/watbot/passages/11", (r) => r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: LONG_PAGE } }));
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  const chip = panel.getByRole("button", CHIP);
+  await expect(chip).toBeVisible({ timeout: T });
+  await chip.focus();
+  await expect(chip).toBeFocused({ timeout: T });
+  await page.keyboard.press("Enter");
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toContainText("Page 38 ends here.", { timeout: T });
+  // Focus is at the popover; Tab(s) must reach the source box.
+  for (let i = 0; i < 4; i++) {
+    if (await source.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(source).toBeFocused({ timeout: T });
+  expect(await source.evaluate((el) => el.scrollTop)).toBe(0);
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => source.evaluate((el) => el.scrollTop), { timeout: T }).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0, { timeout: T });
+  await expect(chip).toBeFocused({ timeout: T });
+});
+
+test("WatBot A8: while the page loads the cited text shows unmarked, then the page shows with the mark", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "loading");
+  await stubWatBot(page);
+  let release!: () => void;
+  const held = new Promise<void>((res) => { release = res; });
+  await page.route("**/api/watbot/passages/11", async (r) => {
+    await held;
+    await r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: PAGE_38 } });
+  });
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toHaveText("Minimize demand-weighted distance.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveCount(0);
+  await expect(source).not.toContainText("Page 38 opens here.");
+  release();
+  await expect(source).toContainText("Page 38 opens here.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveText(["Minimize demand-weighted distance."], { timeout: T });
+});
+
+test("WatBot A8: a failed page load keeps the cited text visible above 'Source unavailable'", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "failload");
+  await stubWatBot(page);
+  await page.route("**/api/watbot/passages/11", (r) => r.fulfill({ status: 500, json: { error: "boom" } }));
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const alert = popover.getByRole("alert");
+  await expect(alert).toHaveText("Source unavailable", { timeout: 20_000 });
+  expect((await alert.boundingBox())!.height).toBeGreaterThan(0);
+  await expect(alert).toHaveCSS("opacity", "1");
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toHaveText("Minimize demand-weighted distance.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveCount(0);
+  const s = (await source.boundingBox())!;
+  const a = (await alert.boundingBox())!;
+  expect(s.y + s.height).toBeLessThanOrEqual(a.y + 1);
 });

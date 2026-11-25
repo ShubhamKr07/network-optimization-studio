@@ -33,17 +33,22 @@ export const screenReference = (reply: string, contextSummary: string): string |
 const LATEX = /\$\$|\\[a-zA-Z]+/;
 export const latexMarkup = (reply: string): string | null => reply.match(LATEX)?.[0] ?? null;
 
+// WQF-A4 — a 4+-digit run not preceded by a digit, "." or ",": written without thousands
+// separators (a decimal's fraction digits are skipped). Years count too; reported, not a bar.
+const UNSEPARATED = /(?<![\d.,])\d{4,}/g;
+export const unseparatedNumbers = (reply: string): string[] => reply.match(UNSEPARATED) ?? [];
+
 export type GradedRow = {
   source: "message" | "persona"; id: string; modelId: string;
   labelType: WatBotMessageType | null;     // test-set label; null for persona turns
   recordedType: WatBotMessageType | null;  // what the model recorded; null = skipped
   leak: boolean; reasons: string[]; endsWithQuestion: boolean; costUsd: number;
-  claimsRemoved: number; forwardedBlocks: number;
+  claimsRemoved: number; valuesBlocked: number; forwardedBlocks: number;
 };
 export type Bucket = WatBotMessageType | "unrecorded";
 export type BucketReport = {
   bucket: Bucket; n: number; labelled: number; leaks: number; leakRate: number;
-  agreement: number | null; skippedRecordRate: number; endsWithQuestionRate: number; claimRemovedRate: number; emptyReplyRate: number; costUsd: number;
+  agreement: number | null; skippedRecordRate: number; endsWithQuestionRate: number; claimRemovedRate: number; valueBlockedRate: number; emptyReplyRate: number; costUsd: number;
 };
 
 // PRD bars (spec §7): zero leaks where the student is stuck or wrong; "a few
@@ -70,6 +75,7 @@ export function buildReport(rows: GradedRow[]): BucketReport[] {
       skippedRecordRate: share(rs.filter((r) => r.recordedType === null).length),
       endsWithQuestionRate: share(rs.filter((r) => r.endsWithQuestion).length),
       claimRemovedRate: share(rs.filter((r) => r.claimsRemoved > 0).length),
+      valueBlockedRate: share(rs.filter((r) => r.valuesBlocked > 0).length),
       emptyReplyRate: share(rs.filter((r) => r.forwardedBlocks === 0).length),
       costUsd: rs.reduce((sum, r) => sum + r.costUsd, 0),
     };

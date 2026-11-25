@@ -4,12 +4,14 @@ import type { BundleDoc } from "./passages.js";
 import { extractNumbers, matchesValue } from "./numbers.js";
 
 export const MIN_CLAIM_WORDS = 12;
+export const MAX_DECLINE_WORDS = 25; // WQF-A2: the one off-topic decline allowed uncited
+export const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
 // ponytail: word-count / question-mark heuristic decides what is a "claim";
 // upgrade to a second-pass check only if reports show it misclassifying.
 export function keepUncitedBlock(text: string): boolean {
   const t = text.trim();
-  return t.endsWith("?") || t.split(/\s+/).filter(Boolean).length < MIN_CLAIM_WORDS;
+  return t.endsWith("?") || wordCount(t) < MIN_CLAIM_WORDS;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

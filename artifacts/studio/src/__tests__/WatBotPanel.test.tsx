@@ -27,6 +27,15 @@ describe("WatBotPanel", () => {
     expect(screen.getByText("Output Map · Baseline · p = 4")).toBeInTheDocument();
   });
 
+  it("shows the WatBot icon beside the name, decorative, at 14 px (WQF-A6)", () => {
+    renderPanel();
+    const icon = screen.getByRole("complementary", { name: "WatBot" }).querySelector("header img")!;
+    expect(icon).toHaveAttribute("alt", "");
+    expect(icon).toHaveAttribute("width", "14");
+    expect(icon.getAttribute("src")).toMatch(/watbot-icon\.svg|^data:image\/svg\+xml/);
+    expect(icon.nextElementSibling).toHaveTextContent("WatBot");
+  });
+
   it("marks the fixed question for the active tab and sends it with context", () => {
     const { onAsk } = renderPanel();
     expect(screen.getByText("For this tab").closest("button")).toHaveTextContent("How do I read this Output Map?");

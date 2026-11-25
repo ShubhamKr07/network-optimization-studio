@@ -4,6 +4,7 @@ import type { ModelTutor, WatBotStatus } from "@workspace/api-client-react";
 import type { WorkspaceView } from "@/lib/workspaceView";
 import { buildContextChip } from "./contextChip";
 import { WatBotStarters } from "./WatBotStarters";
+import watbotIconUrl from "@/assets/watbot-icon.svg";
 
 export type AskOptions = { tab: string | null; includeContext: boolean };
 const MAX_QUESTION_CHARS = 2000;
@@ -42,7 +43,7 @@ export function WatBotPanel(props: {
   return (
     <aside ref={asideRef} tabIndex={-1} aria-label="WatBot" className="flex w-[400px] outline-none flex-shrink-0 flex-col border-l bg-background" data-testid="watbot-panel">
       <header className="flex h-11 items-center gap-2 border-b pl-3.5 pr-2">
-        <span aria-hidden="true" className="size-3.5 rounded-sm bg-primary" />
+        <img src={watbotIconUrl} alt="" width={14} height={14} className="size-3.5" />
         <b className="font-serif text-sm">WatBot</b>
         {unavailable && <span className="rounded border border-warning-border bg-warning-bg px-2 text-[11px] font-semibold text-warning">Unavailable</span>}
         {(studentLimited || projectLimited) && <span className="rounded border border-warning-border bg-warning-bg px-2 text-[11px] font-semibold text-warning">Limit reached</span>}

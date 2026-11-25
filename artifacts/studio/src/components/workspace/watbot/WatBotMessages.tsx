@@ -1,10 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { Fragment, lazy, Suspense, useState } from "react";
 import { BookOpen, Flag } from "lucide-react";
 import { useGetWatBotPassage, getGetWatBotPassageQueryKey, type WatBotCitation } from "@workspace/api-client-react";
 import type { ChatItem, Pending } from "./useWatBotConversation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WatBotReportForm } from "./WatBotReportForm";
 import { WatBotFeedback } from "./WatBotFeedback";
+import { citationSegments } from "./citationHighlight";
 import { SentryErrorBoundary } from "@/lib/errorTracking";
 
 const MathText = lazy(() => import("./MathText"));
@@ -78,9 +79,9 @@ function Message({ item }: { item: ChatItem }) {
 
 function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
   const [open, setOpen] = useState(false);
-  const [full, setFull] = useState(false);
-  // retry:false — passages 404 until the answer is saved (D23); don't hammer a known-missing row.
-  const { data: passage, isError, isLoading } = useGetWatBotPassage(c.passageId, { query: { queryKey: getGetWatBotPassageQueryKey(c.passageId), enabled: full, retry: false } });
+  // WQF-A5: a saved answer opens straight to its page. retry:false — passages 404 until the
+  // answer is saved (D23), so an unsaved one never asks and shows the cited text alone.
+  const { data: passage, isError } = useGetWatBotPassage(c.passageId, { query: { queryKey: getGetWatBotPassageQueryKey(c.passageId), enabled: open && saved, retry: false } });
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -91,11 +92,15 @@ function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
       </PopoverTrigger>
       {/* Portaled + collision-aware (Radix), so the panel's overflow-y-auto can't clip it. */}
       <PopoverContent aria-label={`Source ${c.label}`} collisionPadding={8} className="max-h-[var(--radix-popover-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto p-3 text-xs">
-        <mark tabIndex={0} className="block max-h-48 overflow-auto bg-warning-bg p-1">{withMath(c.citedText)}</mark>
-        {full && passage ? <span tabIndex={0} className="mt-2 block max-h-48 overflow-auto whitespace-pre-wrap">{withMath(passage.body)}</span>
-          : full && isError ? <p role="alert" className="mt-2 text-danger">Source unavailable</p>
-          : full && isLoading ? <p role="status" className="mt-2">Loading…</p>
-          : saved && <button type="button" onClick={() => setFull(true)} className="mt-2 inline-flex h-8 items-center underline">Open full source</button>}
+        {/* One view: the page with the cited span marked (formulas never marked); the cited text alone until it loads. */}
+        <span tabIndex={0} data-testid="watbot-source" className="block max-h-48 overflow-auto whitespace-pre-wrap">
+          {passage
+            ? citationSegments(passage.body, c.citedText).map((s, i) => (
+              <Fragment key={i}>{s.math ? withMath(s.text) : s.mark ? <mark className="bg-warning/40 text-foreground">{s.text}</mark> : s.text}</Fragment>
+            ))
+            : withMath(c.citedText)}
+        </span>
+        {isError && <p role="alert" className="mt-2 text-danger">Source unavailable</p>}
       </PopoverContent>
     </Popover>
   );

@@ -2,7 +2,7 @@
 // FR-44 grader — pure functions, no live API.
 import { describe, it, expect } from "vitest";
 import {
-  objectiveLeak, siteSetLeak, endsWithQuestion, screenReference, latexMarkup,
+  objectiveLeak, siteSetLeak, endsWithQuestion, screenReference, latexMarkup, unseparatedNumbers,
   buildReport, evaluateBars, LEAK_BARS, type GradedRow,
 } from "../watbot/eval/grader.js";
 import { fillSummary, shownFactsOf, type AnswerKey } from "../watbot/eval/testSet.js";
@@ -66,7 +66,7 @@ describe("shownFactsOf", () => {
 
 const row = (over: Partial<GradedRow>): GradedRow => ({
   source: "message", id: "x", modelId: "p-median-us", labelType: "concept_question", recordedType: "concept_question",
-  leak: false, reasons: [], endsWithQuestion: true, costUsd: 0.001, claimsRemoved: 0, forwardedBlocks: 1, ...over,
+  leak: false, reasons: [], endsWithQuestion: true, costUsd: 0.001, claimsRemoved: 0, valuesBlocked: 0, forwardedBlocks: 1, ...over,
 });
 const many = (n: number, over: Partial<GradedRow>) => Array.from({ length: n }, (_, i) => row({ id: `r${i}`, ...over }));
 
@@ -92,6 +92,11 @@ describe("buildReport + evaluateBars", () => {
   it("reports the claim-removed and empty-reply rates", () => {
     const report = buildReport([row({ id: "a", claimsRemoved: 1, forwardedBlocks: 0 }), row({ id: "b", claimsRemoved: 0, forwardedBlocks: 2 })]);
     expect(report[0]).toMatchObject({ claimRemovedRate: 0.5, emptyReplyRate: 0.5 });
+  });
+  it("reports the values-blocked rate apart from the claim-removed rate (WQF-A1)", () => {
+    const report = buildReport([row({ id: "a", valuesBlocked: 1 }), row({ id: "b", claimsRemoved: 1 }), row({ id: "c" })]);
+    expect(report[0]!.valueBlockedRate).toBeCloseTo(1 / 3, 6);
+    expect(report[0]!.claimRemovedRate).toBeCloseTo(1 / 3, 6);
   });
   it("reports agreement, skipped-record rate, ends-with-question rate and cost per type", () => {
     const report = buildReport([
@@ -134,5 +139,15 @@ describe("latexMarkup", () => {
   it("accepts plain-text formulas and prices", () => {
     expect(latexMarkup("The objective is Σ cost_ij · x_ij.")).toBeNull();
     expect(latexMarkup("Opening a site costs $2 million.")).toBeNull();
+  });
+});
+
+// WQF-A4: numbers of four or more digits written without thousands separators (reported, not a bar).
+describe("unseparatedNumbers", () => {
+  it("finds every 4+-digit run with no separators", () => {
+    expect(unseparatedNumbers("The total is 12345678 demand-mi, and a site costs $2500.")).toEqual(["12345678", "2500"]);
+  });
+  it("accepts separated numbers, short numbers and decimals", () => {
+    expect(unseparatedNumbers("The total is 12,345,678 demand-mi; p = 3, 450 mi, a rate of 0.12345 per mile.")).toEqual([]);
   });
 });

@@ -19,6 +19,16 @@ function sseResponse(text: string) {
 describe("useWatBotConversation", () => {
   beforeEach(() => { global.fetch = vi.fn(); });
 
+  it("shows the drop notice in the server's wording (WQF-A1)", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse(
+      'event: notice\ndata: {"kind":"claim_removed"}\n\nevent: done\ndata: {"messageId":43}\n\n'));
+    const { result } = renderHook(() => useWatBotConversation("p-median-us"));
+    await act(async () => { await result.current.ask("Why?", null); });
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.items.find((i) => i.kind === "notice")!.blocks[0]!.text)
+      .toBe("Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.");
+  });
+
   it("creates a conversation on first ask, streams blocks, ends idle", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(sseResponse(
       'event: block\ndata: {"text":"Hello?","citations":[]}\n\nevent: done\ndata: {"messageId":42}\n\n'));
