@@ -539,34 +539,48 @@ test("WatBot: a long citation popover stays inside the viewport and renders $\\c
 const CHIP = { name: "Source: Ch 3 · p.38" };
 const LONG_PAGE = `Page 38 opens here.\n\nMinimize demand-weighted distance.\n\n${"Filler line of made-up page text.\n".repeat(80)}Page 38 ends here.`;
 
-test("WatBot A8: dark theme paints a distinct highlight and both icons load", async ({ page }) => {
+for (const theme of ["dark", "light"] as const) test(`WatBot A8: ${theme} theme: the highlight is perceivable and its text readable (WCAG contrast)${theme === "dark" ? ", icons load" : ""}`, async ({ page }) => {
   test.setTimeout(60_000);
-  await page.emulateMedia({ colorScheme: "dark" });
-  await registerFreshAccount(page, "dark");
+  await page.emulateMedia({ colorScheme: theme });
+  await registerFreshAccount(page, theme);
   await stubWatBot(page);
   const panel = await openPanel(page);
-  await expect(page.locator("html")).toHaveClass(/dark/, { timeout: T });
-  const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
-  const toolbarIcon = page.getByTestId("button-watbot").locator('img[alt=""]');
-  const headerIcon = panel.locator('header img[alt=""]');
-  await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
-  await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  await expect(page.locator("html")).toHaveClass(theme === "dark" ? /dark/ : /^(?!.*dark)/, { timeout: T });
+  if (theme === "dark") {
+    const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
+    const toolbarIcon = page.getByTestId("button-watbot").locator('img[alt=""]');
+    const headerIcon = panel.locator('header img[alt=""]');
+    await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
+    await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  }
   await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
   await panel.getByRole("button", CHIP).click({ timeout: T });
   const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
   const mark = popover.locator("mark");
   await expect(mark).toHaveText(["Minimize demand-weighted distance."], { timeout: T });
-  // Effective background of the source box: its own, else the nearest painted ancestor.
-  const boxBg = await popover.getByTestId("watbot-source").evaluate((el) => {
-    for (let n: Element | null = el; n; n = n.parentElement) {
-      const c = getComputedStyle(n).backgroundColor;
-      if (c !== "rgba(0, 0, 0, 0)" && c !== "transparent") return c;
-    }
-    return "rgba(0, 0, 0, 0)";
+  // WCAG contrast computed from computed styles, in the page (alpha composited over the nearest opaque ancestors).
+  const m = await mark.evaluate((el) => {
+    // Canvas normalises any CSS colour syntax (computed values can be oklab/color-mix, not rgb()).
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    const parse = (c: string) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = "#000"; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); const d = ctx.getImageData(0, 0, 1, 1).data; return { r: d[0], g: d[1], b: d[2], a: d[3] / 255 }; };
+    const behind = (start: Element | null) => { // composite the chain of backgrounds starting at `start`
+      const layers: ReturnType<typeof parse>[] = [];
+      for (let n = start; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c.a > 0) layers.push(c); if (c.a === 1) break; }
+      let out = { r: 255, g: 255, b: 255 };
+      for (const l of layers.reverse()) out = { r: l.r * l.a + out.r * (1 - l.a), g: l.g * l.a + out.g * (1 - l.a), b: l.b * l.a + out.b * (1 - l.a) };
+      return out;
+    };
+    const lum = (c: { r: number; g: number; b: number }) => { const f = (x: number) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+    const ratio = (x: { r: number; g: number; b: number }, y: { r: number; g: number; b: number }) => { const [hi, lo] = [lum(x), lum(y)].sort((p, q) => q - p); return (hi + 0.05) / (lo + 0.05); };
+    const cs = getComputedStyle(el);
+    const boxBg = behind(el.parentElement);
+    const markBg = behind(el);
+    const text = parse(cs.color);
+    return { markColor: cs.color, markBgCss: cs.backgroundColor, markBg, boxBg, highlightVsBox: ratio(markBg, boxBg), textVsMark: ratio(text, markBg) };
   });
-  const markBg = await mark.evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(markBg).not.toBe("rgba(0, 0, 0, 0)");
-  expect(markBg).not.toBe(boxBg);
+  console.log(`A8 contrast (${await page.evaluate(() => document.documentElement.className)}): ${JSON.stringify(m)}`);
+  expect(m.highlightVsBox).toBeGreaterThanOrEqual(1.3); // the highlight is perceivable against the box
+  expect(m.textVsMark).toBeGreaterThanOrEqual(4.5); // the marked text is readable
 });
 
 test("WatBot A8: keyboard opens the page, reaches the source box, scrolls it, and Escape returns focus to the chip", async ({ page }) => {

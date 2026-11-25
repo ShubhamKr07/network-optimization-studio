@@ -96,7 +96,7 @@ function CitationChip({ c, saved }: { c: WatBotCitation; saved: boolean }) {
         <span tabIndex={0} data-testid="watbot-source" className="block max-h-48 overflow-auto whitespace-pre-wrap">
           {passage
             ? citationSegments(passage.body, c.citedText).map((s, i) => (
-              <Fragment key={i}>{s.math ? withMath(s.text) : s.mark ? <mark className="bg-warning-bg">{s.text}</mark> : s.text}</Fragment>
+              <Fragment key={i}>{s.math ? withMath(s.text) : s.mark ? <mark className="bg-warning/40 text-foreground">{s.text}</mark> : s.text}</Fragment>
             ))
             : withMath(c.citedText)}
         </span>
