@@ -2,11 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useResetPassword, getCurrentAuthUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AuthShell } from "@/components/auth/AuthShell";
+import { CoverShell } from "@/components/auth/CoverShell";
 import { describeWriteError } from "@/lib/describeWriteError";
 
 /** The link puts the token in the fragment, which never reaches the server. */
@@ -64,35 +60,31 @@ export function ResetPassword() {
 
   if (!token) {
     return (
-      <AuthShell tagline="Set a new password to get back into your labs.">
-        <div className="flex flex-col gap-3" data-testid="text-reset-link-invalid" style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+      <CoverShell>
+        <ul className="modes"><li><h2 className="heading">Set a new password</h2></li></ul>
+        <div className="flex flex-col gap-3" data-testid="text-reset-link-invalid" style={{ fontSize: "13px", color: "var(--strip-ink-muted)" }}>
           <p>This reset link is missing its token. It may have been truncated by your email client.</p>
-          <p><Link href="/forgot-password" className="underline" style={{ color: "var(--link)" }}>Request a new link</Link></p>
+          <p><Link href="/forgot-password">Request a new link</Link></p>
         </div>
-      </AuthShell>
+      </CoverShell>
     );
   }
 
   return (
-    <AuthShell tagline="Set a new password to get back into your labs.">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-        {error && (
-          <Alert variant="destructive" data-testid="alert-reset-error">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="password">New password</Label>
+    <CoverShell>
+      <ul className="modes"><li><h2 className="heading">Set a new password</h2></li></ul>
+      <form onSubmit={handleSubmit}>
+        {error && <p className="note error" role="alert" data-testid="alert-reset-error">{error}</p>}
+        <div>
+          <label htmlFor="password">New password</label>
           {/* Bounds mirror ResetPasswordRequest.password in openapi.yaml. */}
-          <Input id="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-new-password" />
+          <input id="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-new-password" />
         </div>
-        <Button type="submit" disabled={resetPassword.isPending} data-testid="button-set-password" className="mt-1">
+        <button type="submit" className="go" disabled={resetPassword.isPending} data-testid="button-set-password">
           {resetPassword.isPending ? "Saving…" : "Set new password"}
-        </Button>
+        </button>
       </form>
-      <div className="text-center mt-4" style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
-        <Link href="/login" className="underline" style={{ color: "var(--link)" }}>Back to log in</Link>
-      </div>
-    </AuthShell>
+      <p className="hint"><Link href="/login">Back to log in</Link></p>
+    </CoverShell>
   );
 }

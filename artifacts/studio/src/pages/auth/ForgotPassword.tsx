@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useForgotPassword } from "@workspace/api-client-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AuthShell } from "@/components/auth/AuthShell";
+import { CoverShell } from "@/components/auth/CoverShell";
 import { describeWriteError } from "@/lib/describeWriteError";
 
 export function ForgotPassword() {
@@ -30,9 +26,10 @@ export function ForgotPassword() {
   }
 
   return (
-    <AuthShell tagline="Forgot your password? We'll email you a link to set a new one.">
+    <CoverShell>
+      <ul className="modes"><li><h2 className="heading">Reset your password</h2></li></ul>
       {sent ? (
-        <div className="flex flex-col gap-3" data-testid="text-reset-sent" style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+        <div className="flex flex-col gap-3" data-testid="text-reset-sent" style={{ fontSize: "13px", color: "var(--strip-ink-muted)" }}>
           {/* Deliberately vague: the endpoint answers identically for an
               address with no account, and a more specific UI would undo
               that. */}
@@ -40,24 +37,18 @@ export function ForgotPassword() {
           <p>Didn't get it? Check spam, then try again.</p>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-          {error && (
-            <Alert variant="destructive" data-testid="alert-forgot-error">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
+        <form onSubmit={handleSubmit}>
+          {error && <p className="note error" role="alert" data-testid="alert-forgot-error">{error}</p>}
+          <div>
+            <label htmlFor="email">Email</label>
+            <input id="email" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
           </div>
-          <Button type="submit" disabled={forgotPassword.isPending} data-testid="button-request-reset" className="mt-1">
+          <button type="submit" className="go" disabled={forgotPassword.isPending} data-testid="button-request-reset">
             {forgotPassword.isPending ? "Sending…" : "Email me a reset link"}
-          </Button>
+          </button>
         </form>
       )}
-      <div className="text-center mt-4" style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
-        <Link href="/login" className="underline" style={{ color: "var(--link)" }}>Back to log in</Link>
-      </div>
-    </AuthShell>
+      <p className="hint"><Link href="/login">Back to log in</Link></p>
+    </CoverShell>
   );
 }

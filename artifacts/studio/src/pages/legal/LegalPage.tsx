@@ -30,7 +30,7 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
           </p>
         </section>
         <p className="mt-8 text-sm">
-          <Link href="/" className="underline" style={{ color: "var(--link)" }}>Back to Optimization Studio</Link>
+          <Link href="/" className="underline" style={{ color: "var(--link)" }}>Back to Network Design Labs</Link>
         </p>
       </main>
     </div>

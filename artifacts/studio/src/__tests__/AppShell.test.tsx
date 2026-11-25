@@ -132,17 +132,17 @@ describe("AppShell band hero", () => {
         <div>lab content</div>
       </AppShell>,
     );
-    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
-    expect(screen.queryByText("SCND Optimization Studio")).not.toBeInTheDocument();
+    // Same words as the fallback wordmark now, so assert the band shows it once (the title), not twice.
+    expect(screen.getAllByText("Network Design Labs")).toHaveLength(1);
   });
 
-  it("falls back to the SCND Optimization Studio wordmark when no heroTitle is given", () => {
+  it("falls back to the Network Design Labs wordmark when no heroTitle is given", () => {
     renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
     );
-    expect(screen.getByText("SCND Optimization Studio")).toBeInTheDocument();
+    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
   });
 });
 
