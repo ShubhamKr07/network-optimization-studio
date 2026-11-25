@@ -5810,3 +5810,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - (4) The CSI-2 entry's `test.fail` line now points at the fix entry.
 - (5) Login/forgot IP limiters (`routes/auth.ts`, 20 and 10 per min) are shared by parallel workers: pre-existing, not changed; it is the first suspect if the round-trip case ever 429s.
 - Re-run (local api 3131, studio 5221, `DATABASE_URL` set): `cover-sign-in` + `design-upgrade-p5` 52 passed, 0 failed.
+
+### CSI whole-branch review fixes (lead, on the merged state e524ade3)
+- Reviewer (fresh agent, read-only, product code): no Critical/High. Two Low, folded here on the branch per Branch discipline 5a:
+  - `SignIn.tsx`: a pending register could be raced by toggling to Log in and submitting (each mode read only its own `isPending`), and a mode's old error reappeared after toggling back. Now `busy = loginUser.isPending || registerUser.isPending` disables both toggle buttons and both submits, and the toggle calls `reset()` on both mutations.
+  - The toggle was `<ul role="group" aria-label="Choose">` (list semantics broken, unhelpful name); now `<div role="group" aria-label="Log in or create an account">` with the two buttons.
+  - Plan deviation noted by the reviewer: `.cover .access` now also sets `--text-muted` as a guard (nothing in the shell reads it today).
+- Tests: 3 new `SignIn.test.tsx` cases (group name, both modes locked while either request is pending, both errors reset on toggle). Studio suite 206 files / 3350 tests passed; studio typecheck clean; e2e `cover-sign-in`, `terms-consent`, `bundle4-auth-landing`, `bundle6-ui-tweaks`, `password-reset` 47 passed (local api 3131, studio 5221).
