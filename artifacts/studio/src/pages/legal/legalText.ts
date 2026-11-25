@@ -1,3 +1,5 @@
+import { PRIVACY_CONTACT_EMAIL } from "./legalMeta";
+
 export interface LegalSection {
   heading: string;
   paragraphs: string[];
@@ -137,7 +139,7 @@ export const PRIVACY_NOTICE: LegalDoc = {
       heading: "Your rights and how to use them",
       paragraphs: [
         "Delete your account yourself: on the home page, choose \"Delete my account\" and confirm with your password. This permanently deletes your account, your scenarios and solves, your WatBot conversations, ratings and reports, and your record of which version you accepted.",
-        "In-app deletion does not reach copies held by PostHog, Sentry or Anthropic, or database backups. To ask for those to be deleted, or to ask for a copy of your data or a correction, write to the contact address below.",
+        `In-app deletion does not reach copies held by PostHog, Sentry or Anthropic, or database backups. Since 25 November 2026 PostHog and Sentry are set not to store your IP address; older analytics events and error reports may still hold it until each service's retention period removes them. To ask for any of these to be deleted sooner, or to ask for a copy of your data or a correction, write to ${PRIVACY_CONTACT_EMAIL}.`,
         "Depending on where you live, laws such as the GDPR may give you further rights, including to object to or restrict processing, and to complain to your data protection authority.",
       ],
     },
