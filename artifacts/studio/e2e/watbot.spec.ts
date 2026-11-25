@@ -533,3 +533,112 @@ test("WatBot: a long citation popover stays inside the viewport and renders $\\c
   expect(box.y + box.height).toBeLessThanOrEqual(600);
   await popover.screenshot({ path: test.info().outputPath("long-citation.png") });
 });
+
+// ---- WQF-A8: real-browser QA for the citation popover and icon (stubbed; no model call) ----
+
+const CHIP = { name: "Source: Ch 3 · p.38" };
+const LONG_PAGE = `Page 38 opens here.\n\nMinimize demand-weighted distance.\n\n${"Filler line of made-up page text.\n".repeat(80)}Page 38 ends here.`;
+
+test("WatBot A8: dark theme paints a distinct highlight and both icons load", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await registerFreshAccount(page, "dark");
+  await stubWatBot(page);
+  const panel = await openPanel(page);
+  await expect(page.locator("html")).toHaveClass(/dark/, { timeout: T });
+  const loaded = (img: Locator) => img.evaluate((el) => ((el as HTMLImageElement).complete ? (el as HTMLImageElement).naturalWidth : 0));
+  const toolbarIcon = page.getByTestId("button-watbot").locator('img[alt=""]');
+  const headerIcon = panel.locator('header img[alt=""]');
+  await expect.poll(() => loaded(toolbarIcon), { timeout: T }).toBeGreaterThan(0);
+  await expect.poll(() => loaded(headerIcon), { timeout: T }).toBeGreaterThan(0);
+  expect(await toolbarIcon.evaluate((el) => (el as HTMLImageElement).getBoundingClientRect().width)).toBe(16);
+  expect(await headerIcon.evaluate((el) => (el as HTMLImageElement).getBoundingClientRect().width)).toBe(14);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const mark = popover.locator("mark");
+  await expect(mark).toHaveText(["Minimize demand-weighted distance."], { timeout: T });
+  // Effective background of the source box: its own, else the nearest painted ancestor.
+  const boxBg = await popover.getByTestId("watbot-source").evaluate((el) => {
+    for (let n: Element | null = el; n; n = n.parentElement) {
+      const c = getComputedStyle(n).backgroundColor;
+      if (c !== "rgba(0, 0, 0, 0)" && c !== "transparent") return c;
+    }
+    return "rgba(0, 0, 0, 0)";
+  });
+  const markBg = await mark.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(markBg).not.toBe("rgba(0, 0, 0, 0)");
+  expect(markBg).not.toBe(boxBg);
+});
+
+test("WatBot A8: keyboard opens the page, reaches the source box, scrolls it, and Escape returns focus to the chip", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "kbd");
+  await stubWatBot(page);
+  await page.route("**/api/watbot/passages/11", (r) => r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: LONG_PAGE } }));
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  const chip = panel.getByRole("button", CHIP);
+  await expect(chip).toBeVisible({ timeout: T });
+  await chip.focus();
+  await expect(chip).toBeFocused({ timeout: T });
+  await page.keyboard.press("Enter");
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toContainText("Page 38 ends here.", { timeout: T });
+  await expect(source).toHaveAttribute("tabindex", "0");
+  // Focus is at the popover; Tab(s) must reach the source box.
+  for (let i = 0; i < 4; i++) {
+    if (await source.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(source).toBeFocused({ timeout: T });
+  expect(await source.evaluate((el) => el.scrollTop)).toBe(0);
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => source.evaluate((el) => el.scrollTop), { timeout: T }).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0, { timeout: T });
+  await expect(chip).toBeFocused({ timeout: T });
+});
+
+test("WatBot A8: while the page loads the cited text shows unmarked, then the page shows with the mark", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "loading");
+  await stubWatBot(page);
+  let release!: () => void;
+  const held = new Promise<void>((res) => { release = res; });
+  await page.route("**/api/watbot/passages/11", async (r) => {
+    await held;
+    await r.fulfill({ json: { id: 11, label: "Ch 3 · p.38", body: PAGE_38 } });
+  });
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toHaveText("Minimize demand-weighted distance.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveCount(0);
+  await expect(source).not.toContainText("Page 38 opens here.");
+  release();
+  await expect(source).toContainText("Page 38 opens here.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveText(["Minimize demand-weighted distance."], { timeout: T });
+});
+
+test("WatBot A8: a failed page load keeps the cited text visible above 'Source unavailable'", async ({ page }) => {
+  test.setTimeout(60_000);
+  await registerFreshAccount(page, "failload");
+  await stubWatBot(page);
+  await page.route("**/api/watbot/passages/11", (r) => r.fulfill({ status: 500, json: { error: "boom" } }));
+  const panel = await openPanel(page);
+  await panel.getByRole("button", { name: /What decision is this model making/ }).click({ timeout: T });
+  await panel.getByRole("button", CHIP).click({ timeout: T });
+  const popover = page.getByRole("dialog", { name: "Source Ch 3 · p.38" });
+  const alert = popover.getByRole("alert");
+  await expect(alert).toHaveText("Source unavailable", { timeout: 20_000 });
+  const source = popover.getByTestId("watbot-source");
+  await expect(source).toHaveText("Minimize demand-weighted distance.", { timeout: T });
+  await expect(popover.locator("mark")).toHaveCount(0);
+  const s = (await source.boundingBox())!;
+  const a = (await alert.boundingBox())!;
+  expect(s.y + s.height).toBeLessThanOrEqual(a.y + 1);
+});

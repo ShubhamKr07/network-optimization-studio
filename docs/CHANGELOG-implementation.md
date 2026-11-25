@@ -5608,3 +5608,10 @@ Owner approved the spend. Run on `wqf-a` at `f559ebab` (A1–A6), dev key, local
 
 Reported, not bars: screen references without context 0 of 64; replies with LaTeX 0 of 161; unseparated 4+-digit numbers 0 in 161 replies. Readings: A2's cap keeps every off-topic decline (0% empty, 0% removed). A1's split shows the high drop rate is mostly uncited text (87–98% of replies lose at least one uncited block), with the value check also firing on 11–24%; that is the input to the next prompt decision, not a regression. Correct-attempt "ends with a question" is 6% (2% on the previous run).
 - **Owner decision (2026-11-25, Lavish):** run accepted; open a follow-up on the high uncited-drop rate (87–98% of replies lose at least one uncited block) — a prompt change, measured by another paid run. Not part of this bundle.
+
+### WQF-A8 — real-browser QA
+
+- **Covered** (4 new tests in `e2e/watbot.spec.ts`, all stubbed with `page.route`, no model call): dark theme (`emulateMedia` dark: highlight painted and different from the source box's effective background; both icons load at 16 / 14 px); keyboard (chip Enter opens the page, Tab reaches `watbot-source`, PageDown scrolls it, Escape closes and focus returns to the chip); loading (held `passages/11`: cited text alone, no `mark`; then the page with the `mark`); failed load (500: cited text stays above the `Source unavailable` alert, no `mark`).
+- **Deviation:** written in `watbot.spec.ts` (lead's instruction) rather than the plan's new `watbot-qf-a.spec.ts`.
+- **Non-vacuity** (product code temporarily mutated, then restored): highlight `bg-transparent` and `bg-popover` (dark test red on each assertion); `tabIndex` removed (keyboard red); loading view emptied (loading and failed-load tests red); alert removed (failed-load red). The Escape/focus-return step has no separate red run.
+- **Runs:** new tests 4/4 green; `watbot.spec.ts` with `--repeat-each 2`: 50 passed (24 tests x 2 plus setup/cleanup), 0 failed. `typecheck:e2e` clean. Step 3 (paid live check) not run.
