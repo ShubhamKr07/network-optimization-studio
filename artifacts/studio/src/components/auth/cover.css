@@ -39,6 +39,8 @@
 .cover :focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:2px}
 /* the yellow ring needs a dark ground; on the pale paper links use the deep green instead */
 .cover .paper :focus-visible{outline-color:var(--band-deep)}
+/* the strip sits inside .paper but is dark: back to the yellow ring there */
+.cover .strip :focus-visible{outline-color:var(--focus)}
 
 .cover .band{background:var(--band);height:clamp(28px,5vw,56px);position:relative;z-index:2}
 .cover .band.bottom{height:auto;padding:14px 16px;text-align:center;color:#FFFFFF;font-size:13px}

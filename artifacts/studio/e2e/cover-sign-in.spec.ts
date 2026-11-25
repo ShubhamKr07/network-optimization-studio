@@ -182,8 +182,11 @@ async function readFocus(page: Page) {
     const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
     const rootStyle = getComputedStyle(document.querySelector('[data-testid="cover-shell"]')!);
     const hex = (n: string) => { const h = rootStyle.getPropertyValue(n).trim(); const x = parseInt(h.slice(1), 16); return [(x >> 16) & 255, (x >> 8) & 255, x & 255]; };
-    // The ground the ring is drawn on, pessimistic (closest in luminance to the ring colour).
-    const grounds = el.closest(".go") ? [hex("--strip-ink")] : el.closest(".strip") ? [hex("--strip-top"), hex("--strip-mid"), hex("--strip-bot")] : [hex("--paper"), hex("--paper-2")];
+    // The ground the ring is drawn on, pessimistic (closest in luminance to the ring colour). An outline with a
+    // positive offset is separated from the control by a gap of the surrounding surface, so it is drawn on (and only
+    // touches) that surface — for the submit button that is the strip, not the button's own pale fill.
+    const offsetRing = parseFloat(cs.outlineOffset) > 0;
+    const grounds = el.closest(".go") && !offsetRing ? [hex("--strip-ink")] : el.closest(".strip") ? [hex("--strip-top"), hex("--strip-mid"), hex("--strip-bot")] : [hex("--paper"), hex("--paper-2")];
     const outlined = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2;
     // Text fields mark focus with a 2px underline in the focus colour (cover.css), not an outline.
     const underlined = el.tagName === "INPUT" && (el.getAttribute("type") ?? "text") !== "checkbox" && parseFloat(cs.borderBottomWidth) >= 2;
@@ -239,13 +242,8 @@ async function readFocus(page: Page) {
     }
   });
 
-  // KNOWN PRODUCT DEFECT (CSI-1), found by CSI-2: `.cover .paper :focus-visible{outline-color:var(--band-deep)}`
-  // (cover.css:41) is meant for links on the pale paper, but the strip and the form are INSIDE `.paper`, so the
-  // Forgot?, Terms and Privacy links get a deep-green (#17661B) outline on the dark-green strip: measured 1.02:1.
-  // `test.fail` keeps the gate honest without hiding it: it turns RED the moment cover.css is fixed (e.g. add
-  // `.cover .strip :focus-visible{outline-color:var(--focus)}` after line 41), and the fix is to delete this line.
-  test("every focus indicator is at least 3:1 against its ground (KNOWN DEFECT, see comment: expected to fail until cover.css:41 is scoped)", async ({ page }, testInfo) => {
-    test.fail(true, "CSI-1 defect: deep-green focus outline on the dark-green strip (cover.css:41), 1.02:1");
+  // Regression guard for the CSI-1 strip focus ring (was 1.02:1 before cover.css scoped .strip back to --focus).
+  test("every focus indicator is at least 3:1 against its ground", async ({ page }, testInfo) => {
     const stops = await walkTabOrder(page, testInfo);
     const weak = stops.filter((s) => s.ringContrast < 3).map((s) => `${s.id} ${s.ringContrast}:1`);
     expect(weak, "stops whose focus indicator is under 3:1").toEqual([]);
